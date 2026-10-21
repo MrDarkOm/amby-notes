@@ -7,6 +7,7 @@
 //! - [`account`]: password and recovery code → keys, wrapping of the account key (AK) and of the
 //!   space keys (VK), account creation and password reset (Р5, О3);
 //! - [`header`] and [`body`]: encrypted item header and STREAM body (Р2, Р6);
+//! - [`name`]: encrypted names of a device and of a space (Ф34);
 //! - [`padme`] and [`recovery_code`]: size hiding and the printable recovery code.
 //!
 //! Randomness always comes through [`random::Random`], so the reference vectors are reproducible.
@@ -16,6 +17,7 @@ pub mod body;
 pub mod error;
 pub mod header;
 pub mod keys;
+pub mod name;
 pub mod padme;
 pub mod primitives;
 pub mod random;

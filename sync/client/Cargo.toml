@@ -1,0 +1,27 @@
+[package]
+name = "amby-sync-client"
+description = "Amby sync: asynchronous client of the sign-in protocol, without Tauri (shared by the app and, later, the phone)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+amby-sync-proto.workspace = true
+amby-sync-core.workspace = true
+hex.workspace = true
+reqwest.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt", "time"] }
+url.workspace = true
+
+[dev-dependencies]
+amby-sync-conformance = { path = "../conformance" }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util"] }
+
+[lints]
+workspace = true

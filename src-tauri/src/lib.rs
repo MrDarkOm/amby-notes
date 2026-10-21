@@ -18,6 +18,7 @@ mod property_store;
 mod recovery;
 mod recycle_bin;
 mod state;
+pub mod sync;
 mod system_recycle_bin;
 pub mod vault;
 mod vault_context;
@@ -185,6 +186,18 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         credentials::store_ai_credential,
         credentials::delete_ai_credential,
         credentials::inspect_ai_credential,
+        commands::sync::sync_check_server,
+        commands::sync::sync_check_password,
+        commands::sync::sync_prepare_account,
+        commands::sync::sync_confirm_recovery_code,
+        commands::sync::sync_set_enroll_code,
+        commands::sync::sync_cancel_pending,
+        commands::sync::sync_sign_in,
+        commands::sync::sync_recover,
+        commands::sync::sync_status,
+        commands::sync::sync_list_devices,
+        commands::sync::sync_disconnect_device,
+        commands::sync::sync_sign_out,
         ai::cancel_ai_request,
         ai::ai_chat,
         commands::modules::stage_module_package,
@@ -260,6 +273,19 @@ pub fn run() {
                     }
                 }
                 Err(_) => debug.set_file_error("AppDataUnavailable"),
+            }
+
+            {
+                // Encrypted sync (stage Э4): the key store holds AK and the token, the app data
+                // holds the address and the name (docs/sync-plan.md, Р5).
+                use tauri::Manager;
+                let root = app_data::app_root(app.handle())?;
+                app.manage(sync::service::SyncService::new(
+                    std::sync::Arc::new(sync::secrets::KeyringStore),
+                    std::sync::Arc::new(sync::connection::FileConnectionStore::new(
+                        root.join(sync::connection::CONNECTION_FILE),
+                    )),
+                ));
             }
 
             #[cfg(target_os = "macos")]

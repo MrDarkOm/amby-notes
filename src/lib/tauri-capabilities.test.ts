@@ -13,7 +13,8 @@ describe("Tauri window capabilities", () => {
     expect(defaultCapability.permissions).toContain("core:window:allow-unminimize")
     expect(defaultCapability.permissions).toContain("core:webview:allow-print")
     expect(noteWindowCapability.permissions).toContain("core:webview:allow-print")
-    expect(settingsWindowCapability.permissions).not.toContain("core:webview:allow-print")
+    // The settings window prints one thing: the recovery code of the sync connect screen (О3).
+    expect(settingsWindowCapability.permissions).toContain("core:webview:allow-print")
     expect(settingsWindowCapability.permissions).toContain(
       "core:window:allow-internal-toggle-maximize",
     )

@@ -8,6 +8,7 @@ import { AI_MODULE_DEFINITION } from "@/components/workspace/ai/ai-module"
 import { CANVAS_MODULE_DEFINITION } from "@/components/workspace/canvas/canvas-module"
 import { SKETCH_MODULE_DEFINITION } from "@/components/workspace/sketch/sketch-module"
 import { CREATIVE_MODULE_DEFINITION } from "@/components/workspace/creative/creative-module"
+import { SYNC_MODULE_DEFINITION } from "@/components/workspace/sync/sync-module"
 import { moduleHost } from "./module-host"
 
 export function registerBuiltinModules(): void {
@@ -21,6 +22,7 @@ export function registerBuiltinModules(): void {
   moduleHost.registerModule(CANVAS_MODULE_DEFINITION)
   moduleHost.registerModule(SKETCH_MODULE_DEFINITION)
   moduleHost.registerModule(CREATIVE_MODULE_DEFINITION)
+  moduleHost.registerModule(SYNC_MODULE_DEFINITION)
 }
 
 // Auto-register built-in module definitions

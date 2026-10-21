@@ -178,6 +178,56 @@ def wrap_vectors():
     return ak_cases, vk_cases
 
 
+def name_vectors():
+    """Ф34: names of a device and of a space; random = one nonce (24 bytes)."""
+    names = [
+        ("ascii", "MacBook Pro"),
+        ("empty", ""),
+        ("cyrillic", "Рабочий ноутбук Павла"),
+        ("emoji", "Phone \U0001F4F1"),
+        ("max_64_bytes", "x" * 64),
+        ("max_64_bytes_multibyte", "Ж" * 32),
+    ]
+    device, space = [], []
+    for i, (label, name) in enumerate(names):
+        ak, nonce = det(f"name/ak{i}", 32), det(f"name/nonce{i}", 24)
+        device.append(
+            {"name": label, "plain": name, "account_key": hx(ak), "random": hx(nonce), "sealed": hx(ref.seal_device_name(ak, name, nonce))}
+        )
+        space_id, nonce2 = det(f"name/space{i}", 16), det(f"name/nonce2{i}", 24)
+        space.append(
+            {
+                "name": label,
+                "plain": name,
+                "account_key": hx(ak),
+                "space_id": hx(space_id),
+                "random": hx(nonce2),
+                "sealed": hx(ref.seal_space_name(ak, space_id, name, nonce2)),
+            }
+        )
+    # Envelopes the reader has to reject (Ф34, Ф4): authentic, but not a valid name.
+    ak, nonce, space_id = det("name/neg/ak", 32), det("name/neg/nonce", 24), det("name/neg/space", 16)
+    pad = lambda raw: raw + bytes(ref.NAME_PLAIN_LEN - len(raw))
+    negative = []
+
+    def add(label, raw_plain, error, version=ref.VERSION):
+        negative.append(
+            {
+                "name": label,
+                "account_key": hx(ak),
+                "space_id": hx(space_id),
+                "device": hx(ref.seal_name_raw(ak, ref.AAD_DEVICE_NAME, pad(raw_plain), nonce, version)),
+                "space": hx(ref.seal_name_raw(ak, ref.AAD_SPACE_NAME + space_id, pad(raw_plain), nonce, version)),
+                "error": error,
+            }
+        )
+
+    add("zero_inside_the_name", b"ab\x00cd", "Malformed")
+    add("not_utf8", b"\xff\xfe", "Malformed")
+    add("unknown_version", b"name", "UnsupportedVersion", version=b"\x02")
+    return {"device": device, "space": space, "negative": negative}
+
+
 def account_vectors():
     cases = []
     for name, password in PASSWORDS[:2]:
@@ -496,6 +546,7 @@ def main():
         "recovery": recovery_vectors(),
         "wrap_account_key": wrap_ak,
         "wrap_space_key": wrap_vk,
+        "names": name_vectors(),
         "create_account": accounts,
         "reset_password": reset,
         "header_json": header_json_vectors(),

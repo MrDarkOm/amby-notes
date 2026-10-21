@@ -27,6 +27,7 @@ Before persistence/indexing/frontmatter/rename/history/trash changes, read
 | Filesystem events                                  | [watcher.rs](watcher.rs)                                                                                                                                                                 |
 | Global app data / packages                         | [app_data.rs](app_data.rs), [package_manager.rs](package_manager.rs)                                                                                                                     |
 | AI providers / secret storage                      | [ai.rs](ai.rs), [credentials.rs](credentials.rs)                                                                                                                                         |
+| Encrypted sync: connect screen (key store, record, flows, IPC) | [sync/](sync/mod.rs): `service.rs` (flows), `secrets.rs` (key store `com.ambynotes.sync`), `connection.rs` (address and name in app data), `password.rs` (12 characters + zxcvbn), `types.rs`; IPC in [commands/sync.rs](commands/sync.rs); client in [sync map](../../sync/MAP.md) |
 | Native logging / diagnostics                       | [logging.rs](logging.rs), [commands/debug.rs](commands/debug.rs)                                                                                                                         |
 
 Markdown, attachments and durable sidecars are authoritative; index computations

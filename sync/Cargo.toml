@@ -2,7 +2,7 @@
 # src-tauri so that the server builds in Docker without Tauri and its target dir stays apart.
 [workspace]
 resolver = "2"
-members = ["proto", "core", "server", "conformance"]
+members = ["proto", "core", "server", "conformance", "client"]
 # cargo-fuzz crate: has its own workspace and builds only on nightly.
 exclude = ["core/fuzz"]
 
@@ -17,6 +17,7 @@ publish = false
 [workspace.dependencies]
 amby-sync-proto = { path = "proto" }
 amby-sync-core = { path = "core" }
+amby-sync-client = { path = "client" }
 argon2 = "0.5"
 blake3 = "1"
 chacha20poly1305 = "0.10"
@@ -35,6 +36,9 @@ futures-util = { version = "0.3", default-features = false, features = ["alloc"]
 hmac = "0.12"
 subtle = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
+# Client of the protocol (Э4): the same HTTP stack as the application (src-tauri), rustls, no OpenSSL.
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "webpki-roots"] }
+url = "2"
 # Only for tests.
 hex = "0.4"
 tempfile = "3"
