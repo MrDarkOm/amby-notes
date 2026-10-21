@@ -12,6 +12,54 @@ use tauri::Manager;
 
 pub(crate) struct NativeAppDataRoot(pub std::path::PathBuf);
 
+/// The key store of the harness: in memory, so that a check never writes to the key store of the
+/// person who runs it. `AMBY_NATIVE_REAL_KEYCHAIN=1` opts in to the system key store.
+#[derive(Default)]
+struct MemorySecrets(std::sync::Mutex<std::collections::HashMap<String, String>>);
+
+impl crate::sync::secrets::SecretStore for MemorySecrets {
+    fn get(&self, name: &str) -> Result<Option<String>, crate::sync::secrets::SecretError> {
+        Ok(self.0.lock().unwrap().get(name).cloned())
+    }
+
+    fn set(&self, name: &str, value: &str) -> Result<(), crate::sync::secrets::SecretError> {
+        self.0
+            .lock()
+            .unwrap()
+            .insert(name.to_string(), value.to_string());
+        Ok(())
+    }
+
+    fn delete(&self, name: &str) -> Result<(), crate::sync::secrets::SecretError> {
+        self.0.lock().unwrap().remove(name);
+        Ok(())
+    }
+}
+
+/// The sync service of the harness: its record lives in the isolated app data.
+fn harness_sync_service(app_data: &std::path::Path) -> crate::sync::service::SyncService {
+    use crate::sync::secrets::{KeyringStore, SecretStore};
+    let secrets: Arc<dyn SecretStore> = if std::env::var_os("AMBY_NATIVE_REAL_KEYCHAIN").is_some() {
+        Arc::new(KeyringStore)
+    } else {
+        Arc::new(MemorySecrets::default())
+    };
+    crate::sync::service::SyncService::new(
+        secrets,
+        Arc::new(crate::sync::connection::FileConnectionStore::new(
+            app_data.join(crate::sync::connection::CONNECTION_FILE),
+        )),
+    )
+}
+
+/// The pages the contract harness may load (an allow-list: the name comes from the environment).
+fn contract_page() -> &'static str {
+    match std::env::var("AMBY_NATIVE_PAGE").as_deref() {
+        Ok("sync-connect") => "tests/native/sync-connect.html",
+        _ => "tests/native/index.html",
+    }
+}
+
 /// Full production React UI with isolated settings and WebView state. Files
 /// remain available after exit so close/reopen and external edits are testable.
 fn run_native_ui(root: std::path::PathBuf) {
@@ -28,6 +76,7 @@ fn run_native_ui(root: std::path::PathBuf) {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(NativeAppDataRoot(root.join(".app-data")))
+        .manage(harness_sync_service(&root.join(".app-data")))
         .manage(crate::vault_context::VaultContext::new())
         .manage(crate::watcher::WatcherState::new())
         .manage(crate::database::runtime_state::DatabaseRuntimeState::default())
@@ -78,6 +127,7 @@ pub fn run_native_contract() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(NativeAppDataRoot(root.join(".app-data")))
+        .manage(harness_sync_service(&root.join(".app-data")))
         .manage(crate::vault_context::VaultContext::new())
         .manage(crate::watcher::WatcherState::new())
         .manage(crate::database::runtime_state::DatabaseRuntimeState::default())
@@ -96,13 +146,19 @@ pub fn run_native_contract() {
                 )
                 .map_err(std::io::Error::other)?;
             let initialization = format!(
-                "window.__AMBY_NATIVE_TEST_ROOT__ = {};",
-                serde_json::to_string(&setup_root.to_string_lossy()).unwrap()
+                "window.__AMBY_NATIVE_TEST_ROOT__ = {}; window.__AMBY_NATIVE_SYNC__ = {};",
+                serde_json::to_string(&setup_root.to_string_lossy()).unwrap(),
+                // Where the sync check finds its server and the one-time codes (env, never a file).
+                serde_json::json!({
+                    "url": std::env::var("AMBY_NATIVE_SYNC_URL").ok(),
+                    "username": std::env::var("AMBY_NATIVE_SYNC_USER").ok(),
+                    "enrollCode": std::env::var("AMBY_NATIVE_SYNC_CODE").ok(),
+                })
             );
             tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
-                tauri::WebviewUrl::App("tests/native/index.html".into()),
+                tauri::WebviewUrl::App(contract_page().into()),
             )
             .title("Amby native storage contract (disposable vault)")
             .data_directory(setup_root.join(".webview"))

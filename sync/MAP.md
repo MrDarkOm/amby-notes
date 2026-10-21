@@ -6,18 +6,21 @@ failures С1–С14) are in [sync-plan.md](../docs/sync-plan.md); read it before
 wrong stops the work and is fixed in its own commit after review.
 
 A separate Cargo workspace (decision Р12): it does not touch `src-tauri/target` or the app gates.
-License AGPL-3.0-only. Not wired into `src-tauri` yet.
+License AGPL-3.0-only. The application uses `client`, `core` and `proto` by path from
+[src-tauri/src/sync/](../src-tauri/src/sync/) (the connect screen, stage Э4); the sync engine (Э3) is not
+wired in yet.
 
-| Path                                   | Owns                                                                                 |
-| -------------------------------------- | ------------------------------------------------------------------------------------ |
-| [proto/](proto/src/lib.rs)             | wire constants of the protocol: part size, machine error codes (appendix Б)          |
-| [core/](core/src/lib.rs)               | cryptography (Э1) and the sync engine (Э3), no Tauri; I/O only through interfaces    |
-| [server/](server/src/lib.rs)           | blind storage server (Э2): all of appendix Б; Dockerfile, compose with Caddy, README |
-| [conformance/](conformance/src/lib.rs) | server conformance suite: HTTP tests against any address, real client crypto (Э2)    |
-| [reference/](reference/)               | independent Python reference of the byte format; generates `vectors/format-v1.json`  |
-| [vectors/](vectors/)                   | test vectors: `standards.json` (from RFCs, by hand) and `format-v1.json` (generated) |
-| [deny.toml](deny.toml)                 | cargo-deny: licenses and advisories                                                  |
-| [core/fuzz/](core/fuzz/Cargo.toml)     | cargo-fuzz targets (nightly only)                                                    |
+| Path                                   | Owns                                                                                      |
+| -------------------------------------- | ----------------------------------------------------------------------------------------- |
+| [proto/](proto/src/lib.rs)             | wire constants of the protocol: part size, machine error codes (appendix Б)               |
+| [core/](core/src/lib.rs)               | cryptography (Э1) and the sync engine (Э3), no Tauri; I/O only through interfaces         |
+| [server/](server/src/lib.rs)           | blind storage server (Э2): all of appendix Б; Dockerfile, compose with Caddy, README      |
+| [conformance/](conformance/src/lib.rs) | server conformance suite: HTTP tests against any address, real client crypto (Э2)         |
+| [client/](client/src/lib.rs)           | async client of the sign-in protocol (reqwest + rustls, no Tauri), shared by the app (Э4) |
+| [reference/](reference/)               | independent Python reference of the byte format; generates `vectors/format-v1.json`       |
+| [vectors/](vectors/)                   | test vectors: `standards.json` (from RFCs, by hand) and `format-v1.json` (generated)      |
+| [deny.toml](deny.toml)                 | cargo-deny: licenses and advisories                                                       |
+| [core/fuzz/](core/fuzz/Cargo.toml)     | cargo-fuzz targets (nightly only)                                                         |
 
 Commands (see [package.json](../package.json)): `npm run sync:test`, `sync:lint` (fmt, clippy,
 cargo-deny), `sync:conformance:red` (sorts the failures of the stub server by reason),
@@ -29,6 +32,9 @@ The exact byte format is appendix "Точный формат v1" of the plan; th
 code must agree with it byte for byte.
 
 Stage report with the red run and open questions for review: [sync-e1-report.md](../docs/Road/sync-e1-report.md).
+
+Names of a device and of a space (Ф34): [core/src/crypto/name.rs](core/src/crypto/name.rs); the vectors are the `names`
+section of `vectors/format-v1.json`, made by the Python reference like the rest.
 
 The protocol is appendix Б of the plan (decisions П1–П41). The suite starts a server in the process
 (`AMBY_SYNC_URL` unset) or goes to the address in `AMBY_SYNC_URL`, creating users through
@@ -59,3 +65,15 @@ Inside [server/src/](server/src/lib.rs):
 
 Running your own server: [server/README.md](server/README.md) and
 [server/docker-compose.yml](server/docker-compose.yml).
+
+The sign-in client (stage Э4, the connect screen; report with the decisions for review:
+[sync-e4-connect-report.md](../docs/Road/sync-e4-connect-report.md)). Tests run against the server of
+`conformance` in the process (`Target::from_env`, so also against a container):
+
+| File                                                                 | Owns                                                                                                                      |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| [client/src/url.rs](client/src/url.rs)                               | the address of a server and the `https://` rule (П41)                                                                     |
+| [client/src/error.rs](client/src/error.rs)                           | `ClientError`: machine codes of table Б.0.1, plain sentences (`describe`), `Retry-After`                                  |
+| [client/src/api.rs](client/src/api.rs)                               | one method per request: info, prelogin, enroll, login, recover, keys, devices; no redirects, answer size limit, timeouts  |
+| [client/src/flows.rs](client/src/flows.rs)                           | prepare an account (nothing sent), enrol, sign in, recover, devices; a new device signs in under a placeholder name first |
+| [client/examples/second_device.rs](client/examples/second_device.rs) | a second device for the manual check ([native-ui-smoke.md](../docs/native-ui-smoke.md))                                   |
