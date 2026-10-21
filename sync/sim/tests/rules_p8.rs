@@ -401,6 +401,7 @@ fn d55_a_missing_folder_is_not_a_deletion(b: EngineBuilder) {
                 accept_empty_vault: true,
                 resync: true,
             },
+            ..Default::default()
         })
         .unwrap();
     assert_eq!(

@@ -99,6 +99,8 @@ pub enum UnsyncedReason {
     NotUtf8,
     /// The sealed body is larger than the server accepts.
     TooLarge,
+    /// The file is larger than this device's memory limit for a file (Д71).
+    TooBigForMemory,
     /// An incoming path the rules exclude (`.git/`, temporary files, …).
     ExcludedPath,
     /// The name cannot be created on this system (Р9).
@@ -263,11 +265,24 @@ pub struct Approvals {
     pub resync: bool,
 }
 
+/// "This move was a rename" (Д70): the application knows the renames and moves that the user made
+/// through Amby, and tells the engine, so that a rename together with an edit is not read as a
+/// deletion and a creation (Д13).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenameHint {
+    /// The path before (NFC, relative).
+    pub from: String,
+    /// The path after.
+    pub to: String,
+}
+
 /// What the application asks of one pass.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CycleRequest {
     /// The answers to earlier stops.
     pub approvals: Approvals,
+    /// Renames the application made since the last pass; each is used once (Д70).
+    pub rename_hints: Vec<RenameHint>,
 }
 
 /// How a pass ended.

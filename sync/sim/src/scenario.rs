@@ -555,6 +555,7 @@ impl Run<'_> {
                 mass_change: true,
                 ..Default::default()
             },
+            ..Default::default()
         };
         for index in 0..self.world.devices.len() {
             let result = if index == d {

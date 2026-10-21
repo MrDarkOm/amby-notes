@@ -156,6 +156,7 @@ impl Device {
                 accept_empty_vault: true,
                 resync: true,
             },
+            ..Default::default()
         })
     }
 }

@@ -180,6 +180,13 @@ enum Plan {
         copy: Option<(String, Vec<u8>, ConflictKind)>,
         rec: ItemRecord,
     },
+    /// After the user's `resync` (Д56): the local version stays at the path and goes up as a new
+    /// version; the server's differing version is kept as a conflict copy.
+    KeepLocal {
+        remote: Remote,
+        copy_path: String,
+        rec: ItemRecord,
+    },
     /// Rename only.
     Rename {
         from: String,
@@ -636,6 +643,25 @@ impl MiniEngine {
                     Some(file) if Some(file.hash) == header.content_hash => {
                         plans.push(Plan::Link(server_rec))
                     }
+                    Some(_) if approvals.resync && header.content_hash.is_some() => {
+                        let remote_hash = header.content_hash.unwrap();
+                        let mut attempt = 0;
+                        let copy_path = loop {
+                            let id = conflict_id(&item, &remote_hash, version, attempt);
+                            let candidate = copy_path(&header.path, &id);
+                            if !copies_taken.contains(&candidate) && !local.contains_key(&candidate)
+                            {
+                                break candidate;
+                            }
+                            attempt += 1;
+                        };
+                        copies_taken.insert(copy_path.clone());
+                        plans.push(Plan::KeepLocal {
+                            remote: remote.clone(),
+                            copy_path,
+                            rec: server_rec,
+                        });
+                    }
                     Some(file) => {
                         let copy = conflict(
                             &item,
@@ -903,6 +929,41 @@ impl MiniEngine {
                     self.ports.fs.rename(&from, &to)?;
                     report.renamed += 1;
                     self.tx(vec![StateOp::PutItem(rec)])?;
+                }
+                Plan::KeepLocal {
+                    remote,
+                    copy_path,
+                    rec,
+                } => {
+                    let bytes = match self.download(&remote) {
+                        Ok(bytes) => bytes,
+                        Err(kind) => {
+                            report.errors.push(ItemError {
+                                item_id: remote.entry.item_id,
+                                kind,
+                            });
+                            let seq = remote.entry.seq;
+                            *hold = Some(hold.map_or(seq - 1, |h| h.min(seq - 1)));
+                            continue;
+                        }
+                    };
+                    self.write_file(&copy_path, &bytes, false)?;
+                    let id = copy_path
+                        .rsplit('/')
+                        .next()
+                        .and_then(|n| n.split('.').rev().nth(1).map(str::to_string))
+                        .unwrap_or_default()
+                        .trim_end_matches("-conflict")
+                        .to_string();
+                    let record = ConflictRecord {
+                        id,
+                        kind: ConflictKind::BothCreated,
+                        original_path: rec.path.clone(),
+                        copy_path,
+                        created_ms: self.ports.clock.now_ms(),
+                    };
+                    report.conflicts.push(record.clone());
+                    self.tx(vec![StateOp::AddConflict(record), StateOp::PutItem(rec)])?;
                 }
                 Plan::Trash { path, rec } => {
                     // The file must still be what it was (Д17); otherwise the next pass decides.

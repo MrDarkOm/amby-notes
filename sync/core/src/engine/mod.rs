@@ -28,7 +28,7 @@ pub mod sync;
 pub use model::{
     Approvals, ConflictKind, ConflictRecord, CycleOutcome, CycleReport, CycleRequest, Direction,
     EngineError, ItemError, ItemErrorKind, ItemRecord, PendingCommit, PendingUpload, PlannedChange,
-    PlannedKind, ReadOnlyItem, StateOp, StateTx, StopReason, SyncState, UnsyncedReason,
+    PlannedKind, ReadOnlyItem, RenameHint, StateOp, StateTx, StopReason, SyncState, UnsyncedReason,
     UnsyncedRecord,
 };
 pub use ports::{

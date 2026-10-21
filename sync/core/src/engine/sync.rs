@@ -31,6 +31,9 @@ pub struct EngineConfig {
     pub mass_min_files: usize,
     /// … and more than this per cent of the synchronised files (Р8: 10).
     pub mass_percent: usize,
+    /// The largest file this device synchronises: bodies are sealed and read whole in memory
+    /// until streaming encryption exists (Д71). Larger files are listed as "not synchronised".
+    pub max_file_bytes: u64,
 }
 
 impl EngineConfig {
@@ -41,6 +44,7 @@ impl EngineConfig {
             vk,
             mass_min_files: 20,
             mass_percent: 10,
+            max_file_bytes: 256 * 1024 * 1024,
         }
     }
 }

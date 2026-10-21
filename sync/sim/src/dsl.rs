@@ -86,7 +86,10 @@ impl World {
 
     /// One pass with the given approvals.
     pub fn pass_with(&self, d: usize, approvals: Approvals) -> CycleReport {
-        match self.dev(d).sync_with(&CycleRequest { approvals }) {
+        match self.dev(d).sync_with(&CycleRequest {
+            approvals,
+            ..Default::default()
+        }) {
             Ok(report) => report,
             Err(error) => panic!("device {d}: the pass failed: {error}"),
         }
