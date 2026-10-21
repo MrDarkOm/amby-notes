@@ -111,8 +111,7 @@ impl PreparedAccount {
     /// Replaces the invitation code, keeping the keys and the recovery code (the first one was
     /// refused by the server and the person was already shown the code).
     pub fn set_enroll_code(&mut self, enroll_code: &str) {
-        let _ = enroll_code;
-        todo!("П17")
+        self.enroll_code = clean_enroll_code(enroll_code);
     }
 
     /// The recovery code to show (О3).

@@ -94,7 +94,7 @@ struct Pending {
     url: ServerUrl,
     allow_http: bool,
     device_name: String,
-    prepared: PreparedAccount,
+    prepared: tokio::sync::Mutex<PreparedAccount>,
     /// The 1-based positions of the groups the person has to type back.
     positions: Vec<u8>,
     /// The groups at those positions, as they are printed.
@@ -315,7 +315,7 @@ impl SyncService {
             url,
             allow_http: request.endpoint.allow_http,
             device_name: request.device_name,
-            prepared,
+            prepared: tokio::sync::Mutex::new(prepared),
             positions,
             expected,
         }));
@@ -342,7 +342,11 @@ impl SyncService {
         debug_assert_eq!(pending.positions.len(), CONFIRM_GROUPS);
 
         let client = Self::client_of(&pending.url)?;
-        let connected = enroll_prepared(&client, &pending.prepared, &pending.device_name).await?;
+        let (connected, username) = {
+            let prepared = pending.prepared.lock().await;
+            let connected = enroll_prepared(&client, &prepared, &pending.device_name).await?;
+            (connected, prepared.username().to_string())
+        };
         // The account exists on the server now and its one-time code is used: whatever happens
         // next, a prepared account is of no further use.
         self.clear_pending_if(&pending);
@@ -350,7 +354,7 @@ impl SyncService {
             &client,
             &pending.url,
             pending.allow_http,
-            pending.prepared.username(),
+            &username,
             connected,
         )
         .await
@@ -366,8 +370,16 @@ impl SyncService {
     /// Replaces the invitation code of the prepared account; the keys and the recovery code stay.
     /// `no_pending_account` when there is none.
     pub fn set_enroll_code(&self, enroll_code: &str) -> Result<(), SyncError> {
-        let _ = enroll_code;
-        todo!("П17")
+        let pending = lock(&self.pending)
+            .clone()
+            .ok_or_else(|| SyncError::new("no_pending_account"))?;
+        // A confirmation in flight holds the account; the screen never asks for both at once.
+        let mut prepared = pending
+            .prepared
+            .try_lock()
+            .map_err(|_| SyncError::new("storage_error"))?;
+        prepared.set_enroll_code(enroll_code);
+        Ok(())
     }
 
     /// Forgets the prepared account.

@@ -19,6 +19,10 @@ interface RecoveryCodeStepProps {
   confirmGroups: number[]
   busy: boolean
   error: string | null
+  /** The server refused the invitation code: ask for another one. */
+  askEnrollCode: boolean
+  enrollCode: string
+  onEnrollCodeChange: (value: string) => void
   onConfirm: (groups: string[]) => void
   onBack: () => void
 }
@@ -36,6 +40,9 @@ export function RecoveryCodeStep({
   confirmGroups,
   busy,
   error,
+  askEnrollCode,
+  enrollCode,
+  onEnrollCodeChange,
   onConfirm,
   onBack,
 }: RecoveryCodeStepProps) {
@@ -43,7 +50,8 @@ export function RecoveryCodeStep({
   const [typed, setTyped] = React.useState<string[]>(() => confirmGroups.map(() => ""))
   const [savedPath, setSavedPath] = React.useState<string | null>(null)
   const [fileError, setFileError] = React.useState<string | null>(null)
-  const ready = typed.every((group) => group.trim() !== "")
+  const ready =
+    typed.every((group) => group.trim() !== "") && (!askEnrollCode || enrollCode.trim() !== "")
 
   React.useEffect(
     () => () => {
@@ -145,6 +153,21 @@ export function RecoveryCodeStep({
             </div>
           ))}
         </div>
+        {askEnrollCode && (
+          <div className="space-y-1.5">
+            <label htmlFor="sync-new-enroll-code" className="text-[12px] font-medium">
+              {t("sync.recovery.newEnrollCode")}
+            </label>
+            <Input
+              id="sync-new-enroll-code"
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+              value={enrollCode}
+              onChange={(event) => onEnrollCodeChange(event.target.value)}
+            />
+          </div>
+        )}
         {shownError && (
           <p role="alert" className="text-[12px] text-destructive">
             {shownError}

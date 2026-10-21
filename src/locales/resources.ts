@@ -3278,6 +3278,7 @@ const ru = {
       confirmPrompt:
         "Чтобы убедиться, что код сохранён, введите группы {{first}} и {{second}} (считайте слева направо).",
       group: "Группа {{n}}",
+      newEnrollCode: "Новый код приглашения",
       confirm: "Подтвердить и подключиться",
       printTitle: "Код восстановления Amby",
       file: {
@@ -6563,6 +6564,7 @@ const en: typeof ru = {
       confirmPrompt:
         "To make sure the code is saved, type groups {{first}} and {{second}} (count from the left).",
       group: "Group {{n}}",
+      newEnrollCode: "New invitation code",
       confirm: "Confirm and connect",
       printTitle: "Amby recovery code",
       file: {

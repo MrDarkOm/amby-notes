@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { syncErrorMessage } from "@/lib/sync/sync-errors"
+import { SyncPortError } from "@/lib/sync/sync-port"
 import type { PreparedAccountView, ServerCheck, SyncPort, SyncStatus } from "@/lib/sync/sync-port"
 import { NewPasswordFields } from "./password-fields"
 import { RecoveryCodeStep } from "./recovery-code-step"
@@ -75,6 +76,10 @@ export function ConnectWizard({
   )
   const [passwordValid, setPasswordValid] = React.useState(false)
   const [prepared, setPrepared] = React.useState<PreparedAccountView | null>(null)
+  // The server refused the invitation code: the person types another one and the same
+  // prepared account (same keys, same recovery code) is sent again.
+  const [enrollRefused, setEnrollRefused] = React.useState(false)
+  const [newEnrollCode, setNewEnrollCode] = React.useState("")
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const busyRef = React.useRef(false)
@@ -141,9 +146,21 @@ export function ConnectWizard({
 
   const confirm = (groups: string[]) =>
     run(async () => {
-      const status = await port.confirmRecoveryCode(groups)
+      if (enrollRefused) await port.setEnrollCode(newEnrollCode.trim())
+      let status
+      try {
+        status = await port.confirmRecoveryCode(groups)
+      } catch (caught) {
+        const refused =
+          caught instanceof SyncPortError &&
+          ["invalid_enroll_code", "enroll_code_expired"].includes(caught.code)
+        setEnrollRefused(refused)
+        setNewEnrollCode("")
+        throw caught
+      }
       hasPrepared.current = false
       setPrepared(null)
+      setEnrollRefused(false)
       onConnected(status)
     })
 
@@ -151,6 +168,7 @@ export function ConnectWizard({
   const backFromRecovery = () => {
     hasPrepared.current = false
     setPrepared(null)
+    setEnrollRefused(false)
     setError(null)
     setStep("create")
     void port.cancelPending().catch(() => {})
@@ -418,6 +436,9 @@ export function ConnectWizard({
       confirmGroups={prepared.confirmGroups}
       busy={busy}
       error={error}
+      askEnrollCode={enrollRefused}
+      enrollCode={newEnrollCode}
+      onEnrollCodeChange={setNewEnrollCode}
       onConfirm={(groups) => void confirm(groups)}
       onBack={backFromRecovery}
     />
