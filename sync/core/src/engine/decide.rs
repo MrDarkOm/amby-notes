@@ -30,6 +30,8 @@ pub(super) struct Inputs<'a> {
     pub full: bool,
     /// The user said "upload this vault again" (Д56, Д57).
     pub resync: bool,
+    /// Bases a full feed no longer knows: forgotten, nothing is sent for them (Д58).
+    pub forgotten: &'a BTreeSet<[u8; 16]>,
 }
 
 struct Decider<'a> {
@@ -106,6 +108,7 @@ pub(super) fn decide(inp: &Inputs<'_>, items: &[Srv]) -> Plan {
             && record.kind == ItemKind::File
             && !record.newer_format
             && !decider.touched.contains(key)
+            && !inp.forgotten.contains(key)
         {
             decider.plan.outgoing.push(PlannedChange {
                 path: record.path.clone(),

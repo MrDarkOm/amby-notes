@@ -6,6 +6,8 @@
 use std::collections::BTreeSet;
 use std::io::Write;
 
+use crate::crypto::header::ItemKind;
+
 use super::flow::{Flow, Res};
 use super::model::{
     ConflictRecord, CycleReport, ItemError, ItemErrorKind, StateOp, UnsyncedReason, UnsyncedRecord,
@@ -39,8 +41,6 @@ pub(super) struct ApplyCtx<'a> {
     pub scan: &'a Scan,
     /// Conflicts the state already has.
     pub conflict_ids: BTreeSet<String>,
-    /// Folders that hold a live record: never removed.
-    pub live_folders: BTreeSet<String>,
 }
 
 /// A sink that writes into a staged file and remembers why it failed.
@@ -204,6 +204,16 @@ impl Engine {
 
     fn remove_empty_folders(&mut self, plan: &mut Plan, ctx: &ApplyCtx<'_>) -> Res<()> {
         let mut todo: BTreeSet<String> = std::mem::take(&mut plan.cleanup);
+        // A folder that holds a live record is never removed (Р2).
+        let live_folders: BTreeSet<String> = self
+            .ports
+            .state
+            .load()?
+            .items
+            .values()
+            .filter(|r| !r.deleted && r.kind == ItemKind::Folder)
+            .map(|r| r.path.clone())
+            .collect();
         let mut tried: BTreeSet<String> = BTreeSet::new();
         while let Some(path) = todo
             .iter()
@@ -211,7 +221,7 @@ impl Engine {
             .cloned()
         {
             todo.remove(&path);
-            if !tried.insert(path.clone()) || ctx.live_folders.contains(&path) {
+            if !tried.insert(path.clone()) || live_folders.contains(&path) {
                 continue;
             }
             let disk = ctx

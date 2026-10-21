@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 
 use crate::crypto::header::ItemKind;
-use crate::crypto::keys::{SpaceId, SpaceKey};
+use crate::crypto::keys::{ItemId, SpaceId, SpaceKey};
 use crate::crypto::random::Random;
 
 use super::apply::ApplyCtx;
@@ -250,10 +250,6 @@ impl Engine {
         // Д10 step 4: the feed.
         let feed = self.read_feed(&state, state.cursor, resync)?;
         let full = feed.full;
-        if full && !resync {
-            // Д58: after a gap nothing is believed about deletions; bases the server no longer
-            // knows are forgotten, their files stay and become new.
-        }
 
         // Д57: an older or different version of what we know.
         for srv in &feed.items {
@@ -273,6 +269,25 @@ impl Engine {
             }
         }
 
+        // Д58: after a gap nothing is believed about deletions; bases the server no longer
+        // knows are forgotten, their files stay and become new.
+        let mut forgotten: BTreeSet<[u8; 16]> = BTreeSet::new();
+        if full && !resync {
+            let in_feed: BTreeSet<[u8; 16]> =
+                feed.items.iter().map(|s| *s.item.as_bytes()).collect();
+            let unreadable: BTreeSet<[u8; 16]> = feed
+                .bad
+                .iter()
+                .map(|(error, _)| *error.item_id.as_bytes())
+                .chain(feed.read_only.iter().map(|(_, key)| *key))
+                .collect();
+            for key in state.items.keys() {
+                if !in_feed.contains(key) && !unreadable.contains(key) {
+                    forgotten.insert(*key);
+                }
+            }
+        }
+
         // Д10 step 6: decisions for everything, nothing written yet.
         let classes = classify(&state.items, &disk, &request.rename_hints);
         let mut plan = decide(
@@ -284,26 +299,12 @@ impl Engine {
                 max_file_bytes: self.config.max_file_bytes,
                 full,
                 resync,
+                forgotten: &forgotten,
             },
             &feed.items,
         );
-        // Bases whose server entry is gone from a full feed (Д58).
-        if full && !resync {
-            let in_feed: BTreeSet<[u8; 16]> =
-                feed.items.iter().map(|s| *s.item.as_bytes()).collect();
-            let dropped: BTreeSet<[u8; 16]> = feed
-                .bad
-                .iter()
-                .map(|(error, _)| *error.item_id.as_bytes())
-                .chain(feed.read_only.iter().map(|(_, key)| *key))
-                .collect();
-            for record in state.items.values() {
-                let key = record.item_id.as_bytes();
-                if !in_feed.contains(key) && !dropped.contains(key) {
-                    plan.forget.push(record.item_id);
-                }
-            }
-        }
+        plan.forget
+            .extend(forgotten.iter().map(|key| ItemId::from_bytes(*key)));
 
         // Д54: too many files would change.
         if !approvals.mass_change {
@@ -382,30 +383,9 @@ impl Engine {
         }
 
         // Д17: apply, inside one batch.
-        let mut live_folders: BTreeSet<String> = state
-            .items
-            .values()
-            .filter(|r| !r.deleted && r.kind == ItemKind::Folder)
-            .map(|r| r.path.clone())
-            .collect();
-        for act in &plan.acts {
-            if let super::plan::Act::Dir { path, .. } = act {
-                live_folders.insert(path.clone());
-            }
-            if let super::plan::Act::Ops(ops) = act {
-                for op in ops {
-                    if let StateOp::PutItem(r) = op {
-                        if !r.deleted && r.kind == ItemKind::Folder {
-                            live_folders.insert(r.path.clone());
-                        }
-                    }
-                }
-            }
-        }
         let mut ctx = ApplyCtx {
             scan: &disk,
             conflict_ids: state.conflicts.iter().map(|c| c.id.clone()).collect(),
-            live_folders,
         };
         self.ports.fs.batch_begin();
         let applied = self.apply_plan(&mut plan, &mut ctx, report);
