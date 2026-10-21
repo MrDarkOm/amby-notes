@@ -299,10 +299,9 @@ impl<'a> Decider<'a> {
                     rec,
                 })));
             }
-            Some(file) if self.by_path.contains_key(target.as_str()) => {
+            Some(_) if self.by_path.contains_key(target.as_str()) => {
                 // Another item holds the path now; if it moves away in this pass the write goes
                 // through, otherwise it is "busy" (Д49).
-                let _ = file;
                 let rec = srv.record(0);
                 self.plan.acts.push(Act::Put(Box::new(PutAct {
                     seq: srv.seq,

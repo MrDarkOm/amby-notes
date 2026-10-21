@@ -302,6 +302,22 @@ impl Engine {
             });
         }
 
+        // Uploads that no change of this pass refers to are forgotten: the file changed again or
+        // is gone (the server removes the orphaned body itself, П25).
+        let used: BTreeSet<[u8; 16]> = outs
+            .iter()
+            .filter_map(|out| out.blob)
+            .map(|blob| *blob.as_bytes())
+            .collect();
+        let stale: Vec<StateOp> = uploads
+            .keys()
+            .filter(|key| !used.contains(*key))
+            .map(|key| StateOp::RemoveUpload(BodyId::from_bytes(*key)))
+            .collect();
+        if !stale.is_empty() {
+            self.ports.state.apply(&stale)?;
+        }
+
         // Folders first, then by path: a folder rename that needs several commits sends the
         // folder record first (Д50).
         outs.sort_by(|a, b| {

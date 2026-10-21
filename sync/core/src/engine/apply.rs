@@ -147,28 +147,19 @@ impl Engine {
             }
         }
         for m in pending {
-            let srv = Srv::from_record(&m.rec);
             plan.unsynced.push(UnsyncedRecord {
                 path: m.to.clone(),
                 reason: UnsyncedReason::PathBusy,
             });
             plan.hold_before(m.seq);
-            let _ = srv;
         }
 
-        // (3) Creations and replacements.
+        // (3) Creations and replacements. A name that is still held is tried once more after the
+        // deletions below.
+        let mut busy: Vec<PutAct> = Vec::new();
         for put in puts {
-            match self.apply_put(&put, plan, ctx, report)? {
-                Step::Done | Step::Skipped => {}
-                Step::Busy => {
-                    plan.unsynced.push(UnsyncedRecord {
-                        path: put.target.clone(),
-                        reason: UnsyncedReason::PathBusy,
-                    });
-                    let mut parked = put.srv.record(UNMATERIALISED);
-                    parked.newer_format = false;
-                    self.ports.state.apply(&vec![StateOp::PutItem(parked)])?;
-                }
+            if let Step::Busy = self.apply_put(&put, plan, ctx, report)? {
+                busy.push(put);
             }
         }
         for keep in keeps {
@@ -177,7 +168,6 @@ impl Engine {
 
         // (4) Deletions, always to the trash (Д52).
         for (seq, disk, expect, rec) in trashes {
-            let srv = Srv::from_record(&rec);
             match self.ports.fs.read(&disk) {
                 Ok(bytes) if hash_of(&bytes) == expect => {
                     self.ports
@@ -195,7 +185,17 @@ impl Engine {
                 }
                 Err(error) => return Err(error.into()),
             }
-            let _ = srv;
+        }
+        for put in busy {
+            if let Step::Busy = self.apply_put(&put, plan, ctx, report)? {
+                plan.unsynced.push(UnsyncedRecord {
+                    path: put.target.clone(),
+                    reason: UnsyncedReason::PathBusy,
+                });
+                let mut parked = put.srv.record(UNMATERIALISED);
+                parked.newer_format = false;
+                self.ports.state.apply(&vec![StateOp::PutItem(parked)])?;
+            }
         }
 
         // (5) Folders that are empty now.

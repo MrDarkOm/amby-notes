@@ -2,7 +2,7 @@
 # src-tauri so that the server builds in Docker without Tauri and its target dir stays apart.
 [workspace]
 resolver = "2"
-members = ["proto", "core", "server", "conformance", "sim"]
+members = ["proto", "core", "server", "conformance", "sim", "simrun"]
 # cargo-fuzz crate: has its own workspace and builds only on nightly.
 exclude = ["core/fuzz"]
 

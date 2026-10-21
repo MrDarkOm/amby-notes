@@ -18,7 +18,7 @@ use super::model::{
 use super::ports::{Clock, CommitReply, LocalFs, Remote, RootState, StateError, StateStore};
 use super::rules::mass_change_reached;
 use super::scan::scan;
-use super::util::{is_unmaterialised, nfc};
+use super::util::is_unmaterialised;
 
 /// The five ports of one device and one space (Д2).
 pub struct Ports {
@@ -190,28 +190,6 @@ impl Engine {
             }
         }
 
-        // С2, Д7: a commit that may or may not have arrived is sent again, unchanged, first.
-        if let Some(pending) = state.commit.clone() {
-            let probe = self.ports.remote.changes(state.cursor, Some(1))?;
-            if probe.seq < state.cursor {
-                return Err(Flow::Stop(StopReason::ServerBehind {
-                    head: probe.seq,
-                    cursor: state.cursor,
-                }));
-            }
-            match self
-                .ports
-                .remote
-                .commit(&pending.commit_id, &pending.items)?
-            {
-                CommitReply::Accepted(_) => self.commit_accepted(&pending.after, &pending.items)?,
-                CommitReply::Conflict(_) => {
-                    self.ports.state.apply(&vec![StateOp::SetCommit(None)])?;
-                }
-            }
-            state = self.ports.state.load()?;
-        }
-
         // Д10 step 3: the disk.
         let disk = scan(
             &mut *self.ports.fs,
@@ -232,6 +210,42 @@ impl Engine {
         {
             return Err(Flow::Stop(StopReason::VaultEmpty));
         }
+
+        // С2, Д7: a commit that may or may not have arrived is sent again, unchanged, first.
+        let mut disk = disk;
+        if let Some(pending) = state.commit.clone() {
+            let probe = self.ports.remote.changes(state.cursor, Some(1))?;
+            if probe.seq < state.cursor {
+                return Err(Flow::Stop(StopReason::ServerBehind {
+                    head: probe.seq,
+                    cursor: state.cursor,
+                }));
+            }
+            match self
+                .ports
+                .remote
+                .commit(&pending.commit_id, &pending.items)?
+            {
+                CommitReply::Accepted(_) => self.commit_accepted(&pending.after, &pending.items)?,
+                CommitReply::Conflict(_) => {
+                    self.ports.state.apply(&vec![StateOp::SetCommit(None)])?;
+                }
+            }
+            state = self.ports.state.load()?;
+            // The bases moved: look at the disk again.
+            disk = scan(
+                &mut *self.ports.fs,
+                &state.items,
+                self.config.max_file_bytes,
+                info.max_blob_bytes,
+            )?;
+        }
+
+        let live_files = state
+            .items
+            .values()
+            .filter(|r| !r.deleted && r.kind == ItemKind::File && !is_unmaterialised(r))
+            .count();
 
         // Д10 step 4: the feed.
         let feed = self.read_feed(&state, state.cursor, resync)?;
@@ -435,7 +449,6 @@ impl Engine {
                 .apply(&vec![StateOp::SetUnsynced(unsynced.clone())])?;
         }
         report.unsynced = unsynced;
-        let _ = nfc;
         Ok(())
     }
 }
