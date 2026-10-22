@@ -47,6 +47,11 @@ struct Decider<'a> {
     server_live: BTreeMap<String, Vec<Option<[u8; 32]>>>,
     /// Items with a new server version that is not just our own deletion going on top.
     touched: BTreeSet<[u8; 16]>,
+    /// Where the file of the item now being decided is placed instead of its server path, when
+    /// another live item keeps that path (the larger item id gives way, Д49).
+    place: Option<String>,
+    /// Items whose server version takes them away from their base path in this pass.
+    leaving: BTreeSet<[u8; 16]>,
 }
 
 /// Decides every server version in `items` (ascending by `seq`), and retries the bases that were
@@ -84,6 +89,19 @@ pub(super) fn decide(inp: &Inputs<'_>, items: &[Srv]) -> Plan {
         copy_paths: BTreeSet::new(),
         server_live,
         touched: BTreeSet::new(),
+        place: None,
+        leaving: items
+            .iter()
+            .filter(|srv| {
+                inp.state
+                    .items
+                    .get(srv.item.as_bytes())
+                    .is_some_and(|base| {
+                        srv.version > base.version && (srv.deleted || srv.path != base.path)
+                    })
+            })
+            .map(|srv| *srv.item.as_bytes())
+            .collect(),
     };
     let in_feed: BTreeSet<[u8; 16]> = items.iter().map(|s| *s.item.as_bytes()).collect();
     for srv in items {
@@ -134,6 +152,11 @@ impl<'a> Decider<'a> {
     }
 
     // ----- small helpers -----
+
+    /// The path the file of `srv` is written or moved to.
+    fn dest(&self, srv: &Srv) -> String {
+        self.place.clone().unwrap_or_else(|| srv.path.clone())
+    }
 
     fn ops(&mut self, ops: Vec<StateOp>) {
         self.plan.acts.push(Act::Ops(ops));
@@ -309,10 +332,11 @@ impl<'a> Decider<'a> {
                 // all devices decide alike. If it moves away in this pass the write goes through
                 // (Д49).
                 let other = self.by_path[target.as_str()];
-                let stays = matches!(
-                    self.inp.classes.get(other.item_id.as_bytes()),
-                    Some(Lc::Same | Lc::Edited)
-                );
+                let stays = !self.leaving.contains(other.item_id.as_bytes())
+                    && matches!(
+                        self.inp.classes.get(other.item_id.as_bytes()),
+                        Some(Lc::Same | Lc::Edited)
+                    );
                 if stays && srv.item.as_bytes() > other.item_id.as_bytes() {
                     return self.park(srv, UnsyncedReason::PathBusy);
                 }
@@ -437,6 +461,33 @@ impl<'a> Decider<'a> {
             return;
         }
         let lc = self.inp.classes.get(&key).cloned().unwrap_or(Lc::Same);
+        self.place = None;
+        if base.kind == ItemKind::File && !srv.deleted && srv.path != base.path {
+            if let Some(other) = self.by_path.get(srv.path.as_str()).copied() {
+                let stays = !self.leaving.contains(other.item_id.as_bytes())
+                    && matches!(
+                        self.inp.classes.get(other.item_id.as_bytes()),
+                        Some(Lc::Same | Lc::Edited)
+                    );
+                if stays
+                    && other.item_id != srv.item
+                    && srv.item.as_bytes() > other.item_id.as_bytes()
+                {
+                    // Two live items at one path: this one goes to a copy name, and the rename
+                    // is sent to the server afterwards (it is a moved file then).
+                    let hash = srv.hash.unwrap_or([0; 32]);
+                    if let Some(copy) = self.copy_for(
+                        &srv.item,
+                        &srv.path,
+                        hash,
+                        srv.version,
+                        ConflictKind::BothCreated,
+                    ) {
+                        self.place = Some(copy.path);
+                    }
+                }
+            }
+        }
         if base.kind == ItemKind::Folder {
             return self.known_folder(base, srv, lc);
         }
@@ -495,7 +546,7 @@ impl<'a> Decider<'a> {
                         self.rename(srv, base, existing, rec, None);
                     }
                     (true, true) => {
-                        self.overwrite(&srv.path);
+                        self.overwrite(&self.dest(srv));
                         let put = self.put_after_move(srv, file.hash, None);
                         let rec = srv.record(0);
                         self.rename(srv, base, existing, rec, Some(put));
@@ -542,14 +593,14 @@ impl<'a> Decider<'a> {
                 // Д29, Д31, Р7 row 1: both changed the content.
                 let Some(copy) = self.copy_for(
                     &srv.item,
-                    &srv.path,
+                    &self.dest(srv),
                     file.hash,
                     srv.version,
                     ConflictKind::BothEdited,
                 ) else {
                     return self.no_copy_name(srv);
                 };
-                self.overwrite(&srv.path);
+                self.overwrite(&self.dest(srv));
                 if renamed {
                     let put = self.put_after_move(srv, file.hash, Some(copy));
                     let rec = srv.record(0);
@@ -622,7 +673,7 @@ impl<'a> Decider<'a> {
                     (true, false) => {
                         // Д34, Р7 row 3: two names for one file, the server's stays.
                         let rec = srv.record(base.mtime_ns);
-                        if to == srv.path {
+                        if to == self.dest(srv) {
                             self.set_base(rec);
                         } else {
                             self.rename_from(srv, &to, existing, rec, None);
@@ -633,7 +684,7 @@ impl<'a> Decider<'a> {
                         if same_content {
                             let mut rec = srv.record(file.mtime_ns);
                             rec.size = file.size;
-                            if to == srv.path {
+                            if to == self.dest(srv) {
                                 self.set_base(rec);
                             } else {
                                 self.rename_from(srv, &to, existing, rec, None);
@@ -642,7 +693,7 @@ impl<'a> Decider<'a> {
                             let copy = if edited {
                                 let Some(copy) = self.copy_for(
                                     &srv.item,
-                                    &srv.path,
+                                    &self.dest(srv),
                                     file.hash,
                                     srv.version,
                                     ConflictKind::BothEdited,
@@ -653,10 +704,10 @@ impl<'a> Decider<'a> {
                             } else {
                                 None
                             };
-                            self.overwrite(&srv.path);
+                            self.overwrite(&self.dest(srv));
                             let put = self.put_after_move(srv, file.hash, copy);
                             let rec = srv.record(0);
-                            if to == srv.path {
+                            if to == self.dest(srv) {
                                 self.plan.acts.push(Act::Put(Box::new(PutAct {
                                     existing: Some(Existing {
                                         disk: file.disk.clone(),
@@ -708,7 +759,7 @@ impl<'a> Decider<'a> {
         rec: ItemRecord,
         then: Option<PutAct>,
     ) {
-        let to = srv.path.clone();
+        let to = self.dest(srv);
         let occupant = self.occupant(&to, srv, from);
         let Some(occupant) = occupant else {
             return;
@@ -731,9 +782,9 @@ impl<'a> Decider<'a> {
         PutAct {
             seq: srv.seq,
             srv: srv.clone(),
-            target: srv.path.clone(),
+            target: self.dest(srv),
             existing: Some(Existing {
-                disk: srv.path.clone(),
+                disk: self.dest(srv),
                 hash,
             }),
             copy,
