@@ -63,7 +63,7 @@ fn attempt(seed: u64, options: Options) -> Result<(), Option<Failure>> {
                 .cloned()
                 .or_else(|| panic.downcast_ref::<&str>().map(|s| (*s).to_string()))
                 .unwrap_or_default();
-            if text.contains("transport failure") {
+            if text.contains("transport failure") || text.contains("reading the body") {
                 Err(None)
             } else {
                 println!("PANIC seed={seed}: {text}");

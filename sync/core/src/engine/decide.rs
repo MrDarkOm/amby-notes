@@ -302,9 +302,42 @@ impl<'a> Decider<'a> {
                     rec,
                 })));
             }
-            Some(_) if self.by_path.contains_key(target.as_str()) => {
-                // Another item holds the path now; if it moves away in this pass the write goes
-                // through, otherwise it is "busy" (Д49).
+            Some(file) if self.by_path.contains_key(target.as_str()) => {
+                // Another live item holds this path (two devices made different files at one
+                // path at the same time). If it stays, the item with the smaller id keeps the
+                // path on every device and the other one goes to a conflict copy name, so that
+                // all devices decide alike. If it moves away in this pass the write goes through
+                // (Д49).
+                let other = self.by_path[target.as_str()];
+                let stays = matches!(
+                    self.inp.classes.get(other.item_id.as_bytes()),
+                    Some(Lc::Same | Lc::Edited)
+                );
+                if stays && srv.item.as_bytes() > other.item_id.as_bytes() {
+                    return self.park(srv, UnsyncedReason::PathBusy);
+                }
+                if stays {
+                    let Some(copy) = self.copy_for(
+                        &other.item_id,
+                        &target,
+                        file.hash,
+                        other.version,
+                        ConflictKind::BothCreated,
+                    ) else {
+                        return self.no_copy_name(srv);
+                    };
+                    self.claim(&copy.path);
+                    self.plan.acts.push(Act::Move(Box::new(MoveAct {
+                        seq: srv.seq,
+                        from_disk: file.disk.clone(),
+                        from: target.clone(),
+                        to: copy.path.clone(),
+                        expect: file.hash,
+                        rec: other.clone(),
+                        then: None,
+                        occupant: None,
+                    })));
+                }
                 let rec = srv.record(0);
                 self.plan.acts.push(Act::Put(Box::new(PutAct {
                     seq: srv.seq,
