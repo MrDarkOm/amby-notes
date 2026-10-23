@@ -8,16 +8,19 @@ use crate::crypto::header::ItemKind;
 use crate::crypto::keys::ItemId;
 
 use super::classify::Lc;
+use super::conflict_set::{is_in_conflicts_dir, set_id, set_paths};
 use super::model::{
     ConflictKind, ItemError, ItemErrorKind, ItemRecord, PlannedChange, PlannedKind, StateOp,
     SyncState, UnsyncedReason, UnsyncedRecord,
 };
 use super::names::{check_path_for_system, collision_key, conflict_copy_path, conflict_id};
-use super::plan::{Act, CopyPlan, Existing, KeepAct, MoveAct, Plan, PutAct, Srv, Undelete};
+use super::plan::{
+    Act, CopyPlan, Existing, KeepAct, LinkBase, MoveAct, Plan, PutAct, Srv, Undelete,
+};
 use super::ports::{FsError, NameRules};
 use super::rules::is_excluded_path;
 use super::scan::Scan;
-use super::util::{is_unmaterialised, UNMATERIALISED};
+use super::util::{hash_of, is_unmaterialised, UNMATERIALISED};
 
 /// What the decisions look at.
 pub(super) struct Inputs<'a> {
@@ -32,6 +35,9 @@ pub(super) struct Inputs<'a> {
     pub resync: bool,
     /// Bases a full feed no longer knows: forgotten, nothing is sent for them (Д58).
     pub forgotten: &'a BTreeSet<[u8; 16]>,
+    /// The bases of the notes both sides may have edited, by item (Г6, Г10): only those whose
+    /// bytes match the hash of the record.
+    pub bases: &'a BTreeMap<[u8; 16], Vec<u8>>,
 }
 
 struct Decider<'a> {
@@ -235,18 +241,39 @@ impl<'a> Decider<'a> {
         self.plan.hold_before(srv.seq);
     }
 
-    /// The name and the place of a conflict copy (Д46). `None` when no allowed name is free.
+    /// The place of the second version of a conflict (Д46, Г20–Г22): the set `other<ext>` with an
+    /// identifier of formula 2, or the old copy beside the file inside `.amby/conflicts/` (Г19).
+    /// `base` is the record whose base goes into the set, when there is one (Г21). `None` when no
+    /// allowed name is free.
+    #[allow(clippy::too_many_arguments)]
     fn copy_for(
         &mut self,
         item: &ItemId,
         original: &str,
         content_hash: [u8; 32],
+        other_size: u64,
         version: u64,
         kind: ConflictKind,
+        base: Option<&ItemRecord>,
     ) -> Option<CopyPlan> {
+        let legacy = is_in_conflicts_dir(original);
+        let base_bytes = match (kind, base) {
+            (ConflictKind::BothEdited, Some(record)) => {
+                self.inp.bases.get(record.item_id.as_bytes()).cloned()
+            }
+            _ => None,
+        };
+        let base_hash = base_bytes.as_deref().map(hash_of);
         for attempt in 0..64u32 {
-            let id = conflict_id(item, &content_hash, version, attempt);
-            let path = conflict_copy_path(original, &id);
+            let (id, path) = if legacy {
+                let id = conflict_id(item, &content_hash, version, attempt);
+                let path = conflict_copy_path(original, &id);
+                (id, path)
+            } else {
+                let id = set_id(item, &content_hash, version, base_hash.as_ref(), attempt);
+                let path = set_paths(&id, original).other;
+                (id, path)
+            };
             if check_path_for_system(&path, &self.inp.rules).is_err() {
                 return None;
             }
@@ -257,6 +284,11 @@ impl<'a> Decider<'a> {
                 kind,
                 exists,
                 from_server,
+                legacy,
+                item: *item,
+                other_hash: content_hash,
+                other_size,
+                base: base_bytes.clone(),
             };
             if let Some(file) = self.inp.scan.files.get(&path) {
                 if file.hash == content_hash {
@@ -284,6 +316,19 @@ impl<'a> Decider<'a> {
             return Some(plan(false, false));
         }
         None
+    }
+
+    /// A file that becomes the base of its record unchanged (Г8 в): the base is the bytes of the
+    /// file, kept before the state says so (Г9).
+    fn link_base(&mut self, record: &ItemRecord, disk: &str) {
+        if let Some(hash) = record.content_hash {
+            self.plan.link_bases.push(LinkBase {
+                item: record.item_id,
+                hash,
+                path: record.path.clone(),
+                disk: disk.to_string(),
+            });
+        }
     }
 
     fn no_copy_name(&mut self, srv: &Srv) {
@@ -332,6 +377,7 @@ impl<'a> Decider<'a> {
                     existing: None,
                     copy: None,
                     rec,
+                    merge: false,
                 })));
             }
             Some(file) if self.by_path.contains_key(target.as_str()) => {
@@ -354,8 +400,10 @@ impl<'a> Decider<'a> {
                         &other.item_id,
                         &target,
                         file.hash,
+                        file.size,
                         other.version,
                         ConflictKind::BothCreated,
+                        None,
                     ) else {
                         return self.no_copy_name(srv);
                     };
@@ -380,6 +428,7 @@ impl<'a> Decider<'a> {
                     existing: None,
                     copy: None,
                     rec,
+                    merge: false,
                 })));
             }
             Some(file) => {
@@ -388,6 +437,7 @@ impl<'a> Decider<'a> {
                     // Д15, Д42: the same content at the same path.
                     let mut rec = srv.record(file.mtime_ns);
                     rec.size = file.size;
+                    self.link_base(&rec, &file.disk);
                     return self.set_base(rec);
                 }
                 let existing = Existing {
@@ -402,8 +452,10 @@ impl<'a> Decider<'a> {
                         &srv.item,
                         &target,
                         server_hash,
+                        srv.size,
                         srv.version,
                         ConflictKind::BothCreated,
+                        None,
                     ) else {
                         return self.no_copy_name(srv);
                     };
@@ -423,8 +475,10 @@ impl<'a> Decider<'a> {
                     &srv.item,
                     &target,
                     local_hash,
+                    file.size,
                     srv.version,
                     ConflictKind::BothCreated,
+                    None,
                 ) else {
                     return self.no_copy_name(srv);
                 };
@@ -437,6 +491,7 @@ impl<'a> Decider<'a> {
                     existing: Some(existing),
                     copy: Some(copy),
                     rec,
+                    merge: false,
                 })));
             }
         }
@@ -491,8 +546,10 @@ impl<'a> Decider<'a> {
                         &srv.item,
                         &srv.path,
                         hash,
+                        srv.size,
                         srv.version,
                         ConflictKind::BothCreated,
+                        None,
                     ) {
                         self.place = Some(copy.path.clone());
                         self.place_copy = Some(copy);
@@ -551,6 +608,7 @@ impl<'a> Decider<'a> {
                             existing: Some(existing),
                             copy: None,
                             rec: srv.record(0),
+                            merge: false,
                         })));
                     }
                     (true, false) => {
@@ -559,7 +617,7 @@ impl<'a> Decider<'a> {
                     }
                     (true, true) => {
                         self.overwrite(&self.dest(srv));
-                        let put = self.put_after_move(srv, file.hash, None);
+                        let put = self.put_after_move(srv, file.hash, None, false);
                         let rec = srv.record(0);
                         self.rename(srv, base, existing, rec, Some(put));
                     }
@@ -597,6 +655,7 @@ impl<'a> Decider<'a> {
                     // Д29, Д15: the same change on both sides.
                     let mut rec = srv.record(file.mtime_ns);
                     rec.size = file.size;
+                    self.link_base(&rec, &file.disk);
                     if renamed {
                         return self.rename(srv, base, existing, rec, None);
                     }
@@ -607,14 +666,16 @@ impl<'a> Decider<'a> {
                     &srv.item,
                     &self.dest(srv),
                     file.hash,
+                    file.size,
                     srv.version,
                     ConflictKind::BothEdited,
+                    Some(base),
                 ) else {
                     return self.no_copy_name(srv);
                 };
                 self.overwrite(&self.dest(srv));
                 if renamed {
-                    let put = self.put_after_move(srv, file.hash, Some(copy));
+                    let put = self.put_after_move(srv, file.hash, Some(copy), true);
                     let rec = srv.record(0);
                     self.rename(srv, base, existing, rec, Some(put));
                 } else {
@@ -625,6 +686,7 @@ impl<'a> Decider<'a> {
                         existing: Some(existing),
                         copy: Some(copy),
                         rec: srv.record(0),
+                        merge: true,
                     })));
                 }
             }
@@ -654,6 +716,7 @@ impl<'a> Decider<'a> {
                     (false, true) if same_content => {
                         let mut rec = srv.record(file.mtime_ns);
                         rec.size = file.size;
+                        self.link_base(&rec, &file.disk);
                         self.set_base(rec);
                     }
                     (false, true) => {
@@ -663,8 +726,10 @@ impl<'a> Decider<'a> {
                                 &srv.item,
                                 &to,
                                 file.hash,
+                                file.size,
                                 srv.version,
                                 ConflictKind::BothEdited,
+                                Some(base),
                             ) else {
                                 return self.no_copy_name(srv);
                             };
@@ -680,6 +745,7 @@ impl<'a> Decider<'a> {
                             existing: Some(existing),
                             copy,
                             rec: srv.record(0),
+                            merge: false,
                         })));
                     }
                     (true, false) => {
@@ -696,6 +762,7 @@ impl<'a> Decider<'a> {
                         if same_content {
                             let mut rec = srv.record(file.mtime_ns);
                             rec.size = file.size;
+                            self.link_base(&rec, &file.disk);
                             if to == self.dest(srv) {
                                 self.set_base(rec);
                             } else {
@@ -707,8 +774,10 @@ impl<'a> Decider<'a> {
                                     &srv.item,
                                     &self.dest(srv),
                                     file.hash,
+                                    file.size,
                                     srv.version,
                                     ConflictKind::BothEdited,
+                                    Some(base),
                                 ) else {
                                     return self.no_copy_name(srv);
                                 };
@@ -717,7 +786,7 @@ impl<'a> Decider<'a> {
                                 None
                             };
                             self.overwrite(&self.dest(srv));
-                            let put = self.put_after_move(srv, file.hash, copy);
+                            let put = self.put_after_move(srv, file.hash, copy, false);
                             let rec = srv.record(0);
                             if to == self.dest(srv) {
                                 self.plan.acts.push(Act::Put(Box::new(PutAct {
@@ -792,7 +861,13 @@ impl<'a> Decider<'a> {
     }
 
     /// The content replacement that follows a rename: the file is then at the server's path.
-    fn put_after_move(&mut self, srv: &Srv, hash: [u8; 32], copy: Option<CopyPlan>) -> PutAct {
+    fn put_after_move(
+        &mut self,
+        srv: &Srv,
+        hash: [u8; 32],
+        copy: Option<CopyPlan>,
+        merge: bool,
+    ) -> PutAct {
         PutAct {
             seq: srv.seq,
             srv: srv.clone(),
@@ -803,6 +878,7 @@ impl<'a> Decider<'a> {
             }),
             copy,
             rec: srv.record(0),
+            merge,
         }
     }
 
@@ -835,8 +911,15 @@ impl<'a> Decider<'a> {
             // The same content is there already; the rename onto it cannot happen, but the file
             // we move would be a duplicate. Keep both, it is the safe answer.
         }
-        let Some(copy) = self.copy_for(&srv.item, to, hash, srv.version, ConflictKind::BothCreated)
-        else {
+        let Some(copy) = self.copy_for(
+            &srv.item,
+            to,
+            hash,
+            file.size,
+            srv.version,
+            ConflictKind::BothCreated,
+            None,
+        ) else {
             self.no_copy_name(srv);
             return None;
         };

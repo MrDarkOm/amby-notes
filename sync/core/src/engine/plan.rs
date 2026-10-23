@@ -85,10 +85,12 @@ pub(super) struct Existing {
     pub hash: [u8; 32],
 }
 
-/// Where a conflict copy goes and how it comes to be (Д46, Д47).
+/// Where the second version of a conflict goes and how it comes to be (Д46, Д47, Г20–Г23): a set
+/// in `.amby/conflicts/<id>/`, or, for a path inside that folder, a copy beside the file (Г19).
 #[derive(Debug, Clone)]
 pub(super) struct CopyPlan {
     pub id: String,
+    /// Where the second version lies: `other<ext>` of the set, or the copy beside the file.
     pub path: String,
     /// The path of the file that keeps the name.
     pub original: String,
@@ -97,6 +99,16 @@ pub(super) struct CopyPlan {
     pub exists: bool,
     /// The server has this very copy: it arrives by itself (Д46).
     pub from_server: bool,
+    /// An old-style copy beside the file (Г19): no set files besides it.
+    pub legacy: bool,
+    /// The item whose content kept the name (Г21).
+    pub item: ItemId,
+    /// Hash and size of the second version (Г21).
+    pub other_hash: [u8; 32],
+    pub other_size: u64,
+    /// The common base, for a conflict of two edits that had one (Г6, Г21). It is also what the
+    /// merge starts from (Г12).
+    pub base: Option<Vec<u8>>,
 }
 
 /// Write the server version of a file: a new file, or a replacement of an existing one with a
@@ -111,6 +123,9 @@ pub(super) struct PutAct {
     pub copy: Option<CopyPlan>,
     /// The base after success.
     pub rec: ItemRecord,
+    /// Both sides changed the content of a note that has a base: try the merge before the copy
+    /// becomes a set (К1, Г4). The base is `copy.base`.
+    pub merge: bool,
 }
 
 /// Rename a file on disk (Д26, Д30, Д34): `LocalFs::rename` never overwrites.
@@ -139,6 +154,18 @@ pub(super) struct KeepAct {
     pub srv: Srv,
     pub copy: CopyPlan,
     pub rec: ItemRecord,
+}
+
+/// A file whose content is the common version from now on (Г8 в): its bytes become the base
+/// before the state says so (Г9).
+#[derive(Debug, Clone)]
+pub(super) struct LinkBase {
+    pub item: ItemId,
+    pub hash: [u8; 32],
+    /// The path of the base record, which decides whether the file is a note (Г5).
+    pub path: String,
+    /// Where the file lies now.
+    pub disk: String,
 }
 
 /// One action of the application of incoming changes (Д17).
@@ -194,6 +221,8 @@ pub(super) struct Plan {
     pub outgoing: Vec<PlannedChange>,
     /// Folders to try to remove when they are empty (Д17, step 5).
     pub cleanup: BTreeSet<String>,
+    /// Files that become the base of their record unchanged (Г8 в).
+    pub link_bases: Vec<LinkBase>,
 }
 
 impl Plan {

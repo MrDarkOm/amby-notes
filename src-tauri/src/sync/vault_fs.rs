@@ -44,7 +44,7 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Folders of `.amby/` whose files are synchronised (Р4); the rest of `.amby/` is listed by name
 /// only.
-const AMBY_SYNCED_FOLDERS: [&str; 2] = ["blocks", "property-backups"];
+const AMBY_SYNCED_FOLDERS: [&str; 3] = ["blocks", "property-backups", "conflicts"];
 
 impl VaultFs {
     /// The vault at `root`, with no hooks.

@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 use amby_sync_core::crypto::header::ItemKind;
 use amby_sync_core::crypto::keys::{BodyId, ItemId};
+use amby_sync_core::crypto::primitives::blake3_hash;
 use amby_sync_core::engine::names::NameProblem;
 use amby_sync_core::engine::{
     CommitItem, ConflictKind, ConflictRecord, ItemRecord, PendingCommit, PendingUpload, StateError,
@@ -199,6 +200,20 @@ impl SqliteStateStore {
         Self::open_with_lock(path.to_path_buf(), path.with_extension("lock"))
     }
 
+    /// `.amby/sync/bases/` (Г6).
+    fn bases_dir(&self) -> PathBuf {
+        self.path
+            .parent()
+            .map_or_else(|| PathBuf::from("bases"), |dir| dir.join("bases"))
+    }
+
+    /// The file of the base `(item, hash)` (Г6).
+    fn base_path(&self, item: &ItemId, hash: &[u8; 32]) -> PathBuf {
+        self.bases_dir()
+            .join(hex::encode(item.as_bytes()))
+            .join(hex::encode(hash))
+    }
+
     fn open_with_lock(path: PathBuf, lock_path: PathBuf) -> Result<Self, StateError> {
         let conn = match open_connection(&path) {
             Ok(conn) => conn,
@@ -256,6 +271,26 @@ impl SqliteStateStore {
             .query_row("SELECT cursor FROM link WHERE id = 1", [], |row| row.get(0))
             .map_err(db_error)?;
         to_u64(cursor)
+    }
+
+    /// The path of every live item by the hex of its `item_id` (Г27), without loading the whole
+    /// state.
+    pub fn live_paths(&self) -> Result<BTreeMap<String, String>, StateError> {
+        let mut statement = self
+            .conn
+            .prepare("SELECT item_id, path FROM items WHERE deleted = 0")
+            .map_err(db_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(db_error)?;
+        let mut paths = BTreeMap::new();
+        for row in rows {
+            let (item, path) = row.map_err(db_error)?;
+            paths.insert(hex::encode(item), path);
+        }
+        Ok(paths)
     }
 
     /// The open conflicts and the "not synchronised" list, without loading the whole state.
@@ -831,19 +866,67 @@ impl StateStore for SqliteStateStore {
     }
 
     /// Appendix Г, Г6–Г9: `.amby/sync/bases/<item id hex>/<hash hex>`, written through a temporary
-    /// file and a rename. Bodies are `todo!()` until the tests of stage Э4б are reviewed.
+    /// file and a rename, durable before it returns.
     fn base_put(&mut self, item: &ItemId, hash: &[u8; 32], bytes: &[u8]) -> Result<(), StateError> {
-        let _ = (item, hash, bytes);
-        todo!("Г7: keep a base on disk")
+        use std::io::Write;
+        let target = self.base_path(item, hash);
+        let folder = target
+            .parent()
+            .ok_or_else(|| StateError::Io("a base has no folder".to_string()))?
+            .to_path_buf();
+        fs::create_dir_all(&folder).map_err(io_error)?;
+        let temp = folder.join(format!(".{}.part", hex::encode(hash)));
+        let written = (|| {
+            let mut file = fs::File::create(&temp)?;
+            file.write_all(bytes)?;
+            file.sync_all()?;
+            drop(file);
+            fs::rename(&temp, &target)
+        })();
+        if let Err(error) = written {
+            let _ = fs::remove_file(&temp);
+            return Err(io_error(error));
+        }
+        // The rename itself must survive a power cut too.
+        if let Ok(dir) = fs::File::open(&folder) {
+            let _ = dir.sync_all();
+        }
+        Ok(())
     }
 
     fn base_get(&mut self, item: &ItemId, hash: &[u8; 32]) -> Result<Option<Vec<u8>>, StateError> {
-        let _ = (item, hash);
-        todo!("Г7: read a base, checked against its hash")
+        match fs::read(self.base_path(item, hash)) {
+            Ok(bytes) if &blake3_hash(&bytes) == hash => Ok(Some(bytes)),
+            Ok(_) => Ok(None),
+            Err(_) => Ok(None),
+        }
     }
 
     fn base_prune(&mut self, keep: &[(ItemId, [u8; 32])]) -> Result<(), StateError> {
-        let _ = keep;
-        todo!("Г9: remove the bases nobody refers to")
+        let root = self.bases_dir();
+        let wanted: std::collections::BTreeSet<PathBuf> = keep
+            .iter()
+            .map(|(item, hash)| self.base_path(item, hash))
+            .collect();
+        let Ok(folders) = fs::read_dir(&root) else {
+            return Ok(());
+        };
+        for folder in folders.flatten() {
+            let folder_path = folder.path();
+            if !folder_path.is_dir() {
+                let _ = fs::remove_file(&folder_path);
+                continue;
+            }
+            if let Ok(files) = fs::read_dir(&folder_path) {
+                for file in files.flatten() {
+                    if !wanted.contains(&file.path()) {
+                        let _ = fs::remove_file(file.path());
+                    }
+                }
+            }
+            // Only an empty folder goes; a failure here is not an error.
+            let _ = fs::remove_dir(&folder_path);
+        }
+        Ok(())
     }
 }

@@ -22,16 +22,17 @@ use amby_sync_core::crypto::keys::{AccountKey, SpaceId, SpaceKey};
 use amby_sync_core::crypto::random::OsRandom;
 use amby_sync_core::engine::rules::is_excluded_path;
 use amby_sync_core::engine::{
-    Approvals, ConflictKind, ConflictRecord, CycleOutcome, CycleReport, CycleRequest, Direction,
-    Engine, EngineConfig, EngineError, LocalFs, Ports, RemoteError, RenameHint, StateError,
-    StateOp, StateStore, StopReason, SyncEngine, TrashReason, UnsyncedReason, UnsyncedRecord,
+    Approvals, CycleOutcome, CycleReport, CycleRequest, Direction, Engine, EngineConfig,
+    EngineError, LocalFs, Ports, RemoteError, RenameHint, StateError, StateOp, StateStore,
+    StopReason, SyncEngine, UnsyncedReason, UnsyncedRecord,
 };
 use sha2::{Digest, Sha256};
-use unicode_normalization::UnicodeNormalization;
-use walkdir::WalkDir;
 
-use crate::index::identity::{is_sync_conflict_copy, original_of_conflict_copy};
 use crate::sync::clock::SystemClock;
+use crate::sync::conflict_store::{
+    copy_name_id, ConflictEntry, ConflictError, ConflictSource, ConflictStore, FileConflictStore,
+    Resolution,
+};
 use crate::sync::gate;
 use crate::sync::remote::HttpRemote;
 use crate::sync::state_db::{state_dir, SqliteStateStore, META_DEVICE_ID, META_SPACE_ID};
@@ -427,8 +428,10 @@ impl SyncSession {
     /// leaves the list, and a pass follows. `conflict_not_found` for an id that is not in the
     /// list.
     pub fn resolve_conflict(&self, id: &str, choice: ConflictChoice) -> Result<(), SyncError> {
-        self.resolve_with(id, None, |files, vault, conflict| {
-            apply_choice(files, vault, conflict, choice)
+        self.resolve_with(id, None, |store, entry, files, vault| match choice {
+            ConflictChoice::KeepBoth => keep_both(store, entry, files, vault),
+            ConflictChoice::KeepOriginal => store.resolve(&entry.id, Resolution::Current),
+            ConflictChoice::KeepCopy => store.resolve(&entry.id, Resolution::Other),
         })
     }
 
@@ -441,20 +444,13 @@ impl SyncSession {
         text: &str,
         stamp: &str,
     ) -> Result<(), SyncError> {
-        self.resolve_with(id, Some(stamp), |files, _vault, conflict| {
-            use amby_sync_core::engine::{FsError, SnapshotReason};
-            let mut staged = files.begin_write(&conflict.original_path)?;
-            for chunk in text.as_bytes().chunks(64 * 1024) {
-                if let Err(error) = staged.write(chunk) {
-                    staged.abort();
-                    return Err(error);
-                }
-            }
-            staged.publish(Some(SnapshotReason::SyncOverwrite))?;
-            match files.move_to_trash(&conflict.copy_path, TrashReason::RemoteDeletion) {
-                Ok(()) | Err(FsError::NotFound(_)) => Ok(()),
-                Err(error) => Err(error),
-            }
+        self.resolve_with(id, Some(stamp), |store, entry, _files, _vault| {
+            store.resolve(
+                &entry.id,
+                Resolution::Assembled {
+                    text: text.to_string(),
+                },
+            )
         })
     }
 
@@ -467,7 +463,7 @@ impl SyncSession {
         let _work = shared.work.lock().unwrap_or_else(|e| e.into_inner());
         let vault = &shared.config.vault;
         let mut store = SqliteStateStore::open(vault).map_err(|e| state_error(&e))?;
-        let conflicts = open_conflicts(vault, &mut store).map_err(|e| state_error(&e))?;
+        let conflicts = list_conflicts(vault, &mut store).map_err(|e| state_error(&e))?;
         let conflict = conflicts
             .into_iter()
             .find(|conflict| conflict.id == id)
@@ -482,8 +478,8 @@ impl SyncSession {
                 .and_then(|bytes| String::from_utf8(bytes).ok())
         };
         Ok(ConflictVersions {
-            original: text(&conflict.original_path),
-            copy: text(&conflict.copy_path),
+            original: text(&conflict.path),
+            copy: text(&conflict.other_path),
             stamp: conflict_stamp(vault, &conflict),
         })
     }
@@ -495,16 +491,17 @@ impl SyncSession {
         id: &str,
         expected_stamp: Option<&str>,
         change: impl FnOnce(
+            &mut FileConflictStore,
+            &ConflictEntry,
             &mut VaultFs,
             &Path,
-            &ConflictRecord,
-        ) -> Result<(), amby_sync_core::engine::FsError>,
+        ) -> Result<(), ConflictError>,
     ) -> Result<(), SyncError> {
         let shared = &self.shared;
         let _work = shared.work.lock().unwrap_or_else(|e| e.into_inner());
         let vault = &shared.config.vault;
         let mut store = SqliteStateStore::open(vault).map_err(|e| state_error(&e))?;
-        let conflicts = open_conflicts(vault, &mut store).map_err(|e| state_error(&e))?;
+        let conflicts = list_conflicts(vault, &mut store).map_err(|e| state_error(&e))?;
         let conflict = conflicts
             .into_iter()
             .find(|conflict| conflict.id == id)
@@ -515,16 +512,19 @@ impl SyncSession {
             return Err(SyncError::new("conflict_changed"));
         }
 
-        let mut files = VaultFs::with_hooks(vault.clone(), shared.config.hooks.clone());
+        let (mut conflict_store, mut files) =
+            conflict_store_of(vault, &mut store, shared).map_err(|e| state_error(&e))?;
         files.batch_begin();
-        let result = change(&mut files, vault, &conflict);
+        let result = change(&mut conflict_store, &conflict, &mut files, vault);
         files.batch_end();
-        result.map_err(|_| SyncError::new("storage_error"))?;
+        result.map_err(|error| SyncError::new(conflict_error_code(&error)))?;
 
-        store
-            .apply(&vec![StateOp::RemoveConflict(conflict.id.clone())])
-            .map_err(|e| state_error(&e))?;
-        let conflicts = open_conflicts(vault, &mut store).map_err(|e| state_error(&e))?;
+        let mut gone = vec![StateOp::RemoveConflict(conflict.id.clone())];
+        if let Some(recorded) = copy_name_id(&conflict.other_path) {
+            gone.push(StateOp::RemoveConflict(recorded));
+        }
+        store.apply(&gone).map_err(|e| state_error(&e))?;
+        let conflicts = list_conflicts(vault, &mut store).map_err(|e| state_error(&e))?;
         let (_, unsynced) = store.lists().map_err(|e| state_error(&e))?;
         drop(store);
         shared.update(|status| {
@@ -570,9 +570,9 @@ impl Drop for SyncSession {
 
 /// A fingerprint of the two files of a conflict (their bytes, or size and time for a file too large to
 /// read), so a text built from them can be refused when they have changed.
-fn conflict_stamp(vault: &Path, conflict: &ConflictRecord) -> String {
+fn conflict_stamp(vault: &Path, conflict: &ConflictEntry) -> String {
     let mut digest = Sha256::new();
-    for relative in [&conflict.original_path, &conflict.copy_path] {
+    for relative in [&conflict.path, &conflict.other_path] {
         let path = vault.join(relative);
         match fs::metadata(&path) {
             Err(_) => digest.update(b"missing;"),
@@ -588,83 +588,79 @@ fn conflict_stamp(vault: &Path, conflict: &ConflictRecord) -> String {
     hex::encode(digest.finalize())
 }
 
-/// Changes the files the way the person chose (Р7).
-fn apply_choice(
+/// "Keep both" (Г29), kept until the interface of К3: the second version becomes a file beside the
+/// note, as a copy was, with an identity of its own when it is a note; a set is removed.
+fn keep_both(
+    store: &mut FileConflictStore,
+    entry: &ConflictEntry,
     files: &mut VaultFs,
     vault: &Path,
-    conflict: &ConflictRecord,
-    choice: ConflictChoice,
-) -> Result<(), amby_sync_core::engine::FsError> {
-    use amby_sync_core::engine::{FsError, SnapshotReason};
-    let trash_copy = |files: &mut VaultFs| match files
-        .move_to_trash(&conflict.copy_path, TrashReason::RemoteDeletion)
-    {
-        Ok(()) | Err(FsError::NotFound(_)) => Ok(()),
-        Err(error) => Err(error),
-    };
-    match choice {
-        ConflictChoice::KeepBoth => {
-            give_copy_its_own_identity(files, vault, conflict);
+) -> Result<(), ConflictError> {
+    use amby_sync_core::engine::names::conflict_copy_path;
+    match entry.source {
+        ConflictSource::LegacyCopy => {
+            give_copy_its_own_identity(files, vault, &entry.path, &entry.other_path);
             Ok(())
         }
-        ConflictChoice::KeepOriginal => trash_copy(files),
-        ConflictChoice::KeepCopy => {
-            match files.read(&conflict.copy_path) {
-                Ok(bytes) => {
-                    let mut staged = files.begin_write(&conflict.original_path)?;
-                    for chunk in bytes.chunks(64 * 1024) {
-                        if let Err(error) = staged.write(chunk) {
-                            staged.abort();
-                            return Err(error);
-                        }
-                    }
-                    staged.publish(Some(SnapshotReason::SyncOverwrite))?;
+        ConflictSource::Bundle => {
+            let copy = conflict_copy_path(&entry.path, &entry.id);
+            let bytes = files
+                .read(&entry.other_path)
+                .map_err(|e| ConflictError::Storage(e.to_string()))?;
+            let mut staged = files
+                .begin_write(&copy)
+                .map_err(|e| ConflictError::Storage(e.to_string()))?;
+            for chunk in bytes.chunks(64 * 1024) {
+                if let Err(error) = staged.write(chunk) {
+                    staged.abort();
+                    return Err(ConflictError::Storage(error.to_string()));
                 }
-                // The copy is gone already: there is nothing to put in its place.
-                Err(FsError::NotFound(_)) => return Ok(()),
-                Err(error) => return Err(error),
             }
-            trash_copy(files)
+            staged
+                .publish(None)
+                .map_err(|e| ConflictError::Storage(e.to_string()))?;
+            give_copy_its_own_identity(files, vault, &entry.path, &copy);
+            store.resolve(&entry.id, Resolution::Current)
         }
     }
 }
 
 /// A copy of a note repeats the `amby-id` of its file, and Amby refuses to edit two notes with one
-/// identity (docs/vault-format.md). When the person keeps both files, the copy becomes a note of
-/// its own: a new `amby-id`, nothing else changed, the old text first in the history. Best effort:
+/// identity (docs/vault-format.md). When the person keeps both files, the copy becomes a note of its
+/// own: a new `amby-id`, nothing else changed, the old text first in the history. Best effort:
 /// a copy whose frontmatter cannot take it without guessing stays as it is (a read-only duplicate
 /// that the person can still read and copy from).
-fn give_copy_its_own_identity(files: &mut VaultFs, vault: &Path, conflict: &ConflictRecord) {
-    let (Ok(copy), Ok(original)) = (
-        files.read(&conflict.copy_path),
-        files.read(&conflict.original_path),
+fn give_copy_its_own_identity(files: &mut VaultFs, vault: &Path, original: &str, copy: &str) {
+    let (Ok(copy_bytes), Ok(original_bytes)) = (files.read(copy), files.read(original)) else {
+        return;
+    };
+    let (Ok(copy_text), Ok(original_text)) = (
+        String::from_utf8(copy_bytes),
+        String::from_utf8(original_bytes),
     ) else {
         return;
     };
-    let (Ok(copy), Ok(original)) = (String::from_utf8(copy), String::from_utf8(original)) else {
-        return;
-    };
-    let copy_id = crate::frontmatter::parse_markdown(&copy)
+    let copy_id = crate::frontmatter::parse_markdown(&copy_text)
         .note_id()
         .map(str::to_string);
-    let original_id = crate::frontmatter::parse_markdown(&original)
+    let original_id = crate::frontmatter::parse_markdown(&original_text)
         .note_id()
         .map(str::to_string);
     if copy_id.is_none() || copy_id != original_id {
         return;
     }
     let Ok(next) =
-        crate::frontmatter::with_replaced_amby_id(&copy, &ulid::Ulid::generate().to_string())
+        crate::frontmatter::with_replaced_amby_id(&copy_text, &ulid::Ulid::generate().to_string())
     else {
         return;
     };
-    let target = vault.join(&conflict.copy_path);
+    let target = vault.join(copy);
     if crate::history::snapshot_before_write(vault, &target, next.as_bytes(), "id-assignment")
         .is_err()
     {
         return;
     }
-    let Ok(mut staged) = files.begin_write(&conflict.copy_path) else {
+    let Ok(mut staged) = files.begin_write(copy) else {
         return;
     };
     if staged.write(next.as_bytes()).is_err() {
@@ -674,102 +670,58 @@ fn give_copy_its_own_identity(files: &mut VaultFs, vault: &Path, conflict: &Conf
     let _: Result<(), _> = staged.publish(None);
 }
 
-/// The open conflicts of the vault, as every computer lists them (Р7, Д46–Д47). A conflict is open while
-/// its file and its copy are both there and the copy has not been given an identity of its own ("keep
-/// both" does that). The entries recorded on this computer follow the same rule. A copy that reached this
-/// computer as an ordinary file is listed from the files alone, with an id derived from its name. An
-/// entry that is no longer open leaves the state, so resolving a conflict on one computer clears it on
-/// all of them.
-fn open_conflicts(
+/// The store of the conflicts of this vault (Г25, Г27) and the files it writes through.
+fn conflict_store_of(
     vault: &Path,
     store: &mut SqliteStateStore,
-) -> Result<Vec<ConflictRecord>, StateError> {
+    shared: &Shared,
+) -> Result<(FileConflictStore, VaultFs), StateError> {
     let (recorded, _) = store.lists()?;
-    let mut open = Vec::new();
+    let created_here = recorded.iter().map(|record| record.id.clone()).collect();
+    let conflicts = FileConflictStore::new(vault.to_path_buf(), store.live_paths()?, created_here)
+        .with_hooks(shared.config.hooks.clone());
+    let files = VaultFs::with_hooks(vault.to_path_buf(), shared.config.hooks.clone());
+    Ok((conflicts, files))
+}
+
+/// The open conflicts of the vault, as every computer lists them (Г25, Г29): the complete sets in
+/// `.amby/conflicts/` and the old copies beside their files. The entries recorded on this computer
+/// mean "made here"; one whose files are gone leaves the state, so resolving a conflict on one
+/// computer clears it on all of them.
+fn list_conflicts(
+    vault: &Path,
+    store: &mut SqliteStateStore,
+) -> Result<Vec<ConflictEntry>, StateError> {
+    let (recorded, _) = store.lists()?;
+    let created_here = recorded.iter().map(|record| record.id.clone()).collect();
+    let entries = FileConflictStore::new(vault.to_path_buf(), store.live_paths()?, created_here)
+        .list()
+        .map_err(|error| StateError::Io(error.to_string()))?;
+    let mut open: std::collections::BTreeSet<String> =
+        entries.iter().map(|entry| entry.id.clone()).collect();
+    for entry in entries
+        .iter()
+        .filter(|entry| entry.source == ConflictSource::LegacyCopy)
+    {
+        open.extend(copy_name_id(&entry.other_path));
+    }
     for record in recorded {
-        if conflict_is_open(vault, &record.original_path, &record.copy_path, true) {
-            open.push(record);
-        } else {
-            store.apply(&vec![StateOp::RemoveConflict(record.id.clone())])?;
+        if !open.contains(&record.id) {
+            store.apply(&vec![StateOp::RemoveConflict(record.id)])?;
         }
     }
-    for copy in sync_copies(vault) {
-        if open.iter().any(|record| record.copy_path == copy) {
-            continue;
-        }
-        let Some(original) = original_of_conflict_copy(&copy) else {
-            continue;
-        };
-        if !conflict_is_open(vault, &original, &copy, false) {
-            continue;
-        }
-        open.push(ConflictRecord {
-            id: listing_id(&copy),
-            kind: ConflictKind::BothEdited,
-            original_path: original,
-            copy_path: copy.clone(),
-            created_ms: modified_ms(&vault.join(&copy)),
-        });
+    Ok(entries)
+}
+
+/// The machine code of a refusal of the store (Г35).
+fn conflict_error_code(error: &ConflictError) -> &'static str {
+    match error {
+        ConflictError::NotFound => "conflict_not_found",
+        ConflictError::Incomplete => "conflict_incomplete",
+        ConflictError::OriginalMissing => "conflict_original_missing",
+        ConflictError::NotText => "conflict_not_text",
+        ConflictError::Storage(_) => "storage_error",
     }
-    Ok(open)
-}
-
-/// Is the conflict between `original` and `copy` open (Р7, Д46)? Both files must be there. A copy with an
-/// `amby-id` of its own is a note of its own now. A copy listed from the files alone is a conflict only
-/// while it repeats the identity of its file; an entry recorded here stays open while it can be read.
-fn conflict_is_open(vault: &Path, original: &str, copy: &str, recorded: bool) -> bool {
-    let (copy_file, original_file) = (vault.join(copy), vault.join(original));
-    if !copy_file.is_file() || !original_file.is_file() {
-        return false;
-    }
-    let (Ok(copy_text), Ok(original_text)) = (
-        fs::read_to_string(&copy_file),
-        fs::read_to_string(&original_file),
-    ) else {
-        return recorded;
-    };
-    let copy_id = crate::frontmatter::parse_markdown(&copy_text)
-        .note_id()
-        .map(str::to_string);
-    let original_id = crate::frontmatter::parse_markdown(&original_text)
-        .note_id()
-        .map(str::to_string);
-    if copy_id.is_some() && copy_id != original_id {
-        return false;
-    }
-    recorded || copy_id.is_some()
-}
-
-/// The copies of conflicts in the vault (`Name.<id>-conflict.ext`), by their paths in NFC.
-fn sync_copies(vault: &Path) -> Vec<String> {
-    WalkDir::new(vault)
-        .into_iter()
-        .filter_entry(|entry| {
-            entry.depth() == 0 || !is_excluded_path(&relative_name(vault, entry.path()))
-        })
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_file())
-        .map(|entry| relative_name(vault, entry.path()))
-        .filter(|rel| is_sync_conflict_copy(rel))
-        .collect()
-}
-
-/// A path inside the vault with `/` separators and NFC, as the engine names files.
-fn relative_name(vault: &Path, path: &Path) -> String {
-    let rel = path.strip_prefix(vault).unwrap_or(path);
-    rel.components()
-        .map(|part| part.as_os_str().to_string_lossy().into_owned())
-        .collect::<Vec<_>>()
-        .join("/")
-        .nfc()
-        .collect()
-}
-
-/// The id of a conflict listed from its copy alone: twelve hex characters of a digest of the copy's path,
-/// so the same copy has the same id on every call.
-fn listing_id(copy: &str) -> String {
-    let digest = Sha256::digest(format!("amby-sync/conflict-listing/1\n{copy}"));
-    hex::encode(&digest[..6])
 }
 
 /// When a file was last written, in milliseconds since the epoch (0 when unknown; display only).
@@ -783,17 +735,17 @@ fn modified_ms(path: &Path) -> i64 {
         })
 }
 
-fn conflict_view(conflict: &ConflictRecord) -> ConflictView {
+fn conflict_view(conflict: &ConflictEntry) -> ConflictView {
     ConflictView {
         id: conflict.id.clone(),
-        kind: match conflict.kind {
-            ConflictKind::BothEdited => "bothEdited",
-            ConflictKind::BothCreated => "bothCreated",
-        }
-        .to_string(),
-        original_path: conflict.original_path.clone(),
-        copy_path: conflict.copy_path.clone(),
+        kind: conflict.kind.clone(),
+        original_path: conflict.path.clone(),
+        copy_path: conflict.other_path.clone(),
         created_ms: conflict.created_ms,
+        source: Some(conflict.source),
+        text: Some(conflict.text),
+        has_base: Some(conflict.has_base),
+        created_here: Some(conflict.created_here),
     }
 }
 
@@ -1017,7 +969,7 @@ fn remote_code(error: &RemoteError) -> String {
 fn settle(shared: &Arc<Shared>, outcome: Outcome, failures: &mut u32, schedule: &Schedule) -> Next {
     let lists = SqliteStateStore::open(&shared.config.vault)
         .and_then(|mut store| {
-            let conflicts = open_conflicts(&shared.config.vault, &mut store)?;
+            let conflicts = list_conflicts(&shared.config.vault, &mut store)?;
             let (_, unsynced) = store.lists()?;
             Ok((conflicts, unsynced))
         })
@@ -1052,6 +1004,9 @@ fn settle(shared: &Arc<Shared>, outcome: Outcome, failures: &mut u32, schedule: 
     match outcome {
         Outcome::Report(report) => {
             let report = *report;
+            if !report.merged_paths.is_empty() {
+                shared.config.hooks.merged_after_edits(&report.merged_paths);
+            }
             if !report.restored_paths.is_empty() {
                 shared
                     .config

@@ -1,9 +1,11 @@
 //! The set of a conflict in `.amby/conflicts/<id>/` (appendix Г, К2: Г20–Г30): where its files lie,
 //! how its identifier is made and what `meta.json` says. Pure functions: the engine, the
-//! application and the tests use the same ones. Bodies are `todo!()` until the tests of stage Э4б
-//! are reviewed (plan, раздел 6).
+//! application and the tests use the same ones.
+
+use serde_json::Value;
 
 use crate::crypto::keys::ItemId;
+use crate::crypto::primitives::blake3_hash;
 
 use super::model::ConflictKind;
 
@@ -27,14 +29,36 @@ pub struct SetPaths {
 /// segment of `original`, with its dot, when it has 1–8 characters of `A–Z a–z 0–9` after the dot;
 /// otherwise empty. A name that only starts with a dot (`.env`) has no extension. Г21.
 pub fn set_paths(id: &str, original: &str) -> SetPaths {
-    let _ = (id, original);
-    todo!("Г21: paths of a set")
+    let last = original.rsplit('/').next().unwrap_or(original);
+    let ext = match last.rfind('.') {
+        // A dot at position 0 starts the name (`.env`), it does not begin an extension.
+        Some(dot) if dot > 0 => {
+            let tail = &last[dot + 1..];
+            let plain =
+                (1..=8).contains(&tail.len()) && tail.bytes().all(|b| b.is_ascii_alphanumeric());
+            if plain {
+                &last[dot..]
+            } else {
+                ""
+            }
+        }
+        _ => "",
+    };
+    let dir = format!("{CONFLICTS_DIR}/{id}");
+    SetPaths {
+        other: format!("{dir}/other{ext}"),
+        base: format!("{dir}/base{ext}"),
+        meta: format!("{dir}/meta.json"),
+        dir,
+    }
 }
 
 /// Is `path` inside `.amby/conflicts/` (Г19, Г24)?
 pub fn is_in_conflicts_dir(path: &str) -> bool {
-    let _ = path;
-    todo!("Г19: inside the conflicts folder")
+    path == CONFLICTS_DIR
+        || path
+            .strip_prefix(CONFLICTS_DIR)
+            .is_some_and(|rest| rest.starts_with('/'))
 }
 
 /// The identifier of a set: the first 6 bytes of `BLAKE3("amby-sync/conflict/2" ‖ item_id ‖
@@ -48,8 +72,15 @@ pub fn set_id(
     base_hash: Option<&[u8; 32]>,
     attempt: u32,
 ) -> String {
-    let _ = (item_id, other_hash, remote_version, base_hash, attempt);
-    todo!("Г22: identifier of a set")
+    let mut data = b"amby-sync/conflict/2".to_vec();
+    data.extend_from_slice(item_id.as_bytes());
+    data.extend_from_slice(other_hash);
+    data.extend_from_slice(&remote_version.to_be_bytes());
+    data.extend_from_slice(base_hash.unwrap_or(&[0u8; 32]));
+    if attempt != 0 {
+        data.extend_from_slice(&attempt.to_be_bytes());
+    }
+    hex_encode(&blake3_hash(&data)[..6])
 }
 
 /// What `meta.json` says (Г21). Nothing here depends on the device or on time.
@@ -90,13 +121,109 @@ pub enum MetaError {
 /// `other_size`, `base`, `base_hash` (hashes and ids as lowercase hex, absent values as `null`),
 /// no spaces, no final newline. Г21.
 pub fn encode_meta(meta: &SetMeta) -> Vec<u8> {
-    let _ = meta;
-    todo!("Г21: meta.json bytes")
+    let kind = match meta.kind {
+        ConflictKind::BothEdited => "bothEdited",
+        ConflictKind::BothCreated => "bothCreated",
+    };
+    let text = |value: &str| Value::String(value.to_owned()).to_string();
+    let opt_text = |value: &Option<String>| value.as_deref().map_or("null".to_owned(), text);
+    let base_hash = meta
+        .base_hash
+        .as_ref()
+        .map_or("null".to_owned(), |h| text(&hex_encode(h)));
+    format!(
+        "{{\"v\":1,\"id\":{},\"kind\":\"{kind}\",\"item_id\":{},\"path\":{},\"other\":{},\"other_hash\":{},\"other_size\":{},\"base\":{},\"base_hash\":{}}}",
+        text(&meta.id),
+        text(&hex_encode(meta.item_id.as_bytes())),
+        text(&meta.path),
+        text(&meta.other),
+        text(&hex_encode(&meta.other_hash)),
+        meta.other_size,
+        opt_text(&meta.base),
+        base_hash,
+    )
+    .into_bytes()
 }
 
 /// Reads `meta.json` (Г21, Г23). Unknown extra keys are ignored. A `"v"` above 1 is
 /// [`MetaError::UnsupportedVersion`].
 pub fn decode_meta(bytes: &[u8]) -> Result<SetMeta, MetaError> {
-    let _ = bytes;
-    todo!("Г21: read meta.json")
+    let json: Value = serde_json::from_slice(bytes).map_err(|_| MetaError::Malformed)?;
+    let object = json.as_object().ok_or(MetaError::Malformed)?;
+    let field = |key: &str| object.get(key).ok_or(MetaError::Malformed);
+    let string = |key: &str| {
+        field(key)?
+            .as_str()
+            .map(str::to_owned)
+            .ok_or(MetaError::Malformed)
+    };
+    let hash = |key: &str| -> Result<[u8; 32], MetaError> {
+        hex_decode(field(key)?.as_str().ok_or(MetaError::Malformed)?).ok_or(MetaError::Malformed)
+    };
+
+    let version = field("v")?.as_u64().ok_or(MetaError::Malformed)?;
+    if version > 1 {
+        return Err(MetaError::UnsupportedVersion(version));
+    }
+    if version == 0 {
+        return Err(MetaError::Malformed);
+    }
+    let id = string("id")?;
+    if id.len() != 12 || hex_decode::<6>(&id).is_none() {
+        return Err(MetaError::Malformed);
+    }
+    let kind = match field("kind")?.as_str() {
+        Some("bothEdited") => ConflictKind::BothEdited,
+        Some("bothCreated") => ConflictKind::BothCreated,
+        _ => return Err(MetaError::Malformed),
+    };
+    let item_id = ItemId::from_bytes(
+        hex_decode(field("item_id")?.as_str().ok_or(MetaError::Malformed)?)
+            .ok_or(MetaError::Malformed)?,
+    );
+    let (base, base_hash) = match (field("base")?, field("base_hash")?) {
+        (Value::Null, Value::Null) => (None, None),
+        (Value::String(name), Value::String(_)) => (Some(name.clone()), Some(hash("base_hash")?)),
+        _ => return Err(MetaError::Malformed),
+    };
+    Ok(SetMeta {
+        id,
+        kind,
+        item_id,
+        path: string("path")?,
+        other: string("other")?,
+        other_hash: hash("other_hash")?,
+        other_size: field("other_size")?.as_u64().ok_or(MetaError::Malformed)?,
+        base,
+        base_hash,
+    })
+}
+
+/// Lowercase hex of `bytes`.
+fn hex_encode(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut text = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        text.push(char::from(DIGITS[usize::from(byte >> 4)]));
+        text.push(char::from(DIGITS[usize::from(byte & 0x0F)]));
+    }
+    text
+}
+
+/// Lowercase hex of exactly `N` bytes; anything else is `None`.
+fn hex_decode<const N: usize>(text: &str) -> Option<[u8; N]> {
+    let digits = text.as_bytes();
+    if digits.len() != N * 2 {
+        return None;
+    }
+    let value = |digit: u8| match digit {
+        b'0'..=b'9' => Some(digit - b'0'),
+        b'a'..=b'f' => Some(digit - b'a' + 10),
+        _ => None,
+    };
+    let mut bytes = [0u8; N];
+    for (byte, pair) in bytes.iter_mut().zip(digits.chunks_exact(2)) {
+        *byte = (value(pair[0])? << 4) | value(pair[1])?;
+    }
+    Some(bytes)
 }

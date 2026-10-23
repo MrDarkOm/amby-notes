@@ -5,6 +5,7 @@ use unicode_normalization::UnicodeNormalization;
 use crate::crypto::primitives::blake3_hash;
 use crate::crypto::random::Random;
 
+use super::merge::{is_mergeable_path, MERGE_MAX_BYTES};
 use super::model::ItemRecord;
 
 /// `mtime_ns` of a base that was never written to this disk: the server's record is known, the
@@ -72,4 +73,13 @@ impl Random for FixedRandom {
             self.at += 1;
         }
     }
+}
+
+/// May `bytes` at `path` be kept as the base of a merge (Г5, Г6): a note of at most 1 MiB, valid
+/// UTF-8, without a `0x00` byte.
+pub(super) fn base_eligible(path: &str, bytes: &[u8]) -> bool {
+    is_mergeable_path(path)
+        && bytes.len() <= MERGE_MAX_BYTES
+        && !bytes.contains(&0)
+        && std::str::from_utf8(bytes).is_ok()
 }
