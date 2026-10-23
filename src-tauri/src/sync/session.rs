@@ -30,7 +30,7 @@ use sha2::{Digest, Sha256};
 use unicode_normalization::UnicodeNormalization;
 use walkdir::WalkDir;
 
-use crate::index::identity::is_sync_conflict_copy;
+use crate::index::identity::{is_sync_conflict_copy, original_of_conflict_copy};
 use crate::sync::clock::SystemClock;
 use crate::sync::gate;
 use crate::sync::remote::HttpRemote;
@@ -594,7 +594,7 @@ fn open_conflicts(
         if open.iter().any(|record| record.copy_path == copy) {
             continue;
         }
-        let Some(original) = original_of(&copy) else {
+        let Some(original) = original_of_conflict_copy(&copy) else {
             continue;
         };
         if !conflict_is_open(vault, &original, &copy, false) {
@@ -660,21 +660,6 @@ fn relative_name(vault: &Path, path: &Path) -> String {
         .join("/")
         .nfc()
         .collect()
-}
-
-/// The file that kept the name of a copy (Д46 inverted): `Имя.<id>-conflict.ext` → `Имя.ext`.
-fn original_of(copy: &str) -> Option<String> {
-    let (dir, name) = match copy.rfind('/') {
-        Some(at) => (&copy[..=at], &copy[at + 1..]),
-        None => ("", copy),
-    };
-    let at = name.rfind("-conflict")?;
-    let dot = name[..at].rfind('.')?;
-    Some(format!(
-        "{dir}{}{}",
-        &name[..dot],
-        &name[at + "-conflict".len()..]
-    ))
 }
 
 /// The id of a conflict listed from its copy alone: twelve hex characters of a digest of the copy's path,

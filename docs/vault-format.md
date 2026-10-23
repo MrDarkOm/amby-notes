@@ -131,6 +131,8 @@ stable ID and stays editable whatever the order of paths, and the copy is a
 visible, searchable, read-only duplicate until the person resolves the conflict
 (keep the file, replace it with the copy, or keep both). Nothing is written into
 either file for this. Any other file with the same ID still blocks both, as above.
+A copy never holds the identity, even when its file is missing: then it has only its path-scoped conflict
+key. Once "keep both" gives the copy an `amby-id` of its own, it is an ordinary note.
 
 The index's `identity_version = 3` marker invalidates the metadata skip path
 once so older cached interpretations are re-read. SQLite is still disposable;

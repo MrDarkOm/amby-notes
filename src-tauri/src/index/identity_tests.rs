@@ -566,3 +566,33 @@ fn a_deleted_note_is_not_read_through_its_conflict_copy_and_comes_back_with_its_
     drop(conn);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn a_conflict_copy_with_an_identity_of_its_own_is_an_ordinary_note() {
+    // "Keep both" (Р7, Д46) gives the copy an `amby-id` of its own. Then it is no longer a duplicate of
+    // its file: it holds its identity and is editable, like any other note.
+    let root = vault();
+    let id = Ulid::generate().to_string();
+    let own = Ulid::generate().to_string();
+    fs::write(
+        root.join("Note.md"),
+        format!("---\namby-id: {id}\n---\nThe file under its name"),
+    )
+    .unwrap();
+    fs::write(
+        root.join("Note.0123456789ab-conflict.md"),
+        format!("---\namby-id: {own}\n---\nThe other version"),
+    )
+    .unwrap();
+    let conn = open_connection(&root).unwrap();
+    let loaded = load_vault(&conn, &root).unwrap();
+    assert!(
+        loaded.notes.iter().any(|note| note.id == own),
+        "the copy holds its own id"
+    );
+    let read = read_note(&conn, &root, &own).unwrap();
+    assert_eq!(read.content, "The other version");
+    assert!(prepare_note_write(&conn, &root, &own, "edited", &read.revision).is_ok());
+    drop(conn);
+    fs::remove_dir_all(root).unwrap();
+}

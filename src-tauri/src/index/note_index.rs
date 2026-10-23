@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 use ulid::Ulid;
 
 use super::identity::{
-    conflict_id, ensure_unique_identity, is_path_identity, is_sync_conflict_copy, opaque_id,
-    OPAQUE_PREFIX, OPAQUE_SOURCE_PREFIX,
+    conflict_copy_is_duplicate, conflict_id, ensure_unique_identity, is_path_identity,
+    is_sync_conflict_copy, opaque_id, OPAQUE_PREFIX, OPAQUE_SOURCE_PREFIX,
 };
 use super::links::{extract_links, resolve_links_for_note};
 use super::tags::extract_tags;
@@ -541,14 +541,17 @@ pub fn prepare_note_at_path_with_identities(
     }
     let id = parsed.note_id().map(str::to_string);
     if let Some(existing_id) = &id {
-        if identities.by_id.get(existing_id).is_some_and(|indexed| {
-            indexed != &rel_path
+        // A copy of a conflict of synchronisation keeps its key while it repeats its file's identity (Р7).
+        if conflict_copy_is_duplicate(vault, &rel_path, existing_id)
+            || identities.by_id.get(existing_id).is_some_and(|indexed| {
+                indexed != &rel_path
                     && abs_from_rel(vault, indexed).is_file()
                     // A conflict copy of synchronisation holding the id gives it back to the
                     // file under its real name (docs/sync-plan.md, Р7); the next refresh
                     // re-reads the copy as a duplicate.
                     && (!is_sync_conflict_copy(indexed) || is_sync_conflict_copy(&rel_path))
-        }) {
+            })
+        {
             return prepare_note_index(
                 vault,
                 &conflict_id(Some(existing_id), &rel_path),
