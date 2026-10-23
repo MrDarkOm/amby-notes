@@ -43,7 +43,44 @@ Those directories, along with `.amby/`, are excluded from the note index.
   restore. Completed IDs replay the original property IDs without another write.
   Configuration changes may affect up to three manifests and preserve the old
   inverse property when disconnecting a pair. Version-1 remains readable.
+- `sync/` — the state of encrypted synchronisation **of this device** (see
+  the sync plan, Р10): `state.db` (SQLite with a schema number in `PRAGMA user_version`),
+  `lock` (held by one pass of the engine) and `session.lock` (held while the sync of this vault runs, so
+  that two programs never synchronise one vault). `state.db` is not a cache and not the only copy of
+  the data: when it is lost or damaged (a damaged file is moved aside as `state.db.broken-<time>`), the
+  device reconciles every file again by content hash, links what is equal, makes conflict copies of
+  what differs and deletes nothing. A `state.db` written by a newer Amby (a newer schema number) is
+  left untouched. It also keeps the identity of the device and of the space: a vault copied to another
+  computer is noticed by that and starts from a full reconcile instead of posing as the old device.
+  It is never synchronised.
 - future versioned, documented metadata files.
+
+### Which files of `.amby/` are synchronised
+
+Every file or folder in `.amby/` states here whether it travels to the other devices. **A new file
+that does not say so is not synchronised** (sync plan, Р4): an unknown file neither leaves the
+computer nor gets lost. The engine enforces the same list (`sync/core/src/engine/rules.rs`), and a
+test holds the two together.
+
+| Entry                      | Synchronised | Why                                     |
+| -------------------------- | ------------ | --------------------------------------- |
+| `properties.json`          | yes          | user data of the notes                  |
+| `blocks/`                  | yes          | per-note UI sidecars                    |
+| `graph-layout.json`        | yes          | user state                              |
+| `property-backups/`        | yes          | immutable backups of removed properties |
+| `notes.db`, `-wal`, `-shm` | no           | rebuildable index                       |
+| `history/`                 | no           | each device keeps its own snapshots     |
+| `recovery/`                | no           | drafts and journals of this device      |
+| `trash/`                   | no           | each device keeps its own trash         |
+| `migrations/`              | no           | journals of this device                 |
+| `sync/`                    | no           | state of synchronisation of this device |
+| `workspace.json`, others   | no           | not named: the default is "no"          |
+
+Files written by synchronisation itself follow the rules of the vault: a file that arrives from another
+device replaces the local one only after a history snapshot with the reason `sync-overwrite` (taken
+even when the history is switched off), and a file deleted on another device goes to `.amby/trash/`
+whatever the delete mode (sync plan, Р8). The writes of synchronisation are not registered as
+writes of the application, so the watcher reports them like changes made by another program.
 
 The directory is application metadata, not an Obsidian configuration directory.
 Amby must not change `.obsidian` settings or plugin data.

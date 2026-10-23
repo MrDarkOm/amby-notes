@@ -17,6 +17,18 @@ use crate::sync::vault_types::{
 };
 use crate::vault_context::VaultContext;
 
+/// After the device signed in or out the sync of the open vault starts or stops with it: the
+/// session is made again from what the key store holds now.
+fn resume_open_vault(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    let root = app
+        .try_state::<VaultContext>()
+        .and_then(|context| context.root().ok());
+    if let Some(root) = root {
+        crate::sync::activate_for_open_vault(app, root);
+    }
+}
+
 fn endpoint(url: String, allow_http: bool) -> Endpoint {
     Endpoint { url, allow_http }
 }
@@ -67,10 +79,13 @@ pub async fn sync_prepare_account(
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_confirm_recovery_code(
+    app: tauri::AppHandle,
     service: State<'_, SyncService>,
     groups: Vec<String>,
 ) -> Result<SyncStatus, SyncError> {
-    service.confirm_recovery_code(&groups).await
+    let status = service.confirm_recovery_code(&groups).await?;
+    resume_open_vault(&app);
+    Ok(status)
 }
 
 /// Another invitation code for the prepared account (the keys and the recovery code stay).
@@ -94,6 +109,7 @@ pub fn sync_cancel_pending(service: State<'_, SyncService>) {
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_sign_in(
+    app: tauri::AppHandle,
     service: State<'_, SyncService>,
     url: String,
     allow_http: bool,
@@ -101,20 +117,24 @@ pub async fn sync_sign_in(
     password: String,
     device_name: String,
 ) -> Result<SyncStatus, SyncError> {
-    service
+    let status = service
         .sign_in(SignInRequest {
             endpoint: endpoint(url, allow_http),
             username,
             password,
             device_name,
         })
-        .await
+        .await?;
+    resume_open_vault(&app);
+    Ok(status)
 }
 
 /// Replaces a forgotten password with the recovery code and signs in (Р5, О3).
 #[tauri::command]
 #[specta::specta]
+#[allow(clippy::too_many_arguments)]
 pub async fn sync_recover(
+    app: tauri::AppHandle,
     service: State<'_, SyncService>,
     url: String,
     allow_http: bool,
@@ -123,7 +143,7 @@ pub async fn sync_recover(
     new_password: String,
     device_name: String,
 ) -> Result<SyncStatus, SyncError> {
-    service
+    let status = service
         .recover(RecoverRequest {
             endpoint: endpoint(url, allow_http),
             username,
@@ -131,7 +151,9 @@ pub async fn sync_recover(
             new_password,
             device_name,
         })
-        .await
+        .await?;
+    resume_open_vault(&app);
+    Ok(status)
 }
 
 /// The state of the connection (no network).
@@ -163,8 +185,13 @@ pub async fn sync_disconnect_device(
 /// Signs this device out (Р5).
 #[tauri::command]
 #[specta::specta]
-pub async fn sync_sign_out(service: State<'_, SyncService>) -> Result<SignOutResult, SyncError> {
-    service.sign_out().await
+pub async fn sync_sign_out(
+    app: tauri::AppHandle,
+    service: State<'_, SyncService>,
+) -> Result<SignOutResult, SyncError> {
+    let result = service.sign_out().await?;
+    resume_open_vault(&app);
+    Ok(result)
 }
 
 // ----- the sync of the open vault (stage Э4) -----

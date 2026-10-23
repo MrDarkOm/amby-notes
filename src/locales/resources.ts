@@ -1457,6 +1457,7 @@ const ru = {
     beforeRestore: "Перед восстановлением",
     linksUpdated: "Обновление ссылок",
     beforeBlockRewrite: "Перед изменением записи блока",
+    beforeSyncOverwrite: "Перед заменой версией с сервера",
     metadataUpdated: "Обновление метаданных",
     savedVersion: "Сохранённая версия",
     viewVersion: "Посмотреть версию: {{date}}",
@@ -3143,7 +3144,7 @@ const ru = {
     intro:
       "Подключение к вашему собственному серверу синхронизации. Всё шифруется на этом устройстве: сервер не видит ни заметок, ни имён файлов, ни пароля.",
     notYet:
-      "Заметки пока не синхронизируются. Сейчас можно подключиться к серверу и проверить учётную запись; передача заметок появится позже.",
+      "Синхронизация заметок работает в тестовом режиме: включайте её только на хранилище, которое не жалко потерять. Мы ещё проверяем, что данные не потеряются.",
     wait: { seconds: "{{n}} с", minutes: "{{n}} мин", hours: "{{n}} ч" },
     loading: "Читаем состояние…",
     errors: {
@@ -3190,7 +3191,123 @@ const ru = {
       storage_error: "Не удалось сохранить данные на этом компьютере.",
       unavailable: "Синхронизация доступна только в приложении для компьютера.",
       ipc_failed: "Приложение не смогло выполнить команду. Перезапустите его и попробуйте снова.",
+      quota_exceeded: "На сервере кончилось место для ваших данных.",
+      blob_too_large: "Файл слишком велик для этого сервера.",
+      space_exists: "Хранилище с таким идентификатором уже есть на сервере.",
+      test_vault_required:
+        "Пока синхронизацию можно включить только на тестовом хранилище: отметьте это хранилище как тестовое.",
+      space_not_found: "На сервере нет такого хранилища.",
+      invalid_space: "Идентификатор хранилища записан неверно.",
+      no_vault_open: "Сначала откройте хранилище.",
+      sync_not_running: "Синхронизация этого хранилища сейчас не запущена.",
+      conflict_not_found: "Этого конфликта уже нет в списке.",
+      vault_locked: "Это хранилище уже синхронизирует другая копия приложения.",
+      state_error: "Не удалось прочитать или записать состояние синхронизации в папке хранилища.",
+      state_newer: "Состояние синхронизации записала более новая версия Amby. Обновите приложение.",
       unknown: "Что-то пошло не так. Код ошибки: {{code}}.",
+    },
+    vault: {
+      title: "Это хранилище",
+      cancel: "Отмена",
+      testWarning:
+        "Синхронизация заметок пока экспериментальная. Включать её можно только на тестовом хранилище: скопируйте в него немного заметок, а не рабочие. Мы ещё не прошли все проверки на потерю данных.",
+      spaceLegend: "Пространство на сервере",
+      createNew: "Создать новое",
+      nameLabel: "Название",
+      namePlaceholder: "По умолчанию — имя папки",
+      connectExisting: "Подключить существующее",
+      noSpaces: "На сервере пока нет пространств.",
+      unnamedSpace: "Без названия",
+      spaceChanges: "изменений: {{count}}",
+      testVault: "Это тестовое хранилище: в нём нет единственных копий важных заметок",
+      enable: "Включить синхронизацию",
+      resume: "Включить снова",
+      off: "Синхронизация выключена",
+      cannotStart: "Не удалось запустить: {{reason}}",
+      testBadge: "Тестовое хранилище",
+      runNow: "Синхронизировать сейчас",
+      disable: "Выключить синхронизацию",
+      disableConfirm: "Да, выключить",
+      outgoingPaused:
+        "Отправка приостановлена: не закончена прошлая операция (например, связи баз данных). Она продолжится сама.",
+      itemErrors: "Не удалось обработать файлов: {{count}}. Попробуем снова.",
+      needsUpdate: "Часть файлов создана более новой версией Amby. Обновите приложение.",
+      status: {
+        idle: "Всё синхронизировано",
+        lastSync: "Последняя синхронизация: {{date}}",
+        never: "Ещё не синхронизировалось",
+        running: "Идёт синхронизация…",
+        waiting: "Нет связи с сервером. Повторим через {{wait}}",
+        stopped: "Остановлено",
+      },
+      stop: {
+        massIncomingTitle: "Сразу {{count}} файлов будет изменено на этом компьютере",
+        massIncomingText:
+          "Другой компьютер удалил или заменил много файлов. Удалённые файлы попадут в корзину хранилища, заменённые останутся в истории. Если это не вы, не продолжайте.",
+        massOutgoingTitle: "Вы удалили {{count}} файлов",
+        massOutgoingText:
+          "Удаление уйдёт на другие компьютеры: файлы пропадут и там (попадут в корзину хранилища). Если это случайно, верните папку из корзины.",
+        massContinue: "Да, продолжить",
+        more: "…и ещё {{count}}",
+        missingTitle: "Папка хранилища не найдена",
+        missingText:
+          "Возможно, отключён диск или папку переименовали. Ничего не удалено ни здесь, ни на сервере. Вернув папку, проверьте снова.",
+        checkAgain: "Проверить снова",
+        emptyTitle: "Папка хранилища пуста",
+        emptyText:
+          "Синхронизация помнит файлы, а папка пуста. Ничего не удалено. Если вы убрали всё сами, подтвердите.",
+        emptyConfirm: "Да, папка пуста",
+        serverResetTitle: "Сервер сброшен или заменён",
+        serverResetText:
+          "Ничего не удалено на этом компьютере. У сервера другая «личность»: его данные пропали или это другой сервер. Если сервер тот же и данные пропали, это хранилище можно загрузить на него заново.",
+        serverBehindTitle: "На сервере меньше изменений, чем мы уже видели",
+        serverBehindText:
+          "Похоже, сервер вернули к старой копии данных. На этом компьютере ничего не удалено. Это хранилище можно загрузить на сервер заново.",
+        rollbackTitle: "Сервер показал более старую версию файла",
+        rollbackText:
+          "Так бывает, если данные сервера откатили назад. На этом компьютере ничего не изменено. Это хранилище можно загрузить на сервер заново.",
+        resync: "Загрузить это хранилище на сервер заново",
+        resyncConfirm: "Да, загрузить заново",
+        authTitle: "Сервер больше не принимает это устройство",
+        authText:
+          "Устройство отключили от учётной записи или данные для входа устарели. Войдите снова в разделе подключения выше.",
+        incompatibleTitle: "Сервер другой версии",
+        incompatibleText:
+          "Этот сервер говорит на другой версии протокола. Обновите Amby или сервер.",
+      },
+      conflicts: {
+        title: "Конфликты ({{count}})",
+        bothEdited:
+          "Файл «{{original}}» изменили на двух компьютерах. Вторая версия сохранена рядом: «{{copy}}».",
+        bothCreated:
+          "Файл «{{original}}» создали на двух компьютерах. Вторая версия сохранена рядом: «{{copy}}».",
+        keepOriginal: "Оставить основной файл",
+        keepCopy: "Заменить копией",
+        keepBoth: "Оставить оба",
+        hint: "«Оставить основной файл» убирает копию в корзину хранилища. «Заменить копией» кладёт текст копии в основной файл, а прежняя версия остаётся в истории файла. «Оставить оба» только убирает строку из списка.",
+      },
+      unsynced: {
+        title: "Не синхронизируется ({{count}})",
+        symlink: "Символическая ссылка",
+        notUtf8: "Имя не в UTF-8",
+        tooLarge: "Файл больше лимита сервера",
+        tooBigForMemory: "Файл слишком большой для этого компьютера",
+        excludedPath: "Служебный путь",
+        invalidName: "Имя нельзя создать на этой системе ({{problem}})",
+        caseCollision: "Совпадает с «{{other}}» без учёта регистра",
+        nameCollision: "Два файла с одинаковым именем",
+        pathBusy: "Место занято другим файлом",
+        noAccess: "Нет доступа к файлу",
+        unknown: "Причина не распознана: возможно, её знает более новая версия Amby",
+        problems: {
+          forbiddenChar: "недопустимый символ",
+          trailingDot: "точка или пробел в конце",
+          reservedName: "зарезервированное имя",
+          segmentTooLong: "слишком длинное имя",
+          pathTooLong: "слишком длинный путь",
+          unknown: "причина неизвестна",
+        },
+      },
     },
     wizard: {
       server: {
@@ -4753,6 +4870,7 @@ const en: typeof ru = {
     beforeRestore: "Before restoration",
     linksUpdated: "Links updated",
     beforeBlockRewrite: "Before a block was rewritten",
+    beforeSyncOverwrite: "Before it was replaced by the version from the server",
     metadataUpdated: "Metadata updated",
     savedVersion: "Saved version",
     viewVersion: "View version: {{date}}",
@@ -6428,7 +6546,7 @@ const en: typeof ru = {
     intro:
       "Connect to your own sync server. Everything is encrypted on this device: the server sees neither your notes nor file names nor your password.",
     notYet:
-      "Notes are not synchronised yet. For now you can connect to a server and check your account; the transfer of notes comes later.",
+      "Synchronisation of notes works in a test mode: switch it on only for a vault you can afford to lose. We are still checking that no data is lost.",
     wait: { seconds: "{{n}} s", minutes: "{{n}} min", hours: "{{n}} h" },
     loading: "Reading the state…",
     errors: {
@@ -6476,7 +6594,124 @@ const en: typeof ru = {
       storage_error: "Could not save the data on this computer.",
       unavailable: "Synchronization is available only in the desktop app.",
       ipc_failed: "The app could not carry out the command. Restart it and try again.",
+      quota_exceeded: "The server has no room left for your data.",
+      blob_too_large: "The file is too large for this server.",
+      space_exists: "A vault with this identifier already exists on the server.",
+      test_vault_required:
+        "For now sync can be switched on only for a test vault: mark this vault as a test vault.",
+      space_not_found: "The server has no such vault.",
+      invalid_space: "The identifier of the vault is written wrongly.",
+      no_vault_open: "Open a vault first.",
+      sync_not_running: "The sync of this vault is not running now.",
+      conflict_not_found: "This conflict is no longer in the list.",
+      vault_locked: "Another copy of the app is already synchronising this vault.",
+      state_error:
+        "The state of synchronisation in the folder of the vault could not be read or written.",
+      state_newer: "A newer version of Amby wrote the state of synchronisation. Update the app.",
       unknown: "Something went wrong. Error code: {{code}}.",
+    },
+    vault: {
+      title: "This vault",
+      cancel: "Cancel",
+      testWarning:
+        "Synchronisation of notes is experimental. It can be switched on only for a test vault: copy a few notes into it, not your working ones. We have not yet passed all the checks against data loss.",
+      spaceLegend: "Space on the server",
+      createNew: "Create a new one",
+      nameLabel: "Name",
+      namePlaceholder: "By default, the name of the folder",
+      connectExisting: "Connect an existing one",
+      noSpaces: "There are no spaces on the server yet.",
+      unnamedSpace: "Unnamed",
+      spaceChanges: "changes: {{count}}",
+      testVault: "This is a test vault: it holds no only copies of important notes",
+      enable: "Switch on synchronization",
+      resume: "Switch on again",
+      off: "Synchronization is off",
+      cannotStart: "Could not start: {{reason}}",
+      testBadge: "Test vault",
+      runNow: "Synchronize now",
+      disable: "Switch off synchronization",
+      disableConfirm: "Yes, switch off",
+      outgoingPaused:
+        "Sending is paused: the previous operation is not finished (for example, links of databases). It will go on by itself.",
+      itemErrors: "Files that could not be processed: {{count}}. We will try again.",
+      needsUpdate: "Some files were made by a newer version of Amby. Update the app.",
+      status: {
+        idle: "Everything is synchronised",
+        lastSync: "Last synchronisation: {{date}}",
+        never: "Not synchronised yet",
+        running: "Synchronising…",
+        waiting: "No connection to the server. Trying again in {{wait}}",
+        stopped: "Stopped",
+      },
+      stop: {
+        massIncomingTitle: "{{count}} files are about to change on this computer at once",
+        massIncomingText:
+          "Another computer deleted or replaced many files. Deleted files go to the trash of the vault, replaced ones stay in the history. If this was not you, do not continue.",
+        massOutgoingTitle: "You deleted {{count}} files",
+        massOutgoingText:
+          "The deletion will go to the other computers: the files disappear there too (into the trash of the vault). If this was an accident, restore the folder from the trash.",
+        massContinue: "Yes, continue",
+        more: "…and {{count}} more",
+        missingTitle: "The folder of the vault was not found",
+        missingText:
+          "A disk may have been unplugged or the folder renamed. Nothing was deleted, here or on the server. Put the folder back and check again.",
+        checkAgain: "Check again",
+        emptyTitle: "The folder of the vault is empty",
+        emptyText:
+          "Synchronisation remembers files, and the folder is empty. Nothing was deleted. If you removed everything yourself, confirm.",
+        emptyConfirm: "Yes, the folder is empty",
+        serverResetTitle: "The server was reset or replaced",
+        serverResetText:
+          "The server has another identity: its data is gone or it is another server. Nothing was deleted on this computer. If it is the same server and the data is gone, this vault can be uploaded to it again.",
+        serverBehindTitle: "The server has fewer changes than we already saw",
+        serverBehindText:
+          "The server seems to have gone back to an old copy of its data. Nothing was deleted on this computer. This vault can be uploaded to the server again.",
+        rollbackTitle: "The server showed an older version of a file",
+        rollbackText:
+          "This happens when the data of the server was rolled back. Nothing was changed on this computer. This vault can be uploaded to the server again.",
+        resync: "Upload this vault to the server again",
+        resyncConfirm: "Yes, upload again",
+        authTitle: "The server no longer accepts this device",
+        authText:
+          "The device was disconnected from the account or the sign-in data is out of date. Sign in again in the connection section above.",
+        incompatibleTitle: "The server is of another version",
+        incompatibleText:
+          "This server speaks another version of the protocol. Update Amby or the server.",
+      },
+      conflicts: {
+        title: "Conflicts ({{count}})",
+        bothEdited:
+          "The file “{{original}}” was changed on two computers. The other version was saved beside it: “{{copy}}”.",
+        bothCreated:
+          "The file “{{original}}” was created on two computers. The other version was saved beside it: “{{copy}}”.",
+        keepOriginal: "Keep the main file",
+        keepCopy: "Replace with the copy",
+        keepBoth: "Keep both",
+        hint: "“Keep the main file” moves the copy to the trash of the vault. “Replace with the copy” puts the text of the copy into the main file, and the previous version stays in the history of the file. “Keep both” only removes the line from the list.",
+      },
+      unsynced: {
+        title: "Not synchronised ({{count}})",
+        symlink: "A symbolic link",
+        notUtf8: "The name is not UTF-8",
+        tooLarge: "The file is above the limit of the server",
+        tooBigForMemory: "The file is too big for this computer",
+        excludedPath: "A service path",
+        invalidName: "The name cannot be created on this system ({{problem}})",
+        caseCollision: "The same as “{{other}}” ignoring case",
+        nameCollision: "Two files with the same name",
+        pathBusy: "The place is taken by another file",
+        noAccess: "No access to the file",
+        unknown: "The reason is not recognised: a newer version of Amby may know it",
+        problems: {
+          forbiddenChar: "a forbidden character",
+          trailingDot: "a dot or a space at the end",
+          reservedName: "a reserved name",
+          segmentTooLong: "the name is too long",
+          pathTooLong: "the path is too long",
+          unknown: "unknown reason",
+        },
+      },
     },
     wizard: {
       server: {

@@ -180,19 +180,38 @@ export function createDesktopSyncPort(): SyncPort {
       // The text of a file error may name a path: only the code is kept.
       throw new SyncPortError("storage_error")
     },
-    vaultStatus: () => notYet(),
-    listSpaces: () => notYet(),
-    enableVault: () => notYet(),
-    disableVault: () => notYet(),
-    runNow: () => notYet(),
-    approve: () => notYet(),
-    resolveConflict: () => notYet(),
-    onVaultStatus: () => notYet(),
+    vaultStatus: async () => {
+      try {
+        return await commands.syncVaultStatus()
+      } catch {
+        throw new SyncPortError("ipc_failed")
+      }
+    },
+    listSpaces: () => call(commands.syncListSpaces()),
+    enableVault: (target, testVault) => call(commands.syncEnableVault(target, testVault)),
+    disableVault: () => call(commands.syncDisableVault()),
+    runNow: async () => {
+      await call(commands.syncRunNow())
+    },
+    approve: async (kind) => {
+      await call(commands.syncApprove(kind))
+    },
+    resolveConflict: async (id, choice) => {
+      await call(commands.syncResolveConflict(id, choice))
+    },
+    onVaultStatus: async (listener) => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event")
+        const unlisten = await listen<VaultSyncStatus>(VAULT_STATUS_EVENT, (event) =>
+          listener(event.payload),
+        )
+        return () => unlisten()
+      } catch {
+        throw new SyncPortError("ipc_failed")
+      }
+    },
   }
 }
-
-// Stage Э4, tests first: the commands of the sync of the open vault are wired after the tests.
-const notYet = (): Promise<never> => Promise.reject(new Error("not implemented"))
 
 const unavailable = (): Promise<never> => Promise.reject(new SyncPortError("unavailable"))
 
@@ -220,14 +239,32 @@ export const unavailableSyncPort: SyncPort = {
   disconnectDevice: unavailable,
   signOut: unavailable,
   saveRecoveryCode: unavailable,
-  vaultStatus: () => notYet(),
+  vaultStatus: async () => ({
+    enabled: false,
+    linked: false,
+    testVault: false,
+    gateClosed: true,
+    spaceId: null,
+    spaceName: null,
+    phase: "off",
+    lastSyncMs: null,
+    nextTrySecs: null,
+    errorCode: null,
+    stop: null,
+    outgoingPaused: false,
+    needsUpdate: false,
+    conflicts: [],
+    unsynced: [],
+    itemErrors: 0,
+    last: null,
+  }),
   listSpaces: unavailable,
   enableVault: unavailable,
   disableVault: unavailable,
   runNow: unavailable,
   approve: unavailable,
   resolveConflict: unavailable,
-  onVaultStatus: () => notYet(),
+  onVaultStatus: async () => () => {},
 }
 
 let desktopPort: SyncPort | null = null

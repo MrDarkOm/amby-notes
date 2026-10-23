@@ -16,8 +16,12 @@ pub fn check_gate(test_vault: bool) -> Result<(), SyncError> {
 }
 
 /// The same with the state of the gate given (for tests).
-pub fn check_gate_with(_gates_passed: bool, _test_vault: bool) -> Result<(), SyncError> {
-    todo!("Э4: check_gate_with")
+pub fn check_gate_with(gates_passed: bool, test_vault: bool) -> Result<(), SyncError> {
+    if gates_passed || test_vault {
+        Ok(())
+    } else {
+        Err(SyncError::new("test_vault_required"))
+    }
 }
 
 /// Is the gate closed for a vault that is not marked as a test vault?

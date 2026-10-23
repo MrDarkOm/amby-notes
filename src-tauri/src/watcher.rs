@@ -94,18 +94,44 @@ struct BatchState {
 impl EventBatch {
     /// A batch begins (batches nest).
     pub fn begin(&self) {
-        todo!("Э4: EventBatch::begin")
+        if let Ok(mut state) = self.state.lock() {
+            state.depth += 1;
+        }
     }
 
     /// The events to send now: all of `events` outside a batch, none inside one (they are held).
-    pub fn push(&self, _events: Vec<VaultFileChangedPayload>) -> Vec<VaultFileChangedPayload> {
-        todo!("Э4: EventBatch::push")
+    pub fn push(&self, events: Vec<VaultFileChangedPayload>) -> Vec<VaultFileChangedPayload> {
+        let Ok(mut state) = self.state.lock() else {
+            return events;
+        };
+        if state.depth == 0 {
+            return events;
+        }
+        state.held.extend(events);
+        Vec::new()
     }
 
     /// A batch ends; when the outermost one ends, the held events are returned, each path once
     /// with its latest kind in the order the paths first appeared.
     pub fn end(&self) -> Vec<VaultFileChangedPayload> {
-        todo!("Э4: EventBatch::end")
+        let Ok(mut state) = self.state.lock() else {
+            return Vec::new();
+        };
+        if state.depth == 0 {
+            return Vec::new();
+        }
+        state.depth -= 1;
+        if state.depth > 0 {
+            return Vec::new();
+        }
+        let mut merged: Vec<VaultFileChangedPayload> = Vec::new();
+        for event in std::mem::take(&mut state.held) {
+            match merged.iter_mut().find(|seen| seen.path == event.path) {
+                Some(seen) => seen.kind = event.kind,
+                None => merged.push(event),
+            }
+        }
+        merged
     }
 }
 
@@ -126,6 +152,8 @@ pub struct WatcherState {
     /// The active watcher's vault generation. A callback from a dropped prior
     /// watcher is ignored even if the OS delivers it late.
     pub active_generation: Arc<AtomicU64>,
+    /// Merges the events of a batch of changes from synchronisation (docs/sync-plan.md, Р8).
+    pub batch: Arc<EventBatch>,
     /// Monotonically increasing operation identity. A later failed operation
     /// must never remove another writer's record for the same path.
     next_operation_token: AtomicU64,
@@ -237,6 +265,7 @@ impl WatcherState {
             watcher: Mutex::new(None),
             own_writes: Arc::new(Mutex::new(HashMap::new())),
             active_generation: Arc::new(AtomicU64::new(0)),
+            batch: Arc::new(EventBatch::default()),
             next_operation_token: AtomicU64::new(1),
         }
     }

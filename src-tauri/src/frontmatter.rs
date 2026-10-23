@@ -33,14 +33,14 @@ thread_local! {
 /// as files through the standard library, so the renamed file's own sync is
 /// still the strongest portable guarantee there.
 #[cfg(unix)]
-fn sync_parent_directory(parent: &Path) -> Result<(), String> {
+pub(crate) fn sync_parent_directory(parent: &Path) -> Result<(), String> {
     fs::File::open(parent)
         .and_then(|dir| dir.sync_all())
         .map_err(|error| error.to_string())
 }
 
 #[cfg(not(unix))]
-fn sync_parent_directory(_parent: &Path) -> Result<(), String> {
+pub(crate) fn sync_parent_directory(_parent: &Path) -> Result<(), String> {
     Ok(())
 }
 
@@ -180,7 +180,10 @@ fn fallback_copy_temp_new(source: &Path, target: &Path) -> Result<(), AtomicCrea
 /// Hard links give an all-or-nothing publish where supported. Filesystems that
 /// reject them use a create_new reservation plus streamed, synced copy; the
 /// reservation preserves the no-overwrite guarantee even under a collision.
-fn publish_prepared_no_replace(temp: &Path, target: &Path) -> Result<(), AtomicCreateError> {
+pub(crate) fn publish_prepared_no_replace(
+    temp: &Path,
+    target: &Path,
+) -> Result<(), AtomicCreateError> {
     #[cfg(test)]
     if let Some(content) = CREATE_TARGET_AT_PUBLISH.with(|pending| pending.borrow_mut().take()) {
         fs::write(target, content).map_err(atomic_create_error)?;

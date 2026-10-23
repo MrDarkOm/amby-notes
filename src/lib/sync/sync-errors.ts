@@ -44,6 +44,19 @@ export const KNOWN_SYNC_ERROR_CODES: readonly string[] = [
   "storage_error",
   "unavailable",
   "ipc_failed",
+  // the data protocol (Б.0.1) and the sync of a vault (stage Э4)
+  "quota_exceeded",
+  "blob_too_large",
+  "space_exists",
+  "test_vault_required",
+  "space_not_found",
+  "invalid_space",
+  "no_vault_open",
+  "sync_not_running",
+  "conflict_not_found",
+  "vault_locked",
+  "state_error",
+  "state_newer",
 ]
 
 const UNKNOWN_KEY = "sync.errors.unknown"
@@ -51,6 +64,11 @@ const UNKNOWN_KEY = "sync.errors.unknown"
 /** The translation key of an error code; an unknown code has the general key. */
 export function syncErrorKey(code: string): string {
   return KNOWN_SYNC_ERROR_CODES.includes(code) ? `sync.errors.${code}` : UNKNOWN_KEY
+}
+
+/** The text of a machine code (a status of the sync of a vault carries one). */
+export function syncCodeMessage(code: string, t: TFunction): string {
+  return t(syncErrorKey(code), { code })
 }
 
 /** "14 мин", "45 с": the wait of a rate limit in words, rounded up to the largest unit. */

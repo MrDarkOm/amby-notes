@@ -9,6 +9,9 @@ pub struct SystemClock;
 
 impl Clock for SystemClock {
     fn now_ms(&self) -> i64 {
-        todo!("Э4: SystemClock::now_ms")
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
+            .unwrap_or(0)
     }
 }

@@ -508,7 +508,10 @@ fn snapshot_before_write_at(
     reason: &str,
     created_at_ms: u64,
 ) -> Result<Option<String>, String> {
-    if reason != SOURCE_REWRITE_REASON && !is_history_enabled(vault) {
+    if reason != SOURCE_REWRITE_REASON
+        && reason != SYNC_OVERWRITE_REASON
+        && !is_history_enabled(vault)
+    {
         return Ok(None);
     }
     let _lock = history_lock();
