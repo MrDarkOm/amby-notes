@@ -23,15 +23,15 @@ pub const PREAMBLE_LEN: usize = 32;
 pub const MAGIC: &[u8; 8] = b"AMBYBODY";
 
 /// Version byte of the body (Ф4).
-const BODY_VERSION: u8 = 1;
+pub(crate) const BODY_VERSION: u8 = 1;
 /// Length of the random nonce prefix of the STREAM construction (Ф23).
-const NONCE_PREFIX_LEN: usize = 19;
+pub(crate) const NONCE_PREFIX_LEN: usize = 19;
 /// Length of a sealed chunk that is not the last one (Ф24).
-const SEALED_CHUNK_LEN: usize = CHUNK_SIZE + TAG_LEN;
+pub(crate) const SEALED_CHUNK_LEN: usize = CHUNK_SIZE + TAG_LEN;
 const INFO_BODY: &[u8] = b"amby-sync/body/1";
 
 /// The key of one body: `HKDF(VK, "amby-sync/body/1" ‖ body_id)` (Ф20).
-fn body_cipher(vk: &SpaceKey, body_id: &BodyId) -> XChaCha20Poly1305 {
+pub(crate) fn body_cipher(vk: &SpaceKey, body_id: &BodyId) -> XChaCha20Poly1305 {
     let mut info = Vec::with_capacity(INFO_BODY.len() + 16);
     info.extend_from_slice(INFO_BODY);
     info.extend_from_slice(body_id.as_bytes());

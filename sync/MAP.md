@@ -10,21 +10,24 @@ License AGPL-3.0-only. The application uses `client`, `core` and `proto` by path
 [src-tauri/src/sync/](../src-tauri/src/sync/) (the connect screen, stage Э4); the sync engine (Э3) is not
 wired in yet.
 
-| Path                                   | Owns                                                                                      |
-| -------------------------------------- | ----------------------------------------------------------------------------------------- |
-| [proto/](proto/src/lib.rs)             | wire constants of the protocol: part size, machine error codes (appendix Б)               |
-| [core/](core/src/lib.rs)               | cryptography (Э1) and the sync engine (Э3), no Tauri; I/O only through interfaces         |
-| [server/](server/src/lib.rs)           | blind storage server (Э2): all of appendix Б; Dockerfile, compose with Caddy, README      |
-| [conformance/](conformance/src/lib.rs) | server conformance suite: HTTP tests against any address, real client crypto (Э2)         |
-| [client/](client/src/lib.rs)           | async client of the sign-in protocol (reqwest + rustls, no Tauri), shared by the app (Э4) |
-| [reference/](reference/)               | independent Python reference of the byte format; generates `vectors/format-v1.json`       |
-| [vectors/](vectors/)                   | test vectors: `standards.json` (from RFCs, by hand) and `format-v1.json` (generated)      |
-| [deny.toml](deny.toml)                 | cargo-deny: licenses and advisories                                                       |
-| [core/fuzz/](core/fuzz/Cargo.toml)     | cargo-fuzz targets (nightly only)                                                         |
+| Path                                       | Owns                                                                                                            |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| [proto/](proto/src/lib.rs)                 | wire constants of the protocol: part size, machine error codes (appendix Б)                                     |
+| [core/](core/src/lib.rs)                   | cryptography (Э1) and the sync engine (Э3), no Tauri; I/O only through interfaces                               |
+| [core/src/engine/](core/src/engine/mod.rs) | the sync engine (Э3): ports and types, the pass, decisions of table Р7, appendix В                              |
+| [server/](server/src/lib.rs)               | blind storage server (Э2): all of appendix Б; Dockerfile, compose with Caddy, README                            |
+| [conformance/](conformance/src/lib.rs)     | server conformance suite: HTTP tests against any address, real client crypto (Э2)                               |
+| [sim/](sim/src/lib.rs)                     | deterministic simulation of the engine (Э3): virtual devices, the real server, faults, invariants, mini-engines |
+| [simrun/](simrun/src/main.rs)              | runs the random scenarios of `sim` against the real engine for hours, in a few processes (Э3)                   |
+| [client/](client/src/lib.rs)               | async client of the sign-in protocol (reqwest + rustls, no Tauri), shared by the app (Э4)                       |
+| [reference/](reference/)                   | independent Python reference of the byte format; generates `vectors/format-v1.json`                             |
+| [vectors/](vectors/)                       | test vectors: `standards.json` (from RFCs, by hand) and `format-v1.json` (generated)                            |
+| [deny.toml](deny.toml)                     | cargo-deny: licenses and advisories                                                                             |
+| [core/fuzz/](core/fuzz/Cargo.toml)         | cargo-fuzz targets (nightly only)                                                                               |
 
 Commands (see [package.json](../package.json)): `npm run sync:test`, `sync:lint` (fmt, clippy,
 cargo-deny), `sync:conformance:red` (sorts the failures of the stub server by reason),
-`sync:conformance:docker` (build the image, run the suite against the container), `sync:req-check` ([script](../scripts/sync-req-check.mjs): every requirement is named
+`sync:sim:red` (sorts the failures of the stub engine; it was the red run of the tests-first step and is green now), `sync:sim:run -- <first seed> <count> [quick|folders]` (the long run of the random scenarios against the real engine), `sync:conformance:docker` (build the image, run the suite against the container), `sync:req-check` ([script](../scripts/sync-req-check.mjs): every requirement is named
 in a test), `sync:mutants`, `sync:fuzz -- <target>`, `sync:reference:setup`,
 `sync:reference:vectors`. CI: [sync.yml](../.github/workflows/sync.yml).
 
@@ -77,3 +80,35 @@ The sign-in client (stage Э4, the connect screen; report with the decisions for
 | [client/src/api.rs](client/src/api.rs)                               | one method per request: info, prelogin, enroll, login, recover, keys, devices; no redirects, answer size limit, timeouts  |
 | [client/src/flows.rs](client/src/flows.rs)                           | prepare an account (nothing sent), enrol, sign in, recover, devices; a new device signs in under a placeholder name first |
 | [client/examples/second_device.rs](client/examples/second_device.rs) | a second device for the manual check ([native-ui-smoke.md](../docs/native-ui-smoke.md))                                   |
+
+Stage Э3 (engine, tests first): rules are appendix В of the plan (decisions Д1–Д72). The ports and
+types are in [core/src/engine/](core/src/engine/mod.rs); the engine is written against the tests of
+`sim/` and `core/tests/`, which were written and reviewed first. The simulation and the tests of the
+engine are in `sim/`; stage report with the red run, the implementation and the mutation run:
+[sync-e3-report.md](../docs/Road/sync-e3-report.md).
+
+Inside [core/src/engine/](core/src/engine/mod.rs) (public: ports, model, names, consistency, stream,
+rules, sync; the rest is private to the engine):
+
+| File                                                                   | Owns                                                                                                     |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| [ports.rs](core/src/engine/ports.rs)                                   | `LocalFs`, `Remote`, `StateStore`, `Clock` and the types they speak in                                   |
+| [model.rs](core/src/engine/model.rs)                                   | the state of a device, the report of a pass, stops and approvals                                         |
+| [names.rs](core/src/engine/names.rs)                                   | names of the system, collision keys, conflict copy names (Р7, Р9)                                        |
+| [consistency.rs](core/src/engine/consistency.rs)                       | meaning of the header fields (Д65)                                                                       |
+| [stream.rs](core/src/engine/stream.rs)                                 | opening a body as a stream (Ф24, Д68)                                                                    |
+| [rules.rs](core/src/engine/rules.rs)                                   | what is not synchronised (Р4), the mass-change threshold (Р8)                                            |
+| [sync.rs](core/src/engine/sync.rs)                                     | the `SyncEngine` trait, the real `Engine` and the steps of a pass (Д10): protections, cursor, report     |
+| [scan.rs](core/src/engine/scan.rs)                                     | the local overview: listing, fast check, hashes, links and odd names (Д12, Д61, Д64)                     |
+| [classify.rs](core/src/engine/classify.rs)                             | untouched, edited, moved, gone: renames by unique hash, by whole folder, by hint (Д13, Д70)              |
+| [feed.rs](core/src/engine/feed.rs)                                     | reading the change feed, opening headers, forged, contradicting and newer-format records (Д14, Д65, Д66) |
+| [decide.rs](core/src/engine/decide.rs)                                 | the table Р7 as one function of base, local and server (Д16, Д21–Д47); no I/O                            |
+| [plan.rs](core/src/engine/plan.rs)                                     | the server version of an item and the actions the decisions produce                                      |
+| [apply.rs](core/src/engine/apply.rs)                                   | application of incoming changes: folders, renames, writes with snapshot, trash (Д17, Д49, Д53)           |
+| [push.rs](core/src/engine/push.rs)                                     | outgoing changes: resumable uploads, commits written to the state before they are sent (Д6, Д7, Д18)     |
+| [flow.rs](core/src/engine/flow.rs), [util.rs](core/src/engine/util.rs) | early exits of a pass; small helpers                                                                     |
+
+Inside [sim/](sim/src/lib.rs): `vfs.rs` (files in memory with history and trash), `world.rs` (server,
+account, devices), `fault.rs` (crashes, lost requests, lies of the server), `invariants.rs`
+(раздел 7), `scenario.rs` (random scenarios; `AMBY_SIM_SCENARIOS`, `AMBY_SIM_SEED`), `mini.rs` (the
+correct mini-engine and seven broken ones), `dsl.rs` (helpers for the directed tests in `sim/tests/`).

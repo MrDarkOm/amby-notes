@@ -1,0 +1,16 @@
+[package]
+name = "amby-sync-simrun"
+description = "Amby sync: runs the random scenarios of the simulation against the real engine (docs/sync-plan.md, раздел 7)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+amby-sync-core.workspace = true
+amby-sync-sim = { path = "../sim" }
+
+[lints]
+workspace = true
