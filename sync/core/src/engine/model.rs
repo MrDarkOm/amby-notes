@@ -343,6 +343,9 @@ pub struct CycleReport {
     pub trashed: usize,
     /// The paths of the files moved to the trash because they were deleted elsewhere.
     pub trashed_paths: Vec<String>,
+    /// The paths of files written again because another computer edited them after this computer
+    /// deleted them (Р7 row 4, Д37–Д39): the deletion lost, and this computer is told.
+    pub restored_paths: Vec<String>,
     /// Conflicts created by this pass.
     pub conflicts: Vec<ConflictRecord>,
     /// The "not synchronised" list after the pass.

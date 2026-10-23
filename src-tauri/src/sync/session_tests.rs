@@ -1012,7 +1012,7 @@ fn the_computer_whose_version_kept_the_name_lists_the_conflict_too() {
     // Р7, Д46–Д47: the copy reaches A as an ordinary file. A must list it as well (badge, notice,
     // strip), not only B, which lost the race
     let env = Env::new();
-    let (a, b, sa, sb) = conflict_with_ids(&env);
+    let (a, _b, sa, sb) = conflict_with_ids(&env);
     settle(&sa, &sb);
     let status = pass(&sa);
     assert_eq!(status.conflicts.len(), 1, "{:?}", status.conflicts);
@@ -1060,7 +1060,7 @@ fn keeping_both_on_one_computer_clears_the_conflict_on_every_computer() {
     // "Оставить обе": both files stay; the copy becomes a note of its own, so the other computer
     // must not keep showing a conflict for it either
     let env = Env::new();
-    let (a, b, sa, sb) = conflict_with_ids(&env);
+    let (_a, b, sa, sb) = conflict_with_ids(&env);
     settle(&sa, &sb);
     let status = pass(&sa);
     assert_eq!(status.conflicts.len(), 1, "{:?}", status.conflicts);

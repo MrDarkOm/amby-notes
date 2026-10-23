@@ -145,7 +145,13 @@ impl<'a> Decider<'a> {
         let key = *srv.item.as_bytes();
         match self.inp.state.items.get(&key) {
             None => self.new_item(srv),
-            Some(base) if base.deleted || is_unmaterialised(base) => self.new_item(srv),
+            Some(base) if base.deleted || is_unmaterialised(base) => {
+                // A live version over a deletion this computer already made (Д37): it comes back.
+                if base.deleted && !srv.deleted {
+                    self.plan.restored.insert(srv.path.clone());
+                }
+                self.new_item(srv)
+            }
             Some(base) => {
                 if srv.version > base.version {
                     self.known(base, srv);
@@ -739,6 +745,7 @@ impl<'a> Decider<'a> {
                     return self.set_base(srv.record(base.mtime_ns));
                 }
                 // Д37–Д39: a change beats our deletion; the file comes back.
+                self.plan.restored.insert(srv.path.clone());
                 self.new_item(srv);
             }
         }

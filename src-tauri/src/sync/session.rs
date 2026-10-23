@@ -26,7 +26,11 @@ use amby_sync_core::engine::{
     Engine, EngineConfig, EngineError, LocalFs, Ports, RemoteError, RenameHint, StateError,
     StateOp, StateStore, StopReason, SyncEngine, TrashReason, UnsyncedReason, UnsyncedRecord,
 };
+use sha2::{Digest, Sha256};
+use unicode_normalization::UnicodeNormalization;
+use walkdir::WalkDir;
 
+use crate::index::identity::is_sync_conflict_copy;
 use crate::sync::clock::SystemClock;
 use crate::sync::gate;
 use crate::sync::remote::HttpRemote;
@@ -422,7 +426,7 @@ impl SyncSession {
         let _work = shared.work.lock().unwrap_or_else(|e| e.into_inner());
         let vault = &shared.config.vault;
         let mut store = SqliteStateStore::open(vault).map_err(|e| state_error(&e))?;
-        let (conflicts, _) = store.lists().map_err(|e| state_error(&e))?;
+        let conflicts = open_conflicts(vault, &mut store).map_err(|e| state_error(&e))?;
         let conflict = conflicts
             .into_iter()
             .find(|conflict| conflict.id == id)
@@ -437,7 +441,8 @@ impl SyncSession {
         store
             .apply(&vec![StateOp::RemoveConflict(conflict.id.clone())])
             .map_err(|e| state_error(&e))?;
-        let (conflicts, unsynced) = store.lists().map_err(|e| state_error(&e))?;
+        let conflicts = open_conflicts(vault, &mut store).map_err(|e| state_error(&e))?;
+        let (_, unsynced) = store.lists().map_err(|e| state_error(&e))?;
         drop(store);
         shared.update(|status| {
             status.conflicts = conflicts.iter().map(conflict_view).collect();
@@ -564,6 +569,130 @@ fn give_copy_its_own_identity(files: &mut VaultFs, vault: &Path, conflict: &Conf
         return;
     }
     let _: Result<(), _> = staged.publish(None);
+}
+
+/// The open conflicts of the vault, as every computer lists them (Р7, Д46–Д47). A conflict is open while
+/// its file and its copy are both there and the copy has not been given an identity of its own ("keep
+/// both" does that). The entries recorded on this computer follow the same rule. A copy that reached this
+/// computer as an ordinary file is listed from the files alone, with an id derived from its name. An
+/// entry that is no longer open leaves the state, so resolving a conflict on one computer clears it on
+/// all of them.
+fn open_conflicts(
+    vault: &Path,
+    store: &mut SqliteStateStore,
+) -> Result<Vec<ConflictRecord>, StateError> {
+    let (recorded, _) = store.lists()?;
+    let mut open = Vec::new();
+    for record in recorded {
+        if conflict_is_open(vault, &record.original_path, &record.copy_path, true) {
+            open.push(record);
+        } else {
+            store.apply(&vec![StateOp::RemoveConflict(record.id.clone())])?;
+        }
+    }
+    for copy in sync_copies(vault) {
+        if open.iter().any(|record| record.copy_path == copy) {
+            continue;
+        }
+        let Some(original) = original_of(&copy) else {
+            continue;
+        };
+        if !conflict_is_open(vault, &original, &copy, false) {
+            continue;
+        }
+        open.push(ConflictRecord {
+            id: listing_id(&copy),
+            kind: ConflictKind::BothEdited,
+            original_path: original,
+            copy_path: copy.clone(),
+            created_ms: modified_ms(&vault.join(&copy)),
+        });
+    }
+    Ok(open)
+}
+
+/// Is the conflict between `original` and `copy` open (Р7, Д46)? Both files must be there. A copy with an
+/// `amby-id` of its own is a note of its own now. A copy listed from the files alone is a conflict only
+/// while it repeats the identity of its file; an entry recorded here stays open while it can be read.
+fn conflict_is_open(vault: &Path, original: &str, copy: &str, recorded: bool) -> bool {
+    let (copy_file, original_file) = (vault.join(copy), vault.join(original));
+    if !copy_file.is_file() || !original_file.is_file() {
+        return false;
+    }
+    let (Ok(copy_text), Ok(original_text)) = (
+        fs::read_to_string(&copy_file),
+        fs::read_to_string(&original_file),
+    ) else {
+        return recorded;
+    };
+    let copy_id = crate::frontmatter::parse_markdown(&copy_text)
+        .note_id()
+        .map(str::to_string);
+    let original_id = crate::frontmatter::parse_markdown(&original_text)
+        .note_id()
+        .map(str::to_string);
+    if copy_id.is_some() && copy_id != original_id {
+        return false;
+    }
+    recorded || copy_id.is_some()
+}
+
+/// The copies of conflicts in the vault (`Name.<id>-conflict.ext`), by their paths in NFC.
+fn sync_copies(vault: &Path) -> Vec<String> {
+    WalkDir::new(vault)
+        .into_iter()
+        .filter_entry(|entry| {
+            entry.depth() == 0 || !is_excluded_path(&relative_name(vault, entry.path()))
+        })
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+        .map(|entry| relative_name(vault, entry.path()))
+        .filter(|rel| is_sync_conflict_copy(rel))
+        .collect()
+}
+
+/// A path inside the vault with `/` separators and NFC, as the engine names files.
+fn relative_name(vault: &Path, path: &Path) -> String {
+    let rel = path.strip_prefix(vault).unwrap_or(path);
+    rel.components()
+        .map(|part| part.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("/")
+        .nfc()
+        .collect()
+}
+
+/// The file that kept the name of a copy (Д46 inverted): `Имя.<id>-conflict.ext` → `Имя.ext`.
+fn original_of(copy: &str) -> Option<String> {
+    let (dir, name) = match copy.rfind('/') {
+        Some(at) => (&copy[..=at], &copy[at + 1..]),
+        None => ("", copy),
+    };
+    let at = name.rfind("-conflict")?;
+    let dot = name[..at].rfind('.')?;
+    Some(format!(
+        "{dir}{}{}",
+        &name[..dot],
+        &name[at + "-conflict".len()..]
+    ))
+}
+
+/// The id of a conflict listed from its copy alone: twelve hex characters of a digest of the copy's path,
+/// so the same copy has the same id on every call.
+fn listing_id(copy: &str) -> String {
+    let digest = Sha256::digest(format!("amby-sync/conflict-listing/1\n{copy}"));
+    hex::encode(&digest[..6])
+}
+
+/// When a file was last written, in milliseconds since the epoch (0 when unknown; display only).
+fn modified_ms(path: &Path) -> i64 {
+    fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |since| {
+            i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
+        })
 }
 
 fn conflict_view(conflict: &ConflictRecord) -> ConflictView {
@@ -749,6 +878,7 @@ fn run_pass(shared: &Arc<Shared>, request: &CycleRequest) -> Outcome {
                 renamed: 0,
                 trashed: 0,
                 trashed_paths: Vec::new(),
+                restored_paths: Vec::new(),
                 conflicts: Vec::new(),
                 unsynced: Vec::new(),
                 read_only: Vec::new(),
@@ -797,7 +927,11 @@ fn remote_code(error: &RemoteError) -> String {
 /// Updates the status after a pass and decides what comes next.
 fn settle(shared: &Arc<Shared>, outcome: Outcome, failures: &mut u32, schedule: &Schedule) -> Next {
     let lists = SqliteStateStore::open(&shared.config.vault)
-        .and_then(|store| store.lists())
+        .and_then(|mut store| {
+            let conflicts = open_conflicts(&shared.config.vault, &mut store)?;
+            let (_, unsynced) = store.lists()?;
+            Ok((conflicts, unsynced))
+        })
         .ok();
     let waiting = |failures: &mut u32, code: String, schedule: &Schedule| {
         *failures = failures.saturating_add(1);
@@ -829,6 +963,12 @@ fn settle(shared: &Arc<Shared>, outcome: Outcome, failures: &mut u32, schedule: 
     match outcome {
         Outcome::Report(report) => {
             let report = *report;
+            if !report.restored_paths.is_empty() {
+                shared
+                    .config
+                    .hooks
+                    .restored_after_deletion(&report.restored_paths);
+            }
             let apply_lists = |status: &mut VaultSyncStatus| {
                 if let Some((conflicts, unsynced)) = &lists {
                     status.conflicts = conflicts.iter().map(conflict_view).collect();

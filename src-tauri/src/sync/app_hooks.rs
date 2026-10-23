@@ -20,6 +20,10 @@ pub const STATUS_EVENT: &str = "sync-status-changed";
 /// The event for files deleted on another computer; the payload is the list of paths in the vault.
 pub const REMOTE_DELETED_EVENT: &str = "sync-remote-deleted";
 
+/// The event for files brought back after a deletion made on this computer (Р7, Д37); the payload is
+/// the list of paths in the vault.
+pub const RESTORED_EVENT: &str = "sync-restored-after-deletion";
+
 /// Hooks that talk to the windows of the application.
 pub struct AppHooks {
     app: tauri::AppHandle,
@@ -52,5 +56,9 @@ impl SessionHooks for AppHooks {
 
     fn remote_deleted(&self, paths: &[String]) {
         let _ = self.app.emit(REMOTE_DELETED_EVENT, paths);
+    }
+
+    fn restored_after_deletion(&self, paths: &[String]) {
+        let _ = self.app.emit(RESTORED_EVENT, paths);
     }
 }
