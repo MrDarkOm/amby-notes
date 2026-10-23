@@ -154,6 +154,45 @@ fn a_deletion_from_another_computer_goes_to_the_trash_of_the_vault() {
 }
 
 #[test]
+fn a_deletion_from_another_computer_is_reported_to_the_application_with_its_path() {
+    // the interface warns about it only when the note is open, so it needs the path
+    let env = Env::new();
+    let (a, b) = (TempVault::new("a"), TempVault::new("b"));
+    a.put("Notes/gone.md", b"not forever");
+    a.put("Notes/stays.md", b"stays");
+    let (sa, _) = env.start(&a, &env.account);
+    let (sb, recorder_b) = env.start(&b, &env.another_computer("B"));
+    settle(&sa, &sb);
+    assert!(
+        recorder_b.deleted_remotely().is_empty(),
+        "files that arrive are not deletions"
+    );
+    a.remove("Notes/gone.md");
+    settle(&sa, &sb);
+    assert_eq!(recorder_b.deleted_remotely(), vec!["Notes/gone.md"]);
+    // a later pass that deletes nothing does not repeat it
+    pass(&sb);
+    assert_eq!(recorder_b.deleted_remotely(), vec!["Notes/gone.md"]);
+    sa.stop();
+    sb.stop();
+}
+
+#[test]
+fn a_deletion_the_person_made_here_is_not_reported_as_remote() {
+    let env = Env::new();
+    let (a, b) = (TempVault::new("a"), TempVault::new("b"));
+    a.put("Notes/mine.md", b"mine");
+    let (sa, recorder_a) = env.start(&a, &env.account);
+    let (sb, _) = env.start(&b, &env.another_computer("B"));
+    settle(&sa, &sb);
+    a.remove("Notes/mine.md");
+    settle(&sa, &sb);
+    assert!(recorder_a.deleted_remotely().is_empty());
+    sa.stop();
+    sb.stop();
+}
+
+#[test]
 fn what_came_from_the_server_is_not_sent_back() {
     // Р10, Д12: a write of synchronisation is not an edit of this computer
     let env = Env::new();

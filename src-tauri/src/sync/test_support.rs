@@ -293,6 +293,8 @@ pub struct Recorder {
     pub statuses: Mutex<Vec<VaultSyncStatus>>,
     pub begins: AtomicU64,
     pub ends: AtomicU64,
+    /// Every path reported as deleted on another computer, in the order reported.
+    pub remote_deleted: Mutex<Vec<String>>,
 }
 
 impl FsHooks for Recorder {
@@ -308,9 +310,20 @@ impl SessionHooks for Recorder {
     fn status_changed(&self, status: &VaultSyncStatus) {
         self.statuses.lock().unwrap().push(status.clone());
     }
+    fn remote_deleted(&self, paths: &[String]) {
+        self.remote_deleted
+            .lock()
+            .unwrap()
+            .extend(paths.iter().cloned());
+    }
 }
 
 impl Recorder {
+    /// The paths reported as deleted on another computer so far.
+    pub fn deleted_remotely(&self) -> Vec<String> {
+        self.remote_deleted.lock().unwrap().clone()
+    }
+
     /// How many times a pass began (the status turned to running).
     pub fn passes_started(&self) -> usize {
         use crate::sync::vault_types::SyncPhase;
