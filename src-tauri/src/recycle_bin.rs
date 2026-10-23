@@ -136,6 +136,15 @@ pub fn delete_permanently(vault: &Path, path: &Path) -> Result<FsMutationResult,
     })
 }
 
+/// Moves exactly `path` (a file or a folder) to `.amby/trash/`, whatever the delete mode of the
+/// user: the synchronisation of a deletion that came from another device (docs/sync-plan.md,
+/// Р8). Unlike [`move_to_trash`] it does not widen the target to the bundle the item belongs to
+/// and it leaves the index to the caller. The entry is the same as for [`move_to_trash`], so
+/// [`list`] shows it and [`restore`] brings it back.
+pub fn move_exact_to_trash(_vault: &Path, _path: &Path) -> Result<(), String> {
+    todo!("Э4: move_exact_to_trash")
+}
+
 pub fn move_to_trash(vault: &Path, path: &Path) -> Result<FsMutationResult, String> {
     let preview = preview_move_to_trash(vault, path)?;
     let original_path = preview.original_path;

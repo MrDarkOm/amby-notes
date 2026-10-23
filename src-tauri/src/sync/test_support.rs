@@ -162,3 +162,280 @@ impl<'a> MakeWriter<'a> for LogCapture {
         self.clone()
     }
 }
+
+// ----- vaults and sessions (stage Э4: the engine in the application) -----
+
+use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicU64;
+use std::time::{Duration, Instant};
+
+use amby_sync_client::{DeviceToken, ServerUrl, SyncClient};
+use amby_sync_conformance::client::{enroll, Account};
+use amby_sync_core::crypto::keys::SpaceKey;
+
+use crate::sync::session::{Schedule, SessionConfig, SessionHooks, SyncSession};
+use crate::sync::vault_fs::FsHooks;
+use crate::sync::vault_types::VaultSyncStatus;
+
+static VAULT_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// A vault in a temporary folder, removed when it is dropped. The path is canonical.
+pub struct TempVault {
+    pub root: PathBuf,
+}
+
+impl TempVault {
+    /// A new empty folder.
+    pub fn new(label: &str) -> Self {
+        let root = std::env::temp_dir().join(format!(
+            "amby-{label}-{}-{}",
+            std::process::id(),
+            VAULT_COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        Self {
+            root: root.canonicalize().unwrap(),
+        }
+    }
+
+    /// Writes a file (parents are made) and returns its path.
+    pub fn put(&self, rel: &str, bytes: &[u8]) -> PathBuf {
+        let path = self.root.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    /// The text of a file, if it is there.
+    pub fn text(&self, rel: &str) -> Option<String> {
+        std::fs::read(self.root.join(rel))
+            .ok()
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    /// The bytes of a file, if it is there.
+    pub fn bytes(&self, rel: &str) -> Option<Vec<u8>> {
+        std::fs::read(self.root.join(rel)).ok()
+    }
+
+    /// Removes a file.
+    pub fn remove(&self, rel: &str) {
+        std::fs::remove_file(self.root.join(rel)).unwrap();
+    }
+
+    /// Whether something is at `rel`.
+    pub fn exists(&self, rel: &str) -> bool {
+        self.root.join(rel).exists()
+    }
+
+    /// Every file of the vault that synchronisation cares about (not `.amby/`, not `.git`):
+    /// path → bytes.
+    pub fn files(&self) -> std::collections::BTreeMap<String, Vec<u8>> {
+        let mut out = std::collections::BTreeMap::new();
+        for entry in walkdir::WalkDir::new(&self.root).into_iter().flatten() {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let rel = entry
+                .path()
+                .strip_prefix(&self.root)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
+            if rel.starts_with(".amby/") || rel.starts_with(".git/") {
+                continue;
+            }
+            out.insert(rel, std::fs::read(entry.path()).unwrap());
+        }
+        out
+    }
+
+    /// Switches the history of this vault off.
+    pub fn history_off(&self) {
+        self.put(".amby/workspace.json", br#"{"history":{"enabled":false}}"#);
+    }
+
+    /// The snapshots of a file: (reason, text), newest first.
+    pub fn snapshots(&self, rel: &str) -> Vec<(String, String)> {
+        crate::history::list_snapshots(&self.root, &self.root.join(rel))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|entry| {
+                let text = crate::history::read_snapshot_text(&self.root, &entry.id)
+                    .map(|snapshot| snapshot.content)
+                    .unwrap_or_default();
+                (entry.reason, text)
+            })
+            .collect()
+    }
+
+    /// The original paths in the trash of the vault, sorted.
+    pub fn trashed(&self) -> Vec<String> {
+        let mut paths: Vec<String> = crate::recycle_bin::list(&self.root)
+            .into_iter()
+            .map(|entry| entry.original_path)
+            .collect();
+        paths.sort();
+        paths
+    }
+}
+
+impl Drop for TempVault {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+/// Records what a session tells the application.
+#[derive(Default)]
+pub struct Recorder {
+    pub statuses: Mutex<Vec<VaultSyncStatus>>,
+    pub begins: AtomicU64,
+    pub ends: AtomicU64,
+}
+
+impl FsHooks for Recorder {
+    fn batch_begin(&self) {
+        self.begins.fetch_add(1, Ordering::SeqCst);
+    }
+    fn batch_end(&self) {
+        self.ends.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+impl SessionHooks for Recorder {
+    fn status_changed(&self, status: &VaultSyncStatus) {
+        self.statuses.lock().unwrap().push(status.clone());
+    }
+}
+
+impl Recorder {
+    /// How many times a pass began (the status turned to running).
+    pub fn passes_started(&self) -> usize {
+        use crate::sync::vault_types::SyncPhase;
+        let list = self.statuses.lock().unwrap();
+        let mut count = 0;
+        let mut previous_running = false;
+        for status in list.iter() {
+            let running = status.phase == SyncPhase::Running;
+            if running && !previous_running {
+                count += 1;
+            }
+            previous_running = running;
+        }
+        count
+    }
+}
+
+/// An account with a space on a server in the process; each computer is a device of the account.
+pub struct Env {
+    pub runtime: tokio::runtime::Runtime,
+    pub target: Target,
+    pub account: Account,
+    pub space_id: [u8; 16],
+    pub vk: SpaceKey,
+}
+
+impl Env {
+    /// A server, an account with one device and one space.
+    pub fn new() -> Self {
+        let target = Target::from_env();
+        let account = enroll(&target, "a long enough password for tests");
+        let space = account.create_space();
+        Self {
+            runtime: tokio::runtime::Runtime::new().unwrap(),
+            target,
+            space_id: *space.id.as_bytes(),
+            vk: space.vk.clone(),
+            account,
+        }
+    }
+
+    /// The same account on another computer.
+    pub fn another_computer(&self, name: &str) -> Account {
+        self.account.another_device(name)
+    }
+
+    /// A client of the server.
+    pub fn client(&self) -> SyncClient {
+        SyncClient::new(&ServerUrl::parse(self.target.api.base(), true).unwrap()).unwrap()
+    }
+
+    /// The settings of a session of `vault` on the computer `who`.
+    pub fn config(
+        &self,
+        vault: &Path,
+        who: &Account,
+        hooks: Arc<dyn SessionHooks>,
+    ) -> SessionConfig {
+        SessionConfig {
+            vault: vault.to_path_buf(),
+            client: self.client(),
+            token: DeviceToken::new(who.token.clone()),
+            account_key: who.ak.clone(),
+            space_id: self.space_id,
+            space_name: Some("Test space".to_string()),
+            vk: self.vk.clone(),
+            device_id: who.device_id.clone(),
+            test_vault: true,
+            schedule: Schedule::fast(),
+            hooks,
+            handle: self.runtime.handle().clone(),
+        }
+    }
+
+    /// Starts a session; the recorder sees its statuses.
+    pub fn start(&self, vault: &TempVault, who: &Account) -> (SyncSession, Arc<Recorder>) {
+        let recorder = Arc::new(Recorder::default());
+        let session = SyncSession::start(self.config(&vault.root, who, recorder.clone()))
+            .expect("the session must start");
+        (session, recorder)
+    }
+
+    /// The number of the last commit on the server.
+    pub fn head(&self) -> u64 {
+        let listing = self.account.get("/v1/spaces").expect(200).json();
+        listing["spaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|space| space["space_id"] == hex::encode(self.space_id))
+            .map(|space| space["seq"].as_u64().unwrap())
+            .unwrap_or(0)
+    }
+}
+
+/// Waits until `check` holds for the status of the session, up to `timeout`.
+pub fn wait_for(
+    session: &SyncSession,
+    timeout: Duration,
+    check: impl Fn(&VaultSyncStatus) -> bool,
+) -> Result<VaultSyncStatus, VaultSyncStatus> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let status = session.status();
+        if check(&status) {
+            return Ok(status);
+        }
+        if Instant::now() > deadline {
+            return Err(status);
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// A pass on `session` that must end well; the status after it.
+pub fn pass(session: &SyncSession) -> VaultSyncStatus {
+    session
+        .run_pass_blocking(Duration::from_secs(60))
+        .expect("the pass must end in time")
+}
+
+/// Passes of two computers until nothing moves (three rounds are enough for the tests).
+pub fn settle(a: &SyncSession, b: &SyncSession) {
+    for _ in 0..3 {
+        pass(a);
+        pass(b);
+    }
+}

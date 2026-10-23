@@ -6,7 +6,11 @@
 import { commands } from "@/lib/bindings"
 import { isTauri } from "@/lib/storage"
 import type {
+  ApprovalKind,
+  ConflictChoice,
   Result,
+  SpaceTarget,
+  SpaceView,
   SyncError,
   DeviceView,
   PasswordCheck,
@@ -14,9 +18,24 @@ import type {
   ServerCheck,
   SignOutResult,
   SyncStatus,
+  VaultSyncStatus,
 } from "@/lib/bindings"
 
-export type { DeviceView, PasswordCheck, PreparedAccountView, ServerCheck, SyncStatus }
+export type {
+  ApprovalKind,
+  ConflictChoice,
+  DeviceView,
+  PasswordCheck,
+  PreparedAccountView,
+  ServerCheck,
+  SpaceTarget,
+  SpaceView,
+  SyncStatus,
+  VaultSyncStatus,
+}
+
+/** The name of the event the application emits when the sync status of the open vault changes. */
+export const VAULT_STATUS_EVENT = "sync-status-changed"
 
 /** The default name of the recovery code file offered by "Save to file". */
 export const RECOVERY_CODE_FILE_NAME = "amby-recovery-code.txt"
@@ -83,6 +102,25 @@ export interface SyncPort {
   signOut(): Promise<SignOutResult>
   /** Offers to save the recovery code as a text file; the path, or `null` when cancelled. */
   saveRecoveryCode(contents: string): Promise<string | null>
+
+  // ----- the sync of the open vault (stage Э4) -----
+
+  /** The state of the sync of the open vault; no network. */
+  vaultStatus(): Promise<VaultSyncStatus>
+  /** The spaces of the account, for "connect an existing vault". */
+  listSpaces(): Promise<SpaceView[]>
+  /** Switches sync on for the open vault: a new space or an existing one. */
+  enableVault(target: SpaceTarget, testVault: boolean): Promise<VaultSyncStatus>
+  /** Switches sync off for the open vault; the link with the space stays. */
+  disableVault(): Promise<VaultSyncStatus>
+  /** A pass now. */
+  runNow(): Promise<void>
+  /** The answer to a stop of Р8. */
+  approve(kind: ApprovalKind): Promise<void>
+  /** Resolves a conflict of the list. */
+  resolveConflict(id: string, choice: ConflictChoice): Promise<void>
+  /** Calls `listener` whenever the status changes; returns the function that stops it. */
+  onVaultStatus(listener: (status: VaultSyncStatus) => void): Promise<() => void>
 }
 
 /** Unwraps the answer of a command. A failure of the IPC layer itself carries no text on purpose. */
@@ -142,8 +180,19 @@ export function createDesktopSyncPort(): SyncPort {
       // The text of a file error may name a path: only the code is kept.
       throw new SyncPortError("storage_error")
     },
+    vaultStatus: () => notYet(),
+    listSpaces: () => notYet(),
+    enableVault: () => notYet(),
+    disableVault: () => notYet(),
+    runNow: () => notYet(),
+    approve: () => notYet(),
+    resolveConflict: () => notYet(),
+    onVaultStatus: () => notYet(),
   }
 }
+
+// Stage Э4, tests first: the commands of the sync of the open vault are wired after the tests.
+const notYet = (): Promise<never> => Promise.reject(new Error("not implemented"))
 
 const unavailable = (): Promise<never> => Promise.reject(new SyncPortError("unavailable"))
 
@@ -171,6 +220,14 @@ export const unavailableSyncPort: SyncPort = {
   disconnectDevice: unavailable,
   signOut: unavailable,
   saveRecoveryCode: unavailable,
+  vaultStatus: () => notYet(),
+  listSpaces: unavailable,
+  enableVault: unavailable,
+  disableVault: unavailable,
+  runNow: unavailable,
+  approve: unavailable,
+  resolveConflict: unavailable,
+  onVaultStatus: () => notYet(),
 }
 
 let desktopPort: SyncPort | null = null

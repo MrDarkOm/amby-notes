@@ -137,6 +137,10 @@ pub enum FsError {
     /// The disk is full (С4). The target is untouched.
     #[error("no space left")]
     NoSpace,
+    /// The system refuses access to this one file or folder (permissions, a lock held by another
+    /// program). It stops that item only, never the whole pass (Э4, carried over from Э3).
+    #[error("access denied: {0}")]
+    AccessDenied(String),
     /// Anything else, including a lost process in the simulation.
     #[error("i/o error: {0}")]
     Io(String),

@@ -6,11 +6,16 @@
 use tauri::State;
 
 use crate::sync::password::check_password;
+use crate::sync::runtime::SyncRuntime;
 use crate::sync::service::{PrepareRequest, RecoverRequest, SignInRequest, SyncService};
 use crate::sync::types::{
     DeviceView, Endpoint, PasswordCheck, PreparedAccountView, ServerCheck, SignOutResult,
     SyncError, SyncStatus,
 };
+use crate::sync::vault_types::{
+    ApprovalKind, ConflictChoice, SpaceTarget, SpaceView, VaultSyncStatus,
+};
+use crate::vault_context::VaultContext;
 
 fn endpoint(url: String, allow_http: bool) -> Endpoint {
     Endpoint { url, allow_http }
@@ -160,4 +165,72 @@ pub async fn sync_disconnect_device(
 #[specta::specta]
 pub async fn sync_sign_out(service: State<'_, SyncService>) -> Result<SignOutResult, SyncError> {
     service.sign_out().await
+}
+
+// ----- the sync of the open vault (stage Э4) -----
+
+fn open_vault(context: &VaultContext) -> Result<std::path::PathBuf, SyncError> {
+    context.root().map_err(|_| SyncError::new("no_vault_open"))
+}
+
+/// The state of the sync of the open vault; no network.
+#[tauri::command]
+#[specta::specta]
+pub fn sync_vault_status(runtime: State<'_, SyncRuntime>) -> VaultSyncStatus {
+    runtime.status()
+}
+
+/// The spaces of the account, for "connect an existing vault" (Р5).
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_list_spaces(
+    runtime: State<'_, SyncRuntime>,
+) -> Result<Vec<SpaceView>, SyncError> {
+    runtime.list_spaces().await
+}
+
+/// Switches sync on for the open vault: a new space or an existing one. While the gate of the
+/// plan is closed the vault has to be marked as a test vault.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_enable_vault(
+    runtime: State<'_, SyncRuntime>,
+    context: State<'_, VaultContext>,
+    target: SpaceTarget,
+    test_vault: bool,
+) -> Result<VaultSyncStatus, SyncError> {
+    let vault = open_vault(&context)?;
+    runtime.enable(&vault, target, test_vault).await
+}
+
+/// Switches sync off for the open vault; the link with the space stays.
+#[tauri::command]
+#[specta::specta]
+pub fn sync_disable_vault(runtime: State<'_, SyncRuntime>) -> Result<VaultSyncStatus, SyncError> {
+    runtime.disable()
+}
+
+/// A pass now.
+#[tauri::command]
+#[specta::specta]
+pub fn sync_run_now(runtime: State<'_, SyncRuntime>) -> Result<(), SyncError> {
+    runtime.sync_now()
+}
+
+/// The answer to a stop of Р8.
+#[tauri::command]
+#[specta::specta]
+pub fn sync_approve(runtime: State<'_, SyncRuntime>, kind: ApprovalKind) -> Result<(), SyncError> {
+    runtime.approve(kind)
+}
+
+/// Resolves a conflict of the list (Р7).
+#[tauri::command]
+#[specta::specta]
+pub fn sync_resolve_conflict(
+    runtime: State<'_, SyncRuntime>,
+    id: String,
+    choice: ConflictChoice,
+) -> Result<(), SyncError> {
+    runtime.resolve_conflict(&id, choice)
 }

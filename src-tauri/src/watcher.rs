@@ -13,7 +13,7 @@ pub const SELF_WRITE_RECORD_TTL: Duration = Duration::from_secs(8);
 
 /// Payload emitted to the frontend when an external file-system change is
 /// detected in the vault (creates, modifies, deletes).
-#[derive(serde::Serialize, Clone)]
+#[derive(serde::Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct VaultFileChangedPayload {
     pub kind: String, // "create" | "modify" | "remove" | "rename"
     pub path: String,
@@ -75,6 +75,38 @@ pub fn queue_external_changes(
         .unwrap()
         .extend(changes.iter().map(|change| PathBuf::from(&change.path)));
     changes
+}
+
+/// Merges the events of the watcher while a batch of changes from synchronisation is applied
+/// (docs/sync-plan.md, Р8): the renderer gets each path once, after the batch, instead of a storm
+/// of events in the middle of it. Outside a batch events pass through at once.
+#[derive(Debug, Default)]
+pub struct EventBatch {
+    state: Mutex<BatchState>,
+}
+
+#[derive(Debug, Default)]
+struct BatchState {
+    depth: u32,
+    held: Vec<VaultFileChangedPayload>,
+}
+
+impl EventBatch {
+    /// A batch begins (batches nest).
+    pub fn begin(&self) {
+        todo!("Э4: EventBatch::begin")
+    }
+
+    /// The events to send now: all of `events` outside a batch, none inside one (they are held).
+    pub fn push(&self, _events: Vec<VaultFileChangedPayload>) -> Vec<VaultFileChangedPayload> {
+        todo!("Э4: EventBatch::push")
+    }
+
+    /// A batch ends; when the outermost one ends, the held events are returned, each path once
+    /// with its latest kind in the order the paths first appeared.
+    pub fn end(&self) -> Vec<VaultFileChangedPayload> {
+        todo!("Э4: EventBatch::end")
+    }
 }
 
 pub fn is_amby_temporary_file(path: &Path) -> bool {
@@ -469,5 +501,76 @@ mod tests {
             notify::event::RenameMode::Any,
         ));
         assert_eq!(watched_event_kind(&kind), Some("rename"));
+    }
+}
+
+#[cfg(test)]
+mod event_batch_tests {
+    use super::*;
+
+    fn event(kind: &str, path: &str) -> VaultFileChangedPayload {
+        VaultFileChangedPayload {
+            kind: kind.into(),
+            path: path.into(),
+        }
+    }
+
+    #[test]
+    fn outside_a_batch_events_pass_at_once() {
+        // Р8: only the batch of synchronisation holds events back
+        let batch = EventBatch::default();
+        let events = vec![event("modify", "/v/a.md"), event("create", "/v/b.md")];
+        assert_eq!(batch.push(events.clone()), events);
+        assert!(batch.end().is_empty(), "no batch was open");
+    }
+
+    #[test]
+    fn inside_a_batch_events_are_held_and_sent_once_afterwards() {
+        // Р8: the renderer gets each path once, after the batch
+        let batch = EventBatch::default();
+        batch.begin();
+        assert!(batch
+            .push(vec![event("create", "/v/a.md"), event("modify", "/v/b.md")])
+            .is_empty());
+        assert!(batch
+            .push(vec![event("modify", "/v/a.md"), event("modify", "/v/c.md")])
+            .is_empty());
+        assert_eq!(
+            batch.end(),
+            vec![
+                event("modify", "/v/a.md"),
+                event("modify", "/v/b.md"),
+                event("modify", "/v/c.md"),
+            ],
+            "each path once, the latest kind, in order of first appearance"
+        );
+        // And the batch is closed: events pass again.
+        assert_eq!(
+            batch.push(vec![event("modify", "/v/d.md")]),
+            vec![event("modify", "/v/d.md")]
+        );
+    }
+
+    #[test]
+    fn batches_nest_and_only_the_outermost_end_releases_the_events() {
+        let batch = EventBatch::default();
+        batch.begin();
+        batch.begin();
+        batch.push(vec![event("modify", "/v/a.md")]);
+        assert!(batch.end().is_empty(), "the inner end releases nothing");
+        assert!(batch.push(vec![event("modify", "/v/b.md")]).is_empty());
+        assert_eq!(
+            batch.end(),
+            vec![event("modify", "/v/a.md"), event("modify", "/v/b.md")]
+        );
+    }
+
+    #[test]
+    fn an_end_without_a_begin_is_harmless() {
+        let batch = EventBatch::default();
+        assert!(batch.end().is_empty());
+        batch.begin();
+        batch.push(vec![event("remove", "/v/a.md")]);
+        assert_eq!(batch.end().len(), 1);
     }
 }

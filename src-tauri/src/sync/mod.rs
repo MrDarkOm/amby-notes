@@ -12,17 +12,45 @@
 //! Neither the password nor a key nor a token nor the recovery code is written to the settings,
 //! to the vault or to a log (О1, Р5).
 
+pub mod clock;
 pub mod connection;
+pub mod gate;
+pub mod hints;
 pub mod password;
+pub mod remote;
+pub mod runtime;
 pub mod secrets;
 pub mod service;
+pub mod session;
+pub mod space;
+pub mod state_db;
 pub mod types;
+pub mod vault_fs;
+pub mod vault_types;
 
 #[cfg(test)]
 mod connection_tests;
 #[cfg(test)]
+mod gate_tests;
+#[cfg(test)]
+mod hints_tests;
+#[cfg(test)]
 mod password_tests;
+#[cfg(test)]
+mod ports_scenarios_tests;
+#[cfg(test)]
+mod remote_tests;
+#[cfg(test)]
+mod runtime_tests;
 #[cfg(test)]
 mod service_tests;
 #[cfg(test)]
+mod session_tests;
+#[cfg(test)]
+mod space_tests;
+#[cfg(test)]
+mod state_db_tests;
+#[cfg(test)]
 mod test_support;
+#[cfg(test)]
+mod vault_fs_tests;

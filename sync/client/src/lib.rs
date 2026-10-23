@@ -6,6 +6,7 @@
 //! - [`url`]: the address of a server and the `https://` rule (П41);
 //! - [`error`]: errors with the machine codes of table Б.0.1 and plain texts;
 //! - [`api`]: one method per request, no logic;
+//! - [`spaces`]: spaces, bodies, commits, the change feed and notifications (Б.3–Б.6, stage Э4);
 //! - [`flows`]: the sign-in flows of the application — create an account, sign in on a new
 //!   device, recover by the code — built from the requests and the cryptography.
 //!
@@ -15,6 +16,7 @@
 pub mod api;
 pub mod error;
 pub mod flows;
+pub mod spaces;
 pub mod url;
 
 pub use api::{
@@ -26,4 +28,5 @@ pub use flows::{
     disconnect_device, enroll_prepared, list_devices, prepare_account, recover_account, sign_in,
     validate_username, Connected, Device, PreparedAccount,
 };
+pub use spaces::{BlobDownload, EventStream, NewSpace, ServerEvent, ServerLimits, SpaceEntry};
 pub use url::ServerUrl;

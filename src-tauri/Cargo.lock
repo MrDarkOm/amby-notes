@@ -80,6 +80,7 @@ dependencies = [
  "amby-sync-core",
  "amby-sync-proto",
  "futures-util",
+ "hex",
  "keyring",
  "notify",
  "objc2",

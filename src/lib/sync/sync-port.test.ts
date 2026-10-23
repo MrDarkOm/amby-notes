@@ -18,6 +18,8 @@ const commands = vi.hoisted(() => ({
 vi.mock("@/lib/bindings", () => ({ commands }))
 const tauri = vi.hoisted(() => ({ isTauri: vi.fn(() => true) }))
 vi.mock("@/lib/storage", () => tauri)
+const eventApi = vi.hoisted(() => ({ listen: vi.fn() }))
+vi.mock("@tauri-apps/api/event", () => eventApi)
 
 import {
   RECOVERY_CODE_FILE_NAME,
@@ -170,5 +172,94 @@ describe("the port of the browser build", () => {
     expect(resolveSyncPort()).toBe(unavailableSyncPort)
     tauri.isTauri.mockReturnValue(true)
     expect(resolveSyncPort()).not.toBe(unavailableSyncPort)
+  })
+})
+
+describe("the desktop sync port: the sync of the open vault", () => {
+  beforeEach(() => vi.resetAllMocks())
+
+  it("passes the arguments of each command in the order of the generated bindings", async () => {
+    Object.assign(commands, {
+      syncVaultStatus: vi.fn(),
+      syncListSpaces: vi.fn(),
+      syncEnableVault: vi.fn(),
+      syncDisableVault: vi.fn(),
+      syncRunNow: vi.fn(),
+      syncApprove: vi.fn(),
+      syncResolveConflict: vi.fn(),
+    })
+    const c = commands as unknown as Record<string, ReturnType<typeof vi.fn>>
+    const port = createDesktopSyncPort()
+
+    c.syncVaultStatus.mockResolvedValue({ enabled: true })
+    expect(await port.vaultStatus()).toEqual({ enabled: true })
+
+    c.syncListSpaces.mockResolvedValue(ok([{ spaceId: "aa" }]))
+    expect(await port.listSpaces()).toEqual([{ spaceId: "aa" }])
+
+    c.syncEnableVault.mockResolvedValue(ok({ enabled: true }))
+    await port.enableVault({ kind: "new", name: "Work" }, true)
+    expect(c.syncEnableVault).toHaveBeenCalledWith({ kind: "new", name: "Work" }, true)
+
+    c.syncDisableVault.mockResolvedValue(ok({ enabled: false }))
+    expect(await port.disableVault()).toEqual({ enabled: false })
+
+    c.syncRunNow.mockResolvedValue(ok(null))
+    await port.runNow()
+    expect(c.syncRunNow).toHaveBeenCalledTimes(1)
+
+    c.syncApprove.mockResolvedValue(ok(null))
+    await port.approve("massChange")
+    expect(c.syncApprove).toHaveBeenCalledWith("massChange")
+
+    c.syncResolveConflict.mockResolvedValue(ok(null))
+    await port.resolveConflict("0123456789ab", "keepCopy")
+    expect(c.syncResolveConflict).toHaveBeenCalledWith("0123456789ab", "keepCopy")
+  })
+
+  it("turns a failed command into a SyncPortError with the machine code", async () => {
+    const c = commands as unknown as Record<string, ReturnType<typeof vi.fn>>
+    c.syncEnableVault = vi.fn().mockResolvedValue(failed("test_vault_required"))
+    const port = createDesktopSyncPort()
+    await expect(port.enableVault({ kind: "new", name: "" }, false)).rejects.toMatchObject({
+      name: "SyncPortError",
+      code: "test_vault_required",
+    })
+    c.syncApprove = vi.fn().mockRejectedValue(new Error("raw text with /Users/x/path"))
+    await expect(port.approve("resync")).rejects.toMatchObject({ code: "ipc_failed" })
+  })
+
+  it("listens to the status events of the application and stops on request", async () => {
+    const stop = vi.fn()
+    let handler: ((event: { payload: unknown }) => void) | null = null
+    eventApi.listen.mockImplementation(
+      async (name: string, callback: (event: { payload: unknown }) => void) => {
+        expect(name).toBe("sync-status-changed")
+        handler = callback
+        return stop
+      },
+    )
+    const port = createDesktopSyncPort()
+    const seen: unknown[] = []
+    const unlisten = await port.onVaultStatus((status) => seen.push(status))
+    ;(handler as unknown as (event: { payload: unknown }) => void)({
+      payload: { enabled: true, phase: "idle" },
+    })
+    expect(seen).toEqual([{ enabled: true, phase: "idle" }])
+    unlisten()
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it("the browser build has no vault to synchronise and refuses to switch it on", async () => {
+    const status = await unavailableSyncPort.vaultStatus()
+    expect(status.phase).toBe("off")
+    expect(status.enabled).toBe(false)
+    await expect(
+      unavailableSyncPort.enableVault({ kind: "new", name: "" }, true),
+    ).rejects.toMatchObject({
+      code: "unavailable",
+    })
+    const unlisten = await unavailableSyncPort.onVaultStatus(() => {})
+    expect(() => unlisten()).not.toThrow()
   })
 })
