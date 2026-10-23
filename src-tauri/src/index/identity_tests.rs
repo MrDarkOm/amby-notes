@@ -481,7 +481,13 @@ fn a_conflict_copy_indexed_before_its_file_gives_the_identity_back_at_once() {
     fs::write(root.join("Note.0123456789ab-conflict.md"), &copy).unwrap();
     let conn = open_connection(&root).unwrap();
     let first = load_vault(&conn, &root).unwrap();
-    assert_eq!(first.notes[0].id, id, "alone, the copy holds the id");
+    // Changed 23.10 (decision of the owner, variant a): a copy of a conflict never holds the
+    // identity, not even alone; without its file it has only a path-scoped conflict key.
+    assert!(
+        first.notes[0].id.starts_with("amby-conflict:"),
+        "alone, the copy still does not hold the id: {}",
+        first.notes[0].id
+    );
 
     fs::write(root.join("Note.md"), &original).unwrap();
     let changed: std::collections::HashSet<PathBuf> = [root.join("Note.md")].into();
@@ -524,6 +530,69 @@ fn a_file_created_through_a_path_change_beats_an_indexed_conflict_copy() {
     let read = read_note(&conn, &root, &id).unwrap();
     assert_eq!(read.content, "The file under its name");
     assert!(prepare_note_write(&conn, &root, &id, "edited", &read.revision).is_ok());
+    drop(conn);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_deleted_note_is_not_read_through_its_conflict_copy_and_comes_back_with_its_identity() {
+    // Report of 23.10: a note open here was deleted on another computer while its conflict copy
+    // (same `amby-id`) stayed. The id of the deleted note must not read the copy's text; the open
+    // document would then compare itself with the copy. Restoring the original gives it the id back.
+    let root = vault();
+    let id = Ulid::generate().to_string();
+    let original = format!("---\namby-id: {id}\n---\nThe file under its name");
+    let copy = format!("---\namby-id: {id}\n---\nThe other version");
+    fs::write(root.join("Note.md"), &original).unwrap();
+    fs::write(root.join("Note.0123456789ab-conflict.md"), &copy).unwrap();
+    let conn = open_connection(&root).unwrap();
+    load_vault(&conn, &root).unwrap();
+    fs::remove_file(root.join("Note.md")).unwrap();
+    let gone: std::collections::HashSet<PathBuf> = [root.join("Note.md")].into();
+    sync::sync_vault_with_changes(&conn, &root, &gone).unwrap();
+    assert!(
+        read_note(&conn, &root, &id).is_err(),
+        "the deleted note's id must not read the copy"
+    );
+
+    fs::write(root.join("Note.md"), &original).unwrap();
+    let back: std::collections::HashSet<PathBuf> = [root.join("Note.md")].into();
+    sync::sync_vault_with_changes(&conn, &root, &back).unwrap();
+    assert_eq!(
+        read_note(&conn, &root, &id).unwrap().content,
+        "The file under its name"
+    );
+    assert!(ensure_unique_identity(&conn, &id).is_ok());
+    drop(conn);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_conflict_copy_with_an_identity_of_its_own_is_an_ordinary_note() {
+    // "Keep both" (Р7, Д46) gives the copy an `amby-id` of its own. Then it is no longer a duplicate of
+    // its file: it holds its identity and is editable, like any other note.
+    let root = vault();
+    let id = Ulid::generate().to_string();
+    let own = Ulid::generate().to_string();
+    fs::write(
+        root.join("Note.md"),
+        format!("---\namby-id: {id}\n---\nThe file under its name"),
+    )
+    .unwrap();
+    fs::write(
+        root.join("Note.0123456789ab-conflict.md"),
+        format!("---\namby-id: {own}\n---\nThe other version"),
+    )
+    .unwrap();
+    let conn = open_connection(&root).unwrap();
+    let loaded = load_vault(&conn, &root).unwrap();
+    assert!(
+        loaded.notes.iter().any(|note| note.id == own),
+        "the copy holds its own id"
+    );
+    let read = read_note(&conn, &root, &own).unwrap();
+    assert_eq!(read.content, "The other version");
+    assert!(prepare_note_write(&conn, &root, &own, "edited", &read.revision).is_ok());
     drop(conn);
     fs::remove_dir_all(root).unwrap();
 }

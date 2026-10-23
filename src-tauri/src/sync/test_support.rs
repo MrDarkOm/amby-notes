@@ -296,6 +296,8 @@ pub struct Recorder {
     /// Every path reported as deleted on another computer, with the vault it was reported for,
     /// in the order reported.
     pub remote_deleted: Mutex<Vec<(PathBuf, String)>>,
+    /// Every path reported as brought back after a deletion made here, in the order reported.
+    pub restored: Mutex<Vec<String>>,
 }
 
 impl FsHooks for Recorder {
@@ -316,6 +318,9 @@ impl SessionHooks for Recorder {
             .lock()
             .unwrap()
             .extend(paths.iter().map(|path| (vault.to_path_buf(), path.clone())));
+    }
+    fn restored_after_deletion(&self, paths: &[String]) {
+        self.restored.lock().unwrap().extend(paths.iter().cloned());
     }
 }
 
@@ -338,6 +343,11 @@ impl Recorder {
             .iter()
             .map(|(vault, _)| vault.clone())
             .collect()
+    }
+
+    /// The paths reported as brought back after a deletion made here so far.
+    pub fn restored_after_local_deletion(&self) -> Vec<String> {
+        self.restored.lock().unwrap().clone()
     }
 
     /// How many times a pass began (the status turned to running).

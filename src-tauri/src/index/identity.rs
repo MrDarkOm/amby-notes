@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use rusqlite::Connection;
 
 pub const CONFLICT_PREFIX: &str = "amby-conflict:";
@@ -50,6 +52,39 @@ pub fn is_sync_conflict_copy(rel_path: &str) -> bool {
         && id
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// The file a copy of a conflict of synchronisation was made from (docs/sync-plan.md, Д46, inverted):
+/// `Name.<12 hex>-conflict.ext` → `Name.ext`, in the same folder.
+pub fn original_of_conflict_copy(rel_path: &str) -> Option<String> {
+    if !is_sync_conflict_copy(rel_path) {
+        return None;
+    }
+    let (dir, name) = match rel_path.rfind('/') {
+        Some(at) => (&rel_path[..=at], &rel_path[at + 1..]),
+        None => ("", rel_path),
+    };
+    let at = name.rfind("-conflict")?;
+    let dot = name[..at].rfind('.')?;
+    Some(format!(
+        "{dir}{}{}",
+        &name[..dot],
+        &name[at + "-conflict".len()..]
+    ))
+}
+
+/// Does a copy of a conflict of synchronisation hold `claimed` as a duplicate, that is, as a key that
+/// is not an identity (docs/vault-format.md)? It does while it repeats the `amby-id` of its file, and also
+/// when that file is not there: a copy never holds the identity alone (Р7). Once "keep both" gave the copy
+/// an identity of its own, it is an ordinary note.
+pub fn conflict_copy_is_duplicate(vault: &Path, rel_path: &str, claimed: &str) -> bool {
+    let Some(original) = original_of_conflict_copy(rel_path) else {
+        return false;
+    };
+    let Ok(text) = std::fs::read_to_string(vault.join(&original)) else {
+        return true;
+    };
+    crate::frontmatter::parse_markdown(&text).note_id() == Some(claimed)
 }
 
 pub fn ensure_unique_identity(conn: &Connection, note_id: &str) -> Result<(), String> {

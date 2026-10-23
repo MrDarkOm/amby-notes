@@ -9,7 +9,13 @@ import { listTrash, readFile, restoreTrash } from "@/lib/storage"
 import type { Document } from "../use-doc-store"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
-import { createFakePort, emitRemoteDeleted, emitVaultStatus, vaultStatus } from "./fake-sync-port"
+import {
+  createFakePort,
+  emitRemoteDeleted,
+  emitRestoredAfterDeletion,
+  emitVaultStatus,
+  vaultStatus,
+} from "./fake-sync-port"
 import { SyncDocumentBanners } from "./sync-document-banners"
 import { SyncNoticesHost } from "./sync-notices-host"
 import { useSyncNoticesStore } from "./use-sync-notices-store"
@@ -119,6 +125,17 @@ describe("the notice about a new conflict", () => {
     await mount(vaultStatus({ conflicts: [conflict] }))
     await screen.findByTestId("sync-conflict-badge")
     expect(screen.queryByRole("status")).toBeNull()
+  })
+})
+
+describe("the notice about a note brought back after a deletion made here", () => {
+  it("is shown even when the note is not open, and names it", async () => {
+    await mount()
+    await act(async () => emitRestoredAfterDeletion([ORIGINAL]))
+    const notice = await screen.findByRole("status")
+    expect(notice.textContent).toMatch(/Заметку «идея» вернули/)
+    expect(notice.textContent).toMatch(/правили на другом компьютере/)
+    expect(useDocStore.getState().openDocs).toEqual({})
   })
 })
 

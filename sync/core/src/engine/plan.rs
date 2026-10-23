@@ -184,6 +184,8 @@ pub(super) struct Plan {
     pub unsynced: Vec<UnsyncedRecord>,
     /// Local path → the item to write a new version of.
     pub undelete: BTreeMap<String, Undelete>,
+    /// Server paths of items that come back over a local deletion (Д37–Д39): reported once written.
+    pub restored: BTreeSet<String>,
     /// Bases to forget (Д58).
     pub forget: Vec<ItemId>,
     /// Files this pass would replace or trash (Д54).

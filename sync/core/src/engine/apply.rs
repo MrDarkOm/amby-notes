@@ -470,6 +470,9 @@ impl Engine {
             Err(error) => return Err(error.into()),
         }
         report.downloaded += 1;
+        if plan.restored.contains(&put.target) {
+            report.restored_paths.push(put.target.clone());
+        }
         self.ports
             .state
             .apply(&vec![StateOp::PutItem(put.rec.clone())])?;

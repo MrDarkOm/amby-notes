@@ -45,6 +45,9 @@ export interface RemoteDeletedEvent {
   paths: string[]
 }
 
+/** The event for notes that came back after a deletion made on this computer; the payload is the paths. */
+const RESTORED_AFTER_DELETION_EVENT = "sync-restored-after-deletion"
+
 /** The default name of the recovery code file offered by "Save to file". */
 export const RECOVERY_CODE_FILE_NAME = "amby-recovery-code.txt"
 
@@ -131,6 +134,11 @@ export interface SyncPort {
   onVaultStatus(listener: (status: VaultSyncStatus) => void): Promise<() => void>
   /** Calls `listener` with the vault and the paths (in it) of files deleted on another computer. */
   onRemoteDeleted(listener: (event: RemoteDeletedEvent) => void): Promise<() => void>
+  /**
+   * Calls `listener` with the paths (in the vault) of notes this computer deleted that came back because
+   * another computer edited them (Р7, Д37).
+   */
+  onRestoredAfterDeletion(listener: (paths: string[]) => void): Promise<() => void>
 }
 
 /** Unwraps the answer of a command. A failure of the IPC layer itself carries no text on purpose. */
@@ -231,6 +239,17 @@ export function createDesktopSyncPort(): SyncPort {
         throw new SyncPortError("ipc_failed")
       }
     },
+    onRestoredAfterDeletion: async (listener) => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event")
+        const unlisten = await listen<string[]>(RESTORED_AFTER_DELETION_EVENT, (event) =>
+          listener(event.payload),
+        )
+        return () => unlisten()
+      } catch {
+        throw new SyncPortError("ipc_failed")
+      }
+    },
   }
 }
 
@@ -287,6 +306,7 @@ export const unavailableSyncPort: SyncPort = {
   resolveConflict: unavailable,
   onVaultStatus: async () => () => {},
   onRemoteDeleted: async () => () => {},
+  onRestoredAfterDeletion: async () => () => {},
 }
 
 let desktopPort: SyncPort | null = null

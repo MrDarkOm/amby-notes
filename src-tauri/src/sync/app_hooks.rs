@@ -32,6 +32,10 @@ pub struct RemoteDeletedPayload {
     pub paths: Vec<String>,
 }
 
+/// The event for files brought back after a deletion made on this computer (Р7, Д37); the payload is
+/// the list of paths in the vault.
+pub const RESTORED_EVENT: &str = "sync-restored-after-deletion";
+
 /// Hooks that talk to the windows of the application.
 pub struct AppHooks {
     app: tauri::AppHandle,
@@ -68,5 +72,9 @@ impl SessionHooks for AppHooks {
             paths: paths.to_vec(),
         };
         let _ = self.app.emit(REMOTE_DELETED_EVENT, payload);
+    }
+
+    fn restored_after_deletion(&self, paths: &[String]) {
+        let _ = self.app.emit(RESTORED_EVENT, paths);
     }
 }

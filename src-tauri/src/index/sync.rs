@@ -7,7 +7,8 @@ use ulid::Ulid;
 use walkdir::WalkDir;
 
 use super::identity::{
-    conflict_id, is_path_identity, is_sync_conflict_copy, opaque_id, CONFLICT_PREFIX,
+    conflict_copy_is_duplicate, conflict_id, is_path_identity, is_sync_conflict_copy, opaque_id,
+    CONFLICT_PREFIX,
 };
 use super::links::{extract_links, resolve_links};
 use super::note_index::{list_notes, IndexedNote};
@@ -186,7 +187,7 @@ pub fn sync_vault_with_changes(
         .optional()
         .map_err(|error| error.to_string())?;
     // Invalidate only the cache fast path once; do not rewrite legacy sources.
-    let mut prev = if identity_version.as_deref() == Some("3") {
+    let mut prev = if identity_version.as_deref() == Some("4") {
         db_path_stamps(conn)?
     } else {
         HashMap::new()
@@ -269,6 +270,10 @@ pub fn sync_vault_with_changes(
                 note.rel_path
             ));
             conflict_id(None, &note.rel_path)
+        } else if claimed_id.is_some_and(|id| conflict_copy_is_duplicate(vault, &note.rel_path, id))
+        {
+            // A copy of a conflict never holds the identity, alone or not (Р7): it keeps its key.
+            conflict_id(claimed_id, &note.rel_path)
         } else if duplicate {
             warnings.push(format!(
                 "{}: duplicate Amby id {}; source left unchanged",
@@ -387,7 +392,7 @@ pub fn sync_vault_with_changes(
     if inserted > 0 || updated > 0 || deleted > 0 {
         resolve_links(&tx)?;
     }
-    tx.execute("INSERT INTO index_metadata (key, value) VALUES ('identity_version', '3') ON CONFLICT(key) DO UPDATE SET value = excluded.value", [])
+    tx.execute("INSERT INTO index_metadata (key, value) VALUES ('identity_version', '4') ON CONFLICT(key) DO UPDATE SET value = excluded.value", [])
         .map_err(|error| error.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
 

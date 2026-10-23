@@ -14,10 +14,9 @@ import { useSyncNoticesStore, type SyncConflict } from "./use-sync-notices-store
 /** How long the notice about a new conflict stays, in milliseconds. */
 const NOTICE_MS = 10_000
 
-interface Notice {
-  key: number
-  conflicts: SyncConflict[]
-}
+type Notice =
+  | { key: number; kind: "conflict"; conflicts: SyncConflict[] }
+  | { key: number; kind: "restored"; path: string }
 
 function noteName(path: string): string {
   const file = path.split("/").pop() ?? path
@@ -60,7 +59,10 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
       const fresh = next.filter((item) => !known.has(item.id))
       if (fresh.length > 0) {
         counter.current += 1
-        setNotices((list) => [...list, { key: counter.current, conflicts: fresh }])
+        setNotices((list) => [
+          ...list,
+          { key: counter.current, kind: "conflict", conflicts: fresh },
+        ])
       }
     }
     port
@@ -88,6 +90,18 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
           ) {
             useSyncNoticesStore.getState().markRemoteDeleted(path.normalize("NFC"))
           }
+        }
+      })
+      .then((off) => (alive ? unlisten.push(off) : off()))
+      .catch(() => {})
+    port
+      .onRestoredAfterDeletion((paths) => {
+        // Said whether or not the note is open: a note that comes back unannounced looks like a bug.
+        if (!alive) return
+        for (const path of paths) {
+          counter.current += 1
+          const key = counter.current
+          setNotices((list) => [...list, { key, kind: "restored", path: path.normalize("NFC") }])
         }
       })
       .then((off) => (alive ? unlisten.push(off) : off()))
@@ -148,11 +162,13 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
           >
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-500" aria-hidden="true" />
             <p className="min-w-0 flex-1">
-              {notice.conflicts.length === 1
-                ? t("sync.notices.newConflict", {
-                    name: noteName(notice.conflicts[0]?.originalPath ?? ""),
-                  })
-                : t("sync.notices.newConflicts", { count: notice.conflicts.length })}
+              {notice.kind === "restored"
+                ? t("sync.notices.restoredAfterDeletion", { name: noteName(notice.path) })
+                : notice.conflicts.length === 1
+                  ? t("sync.notices.newConflict", {
+                      name: noteName(notice.conflicts[0]?.originalPath ?? ""),
+                    })
+                  : t("sync.notices.newConflicts", { count: notice.conflicts.length })}
             </p>
             <button
               type="button"
