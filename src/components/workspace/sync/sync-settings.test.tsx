@@ -193,7 +193,7 @@ describe("the Synchronization section of the settings", () => {
     const port = createFakePort()
     renderSettings(port)
     expect(await screen.findByLabelText("Server address")).toBeTruthy()
-    expect(document.body.textContent).toMatch(/Notes are not synchronised yet/i)
+    expect(document.body.textContent).toMatch(/works in a test mode/i)
     await i18n.changeLanguage("ru")
   })
 
