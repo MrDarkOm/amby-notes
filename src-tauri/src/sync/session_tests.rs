@@ -985,3 +985,131 @@ fn keeping_both_gives_the_copy_a_note_identity_of_its_own() {
     sa.stop();
     sb.stop();
 }
+
+// ----- Р7 on every computer: the list follows the files (report of 23.10) -----
+
+/// A note with an `amby-id`, as Amby writes them. A copy of a conflict repeats the identity of its file.
+fn with_id(body: &str) -> Vec<u8> {
+    format!("---\namby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\n---\n{body}").into_bytes()
+}
+
+/// Both computers edit `Notes/n.md`; A reaches the server first and keeps the name, B holds the copy.
+fn conflict_with_ids(env: &Env) -> (TempVault, TempVault, SyncSession, SyncSession) {
+    let (a, b) = (TempVault::new("a"), TempVault::new("b"));
+    a.put("Notes/n.md", &with_id("base"));
+    let (sa, _) = env.start(&a, &env.account);
+    let (sb, _) = env.start(&b, &env.another_computer("B"));
+    settle(&sa, &sb);
+    a.put("Notes/n.md", &with_id("edit on a"));
+    b.put("Notes/n.md", &with_id("edit on b"));
+    pass(&sa);
+    pass(&sb);
+    (a, b, sa, sb)
+}
+
+#[test]
+fn the_computer_whose_version_kept_the_name_lists_the_conflict_too() {
+    // Р7, Д46–Д47: the copy reaches A as an ordinary file. A must list it as well (badge, notice,
+    // strip), not only B, which lost the race
+    let env = Env::new();
+    let (a, b, sa, sb) = conflict_with_ids(&env);
+    settle(&sa, &sb);
+    let status = pass(&sa);
+    assert_eq!(status.conflicts.len(), 1, "{:?}", status.conflicts);
+    let conflict = &status.conflicts[0];
+    assert_eq!(conflict.original_path, "Notes/n.md");
+    assert!(
+        conflict.copy_path.starts_with("Notes/n.") && conflict.copy_path.ends_with("-conflict.md")
+    );
+    assert!(a
+        .text(&conflict.copy_path)
+        .is_some_and(|text| text.contains("edit on b")));
+    assert_eq!(pass(&sb).conflicts.len(), 1, "B lists it as before");
+    sa.stop();
+    sb.stop();
+}
+
+#[test]
+fn resolving_on_one_computer_clears_the_conflict_on_every_computer() {
+    // "Оставить основной" on A: the copy goes to the trash, the deletion reaches B, and B's entry goes
+    let env = Env::new();
+    let (a, b, sa, sb) = conflict_with_ids(&env);
+    settle(&sa, &sb);
+    let status = pass(&sa);
+    assert_eq!(status.conflicts.len(), 1, "{:?}", status.conflicts);
+    let (id, copy) = (
+        status.conflicts[0].id.clone(),
+        status.conflicts[0].copy_path.clone(),
+    );
+    sa.resolve_conflict(&id, ConflictChoice::KeepOriginal)
+        .unwrap();
+    settle(&sa, &sb);
+    assert!(!b.exists(&copy), "the copy is gone on B too");
+    assert!(
+        pass(&sb).conflicts.is_empty(),
+        "B's entry left with the copy"
+    );
+    assert!(pass(&sa).conflicts.is_empty());
+    assert_eq!(a.files(), b.files());
+    sa.stop();
+    sb.stop();
+}
+
+#[test]
+fn keeping_both_on_one_computer_clears_the_conflict_on_every_computer() {
+    // "Оставить обе": both files stay; the copy becomes a note of its own, so the other computer
+    // must not keep showing a conflict for it either
+    let env = Env::new();
+    let (a, b, sa, sb) = conflict_with_ids(&env);
+    settle(&sa, &sb);
+    let status = pass(&sa);
+    assert_eq!(status.conflicts.len(), 1, "{:?}", status.conflicts);
+    let (id, copy) = (
+        status.conflicts[0].id.clone(),
+        status.conflicts[0].copy_path.clone(),
+    );
+    sa.resolve_conflict(&id, ConflictChoice::KeepBoth).unwrap();
+    settle(&sa, &sb);
+    assert!(b.exists(&copy) && b.exists("Notes/n.md"), "both files stay");
+    assert!(
+        b.text(&copy)
+            .is_some_and(|text| !text.contains("amby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV")),
+        "the copy got an identity of its own"
+    );
+    assert!(pass(&sb).conflicts.is_empty());
+    assert!(pass(&sa).conflicts.is_empty());
+    sa.stop();
+    sb.stop();
+}
+
+#[test]
+fn a_note_brought_back_after_a_deletion_here_is_reported_here() {
+    // Р7 row 4 (Д37): this computer deleted the note, another computer edited it before the
+    // deletion arrived. The edit wins and the note comes back. The computer that deleted it must
+    // say so, whether or not the note is open, and say it once
+    let env = Env::new();
+    let (a, b) = (TempVault::new("a"), TempVault::new("b"));
+    a.put("Notes/n.md", b"base");
+    // a second note keeps B's vault from looking empty (Д55) when its only note goes
+    a.put("Notes/other.md", b"stays");
+    let (sa, _) = env.start(&a, &env.account);
+    let (sb, recorder_b) = env.start(&b, &env.another_computer("B"));
+    settle(&sa, &sb);
+    b.remove("Notes/n.md");
+    pass(&sb); // the deletion goes up
+    a.put("Notes/n.md", b"edited on a");
+    pass(&sa); // the edit goes up and beats the deletion
+    pass(&sb); // B receives the note again
+    assert_eq!(b.text("Notes/n.md").as_deref(), Some("edited on a"));
+    assert_eq!(
+        recorder_b.restored_after_local_deletion(),
+        vec!["Notes/n.md"]
+    );
+    pass(&sb);
+    assert_eq!(
+        recorder_b.restored_after_local_deletion(),
+        vec!["Notes/n.md"]
+    );
+    sa.stop();
+    sb.stop();
+}

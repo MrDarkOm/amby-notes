@@ -110,6 +110,10 @@ pub trait SessionHooks: FsHooks {
     /// A pass moved these files (paths in the vault) to the trash because they were deleted on
     /// another computer. The interface warns the person only about a note that is open.
     fn remote_deleted(&self, _paths: &[String]) {}
+
+    /// A note that this computer deleted came back because another computer edited it (Р7, Д37).
+    /// The interface says so whether or not the note is open.
+    fn restored_after_deletion(&self, _paths: &[String]) {}
 }
 
 /// Hooks that do nothing.

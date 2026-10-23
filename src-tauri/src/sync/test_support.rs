@@ -295,6 +295,8 @@ pub struct Recorder {
     pub ends: AtomicU64,
     /// Every path reported as deleted on another computer, in the order reported.
     pub remote_deleted: Mutex<Vec<String>>,
+    /// Every path reported as brought back after a deletion made here, in the order reported.
+    pub restored: Mutex<Vec<String>>,
 }
 
 impl FsHooks for Recorder {
@@ -316,12 +318,20 @@ impl SessionHooks for Recorder {
             .unwrap()
             .extend(paths.iter().cloned());
     }
+    fn restored_after_deletion(&self, paths: &[String]) {
+        self.restored.lock().unwrap().extend(paths.iter().cloned());
+    }
 }
 
 impl Recorder {
     /// The paths reported as deleted on another computer so far.
     pub fn deleted_remotely(&self) -> Vec<String> {
         self.remote_deleted.lock().unwrap().clone()
+    }
+
+    /// The paths reported as brought back after a deletion made here so far.
+    pub fn restored_after_local_deletion(&self) -> Vec<String> {
+        self.restored.lock().unwrap().clone()
     }
 
     /// How many times a pass began (the status turned to running).
