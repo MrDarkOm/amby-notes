@@ -547,7 +547,7 @@ pub fn prepare_note_at_path_with_identities(
                     // A conflict copy of synchronisation holding the id gives it back to the
                     // file under its real name (docs/sync-plan.md, Р7); the next refresh
                     // re-reads the copy as a duplicate.
-                    && !(is_sync_conflict_copy(indexed) && !is_sync_conflict_copy(&rel_path))
+                    && (!is_sync_conflict_copy(indexed) || is_sync_conflict_copy(&rel_path))
         }) {
             return prepare_note_index(
                 vault,
