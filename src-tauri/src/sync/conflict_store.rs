@@ -62,7 +62,7 @@ pub struct ConflictVersion {
 /// What `read` answers (Г33).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub struct ConflictVersions {
+pub struct ConflictDetails {
     /// The line of the list.
     pub entry: ConflictEntry,
     /// The file at the path now.
@@ -130,7 +130,7 @@ pub trait ConflictStore {
     fn list(&mut self) -> Result<Vec<ConflictEntry>, ConflictError>;
 
     /// The versions of one conflict (Г33). `NotFound`, `Incomplete`.
-    fn read(&mut self, id: &str) -> Result<ConflictVersions, ConflictError>;
+    fn read(&mut self, id: &str) -> Result<ConflictDetails, ConflictError>;
 
     /// Resolves one conflict (Г26): writes the result into the original with a history snapshot,
     /// moves the files of the conflict to the vault trash, and forgets it. Safe to repeat.
@@ -168,7 +168,7 @@ impl ConflictStore for FileConflictStore {
         todo!("Г25, Г29, Г32: list sets and legacy copies")
     }
 
-    fn read(&mut self, id: &str) -> Result<ConflictVersions, ConflictError> {
+    fn read(&mut self, id: &str) -> Result<ConflictDetails, ConflictError> {
         let _ = id;
         todo!("Г33: read the versions of a conflict")
     }

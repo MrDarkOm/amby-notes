@@ -372,6 +372,37 @@ fn edits_of_different_places_are_merged_and_nobody_is_asked() {
 }
 
 #[test]
+fn a_merge_is_reported_to_the_application_once_with_its_path() {
+    // К1, Г17а: the interface shows a quiet card "edits of two computers merged"; the session
+    // tells it which notes, once per merge, and tells it nothing when nothing was merged
+    let env = Env::new();
+    let (a, b) = (TempVault::new("a"), TempVault::new("b"));
+    a.put("Notes/n.md", b"one\ntwo\nthree\nfour\nfive\n");
+    let (sa, recorder_a) = env.start(&a, &env.account);
+    let (sb, recorder_b) = env.start(&b, &env.another_computer("B"));
+    settle(&sa, &sb);
+    assert!(recorder_a.merged_notes().is_empty() && recorder_b.merged_notes().is_empty());
+    a.put("Notes/n.md", b"ONE\ntwo\nthree\nfour\nfive\n");
+    b.put("Notes/n.md", b"one\ntwo\nthree\nfour\nFIVE\n");
+    pass(&sa);
+    pass(&sb);
+    assert_eq!(recorder_b.merged_notes(), vec!["Notes/n.md".to_string()]);
+    assert!(
+        recorder_a.merged_notes().is_empty(),
+        "A only received the result"
+    );
+    pass(&sb);
+    settle(&sa, &sb);
+    assert_eq!(
+        recorder_b.merged_notes().len(),
+        1,
+        "later passes do not repeat it"
+    );
+    sa.stop();
+    sb.stop();
+}
+
+#[test]
 fn a_merge_keeps_every_byte_no_edit_touched() {
     // К1, Г14, О7: a BOM, CRLF and a note that ends without a newline, merged through the whole
     // application stack

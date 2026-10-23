@@ -36,6 +36,10 @@ pub struct RemoteDeletedPayload {
 /// the list of paths in the vault.
 pub const RESTORED_EVENT: &str = "sync-restored-after-deletion";
 
+/// The event for notes where a pass merged the edits of two computers (К1, Г17а); the payload is the
+/// list of paths in the vault.
+pub const MERGED_EVENT: &str = "sync-merged";
+
 /// Hooks that talk to the windows of the application.
 pub struct AppHooks {
     app: tauri::AppHandle,
@@ -76,5 +80,9 @@ impl SessionHooks for AppHooks {
 
     fn restored_after_deletion(&self, paths: &[String]) {
         let _ = self.app.emit(RESTORED_EVENT, paths);
+    }
+
+    fn merged_after_edits(&self, paths: &[String]) {
+        let _ = self.app.emit(MERGED_EVENT, paths);
     }
 }

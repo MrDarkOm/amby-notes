@@ -298,6 +298,8 @@ pub struct Recorder {
     pub remote_deleted: Mutex<Vec<(PathBuf, String)>>,
     /// Every path reported as brought back after a deletion made here, in the order reported.
     pub restored: Mutex<Vec<String>>,
+    /// Paths reported as merged (К1, Г17а).
+    pub merged: Mutex<Vec<String>>,
 }
 
 impl FsHooks for Recorder {
@@ -322,6 +324,9 @@ impl SessionHooks for Recorder {
     fn restored_after_deletion(&self, paths: &[String]) {
         self.restored.lock().unwrap().extend(paths.iter().cloned());
     }
+    fn merged_after_edits(&self, paths: &[String]) {
+        self.merged.lock().unwrap().extend(paths.iter().cloned());
+    }
 }
 
 impl Recorder {
@@ -343,6 +348,11 @@ impl Recorder {
             .iter()
             .map(|(vault, _)| vault.clone())
             .collect()
+    }
+
+    /// The paths reported as merged so far (К1, Г17а).
+    pub fn merged_notes(&self) -> Vec<String> {
+        self.merged.lock().unwrap().clone()
     }
 
     /// The paths reported as brought back after a deletion made here so far.

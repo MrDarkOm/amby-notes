@@ -118,6 +118,11 @@ pub trait SessionHooks: FsHooks {
     /// A note that this computer deleted came back because another computer edited it (Р7, Д37).
     /// The interface says so whether or not the note is open.
     fn restored_after_deletion(&self, _paths: &[String]) {}
+
+    /// A pass merged the edits of two computers into these notes (К1, Г17а). The interface shows a
+    /// quiet card above the note, which never opens by itself. Called from the report's
+    /// `merged_paths`; the call is written with the code of stage Э4б.
+    fn merged_after_edits(&self, _paths: &[String]) {}
 }
 
 /// Hooks that do nothing.
