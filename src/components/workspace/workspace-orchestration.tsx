@@ -54,6 +54,7 @@ import type { SettingsNavigationTarget } from "./settings-navigation"
 import { useSettingsStore } from "./use-settings-store"
 import { findWikiLinkItem } from "./wiki-links"
 import { useLinkSuggestionSources } from "./orchestration/use-link-suggestion-sources"
+import { useRefreshTreeOnArchiveChange } from "./use-archive-tree-refresh"
 import { applyTreePatch, filterDeletedTabs, planMutation } from "./workspace-mutations"
 import {
   useViewStateStore,
@@ -384,6 +385,7 @@ export function WorkspaceOrchestration() {
     windowLabel,
   } = useVaultData({ onExternalChange })
   useLinkSuggestionSources(vault, treeItems)
+  useRefreshTreeOnArchiveChange(refreshTree)
 
   // Action is stable in zustand, so read it once without subscribing.
   const { applyMutation, patchDoc, markSaved, clearExternalConflict } = useDocStore.getState()
