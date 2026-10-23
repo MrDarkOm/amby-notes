@@ -304,8 +304,8 @@ fn p4_an_excluded_path_from_another_client_is_not_written(_b: EngineBuilder) {
 }
 
 fn d49_a_foreign_rename_onto_an_untracked_local_file_keeps_both(_b: EngineBuilder) {
-    // Р7, Д49, Д51: the name is taken by a file the server does not know: that file becomes a
-    // conflict copy, the renamed file gets the name.
+    // Р7, Д49, Д51, Г20: the name is taken by a file the server does not know: that file moves
+    // into a conflict set, the renamed file gets the name.
     let w = pair_with_a(Engine::boxed);
     w.dev(0).fs.user_rename("Notes/a.md", "Notes/b.md");
     w.pass(0);
@@ -313,12 +313,12 @@ fn d49_a_foreign_rename_onto_an_untracked_local_file_keeps_both(_b: EngineBuilde
     w.pass(1);
     assert_eq!(w.read(1, "Notes/b.md").as_deref(), Some("base"));
     assert!(!w.dev(1).fs.exists("Notes/a.md"));
-    let copies = w.copies(1, "Notes/b.md");
-    assert_eq!(copies.len(), 1, "{:?}", w.texts(1));
+    assert!(w.old_copies(1).is_empty(), "{:?}", w.texts(1));
     assert_eq!(
-        copies.values().next().map(String::as_str),
-        Some("mine, created here")
+        w.others(1, "Notes/b.md"),
+        vec!["mine, created here".to_string()]
     );
+    assert_eq!(w.sets(1)[0].kind, "bothCreated");
     w.finish(false);
 }
 

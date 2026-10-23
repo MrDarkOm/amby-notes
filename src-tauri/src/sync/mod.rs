@@ -80,6 +80,10 @@ pub fn deactivate_for_closed_vault(app: &tauri::AppHandle) {
 }
 
 #[cfg(test)]
+mod base_store_tests;
+#[cfg(test)]
+mod conflict_store_tests;
+#[cfg(test)]
 mod connection_tests;
 #[cfg(test)]
 mod gate_tests;

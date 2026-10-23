@@ -331,13 +331,18 @@ fn c10_clocks_that_are_wrong_decide_nothing(_b: EngineBuilder) {
         w.read(1, "Notes/a.md").as_deref(),
         Some("written earlier by the clock, synced first")
     );
-    assert_eq!(w.copies(1, "Notes/a.md").len(), 1);
+    assert_eq!(
+        w.others(1, "Notes/a.md"),
+        vec!["written later by the clock, synced second".to_string()],
+        "the second version is in a set, whatever the clocks say"
+    );
     w.finish(false);
 }
 
 fn c11_a_copied_vault_without_its_state_reconciles_and_deletes_nothing(_b: EngineBuilder) {
-    // С11, Р10, Д8: the state is gone (the vault was copied with its files to another computer):
-    // identical files link, different ones become conflict copies, new ones arrive, local-only
+    // С11, Р10, Д8, Г10: the state is gone (the vault was copied with its files to another
+    // computer): identical files link, different ones go into conflict sets (there is no base, so
+    // they are not merged), new ones arrive, local-only
     // ones go up, and nothing is deleted anywhere.
     let w = pair_with_a(_b);
     w.save(0, "Notes/a.md", "edited meanwhile");
@@ -349,13 +354,8 @@ fn c11_a_copied_vault_without_its_state_reconciles_and_deletes_nothing(_b: Engin
     w.pass(1);
     assert!(w.dev(1).fs.trash().is_empty(), "nothing is deleted");
     assert_eq!(w.read(1, "Notes/a.md").as_deref(), Some("edited meanwhile"));
-    assert_eq!(
-        w.copies(1, "Notes/a.md")
-            .values()
-            .map(String::as_str)
-            .collect::<Vec<_>>(),
-        vec!["base"]
-    );
+    assert_eq!(w.others(1, "Notes/a.md"), vec!["base".to_string()]);
+    assert!(w.old_copies(1).is_empty());
     assert_eq!(w.read(1, "Notes/new.md").as_deref(), Some("new elsewhere"));
     assert!(
         !w.dev(1)

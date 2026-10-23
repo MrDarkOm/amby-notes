@@ -13,7 +13,10 @@ use amby_sync_core::engine::{
 };
 
 use crate::fault::{RemoteKind, PROCESS_DIED};
-use crate::invariants::{check_final, check_pass, violation, CheckOptions, Kind, Violation};
+use crate::invariants::{
+    check_episode, check_final, check_pass, violation, CheckOptions, Episode, Expect, Kind,
+    Violation,
+};
 use crate::vfs::Vfs;
 use crate::world::{World, WorldOptions};
 
@@ -46,6 +49,9 @@ pub struct Options {
     pub protections: bool,
     /// Reset and restore of the server (needs a server of its own, slower).
     pub server_events: bool,
+    /// Merge episodes (К1, К2): two devices edit one note offline, in different places or in the
+    /// same place, and the outcome is checked at once.
+    pub merges: bool,
 }
 
 impl Options {
@@ -55,6 +61,7 @@ impl Options {
         faults: true,
         protections: true,
         server_events: true,
+        merges: true,
     };
 }
 
@@ -133,6 +140,7 @@ struct Run<'a> {
     options: Options,
     steps_done: usize,
     bulk_done: bool,
+    episodes: usize,
 }
 
 impl Run<'_> {
@@ -168,7 +176,12 @@ impl Run<'_> {
             .fs
             .files()
             .keys()
-            .filter(|p| p.as_str() != KEEP && !p.contains("-conflict"))
+            .filter(|p| {
+                p.as_str() != KEEP
+                    && !p.contains("-conflict")
+                    && !p.starts_with("Merge/")
+                    && !p.starts_with(".amby/")
+            })
             .cloned()
             .collect()
     }
@@ -231,10 +244,112 @@ impl Run<'_> {
                 self.world.dev(d).fs.user_rename(&from, &to);
                 Ok(())
             }
+            78..=84 if self.options.merges && self.world.devices.len() >= 2 => self.merge_episode(),
             50..=89 => self.sync_step(d),
             _ if self.options.protections => self.protection_step(d),
             _ => self.sync_step(d),
         }
+    }
+
+    /// Two devices edit one note offline from a common base, then everything settles and the
+    /// outcome is checked (К1, К2): edits in different places are both in the file and there is
+    /// no conflict; an edit of the same place keeps one version in the tree and the other in a
+    /// set; a device that lost its state cannot merge (Г10) and keeps a set as well.
+    fn merge_episode(&mut self) -> Result<(), Violation> {
+        let n = self.episodes;
+        self.episodes += 1;
+        let devices = self.world.devices.len();
+        let first = self.rng.below(devices);
+        let mut second = self.rng.below(devices - 1);
+        if second >= first {
+            second += 1;
+        }
+        let path = format!("Merge/AMBYSIM-m{n}.md");
+        let eol = if self.rng.chance(30) { "\r\n" } else { "\n" };
+        let bom: &[u8] = if self.rng.chance(20) {
+            &[0xEF, 0xBB, 0xBF]
+        } else {
+            &[]
+        };
+        let line = |i: usize, tag: &str| format!("AMBYSIM-m{n} {tag}line {i}{eol}");
+        let make = |edits: &[(usize, &str)]| -> Vec<u8> {
+            let mut out = bom.to_vec();
+            for i in 0..8 {
+                let tag = edits.iter().find(|(k, _)| *k == i).map_or("", |(_, t)| *t);
+                out.extend_from_slice(line(i, tag).as_bytes());
+            }
+            out
+        };
+        let base = make(&[]);
+        let mode = self.rng.below(100);
+        let i = 1 + self.rng.below(6);
+        // Another line at least two away: never a neighbour, never the same.
+        let j = {
+            let others: Vec<usize> = (0..8usize).filter(|k| k.abs_diff(i) >= 2).collect();
+            others[self.rng.below(others.len())]
+        };
+        let (a, b, expect, wipe_second) = if mode < 60 {
+            let a = make(&[(i, "EDIT-A ")]);
+            let b = make(&[(j, "EDIT-B ")]);
+            let merged = make(&[(i, "EDIT-A "), (j, "EDIT-B ")]);
+            (a, b, Expect::Merged(merged), false)
+        } else if mode < 90 {
+            let a = make(&[(i, "EDIT-A ")]);
+            let b = make(&[(i, "EDIT-B ")]);
+            (
+                a,
+                b,
+                Expect::Conflict {
+                    base: Some(base.clone()),
+                },
+                false,
+            )
+        } else {
+            // Different places, but the second device lost its state: no base, so a conflict.
+            let a = make(&[(i, "EDIT-A ")]);
+            let b = make(&[(j, "EDIT-B ")]);
+            (a, b, Expect::Conflict { base: None }, true)
+        };
+        self.note(format!(
+            "merge episode {n}: devices {first} and {second} edit {path} ({})",
+            match &expect {
+                Expect::Merged(_) => "different places",
+                Expect::Conflict { base: Some(_) } => "the same place",
+                Expect::Conflict { base: None } => "different places, no state",
+            }
+        ));
+        self.world.dev(first).fs.user_write(&path, &base);
+        if let Err(error) = self.world.settle() {
+            return Err(violation(Kind::Unexpected, error));
+        }
+        self.world.dev(first).fs.user_write(&path, &a);
+        self.world.dev(second).fs.user_write(&path, &b);
+        if wipe_second {
+            self.world.dev(second).state.wipe();
+        }
+        let order = if self.rng.chance(50) {
+            [first, second]
+        } else {
+            [second, first]
+        };
+        let crash = !wipe_second && self.options.faults && self.rng.chance(30);
+        if crash {
+            let at = 1 + self.rng.below(60) as u64;
+            self.note(format!(
+                "device {}: the process dies at call {at}",
+                order[1]
+            ));
+            self.world.dev(order[1]).faults.crash_at(at);
+        }
+        for (k, d) in order.into_iter().enumerate() {
+            let result = self.world.dev(d).sync();
+            self.check_result(d, result, crash && k == 1)?;
+        }
+        if let Err(error) = self.world.settle() {
+            return Err(violation(Kind::Unexpected, error));
+        }
+        crate::invariants::check_sets(self.world)?;
+        check_episode(self.world, &Episode { path, a, b, expect })
     }
 
     fn sync_step(&mut self, d: usize) -> Result<(), Violation> {
@@ -675,6 +790,7 @@ pub fn run_scenario(
         options,
         steps_done: 0,
         bulk_done: false,
+        episodes: 0,
     };
     let fail = |run: &Run, step: usize, violation: Violation| Failure {
         seed,

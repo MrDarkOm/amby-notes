@@ -1,9 +1,11 @@
-// Checks that every requirement of docs/sync-plan.md (promises О, decisions Р, failures С) is
+// Checks that every requirement of docs/sync-plan.md (promises О, decisions Р, failures С, and the
+// decisions Г of appendix Г) is
 // mentioned in at least one test under sync/ (plan, section 6, step 4). Р12 and Р14 are about
 // the layout of the code and the future, so no test can cover them.
 //
-// The letters of the identifiers are Cyrillic (О, Р, С), the same as in the plan; a Latin
-// look-alike in a test comment does not count on purpose.
+// The letters of the identifiers are Cyrillic (О, Р, С, Г), the same as in the plan; a Latin
+// look-alike in a test comment does not count on purpose. The Cyrillic Г is the decisions of
+// appendix Г.
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import console from "node:console"
 import path from "node:path"
@@ -12,7 +14,9 @@ import { fileURLToPath, URL } from "node:url"
 
 const root = fileURLToPath(new URL("../", import.meta.url))
 const planPath = path.join(root, "docs", "sync-plan.md")
-const exempt = new Set(["Р12", "Р14"])
+// Г1 is words, Г3 a statement about where the merge lives in the code, Г36 the names of commands
+// that another session writes: no test of this stage can cover them.
+const exempt = new Set(["Р12", "Р14", "Г1", "Г3", "Г36"])
 const skipped = new Set([
   "target",
   ".venv",
@@ -34,6 +38,8 @@ const required = new Set()
 for (const match of plan.matchAll(/^- \*\*(О\d+)\./gm)) required.add(match[1])
 for (const match of plan.matchAll(/^### (Р\d+)\./gm)) required.add(match[1])
 for (const match of plan.matchAll(/^\| (С\d+) /gm)) required.add(match[1])
+// Appendix Г (stage Э4б, conflicts v2): every decision Г2…Г35 is named in a test.
+for (const match of plan.matchAll(/^- \*\*(Г\d+)\./gm)) required.add(match[1])
 for (const id of exempt) required.delete(id)
 
 // A test file is any Rust or Python file in a `tests` directory, in the conformance crate, or
@@ -47,7 +53,7 @@ function isTestFile(relative) {
     parts.includes("fuzz_targets") ||
     parts[1] === "conformance" ||
     /^test_.*\.py$/.test(name) ||
-    /_test\.rs$/.test(name)
+    /_tests?\.rs$/.test(name)
   )
 }
 
@@ -60,11 +66,13 @@ function walk(directory) {
   }
 }
 if (existsSync(path.join(root, "sync"))) walk("sync")
+// The tests of the engine inside the application (stage Э4 and later) are `*_tests.rs` next to it.
+if (existsSync(path.join(root, "src-tauri/src/sync"))) walk("src-tauri/src/sync")
 
 const covered = new Map()
 for (const file of testFiles) {
   const text = readFileSync(path.join(root, file), "utf8")
-  for (const match of text.matchAll(/(?<![\p{L}\d])([ОРС]\d{1,2})(?!\d)/gu)) {
+  for (const match of text.matchAll(/(?<![\p{L}\d])([ОРСГ]\d{1,2})(?!\d)/gu)) {
     if (!required.has(match[1])) continue
     covered.set(match[1], (covered.get(match[1]) ?? 0) + 1)
   }
@@ -72,7 +80,7 @@ for (const file of testFiles) {
 
 const order = (id) =>
   [...id.slice(1)].reduce((n, c) => n * 10 + Number(c), 0) +
-  (id[0] === "О" ? 0 : id[0] === "Р" ? 1000 : 2000)
+  (id[0] === "О" ? 0 : id[0] === "Р" ? 1000 : id[0] === "С" ? 2000 : 3000)
 const sorted = [...required].sort((a, b) => order(a) - order(b))
 const missing = sorted.filter((id) => !covered.has(id))
 

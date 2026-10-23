@@ -122,3 +122,23 @@ for a parked item with an invalid name is not uploaded again after a full reconc
 second item on one path (Д71) is a listed conflict (`MoveAct::placed_as`). The test client of the server
 (`conformance/src/http.rs`) keeps and reuses its connections and repeats a failed transport. Report with the red
 run, open questions and the native check: [sync-e4-engine-report.md](../docs/Road/sync-e4-engine-report.md).
+
+Stage Э4б (conflicts v2: the merge of a note and the conflict store; strict order, tests first). The rules are appendix Г of the
+plan (decisions Г1–Г36). Interfaces with `todo!()` bodies and the tests are written; the code comes next, in another session.
+Report with the red run and the open questions for review: [sync-e4b-report.md](../docs/Road/sync-e4b-report.md).
+
+| File                                                                                         | Owns                                                                                                     |
+| -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| [core/src/engine/merge.rs](core/src/engine/merge.rs)                                         | `merge_text`: the three-way merge of a note by lines and Markdown blocks (К1, Г5, Г11–Г15)               |
+| [core/src/engine/conflict_set.rs](core/src/engine/conflict_set.rs)                           | the set of a conflict in `.amby/conflicts/<id>/`: paths, identifier v2, `meta.json` (К2, Г21–Г22)        |
+| `StateStore::base_put / base_get / base_prune` in [ports.rs](core/src/engine/ports.rs)       | the base of the merge on the device, `.amby/sync/bases/` (Г6–Г9)                                         |
+| [sim/src/linemerge.rs](sim/src/linemerge.rs)                                                 | the reference merge of the simulation (independent of the core; the mini-engine and the checks use it)   |
+| [sim/src/conflicts.rs](sim/src/conflicts.rs)                                                 | an independent reader and writer of the layout of a set (Г21–Г23) for the mini-engine and the invariants |
+| [sim/tests/merge_k1.rs](sim/tests/merge_k1.rs), [conflicts_k2.rs](sim/tests/conflicts_k2.rs) | directed scenarios of К1 and К2 against the real engine and the correct mini-engine                      |
+| [core/tests/engine_merge.rs](core/tests/engine_merge.rs) and `engine_merge_props.rs`         | the table of cases and the properties of the merge, bytes included                                       |
+| `core/tests/engine_conflict_set.rs`, `engine_conflict_rules.rs`                              | the layout of a set and the rule of Р4 for `.amby/conflicts/`                                            |
+
+The simulation has two new invariants (`Kind::MergeLoss`, `NotMerged`, `ConflictNotStored`, `Marks`; merge episodes in `scenario.rs`) and
+five new broken mini-engines (`MergeDropsLine`, `NeverMerges`, `ConflictCopyInTree`, `MergeWritesMarks`, `MergeWithoutBase`). In the
+application: [conflict_store.rs](../src-tauri/src/sync/conflict_store.rs) is the port of the store of conflicts for the interface of К3 and К4
+(contract: appendix Г, Г.3).

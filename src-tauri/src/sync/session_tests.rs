@@ -2,6 +2,7 @@
 //! process (docs/sync-plan.md, Р7–Р10, Д10, Д19, Д59, Д70; stage Э4). Two vaults on one computer
 //! stand for two computers: each is a device of the same account.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,6 +12,26 @@ use amby_sync_core::engine::RenameHint;
 use super::session::{should_trigger, Schedule, SessionConfig, SyncSession};
 use super::test_support::{pass, settle, wait_for, Env, TempVault};
 use super::vault_types::{ApprovalKind, ConflictChoice, StopView, SyncPhase};
+
+/// The files of the conflict sets of a vault: path inside the vault → bytes (К2, Г21).
+fn set_files(vault: &TempVault) -> BTreeMap<String, Vec<u8>> {
+    let mut found = BTreeMap::new();
+    for entry in walkdir::WalkDir::new(vault.root.join(".amby/conflicts"))
+        .into_iter()
+        .flatten()
+    {
+        if entry.file_type().is_file() {
+            let rel = entry
+                .path()
+                .strip_prefix(&vault.root)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
+            found.insert(rel, std::fs::read(entry.path()).unwrap());
+        }
+    }
+    found
+}
 
 fn seconds(n: u64) -> Duration {
     Duration::from_secs(n)
@@ -70,6 +91,23 @@ fn only_changes_the_rules_do_not_exclude_start_a_pass() {
     ] {
         assert!(!should_trigger(vault, Path::new(path)), "{path}");
     }
+}
+
+#[test]
+fn a_change_in_the_folder_of_conflict_sets_starts_a_pass() {
+    // Р4, Г24: the files of a set travel, so a change in them is a change like another
+    let vault = Path::new("/Users/me/Vault");
+    for path in [
+        "/Users/me/Vault/.amby/conflicts/0123456789ab/meta.json",
+        "/Users/me/Vault/.amby/conflicts/0123456789ab/other.md",
+        "/Users/me/Vault/.amby/conflicts",
+    ] {
+        assert!(should_trigger(vault, Path::new(path)), "{path}");
+    }
+    assert!(!should_trigger(
+        vault,
+        Path::new("/Users/me/Vault/.amby/sync/bases/0123/abcd")
+    ));
 }
 
 // ----- two computers -----
@@ -245,8 +283,9 @@ fn a_batch_of_incoming_changes_is_reported_to_the_application() {
 }
 
 #[test]
-fn edits_on_both_computers_make_a_conflict_copy_and_lose_nothing() {
-    // Р7: the first to reach the server keeps the name; the other version is a copy next to it
+fn edits_of_the_same_line_on_both_computers_make_a_set_and_lose_nothing() {
+    // Р7, Г20–Г25: the first to reach the server keeps the name; the other version is in
+    // `.amby/conflicts/<id>/`, not beside the file
     let env = Env::new();
     let (a, b) = (TempVault::new("a"), TempVault::new("b"));
     a.put("Notes/n.md", b"base");
@@ -266,14 +305,124 @@ fn edits_on_both_computers_make_a_conflict_copy_and_lose_nothing() {
     let conflict = &status.conflicts[0];
     assert_eq!(conflict.kind, "bothEdited");
     assert_eq!(conflict.original_path, "Notes/n.md");
-    assert!(
-        conflict.copy_path.starts_with("Notes/n.") && conflict.copy_path.ends_with("-conflict.md")
+    assert_eq!(
+        conflict.copy_path,
+        format!(".amby/conflicts/{}/other.md", conflict.id)
     );
     assert_eq!(b.text(&conflict.copy_path).as_deref(), Some("edit on b"));
-    // The copy reaches the other computer too: both versions exist everywhere.
+    assert_eq!(
+        b.text(&format!(".amby/conflicts/{}/base.md", conflict.id))
+            .as_deref(),
+        Some("base"),
+        "the common base is kept with it"
+    );
+    assert_eq!(
+        b.files().len(),
+        1,
+        "no copy beside the file: {:?}",
+        b.files().keys()
+    );
+    // The set reaches the other computer too: both versions exist everywhere.
     settle(&sa, &sb);
     assert_eq!(a.text(&conflict.copy_path).as_deref(), Some("edit on b"));
     assert_eq!(a.files(), b.files());
+    assert_eq!(set_files(&a), set_files(&b));
+    assert_eq!(set_files(&a).len(), 3);
+    sa.stop();
+    sb.stop();
+}
+
+#[test]
+fn edits_of_different_places_are_merged_and_nobody_is_asked() {
+    // К1, Г4, Г16: both edits are in the note on both computers; no conflict, no set; the text
+    // this computer had before the merge is in the history
+    let env = Env::new();
+    let (a, b) = (TempVault::new("a"), TempVault::new("b"));
+    a.put("Notes/n.md", b"one\ntwo\nthree\nfour\nfive\n");
+    let (sa, _) = env.start(&a, &env.account);
+    let (sb, _) = env.start(&b, &env.another_computer("B"));
+    settle(&sa, &sb);
+    a.put("Notes/n.md", b"ONE\ntwo\nthree\nfour\nfive\n");
+    b.put("Notes/n.md", b"one\ntwo\nthree\nfour\nFIVE\n");
+    pass(&sa);
+    let status = pass(&sb);
+    assert!(status.conflicts.is_empty(), "{:?}", status.conflicts);
+    assert_eq!(
+        b.text("Notes/n.md").as_deref(),
+        Some("ONE\ntwo\nthree\nfour\nFIVE\n")
+    );
+    assert!(
+        b.snapshots("Notes/n.md")
+            .iter()
+            .any(|(reason, text)| reason == "sync-overwrite"
+                && text == "one\ntwo\nthree\nfour\nFIVE\n"),
+        "{:?}",
+        b.snapshots("Notes/n.md")
+    );
+    settle(&sa, &sb);
+    assert_eq!(
+        a.text("Notes/n.md").as_deref(),
+        Some("ONE\ntwo\nthree\nfour\nFIVE\n")
+    );
+    assert!(set_files(&a).is_empty() && set_files(&b).is_empty());
+    assert!(sa.status().conflicts.is_empty() && sb.status().conflicts.is_empty());
+    assert_eq!(a.files(), b.files());
+    sa.stop();
+    sb.stop();
+}
+
+#[test]
+fn a_merge_keeps_every_byte_no_edit_touched() {
+    // К1, Г14, О7: a BOM, CRLF and a note that ends without a newline, merged through the whole
+    // application stack
+    let env = Env::new();
+    let (a, b) = (TempVault::new("a"), TempVault::new("b"));
+    let base = "\u{feff}Title\r\nkeep  \r\nA\r\nB\r\nlast";
+    a.put("Notes/bytes.md", base.as_bytes());
+    let (sa, _) = env.start(&a, &env.account);
+    let (sb, _) = env.start(&b, &env.another_computer("B"));
+    settle(&sa, &sb);
+    a.put(
+        "Notes/bytes.md",
+        base.replace("A\r\n", "A edited\r\n").as_bytes(),
+    );
+    b.put(
+        "Notes/bytes.md",
+        base.replace("B\r\n", "B edited\r\n").as_bytes(),
+    );
+    pass(&sa);
+    pass(&sb);
+    settle(&sa, &sb);
+    let expected = base
+        .replace("A\r\n", "A edited\r\n")
+        .replace("B\r\n", "B edited\r\n");
+    assert_eq!(a.bytes("Notes/bytes.md").unwrap(), expected.as_bytes());
+    assert_eq!(b.bytes("Notes/bytes.md").unwrap(), expected.as_bytes());
+    sa.stop();
+    sb.stop();
+}
+
+#[test]
+fn the_bases_of_notes_are_kept_on_each_computer_and_nowhere_else() {
+    // К1, Г6, Г8: `.amby/sync/bases/` holds the last common version of each Markdown note and of
+    // nothing else; the folder is not synchronised
+    let env = Env::new();
+    let (a, b) = (TempVault::new("a"), TempVault::new("b"));
+    a.put("Notes/n.md", b"a note\n");
+    a.put("Notes/m.md", b"another note\n");
+    a.put("assets/p.png", &[0x89, b'P', b'N', b'G', 1]);
+    let (sa, _) = env.start(&a, &env.account);
+    let (sb, _) = env.start(&b, &env.another_computer("B"));
+    settle(&sa, &sb);
+    let count = |vault: &TempVault| {
+        walkdir::WalkDir::new(vault.root.join(".amby/sync/bases"))
+            .into_iter()
+            .flatten()
+            .filter(|e| e.file_type().is_file())
+            .count()
+    };
+    assert_eq!(count(&a), 2, "the two notes, not the picture");
+    assert_eq!(count(&b), 2);
     sa.stop();
     sb.stop();
 }
@@ -288,6 +437,13 @@ fn conflict_between_two(env: &Env) -> (TempVault, TempVault, SyncSession, SyncSe
     b.put("Notes/n.md", b"theirs on b");
     pass(&sa);
     let status = pass(&sb);
+    assert!(
+        status.conflicts[0]
+            .copy_path
+            .starts_with(".amby/conflicts/"),
+        "the second version is in a set (Г20): {:?}",
+        status.conflicts[0]
+    );
     let id = status.conflicts[0].id.clone();
     (a, b, sa, sb, id)
 }
@@ -305,8 +461,10 @@ fn keeping_the_original_sends_the_copy_to_the_trash_everywhere() {
     assert!(!b.exists(&copy));
     assert_eq!(b.text("Notes/n.md").as_deref(), Some("mine on a"));
     assert!(b.trashed().contains(&copy));
+    assert!(set_files(&b).is_empty(), "the whole set is gone");
     settle(&sa, &sb);
     assert!(!a.exists(&copy), "the deletion reached the other computer");
+    assert!(set_files(&a).is_empty());
     assert_eq!(a.files(), b.files());
     sa.stop();
     sb.stop();
@@ -338,16 +496,22 @@ fn keeping_the_copy_replaces_the_file_and_keeps_the_replaced_version() {
 }
 
 #[test]
-fn keeping_both_only_clears_the_entry() {
+fn keeping_both_turns_the_second_version_into_a_file_beside_the_note() {
+    // Г29: until the interface of К3 the old button stays; for a set it makes the second version a
+    // file of its own beside the note, the way a copy was, and removes the set
+    use amby_sync_core::engine::names::conflict_copy_path;
     let env = Env::new();
     let (a, b, sa, sb, id) = conflict_between_two(&env);
-    let copy = pass(&sb).conflicts[0].copy_path.clone();
+    let copy = conflict_copy_path("Notes/n.md", &id);
     sb.resolve_conflict(&id, ConflictChoice::KeepBoth).unwrap();
     let status = pass(&sb);
     assert!(status.conflicts.is_empty());
-    assert!(b.exists(&copy) && b.exists("Notes/n.md"));
+    assert_eq!(b.text(&copy).as_deref(), Some("theirs on b"));
+    assert_eq!(b.text("Notes/n.md").as_deref(), Some("mine on a"));
+    assert!(set_files(&b).is_empty());
     settle(&sa, &sb);
-    assert!(a.exists(&copy));
+    assert_eq!(a.text(&copy).as_deref(), Some("theirs on b"));
+    assert!(set_files(&a).is_empty());
     sa.stop();
     sb.stop();
 }
@@ -927,10 +1091,11 @@ fn note_with_id(id: &str, body: &str) -> String {
 }
 
 #[test]
-fn keeping_both_gives_the_copy_a_note_identity_of_its_own() {
-    // Р7 ("check on Э4"): the copy repeats the amby-id of its file, which blocks editing of the
-    // duplicate. "Keep both" makes the copy a note of its own: a new amby-id, nothing else changed.
+fn keeping_both_gives_the_new_file_a_note_identity_of_its_own() {
+    // Р7, Г29, Г30: the second version repeats the amby-id of its note, which blocks editing of a
+    // duplicate. "Keep both" makes it a note of its own: a new amby-id, nothing else changed.
     use crate::index::{load_vault, open_connection};
+    use amby_sync_core::engine::names::conflict_copy_path;
     let env = Env::new();
     let (a, b) = (TempVault::new("a"), TempVault::new("b"));
     let id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -943,31 +1108,36 @@ fn keeping_both_gives_the_copy_a_note_identity_of_its_own() {
     pass(&sa);
     let status = pass(&sb);
     let conflict = status.conflicts[0].clone();
-    assert!(b
-        .text(&conflict.copy_path)
-        .unwrap()
-        .contains(&format!("amby-id: {id}")));
+    assert!(
+        conflict.copy_path.starts_with(".amby/conflicts/"),
+        "{conflict:?}"
+    );
+    assert!(
+        b.text(&conflict.copy_path)
+            .unwrap()
+            .contains(&format!("amby-id: {id}")),
+        "the second version in the set still has the identity: it is not a note (Г30)"
+    );
 
     sb.resolve_conflict(&conflict.id, ConflictChoice::KeepBoth)
         .unwrap();
-    let copy = b.text(&conflict.copy_path).unwrap();
+    let copy = b
+        .text(&conflict_copy_path("Notes/n.md", &conflict.id))
+        .unwrap();
     let original = b.text("Notes/n.md").unwrap();
     assert_eq!(
         original,
         note_with_id(id, "mine on a"),
         "the file is untouched"
     );
-    assert!(!copy.contains(id), "the copy has its own identity: {copy}");
+    assert!(
+        !copy.contains(id),
+        "the new file has its own identity: {copy}"
+    );
     assert!(copy.starts_with("---\namby-id: "));
     assert!(
         copy.ends_with("---\ntheirs on b"),
         "only the id changed: {copy}"
-    );
-    assert!(
-        b.snapshots(&conflict.copy_path)
-            .iter()
-            .any(|(reason, text)| reason == "id-assignment" && text.contains(id)),
-        "the old text of the copy is in the history"
     );
 
     // Amby reads both as ordinary notes now: nothing is a duplicate any more.
@@ -982,10 +1152,38 @@ fn keeping_both_gives_the_copy_a_note_identity_of_its_own() {
     assert_eq!(
         a.files(),
         b.files(),
-        "the new identity of the copy reached the other computer"
+        "the new note reached the other computer"
     );
+    assert!(set_files(&a).is_empty() && set_files(&b).is_empty());
     sa.stop();
     sb.stop();
+}
+
+#[test]
+fn a_copy_made_before_the_sets_is_still_listed_and_resolved_as_before() {
+    // Г29: files of the user are not migrated; the old copy keeps working
+    let env = Env::new();
+    let a = TempVault::new("a");
+    let id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    a.put("Notes/n.md", note_with_id(id, "mine").as_bytes());
+    a.put(
+        "Notes/n.0123456789ab-conflict.md",
+        note_with_id(id, "theirs").as_bytes(),
+    );
+    let (sa, _) = env.start(&a, &env.account);
+    let status = pass(&sa);
+    assert_eq!(status.conflicts.len(), 1, "{:?}", status.conflicts);
+    let conflict = status.conflicts[0].clone();
+    assert_eq!(conflict.original_path, "Notes/n.md");
+    assert_eq!(conflict.copy_path, "Notes/n.0123456789ab-conflict.md");
+    sa.resolve_conflict(&conflict.id, ConflictChoice::KeepOriginal)
+        .unwrap();
+    assert!(!a.exists("Notes/n.0123456789ab-conflict.md"));
+    assert!(a
+        .trashed()
+        .contains(&"Notes/n.0123456789ab-conflict.md".to_string()));
+    assert!(pass(&sa).conflicts.is_empty());
+    sa.stop();
 }
 
 // ----- Р7 on every computer: the list follows the files (report of 23.10) -----
@@ -1020,8 +1218,10 @@ fn the_computer_whose_version_kept_the_name_lists_the_conflict_too() {
     assert_eq!(status.conflicts.len(), 1, "{:?}", status.conflicts);
     let conflict = &status.conflicts[0];
     assert_eq!(conflict.original_path, "Notes/n.md");
-    assert!(
-        conflict.copy_path.starts_with("Notes/n.") && conflict.copy_path.ends_with("-conflict.md")
+    assert_eq!(
+        conflict.copy_path,
+        format!(".amby/conflicts/{}/other.md", conflict.id),
+        "the second version is in a set, not beside the note"
     );
     assert!(a
         .text(&conflict.copy_path)
@@ -1046,7 +1246,8 @@ fn resolving_on_one_computer_clears_the_conflict_on_every_computer() {
     sa.resolve_conflict(&id, ConflictChoice::KeepOriginal)
         .unwrap();
     settle(&sa, &sb);
-    assert!(!b.exists(&copy), "the copy is gone on B too");
+    assert!(!b.exists(&copy), "the second version is gone on B too");
+    assert!(set_files(&b).is_empty(), "so is the whole set");
     assert!(
         pass(&sb).conflicts.is_empty(),
         "B's entry left with the copy"
@@ -1059,25 +1260,25 @@ fn resolving_on_one_computer_clears_the_conflict_on_every_computer() {
 
 #[test]
 fn keeping_both_on_one_computer_clears_the_conflict_on_every_computer() {
-    // "Оставить обе": both files stay; the copy becomes a note of its own, so the other computer
-    // must not keep showing a conflict for it either
+    // "Оставить обе": both stay as notes; the second version becomes a note of its own, so the
+    // other computer must not keep showing a conflict for it either
+    use amby_sync_core::engine::names::conflict_copy_path;
     let env = Env::new();
     let (_a, b, sa, sb) = conflict_with_ids(&env);
     settle(&sa, &sb);
     let status = pass(&sa);
     assert_eq!(status.conflicts.len(), 1, "{:?}", status.conflicts);
-    let (id, copy) = (
-        status.conflicts[0].id.clone(),
-        status.conflicts[0].copy_path.clone(),
-    );
+    let id = status.conflicts[0].id.clone();
+    let copy = conflict_copy_path("Notes/n.md", &id);
     sa.resolve_conflict(&id, ConflictChoice::KeepBoth).unwrap();
     settle(&sa, &sb);
     assert!(b.exists(&copy) && b.exists("Notes/n.md"), "both files stay");
     assert!(
         b.text(&copy)
             .is_some_and(|text| !text.contains("amby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV")),
-        "the copy got an identity of its own"
+        "the new note got an identity of its own"
     );
+    assert!(set_files(&b).is_empty());
     assert!(pass(&sb).conflicts.is_empty());
     assert!(pass(&sa).conflicts.is_empty());
     sa.stop();

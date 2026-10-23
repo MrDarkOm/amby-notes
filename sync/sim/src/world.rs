@@ -313,6 +313,7 @@ impl World {
         let devices = (0..options.devices)
             .map(|i| {
                 let fs = options.fs.get(i).cloned().unwrap_or_else(Vfs::linux);
+                fs.set_known(known.clone());
                 Device {
                     name: format!("device {i}"),
                     fs,
@@ -489,6 +490,22 @@ impl World {
     }
 
     /// Hashes of the content of every version the server still keeps.
+    /// Every line of every version of every item on the server (К1: the lines a merge may drop
+    /// because the other side removed them from the base).
+    pub fn server_lines(&self) -> BTreeSet<Vec<u8>> {
+        let mut lines = BTreeSet::new();
+        for item in self.server_items(true) {
+            for version in item.versions {
+                if let Some(bytes) = version.content {
+                    for line in bytes.split_inclusive(|b| *b == b'\n') {
+                        lines.insert(line.to_vec());
+                    }
+                }
+            }
+        }
+        lines
+    }
+
     pub fn server_hashes(&self) -> BTreeSet<Hash> {
         self.server_items(false)
             .into_iter()

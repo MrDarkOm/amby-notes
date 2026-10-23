@@ -101,6 +101,12 @@ struct Inner {
     /// Contents a pass has seen: all of them must be somewhere at the end (раздел 7, 2).
     required: BTreeMap<Hash, Vec<u8>>,
     reads: u64,
+    /// The contents the server has accepted (the world shares it, К1): a publish of a content that
+    /// is not in it is a merge result, not a copy of a server version.
+    known: Option<Rc<RefCell<BTreeSet<Hash>>>>,
+    /// (path, hash of the replaced content) → the content that replaced it, for the publishes whose
+    /// new content the server did not know yet.
+    fresh: BTreeMap<(String, Hash), Vec<u8>>,
 }
 
 /// A handle to the virtual file system; cloning shares it.
@@ -152,6 +158,8 @@ impl Vfs {
             unobserved: BTreeMap::new(),
             required: BTreeMap::new(),
             reads: 0,
+            known: None,
+            fresh: BTreeMap::new(),
         })))
     }
 
@@ -509,6 +517,21 @@ impl Vfs {
             .collect()
     }
 
+    /// Lets the file system see which contents the server has accepted (К1, раздел 7).
+    pub fn set_known(&self, known: Rc<RefCell<BTreeSet<Hash>>>) {
+        self.0.borrow_mut().known = Some(known);
+    }
+
+    /// If the content `old` at `path` was replaced by a content the server did not know at that
+    /// moment (a merge result, К1, Г16): that content.
+    pub fn fresh_replacement(&self, path: &str, old: &Hash) -> Option<Vec<u8>> {
+        self.0
+            .borrow()
+            .fresh
+            .get(&(path.to_string(), *old))
+            .cloned()
+    }
+
     pub fn history(&self) -> Vec<HistoryEntry> {
         self.0.borrow().history.clone()
     }
@@ -586,6 +609,12 @@ impl Vfs {
                 bytes: old_bytes.clone(),
                 reason,
             });
+        }
+        if let (Some(old_bytes), Some(known)) = (&old, &inner.known) {
+            if !known.borrow().contains(&hash_of(&bytes)) {
+                let entry = ((stored.clone(), hash_of(old_bytes)), bytes.clone());
+                inner.fresh.insert(entry.0, entry.1);
+            }
         }
         Self::ensure_parents(inner, &stored);
         let mtime_ns = Self::tick(inner);

@@ -8,7 +8,8 @@ mod common;
 use common::*;
 
 use amby_sync_sim::invariants::{
-    check_blind, check_convergence, check_nothing_lost, CheckOptions, Kind,
+    check_blind, check_convergence, check_episode, check_nothing_lost, check_sets, CheckOptions,
+    Episode, Expect, Kind,
 };
 use amby_sync_sim::mini::{builder_of, Flaw, ALL_FLAWS};
 use amby_sync_sim::scenario::{find_failure, first_seed, run_scenario, scenario_count, Options};
@@ -88,9 +89,39 @@ fn an_engine_that_reads_a_missing_folder_as_deleted_files_is_caught() {
 }
 
 #[test]
+fn an_engine_that_merges_but_drops_a_line_is_caught() {
+    // К1, Г15 д: the merged text lacks a line one side wrote
+    caught(Flaw::MergeDropsLine, Kind::MergeLoss);
+}
+
+#[test]
+fn an_engine_that_never_merges_is_caught() {
+    // К1, Г4: edits in different places are a conflict
+    caught(Flaw::NeverMerges, Kind::NotMerged);
+}
+
+#[test]
+fn an_engine_that_keeps_the_second_version_beside_the_file_is_caught() {
+    // К2, Г20: a copy in the tree, as before stage Э4б
+    caught(Flaw::ConflictCopyInTree, Kind::ConflictNotStored);
+}
+
+#[test]
+fn an_engine_that_writes_conflict_marks_into_the_file_is_caught() {
+    // К2, Г15 е, Г20: marks in the file and no second version kept
+    caught(Flaw::MergeWritesMarks, Kind::Marks);
+}
+
+#[test]
+fn an_engine_that_merges_without_a_base_is_caught() {
+    // К1, Г10: without a common version the two are a conflict, whatever their lines
+    caught(Flaw::MergeWithoutBase, Kind::ConflictNotStored);
+}
+
+#[test]
 fn every_flaw_is_in_the_list_and_has_a_test() {
     // Раздел 6: no broken engine is forgotten: the list used by the tests above is the whole enum.
-    assert_eq!(ALL_FLAWS.len(), 7);
+    assert_eq!(ALL_FLAWS.len(), 12);
     for flaw in ALL_FLAWS {
         assert_ne!(flaw, Flaw::None);
     }
@@ -159,4 +190,80 @@ fn the_blind_check_sees_plain_text_on_the_server() {
     let v = check_blind(&w).unwrap_err();
     std::fs::remove_file(&leak).unwrap();
     assert_eq!(v.kind, Kind::NotBlind);
+}
+
+// ----- the invariants of К1 and К2 can fail -----
+
+#[test]
+fn the_sets_check_sees_a_copy_beside_a_file() {
+    // К2, Г20
+    let w = pair_with_a(mini::correct);
+    w.settle_ok();
+    assert!(check_sets(&w).is_ok());
+    w.dev(1)
+        .fs
+        .user_write("Notes/a.0123456789ab-conflict.md", b"an old-style copy");
+    assert_eq!(check_sets(&w).unwrap_err().kind, Kind::ConflictNotStored);
+}
+
+#[test]
+fn the_sets_check_sees_a_damaged_set() {
+    // К2, Г21: a meta.json that is not the layout of the plan
+    let w = pair_with_a(mini::correct);
+    w.settle_ok();
+    w.dev(0)
+        .fs
+        .user_write(".amby/conflicts/0123456789ab/meta.json", b"{}");
+    assert_eq!(check_sets(&w).unwrap_err().kind, Kind::ConflictNotStored);
+}
+
+#[test]
+fn the_sets_check_sees_conflict_marks_in_a_note() {
+    // К2, Г15 е
+    let w = pair_with_a(mini::correct);
+    w.settle_ok();
+    w.dev(0).fs.user_write(
+        "Notes/a.md",
+        b"<<<<<<< local\nmine\n=======\ntheirs\n>>>>>>> remote\n",
+    );
+    assert_eq!(check_sets(&w).unwrap_err().kind, Kind::Marks);
+}
+
+#[test]
+fn the_sets_check_lets_an_unfinished_set_be() {
+    // К2, Г23: a folder without meta.json is not a set yet, and not an error
+    let w = pair_with_a(mini::correct);
+    w.settle_ok();
+    w.dev(0)
+        .fs
+        .user_write(".amby/conflicts/0123456789ab/other.md", b"half a set");
+    assert!(check_sets(&w).is_ok());
+}
+
+#[test]
+fn the_episode_check_sees_what_it_is_for() {
+    // К1, К2: a lost edit, a conflict raised for edits in different places, a second version
+    // that is nowhere
+    let w = pair_with_a(mini::correct);
+    w.settle_ok();
+    let a = b"a-version".to_vec();
+    let b = b"b-version".to_vec();
+    let episode = |expect| Episode {
+        path: "Notes/a.md".into(),
+        a: a.clone(),
+        b: b.clone(),
+        expect,
+    };
+    // the file holds neither the merge that was expected nor a version
+    let v = check_episode(&w, &episode(Expect::Merged(b"merged".to_vec()))).unwrap_err();
+    assert_eq!(v.kind, Kind::MergeLoss);
+    // the file holds one version where a merge was expected
+    w.dev(0).fs.user_write("Notes/a.md", &a);
+    w.dev(1).fs.user_write("Notes/a.md", &a);
+    w.settle_ok();
+    let v = check_episode(&w, &episode(Expect::Merged(b"merged".to_vec()))).unwrap_err();
+    assert_eq!(v.kind, Kind::NotMerged);
+    // a conflict was expected and there is no set
+    let v = check_episode(&w, &episode(Expect::Conflict { base: None })).unwrap_err();
+    assert_eq!(v.kind, Kind::ConflictNotStored);
 }

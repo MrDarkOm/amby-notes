@@ -27,6 +27,8 @@ use amby_sync_core::engine::{
 };
 use amby_sync_proto::PART_SIZE;
 
+use crate::conflicts as sets;
+use crate::linemerge;
 use crate::vfs::Hash;
 
 /// The one error of a broken engine; [`Flaw::None`] is the correct mini-engine.
@@ -48,9 +50,20 @@ pub enum Flaw {
     NoSnapshot,
     /// A missing or empty vault folder is read as "the user deleted everything" (Р8, С8).
     EmptyVaultSendsDeletes,
+    /// Edits of two computers in different places are merged, but one line of the other side's
+    /// edit is lost in the result (К1, Г15 д).
+    MergeDropsLine,
+    /// Edits of two computers are never merged: every both-edited note is a conflict (К1, Г4).
+    NeverMerges,
+    /// The second version of a conflict is a copy beside the file, as before stage Э4б (К2, Г20).
+    ConflictCopyInTree,
+    /// A conflict is written into the file with marks, and no second version is kept (К2, Г15 е).
+    MergeWritesMarks,
+    /// Without a base the two versions are "merged" anyway, by taking the lines of both (К1, Г10).
+    MergeWithoutBase,
 }
 
-pub const ALL_FLAWS: [Flaw; 7] = [
+pub const ALL_FLAWS: [Flaw; 12] = [
     Flaw::LastWriterWins,
     Flaw::DeleteBeatsEdit,
     Flaw::EmptyServerDeletesAll,
@@ -58,6 +71,11 @@ pub const ALL_FLAWS: [Flaw; 7] = [
     Flaw::NoMassGuard,
     Flaw::NoSnapshot,
     Flaw::EmptyVaultSendsDeletes,
+    Flaw::MergeDropsLine,
+    Flaw::NeverMerges,
+    Flaw::ConflictCopyInTree,
+    Flaw::MergeWritesMarks,
+    Flaw::MergeWithoutBase,
 ];
 
 pub struct MiniEngine {
@@ -86,6 +104,11 @@ builder!(no_rollback_check, Flaw::NoRollbackCheck);
 builder!(no_mass_guard, Flaw::NoMassGuard);
 builder!(no_snapshot, Flaw::NoSnapshot);
 builder!(empty_vault_sends_deletes, Flaw::EmptyVaultSendsDeletes);
+builder!(merge_drops_line, Flaw::MergeDropsLine);
+builder!(never_merges, Flaw::NeverMerges);
+builder!(conflict_copy_in_tree, Flaw::ConflictCopyInTree);
+builder!(merge_writes_marks, Flaw::MergeWritesMarks);
+builder!(merge_without_base, Flaw::MergeWithoutBase);
 
 /// The builder of a flaw.
 pub fn builder_of(flaw: Flaw) -> amby_sync_core::engine::EngineBuilder {
@@ -98,6 +121,11 @@ pub fn builder_of(flaw: Flaw) -> amby_sync_core::engine::EngineBuilder {
         Flaw::NoMassGuard => no_mass_guard,
         Flaw::NoSnapshot => no_snapshot,
         Flaw::EmptyVaultSendsDeletes => empty_vault_sends_deletes,
+        Flaw::MergeDropsLine => merge_drops_line,
+        Flaw::NeverMerges => never_merges,
+        Flaw::ConflictCopyInTree => conflict_copy_in_tree,
+        Flaw::MergeWritesMarks => merge_writes_marks,
+        Flaw::MergeWithoutBase => merge_without_base,
     }
 }
 
@@ -177,14 +205,17 @@ enum Plan {
         path: String,
         from: Option<String>,
         overwrite: bool,
+        /// An old-style copy beside the file: only inside `.amby/conflicts/` (Г19), or the flaw.
         copy: Option<(String, Vec<u8>, ConflictKind)>,
+        /// The local version that meets the server's: merged if it can be, else kept in a set.
+        clash: Option<Clash>,
         rec: ItemRecord,
     },
     /// After the user's `resync` (Д56): the local version stays at the path and goes up as a new
     /// version; the server's differing version is kept as a conflict copy.
     KeepLocal {
         remote: Remote,
-        copy_path: String,
+        clash: Clash,
         rec: ItemRecord,
     },
     /// Rename only.
@@ -195,6 +226,42 @@ enum Plan {
     },
     /// The local file goes to the trash (remote deletion).
     Trash { path: String, rec: ItemRecord },
+}
+
+/// A second version on its way to a set (Г20–Г23).
+#[derive(Clone)]
+struct Clash {
+    id: String,
+    kind: ConflictKind,
+    /// The path that keeps the name.
+    original: String,
+    item: ItemId,
+    /// The displaced version (for `KeepLocal` filled in when the server's body is downloaded).
+    other: Vec<u8>,
+    /// The common base, when this device has it and the note qualifies (Г6, Г10).
+    base: Option<Vec<u8>>,
+    /// The server has this very set (made by another device): it arrives by itself (Д46).
+    from_server: bool,
+}
+
+/// What the engine does with the local version that meets the server's.
+enum Decision {
+    /// Nothing is kept: the flaw `LastWriterWins`, or the copy is there already (Д46).
+    Nothing,
+    /// A copy beside the file, as before stage Э4б (Г19, or the flaw `ConflictCopyInTree`).
+    Copy(String, Vec<u8>, ConflictKind),
+    /// Merge if it can be, else a set (Г4, Г20).
+    Clash(Clash),
+}
+
+impl Decision {
+    fn split(self) -> (Option<(String, Vec<u8>, ConflictKind)>, Option<Clash>) {
+        match self {
+            Decision::Nothing => (None, None),
+            Decision::Copy(path, bytes, kind) => (Some((path, bytes, kind)), None),
+            Decision::Clash(clash) => (None, Some(clash)),
+        }
+    }
 }
 
 fn conflict_id(item: &ItemId, local_hash: &Hash, remote_version: u64, attempt: u32) -> String {
@@ -225,7 +292,46 @@ fn excluded(path: &str) -> bool {
         || name == ".DS_Store"
         || path.starts_with(".git/")
         || path.starts_with(".obsidian/")
-        || path.starts_with(".amby/")
+        || (path.starts_with(".amby/") && !path.starts_with(".amby/conflicts/"))
+}
+
+/// Does the content of a note qualify for a base and for merging (Г5)?
+fn mergeable_md(path: &str, len: usize) -> bool {
+    path.to_ascii_lowercase().ends_with(".md")
+        && !path.starts_with(".amby/")
+        && len <= linemerge::MAX_BYTES
+}
+
+/// The flaw `MergeDropsLine`: the first line the local side wrote that the remote side does not
+/// have is missing from the result.
+fn drop_a_line(merged: &[u8], local: &[u8], remote: &[u8]) -> Vec<u8> {
+    let remote_lines: Vec<&[u8]> = remote.split_inclusive(|b| *b == b'\n').collect();
+    let local_lines: Vec<&[u8]> = local.split_inclusive(|b| *b == b'\n').collect();
+    let mut dropped = false;
+    let mut out = Vec::new();
+    for line in merged.split_inclusive(|b| *b == b'\n') {
+        if !dropped && local_lines.contains(&line) && !remote_lines.contains(&line) {
+            dropped = true;
+            continue;
+        }
+        out.extend_from_slice(line);
+    }
+    out
+}
+
+/// The flaw `MergeWithoutBase`: the lines of `first`, then the lines of `second` that it lacks.
+fn union_of_lines(first: &[u8], second: &[u8]) -> Vec<u8> {
+    let known: Vec<&[u8]> = first.split_inclusive(|b| *b == b'\n').collect();
+    let mut out = first.to_vec();
+    if !out.is_empty() && !out.ends_with(b"\n") {
+        out.push(b'\n');
+    }
+    for line in second.split_inclusive(|b| *b == b'\n') {
+        if !known.contains(&line) {
+            out.extend_from_slice(line);
+        }
+    }
+    out
 }
 
 fn mass(count: usize, total: usize, min: usize, percent: usize) -> bool {
@@ -255,6 +361,30 @@ impl MiniEngine {
             newer_format: false,
             extra: header.extra.clone(),
         }
+    }
+
+    /// The base of a record, if this device has it and the note qualifies (Г6, Г10).
+    fn load_base(&mut self, rec: &ItemRecord) -> Res<Option<Vec<u8>>> {
+        let Some(hash) = rec.content_hash else {
+            return Ok(None);
+        };
+        if !mergeable_md(&rec.path, rec.size as usize) {
+            return Ok(None);
+        }
+        Ok(self.ports.state.base_get(&rec.item_id, &hash)?)
+    }
+
+    /// Keeps `bytes` as the base of `item` (Г8), written before the state refers to it (Г9).
+    fn keep_base(&mut self, item: &ItemId, path: &str, bytes: &[u8]) -> Res<()> {
+        if mergeable_md(path, bytes.len())
+            && std::str::from_utf8(bytes).is_ok()
+            && !bytes.contains(&0)
+        {
+            self.ports
+                .state
+                .base_put(item, &blake3_hash(bytes), bytes)?;
+        }
+        Ok(())
     }
 
     fn scan(&mut self) -> Res<BTreeMap<String, LocalFile>> {
@@ -591,36 +721,89 @@ impl MiniEngine {
                         file: &LocalFile,
                         remote_version: u64,
                         kind: ConflictKind,
+                        base: Option<Vec<u8>>,
                         taken: &mut BTreeSet<String>|
-         -> Option<(String, Vec<u8>, ConflictKind)> {
+         -> Decision {
             if lww {
-                return None;
+                return Decision::Nothing;
             }
+            let in_sets = original.starts_with(".amby/conflicts/");
+            let base_hash = base.as_ref().map(|b| blake3_hash(b));
             let mut attempt = 0;
             loop {
-                let id = conflict_id(item, &file.hash, remote_version, attempt);
-                let path = copy_path(original, &id);
+                if in_sets {
+                    // The old copy beside the file (Г19).
+                    let id = conflict_id(item, &file.hash, remote_version, attempt);
+                    let path = copy_path(original, &id);
+                    let remote_path_taken = remotes
+                        .values()
+                        .any(|r| !r.header.deleted && r.header.path == path);
+                    if !taken.contains(&path) && !local.contains_key(&path) && !remote_path_taken {
+                        taken.insert(path.clone());
+                        return Decision::Copy(path, file.bytes.clone(), kind);
+                    }
+                    if let Some(existing) = local.get(&path) {
+                        if existing.hash == file.hash {
+                            return Decision::Nothing;
+                        }
+                    }
+                    if remotes.values().any(|r| {
+                        !r.header.deleted
+                            && r.header.path == path
+                            && r.header.content_hash == Some(file.hash)
+                    }) {
+                        return Decision::Nothing;
+                    }
+                    attempt += 1;
+                    continue;
+                }
+                let id = sets::set_id(
+                    item.as_bytes(),
+                    &file.hash,
+                    remote_version,
+                    base_hash.as_ref(),
+                    attempt,
+                );
+                let other_path = sets::paths(&id, original).1;
                 let remote_path_taken = remotes
                     .values()
-                    .any(|r| !r.header.deleted && r.header.path == path);
-                if !taken.contains(&path) && !local.contains_key(&path) && !remote_path_taken {
-                    taken.insert(path.clone());
-                    return Some((path, file.bytes.clone(), kind));
-                }
-                if let Some(existing) = local.get(&path) {
-                    if existing.hash == file.hash {
-                        return None; // the copy is already there
+                    .any(|r| !r.header.deleted && r.header.path == other_path);
+                let mut from_server = false;
+                if let Some(existing) = local.get(&other_path) {
+                    if existing.hash != file.hash {
+                        attempt += 1;
+                        continue;
+                    }
+                } else if remote_path_taken {
+                    if remotes.values().any(|r| {
+                        !r.header.deleted
+                            && r.header.path == other_path
+                            && r.header.content_hash == Some(file.hash)
+                    }) {
+                        from_server = true; // the same set made on another device arrives (Д46)
+                    } else {
+                        attempt += 1;
+                        continue;
                     }
                 }
-                // The same copy made on another device arrives from the server (Д46).
-                if remotes.values().any(|r| {
-                    !r.header.deleted
-                        && r.header.path == path
-                        && r.header.content_hash == Some(file.hash)
-                }) {
-                    return None;
+                if taken.contains(&other_path) {
+                    attempt += 1;
+                    continue;
                 }
-                attempt += 1;
+                taken.insert(other_path);
+                return Decision::Clash(Clash {
+                    id,
+                    kind,
+                    original: original.to_string(),
+                    item: *item,
+                    other: file.bytes.clone(),
+                    base: if kind == ConflictKind::BothEdited {
+                        base
+                    } else {
+                        None
+                    },
+                    from_server,
+                });
             }
         };
 
@@ -646,37 +829,49 @@ impl MiniEngine {
                     Some(_) if approvals.resync && header.content_hash.is_some() => {
                         let remote_hash = header.content_hash.unwrap();
                         let mut attempt = 0;
-                        let copy_path = loop {
-                            let id = conflict_id(&item, &remote_hash, version, attempt);
-                            let candidate = copy_path(&header.path, &id);
+                        let id = loop {
+                            let id =
+                                sets::set_id(item.as_bytes(), &remote_hash, version, None, attempt);
+                            let candidate = sets::paths(&id, &header.path).1;
                             if !copies_taken.contains(&candidate) && !local.contains_key(&candidate)
                             {
-                                break candidate;
+                                copies_taken.insert(candidate);
+                                break id;
                             }
                             attempt += 1;
                         };
-                        copies_taken.insert(copy_path.clone());
                         plans.push(Plan::KeepLocal {
                             remote: remote.clone(),
-                            copy_path,
+                            clash: Clash {
+                                id,
+                                kind: ConflictKind::BothCreated,
+                                original: header.path.clone(),
+                                item,
+                                other: Vec::new(),
+                                base: None,
+                                from_server: false,
+                            },
                             rec: server_rec,
                         });
                     }
                     Some(file) => {
-                        let copy = conflict(
+                        let decision = conflict(
                             &item,
                             &header.path,
                             file,
                             version,
                             ConflictKind::BothCreated,
+                            None,
                             &mut copies_taken,
                         );
+                        let (copy, clash) = decision.split();
                         plans.push(Plan::Write {
                             remote: remote.clone(),
                             path: header.path.clone(),
                             from: None,
                             overwrite: true,
                             copy,
+                            clash,
                             rec: server_rec,
                         });
                     }
@@ -686,6 +881,7 @@ impl MiniEngine {
                         from: None,
                         overwrite: false,
                         copy: None,
+                        clash: None,
                         rec: server_rec,
                     }),
                 }
@@ -698,14 +894,19 @@ impl MiniEngine {
             let server_rec = Self::record_from(item, header, version);
             let renamed = !header.deleted && header.path != rec.path;
             let changed = !header.deleted && header.content_hash != rec.content_hash;
-            let write_to = |path: &str, from: Option<String>, overwrite: bool, copy| Plan::Write {
-                remote: remote.clone(),
-                path: path.to_string(),
-                from,
-                overwrite,
-                copy,
-                rec: server_rec.clone(),
-            };
+            let write_to =
+                |path: &str, from: Option<String>, overwrite: bool, decision: Decision| {
+                    let (copy, clash) = decision.split();
+                    Plan::Write {
+                        remote: remote.clone(),
+                        path: path.to_string(),
+                        from,
+                        overwrite,
+                        copy,
+                        clash,
+                        rec: server_rec.clone(),
+                    }
+                };
             match (class, header.deleted, renamed, changed) {
                 (Local::Same, true, _, _) => plans.push(Plan::Trash {
                     path: rec.path.clone(),
@@ -713,16 +914,19 @@ impl MiniEngine {
                 }),
                 (Local::Same, false, false, false) => plans.push(Plan::Link(server_rec)),
                 (Local::Same, false, false, true) => {
-                    plans.push(write_to(&rec.path, None, true, None))
+                    plans.push(write_to(&rec.path, None, true, Decision::Nothing))
                 }
                 (Local::Same, false, true, false) => plans.push(Plan::Rename {
                     from: rec.path.clone(),
                     to: header.path.clone(),
                     rec: server_rec,
                 }),
-                (Local::Same, false, true, true) => {
-                    plans.push(write_to(&header.path, Some(rec.path.clone()), true, None))
-                }
+                (Local::Same, false, true, true) => plans.push(write_to(
+                    &header.path,
+                    Some(rec.path.clone()),
+                    true,
+                    Decision::Nothing,
+                )),
                 (Local::Edited, true, _, _) => {
                     if self.flaw == Flaw::DeleteBeatsEdit {
                         plans.push(Plan::Trash {
@@ -740,15 +944,17 @@ impl MiniEngine {
                     if Some(file.hash) == header.content_hash {
                         plans.push(Plan::Link(server_rec));
                     } else {
-                        let copy = conflict(
+                        let base = self.load_base(rec)?;
+                        let decision = conflict(
                             &item,
                             &rec.path,
                             file,
                             version,
                             ConflictKind::BothEdited,
+                            base,
                             &mut copies_taken,
                         );
-                        plans.push(write_to(&rec.path, None, true, copy));
+                        plans.push(write_to(&rec.path, None, true, decision));
                     }
                 }
                 (Local::Edited, false, true, false) => plans.push(Plan::Rename {
@@ -758,15 +964,22 @@ impl MiniEngine {
                 }),
                 (Local::Edited, false, true, true) => {
                     let file = &local[&rec.path];
-                    let copy = conflict(
+                    let base = self.load_base(rec)?;
+                    let decision = conflict(
                         &item,
                         &header.path,
                         file,
                         version,
                         ConflictKind::BothEdited,
+                        base,
                         &mut copies_taken,
                     );
-                    plans.push(write_to(&header.path, Some(rec.path.clone()), true, copy));
+                    plans.push(write_to(
+                        &header.path,
+                        Some(rec.path.clone()),
+                        true,
+                        decision,
+                    ));
                 }
                 (Local::Moved(p), true, _, _) => {
                     if self.flaw == Flaw::DeleteBeatsEdit {
@@ -780,7 +993,9 @@ impl MiniEngine {
                     }
                 }
                 (Local::Moved(_), false, false, false) => plans.push(Plan::Link(server_rec)),
-                (Local::Moved(p), false, false, true) => plans.push(write_to(&p, None, true, None)),
+                (Local::Moved(p), false, false, true) => {
+                    plans.push(write_to(&p, None, true, Decision::Nothing))
+                }
                 (Local::Moved(p), false, true, false) => {
                     if p == header.path {
                         plans.push(Plan::Link(server_rec));
@@ -793,12 +1008,12 @@ impl MiniEngine {
                     }
                 }
                 (Local::Moved(p), false, true, true) => {
-                    plans.push(write_to(&header.path, Some(p), true, None))
+                    plans.push(write_to(&header.path, Some(p), true, Decision::Nothing))
                 }
                 (Local::Deleted, true, _, _) => plans.push(Plan::Tombstone(server_rec)),
                 (Local::Deleted, false, false, false) => plans.push(Plan::Link(server_rec)),
                 (Local::Deleted, false, _, _) => {
-                    plans.push(write_to(&header.path, None, false, None))
+                    plans.push(write_to(&header.path, None, false, Decision::Nothing))
                 }
             }
         }
@@ -911,6 +1126,23 @@ impl MiniEngine {
         }
         self.push(&undelete, report)?;
         report.full_reconcile = full;
+        // Only the bases the state refers to stay (Г9).
+        let state = self.st()?;
+        let mut keep: Vec<(ItemId, Hash)> = state
+            .items
+            .values()
+            .filter(|r| !r.deleted)
+            .filter_map(|r| r.content_hash.map(|h| (r.item_id, h)))
+            .collect();
+        if let Some(pending) = &state.commit {
+            keep.extend(
+                pending
+                    .after
+                    .iter()
+                    .filter_map(|r| r.content_hash.map(|h| (r.item_id, h))),
+            );
+        }
+        self.ports.state.base_prune(&keep)?;
         Ok(())
     }
 
@@ -923,7 +1155,16 @@ impl MiniEngine {
     ) -> Res<()> {
         for plan in plans {
             match plan {
-                Plan::Link(rec) | Plan::Tombstone(rec) => self.tx(vec![StateOp::PutItem(rec)])?,
+                Plan::Link(rec) => {
+                    // Equal on both sides: the content is the base from now on (Г8 в).
+                    if let (Some(file), Some(hash)) = (local.get(&rec.path), rec.content_hash) {
+                        if file.hash == hash {
+                            self.keep_base(&rec.item_id, &rec.path, &file.bytes)?;
+                        }
+                    }
+                    self.tx(vec![StateOp::PutItem(rec)])?;
+                }
+                Plan::Tombstone(rec) => self.tx(vec![StateOp::PutItem(rec)])?,
                 Plan::Rename { from, to, rec } => {
                     self.make_room(&to, &rec, local, report)?;
                     self.ports.fs.rename(&from, &to)?;
@@ -932,7 +1173,7 @@ impl MiniEngine {
                 }
                 Plan::KeepLocal {
                     remote,
-                    copy_path,
+                    mut clash,
                     rec,
                 } => {
                     let bytes = match self.download(&remote) {
@@ -947,23 +1188,9 @@ impl MiniEngine {
                             continue;
                         }
                     };
-                    self.write_file(&copy_path, &bytes, false)?;
-                    let id = copy_path
-                        .rsplit('/')
-                        .next()
-                        .and_then(|n| n.split('.').rev().nth(1).map(str::to_string))
-                        .unwrap_or_default()
-                        .trim_end_matches("-conflict")
-                        .to_string();
-                    let record = ConflictRecord {
-                        id,
-                        kind: ConflictKind::BothCreated,
-                        original_path: rec.path.clone(),
-                        copy_path,
-                        created_ms: self.ports.clock.now_ms(),
-                    };
-                    report.conflicts.push(record.clone());
-                    self.tx(vec![StateOp::AddConflict(record), StateOp::PutItem(rec)])?;
+                    clash.other = bytes;
+                    self.write_set(&clash, report)?;
+                    self.tx(vec![StateOp::PutItem(rec)])?;
                 }
                 Plan::Trash { path, rec } => {
                     // The file must still be what it was (Д17); otherwise the next pass decides.
@@ -984,6 +1211,7 @@ impl MiniEngine {
                     from,
                     overwrite,
                     copy,
+                    clash,
                     rec,
                 } => {
                     let bytes = match self.download(&remote) {
@@ -998,6 +1226,19 @@ impl MiniEngine {
                             continue;
                         }
                     };
+                    let server_bytes = bytes.clone();
+                    let mut bytes = bytes;
+                    if let Some(clash) = &clash {
+                        // The local version meets the server's: merge, or keep it in a set (К1, К2).
+                        if let Some((combined, truly_merged)) =
+                            self.settle_clash(clash, &server_bytes, &path, report)?
+                        {
+                            if truly_merged {
+                                report.merged_paths.push(path.clone());
+                            }
+                            bytes = combined;
+                        }
+                    }
                     if let Some((copy_path, copy_bytes, kind)) = copy {
                         self.write_file(&copy_path, &copy_bytes, false)?;
                         let id = copy_path
@@ -1027,7 +1268,14 @@ impl MiniEngine {
                     } else if !overwrite {
                         self.make_room(&path, &rec, local, report)?;
                     }
-                    match self.write_file(&path, &bytes, replaces) {
+                    // The merged text is the local file already: nothing to write (Г16).
+                    let already_there = clash.as_ref().is_some_and(|c| c.other == bytes);
+                    let written = if already_there {
+                        Ok(())
+                    } else {
+                        self.write_file(&path, &bytes, replaces)
+                    };
+                    match written {
                         Ok(()) => {}
                         Err(FsError::NoSpace) => {
                             report.errors.push(ItemError {
@@ -1041,11 +1289,116 @@ impl MiniEngine {
                         Err(e) => return Err(e.into()),
                     }
                     report.downloaded += 1;
+                    // The server's version is the base now, whatever was written (Г8 а, Г16).
+                    self.keep_base(&rec.item_id, &path, &server_bytes)?;
                     self.tx(vec![StateOp::PutItem(rec)])?;
                 }
             }
         }
         Ok(())
+    }
+
+    /// The local version of `clash` meets `remote` at `path`: a clean merge is returned as the
+    /// content to write (К1, Г12–Г16); otherwise the local version goes to a set (К2, Г20–Г23)
+    /// and `None` is returned, so that the server's version is written. The second part of the
+    /// answer says whether it was a real merge (a flaw may write something else).
+    fn settle_clash(
+        &mut self,
+        clash: &Clash,
+        remote: &[u8],
+        path: &str,
+        report: &mut CycleReport,
+    ) -> Res<Option<(Vec<u8>, bool)>> {
+        let eligible = mergeable_md(path, clash.other.len()) && mergeable_md(path, remote.len());
+        if eligible && self.flaw != Flaw::NeverMerges {
+            match (&clash.base, clash.kind) {
+                (Some(base), ConflictKind::BothEdited) => {
+                    if let linemerge::Outcome::Clean(merged) =
+                        linemerge::merge(base, &clash.other, remote)
+                    {
+                        let merged = if self.flaw == Flaw::MergeDropsLine {
+                            drop_a_line(&merged, &clash.other, remote)
+                        } else {
+                            merged
+                        };
+                        return Ok(Some((merged, true)));
+                    }
+                }
+                _ if self.flaw == Flaw::MergeWithoutBase => {
+                    // Without a base the two are "merged" by taking the lines of both.
+                    return Ok(Some((union_of_lines(remote, &clash.other), true)));
+                }
+                _ => {}
+            }
+        }
+        if self.flaw == Flaw::ConflictCopyInTree {
+            // The second version beside the file, as before stage Э4б (the flaw).
+            let id = conflict_id(&clash.item, &blake3_hash(&clash.other), 0, 0);
+            let beside = copy_path(path, &id);
+            if self.ports.fs.read(&beside).ok().as_deref() != Some(&clash.other[..]) {
+                self.write_file(&beside, &clash.other, false)?;
+            }
+            let record = ConflictRecord {
+                id,
+                kind: clash.kind,
+                original_path: path.to_string(),
+                copy_path: beside,
+                created_ms: self.ports.clock.now_ms(),
+            };
+            report.conflicts.push(record.clone());
+            self.tx(vec![StateOp::AddConflict(record)])?;
+            return Ok(None);
+        }
+        if self.flaw == Flaw::MergeWritesMarks
+            && clash.other.ends_with(b"\n")
+            && remote.ends_with(b"\n")
+        {
+            let mut marked = b"<<<<<<< local\n".to_vec();
+            marked.extend_from_slice(&clash.other);
+            marked.extend_from_slice(b"=======\n");
+            marked.extend_from_slice(remote);
+            marked.extend_from_slice(b">>>>>>> remote\n");
+            return Ok(Some((marked, false)));
+        }
+        self.write_set(clash, report)?;
+        Ok(None)
+    }
+
+    /// Writes the files of a set, the second version first and `meta.json` last (Г23), and
+    /// lists the conflict (Г25). Files that are there already are not written again.
+    fn write_set(&mut self, clash: &Clash, report: &mut CycleReport) -> Res<()> {
+        let kind = match clash.kind {
+            ConflictKind::BothEdited => "bothEdited",
+            ConflictKind::BothCreated => "bothCreated",
+        };
+        let files = sets::set_files(
+            &clash.id,
+            kind,
+            clash.item.as_bytes(),
+            &clash.original,
+            &clash.other,
+            clash.base.as_deref(),
+        );
+        let other_path = files[0].0.clone();
+        for (file_path, bytes) in files.into_iter().filter(|_| !clash.from_server) {
+            match self.ports.fs.read(&file_path) {
+                Ok(existing) if existing == bytes => {}
+                Ok(_) => self.write_file(&file_path, &bytes, true)?,
+                Err(FsError::NotFound(_)) => self.write_file(&file_path, &bytes, false)?,
+                Err(error) => return Err(error.into()),
+            }
+        }
+        let record = ConflictRecord {
+            id: clash.id.clone(),
+            kind: clash.kind,
+            original_path: clash.original.clone(),
+            copy_path: other_path,
+            created_ms: self.ports.clock.now_ms(),
+        };
+        if !report.conflicts.iter().any(|c| c.id == record.id) {
+            report.conflicts.push(record.clone());
+        }
+        self.tx(vec![StateOp::AddConflict(record)])
     }
 
     /// Moves a file that stands where something else must be written to a conflict copy name
@@ -1060,6 +1413,56 @@ impl MiniEngine {
         let Some(occupant) = local.get(target) else {
             return Ok(());
         };
+        if self.flaw != Flaw::ConflictCopyInTree && !target.starts_with(".amby/conflicts/") {
+            // The file in the way moves into a set (Г20); the set's other files are written
+            // around it.
+            let mut attempt = 0;
+            let (id, other_path) = loop {
+                let id = sets::set_id(
+                    rec.item_id.as_bytes(),
+                    &occupant.hash,
+                    rec.version,
+                    None,
+                    attempt,
+                );
+                let other_path = sets::paths(&id, target).1;
+                if local.contains_key(&other_path) {
+                    attempt += 1;
+                    continue;
+                }
+                break (id, other_path);
+            };
+            match self.ports.fs.rename(target, &other_path) {
+                Ok(()) => {}
+                Err(FsError::NotFound(_)) => return Ok(()),
+                Err(e) => return Err(e.into()),
+            }
+            let files = sets::set_files(
+                &id,
+                "bothCreated",
+                rec.item_id.as_bytes(),
+                target,
+                &occupant.bytes,
+                None,
+            );
+            for (file_path, bytes) in files.into_iter().filter(|(p, _)| p.ends_with("meta.json")) {
+                match self.ports.fs.read(&file_path) {
+                    Ok(existing) if existing == bytes => {}
+                    Ok(_) => self.write_file(&file_path, &bytes, true)?,
+                    Err(FsError::NotFound(_)) => self.write_file(&file_path, &bytes, false)?,
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            let record = ConflictRecord {
+                id,
+                kind: ConflictKind::BothCreated,
+                original_path: target.to_string(),
+                copy_path: other_path,
+                created_ms: self.ports.clock.now_ms(),
+            };
+            report.conflicts.push(record.clone());
+            return self.tx(vec![StateOp::AddConflict(record)]);
+        }
         let mut attempt = 0;
         let path = loop {
             let id = conflict_id(&rec.item_id, &occupant.hash, rec.version, attempt);
@@ -1114,6 +1517,8 @@ impl MiniEngine {
                 Local::Same => {}
                 Local::Edited => {
                     let file = &local[&rec.path];
+                    // The base of the new version, before the commit that makes it one (Г8 б, Г9).
+                    self.keep_base(&rec.item_id, &rec.path, &file.bytes)?;
                     let body = self.upload(&file.bytes)?;
                     uploads += 1;
                     let header = Self::new_header(
@@ -1180,6 +1585,7 @@ impl MiniEngine {
                 .get(path)
                 .copied()
                 .unwrap_or_else(|| (ItemId::random(&mut *self.ports.rng), 0));
+            self.keep_base(&item, path, &file.bytes)?;
             let body = self.upload(&file.bytes)?;
             uploads += 1;
             let header = Self::new_header(

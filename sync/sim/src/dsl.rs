@@ -79,6 +79,26 @@ impl World {
             .collect()
     }
 
+    /// The complete conflict sets on device `d` (К2, Г21–Г23).
+    pub fn sets(&self, d: usize) -> Vec<crate::conflicts::SetView> {
+        crate::conflicts::read_sets(&self.dev(d).fs.files()).complete
+    }
+
+    /// The text of the second versions kept in sets for the file `original` on device `d`.
+    pub fn others(&self, d: usize, original: &str) -> Vec<String> {
+        self.sets(d)
+            .into_iter()
+            .filter(|set| set.path == original)
+            .map(|set| text(&set.other))
+            .collect()
+    }
+
+    /// Conflict copies beside a file in the old style (Д46) on device `d`: none must be made any
+    /// more (К2, Г20).
+    pub fn old_copies(&self, d: usize) -> Vec<String> {
+        crate::conflicts::old_style_copies(&self.dev(d).fs.files())
+    }
+
     /// One pass of device `d` that must end in `Done`.
     pub fn pass(&self, d: usize) -> CycleReport {
         self.dev(d).sync_ok()

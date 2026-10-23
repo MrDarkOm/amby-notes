@@ -23,9 +23,11 @@
     clippy::unnecessary_map_or
 )]
 
+pub mod conflicts;
 pub mod dsl;
 pub mod fault;
 pub mod invariants;
+pub mod linemerge;
 pub mod mini;
 pub mod net;
 pub mod scenario;
