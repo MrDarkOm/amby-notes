@@ -52,7 +52,24 @@ Those directories, along with `.amby/`, are excluded from the note index.
   what differs and deletes nothing. A `state.db` written by a newer Amby (a newer schema number) is
   left untouched. It also keeps the identity of the device and of the space: a vault copied to another
   computer is noticed by that and starts from a full reconcile instead of posing as the old device.
-  It is never synchronised.
+  It is never synchronised. `sync/bases/` holds the **base** of each synchronised Markdown note: the
+  bytes of the last version the device knew to be equal on disk and on the server, kept under the
+  content hash (`<item id>/<hash>`), so that edits of two computers in different places of a note can be
+  merged (sync plan, appendix Г, Г6–Г9). A base is rebuildable in the sense that losing it only turns the
+  next merge into a conflict; it is checked against its hash before it is used, and it never leaves the
+  device.
+- `conflicts/<id>/` — the **second version of a conflicted file**, kept by synchronisation instead of a
+  copy beside the file (sync plan, appendix Г, Г20–Г30). `<id>` is twelve lowercase hex characters.
+  A set holds `other<ext>` (the bytes of the version that did not keep the name, byte for byte, with the
+  extension of the original), `base<ext>` (the common base, only for a text conflict that had one) and
+  `meta.json` (compact UTF-8 JSON, written last: `v`, `id`, `kind`, `item_id`, `path`, `other`,
+  `other_hash`, `other_size`, `base`, `base_hash`; no time and nothing that depends on the device, so two
+  devices that make the same set write the same bytes). A set exists only when `meta.json` and an `other`
+  file with the hash from `meta.json` are both there. The files are ordinary synchronised files: the
+  conflict is listed and resolved from any device, and resolving it moves the set to the vault trash
+  (`.amby/trash/`). Conflict marks (`<<<<<<<` and the like) are never written into a note. Conflict copies
+  made before this layout (`Name.<id>-conflict.md` beside the file) stay where they are and are still
+  listed as conflicts. The indexer does not read this folder.
 - future versioned, documented metadata files.
 
 ### Which files of `.amby/` are synchronised
@@ -62,19 +79,20 @@ that does not say so is not synchronised** (sync plan, Р4): an unknown file nei
 computer nor gets lost. The engine enforces the same list (`sync/core/src/engine/rules.rs`), and a
 test holds the two together.
 
-| Entry                      | Synchronised | Why                                     |
-| -------------------------- | ------------ | --------------------------------------- |
-| `properties.json`          | yes          | user data of the notes                  |
-| `blocks/`                  | yes          | per-note UI sidecars                    |
-| `graph-layout.json`        | yes          | user state                              |
-| `property-backups/`        | yes          | immutable backups of removed properties |
-| `notes.db`, `-wal`, `-shm` | no           | rebuildable index                       |
-| `history/`                 | no           | each device keeps its own snapshots     |
-| `recovery/`                | no           | drafts and journals of this device      |
-| `trash/`                   | no           | each device keeps its own trash         |
-| `migrations/`              | no           | journals of this device                 |
-| `sync/`                    | no           | state of synchronisation of this device |
-| `workspace.json`, others   | no           | not named: the default is "no"          |
+| Entry                      | Synchronised | Why                                                               |
+| -------------------------- | ------------ | ----------------------------------------------------------------- |
+| `properties.json`          | yes          | user data of the notes                                            |
+| `blocks/`                  | yes          | per-note UI sidecars                                              |
+| `graph-layout.json`        | yes          | user state                                                        |
+| `property-backups/`        | yes          | immutable backups of removed properties                           |
+| `conflicts/`               | yes          | second versions of conflicts, listed and resolved from any device |
+| `notes.db`, `-wal`, `-shm` | no           | rebuildable index                                                 |
+| `history/`                 | no           | each device keeps its own snapshots                               |
+| `recovery/`                | no           | drafts and journals of this device                                |
+| `trash/`                   | no           | each device keeps its own trash                                   |
+| `migrations/`              | no           | journals of this device                                           |
+| `sync/`                    | no           | state of synchronisation of this device                           |
+| `workspace.json`, others   | no           | not named: the default is "no"                                    |
 
 Files written by synchronisation itself follow the rules of the vault: a file that arrives from another
 device replaces the local one only after a history snapshot with the reason `sync-overwrite` (taken
@@ -123,7 +141,7 @@ custom-property mutations are refused until the identity is unique again.
 The editor and properties panel show a localized read-only warning. Malformed
 YAML uses the separate body-editing policy below; it is not an ID conflict.
 
-A **conflict copy made by synchronisation** (`Name.<12 hex>-conflict.md`, next to
+A **conflict copy made by synchronisation before the layout of `.amby/conflicts/`** (`Name.<12 hex>-conflict.md`, next to
 the file, listed in the list of conflicts of the sync screen) carries the same
 `amby-id` as the file it was copied from. It is the one duplicate that never takes
 the identity and never blocks the other: the file under its real name keeps the
