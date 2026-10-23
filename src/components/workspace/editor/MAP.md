@@ -20,6 +20,9 @@ Before changing mode admission, read
 does not override the current document's Live admission (`roundTripCheck`: bytes kept without an edit, no block that would lose anything when rewritten). Admission is decided when the note is loaded (`document-editor.tsx` `admission`), never by typing; Live edits do not switch to Source, and only the user's own switch lifts a forced Source. Malformed YAML
 and identity conflicts have separate policies; preserve their source bytes.
 
+The strips from sync ("a second version from another computer", "deleted on another computer, in the archive") come from
+[sync-document-banners.tsx](../sync/sync-document-banners.tsx); the general "file deleted" strip steps aside for the second one.
+
 Content changes flow into the [save lifecycle](../autosave/MAP.md), not direct I/O.
 Use the existing document buffer for views of the same note. See database
 [editor-surface-lease.ts](../database/peek/editor-surface-lease.ts) for peek ownership.

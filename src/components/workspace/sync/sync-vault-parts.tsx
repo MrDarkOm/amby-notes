@@ -70,10 +70,13 @@ export function ConflictList({
   items,
   busyId,
   onResolve,
+  onCompare,
 }: {
   items: Conflict[]
   busyId: string | null
   onResolve: (id: string, choice: ConflictChoice) => void
+  /** Adds a "Compare" button that opens the two versions side by side. */
+  onCompare?: (id: string) => void
 }) {
   const { t } = useTranslation()
   if (items.length === 0) return null
@@ -94,6 +97,11 @@ export function ConflictList({
               )}
             </p>
             <div className="flex flex-wrap gap-2">
+              {onCompare && (
+                <Button type="button" size="sm" onClick={() => onCompare(item.id)}>
+                  {t("sync.notices.compare")}
+                </Button>
+              )}
               {(
                 [
                   ["keepOriginal", "sync.vault.conflicts.keepOriginal"],

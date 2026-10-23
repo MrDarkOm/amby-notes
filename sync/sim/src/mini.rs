@@ -974,6 +974,7 @@ impl MiniEngine {
                             .fs
                             .move_to_trash(&path, TrashReason::RemoteDeletion)?;
                         report.trashed += 1;
+                        report.trashed_paths.push(path.to_string());
                     }
                     self.tx(vec![StateOp::PutItem(rec)])?;
                 }
@@ -1242,6 +1243,7 @@ impl SyncEngine for MiniEngine {
             uploaded: 0,
             renamed: 0,
             trashed: 0,
+            trashed_paths: Vec::new(),
             conflicts: Vec::new(),
             unsynced: Vec::new(),
             read_only: Vec::new(),

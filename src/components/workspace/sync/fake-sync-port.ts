@@ -125,6 +125,13 @@ export function emitVaultStatus(status: VaultSyncStatus): void {
   for (const listener of [...vaultListeners]) listener(status)
 }
 
+const remoteDeletedListeners = new Set<(paths: string[]) => void>()
+
+/** Tells every listener that files were deleted on another computer (the Rust side does it). */
+export function emitRemoteDeleted(paths: string[]): void {
+  for (const listener of [...remoteDeletedListeners]) listener(paths)
+}
+
 /** How many screens listen now (for "stops listening when closed"). */
 export function vaultListenerCount(): number {
   return vaultListeners.size
@@ -186,6 +193,12 @@ export function createFakePort(overrides: Partial<SyncPort> = {}): FakePort {
       vaultListeners.add(listener)
       return () => {
         vaultListeners.delete(listener)
+      }
+    },
+    onRemoteDeleted: async (listener) => {
+      remoteDeletedListeners.add(listener)
+      return () => {
+        remoteDeletedListeners.delete(listener)
       }
     },
     ...overrides,

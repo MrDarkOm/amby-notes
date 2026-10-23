@@ -341,6 +341,8 @@ pub struct CycleReport {
     pub renamed: usize,
     /// Files moved to the trash.
     pub trashed: usize,
+    /// The paths of the files moved to the trash because they were deleted elsewhere.
+    pub trashed_paths: Vec<String>,
     /// Conflicts created by this pass.
     pub conflicts: Vec<ConflictRecord>,
     /// The "not synchronised" list after the pass.

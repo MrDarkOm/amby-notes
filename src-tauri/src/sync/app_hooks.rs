@@ -17,6 +17,9 @@ use crate::watcher::EventBatch;
 /// The name of the event the windows listen to.
 pub const STATUS_EVENT: &str = "sync-status-changed";
 
+/// The event for files deleted on another computer; the payload is the list of paths in the vault.
+pub const REMOTE_DELETED_EVENT: &str = "sync-remote-deleted";
+
 /// Hooks that talk to the windows of the application.
 pub struct AppHooks {
     app: tauri::AppHandle,
@@ -45,5 +48,9 @@ impl FsHooks for AppHooks {
 impl SessionHooks for AppHooks {
     fn status_changed(&self, status: &VaultSyncStatus) {
         let _ = self.app.emit(STATUS_EVENT, status);
+    }
+
+    fn remote_deleted(&self, paths: &[String]) {
+        let _ = self.app.emit(REMOTE_DELETED_EVENT, paths);
     }
 }
