@@ -19,8 +19,8 @@ use crate::sync::secrets::{SecretStore, SECRET_ACCOUNT_KEY, SECRET_DEVICE_TOKEN}
 use crate::sync::session::{Schedule, SessionConfig, SessionHooks, SyncSession};
 use crate::sync::space::{self, LinkedSpace};
 use crate::sync::state_db::{
-    state_path, SqliteStateStore, META_ENABLED, META_KEY_EPOCH, META_SPACE_ID, META_SPACE_NAME,
-    META_TEST_VAULT, META_WRAPPED_VK,
+    state_path, SqliteStateStore, META_DEVICE_ID, META_ENABLED, META_KEY_EPOCH, META_SPACE_ID,
+    META_SPACE_NAME, META_TEST_VAULT, META_WRAPPED_VK,
 };
 use crate::sync::types::SyncError;
 use crate::sync::vault_types::{
@@ -41,6 +41,7 @@ struct Link {
     space_name: Option<String>,
     test_vault: bool,
     enabled: bool,
+    device_id: Option<String>,
     kept_key: Option<(u32, Vec<u8>)>,
 }
 
@@ -195,8 +196,33 @@ impl SyncRuntime {
             space_name: get(META_SPACE_NAME)?,
             test_vault: get(META_TEST_VAULT)?.as_deref() == Some("1"),
             enabled: get(META_ENABLED)?.as_deref() == Some("1"),
+            device_id: get(META_DEVICE_ID)?,
             kept_key,
         }))
+    }
+
+    /// A vault whose state belongs to another device was copied here (Р10): the mark of a test
+    /// vault and the switch stay behind with the rest of the link, so it is switched on only by
+    /// marking it again. Returns the link as this device sees it.
+    fn forget_foreign_marks(
+        vault: &Path,
+        mut link: Link,
+        credentials: &Credentials,
+    ) -> Result<Link, SyncError> {
+        let foreign = link
+            .device_id
+            .as_ref()
+            .is_some_and(|device| *device != credentials.device_id);
+        if foreign {
+            let mut store = SqliteStateStore::open(vault).map_err(|e| state_failure(&e))?;
+            store
+                .remove_meta(META_TEST_VAULT)
+                .and_then(|()| store.set_meta(META_ENABLED, "0"))
+                .map_err(|e| state_failure(&e))?;
+            link.test_vault = false;
+            link.enabled = false;
+        }
+        Ok(link)
     }
 
     fn remember_link(
@@ -319,6 +345,13 @@ impl SyncRuntime {
             .canonicalize()
             .map_err(|_| SyncError::new("storage_error"))?;
         let link = Self::read_link(&vault)?;
+        let credentials = self.credentials().ok();
+        let link = match (link, &credentials) {
+            (Some(link), Some(credentials)) => {
+                Some(Self::forget_foreign_marks(&vault, link, credentials)?)
+            }
+            (link, _) => link,
+        };
         // The mark of a test vault belongs to the vault: switching on again needs no new mark.
         let marked = test_vault || link.as_ref().is_some_and(|link| link.test_vault);
         gate::check_gate(marked)?;
@@ -421,6 +454,10 @@ impl SyncRuntime {
                 ));
             }
         };
+        let link = Self::forget_foreign_marks(&vault, link, &credentials)?;
+        if !link.enabled {
+            return Ok(self.rest_current(&vault, Self::resting_status(&link, None), token));
+        }
         let space = match self.open_linked(&credentials, &link).await {
             Ok(space) => space,
             Err(error) => {
