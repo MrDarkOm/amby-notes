@@ -24,7 +24,7 @@ use crate::sync::state_db::{
 };
 use crate::sync::types::SyncError;
 use crate::sync::vault_types::{
-    ApprovalKind, ConflictChoice, SpaceTarget, SpaceView, VaultSyncStatus,
+    ApprovalKind, ConflictChoice, ConflictVersions, SpaceTarget, SpaceView, VaultSyncStatus,
 };
 
 /// Who this device is on the server.
@@ -559,6 +559,21 @@ impl SyncRuntime {
     /// Resolves a conflict.
     pub fn resolve_conflict(&self, id: &str, choice: ConflictChoice) -> Result<(), SyncError> {
         self.with_session(|session| session.resolve_conflict(id, choice))?
+    }
+
+    /// Resolves a conflict with a text put together by the comparison (stage Э4б).
+    pub fn resolve_conflict_with_text(
+        &self,
+        id: &str,
+        text: &str,
+        stamp: &str,
+    ) -> Result<(), SyncError> {
+        self.with_session(|session| session.resolve_conflict_with_text(id, text, stamp))?
+    }
+
+    /// The two versions of a conflict as text, for the comparison.
+    pub fn read_conflict_versions(&self, id: &str) -> Result<ConflictVersions, SyncError> {
+        self.with_session(|session| session.read_conflict_versions(id))?
     }
 
     /// The person renamed or moved something through Amby (Д70): remembered for the next pass.

@@ -15,6 +15,12 @@ Read [vault format](../../../../docs/vault-format.md) before changing persistenc
 | Queue and durable draft bridge           | [per-key-queue.ts](../../../lib/per-key-queue.ts), [recovery-drafts.ts](../../../lib/recovery-drafts.ts)                                                                     |
 | Filesystem save and recovery             | [storage map](../../../lib/storage/MAP.md), [Rust map](../../../../src-tauri/src/MAP.md)                                                                                     |
 
+A failed save of an open note sets `saveFailed` in [note-notices](../note-notices/MAP.md) (cleared by the next successful save or a
+new load); the native error dialog stays only for a note that is no longer open. A recovery draft that differs from the disk is
+not asked about in a dialog: `resolveMarkdownRecoveryLoad` returns it as an `offer`, `use-document-loading.ts` registers it as a
+draft offer (accept: draft into the buffer, history snapshot, queued save; reject: drop it from the journal) and the note stays read
+only until the answer. The journal keeps the draft meanwhile. Canvas and sketch still use the confirm dialog.
+
 The save that may first rewrite a block's source asks for a history snapshot through
 [source-rewrite.ts](source-rewrite.ts) (`rewritesSource` on the write).
 

@@ -18,6 +18,7 @@ import {
   writeNote,
   type FsMutationResult,
 } from "@/lib/storage"
+import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { AutosaveCoordinator, type AutosaveKey } from "../autosave/autosave-coordinator"
 import { registerAutosaveLifecycle } from "../autosave/autosave-lifecycle"
 import {
@@ -155,6 +156,7 @@ export function useMarkdownAutosave({
       },
       onSaveSuccess: (snapshot) => {
         if (snapshot.key.generation !== generationRef.current) return
+        useNoteNoticesStore.getState().setSaveFailed(snapshot.value.fileId, false)
         logger.info("autosave.success", {
           fileId: snapshot.value.fileId,
           path: snapshot.value.path,
@@ -177,6 +179,12 @@ export function useMarkdownAutosave({
         )
           return
         logger.error("autosave.failed", { errorType: errorType(error) })
+        // An open note says so in its own notices, next to the text that is in danger; a note that is
+        // no longer open has no such place, so the dialog stays for it.
+        if (useDocStore.getState().openDocs[snapshot.value.fileId]) {
+          useNoteNoticesStore.getState().setSaveFailed(snapshot.value.fileId, true)
+          return
+        }
         void showErrorMessage(i18n.t("errors.autosaveFailed")).catch((dialogError) =>
           logger.warn("autosave.error_dialog_failed", { errorType: errorType(dialogError) }),
         )
