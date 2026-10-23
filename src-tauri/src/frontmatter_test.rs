@@ -847,3 +847,46 @@ fn yaml_plain_apostrophes_do_not_hide_comments_or_flow_anchors() {
     let flow = "---\nstatus: [Bob's, &saved keep, Sam's] # preserve\n---\nBody";
     assert!(replace_yaml_binding_lossless(flow, "status", &Value::String("done".into())).is_err());
 }
+
+#[test]
+fn a_replaced_amby_id_changes_that_line_and_nothing_else() {
+    // The copy of a conflict that stays as a note of its own gets its own identity
+    // (docs/sync-plan.md, Р7, "keep both"): only the value of `amby-id` changes.
+    let old = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    let new = "01BX5ZZKBKACTAV9WEVGEMMVRY";
+    for (source, expected) in [
+        (
+            format!("---\namby-id: {old}\ntitle: Keep # this\n---\nBody\n"),
+            format!("---\namby-id: {new}\ntitle: Keep # this\n---\nBody\n"),
+        ),
+        (
+            format!("\u{feff}---\r\n# mine\r\namby-id: \"{old}\"\r\nx: 1\r\n---\r\nBody\r\n"),
+            format!("\u{feff}---\r\n# mine\r\namby-id: {new}\r\nx: 1\r\n---\r\nBody\r\n"),
+        ),
+    ] {
+        let next = with_replaced_amby_id(&source, new).unwrap();
+        assert_eq!(next, expected);
+        assert_eq!(parse_markdown(&next).note_id(), Some(new));
+    }
+}
+
+#[test]
+fn an_amby_id_is_not_replaced_when_it_cannot_be_done_without_guessing() {
+    let new = "01BX5ZZKBKACTAV9WEVGEMMVRY";
+    // no id at all
+    assert!(with_replaced_amby_id("---\ntitle: x\n---\nBody", new).is_err());
+    // no frontmatter
+    assert!(with_replaced_amby_id("Just text", new).is_err());
+    // an id that is not a ULID cannot be given
+    assert!(with_replaced_amby_id(
+        "---\namby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\n---\nBody",
+        "not-a-ulid"
+    )
+    .is_err());
+    // the id appears twice (a duplicate key): refuse, do not pick one
+    assert!(with_replaced_amby_id(
+        "---\namby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\namby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\n---\nBody",
+        new
+    )
+    .is_err());
+}

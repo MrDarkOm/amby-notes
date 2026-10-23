@@ -1230,6 +1230,50 @@ pub(crate) fn body_with_identity_field(
     Ok(next)
 }
 
+/// The text with the value of its `amby-id` replaced by `id`, and nothing else changed (BOM, line
+/// endings, comments, the other keys and the body are kept byte for byte). For the copy of a
+/// conflict of synchronisation that stays as a note of its own (docs/sync-plan.md, Р7). It refuses
+/// what it cannot do without guessing: no trusted `amby-id`, an id that is not a ULID, the key
+/// twice, or a result that does not read back as `id`.
+pub fn with_replaced_amby_id(content: &str, id: &str) -> Result<String, String> {
+    if !is_amby_id(id) {
+        return Err(format!(
+            "Invalid {AMBY_ID_FIELD}: expected a canonical uppercase ULID"
+        ));
+    }
+    let parsed = parse_markdown(content);
+    let old = parsed
+        .note_id()
+        .ok_or_else(|| "The note has no trusted amby-id to replace".to_string())?
+        .to_string();
+    let (envelope, body) = split_frontmatter_envelope(content)
+        .ok_or_else(|| "The note has no frontmatter".to_string())?;
+    let mut changed = String::with_capacity(content.len());
+    let mut replaced = 0;
+    for line in envelope.split_inclusive('\n') {
+        let text = line.trim_end_matches(['\r', '\n']);
+        let eol = &line[text.len()..];
+        // Only the key at the start of a line, with the value that was read as the id.
+        if let Some(rest) = text.strip_prefix("amby-id:") {
+            if rest.trim().trim_matches(['"', '\'']) == old {
+                changed.push_str(&format!("{AMBY_ID_FIELD}: {id}{eol}"));
+                replaced += 1;
+                continue;
+            }
+        }
+        changed.push_str(line);
+    }
+    if replaced != 1 {
+        return Err("Cannot find exactly one amby-id line to replace".to_string());
+    }
+    changed.push_str(body);
+    let reparsed = parse_markdown(&changed);
+    if reparsed.note_id() != Some(id) || reparsed.body != parsed.body {
+        return Err("The replacement did not read back as expected".to_string());
+    }
+    Ok(changed)
+}
+
 pub fn replace_body_preserving_id(content: &str, body: &str, id: &str) -> Result<String, String> {
     let parsed = parse_markdown(content);
     if parsed.has_frontmatter && !parsed.yaml_is_map {

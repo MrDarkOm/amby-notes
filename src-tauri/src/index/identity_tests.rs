@@ -414,3 +414,57 @@ fn namespaced_identity_primary_duplicate_repair_rechecks_unchanged_metadata() {
     drop(conn);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn a_conflict_copy_of_synchronisation_never_takes_the_identity_and_never_blocks_the_original() {
+    // docs/sync-plan.md, Р7 ("check on Э4"): the copy of a conflict is a copy of the file, so it
+    // has the same `amby-id`. The note must stay the original, editable; the copy is a read-only
+    // duplicate until the person resolves the conflict. The copy sorts before the original
+    // (`Note.0123…` < `Note.md`), so it must not win the identity by order.
+    let root = vault();
+    let id = Ulid::generate().to_string();
+    let original = format!("---\namby-id: {id}\n---\nThe file under its name");
+    let copy = format!("---\namby-id: {id}\n---\nThe other version");
+    fs::write(root.join("Note.md"), &original).unwrap();
+    fs::write(root.join("Note.0123456789ab-conflict.md"), &copy).unwrap();
+    let conn = open_connection(&root).unwrap();
+    for _ in 0..2 {
+        let loaded = load_vault(&conn, &root).unwrap();
+        assert_eq!(loaded.notes.len(), 2, "both stay visible");
+        let main = loaded
+            .notes
+            .iter()
+            .find(|note| note.path.ends_with("Note.md"))
+            .unwrap();
+        assert_eq!(main.id, id, "the file under its name keeps the identity");
+        let other = loaded
+            .notes
+            .iter()
+            .find(|note| note.path.ends_with("Note.0123456789ab-conflict.md"))
+            .unwrap();
+        assert!(other.id.starts_with("amby-conflict:"), "{}", other.id);
+        let read = read_note(&conn, &root, &id).unwrap();
+        assert_eq!(read.content, "The file under its name");
+        assert!(
+            prepare_note_write(&conn, &root, &id, "edited", &read.revision).is_ok(),
+            "the original stays editable while the copy exists"
+        );
+        let copy_read = read_note(&conn, &root, &other.id).unwrap();
+        assert!(
+            prepare_note_write(&conn, &root, &other.id, "x", &copy_read.revision).is_err(),
+            "the copy is read-only until the conflict is resolved"
+        );
+        assert_eq!(fs::read_to_string(root.join("Note.md")).unwrap(), original);
+        assert_eq!(
+            fs::read_to_string(root.join("Note.0123456789ab-conflict.md")).unwrap(),
+            copy
+        );
+    }
+    // An ordinary second file with the same id still blocks both, as before.
+    fs::write(root.join("Other.md"), &original).unwrap();
+    load_vault(&conn, &root).unwrap();
+    let read = read_note(&conn, &root, &id).unwrap();
+    assert!(prepare_note_write(&conn, &root, &id, "blocked", &read.revision).is_err());
+    drop(conn);
+    fs::remove_dir_all(root).unwrap();
+}

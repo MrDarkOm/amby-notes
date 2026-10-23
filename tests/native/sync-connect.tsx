@@ -111,7 +111,7 @@ try {
 
   await step("the screen starts with the server step and the honest banner", async () => {
     await waitFor("the server field", () => field("Адрес сервера"))
-    if (!text().includes("Заметки пока не синхронизируются")) throw new Error("no banner")
+    if (!text().includes("в тестовом режиме")) throw new Error("no banner")
   })
 
   await step("a server that is not there is reported, a good one is found", async () => {

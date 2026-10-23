@@ -70,6 +70,7 @@ fn manage_harness_sync(app: &tauri::App, app_data: &std::path::Path) {
 fn contract_page() -> &'static str {
     match std::env::var("AMBY_NATIVE_PAGE").as_deref() {
         Ok("sync-connect") => "tests/native/sync-connect.html",
+        Ok("sync-vault") => "tests/native/sync-vault.html",
         _ => "tests/native/index.html",
     }
 }
@@ -169,6 +170,11 @@ pub fn run_native_contract() {
                     "url": std::env::var("AMBY_NATIVE_SYNC_URL").ok(),
                     "username": std::env::var("AMBY_NATIVE_SYNC_USER").ok(),
                     "enrollCode": std::env::var("AMBY_NATIVE_SYNC_CODE").ok(),
+                    // The check of two computers: which one this process is, the password of the
+                    // account and the name of the shared space.
+                    "role": std::env::var("AMBY_NATIVE_SYNC_ROLE").ok(),
+                    "password": std::env::var("AMBY_NATIVE_SYNC_PASSWORD").ok(),
+                    "spaceName": std::env::var("AMBY_NATIVE_SYNC_SPACE").ok(),
                 })
             );
             tauri::WebviewWindowBuilder::new(

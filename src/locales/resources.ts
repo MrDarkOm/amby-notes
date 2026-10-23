@@ -3284,7 +3284,7 @@ const ru = {
         keepOriginal: "Оставить основной файл",
         keepCopy: "Заменить копией",
         keepBoth: "Оставить оба",
-        hint: "«Оставить основной файл» убирает копию в корзину хранилища. «Заменить копией» кладёт текст копии в основной файл, а прежняя версия остаётся в истории файла. «Оставить оба» только убирает строку из списка.",
+        hint: "«Оставить основной файл» убирает копию в корзину хранилища. «Заменить копией» кладёт текст копии в основной файл, а прежняя версия остаётся в истории файла. «Оставить оба» делает копию отдельной заметкой (ей присваивается свой идентификатор) и убирает строку из списка.",
       },
       unsynced: {
         title: "Не синхронизируется ({{count}})",
@@ -6688,7 +6688,7 @@ const en: typeof ru = {
         keepOriginal: "Keep the main file",
         keepCopy: "Replace with the copy",
         keepBoth: "Keep both",
-        hint: "“Keep the main file” moves the copy to the trash of the vault. “Replace with the copy” puts the text of the copy into the main file, and the previous version stays in the history of the file. “Keep both” only removes the line from the list.",
+        hint: "“Keep the main file” moves the copy to the trash of the vault. “Replace with the copy” puts the text of the copy into the main file, and the previous version stays in the history of the file. “Keep both” makes the copy a note of its own (it gets an identifier of its own) and removes the line from the list.",
       },
       unsynced: {
         title: "Not synchronised ({{count}})",

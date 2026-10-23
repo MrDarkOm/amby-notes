@@ -28,6 +28,7 @@
     "test:browser:install": "playwright install webkit",
     "test:storage:live": "node scripts/run-native-contract.mjs",
     "test:native:sync": "node scripts/run-native-sync.mjs",
+    "test:native:sync-vault": "node scripts/run-native-sync-vault.mjs",
     "test:native:ui": "node scripts/run-native-ui.mjs",
     "test:e2e:large": "node scripts/run-large-e2e.mjs",
     "db:fixture": "node scripts/generate-database-fixture.mjs",

@@ -880,3 +880,69 @@ fn the_status_names_the_space_and_the_test_mark() {
     assert_eq!(status.stop, None);
     sa.stop();
 }
+
+fn note_with_id(id: &str, body: &str) -> String {
+    format!("---\namby-id: {id}\n---\n{body}")
+}
+
+#[test]
+fn keeping_both_gives_the_copy_a_note_identity_of_its_own() {
+    // Р7 ("check on Э4"): the copy repeats the amby-id of its file, which blocks editing of the
+    // duplicate. "Keep both" makes the copy a note of its own: a new amby-id, nothing else changed.
+    use crate::index::{load_vault, open_connection};
+    let env = Env::new();
+    let (a, b) = (TempVault::new("a"), TempVault::new("b"));
+    let id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    a.put("Notes/n.md", note_with_id(id, "base").as_bytes());
+    let (sa, _) = env.start(&a, &env.account);
+    let (sb, _) = env.start(&b, &env.another_computer("B"));
+    settle(&sa, &sb);
+    a.put("Notes/n.md", note_with_id(id, "mine on a").as_bytes());
+    b.put("Notes/n.md", note_with_id(id, "theirs on b").as_bytes());
+    pass(&sa);
+    let status = pass(&sb);
+    let conflict = status.conflicts[0].clone();
+    assert!(b
+        .text(&conflict.copy_path)
+        .unwrap()
+        .contains(&format!("amby-id: {id}")));
+
+    sb.resolve_conflict(&conflict.id, ConflictChoice::KeepBoth)
+        .unwrap();
+    let copy = b.text(&conflict.copy_path).unwrap();
+    let original = b.text("Notes/n.md").unwrap();
+    assert_eq!(
+        original,
+        note_with_id(id, "mine on a"),
+        "the file is untouched"
+    );
+    assert!(!copy.contains(id), "the copy has its own identity: {copy}");
+    assert!(copy.starts_with("---\namby-id: "));
+    assert!(
+        copy.ends_with("---\ntheirs on b"),
+        "only the id changed: {copy}"
+    );
+    assert!(
+        b.snapshots(&conflict.copy_path)
+            .iter()
+            .any(|(reason, text)| reason == "id-assignment" && text.contains(id)),
+        "the old text of the copy is in the history"
+    );
+
+    // Amby reads both as ordinary notes now: nothing is a duplicate any more.
+    let conn = open_connection(&b.root).unwrap();
+    let loaded = load_vault(&conn, &b.root).unwrap();
+    assert_eq!(loaded.notes.len(), 2);
+    assert!(loaded
+        .notes
+        .iter()
+        .all(|note| !note.id.starts_with("amby-conflict:")));
+    settle(&sa, &sb);
+    assert_eq!(
+        a.files(),
+        b.files(),
+        "the new identity of the copy reached the other computer"
+    );
+    sa.stop();
+    sb.stop();
+}

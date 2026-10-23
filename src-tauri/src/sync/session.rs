@@ -422,7 +422,7 @@ impl SyncSession {
 
         let mut files = VaultFs::with_hooks(vault.clone(), shared.config.hooks.clone());
         files.batch_begin();
-        let result = apply_choice(&mut files, &conflict, choice);
+        let result = apply_choice(&mut files, vault, &conflict, choice);
         files.batch_end();
         result.map_err(|_| SyncError::new("storage_error"))?;
 
@@ -475,6 +475,7 @@ impl Drop for SyncSession {
 /// Changes the files the way the person chose (Р7).
 fn apply_choice(
     files: &mut VaultFs,
+    vault: &Path,
     conflict: &ConflictRecord,
     choice: ConflictChoice,
 ) -> Result<(), amby_sync_core::engine::FsError> {
@@ -486,7 +487,10 @@ fn apply_choice(
         Err(error) => Err(error),
     };
     match choice {
-        ConflictChoice::KeepBoth => Ok(()),
+        ConflictChoice::KeepBoth => {
+            give_copy_its_own_identity(files, vault, conflict);
+            Ok(())
+        }
         ConflictChoice::KeepOriginal => trash_copy(files),
         ConflictChoice::KeepCopy => {
             match files.read(&conflict.copy_path) {
@@ -507,6 +511,51 @@ fn apply_choice(
             trash_copy(files)
         }
     }
+}
+
+/// A copy of a note repeats the `amby-id` of its file, and Amby refuses to edit two notes with one
+/// identity (docs/vault-format.md). When the person keeps both files, the copy becomes a note of
+/// its own: a new `amby-id`, nothing else changed, the old text first in the history. Best effort:
+/// a copy whose frontmatter cannot take it without guessing stays as it is (a read-only duplicate
+/// that the person can still read and copy from).
+fn give_copy_its_own_identity(files: &mut VaultFs, vault: &Path, conflict: &ConflictRecord) {
+    let (Ok(copy), Ok(original)) = (
+        files.read(&conflict.copy_path),
+        files.read(&conflict.original_path),
+    ) else {
+        return;
+    };
+    let (Ok(copy), Ok(original)) = (String::from_utf8(copy), String::from_utf8(original)) else {
+        return;
+    };
+    let copy_id = crate::frontmatter::parse_markdown(&copy)
+        .note_id()
+        .map(str::to_string);
+    let original_id = crate::frontmatter::parse_markdown(&original)
+        .note_id()
+        .map(str::to_string);
+    if copy_id.is_none() || copy_id != original_id {
+        return;
+    }
+    let Ok(next) =
+        crate::frontmatter::with_replaced_amby_id(&copy, &ulid::Ulid::generate().to_string())
+    else {
+        return;
+    };
+    let target = vault.join(&conflict.copy_path);
+    if crate::history::snapshot_before_write(vault, &target, next.as_bytes(), "id-assignment")
+        .is_err()
+    {
+        return;
+    }
+    let Ok(mut staged) = files.begin_write(&conflict.copy_path) else {
+        return;
+    };
+    if staged.write(next.as_bytes()).is_err() {
+        staged.abort();
+        return;
+    }
+    let _: Result<(), _> = staged.publish(None);
 }
 
 fn conflict_view(conflict: &ConflictRecord) -> ConflictView {

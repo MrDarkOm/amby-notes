@@ -123,6 +123,15 @@ custom-property mutations are refused until the identity is unique again.
 The editor and properties panel show a localized read-only warning. Malformed
 YAML uses the separate body-editing policy below; it is not an ID conflict.
 
+A **conflict copy made by synchronisation** (`Name.<12 hex>-conflict.md`, next to
+the file, listed in the list of conflicts of the sync screen) carries the same
+`amby-id` as the file it was copied from. It is the one duplicate that never takes
+the identity and never blocks the other: the file under its real name keeps the
+stable ID and stays editable whatever the order of paths, and the copy is a
+visible, searchable, read-only duplicate until the person resolves the conflict
+(keep the file, replace it with the copy, or keep both). Nothing is written into
+either file for this. Any other file with the same ID still blocks both, as above.
+
 The index's `identity_version = 3` marker invalidates the metadata skip path
 once so older cached interpretations are re-read. SQLite is still disposable;
 rebuilding it neither migrates legacy IDs nor deletes durable property data.
