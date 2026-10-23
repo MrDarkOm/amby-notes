@@ -11,7 +11,12 @@ import {
 } from "@/components/ui/dialog"
 import { errorType, logger } from "@/lib/logger"
 import { syncErrorMessage } from "@/lib/sync/sync-errors"
-import type { ConflictChoice, ConflictVersions, SyncPort } from "@/lib/sync/sync-port"
+import {
+  SyncPortError,
+  type ConflictChoice,
+  type ConflictVersions,
+  type SyncPort,
+} from "@/lib/sync/sync-port"
 import { markdownToSafeReadonlyHtml } from "../tiptap/markdown"
 import {
   assembleCompare,
@@ -46,6 +51,7 @@ export function SyncCompareDialog({
   const [loadFailed, setLoadFailed] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [reload, setReload] = React.useState(0)
   const [choices, setChoices] = React.useState<CompareChoice[]>([])
 
   React.useEffect(() => {
@@ -62,7 +68,7 @@ export function SyncCompareDialog({
     return () => {
       alive = false
     }
-  }, [port, conflict.id])
+  }, [port, conflict.id, reload])
 
   const plan = React.useMemo(
     () => (loaded ? planBlockCompare(conflict.originalPath, loaded.original, loaded.copy) : null),
@@ -81,12 +87,21 @@ export function SyncCompareDialog({
       onClose()
     } catch (caught) {
       setError(syncErrorMessage(caught, t))
+      // Nothing was written: the versions are read again so the choice is made on what is there now.
+      if (caught instanceof SyncPortError && caught.code === "conflict_changed")
+        setReload((n) => n + 1)
       setBusy(false)
     }
   }
   const resolve = (choice: ConflictChoice) => guard(() => port.resolveConflict(conflict.id, choice))
   const finish = (blocks: BlockCompare) =>
-    guard(() => port.resolveConflictWithText(conflict.id, assembleCompare(blocks, choices)))
+    guard(() =>
+      port.resolveConflictWithText(
+        conflict.id,
+        assembleCompare(blocks, choices),
+        loaded?.stamp ?? "",
+      ),
+    )
 
   const text = (value: string | null | undefined) =>
     value === undefined ? t("sync.notices.loading") : (value ?? t("sync.notices.notText"))

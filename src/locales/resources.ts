@@ -3215,6 +3215,8 @@ const ru = {
       no_vault_open: "Сначала откройте хранилище.",
       sync_not_running: "Синхронизация этого хранилища сейчас не запущена.",
       conflict_not_found: "Этого конфликта уже нет в списке.",
+      conflict_changed:
+        "Пока вы сравнивали, пришла новая версия. Сравнение обновлено, проверьте выбор.",
       vault_locked: "Это хранилище уже синхронизирует другая копия приложения.",
       state_error: "Не удалось прочитать или записать состояние синхронизации в папке хранилища.",
       state_newer: "Состояние синхронизации записала более новая версия Amby. Обновите приложение.",
@@ -6670,6 +6672,8 @@ const en: typeof ru = {
       no_vault_open: "Open a vault first.",
       sync_not_running: "The sync of this vault is not running now.",
       conflict_not_found: "This conflict is no longer in the list.",
+      conflict_changed:
+        "A new version arrived while you were comparing. The comparison was refreshed, check your choices.",
       vault_locked: "Another copy of the app is already synchronising this vault.",
       state_error:
         "The state of synchronisation in the folder of the vault could not be read or written.",

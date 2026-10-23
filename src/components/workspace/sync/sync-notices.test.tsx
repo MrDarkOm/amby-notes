@@ -57,6 +57,7 @@ async function mount(status = vaultStatus()) {
     readConflictVersions: async () => ({
       original: "основная версия",
       copy: "версия с другого компьютера",
+      stamp: "stamp-1",
     }),
   })
   const view = render(<SyncNoticesHost port={port} />)

@@ -279,6 +279,7 @@ pub fn sync_resolve_conflict_with_text(
     runtime: State<'_, SyncRuntime>,
     id: String,
     text: String,
+    stamp: String,
 ) -> Result<(), SyncError> {
-    runtime.resolve_conflict_with_text(&id, &text)
+    runtime.resolve_conflict_with_text(&id, &text, &stamp)
 }

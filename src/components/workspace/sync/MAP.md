@@ -28,7 +28,7 @@ The window of external changes of the editor ([external-conflict-dialog.tsx](../
 edited buffer and writes through it, so the comparison of a sync conflict is a window of its own. It reads the two versions
 through the port (`readConflictVersions`; today the file and its copy, later wherever the engine keeps the second version) and
 resolves through `resolveConflict` (whole version) or `resolveConflictWithText` (the assembled result: written as given with a
-history snapshot, the second version to the trash, the entry cleared). In Live mode `planBlockCompare` cuts both versions into units
+history snapshot, the second version to the trash, the entry cleared; refused with `conflict_changed` when the `stamp` that `readConflictVersions` returned no longer matches both files, and the window then reads them again). In Live mode `planBlockCompare` cuts both versions into units
 that tile the text exactly (the source Live Preview keeps per top-level block, and per item for lists; whitespace and text the editor
 does not keep as a block stay between or as units of their own), lines them up and finds the differences; `assembleCompare` joins
 the chosen units with their own whitespace, in the line endings and BOM of my file, so nothing untouched is rewritten. A version

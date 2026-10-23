@@ -139,9 +139,11 @@ export interface SyncPort {
   readConflictVersions(id: string): Promise<ConflictVersions>
   /**
    * Resolves a conflict with a text put together by the comparison: it becomes the file byte for byte
-   * (the replaced version stays in the history) and the conflict is cleared.
+   * (the replaced version stays in the history) and the conflict is cleared. `stamp` is the one
+   * `readConflictVersions` returned: when either version has changed since, nothing is written and the
+   * answer is `conflict_changed`.
    */
-  resolveConflictWithText(id: string, text: string): Promise<void>
+  resolveConflictWithText(id: string, text: string, stamp: string): Promise<void>
   /** Calls `listener` whenever the status changes; returns the function that stops it. */
   onVaultStatus(listener: (status: VaultSyncStatus) => void): Promise<() => void>
   /** Calls `listener` with the vault and the paths (in it) of files deleted on another computer. */
@@ -230,8 +232,8 @@ export function createDesktopSyncPort(): SyncPort {
       await call(commands.syncResolveConflict(id, choice))
     },
     readConflictVersions: (id) => call(commands.syncReadConflictVersions(id)),
-    resolveConflictWithText: async (id, text) => {
-      await call(commands.syncResolveConflictWithText(id, text))
+    resolveConflictWithText: async (id, text, stamp) => {
+      await call(commands.syncResolveConflictWithText(id, text, stamp))
     },
     onVaultStatus: async (listener) => {
       try {

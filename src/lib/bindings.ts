@@ -1409,9 +1409,9 @@ async syncReadConflictVersions(id: string) : Promise<Result<ConflictVersions, Sy
 /**
  * Resolves a conflict with a text put together by the comparison (stage Э4б).
  */
-async syncResolveConflictWithText(id: string, text: string) : Promise<Result<null, SyncError>> {
+async syncResolveConflictWithText(id: string, text: string, stamp: string) : Promise<Result<null, SyncError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("sync_resolve_conflict_with_text", { id, text }) };
+    return { status: "ok", data: await TAURI_INVOKE("sync_resolve_conflict_with_text", { id, text, stamp }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1760,7 +1760,12 @@ original: string | null;
 /**
  * The second version.
  */
-copy: string | null }
+copy: string | null; 
+/**
+ * A fingerprint of both files as they were read; `resolve_conflict_with_text` refuses a text
+ * built from versions that have changed since (`conflict_changed`).
+ */
+stamp: string }
 /**
  * An unresolved conflict (Р7).
  */

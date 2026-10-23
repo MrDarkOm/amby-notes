@@ -562,8 +562,13 @@ impl SyncRuntime {
     }
 
     /// Resolves a conflict with a text put together by the comparison (stage Э4б).
-    pub fn resolve_conflict_with_text(&self, id: &str, text: &str) -> Result<(), SyncError> {
-        self.with_session(|session| session.resolve_conflict_with_text(id, text))?
+    pub fn resolve_conflict_with_text(
+        &self,
+        id: &str,
+        text: &str,
+        stamp: &str,
+    ) -> Result<(), SyncError> {
+        self.with_session(|session| session.resolve_conflict_with_text(id, text, stamp))?
     }
 
     /// The two versions of a conflict as text, for the comparison.

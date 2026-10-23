@@ -203,6 +203,9 @@ pub struct ConflictVersions {
     pub original: Option<String>,
     /// The second version.
     pub copy: Option<String>,
+    /// A fingerprint of both files as they were read; `resolve_conflict_with_text` refuses a text
+    /// built from versions that have changed since (`conflict_changed`).
+    pub stamp: String,
 }
 
 /// A space of the account, for "connect an existing vault".

@@ -422,7 +422,7 @@ impl SyncSession {
     /// leaves the list, and a pass follows. `conflict_not_found` for an id that is not in the
     /// list.
     pub fn resolve_conflict(&self, id: &str, choice: ConflictChoice) -> Result<(), SyncError> {
-        self.resolve_with(id, |files, vault, conflict| {
+        self.resolve_with(id, None, |files, vault, conflict| {
             apply_choice(files, vault, conflict, choice)
         })
     }
@@ -430,8 +430,13 @@ impl SyncSession {
     /// Resolves a conflict with a text put together by the comparison (stage Э4б): the text becomes
     /// the file, byte for byte; the version it replaces stays in the history; the second version
     /// goes to the trash of the vault and the entry leaves the list.
-    pub fn resolve_conflict_with_text(&self, id: &str, text: &str) -> Result<(), SyncError> {
-        self.resolve_with(id, |files, _vault, conflict| {
+    pub fn resolve_conflict_with_text(
+        &self,
+        id: &str,
+        text: &str,
+        stamp: &str,
+    ) -> Result<(), SyncError> {
+        self.resolve_with(id, Some(stamp), |files, _vault, conflict| {
             use amby_sync_core::engine::{FsError, SnapshotReason};
             let mut staged = files.begin_write(&conflict.original_path)?;
             for chunk in text.as_bytes().chunks(64 * 1024) {
@@ -474,6 +479,7 @@ impl SyncSession {
         Ok(ConflictVersions {
             original: text(&conflict.original_path),
             copy: text(&conflict.copy_path),
+            stamp: conflict_stamp(vault, &conflict),
         })
     }
 
@@ -482,6 +488,7 @@ impl SyncSession {
     fn resolve_with(
         &self,
         id: &str,
+        expected_stamp: Option<&str>,
         change: impl FnOnce(
             &mut VaultFs,
             &Path,
@@ -497,6 +504,11 @@ impl SyncSession {
             .into_iter()
             .find(|conflict| conflict.id == id)
             .ok_or_else(|| SyncError::new("conflict_not_found"))?;
+        // A text built by the comparison is written only if both files are what the window read
+        // (checked under the lock, at the border of the write).
+        if expected_stamp.is_some_and(|stamp| conflict_stamp(vault, &conflict) != stamp) {
+            return Err(SyncError::new("conflict_changed"));
+        }
 
         let mut files = VaultFs::with_hooks(vault.clone(), shared.config.hooks.clone());
         files.batch_begin();
@@ -549,6 +561,26 @@ impl Drop for SyncSession {
             }
         }
     }
+}
+
+/// A fingerprint of the two files of a conflict (their bytes, or size and time for a file too large to
+/// read), so a text built from them can be refused when they have changed.
+fn conflict_stamp(vault: &Path, conflict: &ConflictRecord) -> String {
+    let mut digest = Sha256::new();
+    for relative in [&conflict.original_path, &conflict.copy_path] {
+        let path = vault.join(relative);
+        match fs::metadata(&path) {
+            Err(_) => digest.update(b"missing;"),
+            Ok(meta) if meta.len() > 64 * 1024 * 1024 => {
+                digest.update(format!("large;{};{};", meta.len(), modified_ms(&path)));
+            }
+            Ok(meta) => {
+                digest.update(format!("file;{};", meta.len()));
+                digest.update(fs::read(&path).unwrap_or_default());
+            }
+        }
+    }
+    hex::encode(digest.finalize())
 }
 
 /// Changes the files the way the person chose (Р7).
