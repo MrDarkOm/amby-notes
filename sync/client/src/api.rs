@@ -17,18 +17,24 @@ use crate::url::ServerUrl;
 
 /// The biggest answer the client reads (the answers of this part of the protocol are small; a
 /// hostile server must not be able to fill the memory).
-const MAX_ANSWER_BYTES: usize = 4 * 1024 * 1024;
+pub(crate) const MAX_ANSWER_BYTES: usize = 4 * 1024 * 1024;
 /// Time to connect.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Time for a whole request.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a connection may stay silent while a body is being read or an event stream is open:
+/// the server pings a stream every 15 seconds (П34), so silence for this long is a dead line.
+const READ_TIMEOUT: Duration = Duration::from_secs(60);
 
-fn bad(reason: &'static str) -> ClientError {
+pub(crate) fn bad(reason: &'static str) -> ClientError {
     ClientError::BadResponse(reason)
 }
 
 /// A string field of a JSON object.
-fn string_field<'a>(value: &'a Value, name: &'static str) -> Result<&'a str, ClientError> {
+pub(crate) fn string_field<'a>(
+    value: &'a Value,
+    name: &'static str,
+) -> Result<&'a str, ClientError> {
     value
         .get(name)
         .and_then(Value::as_str)
@@ -36,7 +42,7 @@ fn string_field<'a>(value: &'a Value, name: &'static str) -> Result<&'a str, Cli
 }
 
 /// A whole number field of a JSON object.
-fn number_field(value: &Value, name: &'static str) -> Result<u64, ClientError> {
+pub(crate) fn number_field(value: &Value, name: &'static str) -> Result<u64, ClientError> {
     value
         .get(name)
         .and_then(Value::as_u64)
@@ -44,7 +50,7 @@ fn number_field(value: &Value, name: &'static str) -> Result<u64, ClientError> {
 }
 
 /// A signed whole number field.
-fn signed_field(value: &Value, name: &'static str) -> Result<i64, ClientError> {
+pub(crate) fn signed_field(value: &Value, name: &'static str) -> Result<i64, ClientError> {
     value
         .get(name)
         .and_then(Value::as_i64)
@@ -52,7 +58,10 @@ fn signed_field(value: &Value, name: &'static str) -> Result<i64, ClientError> {
 }
 
 /// A hex field of exactly `N` bytes.
-fn hex_array<const N: usize>(value: &Value, name: &'static str) -> Result<[u8; N], ClientError> {
+pub(crate) fn hex_array<const N: usize>(
+    value: &Value,
+    name: &'static str,
+) -> Result<[u8; N], ClientError> {
     let bytes =
         hex::decode(string_field(value, name)?).map_err(|_| bad("a hex field is not hex"))?;
     bytes
@@ -61,7 +70,7 @@ fn hex_array<const N: usize>(value: &Value, name: &'static str) -> Result<[u8; N
 }
 
 /// A hex field of any size.
-fn hex_bytes(value: &Value, name: &'static str) -> Result<Vec<u8>, ClientError> {
+pub(crate) fn hex_bytes(value: &Value, name: &'static str) -> Result<Vec<u8>, ClientError> {
     hex::decode(string_field(value, name)?).map_err(|_| bad("a hex field is not hex"))
 }
 
@@ -108,7 +117,7 @@ fn session_from(value: &Value) -> Result<Session, ClientError> {
 
 /// Only the characters of the codes in table Б.0.1 are accepted from a server: a code is shown to
 /// the person when this client does not know it.
-fn clean_code(code: &str) -> Option<&str> {
+pub(crate) fn clean_code(code: &str) -> Option<&str> {
     let well_formed = !code.is_empty()
         && code.len() <= 64
         && code
@@ -309,7 +318,7 @@ pub struct SyncClient {
     http: reqwest::Client,
 }
 
-fn transport_error(error: &reqwest::Error) -> ClientError {
+pub(crate) fn transport_error(error: &reqwest::Error) -> ClientError {
     if error.is_timeout() {
         ClientError::Timeout
     } else {
@@ -319,7 +328,7 @@ fn transport_error(error: &reqwest::Error) -> ClientError {
 }
 
 /// `Retry-After` in whole seconds (the form the server sends, П16).
-fn retry_after(response: &reqwest::Response) -> Option<u64> {
+pub(crate) fn retry_after(response: &reqwest::Response) -> Option<u64> {
     response
         .headers()
         .get(reqwest::header::RETRY_AFTER)?
@@ -331,7 +340,7 @@ fn retry_after(response: &reqwest::Response) -> Option<u64> {
 }
 
 /// Reads the body of an answer, at most [`MAX_ANSWER_BYTES`].
-async fn read_body(mut response: reqwest::Response) -> Result<Vec<u8>, ClientError> {
+pub(crate) async fn read_body(mut response: reqwest::Response) -> Result<Vec<u8>, ClientError> {
     let mut body = Vec::new();
     while let Some(chunk) = response
         .chunk()
@@ -346,6 +355,33 @@ async fn read_body(mut response: reqwest::Response) -> Result<Vec<u8>, ClientErr
     Ok(body)
 }
 
+/// The error of an answer that is not a success: the code of a JSON error answer (П4),
+/// `server_unavailable` for a `5xx` without one (a proxy in front of a stopped server), otherwise
+/// `BadResponse`.
+pub(crate) fn error_from(status: u16, wait: Option<u64>, bytes: &[u8]) -> ClientError {
+    let code = serde_json::from_slice::<Value>(bytes)
+        .ok()
+        .and_then(|value| {
+            value["error"]["code"]
+                .as_str()
+                .and_then(clean_code)
+                .map(str::to_string)
+        });
+    match code {
+        Some(code) => ClientError::Api {
+            status,
+            code,
+            retry_after_secs: wait,
+        },
+        None if status >= 500 => ClientError::Api {
+            status,
+            code: "server_unavailable".to_string(),
+            retry_after_secs: wait,
+        },
+        None => bad("the answer is not an error of the protocol"),
+    }
+}
+
 impl SyncClient {
     /// A client of `base`: no redirects, 10 s to connect, 30 s for a request, a user agent that
     /// names the program (no secrets).
@@ -353,6 +389,7 @@ impl SyncClient {
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(READ_TIMEOUT)
             .timeout(REQUEST_TIMEOUT)
             .user_agent(concat!("amby-sync-client/", env!("CARGO_PKG_VERSION")))
             .build()
@@ -371,7 +408,7 @@ impl SyncClient {
     /// One request. Returns the JSON of a `2xx` answer (`null` for `204`); anything else is an
     /// error: the code of a JSON error answer (П4), `server_unavailable` for a `5xx` without one
     /// (a proxy in front of a stopped server), otherwise `BadResponse`.
-    async fn send(
+    pub(crate) async fn send(
         &self,
         method: Method,
         path: &str,
@@ -398,27 +435,22 @@ impl SyncClient {
             }
             return serde_json::from_slice(&bytes).map_err(|_| bad("the answer is not JSON"));
         }
-        let code = serde_json::from_slice::<Value>(&bytes)
-            .ok()
-            .and_then(|value| {
-                value["error"]["code"]
-                    .as_str()
-                    .and_then(clean_code)
-                    .map(str::to_string)
-            });
-        match code {
-            Some(code) => Err(ClientError::Api {
-                status: status.as_u16(),
-                code,
-                retry_after_secs: wait,
-            }),
-            None if status.is_server_error() => Err(ClientError::Api {
-                status: status.as_u16(),
-                code: "server_unavailable".to_string(),
-                retry_after_secs: wait,
-            }),
-            None => Err(bad("the answer is not an error of the protocol")),
+        Err(error_from(status.as_u16(), wait, &bytes))
+    }
+
+    /// The address of a path of the server and a request with the token (if any); the caller adds
+    /// the body, the timeout and sends it. For the requests of [`crate::spaces`].
+    pub(crate) fn builder(
+        &self,
+        method: Method,
+        path: &str,
+        token: Option<&DeviceToken>,
+    ) -> reqwest::RequestBuilder {
+        let mut request = self.http.request(method, self.base.endpoint(path));
+        if let Some(token) = token {
+            request = request.bearer_auth(token.expose());
         }
+        request
     }
 
     /// `GET /v1/info` (П9). Does not check the protocol range: call

@@ -1,14 +1,36 @@
 //! The requests of the data protocol (appendix Б.3–Б.6): spaces, bodies, commits, the change feed
 //! and the notification stream (П20–П34). Like [`crate::api`], one method per request and no
 //! logic; the engine of the application drives them.
-//!
-//! Interface of stage Э4 (tests first): the bodies are `todo!()` until the tests are reviewed.
 
-use amby_sync_core::crypto::keys::BodyId;
-use amby_sync_core::engine::{BlobState, ChangesPage, CommitItem, CommitReply};
+use std::time::Duration;
 
-use crate::api::{DeviceToken, ServerInfo, SyncClient};
+use amby_sync_core::crypto::keys::{BodyId, ItemId};
+use amby_sync_core::engine::{
+    BlobState, ChangeEntry, ChangesPage, CommitAccepted, CommitItem, CommitReply, VersionConflict,
+};
+use reqwest::{Method, StatusCode};
+use serde_json::{json, Value};
+
+use crate::api::{
+    bad, error_from, hex_array, hex_bytes, number_field, read_body, retry_after, signed_field,
+    transport_error, DeviceToken, ServerInfo, SyncClient,
+};
 use crate::error::ClientError;
+
+/// Time for one part of a body to go (8 MiB on a slow line) or to come.
+const TRANSFER_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+/// A notification stream stays open as long as the connection lives.
+const STREAM_TIMEOUT: Duration = Duration::from_secs(60 * 60 * 24 * 7);
+/// The longest line of a stream the client accepts; a longer one is not a server of ours.
+const MAX_LINE_BYTES: usize = 64 * 1024;
+
+fn hex16(bytes: &[u8; 16]) -> String {
+    hex::encode(bytes)
+}
+
+fn space_path(space: &[u8; 16], suffix: &str) -> String {
+    format!("/v1/spaces/{}{suffix}", hex16(space))
+}
 
 /// One entry of `GET /v1/spaces` (П20).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,26 +77,50 @@ impl ServerInfo {
     /// The engine's view of `/v1/info`: protocol range, `instance_id` and the limits. A missing
     /// limit is [`ClientError::BadResponse`].
     pub fn to_engine(&self) -> Result<amby_sync_core::engine::ServerInfo, ClientError> {
-        todo!("Э4: ServerInfo::to_engine")
+        let limits = self.limits()?;
+        let instance: [u8; 16] = hex::decode(&self.instance_id)
+            .ok()
+            .and_then(|bytes| bytes.try_into().ok())
+            .ok_or_else(|| bad("the instance identifier has the wrong form"))?;
+        Ok(amby_sync_core::engine::ServerInfo {
+            protocol_min: self.protocol_min,
+            protocol_max: self.protocol_max,
+            instance_id: instance,
+            max_blob_bytes: limits.max_blob_bytes,
+            max_commit_items: limits.max_commit_items,
+        })
     }
 
     /// The limits of the server (П8).
     pub fn limits(&self) -> Result<ServerLimits, ClientError> {
-        todo!("Э4: ServerInfo::limits")
+        let limits = self
+            .rest
+            .get("limits")
+            .filter(|value| value.is_object())
+            .ok_or_else(|| bad("the limits are missing"))?;
+        Ok(ServerLimits {
+            max_blob_bytes: number_field(limits, "max_blob_bytes")?,
+            max_commit_items: u32::try_from(number_field(limits, "max_commit_items")?)
+                .map_err(|_| bad("a limit is too large"))?,
+            part_size: number_field(limits, "part_size")?,
+        })
     }
 }
 
 /// The body of a download, read piece by piece (П24): the whole body is never held in memory by
 /// the client.
 pub struct BlobDownload {
-    // The real field is the open response; the stub keeps nothing.
-    _private: (),
+    response: reqwest::Response,
 }
 
 impl BlobDownload {
     /// The next piece, or `None` at the end. A broken connection is an error, not an end.
     pub async fn chunk(&mut self) -> Result<Option<Vec<u8>>, ClientError> {
-        todo!("Э4: BlobDownload::chunk")
+        match self.response.chunk().await {
+            Ok(Some(piece)) => Ok(Some(piece.to_vec())),
+            Ok(None) => Ok(None),
+            Err(error) => Err(transport_error(&error)),
+        }
     }
 }
 
@@ -104,104 +150,390 @@ pub enum ServerEvent {
 
 /// An open notification stream.
 pub struct EventStream {
-    _private: (),
+    response: reqwest::Response,
+    buffer: Vec<u8>,
+    name: String,
+    data: String,
 }
 
 impl EventStream {
     /// The next event; `None` when the server closed the stream (a revoked token closes it,
     /// П34). A broken connection is an error.
     pub async fn next(&mut self) -> Result<Option<ServerEvent>, ClientError> {
-        todo!("Э4: EventStream::next")
+        loop {
+            while let Some(line) = self.take_line()? {
+                if let Some(event) = self.feed(&line) {
+                    return Ok(Some(event));
+                }
+            }
+            match self.response.chunk().await {
+                Ok(Some(piece)) => self.buffer.extend_from_slice(&piece),
+                Ok(None) => return Ok(None),
+                Err(error) => return Err(transport_error(&error)),
+            }
+        }
     }
+
+    /// A whole line out of the buffer, without its end of line.
+    fn take_line(&mut self) -> Result<Option<String>, ClientError> {
+        let Some(end) = self.buffer.iter().position(|byte| *byte == b'\n') else {
+            if self.buffer.len() > MAX_LINE_BYTES {
+                return Err(bad("a line of the stream is too long"));
+            }
+            return Ok(None);
+        };
+        let mut line: Vec<u8> = self.buffer.drain(..=end).collect();
+        line.pop();
+        if line.last() == Some(&b'\r') {
+            line.pop();
+        }
+        Ok(Some(String::from_utf8_lossy(&line).into_owned()))
+    }
+
+    /// One line of the stream; an event when a block ends (or a ping comes).
+    fn feed(&mut self, line: &str) -> Option<ServerEvent> {
+        if line.is_empty() {
+            let (name, data) = (
+                std::mem::take(&mut self.name),
+                std::mem::take(&mut self.data),
+            );
+            if name.is_empty() && data.is_empty() {
+                return None;
+            }
+            return parse_event(&name, &data);
+        }
+        if let Some(comment) = line.strip_prefix(':') {
+            return (comment.trim() == "ping").then_some(ServerEvent::Ping);
+        }
+        let (field, value) = line.split_once(':').unwrap_or((line, ""));
+        let value = value.strip_prefix(' ').unwrap_or(value);
+        match field {
+            "event" => self.name = value.to_string(),
+            "data" => {
+                if !self.data.is_empty() {
+                    self.data.push('\n');
+                }
+                self.data.push_str(value);
+            }
+            _ => {}
+        }
+        None
+    }
+}
+
+/// An event of ours, or `None` for one this client does not know (a newer server, Р13).
+fn parse_event(name: &str, data: &str) -> Option<ServerEvent> {
+    let value: Value = serde_json::from_str(data).ok()?;
+    match name {
+        "hello" => Some(ServerEvent::Hello {
+            seq: number_field(&value, "seq").ok()?,
+            instance_id: hex_array(&value, "instance_id").ok()?,
+        }),
+        "commit" => Some(ServerEvent::Commit {
+            seq: number_field(&value, "seq").ok()?,
+            device_id: hex_array(&value, "device_id").ok()?,
+            items: number_field(&value, "items").ok()?,
+        }),
+        _ => None,
+    }
+}
+
+fn entry_from(value: &Value) -> Result<ChangeEntry, ClientError> {
+    let blob_id = match value.get("blob_id") {
+        None | Some(Value::Null) => None,
+        Some(_) => Some(BodyId::from_bytes(hex_array(value, "blob_id")?)),
+    };
+    let blob_size = match value.get("blob_size") {
+        None | Some(Value::Null) => None,
+        Some(_) => Some(number_field(value, "blob_size")?),
+    };
+    Ok(ChangeEntry {
+        seq: number_field(value, "seq")?,
+        item_id: ItemId::from_bytes(hex_array(value, "item_id")?),
+        version: number_field(value, "version")?,
+        header: hex_bytes(value, "header")?,
+        blob_id,
+        blob_size,
+        deleted: bool_field(value, "deleted")?,
+        device_id: hex_array(value, "device_id")?,
+        committed_ms: signed_field(value, "committed_ms")?,
+    })
+}
+
+fn bool_field(value: &Value, name: &'static str) -> Result<bool, ClientError> {
+    value
+        .get(name)
+        .and_then(Value::as_bool)
+        .ok_or_else(|| bad("a flag is missing"))
+}
+
+/// The conflicts of a `409 version_conflict` answer (П27); `None` for any other `409`.
+fn version_conflicts(bytes: &[u8]) -> Option<Vec<VersionConflict>> {
+    let value: Value = serde_json::from_slice(bytes).ok()?;
+    if value["error"]["code"].as_str() != Some("version_conflict") {
+        return None;
+    }
+    value["error"]["details"]["conflicts"]
+        .as_array()?
+        .iter()
+        .map(|entry| {
+            Some(VersionConflict {
+                item_id: ItemId::from_bytes(hex_array(entry, "item_id").ok()?),
+                base_version: number_field(entry, "base_version").ok()?,
+                current_version: number_field(entry, "current_version").ok()?,
+            })
+        })
+        .collect()
 }
 
 impl SyncClient {
     /// `GET /v1/spaces` (П20).
-    pub async fn list_spaces(&self, _token: &DeviceToken) -> Result<Vec<SpaceEntry>, ClientError> {
-        todo!("Э4: list_spaces")
+    pub async fn list_spaces(&self, token: &DeviceToken) -> Result<Vec<SpaceEntry>, ClientError> {
+        let value = self
+            .send(Method::GET, "/v1/spaces", Some(token), None)
+            .await?;
+        let list = value
+            .get("spaces")
+            .and_then(Value::as_array)
+            .ok_or_else(|| bad("the list of spaces is missing"))?;
+        list.iter()
+            .map(|entry| {
+                Ok(SpaceEntry {
+                    space_id: hex_array(entry, "space_id")?,
+                    name_enc: hex_bytes(entry, "name_enc")?,
+                    key_epoch: u32::try_from(number_field(entry, "key_epoch")?)
+                        .map_err(|_| bad("an epoch is too large"))?,
+                    wrapped_vk: hex_bytes(entry, "wrapped_vk")?,
+                    seq: number_field(entry, "seq")?,
+                    created_ms: signed_field(entry, "created_ms")?,
+                })
+            })
+            .collect()
     }
 
     /// `POST /v1/spaces` (П20). A taken `space_id` is the error `space_exists`.
     pub async fn create_space(
         &self,
-        _token: &DeviceToken,
-        _space: &NewSpace<'_>,
+        token: &DeviceToken,
+        space: &NewSpace<'_>,
     ) -> Result<(), ClientError> {
-        todo!("Э4: create_space")
+        let body = json!({
+            "space_id": hex16(&space.space_id),
+            "name_enc": hex::encode(space.name_enc),
+            "key_epoch": space.key_epoch,
+            "wrapped_vk": hex::encode(space.wrapped_vk),
+        });
+        self.send(Method::POST, "/v1/spaces", Some(token), Some(body))
+            .await?;
+        Ok(())
     }
 
     /// `GET …/changes?since=…&limit=…` (П31).
     pub async fn changes(
         &self,
-        _token: &DeviceToken,
-        _space: &[u8; 16],
-        _since: u64,
-        _limit: Option<u32>,
+        token: &DeviceToken,
+        space: &[u8; 16],
+        since: u64,
+        limit: Option<u32>,
     ) -> Result<ChangesPage, ClientError> {
-        todo!("Э4: changes")
+        let mut path = space_path(space, &format!("/changes?since={since}"));
+        if let Some(limit) = limit {
+            path.push_str(&format!("&limit={limit}"));
+        }
+        let value = self.send(Method::GET, &path, Some(token), None).await?;
+        let list = value
+            .get("changes")
+            .and_then(Value::as_array)
+            .ok_or_else(|| bad("the list of changes is missing"))?;
+        Ok(ChangesPage {
+            instance_id: hex_array(&value, "instance_id")?,
+            seq: number_field(&value, "seq")?,
+            since: number_field(&value, "since")?,
+            next: number_field(&value, "next")?,
+            more: bool_field(&value, "more")?,
+            gap: bool_field(&value, "gap")?,
+            changes: list.iter().map(entry_from).collect::<Result<_, _>>()?,
+        })
     }
 
     /// `POST …/blobs` (П21): starts a body or finds out how far it got.
     pub async fn blob_start(
         &self,
-        _token: &DeviceToken,
-        _space: &[u8; 16],
-        _blob: &BodyId,
-        _size: u64,
+        token: &DeviceToken,
+        space: &[u8; 16],
+        blob: &BodyId,
+        size: u64,
     ) -> Result<BlobState, ClientError> {
-        todo!("Э4: blob_start")
+        let value = self
+            .send(
+                Method::POST,
+                &space_path(space, "/blobs"),
+                Some(token),
+                Some(json!({ "blob_id": hex16(blob.as_bytes()), "size": size })),
+            )
+            .await?;
+        Ok(BlobState {
+            size: number_field(&value, "size")?,
+            uploaded: value
+                .get("uploaded")
+                .and_then(Value::as_array)
+                .ok_or_else(|| bad("the list of parts is missing"))?
+                .iter()
+                .map(|part| part.as_u64().ok_or_else(|| bad("a part number is wrong")))
+                .collect::<Result<_, _>>()?,
+            complete: bool_field(&value, "complete")?,
+        })
     }
 
     /// `PUT …/blobs/{id}/parts/{n}` (П22).
     pub async fn blob_put_part(
         &self,
-        _token: &DeviceToken,
-        _space: &[u8; 16],
-        _blob: &BodyId,
-        _part: u64,
-        _bytes: Vec<u8>,
+        token: &DeviceToken,
+        space: &[u8; 16],
+        blob: &BodyId,
+        part: u64,
+        bytes: Vec<u8>,
     ) -> Result<(), ClientError> {
-        todo!("Э4: blob_put_part")
+        let path = space_path(
+            space,
+            &format!("/blobs/{}/parts/{part}", hex16(blob.as_bytes())),
+        );
+        let response = self
+            .builder(Method::PUT, &path, Some(token))
+            .timeout(TRANSFER_TIMEOUT)
+            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+            .body(bytes)
+            .send()
+            .await
+            .map_err(|error| transport_error(&error))?;
+        let status = response.status();
+        let wait = retry_after(&response);
+        let answer = read_body(response).await?;
+        if status.is_success() {
+            Ok(())
+        } else {
+            Err(error_from(status.as_u16(), wait, &answer))
+        }
     }
 
     /// `POST …/blobs/{id}/complete` (П23).
     pub async fn blob_complete(
         &self,
-        _token: &DeviceToken,
-        _space: &[u8; 16],
-        _blob: &BodyId,
+        token: &DeviceToken,
+        space: &[u8; 16],
+        blob: &BodyId,
     ) -> Result<(), ClientError> {
-        todo!("Э4: blob_complete")
+        let path = space_path(
+            space,
+            &format!("/blobs/{}/complete", hex16(blob.as_bytes())),
+        );
+        self.send(Method::POST, &path, Some(token), Some(json!({})))
+            .await?;
+        Ok(())
     }
 
     /// `GET …/blobs/{id}` (П24): the sealed body as a stream of pieces.
     pub async fn blob_download(
         &self,
-        _token: &DeviceToken,
-        _space: &[u8; 16],
-        _blob: &BodyId,
+        token: &DeviceToken,
+        space: &[u8; 16],
+        blob: &BodyId,
     ) -> Result<BlobDownload, ClientError> {
-        todo!("Э4: blob_download")
+        let path = space_path(space, &format!("/blobs/{}", hex16(blob.as_bytes())));
+        let response = self
+            .builder(Method::GET, &path, Some(token))
+            .timeout(TRANSFER_TIMEOUT)
+            .send()
+            .await
+            .map_err(|error| transport_error(&error))?;
+        if !response.status().is_success() {
+            let (status, wait) = (response.status().as_u16(), retry_after(&response));
+            let bytes = read_body(response).await?;
+            return Err(error_from(status, wait, &bytes));
+        }
+        Ok(BlobDownload { response })
     }
 
     /// `POST …/commit` (П26–П28). `409 version_conflict` is the answer
     /// [`CommitReply::Conflict`], not an error.
     pub async fn commit(
         &self,
-        _token: &DeviceToken,
-        _space: &[u8; 16],
-        _commit_id: &[u8; 16],
-        _items: &[CommitItem],
+        token: &DeviceToken,
+        space: &[u8; 16],
+        commit_id: &[u8; 16],
+        items: &[CommitItem],
     ) -> Result<CommitReply, ClientError> {
-        todo!("Э4: commit")
+        let body = json!({
+            "commit_id": hex16(commit_id),
+            "items": items.iter().map(|item| json!({
+                "item_id": hex16(item.item_id.as_bytes()),
+                "base_version": item.base_version,
+                "header": hex::encode(&item.header),
+                "blob_id": item.blob_id.map(|blob| hex16(blob.as_bytes())),
+                "deleted": item.deleted,
+            })).collect::<Vec<_>>(),
+        });
+        let response = self
+            .builder(Method::POST, &space_path(space, "/commit"), Some(token))
+            .json(&body)
+            .send()
+            .await
+            .map_err(|error| transport_error(&error))?;
+        let status = response.status();
+        let wait = retry_after(&response);
+        let bytes = read_body(response).await?;
+        if status == StatusCode::CONFLICT {
+            if let Some(conflicts) = version_conflicts(&bytes) {
+                return Ok(CommitReply::Conflict(conflicts));
+            }
+        }
+        if !status.is_success() {
+            return Err(error_from(status.as_u16(), wait, &bytes));
+        }
+        let value: Value =
+            serde_json::from_slice(&bytes).map_err(|_| bad("the answer is not JSON"))?;
+        let versions = value
+            .get("items")
+            .and_then(Value::as_array)
+            .ok_or_else(|| bad("the list of versions is missing"))?
+            .iter()
+            .map(|entry| {
+                Ok((
+                    ItemId::from_bytes(hex_array(entry, "item_id")?),
+                    number_field(entry, "version")?,
+                ))
+            })
+            .collect::<Result<_, ClientError>>()?;
+        Ok(CommitReply::Accepted(CommitAccepted {
+            seq: number_field(&value, "seq")?,
+            replayed: bool_field(&value, "replayed")?,
+            versions,
+        }))
     }
 
     /// `GET …/events` (П34): opens the notification stream.
     pub async fn events(
         &self,
-        _token: &DeviceToken,
-        _space: &[u8; 16],
+        token: &DeviceToken,
+        space: &[u8; 16],
     ) -> Result<EventStream, ClientError> {
-        todo!("Э4: events")
+        let response = self
+            .builder(Method::GET, &space_path(space, "/events"), Some(token))
+            .header(reqwest::header::ACCEPT, "text/event-stream")
+            .timeout(STREAM_TIMEOUT)
+            .send()
+            .await
+            .map_err(|error| transport_error(&error))?;
+        if !response.status().is_success() {
+            let (status, wait) = (response.status().as_u16(), retry_after(&response));
+            let bytes = read_body(response).await?;
+            return Err(error_from(status, wait, &bytes));
+        }
+        Ok(EventStream {
+            response,
+            buffer: Vec::new(),
+            name: String::new(),
+            data: String::new(),
+        })
     }
 }

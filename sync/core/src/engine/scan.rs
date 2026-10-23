@@ -145,6 +145,16 @@ pub(super) fn scan(
                         Ok(bytes) => hash_of(&bytes),
                         // It vanished between the listing and the reading: not there.
                         Err(FsError::NotFound(_)) => continue,
+                        // The system refuses this one file: it is listed, left alone and tried
+                        // again by every pass; the others go on (Э4, from Э3).
+                        Err(FsError::AccessDenied(_)) => {
+                            out.unsynced.push(UnsyncedRecord {
+                                path: path.clone(),
+                                reason: UnsyncedReason::NoAccess,
+                            });
+                            out.blocked.insert(path);
+                            continue;
+                        }
                         Err(error) => return Err(error.into()),
                     },
                 };

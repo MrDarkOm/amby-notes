@@ -111,9 +111,13 @@ pub struct Api {
 
 impl Api {
     pub fn new(base: &str) -> Self {
+        // Connections are kept and reused (stage Э4, carried over from Э3): a connection per
+        // request filled the table of ports in TIME_WAIT on macOS and long runs failed on the
+        // transport. A clone shares the pool.
         let agent = ureq::AgentBuilder::new()
             .timeout(Duration::from_secs(120))
-            .max_idle_connections(0)
+            .max_idle_connections(64)
+            .max_idle_connections_per_host(64)
             .build();
         Self {
             base: base.trim_end_matches('/').to_string(),
@@ -142,35 +146,53 @@ impl Api {
         body: Body,
     ) -> Resp {
         let url = format!("{}{}", self.base, path);
-        let mut request = self.agent.request(method, &url);
-        if let Some(token) = token {
-            request = request.set("Authorization", &format!("Bearer {token}"));
-        }
-        for (name, value) in headers {
-            request = request.set(name, value);
-        }
-        let result = match body {
-            Body::None => request.call(),
-            Body::Json(value) => request
-                .set("Content-Type", "application/json")
-                .send_bytes(value.to_string().as_bytes()),
-            Body::Bytes(bytes) => request
-                .set("Content-Type", "application/octet-stream")
-                .send_bytes(&bytes),
-            Body::Raw(bytes, content_type) => {
-                if let Some(content_type) = content_type {
-                    request = request.set("Content-Type", content_type);
+        // A kept connection may have been closed by the server in the meantime; macOS reports
+        // that as `Invalid argument` or a reset when the answer is read, and the library does not
+        // retry it. Every request of the protocol is safe to repeat (bodies are written by part
+        // number, a commit has its `commit_id`, П22, П28), so a transport failure is tried again
+        // on another connection a few times before the test fails.
+        let mut last = None;
+        for attempt in 0..4 {
+            if attempt > 0 {
+                std::thread::sleep(Duration::from_millis(15 * attempt));
+            }
+            let mut request = self.agent.request(method, &url);
+            if let Some(token) = token {
+                request = request.set("Authorization", &format!("Bearer {token}"));
+            }
+            for (name, value) in headers {
+                request = request.set(name, value);
+            }
+            let result = match &body {
+                Body::None => request.call(),
+                Body::Json(value) => request
+                    .set("Content-Type", "application/json")
+                    .send_bytes(value.to_string().as_bytes()),
+                Body::Bytes(bytes) => request
+                    .set("Content-Type", "application/octet-stream")
+                    .send_bytes(bytes),
+                Body::Raw(bytes, content_type) => {
+                    if let Some(content_type) = content_type {
+                        request = request.set("Content-Type", content_type);
+                    }
+                    request.send_bytes(bytes)
                 }
-                request.send_bytes(&bytes)
-            }
-        };
-        match result {
-            Ok(response) => read_response(response),
-            Err(ureq::Error::Status(_, response)) => read_response(response),
-            Err(ureq::Error::Transport(error)) => {
-                panic!("{method} {url}: transport failure (is the server running?): {error}")
+            };
+            let response = match result {
+                Ok(response) | Err(ureq::Error::Status(_, response)) => response,
+                Err(ureq::Error::Transport(error)) => {
+                    last = Some(error.to_string());
+                    continue;
+                }
+            };
+            match try_read_response(response) {
+                Ok(answer) => return answer,
+                // The connection broke while the body came: the same repeat applies.
+                Err(error) => last = Some(error),
             }
         }
+        let error = last.expect("the loop ran");
+        panic!("{method} {url}: transport failure (is the server running?): {error}")
     }
 
     pub fn get(&self, path: &str, token: Option<&str>) -> Resp {
@@ -228,6 +250,13 @@ impl Api {
 
 fn read_response(response: ureq::Response) -> Resp {
     let status = response.status();
+    try_read_response(response)
+        .unwrap_or_else(|error| panic!("reading the body of HTTP {status} failed: {error}"))
+}
+
+/// The answer with its body; an error when the body cannot be read to the end.
+fn try_read_response(response: ureq::Response) -> Result<Resp, String> {
+    let status = response.status();
     let headers = response
         .headers_names()
         .into_iter()
@@ -241,12 +270,12 @@ fn read_response(response: ureq::Response) -> Resp {
     response
         .into_reader()
         .read_to_end(&mut body)
-        .unwrap_or_else(|error| panic!("reading the body of HTTP {status} failed: {error}"));
-    Resp {
+        .map_err(|error| format!("reading the body of HTTP {status} failed: {error}"))?;
+    Ok(Resp {
         status,
         headers,
         body,
-    }
+    })
 }
 
 /// One event of an event stream.
