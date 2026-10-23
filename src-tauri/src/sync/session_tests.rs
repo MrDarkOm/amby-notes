@@ -390,7 +390,10 @@ fn a_version_that_is_not_text_is_not_returned_as_text() {
     pass(&sa);
     let id = pass(&sb).conflicts[0].id.clone();
     let versions = sb.read_conflict_versions(&id).unwrap();
-    assert_eq!(versions.original, None, "bytes that are not UTF-8 are not text");
+    assert_eq!(
+        versions.original, None,
+        "bytes that are not UTF-8 are not text"
+    );
     assert_eq!(versions.copy.as_deref(), Some("text on b"));
     sa.stop();
     sb.stop();
@@ -406,7 +409,11 @@ fn resolving_with_a_text_writes_exactly_that_text_and_clears_the_conflict_everyw
     sb.resolve_conflict_with_text(&id, assembled).unwrap();
     let status = pass(&sb);
     assert!(status.conflicts.is_empty(), "the entry left the list");
-    assert_eq!(b.text("Notes/n.md").as_deref(), Some(assembled), "byte for byte");
+    assert_eq!(
+        b.text("Notes/n.md").as_deref(),
+        Some(assembled),
+        "byte for byte"
+    );
     assert!(!b.exists(&copy));
     assert!(b.trashed().contains(&copy));
     assert!(

@@ -13,7 +13,7 @@ use crate::sync::types::{
     SyncError, SyncStatus,
 };
 use crate::sync::vault_types::{
-    ApprovalKind, ConflictChoice, SpaceTarget, SpaceView, VaultSyncStatus,
+    ApprovalKind, ConflictChoice, ConflictVersions, SpaceTarget, SpaceView, VaultSyncStatus,
 };
 use crate::vault_context::VaultContext;
 
@@ -260,4 +260,25 @@ pub fn sync_resolve_conflict(
     choice: ConflictChoice,
 ) -> Result<(), SyncError> {
     runtime.resolve_conflict(&id, choice)
+}
+
+/// The two versions of a conflict as text, for the comparison (stage Э4б).
+#[tauri::command]
+#[specta::specta]
+pub fn sync_read_conflict_versions(
+    runtime: State<'_, SyncRuntime>,
+    id: String,
+) -> Result<ConflictVersions, SyncError> {
+    runtime.read_conflict_versions(&id)
+}
+
+/// Resolves a conflict with a text put together by the comparison (stage Э4б).
+#[tauri::command]
+#[specta::specta]
+pub fn sync_resolve_conflict_with_text(
+    runtime: State<'_, SyncRuntime>,
+    id: String,
+    text: String,
+) -> Result<(), SyncError> {
+    runtime.resolve_conflict_with_text(&id, &text)
 }

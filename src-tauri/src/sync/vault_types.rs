@@ -193,6 +193,18 @@ pub enum ConflictChoice {
     KeepBoth,
 }
 
+/// The two versions of a conflict as text, for the comparison (stage Э4б). A side is `None` when it
+/// cannot be shown as text: bytes that are not UTF-8, a file that is gone, or one too large to
+/// compare in the window. The text is the whole file as it is on disk (BOM, line endings, properties).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictVersions {
+    /// The file under its name.
+    pub original: Option<String>,
+    /// The second version.
+    pub copy: Option<String>,
+}
+
 /// A space of the account, for "connect an existing vault".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]

@@ -1395,6 +1395,28 @@ async syncResolveConflict(id: string, choice: ConflictChoice) : Promise<Result<n
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * The two versions of a conflict as text, for the comparison (stage Э4б).
+ */
+async syncReadConflictVersions(id: string) : Promise<Result<ConflictVersions, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_read_conflict_versions", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Resolves a conflict with a text put together by the comparison (stage Э4б).
+ */
+async syncResolveConflictWithText(id: string, text: string) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_resolve_conflict_with_text", { id, text }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async cancelAiRequest(streamId: string) : Promise<Result<boolean, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("cancel_ai_request", { streamId }) };
@@ -1725,6 +1747,20 @@ export type ConflictChoice =
  * Both stay as files; the entry leaves the list.
  */
 "keepBoth"
+/**
+ * The two versions of a conflict as text, for the comparison (stage Э4б). A side is `None` when it
+ * cannot be shown as text: bytes that are not UTF-8, a file that is gone, or one too large to
+ * compare in the window. The text is the whole file as it is on disk (BOM, line endings, properties).
+ */
+export type ConflictVersions = { 
+/**
+ * The file under its name.
+ */
+original: string | null; 
+/**
+ * The second version.
+ */
+copy: string | null }
 /**
  * An unresolved conflict (Р7).
  */
