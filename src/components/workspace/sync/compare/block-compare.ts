@@ -35,6 +35,8 @@ interface Unit {
   source: string
   /** The unit is an item of a list. */
   item: boolean
+  /** The source of the unit that stood in front of this one in its own version. */
+  before?: string | null
 }
 
 interface Side {
@@ -117,7 +119,17 @@ function tile(
     pending = match[3]
   }
   for (const source of sources) {
-    const index = text.indexOf(source, cursor)
+    // A source is whole lines: a match inside other text (a link definition the editor does not keep
+    // as a block) is not the block.
+    let index = text.indexOf(source, cursor)
+    while (
+      index >= 0 &&
+      !(
+        (index === 0 || text[index - 1] === "\n") &&
+        (index + source.length === text.length || text[index + source.length] === "\n")
+      )
+    )
+      index = text.indexOf(source, index + 1)
     if (index < 0) return null
     gap(text.slice(cursor, index))
     units.push({ lead: pending, source, item })
@@ -185,6 +197,9 @@ function parseSide(text: string): Side | WholeCompare {
   if (units.map((unit) => unit.lead + unit.source).join("") + tiled.post !== body)
     return { kind: "whole", reason: "untileable" }
 
+  units.forEach((unit, index) => {
+    unit.before = index > 0 ? units[index - 1]!.source : null
+  })
   const eol = crlf ? "\r\n" : "\n"
   return {
     bom,
@@ -369,12 +384,23 @@ export function assembleCompare(plan: BlockCompare, choices: CompareChoice[]): s
   let previous: Piece | null = null
   for (const piece of pieces) {
     let lead = piece.unit.lead
-    if (previous && previous.side !== piece.side && !lead.includes("\n"))
+    // The whitespace a unit had is kept only behind the unit it followed in its own version; behind
+    // anything else it could glue the block to its new neighbour (a paragraph into a list item).
+    const native = previous !== null && previous.unit.source === piece.unit.before
+    if (previous && !native && !lead.includes("\n\n"))
       lead = previous.unit.item && piece.unit.item ? "\n" : "\n\n"
     body += lead + piece.unit.source
     previous = piece
   }
   const last = previous?.side ?? frontFrom
   const post = (last === "other" ? other : mine).post
-  return `${mine.bom}${(front + body + post).replace(/\n/gu, mine.eol)}`
+  const rest = body + post
+  // The envelope ends with its line break; one taken from a file without text after it has none.
+  if (front && rest && !front.endsWith("\n")) front += "\n"
+  // A first block taken from the other version brings its blank lines; the file does not start with them.
+  const start =
+    mine.front === "" && front === ""
+      ? rest.replace(/^\n+(?=[^\n])/u, (m) => (mine.units[0]?.lead.startsWith("\n") ? m : ""))
+      : rest
+  return `${mine.bom}${(front + start).replace(/\n/gu, mine.eol)}`
 }

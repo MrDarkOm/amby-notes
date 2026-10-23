@@ -258,3 +258,41 @@ describe("real notes", () => {
     expect(planned).toBeGreaterThan(10)
   })
 })
+
+describe("what the review of the first version found", () => {
+  it("does not glue a block to a new neighbour when a heading is dropped", () => {
+    const plan = blocks(planBlockCompare("n.md", "p\n\n# H\nq", "p\n\nq"))
+    expect(choose(plan, "other")).toBe("p\n\nq")
+    expect(choose(plan, "mine")).toBe("p\n\n# H\nq")
+  })
+
+  it("keeps two paragraphs apart with “both”", () => {
+    const plan = blocks(planBlockCompare("n.md", "# T\nfoo", "# T\nbar"))
+    const both = choose(plan, "both")
+    expect(both).not.toContain("foo\nbar")
+  })
+
+  it("does not take a block out of a link definition the editor does not keep as a block", () => {
+    const plan = planBlockCompare("n.md", "[foo]: /url\n\nfoo\n\nZ", "[bar]: /u\n\nfoo\n\nW")
+    if (plan.kind === "blocks") {
+      for (const choices of [
+        ["other", "mine"],
+        ["mine", "other"],
+        ["other", "other"],
+      ] as const) {
+        const result = assembleCompare(plan, [...choices])
+        expect(result).not.toMatch(/(?<!\[)foo\]: \/url/u)
+        expect(result).not.toMatch(/\[\s*bar\]: \/u\n\nfoo\]/u)
+      }
+    }
+  })
+
+  it("ends the properties taken from the other version with a line break", () => {
+    const plan = blocks(
+      planBlockCompare("n.md", "---\namby-id: a\n---\n\n# B\n", "---\namby-id: a\ntag: x\n---"),
+    )
+    const result = choose(plan, "other")
+    expect(result).toContain("tag: x\n---\n")
+    expect(result).not.toContain("---# B")
+  })
+})

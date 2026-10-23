@@ -13,6 +13,7 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { errorType, logger } from "@/lib/logger"
+import { flushAutosaveGeneration } from "../autosave/autosave-lifecycle"
 import { relativeToVault } from "../editor/document-breadcrumbs-utils"
 import { restoreRemoteDeleted } from "../sync/restore-remote-deleted"
 import { conflictForPath, useSyncNoticesStore } from "../sync/use-sync-notices-store"
@@ -290,7 +291,13 @@ function NoteNoticesOf({
               type="button"
               size="sm"
               variant="outline"
-              onClick={() => window.dispatchEvent(new Event("amby:manual-save"))}
+              onClick={() => {
+                // Like the save shortcut: the editor hands over its text, then the queue writes again.
+                window.dispatchEvent(new Event("amby:manual-save"))
+                void flushAutosaveGeneration(useVaultStore.getState().generation).catch((error) =>
+                  logger.warn("note_notice.save_now_failed", { errorType: errorType(error) }),
+                )
+              }}
             >
               {t("noteNotices.saveNow")}
             </Button>
