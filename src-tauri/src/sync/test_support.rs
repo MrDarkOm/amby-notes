@@ -411,15 +411,15 @@ pub fn wait_for(
     session: &SyncSession,
     timeout: Duration,
     check: impl Fn(&VaultSyncStatus) -> bool,
-) -> Result<VaultSyncStatus, VaultSyncStatus> {
+) -> Option<VaultSyncStatus> {
     let deadline = Instant::now() + timeout;
     loop {
         let status = session.status();
         if check(&status) {
-            return Ok(status);
+            return Some(status);
         }
         if Instant::now() > deadline {
-            return Err(status);
+            return None;
         }
         std::thread::sleep(Duration::from_millis(20));
     }

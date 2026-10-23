@@ -148,9 +148,11 @@ fn the_real_previews_of_rename_and_move_feed_the_hints() {
     fs::write(root.join("note.md"), "# note").unwrap();
     let hints = RenameHints::new();
 
-    let renamed = crate::bundle::preview_rename_item(&root.join("note.md"), "renamed.md").unwrap();
+    let renamed = crate::bundle::preview_rename_item(&root.join("note.md"), "renamed").unwrap();
     hints.record(&root, &renamed.path_changes);
     assert_eq!(hints.take(), vec![hint("note.md", "renamed.md")]);
+    // The preview only plans; the command then performs the rename on disk.
+    fs::rename(root.join("note.md"), root.join("renamed.md")).unwrap();
 
     let moved =
         crate::bundle::preview_move_item(&root.join("renamed.md"), &root.join("Folder")).unwrap();

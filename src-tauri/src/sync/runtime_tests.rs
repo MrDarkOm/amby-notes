@@ -428,8 +428,13 @@ fn the_renames_of_amby_reach_the_next_pass() {
     )
     .unwrap();
     pc.runtime.sync_now().unwrap();
+    let id = status.space_id.clone().unwrap();
     wait_until("first upload", || {
-        pc.runtime.status().last.is_some_and(|l| l.uploaded == 2)
+        env.account
+            .get(&format!("/v1/spaces/{id}/changes?since=0"))
+            .json()["changes"]
+            .as_array()
+            .is_some_and(|list| list.len() == 2)
     });
 
     std::fs::rename(vault.root.join("old.md"), vault.root.join("new.md")).unwrap();
@@ -442,7 +447,6 @@ fn the_renames_of_amby_reach_the_next_pass() {
         }],
     );
     pc.runtime.sync_now().unwrap();
-    let id = status.space_id.unwrap();
     wait_until("the rename reaches the server", || {
         let page = env
             .account

@@ -62,7 +62,7 @@ fn record(n: u8, path: &str) -> ItemRecord {
         version: u64::from(n) + 1,
         body_id: Some(BodyId::from_bytes([n.wrapping_add(100); 16])),
         deleted: false,
-        newer_format: n % 2 == 0,
+        newer_format: n.is_multiple_of(2),
         extra,
     }
 }

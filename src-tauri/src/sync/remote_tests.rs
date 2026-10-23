@@ -83,7 +83,7 @@ fn the_feed_carries_the_headers_the_other_device_committed() {
     let fx = Fixture::new();
     let a = new_item();
     let first = fx.space.folder(&a, 0, "Docs");
-    let seq = fx.space.commit_ok(&[first.clone()]);
+    let seq = fx.space.commit_ok(std::slice::from_ref(&first));
     let page = fx.remote().changes(0, None).unwrap();
     assert_eq!(page.seq, seq);
     assert_eq!(page.changes.len(), 1);

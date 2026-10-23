@@ -229,7 +229,10 @@ fn a_name_that_is_not_utf8_is_reported_lossily() {
     let vault = Vault::new();
     vault.put("ok.md", b"x");
     let odd = std::ffi::OsStr::from_bytes(b"odd-\xff\xfe.md");
-    fs::write(vault.root.join(odd), b"x").unwrap();
+    if fs::write(vault.root.join(odd), b"x").is_err() {
+        // APFS and HFS+ refuse names that are not UTF-8: such a name cannot exist there.
+        return;
+    }
     let listing = vault.fs().list().unwrap();
     assert_eq!(listing.not_utf8.len(), 1, "{:?}", listing.not_utf8);
     assert!(listing.not_utf8[0].starts_with("odd-"));

@@ -194,7 +194,11 @@ fn a_batch_of_incoming_changes_is_reported_to_the_application() {
     );
     assert!(begins >= 1, "the download was a batch");
     assert_eq!(begins, ends, "every batch ended");
-    assert!(begins <= 3, "one batch per pass, not per file: {begins}");
+    let passes = recorder_b.passes_started() as u64;
+    assert!(
+        begins <= passes,
+        "one batch per pass, not per file: {begins} batches in {passes} passes"
+    );
     sa.stop();
     sb.stop();
 }
