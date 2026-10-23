@@ -137,6 +137,7 @@ impl Api {
     }
 
     /// Sends a request and returns whatever came back.
+    #[allow(clippy::result_large_err)]
     pub fn send(
         &self,
         method: &str,
@@ -163,7 +164,10 @@ impl Api {
             for (name, value) in headers {
                 request = request.set(name, value);
             }
-            let result = match &body {
+            // The HTTP library can panic (an `expect` while it returns a connection to the pool
+            // and the system refuses to reset its timeout, seen on macOS): that is a failure of
+            // the transport too, repeated like the others.
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &body {
                 Body::None => request.call(),
                 Body::Json(value) => request
                     .set("Content-Type", "application/json")
@@ -172,11 +176,16 @@ impl Api {
                     .set("Content-Type", "application/octet-stream")
                     .send_bytes(bytes),
                 Body::Raw(bytes, content_type) => {
-                    if let Some(content_type) = content_type {
-                        request = request.set("Content-Type", content_type);
-                    }
+                    let request = match content_type {
+                        Some(content_type) => request.set("Content-Type", content_type),
+                        None => request,
+                    };
                     request.send_bytes(bytes)
                 }
+            }));
+            let Ok(result) = result else {
+                last = Some("the HTTP library panicked".to_string());
+                continue;
             };
             let response = match result {
                 Ok(response) | Err(ureq::Error::Status(_, response)) => response,

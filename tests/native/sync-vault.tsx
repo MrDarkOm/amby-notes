@@ -32,9 +32,10 @@ const adapter = new DesktopAdapter()
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 const text = () => document.body.innerText
 
-// What the notes say. Russian, a line break style and a BOM are on purpose: the bytes must
-// arrive exactly as they were.
-const ONE = "# Первая заметка\r\nТекст с переводом строки CRLF\r\n"
+// What the notes say: Russian, a long enough text. (The commands that write and read a file in the
+// application normalise line endings, so byte-exact CRLF and BOM are checked by the Rust tests of
+// the ports, not here.)
+const ONE = "# Первая заметка\nТекст первой заметки, которая идёт между компьютерами.\n"
 const TWO = "Вторая заметка, которую потом удалят\n"
 const EDITED = "# Первая заметка\nПравка на втором компьютере\n"
 
@@ -106,9 +107,8 @@ async function step(name: string, run: () => Promise<void>) {
 /** Waits until the file holds `expected`; a different content is told in full. */
 async function expectFile(path: string, expected: string, what: string) {
   const started = Date.now()
-  let last: string | null = null
   for (;;) {
-    last = await readOrNull(path)
+    const last = await readOrNull(path)
     if (last === expected) return
     if (Date.now() - started > 90000)
       throw new Error(
@@ -174,6 +174,23 @@ async function untilIdle(what: string) {
   await waitForAsync(what, async () => {
     const status = await port.vaultStatus()
     return status.enabled && status.phase === "idle" && status.lastSyncMs !== null
+  })
+}
+
+/**
+ * Waits for a pass that ended after `since` and sent something: the change made at `since` is on
+ * the server. (An older "idle" state does not count, and a pass that found nothing does not.)
+ */
+async function untilSentSince(since: number, what: string) {
+  await waitForAsync(what, async () => {
+    const status = await port.vaultStatus()
+    return (
+      status.enabled &&
+      status.phase === "idle" &&
+      status.lastSyncMs !== null &&
+      status.lastSyncMs > since &&
+      (status.last?.uploaded ?? 0) >= 1
+    )
   })
 }
 
@@ -282,7 +299,7 @@ async function run() {
       )
     })
   } else {
-    await step("the vault of A arrives byte for byte", async () => {
+    await step("the vault of A arrives with the same text", async () => {
       await expectFile(joinStoragePath(vault, "Notes/one.md"), ONE, "one.md")
       await expectFile(joinStoragePath(vault, "Notes/two.md"), TWO, "two.md")
       if (!heard.some((path) => path.endsWith("Notes/one.md")))
@@ -290,9 +307,10 @@ async function run() {
     })
 
     await step("an edit and a new note go to A without a button", async () => {
+      const since = Date.now()
       await adapter.writeFile(joinStoragePath(vault, "Notes/one.md"), EDITED)
       await adapter.writeFile(joinStoragePath(vault, "from-b.md"), "B has the vault\n")
-      await untilIdle("the pass after the edit")
+      await untilSentSince(since, "the pass after the edit")
     })
 
     await step("a deletion from A goes to the trash of the vault of B", async () => {
@@ -303,8 +321,9 @@ async function run() {
       const trash = await adapter.listTrash()
       if (!trash.some((entry) => entry.originalPath === "Notes/two.md"))
         throw new Error(`not in the trash: ${JSON.stringify(trash)}`)
+      const since = Date.now()
       await adapter.writeFile(joinStoragePath(vault, "b-saw-delete.md"), "seen\n")
-      await untilIdle("the last pass")
+      await untilSentSince(since, "the last pass")
     })
   }
 
