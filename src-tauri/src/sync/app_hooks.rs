@@ -5,6 +5,7 @@
 //! watcher: an open editor must learn about them like about any change made by another program
 //! (Р7), so that a note with unsaved changes gets the usual conflict dialog.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use tauri::Emitter;
@@ -17,8 +18,19 @@ use crate::watcher::EventBatch;
 /// The name of the event the windows listen to.
 pub const STATUS_EVENT: &str = "sync-status-changed";
 
-/// The event for files deleted on another computer; the payload is the list of paths in the vault.
+/// The event for files deleted on another computer.
 pub const REMOTE_DELETED_EVENT: &str = "sync-remote-deleted";
+
+/// The payload of [`REMOTE_DELETED_EVENT`]: the vault the paths are in, so that a window which has
+/// moved on to another vault can ignore a late report about the previous one.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteDeletedPayload {
+    /// The folder of the vault, as the session knows it.
+    pub vault: String,
+    /// The paths of the deleted files, relative to the vault.
+    pub paths: Vec<String>,
+}
 
 /// Hooks that talk to the windows of the application.
 pub struct AppHooks {
@@ -50,7 +62,11 @@ impl SessionHooks for AppHooks {
         let _ = self.app.emit(STATUS_EVENT, status);
     }
 
-    fn remote_deleted(&self, paths: &[String]) {
-        let _ = self.app.emit(REMOTE_DELETED_EVENT, paths);
+    fn remote_deleted(&self, vault: &Path, paths: &[String]) {
+        let payload = RemoteDeletedPayload {
+            vault: vault.to_string_lossy().into_owned(),
+            paths: paths.to_vec(),
+        };
+        let _ = self.app.emit(REMOTE_DELETED_EVENT, payload);
     }
 }

@@ -72,12 +72,14 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
       .then((off) => (alive ? unlisten.push(off) : off()))
       .catch(() => {})
     port
-      .onRemoteDeleted((paths) => {
+      .onRemoteDeleted((event) => {
         if (!alive) return
         const root = useVaultStore.getState().vault
-        if (!root) return
+        // A report about another vault is late news about the one that was open before: it must not
+        // mark a note of this vault that only happens to have the same path.
+        if (!root || event.vault !== root) return
         const open = Object.values(useDocStore.getState().openDocs)
-        for (const path of paths) {
+        for (const path of event.paths) {
           // Only a note that was open gets a message (Р8): an unopened one just goes to the archive.
           if (
             open.some(

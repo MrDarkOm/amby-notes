@@ -36,8 +36,14 @@ export type {
 /** The name of the event the application emits when the sync status of the open vault changes. */
 const VAULT_STATUS_EVENT = "sync-status-changed"
 
-/** The event for files that another computer deleted; the payload is the paths in the vault. */
+/** The event for files that another computer deleted. */
 const REMOTE_DELETED_EVENT = "sync-remote-deleted"
+
+/** Files of one vault that another computer deleted: the folder of the vault and the paths in it. */
+export interface RemoteDeletedEvent {
+  vault: string
+  paths: string[]
+}
 
 /** The default name of the recovery code file offered by "Save to file". */
 export const RECOVERY_CODE_FILE_NAME = "amby-recovery-code.txt"
@@ -123,8 +129,8 @@ export interface SyncPort {
   resolveConflict(id: string, choice: ConflictChoice): Promise<void>
   /** Calls `listener` whenever the status changes; returns the function that stops it. */
   onVaultStatus(listener: (status: VaultSyncStatus) => void): Promise<() => void>
-  /** Calls `listener` with the paths (in the vault) of files deleted on another computer. */
-  onRemoteDeleted(listener: (paths: string[]) => void): Promise<() => void>
+  /** Calls `listener` with the vault and the paths (in it) of files deleted on another computer. */
+  onRemoteDeleted(listener: (event: RemoteDeletedEvent) => void): Promise<() => void>
 }
 
 /** Unwraps the answer of a command. A failure of the IPC layer itself carries no text on purpose. */
@@ -217,7 +223,7 @@ export function createDesktopSyncPort(): SyncPort {
     onRemoteDeleted: async (listener) => {
       try {
         const { listen } = await import("@tauri-apps/api/event")
-        const unlisten = await listen<string[]>(REMOTE_DELETED_EVENT, (event) =>
+        const unlisten = await listen<RemoteDeletedEvent>(REMOTE_DELETED_EVENT, (event) =>
           listener(event.payload),
         )
         return () => unlisten()

@@ -107,9 +107,9 @@ pub trait SessionHooks: FsHooks {
     /// The status changed (a pass started or ended, a stop, a failure).
     fn status_changed(&self, status: &VaultSyncStatus);
 
-    /// A pass moved these files (paths in the vault) to the trash because they were deleted on
-    /// another computer. The interface warns the person only about a note that is open.
-    fn remote_deleted(&self, _paths: &[String]) {}
+    /// A pass moved these files (paths in the vault `vault`) to the trash because they were deleted
+    /// on another computer. The interface warns the person only about a note that is open.
+    fn remote_deleted(&self, _vault: &Path, _paths: &[String]) {}
 }
 
 /// Hooks that do nothing.
@@ -855,7 +855,10 @@ fn settle(shared: &Arc<Shared>, outcome: Outcome, failures: &mut u32, schedule: 
                         apply_lists(status);
                     });
                     if !report.trashed_paths.is_empty() {
-                        shared.config.hooks.remote_deleted(&report.trashed_paths);
+                        shared
+                            .config
+                            .hooks
+                            .remote_deleted(&shared.config.vault, &report.trashed_paths);
                     }
                     // Something is left to do that no event will announce: a journal that ends
                     // (it lives in `.amby/`, which the watcher does not report) or files that

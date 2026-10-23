@@ -5,6 +5,7 @@ import {
   SyncPortError,
   type DeviceView,
   type PasswordCheck,
+  type RemoteDeletedEvent,
   type SpaceView,
   type SyncPort,
   type SyncStatus,
@@ -125,11 +126,14 @@ export function emitVaultStatus(status: VaultSyncStatus): void {
   for (const listener of [...vaultListeners]) listener(status)
 }
 
-const remoteDeletedListeners = new Set<(paths: string[]) => void>()
+const remoteDeletedListeners = new Set<(event: RemoteDeletedEvent) => void>()
 
-/** Tells every listener that files were deleted on another computer (the Rust side does it). */
-export function emitRemoteDeleted(paths: string[]): void {
-  for (const listener of [...remoteDeletedListeners]) listener(paths)
+/**
+ * Tells every listener that files of the vault at `vault` were deleted on another computer (the Rust
+ * side does it). The default is the open vault of the tests.
+ */
+export function emitRemoteDeleted(paths: string[], vault = "/vault"): void {
+  for (const listener of [...remoteDeletedListeners]) listener({ vault, paths })
 }
 
 /** How many screens listen now (for "stops listening when closed"). */
