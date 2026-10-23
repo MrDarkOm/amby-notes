@@ -132,8 +132,8 @@ async fn the_feed_gives_the_last_version_of_every_item() {
     let (a, b) = (new_item(), new_item());
     let first = space.folder(&a, 0, "Notes");
     let second = space.file(&b, 0, "Notes/x.md", b"hello");
-    let seq1 = space.commit_ok(&[first.clone()]);
-    let seq2 = space.commit_ok(&[second.clone()]);
+    let seq1 = space.commit_ok(std::slice::from_ref(&first));
+    let seq2 = space.commit_ok(std::slice::from_ref(&second));
     let client = client_of(&target);
     let token = token_of(&account);
 

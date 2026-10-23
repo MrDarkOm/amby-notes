@@ -28,14 +28,13 @@ export type {
   PasswordCheck,
   PreparedAccountView,
   ServerCheck,
-  SpaceTarget,
   SpaceView,
   SyncStatus,
   VaultSyncStatus,
 }
 
 /** The name of the event the application emits when the sync status of the open vault changes. */
-export const VAULT_STATUS_EVENT = "sync-status-changed"
+const VAULT_STATUS_EVENT = "sync-status-changed"
 
 /** The default name of the recovery code file offered by "Save to file". */
 export const RECOVERY_CODE_FILE_NAME = "amby-recovery-code.txt"
