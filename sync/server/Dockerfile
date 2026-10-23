@@ -12,6 +12,8 @@ COPY core core
 COPY server server
 COPY conformance conformance
 COPY client client
+COPY sim sim
+COPY simrun simrun
 RUN cargo build --release --locked -p amby-sync-server
 
 FROM debian:bookworm-slim
