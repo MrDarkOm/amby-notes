@@ -26,7 +26,7 @@ pub enum NotMergeable {
 }
 
 /// A place where the two sides edited the same spot: lines `start..end` of the base (Г12 п. 6).
-/// A range is the union of the edits that overlap or touch, widened to whole places (Г11). An
+/// A range is the union of the edits that overlap (Г12 п. 5), widened to whole places (Г11). An
 /// insertion has `start == end`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Region {

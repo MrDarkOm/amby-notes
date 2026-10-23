@@ -38,17 +38,17 @@ pub fn is_in_conflicts_dir(path: &str) -> bool {
 }
 
 /// The identifier of a set: the first 6 bytes of `BLAKE3("amby-sync/conflict/2" ‖ item_id ‖
-/// local_hash ‖ remote_version (8 bytes, BE) ‖ base_hash (32 bytes, 32 zeros when `None`)` and,
+/// other_hash ‖ remote_version (8 bytes, BE) ‖ base_hash (32 bytes, 32 zeros when `None`)` and,
 /// when `attempt` is not 0, the 4 bytes BE of `attempt`), as 12 lowercase hex characters (Г22).
 /// Deterministic, so a repeat after a crash makes the same set (Д4).
 pub fn set_id(
     item_id: &ItemId,
-    local_hash: &[u8; 32],
+    other_hash: &[u8; 32],
     remote_version: u64,
     base_hash: Option<&[u8; 32]>,
     attempt: u32,
 ) -> String {
-    let _ = (item_id, local_hash, remote_version, base_hash, attempt);
+    let _ = (item_id, other_hash, remote_version, base_hash, attempt);
     todo!("Г22: identifier of a set")
 }
 
