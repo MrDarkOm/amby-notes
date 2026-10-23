@@ -5,8 +5,10 @@ import {
   SyncPortError,
   type DeviceView,
   type PasswordCheck,
+  type SpaceView,
   type SyncPort,
   type SyncStatus,
+  type VaultSyncStatus,
 } from "@/lib/sync/sync-port"
 
 /** The 14 groups of the recovery code the fake shows. */
@@ -76,6 +78,58 @@ export const DEVICES: DeviceView[] = [
   },
 ]
 
+/** A status of the sync of a vault: switched on and idle, unless `overrides` say otherwise. */
+export function vaultStatus(overrides: Partial<VaultSyncStatus> = {}): VaultSyncStatus {
+  return {
+    enabled: true,
+    linked: true,
+    testVault: true,
+    gateClosed: true,
+    spaceId: "00112233445566778899aabbccddeeff",
+    spaceName: "Рабочее хранилище",
+    phase: "idle",
+    lastSyncMs: 1_760_000_000_000,
+    nextTrySecs: null,
+    errorCode: null,
+    stop: null,
+    outgoingPaused: false,
+    needsUpdate: false,
+    conflicts: [],
+    unsynced: [],
+    itemErrors: 0,
+    last: null,
+    ...overrides,
+  }
+}
+
+/** A vault that was never synchronised. */
+export const VAULT_OFF: VaultSyncStatus = vaultStatus({
+  enabled: false,
+  linked: false,
+  testVault: false,
+  spaceId: null,
+  spaceName: null,
+  phase: "off",
+  lastSyncMs: null,
+})
+
+export const SPACES: SpaceView[] = [
+  { spaceId: "a1".repeat(16), name: "Рабочее", seq: 120, createdMs: 1_760_000_000_000 },
+  { spaceId: "b2".repeat(16), name: null, seq: 3, createdMs: 1_760_000_100_000 },
+]
+
+const vaultListeners = new Set<(status: VaultSyncStatus) => void>()
+
+/** Tells every screen that listens that the status of the vault changed (the Rust side does it). */
+export function emitVaultStatus(status: VaultSyncStatus): void {
+  for (const listener of [...vaultListeners]) listener(status)
+}
+
+/** How many screens listen now (for "stops listening when closed"). */
+export function vaultListenerCount(): number {
+  return vaultListeners.size
+}
+
 /** The fake's rule: under 12 characters is too short, a few well-known words are weak. */
 export function fakePasswordCheck(password: string): PasswordCheck {
   const length = [...password].length
@@ -121,6 +175,19 @@ export function createFakePort(overrides: Partial<SyncPort> = {}): FakePort {
     disconnectDevice: async () => {},
     signOut: async () => ({ serverNotified: true }),
     saveRecoveryCode: async () => "/Users/alice/amby-recovery-code.txt",
+    vaultStatus: async () => VAULT_OFF,
+    listSpaces: async () => SPACES,
+    enableVault: async () => vaultStatus(),
+    disableVault: async () => VAULT_OFF,
+    runNow: async () => {},
+    approve: async () => {},
+    resolveConflict: async () => {},
+    onVaultStatus: async (listener) => {
+      vaultListeners.add(listener)
+      return () => {
+        vaultListeners.delete(listener)
+      }
+    },
     ...overrides,
   }
   const wrapped = {} as FakePort

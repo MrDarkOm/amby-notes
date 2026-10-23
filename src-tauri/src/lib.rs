@@ -198,6 +198,13 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::sync::sync_list_devices,
         commands::sync::sync_disconnect_device,
         commands::sync::sync_sign_out,
+        commands::sync::sync_vault_status,
+        commands::sync::sync_list_spaces,
+        commands::sync::sync_enable_vault,
+        commands::sync::sync_disable_vault,
+        commands::sync::sync_run_now,
+        commands::sync::sync_approve,
+        commands::sync::sync_resolve_conflict,
         ai::cancel_ai_request,
         ai::ai_chat,
         commands::modules::stage_module_package,
@@ -280,10 +287,27 @@ pub fn run() {
                 // holds the address and the name (docs/sync-plan.md, Р5).
                 use tauri::Manager;
                 let root = app_data::app_root(app.handle())?;
-                app.manage(sync::service::SyncService::new(
-                    std::sync::Arc::new(sync::secrets::KeyringStore),
+                let secrets: std::sync::Arc<dyn sync::secrets::SecretStore> =
+                    std::sync::Arc::new(sync::secrets::KeyringStore);
+                let connection: std::sync::Arc<dyn sync::connection::ConnectionStore> =
                     std::sync::Arc::new(sync::connection::FileConnectionStore::new(
                         root.join(sync::connection::CONNECTION_FILE),
+                    ));
+                app.manage(sync::service::SyncService::new(
+                    secrets.clone(),
+                    connection.clone(),
+                ));
+                // The sync of the open vault (stage Э4): the engine, its session and the hooks
+                // that tell the windows.
+                let batch = app.state::<WatcherState>().batch.clone();
+                app.manage(sync::runtime::SyncRuntime::new(
+                    secrets,
+                    connection,
+                    tauri::async_runtime::handle().inner().clone(),
+                    sync::session::Schedule::production(),
+                    std::sync::Arc::new(sync::app_hooks::AppHooks::new(
+                        app.handle().clone(),
+                        batch,
                     )),
                 ));
             }

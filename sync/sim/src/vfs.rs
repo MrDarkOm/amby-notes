@@ -90,6 +90,8 @@ struct Inner {
     clock: i64,
     recovery_pending: bool,
     disk_full: bool,
+    /// Paths (as the engine names them) the system refuses access to (Э4).
+    denied: BTreeSet<String>,
     not_utf8: Vec<String>,
     events: Vec<FsEvent>,
     batch_depth: i32,
@@ -142,6 +144,7 @@ impl Vfs {
             clock: 1_700_000_000_000_000_000,
             recovery_pending: false,
             disk_full: false,
+            denied: BTreeSet::new(),
             not_utf8: Vec::new(),
             events: Vec::new(),
             batch_depth: 0,
@@ -386,6 +389,26 @@ impl Vfs {
     /// The disk is full: every write fails with `NoSpace` (С4).
     pub fn set_disk_full(&self, full: bool) {
         self.0.borrow_mut().disk_full = full;
+    }
+
+    /// The system refuses to read, write, rename or trash this one file (permissions, a lock):
+    /// the call fails with [`FsError::AccessDenied`] while `denied` is on.
+    pub fn set_access_denied(&self, path: &str, denied: bool) {
+        let mut inner = self.0.borrow_mut();
+        let key = Self::key_of(&inner, path);
+        if denied {
+            inner.denied.insert(key);
+        } else {
+            inner.denied.remove(&key);
+        }
+    }
+
+    fn deny_check(inner: &Inner, path: &str) -> Result<(), FsError> {
+        if inner.denied.contains(&Self::key_of(inner, path)) {
+            Err(FsError::AccessDenied(path.to_string()))
+        } else {
+            Ok(())
+        }
     }
 
     /// An unfinished journal of a multi-file operation is there (Р8, Д59).
@@ -679,6 +702,7 @@ impl LocalFs for Vfs {
         let mut inner = self.0.borrow_mut();
         inner.reads += 1;
         let stored = Self::find(&inner, path).ok_or_else(|| FsError::NotFound(path.into()))?;
+        Self::deny_check(&inner, &stored)?;
         let key = Self::key_of(&inner, &stored);
         Self::observe_key(&mut inner, &key);
         match inner.nodes.get(&stored) {
@@ -696,6 +720,7 @@ impl LocalFs for Vfs {
         if inner.disk_full {
             return Err(FsError::NoSpace);
         }
+        Self::deny_check(&inner, path)?;
         let id = inner.next_staged;
         inner.next_staged += 1;
         let resolved = Self::find(&inner, path).unwrap_or_else(|| Self::resolve(&inner, path));
@@ -749,6 +774,7 @@ impl LocalFs for Vfs {
         let Some(stored) = Self::find(&inner, from) else {
             return Err(FsError::NotFound(from.into()));
         };
+        Self::deny_check(&inner, &stored)?;
         if let Err(error) = Self::check_name(&inner, to) {
             inner.events.push(FsEvent::Refused { path: to.into() });
             return Err(error);
@@ -790,6 +816,7 @@ impl LocalFs for Vfs {
     fn move_to_trash(&mut self, path: &str, _reason: TrashReason) -> Result<(), FsError> {
         let mut inner = self.0.borrow_mut();
         let stored = Self::find(&inner, path).ok_or_else(|| FsError::NotFound(path.into()))?;
+        Self::deny_check(&inner, &stored)?;
         match inner.nodes.get(&stored).cloned() {
             Some(Node::File { bytes, .. }) => {
                 inner.nodes.remove(&stored);

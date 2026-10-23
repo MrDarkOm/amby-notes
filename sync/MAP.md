@@ -7,8 +7,8 @@ wrong stops the work and is fixed in its own commit after review.
 
 A separate Cargo workspace (decision Р12): it does not touch `src-tauri/target` or the app gates.
 License AGPL-3.0-only. The application uses `client`, `core` and `proto` by path from
-[src-tauri/src/sync/](../src-tauri/src/sync/) (the connect screen, stage Э4); the sync engine (Э3) is not
-wired in yet.
+[src-tauri/src/sync/](../src-tauri/src/sync/mod.rs) (stage Э4: the connect screen, and the real ports, the
+session and the screen of the sync of a vault around the engine of Э3).
 
 | Path                                       | Owns                                                                                                            |
 | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
@@ -73,13 +73,14 @@ The sign-in client (stage Э4, the connect screen; report with the decisions for
 [sync-e4-connect-report.md](../docs/Road/sync-e4-connect-report.md)). Tests run against the server of
 `conformance` in the process (`Target::from_env`, so also against a container):
 
-| File                                                                 | Owns                                                                                                                      |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| [client/src/url.rs](client/src/url.rs)                               | the address of a server and the `https://` rule (П41)                                                                     |
-| [client/src/error.rs](client/src/error.rs)                           | `ClientError`: machine codes of table Б.0.1, plain sentences (`describe`), `Retry-After`                                  |
-| [client/src/api.rs](client/src/api.rs)                               | one method per request: info, prelogin, enroll, login, recover, keys, devices; no redirects, answer size limit, timeouts  |
-| [client/src/flows.rs](client/src/flows.rs)                           | prepare an account (nothing sent), enrol, sign in, recover, devices; a new device signs in under a placeholder name first |
-| [client/examples/second_device.rs](client/examples/second_device.rs) | a second device for the manual check ([native-ui-smoke.md](../docs/native-ui-smoke.md))                                   |
+| File                                                                 | Owns                                                                                                                       |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| [client/src/url.rs](client/src/url.rs)                               | the address of a server and the `https://` rule (П41)                                                                      |
+| [client/src/error.rs](client/src/error.rs)                           | `ClientError`: machine codes of table Б.0.1, plain sentences (`describe`), `Retry-After`                                   |
+| [client/src/api.rs](client/src/api.rs)                               | one method per request: info, prelogin, enroll, login, recover, keys, devices; no redirects, answer size limit, timeouts   |
+| [client/src/spaces.rs](client/src/spaces.rs)                         | spaces, bodies in parts, commits (a version conflict is an answer), the change feed, notifications (SSE), limits (Б.3–Б.6) |
+| [client/src/flows.rs](client/src/flows.rs)                           | prepare an account (nothing sent), enrol, sign in, recover, devices; a new device signs in under a placeholder name first  |
+| [client/examples/second_device.rs](client/examples/second_device.rs) | a second device for the manual check ([native-ui-smoke.md](../docs/native-ui-smoke.md))                                    |
 
 Stage Э3 (engine, tests first): rules are appendix В of the plan (decisions Д1–Д72). The ports and
 types are in [core/src/engine/](core/src/engine/mod.rs); the engine is written against the tests of
@@ -112,3 +113,12 @@ Inside [sim/](sim/src/lib.rs): `vfs.rs` (files in memory with history and trash)
 account, devices), `fault.rs` (crashes, lost requests, lies of the server), `invariants.rs`
 (раздел 7), `scenario.rs` (random scenarios; `AMBY_SIM_SCENARIOS`, `AMBY_SIM_SEED`), `mini.rs` (the
 correct mini-engine and seven broken ones), `dsl.rs` (helpers for the directed tests in `sim/tests/`).
+
+Stage Э4 (the engine in the application, light order: tests first, one session, one review). The real
+ports and the session are in [src-tauri/src/sync/](../src-tauri/src/sync/mod.rs) (`vault_fs.rs`,
+`state_db.rs`, `remote.rs`, `session.rs`, `runtime.rs`); the carried-over fixes of Э3 are in the engine:
+`FsError::AccessDenied` / `UnsyncedReason::NoAccess` (one refused file stops only itself), a file that stands
+for a parked item with an invalid name is not uploaded again after a full reconcile (`push.rs`), the copy of the
+second item on one path (Д71) is a listed conflict (`MoveAct::placed_as`). The test client of the server
+(`conformance/src/http.rs`) keeps and reuses its connections and repeats a failed transport. Report with the red
+run, open questions and the native check: [sync-e4-engine-report.md](../docs/Road/sync-e4-engine-report.md).

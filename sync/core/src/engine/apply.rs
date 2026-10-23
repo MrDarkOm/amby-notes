@@ -113,9 +113,9 @@ impl Engine {
         for (path, rec) in dirs {
             match self.ports.fs.create_dir(&path) {
                 Ok(()) => self.ports.state.apply(&vec![StateOp::PutItem(rec)])?,
-                Err(FsError::NoSpace) => {
+                Err(error @ (FsError::NoSpace | FsError::AccessDenied(_))) => {
                     let srv = Srv::from_record(&rec);
-                    fail(plan, None, &srv, ItemErrorKind::Disk(FsError::NoSpace));
+                    fail(plan, None, &srv, ItemErrorKind::Disk(error));
                 }
                 Err(error) => return Err(error.into()),
             }
@@ -170,9 +170,23 @@ impl Engine {
         for (seq, disk, expect, rec) in trashes {
             match self.ports.fs.read(&disk) {
                 Ok(bytes) if hash_of(&bytes) == expect => {
-                    self.ports
+                    match self
+                        .ports
                         .fs
-                        .move_to_trash(&disk, TrashReason::RemoteDeletion)?;
+                        .move_to_trash(&disk, TrashReason::RemoteDeletion)
+                    {
+                        Ok(()) => {}
+                        Err(error @ FsError::AccessDenied(_)) => {
+                            fail(
+                                plan,
+                                seq,
+                                &Srv::from_record(&rec),
+                                ItemErrorKind::Disk(error),
+                            );
+                            continue;
+                        }
+                        Err(error) => return Err(error.into()),
+                    }
                     report.trashed += 1;
                     for up in ancestors(&disk) {
                         plan.cleanup.insert(up.to_string());
@@ -182,6 +196,14 @@ impl Engine {
                 Ok(_) => plan.hold_before(seq), // changed since: the next pass decides (С9)
                 Err(FsError::NotFound(_)) => {
                     self.ports.state.apply(&vec![StateOp::PutItem(rec)])?;
+                }
+                Err(error @ FsError::AccessDenied(_)) => {
+                    fail(
+                        plan,
+                        seq,
+                        &Srv::from_record(&rec),
+                        ItemErrorKind::Disk(error),
+                    );
                 }
                 Err(error) => return Err(error.into()),
             }
@@ -290,6 +312,10 @@ impl Engine {
                 plan.hold_before(m.seq);
                 return Ok(Step::Skipped);
             }
+            Err(error @ FsError::AccessDenied(_)) => {
+                fail(plan, m.seq, &srv, ItemErrorKind::Disk(error));
+                return Ok(Step::Skipped);
+            }
             Err(error) => return Err(error.into()),
         }
         let mut renamed = self.ports.fs.rename(&m.from_disk, &m.to);
@@ -331,13 +357,16 @@ impl Engine {
                 plan.hold_before(m.seq);
                 return Ok(Step::Skipped);
             }
-            Err(FsError::NoSpace) => {
-                fail(plan, m.seq, &srv, ItemErrorKind::Disk(FsError::NoSpace));
+            Err(error @ (FsError::NoSpace | FsError::AccessDenied(_))) => {
+                fail(plan, m.seq, &srv, ItemErrorKind::Disk(error));
                 return Ok(Step::Skipped);
             }
             Err(error) => return Err(error.into()),
         }
         report.renamed += 1;
+        if let Some(copy) = &m.placed_as {
+            self.note_conflict(copy, ctx, report)?;
+        }
         match &m.then {
             Some(put) => {
                 // The rename is done; if the content cannot follow, the next pass sees the file
@@ -375,18 +404,26 @@ impl Engine {
                     plan.hold_before(put.seq);
                     return Ok(Step::Skipped);
                 }
+                Err(error @ FsError::AccessDenied(_)) => {
+                    fail(plan, put.seq, srv, ItemErrorKind::Disk(error));
+                    return Ok(Step::Skipped);
+                }
                 Err(error) => return Err(error.into()),
             },
             None => match self.ports.fs.read(&put.target) {
                 Ok(_) => return Ok(Step::Busy),
                 Err(FsError::NotFound(_)) => (None, put.target.clone()),
+                Err(error @ FsError::AccessDenied(_)) => {
+                    fail(plan, put.seq, srv, ItemErrorKind::Disk(error));
+                    return Ok(Step::Skipped);
+                }
                 Err(error) => return Err(error.into()),
             },
         };
         let mut staged = match self.ports.fs.begin_write(&write_path) {
             Ok(staged) => staged,
-            Err(FsError::NoSpace) => {
-                fail(plan, put.seq, srv, ItemErrorKind::Disk(FsError::NoSpace));
+            Err(error @ (FsError::NoSpace | FsError::AccessDenied(_))) => {
+                fail(plan, put.seq, srv, ItemErrorKind::Disk(error));
                 return Ok(Step::Skipped);
             }
             Err(error) => return Err(error.into()),
@@ -407,9 +444,9 @@ impl Engine {
             // The local content is saved beside the file first, then listed, then replaced (Д47).
             match self.write_copy(copy, bytes) {
                 Ok(()) => {}
-                Err(FsError::NoSpace) => {
+                Err(error @ (FsError::NoSpace | FsError::AccessDenied(_))) => {
                     staged.abort();
-                    fail(plan, put.seq, srv, ItemErrorKind::Disk(FsError::NoSpace));
+                    fail(plan, put.seq, srv, ItemErrorKind::Disk(error));
                     return Ok(Step::Skipped);
                 }
                 Err(error) => {
@@ -425,8 +462,8 @@ impl Engine {
             .then_some(SnapshotReason::SyncOverwrite);
         match staged.publish(snapshot) {
             Ok(()) => {}
-            Err(FsError::NoSpace) => {
-                fail(plan, put.seq, srv, ItemErrorKind::Disk(FsError::NoSpace));
+            Err(error @ (FsError::NoSpace | FsError::AccessDenied(_))) => {
+                fail(plan, put.seq, srv, ItemErrorKind::Disk(error));
                 return Ok(Step::Skipped);
             }
             Err(error) => return Err(error.into()),
@@ -450,8 +487,8 @@ impl Engine {
         if !keep.copy.exists && !keep.copy.from_server {
             let mut staged = match self.ports.fs.begin_write(&keep.copy.path) {
                 Ok(staged) => staged,
-                Err(FsError::NoSpace) => {
-                    fail(plan, keep.seq, srv, ItemErrorKind::Disk(FsError::NoSpace));
+                Err(error @ (FsError::NoSpace | FsError::AccessDenied(_))) => {
+                    fail(plan, keep.seq, srv, ItemErrorKind::Disk(error));
                     return Ok(());
                 }
                 Err(error) => return Err(error.into()),
@@ -470,8 +507,8 @@ impl Engine {
             }
             match staged.publish(None) {
                 Ok(()) => {}
-                Err(FsError::NoSpace) => {
-                    fail(plan, keep.seq, srv, ItemErrorKind::Disk(FsError::NoSpace));
+                Err(error @ (FsError::NoSpace | FsError::AccessDenied(_))) => {
+                    fail(plan, keep.seq, srv, ItemErrorKind::Disk(error));
                     return Ok(());
                 }
                 Err(error) => return Err(error.into()),
@@ -519,7 +556,9 @@ impl Engine {
                 super::model::EngineError::Remote(RemoteError::Network(error.to_string())),
             ))),
             Err(StreamError::Write(error)) => Err(match sink.failure.take() {
-                Some(FsError::NoSpace) => Failed::Item(ItemErrorKind::Disk(FsError::NoSpace)),
+                Some(error @ (FsError::NoSpace | FsError::AccessDenied(_))) => {
+                    Failed::Item(ItemErrorKind::Disk(error))
+                }
                 Some(other) => Failed::Pass(other.into()),
                 None => Failed::Pass(FsError::Io(error.to_string()).into()),
             }),

@@ -4,7 +4,14 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import i18n from "@/lib/i18n"
 import { SyncPortError, unavailableSyncPort } from "@/lib/sync/sync-port"
 import { SyncSettings } from "./sync-settings"
-import { CONNECTED, DEVICES, DISCONNECTED, createFakePort, type FakePort } from "./fake-sync-port"
+import {
+  CONNECTED,
+  DEVICES,
+  DISCONNECTED,
+  createFakePort,
+  vaultStatus,
+  type FakePort,
+} from "./fake-sync-port"
 
 function renderSettings(port: FakePort) {
   return render(<SyncSettings port={port} />)
@@ -27,12 +34,24 @@ describe("the Synchronization section of the settings", () => {
   })
   afterEach(cleanup)
 
-  it("says that notes are not synchronised yet", async () => {
-    // honesty: only the connection is ready, not the transfer of notes
+  it("says honestly that the synchronisation of notes is still experimental", async () => {
+    // stage Э4: notes do travel now, but only on a test vault until the gates of the plan are
+    // passed; the section must not promise more (it used to say that notes do not travel at all)
     const port = createFakePort()
     renderSettings(port)
     await screen.findByLabelText("Адрес сервера")
-    expect(document.body.textContent).toMatch(/Заметки пока не синхронизируются/)
+    expect(document.body.textContent).toMatch(/в тестовом режиме/)
+    expect(document.body.textContent).not.toMatch(/Заметки пока не синхронизируются/)
+  })
+
+  it("shows the sync of the open vault under the connection, and only when connected", async () => {
+    // stage Э4: the vault is switched on from the same section
+    await connected({ vaultStatus: async () => vaultStatus({ phase: "idle" }) })
+    expect(await screen.findByTestId("sync-vault")).toBeTruthy()
+    cleanup()
+    renderSettings(createFakePort())
+    await screen.findByLabelText("Адрес сервера")
+    expect(screen.queryByTestId("sync-vault")).toBeNull()
   })
 
   it("shows the connect wizard when the device is not connected", async () => {
@@ -174,7 +193,7 @@ describe("the Synchronization section of the settings", () => {
     const port = createFakePort()
     renderSettings(port)
     expect(await screen.findByLabelText("Server address")).toBeTruthy()
-    expect(document.body.textContent).toMatch(/Notes are not synchronised yet/i)
+    expect(document.body.textContent).toMatch(/works in a test mode/i)
     await i18n.changeLanguage("ru")
   })
 

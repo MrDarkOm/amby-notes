@@ -36,26 +36,41 @@ impl crate::sync::secrets::SecretStore for MemorySecrets {
     }
 }
 
-/// The sync service of the harness: its record lives in the isolated app data.
-fn harness_sync_service(app_data: &std::path::Path) -> crate::sync::service::SyncService {
+/// The sync service and the sync of the open vault in the harness: the record lives in the
+/// isolated app data, the key store in memory unless `AMBY_NATIVE_REAL_KEYCHAIN` asks for the
+/// system one. Both share the same stores, as in the application.
+fn manage_harness_sync(app: &tauri::App, app_data: &std::path::Path) {
+    use crate::sync::connection::{ConnectionStore, FileConnectionStore, CONNECTION_FILE};
     use crate::sync::secrets::{KeyringStore, SecretStore};
     let secrets: Arc<dyn SecretStore> = if std::env::var_os("AMBY_NATIVE_REAL_KEYCHAIN").is_some() {
         Arc::new(KeyringStore)
     } else {
         Arc::new(MemorySecrets::default())
     };
-    crate::sync::service::SyncService::new(
+    let connection: Arc<dyn ConnectionStore> =
+        Arc::new(FileConnectionStore::new(app_data.join(CONNECTION_FILE)));
+    app.manage(crate::sync::service::SyncService::new(
+        secrets.clone(),
+        connection.clone(),
+    ));
+    let batch = app.state::<crate::watcher::WatcherState>().batch.clone();
+    app.manage(crate::sync::runtime::SyncRuntime::new(
         secrets,
-        Arc::new(crate::sync::connection::FileConnectionStore::new(
-            app_data.join(crate::sync::connection::CONNECTION_FILE),
+        connection,
+        tauri::async_runtime::handle().inner().clone(),
+        crate::sync::session::Schedule::production(),
+        Arc::new(crate::sync::app_hooks::AppHooks::new(
+            app.handle().clone(),
+            batch,
         )),
-    )
+    ));
 }
 
 /// The pages the contract harness may load (an allow-list: the name comes from the environment).
 fn contract_page() -> &'static str {
     match std::env::var("AMBY_NATIVE_PAGE").as_deref() {
         Ok("sync-connect") => "tests/native/sync-connect.html",
+        Ok("sync-vault") => "tests/native/sync-vault.html",
         _ => "tests/native/index.html",
     }
 }
@@ -70,13 +85,13 @@ fn run_native_ui(root: std::path::PathBuf) {
         "Only a profile created by the native UI runner may be used"
     );
     let profile = root.join(".webview");
+    let app_data_root = root.join(".app-data");
     let mut context = tauri::generate_context!();
     context.config_mut().app.windows.clear();
     crate::state::init_logging();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(NativeAppDataRoot(root.join(".app-data")))
-        .manage(harness_sync_service(&root.join(".app-data")))
         .manage(crate::vault_context::VaultContext::new())
         .manage(crate::watcher::WatcherState::new())
         .manage(crate::database::runtime_state::DatabaseRuntimeState::default())
@@ -86,6 +101,7 @@ fn run_native_ui(root: std::path::PathBuf) {
         .manage(crate::logging::DebugState(crate::logging::global_runtime()))
         .invoke_handler(crate::specta_builder().invoke_handler())
         .setup(move |app| {
+            manage_harness_sync(app, &app_data_root);
             let debug = crate::logging::global_runtime();
             debug.set_app(app.handle().clone());
             debug
@@ -120,6 +136,7 @@ pub fn run_native_contract() {
     fs::create_dir_all(&root).expect("create disposable native vault");
     let root = root.canonicalize().expect("canonical test root");
     let setup_root = root.clone();
+    let app_data_root = root.join(".app-data");
     let exit_code = Arc::new(AtomicI32::new(1));
     let result_code = exit_code.clone();
     let mut context = tauri::generate_context!();
@@ -127,7 +144,6 @@ pub fn run_native_contract() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(NativeAppDataRoot(root.join(".app-data")))
-        .manage(harness_sync_service(&root.join(".app-data")))
         .manage(crate::vault_context::VaultContext::new())
         .manage(crate::watcher::WatcherState::new())
         .manage(crate::database::runtime_state::DatabaseRuntimeState::default())
@@ -137,6 +153,7 @@ pub fn run_native_contract() {
         .manage(crate::logging::DebugState(crate::logging::global_runtime()))
         .invoke_handler(crate::specta_builder().invoke_handler())
         .setup(move |app| {
+            manage_harness_sync(app, &app_data_root);
             let debug = crate::logging::global_runtime();
             debug.set_app(app.handle().clone());
             debug
@@ -153,6 +170,11 @@ pub fn run_native_contract() {
                     "url": std::env::var("AMBY_NATIVE_SYNC_URL").ok(),
                     "username": std::env::var("AMBY_NATIVE_SYNC_USER").ok(),
                     "enrollCode": std::env::var("AMBY_NATIVE_SYNC_CODE").ok(),
+                    // The check of two computers: which one this process is, the password of the
+                    // account and the name of the shared space.
+                    "role": std::env::var("AMBY_NATIVE_SYNC_ROLE").ok(),
+                    "password": std::env::var("AMBY_NATIVE_SYNC_PASSWORD").ok(),
+                    "spaceName": std::env::var("AMBY_NATIVE_SYNC_SPACE").ok(),
                 })
             );
             tauri::WebviewWindowBuilder::new(

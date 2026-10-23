@@ -15,6 +15,7 @@ import {
 } from "@/lib/sync/sync-port"
 import { SettingsIntro } from "../settings/settings-common"
 import { ConnectWizard } from "./connect-wizard"
+import { SyncVaultPanel } from "./sync-vault-panel"
 
 export interface SyncSettingsProps {
   /** The port to use; the application's own by default. */
@@ -200,6 +201,8 @@ export function SyncSettings({ port: given }: SyncSettingsProps) {
           {error}
         </p>
       )}
+
+      <SyncVaultPanel port={port} />
 
       <section>
         <h3 className="mb-2 text-[12px] font-medium text-muted-foreground">

@@ -50,6 +50,8 @@ struct Decider<'a> {
     /// Where the file of the item now being decided is placed instead of its server path, when
     /// another live item keeps that path (the larger item id gives way, Д49).
     place: Option<String>,
+    /// The conflict copy `place` stands for (Д71), listed when the rename is done.
+    place_copy: Option<CopyPlan>,
     /// Items whose server version takes them away from their base path in this pass.
     leaving: BTreeSet<[u8; 16]>,
 }
@@ -90,6 +92,7 @@ pub(super) fn decide(inp: &Inputs<'_>, items: &[Srv]) -> Plan {
         server_live,
         touched: BTreeSet::new(),
         place: None,
+        place_copy: None,
         leaving: items
             .iter()
             .filter(|srv| {
@@ -360,6 +363,7 @@ impl<'a> Decider<'a> {
                         rec: other.clone(),
                         then: None,
                         occupant: None,
+                        placed_as: Some(copy),
                     })));
                 }
                 let rec = srv.record(0);
@@ -462,6 +466,7 @@ impl<'a> Decider<'a> {
         }
         let lc = self.inp.classes.get(&key).cloned().unwrap_or(Lc::Same);
         self.place = None;
+        self.place_copy = None;
         if base.kind == ItemKind::File && !srv.deleted && srv.path != base.path {
             if let Some(other) = self.by_path.get(srv.path.as_str()).copied() {
                 let stays = !self.leaving.contains(other.item_id.as_bytes())
@@ -483,7 +488,8 @@ impl<'a> Decider<'a> {
                         srv.version,
                         ConflictKind::BothCreated,
                     ) {
-                        self.place = Some(copy.path);
+                        self.place = Some(copy.path.clone());
+                        self.place_copy = Some(copy);
                     }
                 }
             }
@@ -774,6 +780,7 @@ impl<'a> Decider<'a> {
             rec,
             then,
             occupant,
+            placed_as: self.place_copy.clone(),
         })));
     }
 

@@ -7,6 +7,7 @@ export function historyReasonKey(reason: string): string {
     restore: "beforeRestore",
     "link-refactor": "linksUpdated",
     "note-rewrite": "beforeBlockRewrite",
+    "sync-overwrite": "beforeSyncOverwrite",
     "id-assignment": "metadataUpdated",
   }
   return `historyPanel.${reasons[reason] ?? "savedVersion"}`

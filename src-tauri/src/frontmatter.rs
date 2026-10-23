@@ -33,14 +33,14 @@ thread_local! {
 /// as files through the standard library, so the renamed file's own sync is
 /// still the strongest portable guarantee there.
 #[cfg(unix)]
-fn sync_parent_directory(parent: &Path) -> Result<(), String> {
+pub(crate) fn sync_parent_directory(parent: &Path) -> Result<(), String> {
     fs::File::open(parent)
         .and_then(|dir| dir.sync_all())
         .map_err(|error| error.to_string())
 }
 
 #[cfg(not(unix))]
-fn sync_parent_directory(_parent: &Path) -> Result<(), String> {
+pub(crate) fn sync_parent_directory(_parent: &Path) -> Result<(), String> {
     Ok(())
 }
 
@@ -180,7 +180,10 @@ fn fallback_copy_temp_new(source: &Path, target: &Path) -> Result<(), AtomicCrea
 /// Hard links give an all-or-nothing publish where supported. Filesystems that
 /// reject them use a create_new reservation plus streamed, synced copy; the
 /// reservation preserves the no-overwrite guarantee even under a collision.
-fn publish_prepared_no_replace(temp: &Path, target: &Path) -> Result<(), AtomicCreateError> {
+pub(crate) fn publish_prepared_no_replace(
+    temp: &Path,
+    target: &Path,
+) -> Result<(), AtomicCreateError> {
     #[cfg(test)]
     if let Some(content) = CREATE_TARGET_AT_PUBLISH.with(|pending| pending.borrow_mut().take()) {
         fs::write(target, content).map_err(atomic_create_error)?;
@@ -1225,6 +1228,50 @@ pub(crate) fn body_with_identity_field(
         return Err("Cannot insert an id without changing existing YAML".to_string());
     }
     Ok(next)
+}
+
+/// The text with the value of its `amby-id` replaced by `id`, and nothing else changed (BOM, line
+/// endings, comments, the other keys and the body are kept byte for byte). For the copy of a
+/// conflict of synchronisation that stays as a note of its own (docs/sync-plan.md, Р7). It refuses
+/// what it cannot do without guessing: no trusted `amby-id`, an id that is not a ULID, the key
+/// twice, or a result that does not read back as `id`.
+pub fn with_replaced_amby_id(content: &str, id: &str) -> Result<String, String> {
+    if !is_amby_id(id) {
+        return Err(format!(
+            "Invalid {AMBY_ID_FIELD}: expected a canonical uppercase ULID"
+        ));
+    }
+    let parsed = parse_markdown(content);
+    let old = parsed
+        .note_id()
+        .ok_or_else(|| "The note has no trusted amby-id to replace".to_string())?
+        .to_string();
+    let (envelope, body) = split_frontmatter_envelope(content)
+        .ok_or_else(|| "The note has no frontmatter".to_string())?;
+    let mut changed = String::with_capacity(content.len());
+    let mut replaced = 0;
+    for line in envelope.split_inclusive('\n') {
+        let text = line.trim_end_matches(['\r', '\n']);
+        let eol = &line[text.len()..];
+        // Only the key at the start of a line, with the value that was read as the id.
+        if let Some(rest) = text.strip_prefix("amby-id:") {
+            if rest.trim().trim_matches(['"', '\'']) == old {
+                changed.push_str(&format!("{AMBY_ID_FIELD}: {id}{eol}"));
+                replaced += 1;
+                continue;
+            }
+        }
+        changed.push_str(line);
+    }
+    if replaced != 1 {
+        return Err("Cannot find exactly one amby-id line to replace".to_string());
+    }
+    changed.push_str(body);
+    let reparsed = parse_markdown(&changed);
+    if reparsed.note_id() != Some(id) || reparsed.body != parsed.body {
+        return Err("The replacement did not read back as expected".to_string());
+    }
+    Ok(changed)
 }
 
 pub fn replace_body_preserving_id(content: &str, body: &str, id: &str) -> Result<String, String> {

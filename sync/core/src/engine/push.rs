@@ -205,6 +205,15 @@ impl Engine {
             .map(|r| r.path.as_str())
             .collect();
         let mut taken_items: BTreeSet<[u8; 16]> = BTreeSet::new();
+        // A server item whose name this system cannot hold has no file here under that name; a
+        // local file of exactly its content, found by the full reconcile after a `resync` or a
+        // lost state, is that item, not a new file (Э4, from Э3): uploading it under its old
+        // path would put a duplicate on the server. Each such item stands for one local file.
+        let mut unplaced: Vec<([u8; 32], u64, [u8; 16])> = records
+            .iter()
+            .filter(|r| !r.deleted && r.kind == ItemKind::File && is_unmaterialised(r))
+            .filter_map(|r| Some((r.content_hash?, r.size, *r.item_id.as_bytes())))
+            .collect();
         for (path, file) in &disk.files {
             if file_record_paths.contains(path.as_str()) || moved_to.contains(path) {
                 continue;
@@ -216,6 +225,15 @@ impl Engine {
                 Err(error) => return Err(error.into()),
             };
             let hash = hash_of(&bytes);
+            if !undelete.contains_key(path) {
+                if let Some(at) = unplaced
+                    .iter()
+                    .position(|(h, size, _)| *h == hash && *size == bytes.len() as u64)
+                {
+                    unplaced.remove(at);
+                    continue;
+                }
+            }
             let (item, base_version, extra) = match undelete.get(path) {
                 Some(u) => (u.item, u.version, u.extra.clone()),
                 None => {

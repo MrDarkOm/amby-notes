@@ -136,6 +136,57 @@ pub fn delete_permanently(vault: &Path, path: &Path) -> Result<FsMutationResult,
     })
 }
 
+/// Moves exactly `path` (a file or a folder) to `.amby/trash/`, whatever the delete mode of the
+/// user: the synchronisation of a deletion that came from another device (docs/sync-plan.md,
+/// Р8). Unlike [`move_to_trash`] it does not widen the target to the bundle the item belongs to
+/// and it leaves the index to the caller. The entry is the same as for [`move_to_trash`], so
+/// [`list`] shows it and [`restore`] brings it back.
+pub fn move_exact_to_trash(vault: &Path, path: &Path) -> std::io::Result<()> {
+    use std::io::Error;
+    let vault_path = vault.canonicalize()?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| Error::other("Trash target has no parent"))?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| Error::other("Trash target has no name"))?;
+    // Only the parent is resolved: the item itself may be a link, and a link is moved, not
+    // followed.
+    let original = parent.canonicalize()?.join(name);
+    let original_relative = original
+        .strip_prefix(&vault_path)
+        .map_err(|_| Error::other("Cannot trash a path outside the vault"))?
+        .to_string_lossy()
+        .replace('\\', "/");
+    fs::symlink_metadata(&original)?;
+    let id = Ulid::generate().to_string();
+    let trash_root = root(vault);
+    let container = trash_root.join(&id);
+    fs::create_dir_all(&container)?;
+    let name = name.to_string_lossy().to_string();
+    let payload = container.join(&name);
+    fs::rename(&original, &payload).inspect_err(|_| {
+        let _ = fs::remove_dir(&container);
+    })?;
+    let entry = TrashEntry {
+        id: id.clone(),
+        original_path: original_relative,
+        deleted_at_ms: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(Error::other)?
+            .as_millis() as u64,
+        name,
+    };
+    let manifest = serde_json::to_vec_pretty(&entry).map_err(Error::other)?;
+    if let Err(error) = frontmatter::atomic_write_bytes(&manifest_path(&trash_root, &id), &manifest)
+    {
+        let _ = fs::rename(&payload, &original);
+        let _ = fs::remove_dir(&container);
+        return Err(Error::other(error));
+    }
+    Ok(())
+}
+
 pub fn move_to_trash(vault: &Path, path: &Path) -> Result<FsMutationResult, String> {
     let preview = preview_move_to_trash(vault, path)?;
     let original_path = preview.original_path;

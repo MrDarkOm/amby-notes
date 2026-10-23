@@ -199,6 +199,7 @@ pub fn start_vault_watcher(
     state.active_generation.store(generation, Ordering::Release);
     let own_writes = Arc::clone(&state.own_writes);
     let active_generation = Arc::clone(&state.active_generation);
+    let batch = Arc::clone(&state.batch);
     let app_handle = app.clone();
     let watched_vault = vault.clone();
 
@@ -207,6 +208,10 @@ pub fn start_vault_watcher(
             return;
         }
 
+        // Synchronisation hears about every change in the vault: also the ones Amby made itself
+        // (the self-write records below only keep the renderer from reloading its own saves) and
+        // the documented files in `.amby/` (docs/sync-plan.md, Р4, Р10).
+        crate::sync::notify_watch_event(&app_handle, &watched_vault, &res);
         let changes = watcher::queue_external_changes(
             res,
             &watched_vault,
@@ -214,7 +219,8 @@ pub fn start_vault_watcher(
             generation,
             &index_changes,
         );
-        for change in &changes {
+        // While synchronisation writes a batch, the events wait and go out once afterwards (Р8).
+        for change in batch.push(changes.clone()) {
             let _ = app_handle.emit("vault-file-changed", change);
         }
         let database_changes = changes
@@ -261,15 +267,18 @@ pub fn start_vault_watcher(
 
     *state.watcher.lock().unwrap() = Some(watcher);
     context.set_watcher_identity(Some(generation))?;
+    crate::sync::activate_for_open_vault(&app, vault);
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn stop_vault_watcher(
+    app: tauri::AppHandle,
     state: tauri::State<'_, WatcherState>,
     context: tauri::State<'_, vault_context::VaultContext>,
 ) -> Result<(), String> {
+    crate::sync::deactivate_for_closed_vault(&app);
     *state.watcher.lock().unwrap() = None;
     state.active_generation.store(0, Ordering::Release);
     context.set_watcher_identity(None)?;

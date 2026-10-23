@@ -114,6 +114,9 @@ pub enum UnsyncedReason {
     NameCollision,
     /// The target is held by another item that did not move away (Д49).
     PathBusy,
+    /// The system refuses access to the file (permissions, a lock): it is tried again by every
+    /// pass and listed meanwhile (Э4).
+    NoAccess,
 }
 
 /// One entry of the "not synchronised" list.

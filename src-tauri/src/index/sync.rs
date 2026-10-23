@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 use ulid::Ulid;
 use walkdir::WalkDir;
 
-use super::identity::{conflict_id, is_path_identity, opaque_id, CONFLICT_PREFIX};
+use super::identity::{
+    conflict_id, is_path_identity, is_sync_conflict_copy, opaque_id, CONFLICT_PREFIX,
+};
 use super::links::{extract_links, resolve_links};
 use super::note_index::{list_notes, IndexedNote};
 use super::tags::extract_tags;
@@ -207,7 +209,13 @@ pub fn sync_vault_with_changes(
             .as_ref()
             .and_then(|id| db_by_id.get(id).map(|path| (path != &note.rel_path) as u8))
             .unwrap_or(1);
-        (priority, note.rel_path.clone())
+        // The copy of a conflict of synchronisation never takes an identity before the file it
+        // was copied from, whatever the order of paths (`Name.0123…-conflict.md` < `Name.md`).
+        (
+            is_sync_conflict_copy(&note.rel_path) as u8,
+            priority,
+            note.rel_path.clone(),
+        )
     });
 
     for note in &mut notes {

@@ -6,7 +6,11 @@
 import { commands } from "@/lib/bindings"
 import { isTauri } from "@/lib/storage"
 import type {
+  ApprovalKind,
+  ConflictChoice,
   Result,
+  SpaceTarget,
+  SpaceView,
   SyncError,
   DeviceView,
   PasswordCheck,
@@ -14,9 +18,23 @@ import type {
   ServerCheck,
   SignOutResult,
   SyncStatus,
+  VaultSyncStatus,
 } from "@/lib/bindings"
 
-export type { DeviceView, PasswordCheck, PreparedAccountView, ServerCheck, SyncStatus }
+export type {
+  ApprovalKind,
+  ConflictChoice,
+  DeviceView,
+  PasswordCheck,
+  PreparedAccountView,
+  ServerCheck,
+  SpaceView,
+  SyncStatus,
+  VaultSyncStatus,
+}
+
+/** The name of the event the application emits when the sync status of the open vault changes. */
+const VAULT_STATUS_EVENT = "sync-status-changed"
 
 /** The default name of the recovery code file offered by "Save to file". */
 export const RECOVERY_CODE_FILE_NAME = "amby-recovery-code.txt"
@@ -83,6 +101,25 @@ export interface SyncPort {
   signOut(): Promise<SignOutResult>
   /** Offers to save the recovery code as a text file; the path, or `null` when cancelled. */
   saveRecoveryCode(contents: string): Promise<string | null>
+
+  // ----- the sync of the open vault (stage Э4) -----
+
+  /** The state of the sync of the open vault; no network. */
+  vaultStatus(): Promise<VaultSyncStatus>
+  /** The spaces of the account, for "connect an existing vault". */
+  listSpaces(): Promise<SpaceView[]>
+  /** Switches sync on for the open vault: a new space or an existing one. */
+  enableVault(target: SpaceTarget, testVault: boolean): Promise<VaultSyncStatus>
+  /** Switches sync off for the open vault; the link with the space stays. */
+  disableVault(): Promise<VaultSyncStatus>
+  /** A pass now. */
+  runNow(): Promise<void>
+  /** The answer to a stop of Р8. */
+  approve(kind: ApprovalKind): Promise<void>
+  /** Resolves a conflict of the list. */
+  resolveConflict(id: string, choice: ConflictChoice): Promise<void>
+  /** Calls `listener` whenever the status changes; returns the function that stops it. */
+  onVaultStatus(listener: (status: VaultSyncStatus) => void): Promise<() => void>
 }
 
 /** Unwraps the answer of a command. A failure of the IPC layer itself carries no text on purpose. */
@@ -142,6 +179,36 @@ export function createDesktopSyncPort(): SyncPort {
       // The text of a file error may name a path: only the code is kept.
       throw new SyncPortError("storage_error")
     },
+    vaultStatus: async () => {
+      try {
+        return await commands.syncVaultStatus()
+      } catch {
+        throw new SyncPortError("ipc_failed")
+      }
+    },
+    listSpaces: () => call(commands.syncListSpaces()),
+    enableVault: (target, testVault) => call(commands.syncEnableVault(target, testVault)),
+    disableVault: () => call(commands.syncDisableVault()),
+    runNow: async () => {
+      await call(commands.syncRunNow())
+    },
+    approve: async (kind) => {
+      await call(commands.syncApprove(kind))
+    },
+    resolveConflict: async (id, choice) => {
+      await call(commands.syncResolveConflict(id, choice))
+    },
+    onVaultStatus: async (listener) => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event")
+        const unlisten = await listen<VaultSyncStatus>(VAULT_STATUS_EVENT, (event) =>
+          listener(event.payload),
+        )
+        return () => unlisten()
+      } catch {
+        throw new SyncPortError("ipc_failed")
+      }
+    },
   }
 }
 
@@ -171,6 +238,32 @@ export const unavailableSyncPort: SyncPort = {
   disconnectDevice: unavailable,
   signOut: unavailable,
   saveRecoveryCode: unavailable,
+  vaultStatus: async () => ({
+    enabled: false,
+    linked: false,
+    testVault: false,
+    gateClosed: true,
+    spaceId: null,
+    spaceName: null,
+    phase: "off",
+    lastSyncMs: null,
+    nextTrySecs: null,
+    errorCode: null,
+    stop: null,
+    outgoingPaused: false,
+    needsUpdate: false,
+    conflicts: [],
+    unsynced: [],
+    itemErrors: 0,
+    last: null,
+  }),
+  listSpaces: unavailable,
+  enableVault: unavailable,
+  disableVault: unavailable,
+  runNow: unavailable,
+  approve: unavailable,
+  resolveConflict: unavailable,
+  onVaultStatus: async () => () => {},
 }
 
 let desktopPort: SyncPort | null = null

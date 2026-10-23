@@ -127,6 +127,9 @@ pub(super) struct MoveAct {
     pub then: Option<PutAct>,
     /// A file without a record lies at the target: it becomes this copy (Д49, Д51).
     pub occupant: Option<(Existing, CopyPlan)>,
+    /// This rename puts the file at the name of a conflict copy because another live item keeps
+    /// the path (Д71): the copy is listed as a conflict once the rename is done (Д47).
+    pub placed_as: Option<CopyPlan>,
 }
 
 /// After a `resync`: the local file stays, the server version becomes a copy (Д56, Д57).

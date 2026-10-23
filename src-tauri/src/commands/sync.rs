@@ -6,11 +6,28 @@
 use tauri::State;
 
 use crate::sync::password::check_password;
+use crate::sync::runtime::SyncRuntime;
 use crate::sync::service::{PrepareRequest, RecoverRequest, SignInRequest, SyncService};
 use crate::sync::types::{
     DeviceView, Endpoint, PasswordCheck, PreparedAccountView, ServerCheck, SignOutResult,
     SyncError, SyncStatus,
 };
+use crate::sync::vault_types::{
+    ApprovalKind, ConflictChoice, SpaceTarget, SpaceView, VaultSyncStatus,
+};
+use crate::vault_context::VaultContext;
+
+/// After the device signed in or out the sync of the open vault starts or stops with it: the
+/// session is made again from what the key store holds now.
+fn resume_open_vault(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    let root = app
+        .try_state::<VaultContext>()
+        .and_then(|context| context.root().ok());
+    if let Some(root) = root {
+        crate::sync::activate_for_open_vault(app, root);
+    }
+}
 
 fn endpoint(url: String, allow_http: bool) -> Endpoint {
     Endpoint { url, allow_http }
@@ -62,10 +79,13 @@ pub async fn sync_prepare_account(
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_confirm_recovery_code(
+    app: tauri::AppHandle,
     service: State<'_, SyncService>,
     groups: Vec<String>,
 ) -> Result<SyncStatus, SyncError> {
-    service.confirm_recovery_code(&groups).await
+    let status = service.confirm_recovery_code(&groups).await?;
+    resume_open_vault(&app);
+    Ok(status)
 }
 
 /// Another invitation code for the prepared account (the keys and the recovery code stay).
@@ -89,6 +109,7 @@ pub fn sync_cancel_pending(service: State<'_, SyncService>) {
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_sign_in(
+    app: tauri::AppHandle,
     service: State<'_, SyncService>,
     url: String,
     allow_http: bool,
@@ -96,20 +117,24 @@ pub async fn sync_sign_in(
     password: String,
     device_name: String,
 ) -> Result<SyncStatus, SyncError> {
-    service
+    let status = service
         .sign_in(SignInRequest {
             endpoint: endpoint(url, allow_http),
             username,
             password,
             device_name,
         })
-        .await
+        .await?;
+    resume_open_vault(&app);
+    Ok(status)
 }
 
 /// Replaces a forgotten password with the recovery code and signs in (Р5, О3).
 #[tauri::command]
 #[specta::specta]
+#[allow(clippy::too_many_arguments)]
 pub async fn sync_recover(
+    app: tauri::AppHandle,
     service: State<'_, SyncService>,
     url: String,
     allow_http: bool,
@@ -118,7 +143,7 @@ pub async fn sync_recover(
     new_password: String,
     device_name: String,
 ) -> Result<SyncStatus, SyncError> {
-    service
+    let status = service
         .recover(RecoverRequest {
             endpoint: endpoint(url, allow_http),
             username,
@@ -126,7 +151,9 @@ pub async fn sync_recover(
             new_password,
             device_name,
         })
-        .await
+        .await?;
+    resume_open_vault(&app);
+    Ok(status)
 }
 
 /// The state of the connection (no network).
@@ -158,6 +185,79 @@ pub async fn sync_disconnect_device(
 /// Signs this device out (Р5).
 #[tauri::command]
 #[specta::specta]
-pub async fn sync_sign_out(service: State<'_, SyncService>) -> Result<SignOutResult, SyncError> {
-    service.sign_out().await
+pub async fn sync_sign_out(
+    app: tauri::AppHandle,
+    service: State<'_, SyncService>,
+) -> Result<SignOutResult, SyncError> {
+    let result = service.sign_out().await?;
+    resume_open_vault(&app);
+    Ok(result)
+}
+
+// ----- the sync of the open vault (stage Э4) -----
+
+fn open_vault(context: &VaultContext) -> Result<std::path::PathBuf, SyncError> {
+    context.root().map_err(|_| SyncError::new("no_vault_open"))
+}
+
+/// The state of the sync of the open vault; no network.
+#[tauri::command]
+#[specta::specta]
+pub fn sync_vault_status(runtime: State<'_, SyncRuntime>) -> VaultSyncStatus {
+    runtime.status()
+}
+
+/// The spaces of the account, for "connect an existing vault" (Р5).
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_list_spaces(
+    runtime: State<'_, SyncRuntime>,
+) -> Result<Vec<SpaceView>, SyncError> {
+    runtime.list_spaces().await
+}
+
+/// Switches sync on for the open vault: a new space or an existing one. While the gate of the
+/// plan is closed the vault has to be marked as a test vault.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_enable_vault(
+    runtime: State<'_, SyncRuntime>,
+    context: State<'_, VaultContext>,
+    target: SpaceTarget,
+    test_vault: bool,
+) -> Result<VaultSyncStatus, SyncError> {
+    let vault = open_vault(&context)?;
+    runtime.enable(&vault, target, test_vault).await
+}
+
+/// Switches sync off for the open vault; the link with the space stays.
+#[tauri::command]
+#[specta::specta]
+pub fn sync_disable_vault(runtime: State<'_, SyncRuntime>) -> Result<VaultSyncStatus, SyncError> {
+    runtime.disable()
+}
+
+/// A pass now.
+#[tauri::command]
+#[specta::specta]
+pub fn sync_run_now(runtime: State<'_, SyncRuntime>) -> Result<(), SyncError> {
+    runtime.sync_now()
+}
+
+/// The answer to a stop of Р8.
+#[tauri::command]
+#[specta::specta]
+pub fn sync_approve(runtime: State<'_, SyncRuntime>, kind: ApprovalKind) -> Result<(), SyncError> {
+    runtime.approve(kind)
+}
+
+/// Resolves a conflict of the list (Р7).
+#[tauri::command]
+#[specta::specta]
+pub fn sync_resolve_conflict(
+    runtime: State<'_, SyncRuntime>,
+    id: String,
+    choice: ConflictChoice,
+) -> Result<(), SyncError> {
+    runtime.resolve_conflict(&id, choice)
 }
