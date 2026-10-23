@@ -250,7 +250,7 @@ describe("the desktop sync port: the sync of the open vault", () => {
     expect(stop).toHaveBeenCalledTimes(1)
   })
 
-  it("tells the listener which files another computer deleted", async () => {
+  it("tells the listener which vault and which files another computer deleted", async () => {
     let handler: ((event: { payload: unknown }) => void) | null = null
     const stop = vi.fn()
     eventApi.listen.mockImplementation(
@@ -261,10 +261,12 @@ describe("the desktop sync port: the sync of the open vault", () => {
       },
     )
     const port = createDesktopSyncPort()
-    const seen: string[][] = []
-    const unlisten = await port.onRemoteDeleted((paths) => seen.push(paths))
-    ;(handler as unknown as (event: { payload: unknown }) => void)({ payload: ["Notes/a.md"] })
-    expect(seen).toEqual([["Notes/a.md"]])
+    const seen: unknown[] = []
+    const unlisten = await port.onRemoteDeleted((event) => seen.push(event))
+    ;(handler as unknown as (event: { payload: unknown }) => void)({
+      payload: { vault: "/Users/me/Notes", paths: ["Notes/a.md"] },
+    })
+    expect(seen).toEqual([{ vault: "/Users/me/Notes", paths: ["Notes/a.md"] }])
     unlisten()
     expect(stop).toHaveBeenCalledTimes(1)
   })

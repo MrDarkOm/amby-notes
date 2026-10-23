@@ -170,6 +170,8 @@ fn a_deletion_from_another_computer_is_reported_to_the_application_with_its_path
     a.remove("Notes/gone.md");
     settle(&sa, &sb);
     assert_eq!(recorder_b.deleted_remotely(), vec!["Notes/gone.md"]);
+    // the report names the vault it is for, so a window that has moved on can ignore it
+    assert_eq!(recorder_b.deleted_remotely_vaults(), vec![b.root.clone()]);
     // a later pass that deletes nothing does not repeat it
     pass(&sb);
     assert_eq!(recorder_b.deleted_remotely(), vec!["Notes/gone.md"]);

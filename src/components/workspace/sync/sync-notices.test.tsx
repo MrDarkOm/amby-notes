@@ -198,6 +198,17 @@ describe("a note deleted on another computer", () => {
     expect(screen.getByRole("button", { name: "Вернуть" })).toBeTruthy()
   })
 
+  it("ignores an announcement that belongs to the vault it left behind", async () => {
+    // a late event of the previous vault must not mark the note of the same name in this one
+    useDocStore.setState({ openDocs: { a: doc(`/vault/${ORIGINAL}`) } })
+    await mount()
+    render(<SyncDocumentBanners path={`/vault/${ORIGINAL}`} />)
+    await act(async () => emitRemoteDeleted([ORIGINAL], "/old-vault"))
+    expect(screen.queryByText(message)).toBeNull()
+    expect(useSyncNoticesStore.getState().remoteDeleted).toEqual([])
+    expect(useDocStore.getState().openDocs.a?.externallyDeleted).toBeFalsy()
+  })
+
   it("says nothing when the note was not open", async () => {
     useDocStore.setState({ openDocs: { a: doc("/vault/Заметки/другая.md") } })
     await mount()
