@@ -22,11 +22,17 @@ const MINE = "# Идея\n\nобщий абзац\n\nмой второй абз�
 const OTHER = "# Идея\n\nобщий абзац\n\nих второй абзац\n\n* пункт\n* их пункт\n"
 
 async function open(
-  versions: { original: string | null; copy: string | null } = { original: MINE, copy: OTHER },
+  versions: { original: string | null; copy: string | null; stamp?: string } = {
+    original: MINE,
+    copy: OTHER,
+  },
   overrides: Parameters<typeof createFakePort>[0] = {},
   item = conflict,
 ) {
-  const port = createFakePort({ readConflictVersions: async () => versions, ...overrides })
+  const port = createFakePort({
+    readConflictVersions: async () => ({ stamp: "stamp-1", ...versions }),
+    ...overrides,
+  })
   const onClose = vi.fn()
   render(<SyncCompareDialog port={port} conflict={item} vault="/vault" onClose={onClose} />)
   const dialog = await screen.findByRole("dialog")
@@ -83,6 +89,7 @@ describe("the comparison of two versions of a note", () => {
       expect(port.resolveConflictWithText).toHaveBeenCalledWith(
         "0123456789ab",
         "# Идея\n\nобщий абзац\n\nих второй абзац\n\n* пункт\n* мой пункт\n* их пункт\n",
+        "stamp-1",
       ),
     )
     await waitFor(() => expect(onClose).toHaveBeenCalled())
@@ -122,7 +129,11 @@ describe("when Live Preview cannot take a version", () => {
     fireEvent.click(within(hunk!).getByRole("radio", { name: "Другая" }))
     fireEvent.click(within(dialog).getByRole("button", { name: "Готово" }))
     await waitFor(() =>
-      expect(port.resolveConflictWithText).toHaveBeenCalledWith("0123456789ab", refusedOther),
+      expect(port.resolveConflictWithText).toHaveBeenCalledWith(
+        "0123456789ab",
+        refusedOther,
+        "stamp-1",
+      ),
     )
   })
 })
@@ -163,5 +174,38 @@ describe("a file that is not a note", () => {
       },
     })
     expect(await within(dialog).findByRole("alert")).toBeTruthy()
+  })
+})
+
+describe("when a version changed while the person compared", () => {
+  it("writes nothing, says so, and reads the versions again", async () => {
+    let reads = 0
+    const { port, onClose, dialog } = await open(undefined, {
+      readConflictVersions: async () => {
+        reads += 1
+        return { original: MINE, copy: OTHER, stamp: `stamp-${reads}` }
+      },
+      resolveConflictWithText: async () => {
+        throw new SyncPortError("conflict_changed")
+      },
+    })
+    await waitFor(() => expect(within(dialog).getAllByTestId("compare-hunk").length).toBe(2))
+    fireEvent.click(within(dialog).getByRole("button", { name: "Готово" }))
+    expect(await within(dialog).findByRole("alert")).toBeTruthy()
+    expect(within(dialog).getByRole("alert").textContent).toMatch(
+      /Пока вы сравнивали, пришла новая версия/,
+    )
+    await waitFor(() => expect(reads).toBe(2))
+    expect(onClose).not.toHaveBeenCalled()
+    // the next try carries the new stamp
+    await waitFor(() => expect(within(dialog).getAllByTestId("compare-hunk").length).toBe(2))
+    fireEvent.click(within(dialog).getByRole("button", { name: "Готово" }))
+    await waitFor(() =>
+      expect(port.resolveConflictWithText).toHaveBeenLastCalledWith(
+        "0123456789ab",
+        expect.any(String),
+        "stamp-2",
+      ),
+    )
   })
 })

@@ -406,7 +406,9 @@ fn resolving_with_a_text_writes_exactly_that_text_and_clears_the_conflict_everyw
     let (a, b, sa, sb, id) = conflict_between_two(&env);
     let copy = pass(&sb).conflicts[0].copy_path.clone();
     let assembled = "\u{feff}line one\r\n\r\nmine and theirs\r\n";
-    sb.resolve_conflict_with_text(&id, assembled).unwrap();
+    let stamp = sb.read_conflict_versions(&id).unwrap().stamp;
+    sb.resolve_conflict_with_text(&id, assembled, &stamp)
+        .unwrap();
     let status = pass(&sb);
     assert!(status.conflicts.is_empty(), "the entry left the list");
     assert_eq!(
@@ -432,6 +434,55 @@ fn resolving_with_a_text_writes_exactly_that_text_and_clears_the_conflict_everyw
 }
 
 #[test]
+fn the_versions_carry_a_stamp_that_changes_with_either_file() {
+    let env = Env::new();
+    let (_a, b, sa, sb, id) = conflict_between_two(&env);
+    let first = sb.read_conflict_versions(&id).unwrap().stamp;
+    assert!(!first.is_empty());
+    assert_eq!(sb.read_conflict_versions(&id).unwrap().stamp, first);
+    b.put("Notes/n.md", b"edited meanwhile");
+    assert_ne!(sb.read_conflict_versions(&id).unwrap().stamp, first);
+    sa.stop();
+    sb.stop();
+}
+
+#[test]
+fn a_text_built_from_versions_that_changed_is_not_written() {
+    // Э4б: "Done" must not overwrite what arrived while the person compared
+    let env = Env::new();
+    let (_a, b, sa, sb, id) = conflict_between_two(&env);
+    let copy = pass(&sb).conflicts[0].copy_path.clone();
+    let stamp = sb.read_conflict_versions(&id).unwrap().stamp;
+    b.put("Notes/n.md", b"arrived while comparing");
+    let error = sb
+        .resolve_conflict_with_text(&id, "assembled", &stamp)
+        .unwrap_err();
+    assert_eq!(error.code, "conflict_changed");
+    assert_eq!(
+        b.text("Notes/n.md").as_deref(),
+        Some("arrived while comparing")
+    );
+    assert!(b.exists(&copy), "the copy is still there");
+    assert_eq!(sb.status().conflicts.len(), 1, "the conflict stays");
+    // the copy changing counts as well
+    let stamp = sb.read_conflict_versions(&id).unwrap().stamp;
+    b.put(&copy, b"copy changed meanwhile");
+    assert_eq!(
+        sb.resolve_conflict_with_text(&id, "assembled", &stamp)
+            .unwrap_err()
+            .code,
+        "conflict_changed"
+    );
+    // with a fresh stamp it goes through
+    let stamp = sb.read_conflict_versions(&id).unwrap().stamp;
+    sb.resolve_conflict_with_text(&id, "assembled", &stamp)
+        .unwrap();
+    assert_eq!(b.text("Notes/n.md").as_deref(), Some("assembled"));
+    sa.stop();
+    sb.stop();
+}
+
+#[test]
 fn an_unknown_conflict_is_not_found_for_reading_and_for_resolving_with_a_text() {
     let env = Env::new();
     let a = TempVault::new("a");
@@ -442,7 +493,7 @@ fn an_unknown_conflict_is_not_found_for_reading_and_for_resolving_with_a_text() 
         "conflict_not_found"
     );
     assert_eq!(
-        sa.resolve_conflict_with_text("000000000000", "x")
+        sa.resolve_conflict_with_text("000000000000", "x", "stamp")
             .unwrap_err()
             .code,
         "conflict_not_found"

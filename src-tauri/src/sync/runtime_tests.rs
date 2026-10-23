@@ -416,7 +416,7 @@ fn answers_and_conflicts_need_a_running_session() {
     );
     assert_eq!(
         pc.runtime
-            .resolve_conflict_with_text("000000000000", "text")
+            .resolve_conflict_with_text("000000000000", "text", "stamp")
             .unwrap_err()
             .code,
         "sync_not_running"
