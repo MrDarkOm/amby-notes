@@ -287,8 +287,9 @@ pub fn run() {
                 // holds the address and the name (docs/sync-plan.md, Р5).
                 use tauri::Manager;
                 let root = app_data::app_root(app.handle())?;
-                let secrets: std::sync::Arc<dyn sync::secrets::SecretStore> =
-                    std::sync::Arc::new(sync::secrets::KeyringStore);
+                let secrets: std::sync::Arc<dyn sync::secrets::SecretStore> = std::sync::Arc::new(
+                    sync::secrets::CachedSecrets::new(sync::secrets::KeyringStore),
+                );
                 let connection: std::sync::Arc<dyn sync::connection::ConnectionStore> =
                     std::sync::Arc::new(sync::connection::FileConnectionStore::new(
                         root.join(sync::connection::CONNECTION_FILE),
