@@ -20,6 +20,8 @@ import { inspectMarkdownCompatibility, noteEditingPolicy } from "./note-editing-
 import type { DocumentViewMode, EditorLayer } from "./use-document-view-mode"
 import { Button } from "@/components/ui/button"
 import { useDocStore } from "../use-doc-store"
+import { SyncDocumentBanners } from "../sync/sync-document-banners"
+import { useRemoteDeletedNotice } from "../sync/use-remote-deleted-notice"
 import { editorSurfaceLeases, type EditorSurface } from "../database/peek/editor-surface-lease"
 import type { ContentWidth } from "../app-config"
 
@@ -503,45 +505,49 @@ export function DocumentEditor({
     !document?.path.endsWith(".canvas") &&
     !document?.path.endsWith(".excalidraw")
 
-  const deletedBanner = document?.externallyDeleted ? (
-    <div
-      role="alert"
-      className="flex shrink-0 items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-950 dark:text-amber-100"
-    >
-      <AlertTriangle className="size-4 shrink-0 text-amber-600 dark:text-amber-300" />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium">{t("conflict.deletedBannerTitle")}</p>
-        <p className="text-xs text-amber-900/75 dark:text-amber-100/75">
-          {t("conflict.deletedBannerDescription")}
-        </p>
-        {restoreError && (
-          <p className="mt-1 text-xs text-destructive">{t("conflict.restoreFailed")}</p>
-        )}
+  // A note that another computer deleted has its own strip with a way back (SyncDocumentBanners);
+  // the general "file deleted" strip would only repeat it.
+  const deletedRemotely = useRemoteDeletedNotice(document?.path)
+  const deletedBanner =
+    document?.externallyDeleted && !deletedRemotely ? (
+      <div
+        role="alert"
+        className="flex shrink-0 items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-950 dark:text-amber-100"
+      >
+        <AlertTriangle className="size-4 shrink-0 text-amber-600 dark:text-amber-300" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium">{t("conflict.deletedBannerTitle")}</p>
+          <p className="text-xs text-amber-900/75 dark:text-amber-100/75">
+            {t("conflict.deletedBannerDescription")}
+          </p>
+          {restoreError && (
+            <p className="mt-1 text-xs text-destructive">{t("conflict.restoreFailed")}</p>
+          )}
+        </div>
+        {canRestore ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={restoringDeleted}
+            onClick={() => void restoreDeletedDocument()}
+            className="shrink-0 border-amber-500/40 bg-transparent text-amber-950 hover:bg-amber-500/15 dark:text-amber-100"
+          >
+            {restoringDeleted ? t("conflict.saving") : t("conflict.restoreDeleted")}
+          </Button>
+        ) : onCloseTab ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={onCloseTab}
+            className="shrink-0 border-amber-500/40 bg-transparent text-amber-950 hover:bg-amber-500/15 dark:text-amber-100"
+          >
+            {t("common.close")}
+          </Button>
+        ) : null}
       </div>
-      {canRestore ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={restoringDeleted}
-          onClick={() => void restoreDeletedDocument()}
-          className="shrink-0 border-amber-500/40 bg-transparent text-amber-950 hover:bg-amber-500/15 dark:text-amber-100"
-        >
-          {restoringDeleted ? t("conflict.saving") : t("conflict.restoreDeleted")}
-        </Button>
-      ) : onCloseTab ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={onCloseTab}
-          className="shrink-0 border-amber-500/40 bg-transparent text-amber-950 hover:bg-amber-500/15 dark:text-amber-100"
-        >
-          {t("common.close")}
-        </Button>
-      ) : null}
-    </div>
-  ) : null
+    ) : null
 
   const externalConflict = useDocStore((s) =>
     document?.id ? s.externalConflicts[document.id] : undefined,
@@ -624,6 +630,7 @@ export function DocumentEditor({
       >
         {headerElement}
         {deletedBanner}
+        {document && <SyncDocumentBanners path={document.path} />}
         {conflictBanner}
         {editingPolicy.warningKey && (
           <p role="status" className="px-4 py-2 text-xs text-muted-foreground">

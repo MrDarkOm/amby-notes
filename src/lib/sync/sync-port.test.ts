@@ -250,6 +250,25 @@ describe("the desktop sync port: the sync of the open vault", () => {
     expect(stop).toHaveBeenCalledTimes(1)
   })
 
+  it("tells the listener which files another computer deleted", async () => {
+    let handler: ((event: { payload: unknown }) => void) | null = null
+    const stop = vi.fn()
+    eventApi.listen.mockImplementation(
+      async (name: string, callback: (event: { payload: unknown }) => void) => {
+        expect(name).toBe("sync-remote-deleted")
+        handler = callback
+        return stop
+      },
+    )
+    const port = createDesktopSyncPort()
+    const seen: string[][] = []
+    const unlisten = await port.onRemoteDeleted((paths) => seen.push(paths))
+    ;(handler as unknown as (event: { payload: unknown }) => void)({ payload: ["Notes/a.md"] })
+    expect(seen).toEqual([["Notes/a.md"]])
+    unlisten()
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
   it("the browser build has no vault to synchronise and refuses to switch it on", async () => {
     const status = await unavailableSyncPort.vaultStatus()
     expect(status.phase).toBe("off")

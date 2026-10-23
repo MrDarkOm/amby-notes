@@ -106,6 +106,10 @@ pub fn should_trigger(vault: &Path, path: &Path) -> bool {
 pub trait SessionHooks: FsHooks {
     /// The status changed (a pass started or ended, a stop, a failure).
     fn status_changed(&self, status: &VaultSyncStatus);
+
+    /// A pass moved these files (paths in the vault) to the trash because they were deleted on
+    /// another computer. The interface warns the person only about a note that is open.
+    fn remote_deleted(&self, _paths: &[String]) {}
 }
 
 /// Hooks that do nothing.
@@ -740,6 +744,7 @@ fn run_pass(shared: &Arc<Shared>, request: &CycleRequest) -> Outcome {
                 uploaded: 0,
                 renamed: 0,
                 trashed: 0,
+                trashed_paths: Vec::new(),
                 conflicts: Vec::new(),
                 unsynced: Vec::new(),
                 read_only: Vec::new(),
@@ -849,6 +854,9 @@ fn settle(shared: &Arc<Shared>, outcome: Outcome, failures: &mut u32, schedule: 
                         });
                         apply_lists(status);
                     });
+                    if !report.trashed_paths.is_empty() {
+                        shared.config.hooks.remote_deleted(&report.trashed_paths);
+                    }
                     // Something is left to do that no event will announce: a journal that ends
                     // (it lives in `.amby/`, which the watcher does not report) or files that
                     // failed. Look again after a growing pause.

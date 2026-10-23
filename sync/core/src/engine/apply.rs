@@ -188,6 +188,7 @@ impl Engine {
                         Err(error) => return Err(error.into()),
                     }
                     report.trashed += 1;
+                    report.trashed_paths.push(disk.to_string());
                     for up in ancestors(&disk) {
                         plan.cleanup.insert(up.to_string());
                     }
