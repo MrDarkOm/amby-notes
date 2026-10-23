@@ -14,6 +14,7 @@
 
 pub mod app_hooks;
 pub mod clock;
+pub mod conflict_store;
 pub mod connection;
 pub mod gate;
 pub mod hints;

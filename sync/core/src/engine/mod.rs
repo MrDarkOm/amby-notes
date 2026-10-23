@@ -15,14 +15,18 @@
 //! - [`consistency`]: meaning of the header fields (Ф14 checks only their shape);
 //! - [`stream`]: opening a body as a stream (Ф24);
 //! - [`rules`]: what is not synchronised (Р4) and the mass-change threshold (Р8);
+//! - [`merge`]: the three-way merge of a note (Э4б, К1, appendix Г);
+//! - [`conflict_set`]: the files of a conflict in `.amby/conflicts/` (Э4б, К2, appendix Г);
 //! - [`sync`]: the engine itself.
 
 mod apply;
 mod classify;
+pub mod conflict_set;
 pub mod consistency;
 mod decide;
 mod feed;
 mod flow;
+pub mod merge;
 pub mod model;
 pub mod names;
 mod plan;

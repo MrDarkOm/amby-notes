@@ -84,7 +84,8 @@ pub struct ConflictRecord {
     pub kind: ConflictKind,
     /// Path of the file that kept the name (the server's version).
     pub original_path: String,
-    /// Path of the copy with the other version.
+    /// Path of the file with the other version: `other<ext>` in the set of the conflict
+    /// `.amby/conflicts/<id>/` (К2, Г25); before stage Э4б, the copy next to the original.
     pub copy_path: String,
     /// When the copy was made, by the clock (display only).
     pub created_ms: i64,
@@ -346,6 +347,9 @@ pub struct CycleReport {
     /// The paths of files written again because another computer edited them after this computer
     /// deleted them (Р7 row 4, Д37–Д39): the deletion lost, and this computer is told.
     pub restored_paths: Vec<String>,
+    /// The paths (the server's) of notes where this pass merged the edits of two computers (К1,
+    /// appendix Г, Г17).
+    pub merged_paths: Vec<String>,
     /// Conflicts created by this pass.
     pub conflicts: Vec<ConflictRecord>,
     /// The "not synchronised" list after the pass.

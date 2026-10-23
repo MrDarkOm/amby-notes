@@ -10,7 +10,7 @@ use std::io::Read;
 use std::rc::Rc;
 
 use amby_sync_core::crypto::header::open_header;
-use amby_sync_core::crypto::keys::{BodyId, SpaceId, SpaceKey};
+use amby_sync_core::crypto::keys::{BodyId, ItemId, SpaceId, SpaceKey};
 use amby_sync_core::engine::{
     BlobState, ChangesPage, CommitItem, CommitReply, FsError, Listing, LocalFs, NameRules, Remote,
     RemoteError, RootState, ServerInfo, StagedWrite, StateError, StateLock, StateStore, StateTx,
@@ -420,6 +420,24 @@ impl<S: StateStore> StateStore for FaultyState<S> {
             .tick(Port::State, "lock", None)
             .map_err(|()| StateError::Io(PROCESS_DIED.into()))?;
         self.inner.lock()
+    }
+    fn base_put(&mut self, item: &ItemId, hash: &[u8; 32], bytes: &[u8]) -> Result<(), StateError> {
+        self.faults
+            .tick(Port::State, "base_put", None)
+            .map_err(|()| StateError::Io(PROCESS_DIED.into()))?;
+        self.inner.base_put(item, hash, bytes)
+    }
+    fn base_get(&mut self, item: &ItemId, hash: &[u8; 32]) -> Result<Option<Vec<u8>>, StateError> {
+        self.faults
+            .tick(Port::State, "base_get", None)
+            .map_err(|()| StateError::Io(PROCESS_DIED.into()))?;
+        self.inner.base_get(item, hash)
+    }
+    fn base_prune(&mut self, keep: &[(ItemId, [u8; 32])]) -> Result<(), StateError> {
+        self.faults
+            .tick(Port::State, "base_prune", None)
+            .map_err(|()| StateError::Io(PROCESS_DIED.into()))?;
+        self.inner.base_prune(keep)
     }
 }
 

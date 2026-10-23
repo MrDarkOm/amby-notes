@@ -111,6 +111,7 @@ impl SyncEngine for Engine {
             trashed: 0,
             trashed_paths: Vec::new(),
             restored_paths: Vec::new(),
+            merged_paths: Vec::new(),
             conflicts: Vec::new(),
             unsynced: Vec::new(),
             read_only: Vec::new(),

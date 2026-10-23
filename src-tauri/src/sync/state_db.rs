@@ -829,4 +829,21 @@ impl StateStore for SqliteStateStore {
             Err(fs::TryLockError::Error(error)) => Err(io_error(error)),
         }
     }
+
+    /// Appendix Г, Г6–Г9: `.amby/sync/bases/<item id hex>/<hash hex>`, written through a temporary
+    /// file and a rename. Bodies are `todo!()` until the tests of stage Э4б are reviewed.
+    fn base_put(&mut self, item: &ItemId, hash: &[u8; 32], bytes: &[u8]) -> Result<(), StateError> {
+        let _ = (item, hash, bytes);
+        todo!("Г7: keep a base on disk")
+    }
+
+    fn base_get(&mut self, item: &ItemId, hash: &[u8; 32]) -> Result<Option<Vec<u8>>, StateError> {
+        let _ = (item, hash);
+        todo!("Г7: read a base, checked against its hash")
+    }
+
+    fn base_prune(&mut self, keep: &[(ItemId, [u8; 32])]) -> Result<(), StateError> {
+        let _ = keep;
+        todo!("Г9: remove the bases nobody refers to")
+    }
 }
