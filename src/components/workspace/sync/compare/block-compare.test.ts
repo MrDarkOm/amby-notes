@@ -4,6 +4,9 @@
 // source, never written again from the drawing. Everything untouched stays byte for byte: BOM, line
 // endings, markup the editor would spell differently. Behaviour only; the window is in the dialog test.
 import { describe, expect, it } from "vitest"
+import corpus from "../../../../../tests/fixtures/markdown-compatibility.json"
+import livePreviewSafe from "../../tiptap/fixtures/live-preview-safe.md?raw"
+import obsidianCompat from "../../tiptap/fixtures/obsidian-compat.md?raw"
 import {
   assembleCompare,
   planBlockCompare,
@@ -151,10 +154,9 @@ describe("the bytes nobody touched stay as they were", () => {
     "~~~\nкод   с   пробелами\n~~~",
   ]
   const make = (middle: string, eol: string, bom = "") =>
-    `${bom}${[odd[0], odd[1], middle, odd[2], odd[3], odd[4]].join("\n\n\n")}\n`.replaceAll(
-      "\n",
-      eol,
-    )
+    `${bom}${[odd[0], odd[1], middle, odd[2], odd[3], odd[4]].join("\n\n\n")}\n`
+      .split("\n")
+      .join(eol)
 
   it("keeps a BOM and CRLF in every block that was not chosen from the other version", () => {
     const mine = make("мой абзац", "\r\n", "﻿")
@@ -166,7 +168,7 @@ describe("the bytes nobody touched stay as they were", () => {
     const both = choose(plan, "both")
     expect(both.startsWith("﻿")).toBe(true)
     expect(both).not.toMatch(/(^|[^\r])\n/u)
-    for (const block of odd) expect(both).toContain(block.replaceAll("\n", "\r\n"))
+    for (const block of odd) expect(both).toContain(block.split("\n").join("\r\n"))
   })
 
   it("writes a block taken from a file with other line endings in the endings of my file", () => {
@@ -227,5 +229,32 @@ describe("the properties of a note", () => {
     const plan = blocks(planBlockCompare("n.md", mine, other))
     expect(plan.hunks[0]?.locked).toBe(true)
     expect(choose(plan, "other")).toBe(mine)
+  })
+})
+
+describe("real notes", () => {
+  const texts: string[] = [livePreviewSafe, obsidianCompat]
+  for (const entry of corpus as unknown as Array<Record<string, unknown>>) {
+    for (const value of Object.values(entry)) if (typeof value === "string") texts.push(value)
+  }
+
+  it("give back each version byte for byte when every difference is taken from it", () => {
+    let planned = 0
+    for (const text of texts) {
+      for (const eol of ["\n", "\r\n"]) {
+        const mine = text.split("\r\n").join("\n").split("\n").join(eol)
+        const other = `${mine.replace(/^/u, "\ufeff")}${eol}${eol}последний абзац${eol}`
+        // a text without a line break has no line endings of its own to keep
+        if (!mine.includes(eol)) continue
+        const plan = planBlockCompare("n.md", mine, other)
+        if (plan.kind !== "blocks") continue
+        planned += 1
+        expect(all(plan, "mine"), JSON.stringify(text)).toBe(mine)
+        const taken = all(plan, "other")
+        expect(taken.replace("\ufeff", ""), JSON.stringify(text)).toBe(other.replace("\ufeff", ""))
+        expect(plan.hunks.length).toBeGreaterThan(0)
+      }
+    }
+    expect(planned).toBeGreaterThan(10)
   })
 })

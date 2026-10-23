@@ -5358,6 +5358,47 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
 
 /* Sync: the sheet with the recovery code. Hidden on screen. While the page is printed the
    recovery step puts `sync-printing` on <html>, and then only this sheet is shown. */
+/* The comparison of two versions of a note (sync conflicts): the note is drawn read only, the blocks
+   that differ are marked. */
+.compare-note .ProseMirror {
+  min-height: 0;
+  padding: 0;
+}
+
+.compare-hunk {
+  border-color: color-mix(in srgb, var(--primary) 35%, transparent);
+  background: color-mix(in srgb, var(--primary) 5%, transparent);
+}
+
+.compare-hunk-side {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+/* The notices of a note above its bottom bar: a bulb with the number and a stack of cards. */
+.note-notices-bulb {
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border));
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  color: var(--foreground);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.12);
+  backdrop-filter: blur(8px);
+}
+
+.note-notices-bulb[data-urgent="true"] {
+  border-color: color-mix(in srgb, var(--destructive) 45%, var(--border));
+}
+
+.note-notice-card {
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--popover) 96%, transparent);
+  color: var(--popover-foreground);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.14);
+  backdrop-filter: blur(8px);
+}
+
+.note-notice-card[data-urgent="true"] {
+  border-color: color-mix(in srgb, var(--destructive) 45%, var(--border));
+}
+
 .sync-print-sheet {
   display: none;
 }

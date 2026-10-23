@@ -1557,6 +1557,20 @@ const ru = {
     backlink: "обратная ссылка",
     wikiLink: "wiki-ссылка",
   },
+  noteNotices: {
+    bulbLabel: "Уведомления заметки: {{count}}",
+    bulbTitle: "Уведомления заметки",
+    syncConflict: "Пришла другая версия заметки с другого компьютера",
+    saveFailedTitle: "Не удалось сохранить заметку",
+    saveFailedDescription:
+      "Текст остаётся в редакторе и во временном черновике. Проверьте место на диске и доступ к папке.",
+    saveNow: "Сохранить сейчас",
+    draftTitle: "Найдена несохранённая версия",
+    draftDescription:
+      "Она осталась после сбоя. Пока вы не ответите, заметка открыта только для чтения.",
+    draftRestore: "Восстановить",
+    draftDiscard: "Отклонить",
+  },
   conflict: {
     deletedTitle: "Файл был удалён вне Amby",
     deletedBannerTitle: "Файл удалён",
@@ -3231,6 +3245,18 @@ const ru = {
       restore: "Вернуть",
       restoring: "Возвращаю…",
       restoreFailed: "Не удалось вернуть заметку из архива. Можно восстановить текст кнопкой ниже.",
+      compareDone: "Готово",
+      choiceMine: "Моя",
+      choiceOther: "Другая",
+      choiceBoth: "Обе",
+      chooseFor: "Что оставить в этом месте",
+      differences: "Отличий: {{count}}",
+      noDifferences: "Текст версий совпадает",
+      sourceView:
+        "версии показаны в исходном виде: Live-режим не может принять одну из них без потерь",
+      notText: "Это не текст: показать нечего",
+      propertiesDifference: "Свойства заметки",
+      identityLocked: "У версий разный идентификатор заметки: остаётся мой",
     },
     vault: {
       title: "Это хранилище",
@@ -4993,6 +5019,20 @@ const en: typeof ru = {
     backlink: "backlink",
     wikiLink: "wiki link",
   },
+  noteNotices: {
+    bulbLabel: "Note notices: {{count}}",
+    bulbTitle: "Note notices",
+    syncConflict: "Another version of this note came from another computer",
+    saveFailedTitle: "The note could not be saved",
+    saveFailedDescription:
+      "The text stays in the editor and in a temporary draft. Check the free space and access to the folder.",
+    saveNow: "Save now",
+    draftTitle: "An unsaved version was found",
+    draftDescription:
+      "It was left after a crash. Until you answer, the note is open for reading only.",
+    draftRestore: "Restore",
+    draftDiscard: "Discard",
+  },
   conflict: {
     deletedTitle: "File was deleted outside Amby",
     deletedBannerTitle: "File deleted",
@@ -6659,6 +6699,18 @@ const en: typeof ru = {
       restore: "Restore",
       restoring: "Restoring…",
       restoreFailed: "The note could not be restored from the archive.",
+      compareDone: "Done",
+      choiceMine: "Mine",
+      choiceOther: "Other",
+      choiceBoth: "Both",
+      chooseFor: "What to keep here",
+      differences: "Differences: {{count}}",
+      noDifferences: "The text of the versions is the same",
+      sourceView:
+        "the versions are shown as source: Live Preview cannot take one of them without loss",
+      notText: "This is not text: nothing to show",
+      propertiesDifference: "Properties of the note",
+      identityLocked: "The versions have different note identifiers: mine stays",
     },
     vault: {
       title: "This vault",

@@ -3,7 +3,6 @@ import i18n from "@/lib/i18n"
 import { discardRecoveryDraft, readRecoveryDraft } from "@/lib/recovery-drafts"
 import { requestSourceRewriteSnapshot } from "../autosave/source-rewrite"
 import {
-  confirmAction,
   createNote,
   getNoteMetadata,
   getNoteProperties,
@@ -25,6 +24,7 @@ import {
   resolveMarkdownRecoveryLoad,
   StaleDocumentLoadError,
 } from "../markdown-recovery-load"
+import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { useDocStore, type Document } from "../use-doc-store"
 import { useTabsStore, type Tab } from "../use-tabs-store"
 import { useVaultStore } from "../use-vault-store"
@@ -206,7 +206,6 @@ export function useDocumentLoading({
           path,
           diskContent: note.content,
           readDraft: (id) => readRecoveryDraft(id, recoveryScope),
-          confirmRestore: () => confirmAction(t("recovery.restorePrompt")),
           isCurrent,
         })
         if (recovery.status === "stale") throw new StaleDocumentLoadError()
@@ -225,17 +224,43 @@ export function useDocumentLoading({
           noteId: fileId,
         }
         setDoc(fileId, document)
-        if (recovery.restored) {
-          // A restored draft may hold blocks the editor rewrote before the crash; the
-          // request made then is gone, so the file it replaces is kept in history.
-          requestSourceRewriteSnapshot(fileId)
-          markUnsaved(fileId)
-          autosave.enqueueImmediate(autosaveKey(fileId), {
-            fileId,
-            path,
-            content: recovery.content,
-            backendGeneration,
-            expectedRevision: note.revision,
+        // A new load starts from a clean slate of notices.
+        useNoteNoticesStore.getState().setSaveFailed(fileId, false)
+        useNoteNoticesStore.getState().clearDraftOffer(fileId)
+        if (recovery.offer !== null) {
+          // A draft that differs from the disk is offered in the notices of the note; the note is read
+          // only until the person answers, and the journal keeps the draft until then.
+          const draft = recovery.offer
+          const clearOffer = () => useNoteNoticesStore.getState().clearDraftOffer(fileId)
+          useNoteNoticesStore.getState().offerDraft(fileId, {
+            accept: () => {
+              clearOffer()
+              const current = useDocStore.getState().openDocs[fileId]
+              if (!current) return
+              // A restored draft may hold blocks the editor rewrote before the crash; the request made
+              // then is gone, so the file it replaces is kept in history.
+              requestSourceRewriteSnapshot(fileId)
+              for (const key of new Set([fileId, path])) {
+                if (useDocStore.getState().openDocs[key]) {
+                  useDocStore.getState().patchDoc(key, { content: draft })
+                }
+              }
+              markUnsaved(fileId)
+              autosave.enqueueImmediate(autosaveKey(fileId), {
+                fileId,
+                path,
+                content: draft,
+                backendGeneration,
+                expectedRevision: current.revision ?? note.revision,
+              })
+            },
+            reject: () => {
+              clearOffer()
+              void Promise.all([
+                discardRecoveryDraft(fileId, recoveryScope),
+                discardRecoveryDraft(path, recoveryScope),
+              ])
+            },
           })
         } else if (recovery.discardDraft) {
           await Promise.all([
@@ -264,7 +289,6 @@ export function useDocumentLoading({
       markUnsaved,
       recoveryScope,
       setDoc,
-      t,
       treeItems,
       vault,
     ],

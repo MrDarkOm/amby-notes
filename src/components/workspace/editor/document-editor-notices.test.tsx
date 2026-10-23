@@ -109,15 +109,15 @@ describe("DocumentEditor notices", () => {
   it("shows nothing and no bulb for a note that has nothing to say", () => {
     render(<DocumentEditor document={note()} />)
     expect(screen.queryByTestId("note-notices-bulb")).toBeNull()
-    expect(rendered.bodies.at(-1)?.isLocked).toBe(false)
+    expect(rendered.bodies[rendered.bodies.length - 1]?.isLocked).toBe(false)
   })
 
   it("keeps the note read only while an unsaved draft waits for an answer", () => {
     render(<DocumentEditor document={note()} />)
-    expect(rendered.bodies.at(-1)?.isLocked).toBe(false)
+    expect(rendered.bodies[rendered.bodies.length - 1]?.isLocked).toBe(false)
     act(() => useNoteNoticesStore.getState().offerDraft(PATH, { accept: vi.fn(), reject: vi.fn() }))
-    expect(rendered.bodies.at(-1)?.isLocked).toBe(true)
+    expect(rendered.bodies[rendered.bodies.length - 1]?.isLocked).toBe(true)
     act(() => useNoteNoticesStore.getState().clearDraftOffer(PATH))
-    expect(rendered.bodies.at(-1)?.isLocked).toBe(false)
+    expect(rendered.bodies[rendered.bodies.length - 1]?.isLocked).toBe(false)
   })
 })

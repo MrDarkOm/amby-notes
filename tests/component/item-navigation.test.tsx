@@ -8,7 +8,8 @@ import { useDocStore } from "@/components/workspace/use-doc-store"
 import { useTabsStore } from "@/components/workspace/use-tabs-store"
 import { useVaultStore } from "@/components/workspace/use-vault-store"
 import { getNoteMetadata, getNoteProperties, readNote } from "@/lib/storage"
-import { readRecoveryDraft } from "@/lib/recovery-drafts"
+import { discardRecoveryDraft, readRecoveryDraft } from "@/lib/recovery-drafts"
+import { useNoteNoticesStore } from "@/components/workspace/note-notices/use-note-notices-store"
 
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
@@ -19,6 +20,7 @@ vi.mock("@/lib/storage", async (importOriginal) => ({
 vi.mock("@/lib/recovery-drafts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/recovery-drafts")>()),
   readRecoveryDraft: vi.fn(),
+  discardRecoveryDraft: vi.fn(async () => {}),
 }))
 
 const note = { content: "Body", source: "Body", revision: "r1" }
@@ -65,8 +67,50 @@ beforeEach(() => {
     customProperties: [],
   })
   vi.mocked(readRecoveryDraft).mockResolvedValue(null)
+  useNoteNoticesStore.setState(useNoteNoticesStore.getInitialState())
 })
 afterEach(cleanup)
+
+describe("an unsaved draft found when a note is opened", () => {
+  const draft = { content: "Draft after a crash", savedAt: 1, documentKind: "markdown" as const }
+
+  it("opens the note as it is on disk and offers the draft in its notices, without a dialog", async () => {
+    vi.mocked(readRecoveryDraft).mockResolvedValue(draft)
+    const { result } = renderHook(() => useDocumentLoading(params()))
+    await act(() => result.current.handleSelect("one"))
+    expect(useDocStore.getState().openDocs.one.content).toBe("Body")
+    expect(useNoteNoticesStore.getState().draftOffers.one).toBeTruthy()
+    expect(useDocStore.getState().unsavedFileIds.has("one")).toBe(false)
+    expect(discardRecoveryDraft).not.toHaveBeenCalled()
+  })
+
+  it("puts the draft into the note and queues a save when the person restores it", async () => {
+    vi.mocked(readRecoveryDraft).mockResolvedValue(draft)
+    const options = params()
+    const enqueue = vi.spyOn(options.autosave, "enqueueImmediate")
+    const { result } = renderHook(() => useDocumentLoading(options))
+    await act(() => result.current.handleSelect("one"))
+    act(() => useNoteNoticesStore.getState().draftOffers.one!.accept())
+    expect(useDocStore.getState().openDocs.one.content).toBe("Draft after a crash")
+    expect(useDocStore.getState().unsavedFileIds.has("one")).toBe(true)
+    expect(useNoteNoticesStore.getState().draftOffers.one).toBeUndefined()
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ documentId: "one" }),
+      expect.objectContaining({ content: "Draft after a crash", expectedRevision: "r1" }),
+    )
+    expect(discardRecoveryDraft).not.toHaveBeenCalled()
+  })
+
+  it("drops the draft from the journal when the person declines it", async () => {
+    vi.mocked(readRecoveryDraft).mockResolvedValue(draft)
+    const { result } = renderHook(() => useDocumentLoading(params()))
+    await act(() => result.current.handleSelect("one"))
+    await act(async () => useNoteNoticesStore.getState().draftOffers.one!.reject())
+    expect(useDocStore.getState().openDocs.one.content).toBe("Body")
+    expect(useNoteNoticesStore.getState().draftOffers.one).toBeUndefined()
+    expect(discardRecoveryDraft).toHaveBeenCalled()
+  })
+})
 
 describe("item navigation", () => {
   it("uses one tab for notes, folders and Canvas, and retains an unsaved note buffer", async () => {
