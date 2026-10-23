@@ -13,6 +13,9 @@ interface SyncNoticesState {
   conflicts: SyncConflict[]
   /** Paths (in the vault) of notes deleted on another computer while they were open. */
   remoteDeleted: string[]
+  /** Paths whose return from the archive failed: the general "deleted" strip is shown again. */
+  restoreFailed: string[]
+  setRestoreFailed: (path: string, failed: boolean) => void
   /** The conflict shown in the comparison, if any. */
   compareId: string | null
   setConflicts: (conflicts: SyncConflict[]) => void
@@ -26,6 +29,12 @@ export const useSyncNoticesStore = create<SyncNoticesState>((set) => ({
   conflicts: [],
   remoteDeleted: [],
   compareId: null,
+  restoreFailed: [],
+  setRestoreFailed: (path, failed) =>
+    set((state) => {
+      const rest = state.restoreFailed.filter((item) => item !== path)
+      return { restoreFailed: failed ? [...rest, path] : rest }
+    }),
   setConflicts: (conflicts) =>
     set((state) => ({
       conflicts,
@@ -38,7 +47,10 @@ export const useSyncNoticesStore = create<SyncNoticesState>((set) => ({
         : { remoteDeleted: [...state.remoteDeleted, path] },
     ),
   clearRemoteDeleted: (path) =>
-    set((state) => ({ remoteDeleted: state.remoteDeleted.filter((item) => item !== path) })),
+    set((state) => ({
+      remoteDeleted: state.remoteDeleted.filter((item) => item !== path),
+      restoreFailed: state.restoreFailed.filter((item) => item !== path),
+    })),
   openCompare: (id) => set({ compareId: id }),
   closeCompare: () => set({ compareId: null }),
 }))
@@ -49,10 +61,10 @@ export function conflictForPath(
   vaultPath: string,
   documentPath: string,
 ): { conflict: SyncConflict; role: ConflictRole } | null {
-  const relative = relativeToVault(documentPath, vaultPath)
+  const relative = relativeToVault(documentPath, vaultPath).normalize("NFC")
   for (const conflict of conflicts) {
-    if (conflict.originalPath === relative) return { conflict, role: "original" }
-    if (conflict.copyPath === relative) return { conflict, role: "copy" }
+    if (conflict.originalPath.normalize("NFC") === relative) return { conflict, role: "original" }
+    if (conflict.copyPath.normalize("NFC") === relative) return { conflict, role: "copy" }
   }
   return null
 }

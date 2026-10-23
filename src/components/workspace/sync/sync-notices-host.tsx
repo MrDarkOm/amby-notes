@@ -79,8 +79,12 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
         const open = Object.values(useDocStore.getState().openDocs)
         for (const path of paths) {
           // Only a note that was open gets a message (Р8): an unopened one just goes to the archive.
-          if (open.some((doc) => relativeToVault(doc.path, root) === path)) {
-            useSyncNoticesStore.getState().markRemoteDeleted(path)
+          if (
+            open.some(
+              (doc) => relativeToVault(doc.path, root).normalize("NFC") === path.normalize("NFC"),
+            )
+          ) {
+            useSyncNoticesStore.getState().markRemoteDeleted(path.normalize("NFC"))
           }
         }
       })
@@ -91,6 +95,23 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
       for (const off of unlisten) off()
     }
   }, [port, vault])
+
+  // A mark goes stale when the note is back (the file reappeared) or its document was closed.
+  React.useEffect(
+    () =>
+      useDocStore.subscribe((state) => {
+        const root = useVaultStore.getState().vault
+        const { remoteDeleted, clearRemoteDeleted } = useSyncNoticesStore.getState()
+        if (!root) return
+        for (const path of remoteDeleted) {
+          const doc = Object.values(state.openDocs).find(
+            (item) => relativeToVault(item.path, root).normalize("NFC") === path,
+          )
+          if (!doc || doc.externallyDeleted === false) clearRemoteDeleted(path)
+        }
+      }),
+    [],
+  )
 
   React.useEffect(() => {
     if (notices.length === 0) return

@@ -7,7 +7,6 @@ import { errorType, logger } from "@/lib/logger"
 import { relativeToVault } from "../editor/document-breadcrumbs-utils"
 import { useVaultStore } from "../use-vault-store"
 import { restoreRemoteDeleted } from "./restore-remote-deleted"
-import { useRemoteDeletedNotice } from "./use-remote-deleted-notice"
 import { conflictForPath, useSyncNoticesStore } from "./use-sync-notices-store"
 
 const STRIP_CLASS =
@@ -25,7 +24,9 @@ export function SyncDocumentBanners({ path }: { path: string }) {
   const vault = useVaultStore((state) => state.vault)
   const conflicts = useSyncNoticesStore((state) => state.conflicts)
   const openCompare = useSyncNoticesStore((state) => state.openCompare)
-  const deleted = useRemoteDeletedNotice(path)
+  const deleted = useSyncNoticesStore((state) =>
+    Boolean(vault && state.remoteDeleted.includes(relativeToVault(path, vault).normalize("NFC"))),
+  )
   const [restoring, setRestoring] = React.useState(false)
   const [restoreFailed, setRestoreFailed] = React.useState(false)
 
@@ -39,7 +40,7 @@ export function SyncDocumentBanners({ path }: { path: string }) {
     setRestoring(true)
     setRestoreFailed(false)
     try {
-      await restoreRemoteDeleted(vault, relativeToVault(path, vault))
+      await restoreRemoteDeleted(vault, relativeToVault(path, vault).normalize("NFC"))
     } catch (error) {
       logger.warn("sync.restore_remote_deleted_failed", { errorType: errorType(error) })
       setRestoreFailed(true)
@@ -51,14 +52,12 @@ export function SyncDocumentBanners({ path }: { path: string }) {
   return (
     <>
       {deleted && (
-        <div role="note" data-testid="sync-remote-deleted-banner" className={STRIP_CLASS}>
+        <div role="alert" data-testid="sync-remote-deleted-banner" className={STRIP_CLASS}>
           <ArchiveRestore className="size-4 shrink-0 text-amber-600 dark:text-amber-300" />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">{t("sync.notices.remoteDeleted")}</p>
             {restoreFailed && (
-              <p role="alert" className="mt-1 text-xs text-destructive">
-                {t("sync.notices.restoreFailed")}
-              </p>
+              <p className="mt-1 text-xs text-destructive">{t("sync.notices.restoreFailed")}</p>
             )}
           </div>
           <Button
@@ -74,7 +73,7 @@ export function SyncDocumentBanners({ path }: { path: string }) {
         </div>
       )}
       {found && (
-        <div role="note" data-testid="sync-conflict-banner" className={STRIP_CLASS}>
+        <div role="status" data-testid="sync-conflict-banner" className={STRIP_CLASS}>
           <AlertTriangle className="size-4 shrink-0 text-amber-600 dark:text-amber-300" />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">{t("sync.notices.bannerText")}</p>
