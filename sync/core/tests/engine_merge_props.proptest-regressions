@@ -1,0 +1,15 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 8ed7d64c12dabf14fe4499ac5f77d5feb0c0d70dd3f51d701ede9f3b33d804ed # shrinks to x = ""
+cc 1405eb279a24abba0e4f13a1f245093a8ebbae645cae4bee3be7942299e120ce # shrinks to (base, local, remote) = (["base-0-0\n", "base-1-0\n"], Plan { ops: [None, None], inserts: [None, None, None] }, Plan { ops: [None, None], inserts: [None, None, None] })
+cc 3cbac43c5f8c9950200ca6e1989ef1de5e70d97782119705a38a42853a4f17f0 # shrinks to base = "", local = "", remote = ""
+cc a82371fc9943dc8e2755cd3e5e763600dc441d4847e04a3e84be647a8202fa16 # shrinks to base = "", local = "", remote = ""
+cc 796d632ab79d0107685d309abedf5fc0a8fd66b42cd69050e847b43e42f13a37 # shrinks to base = "", local = "", remote = ""
+cc 823140badee6ac124150f6f73209d2b3e39a011be9382c53d0adcd24b3902b6c # shrinks to base = "", edited = ""
+cc d830677d0c569b871a52e4a02c0713f6daafc58e3fe34cc6a4746337b92b8128 # shrinks to base = "", edited = ""
+cc 987fc07144d9bc736cb30a963151796a3af7f13fe9dc8466a73fd04b7ad1cfd0 # shrinks to (base, local, remote) = (["base-0-0\n", "base-1-0\n"], Plan { ops: [None, None], inserts: [None, None, None] }, Plan { ops: [None, None], inserts: [None, None, None] })
+cc c8ddb68d042a2858b83b09ecb164734eca8143cb120018f8cfe1d6507ce8f5ca # shrinks to (base, local, remote) = (["base-0-0\n", "base-1-0\n"], Plan { ops: [None, None], inserts: [None, None, None] }, Plan { ops: [None, None], inserts: [None, None, None] })
