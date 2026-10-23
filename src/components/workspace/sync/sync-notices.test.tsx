@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // Conflicts of sync made visible (docs/sync-plan.md, Р7, Р8): a badge with a list, a short notice,
-// a strip in the note, a side-by-side comparison, and the warning about a note deleted on another
+// a card in the note, a side-by-side comparison, and the warning about a note deleted on another
 // computer that was open at that moment. Behaviour only; how it looks is checked in a native window.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
@@ -16,7 +16,7 @@ import {
   emitVaultStatus,
   vaultStatus,
 } from "./fake-sync-port"
-import { SyncDocumentBanners } from "./sync-document-banners"
+import { NoteNotices } from "../note-notices/note-notices"
 import { SyncNoticesHost } from "./sync-notices-host"
 import { useSyncNoticesStore } from "./use-sync-notices-store"
 
@@ -37,6 +37,9 @@ const conflict = {
   createdMs: 1_760_000_000_000,
 }
 
+/** The notices of the note at `path`, as the editor wears them. */
+const notes = (path: string) => <NoteNotices document={{ id: path, path }} warningKey={null} />
+
 const doc = (path: string): Document => ({
   id: path,
   title: "идея",
@@ -49,7 +52,13 @@ const doc = (path: string): Document => ({
 })
 
 async function mount(status = vaultStatus()) {
-  const port = createFakePort({ vaultStatus: async () => status })
+  const port = createFakePort({
+    vaultStatus: async () => status,
+    readConflictVersions: async () => ({
+      original: "основная версия",
+      copy: "версия с другого компьютера",
+    }),
+  })
   const view = render(<SyncNoticesHost port={port} />)
   await waitFor(() => expect(port.vaultStatus).toHaveBeenCalled())
   return { port, ...view }
@@ -64,9 +73,6 @@ beforeEach(async () => {
   useVaultStore.setState({ vault: "/vault" })
   useDocStore.setState({ openDocs: {}, externalConflicts: {} })
   useSyncNoticesStore.setState(useSyncNoticesStore.getInitialState())
-  vi.mocked(readFile).mockImplementation(async (path: string) =>
-    path.endsWith("-conflict.md") ? "версия с другого компьютера" : "основная версия",
-  )
   vi.mocked(listTrash).mockResolvedValue([])
   vi.mocked(restoreTrash).mockResolvedValue({ changed: [] } as never)
 })
@@ -139,22 +145,22 @@ describe("the notice about a note brought back after a deletion made here", () =
   })
 })
 
-describe("the strip in a note that has a second version", () => {
-  const strip = /У этой заметки есть вторая версия с другого компьютера/
+describe("the card of a note that has a second version", () => {
+  const strip = /Пришла другая версия заметки с другого компьютера/
 
   it("is shown in the main file and in the copy, and not in another note", async () => {
     await mount(vaultStatus({ conflicts: [conflict] }))
-    const { rerender } = render(<SyncDocumentBanners path={`/vault/${ORIGINAL}`} />)
+    const { rerender } = render(notes(`/vault/${ORIGINAL}`))
     expect(await screen.findByText(strip)).toBeTruthy()
-    rerender(<SyncDocumentBanners path={`/vault/${COPY}`} />)
+    rerender(notes(`/vault/${COPY}`))
     expect(await screen.findByText(strip)).toBeTruthy()
-    rerender(<SyncDocumentBanners path="/vault/Заметки/другая.md" />)
+    rerender(notes("/vault/Заметки/другая.md"))
     expect(screen.queryByText(strip)).toBeNull()
   })
 
   it("goes away when the conflict is resolved", async () => {
     await mount(vaultStatus({ conflicts: [conflict] }))
-    render(<SyncDocumentBanners path={`/vault/${ORIGINAL}`} />)
+    render(notes(`/vault/${ORIGINAL}`))
     await screen.findByText(strip)
     await pushStatus(vaultStatus({ conflicts: [] }))
     await waitFor(() => expect(screen.queryByText(strip)).toBeNull())
@@ -164,18 +170,18 @@ describe("the strip in a note that has a second version", () => {
 describe("the comparison of the two versions", () => {
   async function openFromStrip() {
     const view = await mount(vaultStatus({ conflicts: [conflict] }))
-    render(<SyncDocumentBanners path={`/vault/${COPY}`} />)
+    render(notes(`/vault/${COPY}`))
     fireEvent.click(await screen.findByRole("button", { name: "Сравнить" }))
     const dialog = await screen.findByRole("dialog")
     return { ...view, dialog }
   }
 
-  it("opens from the strip and shows both versions side by side", async () => {
-    const { dialog } = await openFromStrip()
+  it("opens from the card and shows both versions side by side, read through the port", async () => {
+    const { port, dialog } = await openFromStrip()
     await waitFor(() => expect(within(dialog).getByText("основная версия")).toBeTruthy())
     expect(within(dialog).getByText("версия с другого компьютера")).toBeTruthy()
-    expect(vi.mocked(readFile)).toHaveBeenCalledWith(`/vault/${ORIGINAL}`)
-    expect(vi.mocked(readFile)).toHaveBeenCalledWith(`/vault/${COPY}`)
+    expect(port.readConflictVersions).toHaveBeenCalledWith("0123456789ab")
+    expect(vi.mocked(readFile)).not.toHaveBeenCalled()
   })
 
   it("opens from the list too", async () => {
@@ -208,7 +214,7 @@ describe("a note deleted on another computer", () => {
   it("is announced when that note is open, with a way back", async () => {
     useDocStore.setState({ openDocs: { a: doc(`/vault/${ORIGINAL}`) } })
     await mount()
-    render(<SyncDocumentBanners path={`/vault/${ORIGINAL}`} />)
+    render(notes(`/vault/${ORIGINAL}`))
     expect(screen.queryByText(message)).toBeNull()
     await act(async () => emitRemoteDeleted([ORIGINAL]))
     expect(await screen.findByText(message)).toBeTruthy()
@@ -219,7 +225,7 @@ describe("a note deleted on another computer", () => {
     // a late event of the previous vault must not mark the note of the same name in this one
     useDocStore.setState({ openDocs: { a: doc(`/vault/${ORIGINAL}`) } })
     await mount()
-    render(<SyncDocumentBanners path={`/vault/${ORIGINAL}`} />)
+    render(notes(`/vault/${ORIGINAL}`))
     await act(async () => emitRemoteDeleted([ORIGINAL], "/old-vault"))
     expect(screen.queryByText(message)).toBeNull()
     expect(useSyncNoticesStore.getState().remoteDeleted).toEqual([])
@@ -229,7 +235,7 @@ describe("a note deleted on another computer", () => {
   it("says nothing when the note was not open", async () => {
     useDocStore.setState({ openDocs: { a: doc("/vault/Заметки/другая.md") } })
     await mount()
-    render(<SyncDocumentBanners path={`/vault/${ORIGINAL}`} />)
+    render(notes(`/vault/${ORIGINAL}`))
     await act(async () => emitRemoteDeleted([ORIGINAL]))
     expect(screen.queryByText(message)).toBeNull()
     expect(screen.queryByRole("status")).toBeNull()
@@ -243,7 +249,7 @@ describe("a note deleted on another computer", () => {
       { id: "t1", originalPath: `/vault/${ORIGINAL}`, deletedAtMs: 2, name: "идея" },
     ])
     await mount()
-    render(<SyncDocumentBanners path={`/vault/${ORIGINAL}`} />)
+    render(notes(`/vault/${ORIGINAL}`))
     await act(async () => emitRemoteDeleted([ORIGINAL]))
     fireEvent.click(await screen.findByRole("button", { name: "Вернуть" }))
     await waitFor(() => expect(restoreTrash).toHaveBeenCalledWith("t1"))
@@ -253,7 +259,7 @@ describe("a note deleted on another computer", () => {
   it("keeps the message and shows an error when the archive does not have it", async () => {
     useDocStore.setState({ openDocs: { a: doc(`/vault/${ORIGINAL}`) } })
     await mount()
-    render(<SyncDocumentBanners path={`/vault/${ORIGINAL}`} />)
+    render(notes(`/vault/${ORIGINAL}`))
     await act(async () => emitRemoteDeleted([ORIGINAL]))
     fireEvent.click(await screen.findByRole("button", { name: "Вернуть" }))
     expect(await screen.findByRole("alert")).toBeTruthy()

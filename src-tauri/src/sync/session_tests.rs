@@ -365,6 +365,85 @@ fn an_unknown_conflict_is_not_found() {
     sa.stop();
 }
 
+#[test]
+fn the_two_versions_of_a_conflict_can_be_read_from_the_file_and_its_copy() {
+    // Э4б, К3/К4: the comparison reads both versions through the session, not by path
+    let env = Env::new();
+    let (_a, _b, sa, sb, id) = conflict_between_two(&env);
+    let versions = sb.read_conflict_versions(&id).unwrap();
+    assert_eq!(versions.original.as_deref(), Some("mine on a"));
+    assert_eq!(versions.copy.as_deref(), Some("theirs on b"));
+    sa.stop();
+    sb.stop();
+}
+
+#[test]
+fn a_version_that_is_not_text_is_not_returned_as_text() {
+    let env = Env::new();
+    let (a, b) = (TempVault::new("a"), TempVault::new("b"));
+    a.put("pic.bin", b"base");
+    let (sa, _) = env.start(&a, &env.account);
+    let (sb, _) = env.start(&b, &env.another_computer("B"));
+    settle(&sa, &sb);
+    a.put("pic.bin", &[0xff, 0xfe, 0x00, 0x80]);
+    b.put("pic.bin", b"text on b");
+    pass(&sa);
+    let id = pass(&sb).conflicts[0].id.clone();
+    let versions = sb.read_conflict_versions(&id).unwrap();
+    assert_eq!(versions.original, None, "bytes that are not UTF-8 are not text");
+    assert_eq!(versions.copy.as_deref(), Some("text on b"));
+    sa.stop();
+    sb.stop();
+}
+
+#[test]
+fn resolving_with_a_text_writes_exactly_that_text_and_clears_the_conflict_everywhere() {
+    // К4: the assembled result goes in as given, the replaced version is a snapshot, the copy is trashed
+    let env = Env::new();
+    let (a, b, sa, sb, id) = conflict_between_two(&env);
+    let copy = pass(&sb).conflicts[0].copy_path.clone();
+    let assembled = "\u{feff}line one\r\n\r\nmine and theirs\r\n";
+    sb.resolve_conflict_with_text(&id, assembled).unwrap();
+    let status = pass(&sb);
+    assert!(status.conflicts.is_empty(), "the entry left the list");
+    assert_eq!(b.text("Notes/n.md").as_deref(), Some(assembled), "byte for byte");
+    assert!(!b.exists(&copy));
+    assert!(b.trashed().contains(&copy));
+    assert!(
+        b.snapshots("Notes/n.md")
+            .iter()
+            .any(|(reason, text)| reason == "sync-overwrite" && text == "mine on a"),
+        "{:?}",
+        b.snapshots("Notes/n.md")
+    );
+    settle(&sa, &sb);
+    assert_eq!(a.text("Notes/n.md").as_deref(), Some(assembled));
+    assert!(!a.exists(&copy));
+    assert_eq!(a.files(), b.files());
+    sa.stop();
+    sb.stop();
+}
+
+#[test]
+fn an_unknown_conflict_is_not_found_for_reading_and_for_resolving_with_a_text() {
+    let env = Env::new();
+    let a = TempVault::new("a");
+    a.put("x.md", b"x");
+    let (sa, _) = env.start(&a, &env.account);
+    assert_eq!(
+        sa.read_conflict_versions("000000000000").unwrap_err().code,
+        "conflict_not_found"
+    );
+    assert_eq!(
+        sa.resolve_conflict_with_text("000000000000", "x")
+            .unwrap_err()
+            .code,
+        "conflict_not_found"
+    );
+    assert_eq!(a.text("x.md").as_deref(), Some("x"), "nothing was written");
+    sa.stop();
+}
+
 // ----- Р8: stops and journals -----
 
 #[test]

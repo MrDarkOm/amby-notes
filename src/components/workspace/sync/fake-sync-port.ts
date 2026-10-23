@@ -200,6 +200,11 @@ export function createFakePort(overrides: Partial<SyncPort> = {}): FakePort {
     runNow: async () => {},
     approve: async () => {},
     resolveConflict: async () => {},
+    readConflictVersions: async () => ({
+      original: "основная версия",
+      copy: "версия с другого компьютера",
+    }),
+    resolveConflictWithText: async () => {},
     onVaultStatus: async (listener) => {
       vaultListeners.add(listener)
       return () => {
