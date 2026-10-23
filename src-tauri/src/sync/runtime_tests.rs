@@ -289,7 +289,8 @@ fn without_a_signed_in_device_nothing_works_and_says_why() {
 fn opening_a_switched_on_vault_resumes_it_and_opening_another_stops_the_first() {
     // Р10: the switch lives in the vault; one session at a time
     let env = Env::new();
-    let pc = computer(&env, &env.another_computer("This Mac"));
+    let device = env.another_computer("This Mac");
+    let pc = computer(&env, &device);
     let (one, two) = (TempVault::new("one"), TempVault::new("two"));
     one.put("n.md", b"n");
     run(
@@ -301,8 +302,8 @@ fn opening_a_switched_on_vault_resumes_it_and_opening_another_stops_the_first() 
     pc.runtime.deactivate_vault();
     assert_eq!(pc.runtime.status().phase, SyncPhase::Off);
 
-    // The application restarts: a new runtime finds the switch in the vault.
-    let after_restart = computer(&env, &env.another_computer("This Mac again"));
+    // The application restarts (the same device): a new runtime finds the switch in the vault.
+    let after_restart = computer(&env, &device);
     let status = run(&env, after_restart.runtime.activate_vault(&one.root)).unwrap();
     assert!(status.enabled && status.linked);
     assert_ne!(status.phase, SyncPhase::Off);
@@ -493,4 +494,60 @@ fn the_application_hears_about_every_change_of_the_status() {
     assert!(phases.contains(&SyncPhase::Running));
     assert!(phases.contains(&SyncPhase::Idle));
     pc.runtime.deactivate_vault();
+}
+
+fn copy_folder(from: &std::path::Path, to: &std::path::Path) {
+    for entry in walkdir::WalkDir::new(from).into_iter().flatten() {
+        let target = to.join(entry.path().strip_prefix(from).unwrap());
+        if entry.file_type().is_dir() {
+            std::fs::create_dir_all(&target).unwrap();
+        } else {
+            std::fs::copy(entry.path(), &target).unwrap();
+        }
+    }
+}
+
+#[test]
+fn a_copied_vault_does_not_carry_the_test_mark_to_another_device() {
+    // Р10, verdict of Opus on E4: a vault copied to another computer is another device's; the mark
+    // of a test vault stays behind with the rest of the link, and the vault is switched on only by
+    // marking it again.
+    let env = Env::new();
+    let first = computer(&env, &env.another_computer("First"));
+    let (original, copy) = (TempVault::new("orig"), TempVault::new("copy"));
+    original.put("n.md", b"n");
+    run(
+        &env,
+        first
+            .runtime
+            .enable(&original.root, SpaceTarget::New { name: "M".into() }, true),
+    )
+    .unwrap();
+    first.runtime.deactivate_vault();
+    copy_folder(&original.root, &copy.root);
+
+    let second = computer(&env, &env.another_computer("Second"));
+    let status = run(&env, second.runtime.activate_vault(&copy.root)).unwrap();
+    assert!(!status.enabled && !status.test_vault, "{status:?}");
+    let state = SqliteStateStore::open(&copy.root).unwrap();
+    assert_ne!(state.meta(META_TEST_VAULT).unwrap().as_deref(), Some("1"));
+    drop(state);
+
+    let refused = run(
+        &env,
+        second
+            .runtime
+            .enable(&copy.root, SpaceTarget::New { name: "x".into() }, false),
+    )
+    .unwrap_err();
+    assert_eq!(refused.code, "test_vault_required");
+    let marked = run(
+        &env,
+        second
+            .runtime
+            .enable(&copy.root, SpaceTarget::New { name: "x".into() }, true),
+    )
+    .unwrap();
+    assert!(marked.enabled && marked.test_vault);
+    second.runtime.deactivate_vault();
 }
