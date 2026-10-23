@@ -8,6 +8,7 @@ import { isTauri } from "@/lib/storage"
 import type {
   ApprovalKind,
   ConflictChoice,
+  ConflictVersions,
   Result,
   SpaceTarget,
   SpaceView,
@@ -24,6 +25,7 @@ import type {
 export type {
   ApprovalKind,
   ConflictChoice,
+  ConflictVersions,
   DeviceView,
   PasswordCheck,
   PreparedAccountView,
@@ -130,6 +132,18 @@ export interface SyncPort {
   approve(kind: ApprovalKind): Promise<void>
   /** Resolves a conflict of the list. */
   resolveConflict(id: string, choice: ConflictChoice): Promise<void>
+  /**
+   * The two versions of a conflict as text for the comparison; a side is `null` when it cannot be shown
+   * as text. Today they are the file and its copy; where the second version is kept is the engine's business.
+   */
+  readConflictVersions(id: string): Promise<ConflictVersions>
+  /**
+   * Resolves a conflict with a text put together by the comparison: it becomes the file byte for byte
+   * (the replaced version stays in the history) and the conflict is cleared. `stamp` is the one
+   * `readConflictVersions` returned: when either version has changed since, nothing is written and the
+   * answer is `conflict_changed`.
+   */
+  resolveConflictWithText(id: string, text: string, stamp: string): Promise<void>
   /** Calls `listener` whenever the status changes; returns the function that stops it. */
   onVaultStatus(listener: (status: VaultSyncStatus) => void): Promise<() => void>
   /** Calls `listener` with the vault and the paths (in it) of files deleted on another computer. */
@@ -216,6 +230,10 @@ export function createDesktopSyncPort(): SyncPort {
     },
     resolveConflict: async (id, choice) => {
       await call(commands.syncResolveConflict(id, choice))
+    },
+    readConflictVersions: (id) => call(commands.syncReadConflictVersions(id)),
+    resolveConflictWithText: async (id, text, stamp) => {
+      await call(commands.syncResolveConflictWithText(id, text, stamp))
     },
     onVaultStatus: async (listener) => {
       try {
@@ -304,6 +322,8 @@ export const unavailableSyncPort: SyncPort = {
   runNow: unavailable,
   approve: unavailable,
   resolveConflict: unavailable,
+  readConflictVersions: unavailable,
+  resolveConflictWithText: unavailable,
   onVaultStatus: async () => () => {},
   onRemoteDeleted: async () => () => {},
   onRestoredAfterDeletion: async () => () => {},

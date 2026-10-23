@@ -1557,6 +1557,20 @@ const ru = {
     backlink: "обратная ссылка",
     wikiLink: "wiki-ссылка",
   },
+  noteNotices: {
+    bulbLabel: "Уведомления заметки: {{count}}",
+    bulbTitle: "Уведомления заметки",
+    syncConflict: "Пришла другая версия заметки с другого компьютера",
+    saveFailedTitle: "Не удалось сохранить заметку",
+    saveFailedDescription:
+      "Текст остаётся в редакторе и во временном черновике. Проверьте место на диске и доступ к папке.",
+    saveNow: "Сохранить сейчас",
+    draftTitle: "Найдена несохранённая версия",
+    draftDescription:
+      "Она осталась после сбоя. Пока вы не ответите, заметка открыта только для чтения.",
+    draftRestore: "Восстановить",
+    draftDiscard: "Отклонить",
+  },
   conflict: {
     deletedTitle: "Файл был удалён вне Amby",
     deletedBannerTitle: "Файл удалён",
@@ -3201,6 +3215,8 @@ const ru = {
       no_vault_open: "Сначала откройте хранилище.",
       sync_not_running: "Синхронизация этого хранилища сейчас не запущена.",
       conflict_not_found: "Этого конфликта уже нет в списке.",
+      conflict_changed:
+        "Пока вы сравнивали, пришла новая версия. Сравнение обновлено, проверьте выбор.",
       vault_locked: "Это хранилище уже синхронизирует другая копия приложения.",
       state_error: "Не удалось прочитать или записать состояние синхронизации в папке хранилища.",
       state_newer: "Состояние синхронизации записала более новая версия Amby. Обновите приложение.",
@@ -3231,6 +3247,18 @@ const ru = {
       restore: "Вернуть",
       restoring: "Возвращаю…",
       restoreFailed: "Не удалось вернуть заметку из архива. Можно восстановить текст кнопкой ниже.",
+      compareDone: "Готово",
+      choiceMine: "Моя",
+      choiceOther: "Другая",
+      choiceBoth: "Обе",
+      chooseFor: "Что оставить в этом месте",
+      differences: "Отличий: {{count}}",
+      noDifferences: "Текст версий совпадает",
+      sourceView:
+        "версии показаны в исходном виде: Live-режим не может принять одну из них без потерь",
+      notText: "Это не текст: показать нечего",
+      propertiesDifference: "Свойства заметки",
+      identityLocked: "У версий разный идентификатор заметки: остаётся мой",
     },
     vault: {
       title: "Это хранилище",
@@ -4993,6 +5021,20 @@ const en: typeof ru = {
     backlink: "backlink",
     wikiLink: "wiki link",
   },
+  noteNotices: {
+    bulbLabel: "Note notices: {{count}}",
+    bulbTitle: "Note notices",
+    syncConflict: "Another version of this note came from another computer",
+    saveFailedTitle: "The note could not be saved",
+    saveFailedDescription:
+      "The text stays in the editor and in a temporary draft. Check the free space and access to the folder.",
+    saveNow: "Save now",
+    draftTitle: "An unsaved version was found",
+    draftDescription:
+      "It was left after a crash. Until you answer, the note is open for reading only.",
+    draftRestore: "Restore",
+    draftDiscard: "Discard",
+  },
   conflict: {
     deletedTitle: "File was deleted outside Amby",
     deletedBannerTitle: "File deleted",
@@ -6630,6 +6672,8 @@ const en: typeof ru = {
       no_vault_open: "Open a vault first.",
       sync_not_running: "The sync of this vault is not running now.",
       conflict_not_found: "This conflict is no longer in the list.",
+      conflict_changed:
+        "A new version arrived while you were comparing. The comparison was refreshed, check your choices.",
       vault_locked: "Another copy of the app is already synchronising this vault.",
       state_error:
         "The state of synchronisation in the folder of the vault could not be read or written.",
@@ -6659,6 +6703,18 @@ const en: typeof ru = {
       restore: "Restore",
       restoring: "Restoring…",
       restoreFailed: "The note could not be restored from the archive.",
+      compareDone: "Done",
+      choiceMine: "Mine",
+      choiceOther: "Other",
+      choiceBoth: "Both",
+      chooseFor: "What to keep here",
+      differences: "Differences: {{count}}",
+      noDifferences: "The text of the versions is the same",
+      sourceView:
+        "the versions are shown as source: Live Preview cannot take one of them without loss",
+      notText: "This is not text: nothing to show",
+      propertiesDifference: "Properties of the note",
+      identityLocked: "The versions have different note identifiers: mine stays",
     },
     vault: {
       title: "This vault",

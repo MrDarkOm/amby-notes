@@ -20,8 +20,10 @@ Before changing mode admission, read
 does not override the current document's Live admission (`roundTripCheck`: bytes kept without an edit, no block that would lose anything when rewritten). Admission is decided when the note is loaded (`document-editor.tsx` `admission`), never by typing; Live edits do not switch to Source, and only the user's own switch lifts a forced Source. Malformed YAML
 and identity conflicts have separate policies; preserve their source bytes.
 
-The strips from sync ("a second version from another computer", "deleted on another computer, in the archive") come from
-[sync-document-banners.tsx](../sync/sync-document-banners.tsx); the general "file deleted" strip steps aside for the second one.
+Every warning of a note (external change, deleted file, `amby-id`/YAML errors, Live refusal, an unsaved draft, a failed
+save, sync: second version, deleted/returned on another computer) is a card of [NoteNotices](../note-notices/MAP.md) above the
+bottom bar; there are no strips above the note. The editor passes the warning key of `noteEditingPolicy`; the note is read only
+(`effectiveLocked`) while an offer to restore a draft waits for an answer.
 
 Content changes flow into the [save lifecycle](../autosave/MAP.md), not direct I/O.
 Use the existing document buffer for views of the same note. See database

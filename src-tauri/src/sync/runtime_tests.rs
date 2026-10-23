@@ -407,6 +407,20 @@ fn answers_and_conflicts_need_a_running_session() {
             .code,
         "sync_not_running"
     );
+    assert_eq!(
+        pc.runtime
+            .read_conflict_versions("000000000000")
+            .unwrap_err()
+            .code,
+        "sync_not_running"
+    );
+    assert_eq!(
+        pc.runtime
+            .resolve_conflict_with_text("000000000000", "text", "stamp")
+            .unwrap_err()
+            .code,
+        "sync_not_running"
+    );
     assert_eq!(pc.runtime.sync_now().unwrap_err().code, "sync_not_running");
     assert_eq!(pc.runtime.status().phase, SyncPhase::Off);
 }

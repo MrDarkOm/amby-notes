@@ -5,6 +5,7 @@ import { AlertTriangle, X } from "lucide-react"
 import { syncErrorMessage } from "@/lib/sync/sync-errors"
 import { resolveSyncPort, type ConflictChoice, type SyncPort } from "@/lib/sync/sync-port"
 import { relativeToVault } from "../editor/document-breadcrumbs-utils"
+import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import { SyncCompareDialog } from "./sync-compare-dialog"
@@ -26,8 +27,8 @@ function noteName(path: string): string {
 /**
  * Keeps the rest of the application informed about the sync of the open vault (Р7, Р8): the badge
  * with the number of conflicts and their list, the notice about a new conflict, the comparison, and
- * the mark for a note that another computer deleted while it was open. The strips in the notes are
- * [`SyncDocumentBanners`](./sync-document-banners.tsx); both read the same store.
+ * the mark for a note that another computer deleted while it was open. The cards in the notes are
+ * [`NoteNotices`](../note-notices/note-notices.tsx); both read the same store.
  */
 export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
   const { t } = useTranslation()
@@ -48,6 +49,7 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
     // A new vault (or window) starts from its own status.
     seen.current = null
     useSyncNoticesStore.setState({ conflicts: [], remoteDeleted: [], compareId: null })
+    useNoteNoticesStore.setState({ restored: [] })
     let alive = true
     const unlisten: Array<() => void> = []
     const take = (next: SyncConflict[]) => {
@@ -98,7 +100,19 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
       .onRestoredAfterDeletion((paths) => {
         // Said whether or not the note is open: a note that comes back unannounced looks like a bug.
         if (!alive) return
+        const root = useVaultStore.getState().vault
+        const open = Object.values(useDocStore.getState().openDocs)
         for (const path of paths) {
+          // An open note says so in its own notices; the toast is for the notes that are not open.
+          if (
+            root &&
+            open.some(
+              (doc) => relativeToVault(doc.path, root).normalize("NFC") === path.normalize("NFC"),
+            )
+          ) {
+            useNoteNoticesStore.getState().markRestored(path.normalize("NFC"))
+            continue
+          }
           counter.current += 1
           const key = counter.current
           setNotices((list) => [...list, { key, kind: "restored", path: path.normalize("NFC") }])
@@ -119,6 +133,12 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
         const root = useVaultStore.getState().vault
         const { remoteDeleted, clearRemoteDeleted } = useSyncNoticesStore.getState()
         if (!root) return
+        for (const path of useNoteNoticesStore.getState().restored) {
+          const stillOpen = Object.values(state.openDocs).some(
+            (item) => relativeToVault(item.path, root).normalize("NFC") === path,
+          )
+          if (!stillOpen) useNoteNoticesStore.getState().clearRestored(path)
+        }
         for (const path of remoteDeleted) {
           const doc = Object.values(state.openDocs).find(
             (item) => relativeToVault(item.path, root).normalize("NFC") === path,
@@ -217,7 +237,7 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
         )}
       </div>
       {comparing && vault && (
-        <SyncCompareDialog port={port} conflict={comparing} vault={vault} onClose={closeCompare} />
+        <SyncCompareDialog port={port} conflict={comparing} onClose={closeCompare} />
       )}
     </>
   )

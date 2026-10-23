@@ -187,6 +187,8 @@ describe("the desktop sync port: the sync of the open vault", () => {
       syncRunNow: vi.fn(),
       syncApprove: vi.fn(),
       syncResolveConflict: vi.fn(),
+      syncReadConflictVersions: vi.fn(),
+      syncResolveConflictWithText: vi.fn(),
     })
     const c = commands as unknown as Record<string, ReturnType<typeof vi.fn>>
     const port = createDesktopSyncPort()
@@ -215,6 +217,28 @@ describe("the desktop sync port: the sync of the open vault", () => {
     c.syncResolveConflict.mockResolvedValue(ok(null))
     await port.resolveConflict("0123456789ab", "keepCopy")
     expect(c.syncResolveConflict).toHaveBeenCalledWith("0123456789ab", "keepCopy")
+
+    // the comparison (stage Э4б): both versions as text, and the assembled text as the answer
+    c.syncReadConflictVersions.mockResolvedValue(ok({ original: "mine", copy: null, stamp: "s1" }))
+    expect(await port.readConflictVersions("0123456789ab")).toEqual({
+      original: "mine",
+      copy: null,
+      stamp: "s1",
+    })
+    expect(c.syncReadConflictVersions).toHaveBeenCalledWith("0123456789ab")
+
+    c.syncResolveConflictWithText.mockResolvedValue(ok(null))
+    await port.resolveConflictWithText("0123456789ab", "\ufeffa\r\nb", "s1")
+    expect(c.syncResolveConflictWithText).toHaveBeenCalledWith("0123456789ab", "\ufeffa\r\nb", "s1")
+  })
+
+  it("refuses to compare or resolve with a text in the browser build", async () => {
+    await expect(unavailableSyncPort.readConflictVersions("x")).rejects.toMatchObject({
+      code: "unavailable",
+    })
+    await expect(unavailableSyncPort.resolveConflictWithText("x", "t", "s")).rejects.toMatchObject({
+      code: "unavailable",
+    })
   })
 
   it("turns a failed command into a SyncPortError with the machine code", async () => {

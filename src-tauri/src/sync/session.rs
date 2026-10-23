@@ -38,8 +38,8 @@ use crate::sync::state_db::{state_dir, SqliteStateStore, META_DEVICE_ID, META_SP
 use crate::sync::types::SyncError;
 use crate::sync::vault_fs::{FsHooks, VaultFs};
 use crate::sync::vault_types::{
-    ApprovalKind, ConflictChoice, ConflictView, PassSummary, PlannedView, StopView, SyncPhase,
-    UnsyncedView, VaultSyncStatus,
+    ApprovalKind, ConflictChoice, ConflictVersions, ConflictView, PassSummary, PlannedView,
+    StopView, SyncPhase, UnsyncedView, VaultSyncStatus,
 };
 
 /// When passes run (Д19).
@@ -422,6 +422,42 @@ impl SyncSession {
     /// leaves the list, and a pass follows. `conflict_not_found` for an id that is not in the
     /// list.
     pub fn resolve_conflict(&self, id: &str, choice: ConflictChoice) -> Result<(), SyncError> {
+        self.resolve_with(id, None, |files, vault, conflict| {
+            apply_choice(files, vault, conflict, choice)
+        })
+    }
+
+    /// Resolves a conflict with a text put together by the comparison (stage Э4б): the text becomes
+    /// the file, byte for byte; the version it replaces stays in the history; the second version
+    /// goes to the trash of the vault and the entry leaves the list.
+    pub fn resolve_conflict_with_text(
+        &self,
+        id: &str,
+        text: &str,
+        stamp: &str,
+    ) -> Result<(), SyncError> {
+        self.resolve_with(id, Some(stamp), |files, _vault, conflict| {
+            use amby_sync_core::engine::{FsError, SnapshotReason};
+            let mut staged = files.begin_write(&conflict.original_path)?;
+            for chunk in text.as_bytes().chunks(64 * 1024) {
+                if let Err(error) = staged.write(chunk) {
+                    staged.abort();
+                    return Err(error);
+                }
+            }
+            staged.publish(Some(SnapshotReason::SyncOverwrite))?;
+            match files.move_to_trash(&conflict.copy_path, TrashReason::RemoteDeletion) {
+                Ok(()) | Err(FsError::NotFound(_)) => Ok(()),
+                Err(error) => Err(error),
+            }
+        })
+    }
+
+    /// The two versions of a conflict as text, for the comparison. `conflict_not_found` for an id
+    /// that is not in the list.
+    pub fn read_conflict_versions(&self, id: &str) -> Result<ConflictVersions, SyncError> {
+        /// Larger files are not shown side by side; the person chooses a whole version.
+        const LIMIT: u64 = 8 * 1024 * 1024;
         let shared = &self.shared;
         let _work = shared.work.lock().unwrap_or_else(|e| e.into_inner());
         let vault = &shared.config.vault;
@@ -431,10 +467,52 @@ impl SyncSession {
             .into_iter()
             .find(|conflict| conflict.id == id)
             .ok_or_else(|| SyncError::new("conflict_not_found"))?;
+        let text = |relative: &str| {
+            let path = vault.join(relative);
+            if fs::metadata(&path).map_or(true, |meta| meta.len() > LIMIT) {
+                return None;
+            }
+            fs::read(&path)
+                .ok()
+                .and_then(|bytes| String::from_utf8(bytes).ok())
+        };
+        Ok(ConflictVersions {
+            original: text(&conflict.original_path),
+            copy: text(&conflict.copy_path),
+            stamp: conflict_stamp(vault, &conflict),
+        })
+    }
+
+    /// The common part of resolving a conflict: finds it, changes the files with `change`, takes
+    /// the entry out of the list and starts a pass.
+    fn resolve_with(
+        &self,
+        id: &str,
+        expected_stamp: Option<&str>,
+        change: impl FnOnce(
+            &mut VaultFs,
+            &Path,
+            &ConflictRecord,
+        ) -> Result<(), amby_sync_core::engine::FsError>,
+    ) -> Result<(), SyncError> {
+        let shared = &self.shared;
+        let _work = shared.work.lock().unwrap_or_else(|e| e.into_inner());
+        let vault = &shared.config.vault;
+        let mut store = SqliteStateStore::open(vault).map_err(|e| state_error(&e))?;
+        let conflicts = open_conflicts(vault, &mut store).map_err(|e| state_error(&e))?;
+        let conflict = conflicts
+            .into_iter()
+            .find(|conflict| conflict.id == id)
+            .ok_or_else(|| SyncError::new("conflict_not_found"))?;
+        // A text built by the comparison is written only if both files are what the window read
+        // (checked under the lock, at the border of the write).
+        if expected_stamp.is_some_and(|stamp| conflict_stamp(vault, &conflict) != stamp) {
+            return Err(SyncError::new("conflict_changed"));
+        }
 
         let mut files = VaultFs::with_hooks(vault.clone(), shared.config.hooks.clone());
         files.batch_begin();
-        let result = apply_choice(&mut files, vault, &conflict, choice);
+        let result = change(&mut files, vault, &conflict);
         files.batch_end();
         result.map_err(|_| SyncError::new("storage_error"))?;
 
@@ -483,6 +561,26 @@ impl Drop for SyncSession {
             }
         }
     }
+}
+
+/// A fingerprint of the two files of a conflict (their bytes, or size and time for a file too large to
+/// read), so a text built from them can be refused when they have changed.
+fn conflict_stamp(vault: &Path, conflict: &ConflictRecord) -> String {
+    let mut digest = Sha256::new();
+    for relative in [&conflict.original_path, &conflict.copy_path] {
+        let path = vault.join(relative);
+        match fs::metadata(&path) {
+            Err(_) => digest.update(b"missing;"),
+            Ok(meta) if meta.len() > 64 * 1024 * 1024 => {
+                digest.update(format!("large;{};{};", meta.len(), modified_ms(&path)));
+            }
+            Ok(meta) => {
+                digest.update(format!("file;{};", meta.len()));
+                digest.update(fs::read(&path).unwrap_or_default());
+            }
+        }
+    }
+    hex::encode(digest.finalize())
 }
 
 /// Changes the files the way the person chose (Р7).
