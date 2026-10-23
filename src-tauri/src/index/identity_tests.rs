@@ -468,3 +468,62 @@ fn a_conflict_copy_of_synchronisation_never_takes_the_identity_and_never_blocks_
     drop(conn);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn a_conflict_copy_indexed_before_its_file_gives_the_identity_back_at_once() {
+    // Р7, verdict of Opus on E4: the rule holds in every order of arrival. The copy is in the index
+    // first (it was written first), then the file under its real name appears: by the next
+    // incremental update (the watcher's changed paths) the file has the identity and is editable.
+    let root = vault();
+    let id = Ulid::generate().to_string();
+    let copy = format!("---\namby-id: {id}\n---\nThe other version");
+    let original = format!("---\namby-id: {id}\n---\nThe file under its name");
+    fs::write(root.join("Note.0123456789ab-conflict.md"), &copy).unwrap();
+    let conn = open_connection(&root).unwrap();
+    let first = load_vault(&conn, &root).unwrap();
+    assert_eq!(first.notes[0].id, id, "alone, the copy holds the id");
+
+    fs::write(root.join("Note.md"), &original).unwrap();
+    let changed: std::collections::HashSet<PathBuf> = [root.join("Note.md")].into();
+    sync::sync_vault_with_changes(&conn, &root, &changed).unwrap();
+    let read = read_note(&conn, &root, &id).unwrap();
+    assert_eq!(read.content, "The file under its name");
+    assert!(prepare_note_write(&conn, &root, &id, "edited", &read.revision).is_ok());
+    drop(conn);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_file_created_through_a_path_change_beats_an_indexed_conflict_copy() {
+    // The same rule on the other incremental route (a created or moved file, `prepare_path_changes`).
+    let root = vault();
+    let id = Ulid::generate().to_string();
+    fs::write(
+        root.join("Note.0123456789ab-conflict.md"),
+        format!("---\namby-id: {id}\n---\nThe other version"),
+    )
+    .unwrap();
+    let conn = open_connection(&root).unwrap();
+    load_vault(&conn, &root).unwrap();
+    fs::write(
+        root.join("Note.md"),
+        format!("---\namby-id: {id}\n---\nThe file under its name"),
+    )
+    .unwrap();
+    let change = crate::model::PathChange {
+        old_path: String::new(),
+        new_path: root.join("Note.md").to_string_lossy().into_owned(),
+    };
+    let prepared = prepare_path_changes(&conn, &root, &[change]).unwrap();
+    assert_eq!(
+        prepared[0].note_id, id,
+        "the file under its name takes the identity"
+    );
+    apply_prepared_index_updates(&conn, &prepared, &[]).unwrap();
+    load_vault(&conn, &root).unwrap();
+    let read = read_note(&conn, &root, &id).unwrap();
+    assert_eq!(read.content, "The file under its name");
+    assert!(prepare_note_write(&conn, &root, &id, "edited", &read.revision).is_ok());
+    drop(conn);
+    fs::remove_dir_all(root).unwrap();
+}
