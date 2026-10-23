@@ -481,7 +481,13 @@ fn a_conflict_copy_indexed_before_its_file_gives_the_identity_back_at_once() {
     fs::write(root.join("Note.0123456789ab-conflict.md"), &copy).unwrap();
     let conn = open_connection(&root).unwrap();
     let first = load_vault(&conn, &root).unwrap();
-    assert_eq!(first.notes[0].id, id, "alone, the copy holds the id");
+    // Changed 23.10 (decision of the owner, variant a): a copy of a conflict never holds the
+    // identity, not even alone; without its file it has only a path-scoped conflict key.
+    assert!(
+        first.notes[0].id.starts_with("amby-conflict:"),
+        "alone, the copy still does not hold the id: {}",
+        first.notes[0].id
+    );
 
     fs::write(root.join("Note.md"), &original).unwrap();
     let changed: std::collections::HashSet<PathBuf> = [root.join("Note.md")].into();
