@@ -124,8 +124,8 @@ second item on one path (Д71) is a listed conflict (`MoveAct::placed_as`). The 
 run, open questions and the native check: [sync-e4-engine-report.md](../docs/Road/sync-e4-engine-report.md).
 
 Stage Э4б (conflicts v2: the merge of a note and the conflict store; strict order, tests first). The rules are appendix Г of the
-plan (decisions Г1–Г36). Interfaces with `todo!()` bodies and the tests are written; the code comes next, in another session.
-Report with the red run and the open questions for review: [sync-e4b-report.md](../docs/Road/sync-e4b-report.md).
+plan (decisions Г1–Г36). The tests were written first (red run in the report), the code was written against them in another session.
+Report with the red run, the implementation and the open questions: [sync-e4b-report.md](../docs/Road/sync-e4b-report.md).
 
 | File                                                                                         | Owns                                                                                                     |
 | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
@@ -137,6 +137,15 @@ Report with the red run and the open questions for review: [sync-e4b-report.md](
 | [sim/tests/merge_k1.rs](sim/tests/merge_k1.rs), [conflicts_k2.rs](sim/tests/conflicts_k2.rs) | directed scenarios of К1 and К2 against the real engine and the correct mini-engine                      |
 | [core/tests/engine_merge.rs](core/tests/engine_merge.rs) and `engine_merge_props.rs`         | the table of cases and the properties of the merge, bytes included                                       |
 | `core/tests/engine_conflict_set.rs`, `engine_conflict_rules.rs`                              | the layout of a set and the rule of Р4 for `.amby/conflicts/`                                            |
+
+How the engine uses them: `decide.rs` makes the place of the second version (`copy_for`: a set with identifier v2, or the old
+copy beside the file inside `.amby/conflicts/`, Г19), loads nothing itself; `sync.rs` reads the bases of the items that both sides may
+have edited (`load_bases`) before deciding and prunes the bases at the end of every pass (`prune_bases`, Г9); `apply.rs` tries
+`merge_text` when it applies Д29/Д31 (`apply_put`), writes the files of a set in the order of Г23 (`write_copy`, `finish_set`) and keeps a
+base when a file is written from the server or becomes the common version (`keep_base_of_file`, Г8 а, в); `push.rs` keeps the sent bytes as
+the base before the commit leaves (Г8 б). In the application: `state_db.rs` keeps the bases in `.amby/sync/bases/<item>/<hash>`,
+`conflict_store.rs` is the store behind `session.rs` (the list, the two versions, the three resolutions; the comparison and the
+buttons of К3/К4 use it), and `session.rs` tells `SessionHooks::merged_after_edits` once per pass.
 
 The simulation has two new invariants (`Kind::MergeLoss`, `NotMerged`, `ConflictNotStored`, `Marks`; merge episodes in `scenario.rs`) and
 five new broken mini-engines (`MergeDropsLine`, `NeverMerges`, `ConflictCopyInTree`, `MergeWritesMarks`, `MergeWithoutBase`). In the
