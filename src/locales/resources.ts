@@ -3213,6 +3213,7 @@ const ru = {
         "Конфликт синхронизации: у заметки «{{name}}» есть вторая версия с другого компьютера.",
       newConflicts:
         "Новых конфликтов синхронизации: {{count}}. Нажмите на значок, чтобы открыть список.",
+      restoredAfterDeletion: "Заметку «{{name}}» вернули: её правили на другом компьютере.",
       dismiss: "Закрыть",
       compare: "Сравнить",
       bannerText: "У этой заметки есть вторая версия с другого компьютера",
@@ -6640,6 +6641,7 @@ const en: typeof ru = {
       badgeTitle: "Sync conflicts. Click to see the list.",
       newConflict: "Sync conflict: the note “{{name}}” has a second version from another computer.",
       newConflicts: "New sync conflicts: {{count}}. Click the badge to open the list.",
+      restoredAfterDeletion: "The note “{{name}}” came back: it was edited on another computer.",
       dismiss: "Close",
       compare: "Compare",
       bannerText: "This note has a second version from another computer",

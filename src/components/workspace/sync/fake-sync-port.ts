@@ -132,6 +132,13 @@ export function emitRemoteDeleted(paths: string[]): void {
   for (const listener of [...remoteDeletedListeners]) listener(paths)
 }
 
+const restoredListeners = new Set<(paths: string[]) => void>()
+
+/** Tells every listener that notes deleted here came back after another computer's edit. */
+export function emitRestoredAfterDeletion(paths: string[]): void {
+  for (const listener of [...restoredListeners]) listener(paths)
+}
+
 /** How many screens listen now (for "stops listening when closed"). */
 export function vaultListenerCount(): number {
   return vaultListeners.size
@@ -199,6 +206,12 @@ export function createFakePort(overrides: Partial<SyncPort> = {}): FakePort {
       remoteDeletedListeners.add(listener)
       return () => {
         remoteDeletedListeners.delete(listener)
+      }
+    },
+    onRestoredAfterDeletion: async (listener) => {
+      restoredListeners.add(listener)
+      return () => {
+        restoredListeners.delete(listener)
       }
     },
     ...overrides,
