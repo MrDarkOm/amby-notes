@@ -24,6 +24,7 @@ use super::sync::Engine;
 use super::util::{base_eligible, hash_of, is_unmaterialised, FixedRandom};
 
 /// One change on its way to the server.
+#[derive(Clone)]
 struct Out {
     item: ItemId,
     base_version: u64,
@@ -696,7 +697,19 @@ impl Engine {
             }
             // П56-в: the record of what is being sent stays until it goes through.
             Err(RemoteError::Rejected { code: reason, .. }) if reason == code::QUOTA_EXCEEDED => {
-                Ok(ChunkOutcome::NoRoom)
+                // Deletions, renames and folders never need room (Д75). A commit that mixes
+                // them with growth is sent again in two: the first goes through, the second keeps
+                // the record of what is being sent.
+                let (grow, plain): (Vec<Out>, Vec<Out>) = chunk
+                    .iter()
+                    .cloned()
+                    .partition(|out| out.blob.is_some() && !out.header.deleted);
+                if grow.is_empty() || plain.is_empty() {
+                    return Ok(ChunkOutcome::NoRoom);
+                }
+                self.ports.state.apply(&vec![StateOp::SetCommit(None)])?;
+                self.commit_chunk(&plain, report)?;
+                self.commit_chunk(&grow, report)
             }
             Err(error) => Err(error.into()),
         }

@@ -333,11 +333,28 @@ impl Run {
         Ok(())
     }
 
+    /// Passes of both devices with the mass change approved: the reading device saw few passes and
+    /// may meet that guard (Д54); this scenario is about limits, not about it.
+    fn catch_up(&self) {
+        let approving = amby_sync_core::engine::CycleRequest {
+            approvals: amby_sync_core::engine::Approvals {
+                mass_change: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        for _ in 0..3 {
+            for d in 0..2 {
+                let _ = self.world.dev(d).sync_with(&approving);
+            }
+        }
+    }
+
     fn cleanup(&mut self) -> Result<(), Violation> {
         // A device that is behind the cleanup meets a gap in the feed, and a pass after a gap is a
         // full reconcile that believes no deletion (Д58): the file the user deleted comes back.
         // That is the design, not a limit's doing, so the devices catch up before the cleanup.
-        let _ = self.world.settle();
+        self.catch_up();
         self.log("six days pass, the server cleans up");
         let control = self.world.control();
         control.advance(std::time::Duration::from_millis((6 * DAY_MS) as u64));
@@ -369,6 +386,12 @@ impl Run {
         let removed: Vec<&(Vec<u8>, i64, i64, i64)> = history_before
             .iter()
             .filter(|row| !history_after.contains(row))
+            // An item that left the server whole (its deletion aged out, П36) takes its history
+            // with it; that is not an early removal.
+            .filter(|row| {
+                latest_after.iter().any(|(item, _)| *item == row.0)
+                    || history_after.iter().any(|other| other.0 == row.0)
+            })
             .collect();
         let early_max = removed
             .iter()
@@ -488,20 +511,7 @@ impl Run {
         while !self.filler_items.is_empty() {
             self.filler_remove();
         }
-        // The reading device saw few passes and may meet a mass change (Д54): the person says yes,
-        // as this scenario is about limits, not about that guard.
-        let approving = amby_sync_core::engine::CycleRequest {
-            approvals: amby_sync_core::engine::Approvals {
-                mass_change: true,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        for _ in 0..2 {
-            for d in 0..2 {
-                let _ = self.world.dev(d).sync_with(&approving);
-            }
-        }
+        self.catch_up();
         if let Err(error) = self.world.settle() {
             return self.fail(Kind::LimitNotConverged, error);
         }
