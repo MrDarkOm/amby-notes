@@ -465,7 +465,7 @@ export function SettingsDialog({
               {saveError}
             </p>
           )}
-          {navItems.map(({ id, labelKey, icon: Icon }) => (
+          {SETTINGS_NAV.map(({ id, labelKey, icon: Icon }) => (
             <TabsTrigger
               key={id}
               value={id}
