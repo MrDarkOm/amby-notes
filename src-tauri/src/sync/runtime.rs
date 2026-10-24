@@ -71,6 +71,13 @@ pub struct SyncRuntime {
     epoch: AtomicU64,
 }
 
+/// The same address, however it was typed: the case of the scheme and host and a trailing slash
+/// do not make another server.
+fn same_server(a: &str, b: &str) -> bool {
+    let clean = |url: &str| url.trim().trim_end_matches('/').to_ascii_lowercase();
+    clean(a) == clean(b)
+}
+
 fn hex_32(text: &str) -> Option<Zeroizing<[u8; 32]>> {
     if text.len() != 64 || !text.is_ascii() {
         return None;
@@ -254,6 +261,17 @@ impl SyncRuntime {
         set(META_ENABLED, if enabled { "1" } else { "0" })
     }
 
+    /// Writes the address of the server into a link that has none (best effort: the link works
+    /// without it, it is only not resumable until it is known).
+    fn learn_server(vault: &Path, server_url: &str) {
+        let Ok(mut store) = SqliteStateStore::open(vault) else {
+            return;
+        };
+        if matches!(store.meta(META_SERVER_URL), Ok(None)) {
+            let _ = store.set_meta(META_SERVER_URL, server_url);
+        }
+    }
+
     fn set_enabled(vault: &Path, enabled: bool) -> Result<(), SyncError> {
         let mut store = SqliteStateStore::open(vault).map_err(|e| state_failure(&e))?;
         store
@@ -267,7 +285,9 @@ impl SyncRuntime {
     /// does not open it). A link that cannot be proved to belong here is a stale one: it is never
     /// followed, whatever it points at.
     fn link_matches(link: &Link, credentials: &Credentials) -> bool {
-        link.server_url.as_deref() == Some(credentials.server_url.as_str())
+        link.server_url
+            .as_deref()
+            .is_some_and(|url| same_server(url, &credentials.server_url))
             && link.kept_key.as_ref().is_some_and(|(epoch, wrapped)| {
                 space::unwrap_kept_key(&credentials.account_key, link.space_id, *epoch, wrapped)
                     .is_ok()
@@ -549,6 +569,11 @@ impl SyncRuntime {
                 ));
             }
         };
+        // A link made before the address was kept: the space opened on this server with this
+        // account's key, so it belongs here. An address that is already kept is never changed.
+        if link.server_url.is_none() {
+            Self::learn_server(&vault, &credentials.server_url);
+        }
         match self.start_session(&vault, credentials, space, link.test_vault, token) {
             Ok(status) => Ok(status),
             Err(error) => {
