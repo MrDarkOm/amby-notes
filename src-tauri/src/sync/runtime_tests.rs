@@ -800,3 +800,87 @@ fn resuming_on_another_device_needs_the_test_mark_again_and_starts_nothing_witho
     assert_eq!(on.space_id.as_deref(), Some(space.as_str()));
     again.runtime.deactivate_vault();
 }
+
+#[test]
+fn a_legacy_enabled_link_learns_its_server_when_it_starts_and_is_then_resumable() {
+    // Links made before the address was kept: starting proves the space opens here.
+    let env = Env::new();
+    let pc = computer(&env, &env.another_computer("This Mac"));
+    let vault = TempVault::new("legacy-enabled");
+    vault.put("n.md", b"n");
+    let on = run(
+        &env,
+        pc.runtime
+            .enable(&vault.root, SpaceTarget::New { name: "Old".into() }, true),
+    )
+    .unwrap();
+    pc.runtime.deactivate_vault();
+    SqliteStateStore::open(&vault.root)
+        .unwrap()
+        .remove_meta(META_SERVER_URL)
+        .unwrap();
+
+    let started = run(&env, pc.runtime.activate_vault(&vault.root)).unwrap();
+    assert!(started.enabled, "{started:?}");
+    assert_eq!(
+        meta(&vault, META_SERVER_URL).as_deref(),
+        Some(env.target.api.base())
+    );
+    let off = pc.runtime.disable().unwrap();
+    assert!(off.resumable, "{off:?}");
+    assert_eq!(off.space_id, on.space_id);
+    pc.runtime.deactivate_vault();
+}
+
+#[test]
+fn a_legacy_link_that_does_not_open_keeps_no_server_and_an_other_url_is_never_overwritten() {
+    let env = Env::new();
+    let pc = computer(&env, &env.another_computer("This Mac"));
+    let vault = TempVault::new("legacy-failing");
+    vault.put("n.md", b"n");
+    // No kept key and a space the server does not have: it cannot be opened.
+    set_meta(&vault, META_SPACE_ID, &hex::encode([9u8; 16]));
+    set_meta(&vault, META_ENABLED, "1");
+    set_meta(&vault, META_TEST_VAULT, "1");
+    let status = run(&env, pc.runtime.activate_vault(&vault.root)).unwrap();
+    assert!(!status.enabled, "{status:?}");
+    assert_eq!(meta(&vault, META_SERVER_URL), None);
+    pc.runtime.deactivate_vault();
+
+    // A link that names another server keeps that name.
+    let (other, _) = linked_and_off(&env, &pc, "other-url-kept", "Old");
+    set_meta(&other, META_SERVER_URL, "http://other-server.example:8080");
+    set_meta(&other, META_ENABLED, "1");
+    run(&env, pc.runtime.activate_vault(&other.root)).unwrap();
+    assert_eq!(
+        meta(&other, META_SERVER_URL).as_deref(),
+        Some("http://other-server.example:8080")
+    );
+    pc.runtime.deactivate_vault();
+}
+
+#[test]
+fn a_retyped_address_does_not_make_a_link_stale() {
+    let env = Env::new();
+    let pc = computer(&env, &env.another_computer("This Mac"));
+    let (vault, space) = linked_and_off(&env, &pc, "retyped", "Old");
+    for variant in [
+        format!("{}/", env.target.api.base()),
+        env.target.api.base().replacen("http://", "HTTP://", 1),
+    ] {
+        let again = computer(&env, &env.another_computer("Again"));
+        again
+            .connection
+            .save(&ConnectionRecord {
+                server_url: variant.clone(),
+                allow_http: true,
+                username: "u".into(),
+                device_id: "d".into(),
+            })
+            .unwrap();
+        let status = run(&env, again.runtime.activate_vault(&vault.root)).unwrap();
+        assert!(status.resumable, "{variant}: {status:?}");
+        assert_eq!(status.space_id.as_deref(), Some(space.as_str()));
+        again.runtime.deactivate_vault();
+    }
+}
