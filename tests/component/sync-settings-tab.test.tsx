@@ -31,12 +31,12 @@ describe("the Synchronization tab of the settings", () => {
   })
   afterEach(cleanup)
 
-  it("is not there while the module is off", () => {
+  it("is always there, whatever modules are on", () => {
     renderDialog(["files", "tags"])
-    expect(screen.queryByRole("tab", { name: /Синхронизация/ })).toBeNull()
+    expect(screen.getByRole("tab", { name: /Синхронизация/ })).toBeTruthy()
   })
 
-  it("appears when the module is on and opens the connect screen", async () => {
+  it("opens the connect screen and ignores a retired sync module id", async () => {
     renderDialog(["files", "sync"])
     const tab = screen.getByRole("tab", { name: /Синхронизация/ })
     fireEvent.mouseDown(tab)
@@ -45,7 +45,7 @@ describe("the Synchronization tab of the settings", () => {
   })
 
   it("is found by the search of the settings", async () => {
-    renderDialog(["files", "sync"])
+    renderDialog(["files"])
     fireEvent.change(screen.getByPlaceholderText("Найти настройку…"), {
       target: { value: "синхрон" },
     })
