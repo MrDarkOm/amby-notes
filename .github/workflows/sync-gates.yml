@@ -1,0 +1,186 @@
+name: Sync gates
+
+# The two gates before real notes may use encrypted sync (docs/sync-plan.md, Э4 "Ворота перед настоящими
+# заметками"): one mutation-testing run of the sync core and one long simulation run of the engine.
+#
+# Start a run:  git push origin HEAD:gates/run   (add --force when the branch already exists)
+#
+# It is a push to a branch, not workflow_dispatch or schedule: those only work for a workflow on the
+# default branch, and `sync/` reaches `main` only at release. Nothing here runs on other branches.
+# The result is read from the "Gate summary" job (step summary and the `gates-summary` artifact);
+# docs/sync-plan.md says what counts as passed. Hours of Actions time are free (public repository).
+on:
+  push:
+    branches: [gates/run]
+
+permissions:
+  contents: read
+
+# Two pushes to gates/run must not overlap: the second waits (a cancelled run would waste hours).
+concurrency:
+  group: sync-gates
+  cancel-in-progress: false
+
+env:
+  # Keep in sync with the matrices below: the summary job fails when fewer jobs delivered results.
+  MUTANT_SHARDS: 20
+  SIM_JOBS: 20
+  # A simulation job starts SIM_PROCESSES runners (one per CPU of the runner); each runner takes
+  # SIM_SCENARIOS seeds in `quick` mode, then the same seeds in `folders` mode.
+  # Total: SIM_JOBS * SIM_PROCESSES * SIM_SCENARIOS * 2 modes = 64 000 scenarios.
+  SIM_PROCESSES: 4
+  SIM_SCENARIOS: 400
+  CARGO_MUTANTS_VERSION: 27.1.0
+  CARGO_TERM_COLOR: never
+
+jobs:
+  mutants:
+    name: Mutants, shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Set up Rust stable
+        run: rustup toolchain install stable --profile minimal
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2
+        with:
+          tool: cargo-mutants@${{ env.CARGO_MUTANTS_VERSION }}
+      # The tests that kill mutants of the engine are the tests of the core plus the tests of
+      # `amby-sync-sim` (they drive the real engine against a real server). `self_check.rs` is
+      # left out: it tests the mini-engine and the invariants of the simulation, never touches
+      # `amby_sync_core::engine`, and alone takes more time than all the rest together.
+      - name: Leave out the self-check of the simulation
+        run: rm sync/sim/tests/self_check.rs
+      # CARGO_PROFILE_DEV_OPT_LEVEL=2: the sim tests take minutes unoptimised; the dev profile keeps
+      # overflow checks and debug assertions (they matter for arithmetic mutants) and rebuilds
+      # a mutant in seconds, unlike --release.
+      # `--timeout`: cargo-mutants derives it from the baseline, which runs the core tests only
+      # (20 s), so a survivor that runs the sim tests as well would be cut as a false timeout.
+      # Exit codes 2 (missed) and 3 (timeouts) are findings, not failures of the job.
+      - name: Run the shard
+        working-directory: sync
+        env:
+          CARGO_PROFILE_DEV_OPT_LEVEL: 2
+        run: |
+          set +e
+          cargo mutants \
+            --file 'core/src/**/*.rs' \
+            --test-package amby-sync-core --test-package amby-sync-sim \
+            --shard "${{ matrix.shard }}/${MUTANT_SHARDS}" --sharding round-robin \
+            --timeout 600 --build-timeout 1200 \
+            --output "$GITHUB_WORKSPACE/out"
+          code=$?
+          echo "cargo-mutants exit code: $code"
+          [ "$code" -eq 0 ] || [ "$code" -eq 2 ] || [ "$code" -eq 3 ]
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: mutants-${{ matrix.shard }}
+          path: out/mutants.out
+          retention-days: 30
+
+  sim:
+    name: Simulation, job ${{ matrix.job }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    strategy:
+      fail-fast: false
+      matrix:
+        job: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Set up Rust stable
+        run: rustup toolchain install stable --profile minimal
+      - run: cargo build --release --manifest-path sync/Cargo.toml -p amby-sync-simrun
+      # Seeds do not overlap between runners: runner g = job * SIM_PROCESSES + process takes
+      # 1 + g * SIM_SCENARIOS .. (g + 1) * SIM_SCENARIOS in both modes. A failure is reproduced
+      # alone with `cargo run --release --manifest-path sync/Cargo.toml -p amby-sync-simrun -- <seed> 1 <mode>`.
+      # The runner waits for ports through `netstat -p tcp`, which is the macOS spelling; on Linux it
+      # prints nothing and the wait never happens. On Linux the ports are not the bottleneck (about
+      # one connection per scenario), the CPU is (key derivation).
+      - name: Run the scenarios
+        run: |
+          mkdir -p logs
+          pids=()
+          for process in $(seq 0 $(( SIM_PROCESSES - 1 ))); do
+            first=$(( 1 + (${{ matrix.job }} * SIM_PROCESSES + process) * SIM_SCENARIOS ))
+            (
+              failed=0
+              for mode in quick folders; do
+                ./sync/target/release/amby-sync-simrun "$first" "$SIM_SCENARIOS" "$mode" \
+                  > "logs/sim-${mode}-${first}.log" || failed=1
+              done
+              exit $failed
+            ) &
+            pids+=($!)
+          done
+          status=0
+          for pid in "${pids[@]}"; do wait "$pid" || status=1; done
+          cat logs/*.log | grep -E '^(FAIL|PANIC|INFRA)' || true
+          exit $status
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: sim-logs-${{ matrix.job }}
+          path: logs
+          retention-days: 30
+
+  # The broken engines are still caught (plan, раздел 6/7): the simulation must fail each deliberately
+  # broken mini-engine, and pass the correct one, from several starting seeds, not only from seed 1.
+  self-check:
+    name: Broken engines are caught (seeds from ${{ matrix.seed }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [1, 100001, 200001, 300001]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Set up Rust stable
+        run: rustup toolchain install stable --profile minimal
+      - run: cargo test --release --manifest-path sync/Cargo.toml -p amby-sync-sim --test self_check
+        env:
+          AMBY_SIM_SEED: ${{ matrix.seed }}
+
+  summary:
+    name: Gate summary
+    needs: [mutants, sim, self-check]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: mutants-*
+          path: results/mutants
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: sim-logs-*
+          path: results/sim
+      - name: Merge the results
+        run: |
+          mkdir -p summary
+          status=0
+          node scripts/sync-gates-summary.mjs mutants results/mutants "$MUTANT_SHARDS" summary/mutants.md || status=1
+          node scripts/sync-gates-summary.mjs sim results/sim "$(( SIM_JOBS * SIM_PROCESSES * 2 ))" summary/sim.md || status=1
+          {
+            echo "# Sync gates"
+            echo
+            echo "Jobs: mutants ${{ needs.mutants.result }}, simulation ${{ needs.sim.result }}, broken engines ${{ needs.self-check.result }}."
+            echo
+            cat summary/mutants.md
+            echo
+            cat summary/sim.md
+          } | tee summary/summary.md >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: gates-summary
+          path: summary
+          retention-days: 90
