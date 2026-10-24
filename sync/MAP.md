@@ -29,7 +29,9 @@ Commands (see [package.json](../package.json)): `npm run sync:test`, `sync:lint`
 cargo-deny), `sync:conformance:red` (sorts the failures of the stub server by reason),
 `sync:sim:red` (sorts the failures of the stub engine; it was the red run of the tests-first step and is green now), `sync:sim:run -- <first seed> <count> [quick|folders]` (the long run of the random scenarios against the real engine), `sync:conformance:docker` (build the image, run the suite against the container), `sync:req-check` ([script](../scripts/sync-req-check.mjs): every requirement is named
 in a test), `sync:mutants`, `sync:fuzz -- <target>`, `sync:reference:setup`,
-`sync:reference:vectors`. CI: [sync.yml](../.github/workflows/sync.yml).
+`sync:reference:vectors`. CI: [sync.yml](../.github/workflows/sync.yml); the two gates before real notes (sharded mutation
+testing and the long simulation) run from [sync-gates.yml](../.github/workflows/sync-gates.yml) on a push to
+`gates/run`, merged by [sync-gates-summary.mjs](../scripts/sync-gates-summary.mjs).
 
 The exact byte format is appendix "Точный формат v1" of the plan; the Python reference and the Rust
 code must agree with it byte for byte.
