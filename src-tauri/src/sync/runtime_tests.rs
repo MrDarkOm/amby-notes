@@ -5,13 +5,19 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use amby_sync_conformance::client::Account;
+use amby_sync_conformance::client::{enroll, Account};
+use amby_sync_core::crypto::account::{generate_space_key, wrap_space_key};
+use amby_sync_core::crypto::keys::SpaceId;
+use amby_sync_core::crypto::random::OsRandom;
 
 use super::connection::{ConnectionRecord, ConnectionStore};
 use super::runtime::SyncRuntime;
 use super::secrets::{SecretStore, SECRET_ACCOUNT_KEY, SECRET_DEVICE_TOKEN};
 use super::session::Schedule;
-use super::state_db::{state_path, SqliteStateStore, META_ENABLED, META_SPACE_ID, META_TEST_VAULT};
+use super::state_db::{
+    state_path, SqliteStateStore, META_ENABLED, META_KEY_EPOCH, META_SERVER_URL, META_SPACE_ID,
+    META_SPACE_NAME, META_TEST_VAULT, META_WRAPPED_VK,
+};
 use super::test_support::{Env, MemoryConnection, MemorySecrets, Recorder, TempVault};
 use super::vault_types::{SpaceTarget, SyncPhase};
 use crate::model::PathChange;
@@ -564,4 +570,233 @@ fn a_copied_vault_does_not_carry_the_test_mark_to_another_device() {
     .unwrap();
     assert!(marked.enabled && marked.test_vault);
     second.runtime.deactivate_vault();
+}
+
+// ----- resuming a vault that was switched off: only the same server, account and space -----
+
+fn set_meta(vault: &TempVault, key: &str, value: &str) {
+    let mut state = SqliteStateStore::open(&vault.root).unwrap();
+    state.set_meta(key, value).unwrap();
+}
+
+fn meta(vault: &TempVault, key: &str) -> Option<String> {
+    SqliteStateStore::open(&vault.root)
+        .unwrap()
+        .meta(key)
+        .unwrap()
+}
+
+/// A vault switched on with a new space on `pc` and switched off again.
+fn linked_and_off(env: &Env, pc: &Computer, label: &str, name: &str) -> (TempVault, String) {
+    let vault = TempVault::new(label);
+    vault.put("n.md", b"n");
+    let on = run(
+        env,
+        pc.runtime
+            .enable(&vault.root, SpaceTarget::New { name: name.into() }, true),
+    )
+    .unwrap();
+    pc.runtime.disable().unwrap();
+    pc.runtime.deactivate_vault();
+    (vault, on.space_id.unwrap())
+}
+
+#[test]
+fn a_link_of_the_same_server_and_account_can_be_resumed_from_another_device() {
+    let env = Env::new();
+    let pc = computer(&env, &env.another_computer("This Mac"));
+    let (vault, space) = linked_and_off(&env, &pc, "resume-same", "Old");
+
+    // The same account signed in again on this computer: another device, the same link.
+    let again = computer(&env, &env.another_computer("This Mac again"));
+    let status = run(&env, again.runtime.activate_vault(&vault.root)).unwrap();
+    assert!(status.linked && !status.enabled);
+    assert!(status.resumable, "{status:?}");
+    let spaces = server_spaces(&env).len();
+    let on = run(
+        &env,
+        again.runtime.enable(
+            &vault.root,
+            SpaceTarget::New {
+                name: "ignored".into(),
+            },
+            true,
+        ),
+    )
+    .unwrap();
+    assert_eq!(on.space_id.as_deref(), Some(space.as_str()));
+    assert_eq!(server_spaces(&env).len(), spaces, "no new space");
+    again.runtime.deactivate_vault();
+}
+
+#[test]
+fn a_link_made_with_another_account_is_not_resumed_and_the_chosen_space_is_used() {
+    let env = Env::new();
+    let old = computer(&env, &env.another_computer("This Mac"));
+    let (vault, old_space) = linked_and_off(&env, &old, "resume-other-account", "Old");
+
+    // A new account on the same server (the owner created one): its AK cannot open the old key.
+    let other = enroll(&env.target, "another long password for tests");
+    let pc = computer(&env, &other);
+    let status = run(&env, pc.runtime.activate_vault(&vault.root)).unwrap();
+    assert!(status.linked && !status.enabled);
+    assert!(!status.resumable, "{status:?}");
+
+    // The old mark of a test vault does not count for the new account.
+    let refused = run(
+        &env,
+        pc.runtime
+            .enable(&vault.root, SpaceTarget::New { name: "x".into() }, false),
+    )
+    .unwrap_err();
+    assert_eq!(refused.code, "test_vault_required");
+
+    let on = run(
+        &env,
+        pc.runtime.enable(
+            &vault.root,
+            SpaceTarget::New {
+                name: "Fresh".into(),
+            },
+            true,
+        ),
+    )
+    .unwrap();
+    assert!(on.enabled);
+    assert_ne!(on.space_id.as_deref(), Some(old_space.as_str()));
+    assert_eq!(on.space_name.as_deref(), Some("Fresh"));
+    assert_eq!(
+        meta(&vault, META_SPACE_ID).as_deref(),
+        on.space_id.as_deref()
+    );
+    assert_eq!(
+        meta(&vault, META_SERVER_URL).as_deref(),
+        Some(env.target.api.base())
+    );
+    pc.runtime.deactivate_vault();
+}
+
+#[test]
+fn a_link_made_on_another_server_or_without_a_server_is_not_resumable() {
+    let env = Env::new();
+    let pc = computer(&env, &env.another_computer("This Mac"));
+    let (vault, old_space) = linked_and_off(&env, &pc, "resume-other-server", "Old");
+    assert_eq!(
+        meta(&vault, META_SERVER_URL).as_deref(),
+        Some(env.target.api.base())
+    );
+
+    set_meta(&vault, META_SERVER_URL, "http://other-server.example:8080");
+    let status = run(&env, pc.runtime.activate_vault(&vault.root)).unwrap();
+    assert!(status.linked && !status.resumable, "{status:?}");
+    pc.runtime.deactivate_vault();
+
+    // Links made before the address was remembered cannot be proved to belong here either.
+    SqliteStateStore::open(&vault.root)
+        .unwrap()
+        .remove_meta(META_SERVER_URL)
+        .unwrap();
+    let status = run(&env, pc.runtime.activate_vault(&vault.root)).unwrap();
+    assert!(status.linked && !status.resumable, "{status:?}");
+    pc.runtime.deactivate_vault();
+
+    // Nothing was uploaded to the old space by looking; choosing a space makes a new one.
+    let spaces = server_spaces(&env).len();
+    let on = run(
+        &env,
+        pc.runtime.enable(
+            &vault.root,
+            SpaceTarget::New {
+                name: "Here".into(),
+            },
+            true,
+        ),
+    )
+    .unwrap();
+    assert_ne!(on.space_id.as_deref(), Some(old_space.as_str()));
+    assert_eq!(server_spaces(&env).len(), spaces + 1);
+    pc.runtime.deactivate_vault();
+}
+
+#[test]
+fn resuming_a_space_that_is_gone_forgets_the_link_and_changes_nothing() {
+    let env = Env::new();
+    let pc = computer(&env, &env.another_computer("This Mac"));
+    let vault = TempVault::new("resume-gone");
+    vault.put("n.md", b"n");
+
+    // A link to a space this account once had: the key is kept, the server no longer lists it.
+    let gone = SpaceId::from_bytes([7u8; 16]);
+    let vk = generate_space_key(1, &mut OsRandom).unwrap();
+    let wrapped = wrap_space_key(&env.account.ak, &gone, &vk, &mut OsRandom);
+    set_meta(&vault, META_SPACE_ID, &hex::encode(gone.as_bytes()));
+    set_meta(&vault, META_SPACE_NAME, "Gone");
+    set_meta(&vault, META_WRAPPED_VK, &hex::encode(wrapped));
+    set_meta(&vault, META_KEY_EPOCH, "1");
+    set_meta(&vault, META_TEST_VAULT, "1");
+    set_meta(&vault, META_ENABLED, "0");
+    set_meta(&vault, META_SERVER_URL, env.target.api.base());
+
+    let status = run(&env, pc.runtime.activate_vault(&vault.root)).unwrap();
+    assert!(status.resumable, "{status:?}");
+    let spaces = server_spaces(&env).len();
+    let error = run(
+        &env,
+        pc.runtime
+            .enable(&vault.root, SpaceTarget::New { name: "x".into() }, true),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, "space_not_found");
+    assert_eq!(server_spaces(&env).len(), spaces, "nothing was created");
+    let status = pc.runtime.status();
+    assert!(
+        !status.linked && !status.resumable && !status.enabled,
+        "{status:?}"
+    );
+    assert_eq!(meta(&vault, META_SPACE_ID), None, "the stale link is gone");
+
+    // The first-time flow works from here.
+    let on = run(
+        &env,
+        pc.runtime.enable(
+            &vault.root,
+            SpaceTarget::New {
+                name: "Again".into(),
+            },
+            true,
+        ),
+    )
+    .unwrap();
+    assert_eq!(on.space_name.as_deref(), Some("Again"));
+    pc.runtime.deactivate_vault();
+}
+
+#[test]
+fn resuming_on_another_device_needs_the_test_mark_again_and_starts_nothing_without_it() {
+    let env = Env::new();
+    let pc = computer(&env, &env.another_computer("This Mac"));
+    let (vault, space) = linked_and_off(&env, &pc, "resume-mark", "Old");
+    let again = computer(&env, &env.another_computer("This Mac again"));
+    let status = run(&env, again.runtime.activate_vault(&vault.root)).unwrap();
+    assert!(status.resumable && !status.test_vault, "{status:?}");
+
+    let refused = run(
+        &env,
+        again
+            .runtime
+            .enable(&vault.root, SpaceTarget::New { name: "".into() }, false),
+    )
+    .unwrap_err();
+    assert_eq!(refused.code, "test_vault_required");
+    assert_eq!(again.runtime.status().phase, SyncPhase::Off);
+
+    let on = run(
+        &env,
+        again
+            .runtime
+            .enable(&vault.root, SpaceTarget::New { name: "".into() }, true),
+    )
+    .unwrap();
+    assert_eq!(on.space_id.as_deref(), Some(space.as_str()));
+    again.runtime.deactivate_vault();
 }

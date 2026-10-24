@@ -413,6 +413,38 @@ describe("the connect wizard", () => {
       expect(port.prepareAccount).toHaveBeenCalledTimes(1)
     })
 
+    it("lets the person select part of the code, and copies the whole code on a button", async () => {
+      // the code is not "select all": a single group can be selected or double-clicked
+      const writeText = vi.fn(async () => {})
+      Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
+      const port = createFakePort()
+      renderWizard(port)
+      await reachRecoveryStep(port)
+      const code = screen.getByTestId("recovery-code")
+      expect(code.className).not.toMatch(/select-all/)
+      expect(code.className).toMatch(/select-text/)
+      expect(code.textContent).toBe(FAKE_CODE)
+      click("Скопировать")
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith(FAKE_CODE))
+      expect(await screen.findByText("Скопировано")).toBeTruthy()
+    })
+
+    it("says so when the code could not be copied", async () => {
+      Object.defineProperty(navigator, "clipboard", {
+        value: {
+          writeText: async () => {
+            throw new Error("denied")
+          },
+        },
+        configurable: true,
+      })
+      const port = createFakePort()
+      renderWizard(port)
+      await reachRecoveryStep(port)
+      click("Скопировать")
+      expect((await screen.findByRole("alert")).textContent).toMatch(/Не удалось скопировать/)
+    })
+
     it("saves the code to a file and tells where", async () => {
       const port = createFakePort()
       renderWizard(port)
@@ -670,5 +702,53 @@ describe("the connect wizard", () => {
     click("Создать учётную запись")
     await fillCreateForm()
     expect(container.textContent ?? "").not.toContain(STRONG)
+  })
+})
+
+describe("the action rows of the connect wizard", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("ru")
+  })
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
+  const rowOf = () => screen.getByTestId("wizard-actions")
+  const labels = (row: HTMLElement) =>
+    Array.from(row.querySelectorAll("button")).map((b) => b.textContent?.trim())
+
+  it("keeps the server step's actions in one row, the primary one first", () => {
+    renderWizard(createFakePort())
+    expect(labels(rowOf())).toEqual(["Проверить сервер", "Как поднять свой сервер"])
+  })
+
+  it("puts every action of the choice step, Back included, in one row", async () => {
+    const port = createFakePort()
+    renderWizard(port)
+    await chooseServer(port)
+    expect(labels(rowOf())).toEqual(["Создать учётную запись", "Войти", "Забыли пароль?", "Назад"])
+    expect(screen.getAllByTestId("wizard-actions")).toHaveLength(1)
+  })
+
+  it.each([
+    ["Создать учётную запись", "Продолжить"],
+    ["Войти", "Войти"],
+    ["Забыли пароль?", "Восстановить доступ"],
+  ])("puts the primary action before Back on the step '%s'", async (choice, primary) => {
+    const port = createFakePort()
+    renderWizard(port)
+    await chooseServer(port)
+    click(choice)
+    const row = rowOf()
+    expect(labels(row)).toEqual([primary, "Назад"])
+    expect(screen.getAllByTestId("wizard-actions")).toHaveLength(1)
+  })
+
+  it("puts the primary action before Back on the recovery code step", async () => {
+    const port = createFakePort()
+    renderWizard(port)
+    await reachRecoveryStep(port)
+    expect(labels(rowOf())).toEqual(["Подтвердить и подключиться", "Назад"])
   })
 })

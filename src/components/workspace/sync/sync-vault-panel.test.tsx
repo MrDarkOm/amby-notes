@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // The sync of the open vault (docs/sync-plan.md, stage Э4): behaviour only — what the person sees
 // and what the screen asks of the application. How it looks is checked in a native window.
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import i18n from "@/lib/i18n"
 import { KNOWN_SYNC_ERROR_CODES, syncErrorKey } from "@/lib/sync/sync-errors"
@@ -137,11 +137,93 @@ describe("sync of the open vault: switching it on", () => {
   })
 
   it("offers to switch a linked vault on again without choosing a space", async () => {
-    const port = await show(vaultStatus({ enabled: false, phase: "off", linked: true }))
+    const port = await show(
+      vaultStatus({ enabled: false, phase: "off", linked: true, resumable: true }),
+    )
     expect(await screen.findByText(/Синхронизация выключена/)).toBeTruthy()
     expect(screen.queryByLabelText("Название")).toBeNull()
+    // nothing is sent before the person presses the button
+    expect(port.enableVault).not.toHaveBeenCalled()
     click("Включить снова")
     await waitFor(() => expect(port.enableVault).toHaveBeenCalled())
+  })
+})
+
+describe("sync of the open vault: a binding that was switched off", () => {
+  const off = (overrides: Partial<VaultSyncStatus> = {}) =>
+    vaultStatus({ enabled: false, phase: "off", linked: true, resumable: true, ...overrides })
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("ru")
+  })
+  afterEach(cleanup)
+
+  it("shows the first-time choice, not 'switch on again', when the binding is of another server or account", async () => {
+    // the remembered link does not belong to this connection: it must never be resumed
+    const port = await show(off({ resumable: false, testVault: false }))
+    expect(screen.queryByRole("button", { name: "Включить снова" })).toBeNull()
+    expect(await screen.findByRole("radio", { name: /Создать новое/ })).toBeTruthy()
+    expect(screen.getByRole("radio", { name: /Подключить существующее/ })).toBeTruthy()
+    expect(screen.getByTestId("sync-test-vault")).toBeTruthy()
+    expect(button("Включить синхронизацию").hasAttribute("disabled")).toBe(true)
+
+    fireEvent.change(screen.getByLabelText("Название"), { target: { value: "Новое" } })
+    fireEvent.click(screen.getByTestId("sync-test-vault"))
+    click("Включить синхронизацию")
+    await waitFor(() =>
+      expect(port.enableVault).toHaveBeenCalledWith({ kind: "new", name: "Новое" }, true),
+    )
+  })
+
+  it("lets the person connect an existing space from a stale binding", async () => {
+    const port = await show(off({ resumable: false, testVault: false }))
+    fireEvent.click(await screen.findByRole("radio", { name: /Подключить существующее/ }))
+    fireEvent.click(await screen.findByRole("radio", { name: /Рабочее/ }))
+    fireEvent.click(screen.getByTestId("sync-test-vault"))
+    click("Включить синхронизацию")
+    await waitFor(() =>
+      expect(port.enableVault).toHaveBeenCalledWith(
+        { kind: "existing", spaceId: SPACES[0].spaceId },
+        true,
+      ),
+    )
+  })
+
+  it("asks for the test mark on the resume path when the gate is closed and the vault is not marked", async () => {
+    const port = await show(off({ gateClosed: true, testVault: false }))
+    const mark = await screen.findByTestId("sync-test-vault")
+    expect(button("Включить снова").hasAttribute("disabled")).toBe(true)
+    expect(port.enableVault).not.toHaveBeenCalled()
+    fireEvent.click(mark)
+    expect(button("Включить снова").hasAttribute("disabled")).toBe(false)
+    click("Включить снова")
+    await waitFor(() => expect(port.enableVault).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(port.enableVault).mock.calls[0][1]).toBe(true)
+  })
+
+  it("does not ask for the mark when the vault already has it or the gate is open", async () => {
+    await show(off({ gateClosed: true, testVault: true }))
+    expect(screen.queryByTestId("sync-test-vault")).toBeNull()
+    expect(button("Включить снова").hasAttribute("disabled")).toBe(false)
+    cleanup()
+    await show(off({ gateClosed: false, testVault: false }))
+    expect(screen.queryByTestId("sync-test-vault")).toBeNull()
+    expect(button("Включить снова").hasAttribute("disabled")).toBe(false)
+  })
+
+  it("falls back to the first-time choice when resuming finds the space gone", async () => {
+    const port = await show(off({ gateClosed: true, testVault: true }), {
+      enableVault: async () => {
+        // the application forgot the stale link and tells the screen
+        emitVaultStatus({ ...VAULT_OFF, gateClosed: true })
+        throw new SyncPortError("space_not_found")
+      },
+    })
+    click("Включить снова")
+    expect((await screen.findByRole("alert")).textContent).toMatch(/нет такого/i)
+    expect(await screen.findByRole("radio", { name: /Создать новое/ })).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "Включить снова" })).toBeNull()
+    expect(port.enableVault).toHaveBeenCalledTimes(1)
   })
 })
 
