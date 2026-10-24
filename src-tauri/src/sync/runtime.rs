@@ -19,8 +19,8 @@ use crate::sync::secrets::{SecretStore, SECRET_ACCOUNT_KEY, SECRET_DEVICE_TOKEN}
 use crate::sync::session::{Schedule, SessionConfig, SessionHooks, SyncSession};
 use crate::sync::space::{self, LinkedSpace};
 use crate::sync::state_db::{
-    state_path, SqliteStateStore, META_DEVICE_ID, META_ENABLED, META_KEY_EPOCH, META_SPACE_ID,
-    META_SPACE_NAME, META_TEST_VAULT, META_WRAPPED_VK,
+    state_path, SqliteStateStore, META_DEVICE_ID, META_ENABLED, META_KEY_EPOCH, META_SERVER_URL,
+    META_SPACE_ID, META_SPACE_NAME, META_TEST_VAULT, META_WRAPPED_VK,
 };
 use crate::sync::types::SyncError;
 use crate::sync::vault_types::{
@@ -29,6 +29,8 @@ use crate::sync::vault_types::{
 
 /// Who this device is on the server.
 struct Credentials {
+    /// The address of the server as the connection record keeps it.
+    server_url: String,
     client: SyncClient,
     token: DeviceToken,
     account_key: AccountKey,
@@ -37,6 +39,8 @@ struct Credentials {
 
 /// What the state of a vault says about its link.
 struct Link {
+    /// The server the link was made on; `None` for a link made before the address was kept.
+    server_url: Option<String>,
     space_id: [u8; 16],
     space_name: Option<String>,
     test_vault: bool,
@@ -154,6 +158,7 @@ impl SyncRuntime {
             .ok_or_else(|| SyncError::new("not_connected"))?;
         let url = ServerUrl::parse(&record.server_url, record.allow_http)?;
         Ok(Credentials {
+            server_url: record.server_url.clone(),
             client: SyncClient::new(&url)?,
             token: DeviceToken::new(token),
             account_key,
@@ -192,6 +197,7 @@ impl SyncRuntime {
             _ => None,
         };
         Ok(Some(Link {
+            server_url: get(META_SERVER_URL)?,
             space_id,
             space_name: get(META_SPACE_NAME)?,
             test_vault: get(META_TEST_VAULT)?.as_deref() == Some("1"),
@@ -227,17 +233,21 @@ impl SyncRuntime {
 
     fn remember_link(
         vault: &Path,
+        server_url: &str,
         space: &LinkedSpace,
         test_vault: bool,
         enabled: bool,
     ) -> Result<(), SyncError> {
         let mut store = SqliteStateStore::open(vault).map_err(|e| state_failure(&e))?;
+        match &space.name {
+            Some(name) => store.set_meta(META_SPACE_NAME, name),
+            None => store.remove_meta(META_SPACE_NAME),
+        }
+        .map_err(|e| state_failure(&e))?;
         let mut set =
             |key: &str, value: &str| store.set_meta(key, value).map_err(|e| state_failure(&e));
         set(META_SPACE_ID, &hex::encode(space.space_id))?;
-        if let Some(name) = &space.name {
-            set(META_SPACE_NAME, name)?;
-        }
+        set(META_SERVER_URL, server_url)?;
         set(META_WRAPPED_VK, &hex::encode(&space.wrapped_vk))?;
         set(META_KEY_EPOCH, &space.key_epoch.to_string())?;
         set(META_TEST_VAULT, if test_vault { "1" } else { "0" })?;
@@ -251,10 +261,48 @@ impl SyncRuntime {
             .map_err(|e| state_failure(&e))
     }
 
-    /// The status of a vault that is linked but not running.
-    fn resting_status(link: &Link, error_code: Option<&str>) -> VaultSyncStatus {
+    /// Does the link belong to this connection? Only a link made on this very server and with
+    /// this very account may be resumed: the address is the one kept with the link, and the key
+    /// of the space it kept opens with this account's key (an account key of another account
+    /// does not open it). A link that cannot be proved to belong here is a stale one: it is never
+    /// followed, whatever it points at.
+    fn link_matches(link: &Link, credentials: &Credentials) -> bool {
+        link.server_url.as_deref() == Some(credentials.server_url.as_str())
+            && link.kept_key.as_ref().is_some_and(|(epoch, wrapped)| {
+                space::unwrap_kept_key(&credentials.account_key, link.space_id, *epoch, wrapped)
+                    .is_ok()
+            })
+    }
+
+    /// Forgets the link of the vault with a space and everything the engine remembers about it
+    /// (the bases of what was synchronised there). The notes themselves are not touched.
+    fn forget_link(vault: &Path) -> Result<(), SyncError> {
+        let mut store = SqliteStateStore::open(vault).map_err(|e| state_failure(&e))?;
+        store.clear_sync_state().map_err(|e| state_failure(&e))?;
+        for key in [
+            META_SPACE_ID,
+            META_SPACE_NAME,
+            META_WRAPPED_VK,
+            META_KEY_EPOCH,
+            META_TEST_VAULT,
+            META_SERVER_URL,
+        ] {
+            store.remove_meta(key).map_err(|e| state_failure(&e))?;
+        }
+        store
+            .set_meta(META_ENABLED, "0")
+            .map_err(|e| state_failure(&e))
+    }
+
+    /// The status of a vault that is linked but not running; `resumable` when the link belongs
+    /// to the connection of this device (see [`SyncRuntime::link_matches`]).
+    fn resting_status(&self, link: &Link, error_code: Option<&str>) -> VaultSyncStatus {
+        let resumable = self
+            .credentials()
+            .is_ok_and(|credentials| Self::link_matches(link, &credentials));
         VaultSyncStatus {
             linked: true,
+            resumable,
             test_vault: link.test_vault,
             space_id: Some(hex::encode(link.space_id)),
             space_name: link.space_name.clone(),
@@ -352,14 +400,39 @@ impl SyncRuntime {
             }
             (link, _) => link,
         };
-        // The mark of a test vault belongs to the vault: switching on again needs no new mark.
-        let marked = test_vault || link.as_ref().is_some_and(|link| link.test_vault);
+        // Only a link of this server and account is resumed (with its own space, the target is
+        // ignored). Any other link is stale: the person chooses a space as the first time.
+        let resumable = match (&link, &credentials) {
+            (Some(link), Some(credentials)) => Self::link_matches(link, credentials),
+            _ => false,
+        };
+        // The mark of a test vault belongs to the vault and to its link: a resumed link needs no
+        // new mark, a stale one does not lend its mark to another space.
+        let marked = test_vault || (resumable && link.as_ref().is_some_and(|link| link.test_vault));
         gate::check_gate(marked)?;
         let credentials = self.credentials()?;
 
         let space = match &link {
-            Some(link) => self.open_linked(&credentials, link).await?,
-            None => match target {
+            // The server is asked, so a space that is gone is found before anything is sent.
+            Some(link) if resumable => {
+                match space::open_space(
+                    &credentials.client,
+                    &credentials.token,
+                    &credentials.account_key,
+                    link.space_id,
+                )
+                .await
+                {
+                    Ok(space) => space,
+                    Err(error) if error.code == "space_not_found" => {
+                        Self::forget_link(&vault)?;
+                        self.rest(&vault, VaultSyncStatus::off(gate::gate_closed()));
+                        return Err(error);
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            _ => match target {
                 SpaceTarget::New { name } => {
                     let name = if name.trim().is_empty() {
                         space::default_space_name(&vault)
@@ -386,7 +459,11 @@ impl SyncRuntime {
                 }
             },
         };
-        Self::remember_link(&vault, &space, marked, true)?;
+        if link.is_some() && !resumable {
+            // What the engine remembers belongs to the stale link, not to this space.
+            Self::forget_link(&vault)?;
+        }
+        Self::remember_link(&vault, &credentials.server_url, &space, marked, true)?;
         let token = self.next_epoch();
         self.start_session(&vault, credentials, space, marked, token)
     }
@@ -441,23 +518,25 @@ impl SyncRuntime {
         let Some(link) = Self::read_link(&vault)? else {
             return Ok(self.rest_current(&vault, VaultSyncStatus::off(gate::gate_closed()), token));
         };
+        // A link made by another device loses its mark and switch first, so a vault that rests
+        // shows what switching it on will really ask for.
+        let link = match self.credentials() {
+            Ok(credentials) => Self::forget_foreign_marks(&vault, link, &credentials)?,
+            Err(_) => link,
+        };
         if !link.enabled {
-            return Ok(self.rest_current(&vault, Self::resting_status(&link, None), token));
+            return Ok(self.rest_current(&vault, self.resting_status(&link, None), token));
         }
         let credentials = match self.credentials() {
             Ok(credentials) => credentials,
             Err(error) => {
                 return Ok(self.rest_current(
                     &vault,
-                    Self::resting_status(&link, Some(&error.code)),
+                    self.resting_status(&link, Some(&error.code)),
                     token,
                 ));
             }
         };
-        let link = Self::forget_foreign_marks(&vault, link, &credentials)?;
-        if !link.enabled {
-            return Ok(self.rest_current(&vault, Self::resting_status(&link, None), token));
-        }
         let space = match self.open_linked(&credentials, &link).await {
             Ok(space) => space,
             Err(error) => {
@@ -465,18 +544,16 @@ impl SyncRuntime {
                 // waits, the link stays.
                 return Ok(self.rest_current(
                     &vault,
-                    Self::resting_status(&link, Some(&error.code)),
+                    self.resting_status(&link, Some(&error.code)),
                     token,
                 ));
             }
         };
         match self.start_session(&vault, credentials, space, link.test_vault, token) {
             Ok(status) => Ok(status),
-            Err(error) => Ok(self.rest_current(
-                &vault,
-                Self::resting_status(&link, Some(&error.code)),
-                token,
-            )),
+            Err(error) => {
+                Ok(self.rest_current(&vault, self.resting_status(&link, Some(&error.code)), token))
+            }
         }
     }
 
@@ -500,7 +577,7 @@ impl SyncRuntime {
         Self::set_enabled(&vault, false)?;
         let link = Self::read_link(&vault)?;
         let status = match link {
-            Some(link) => Self::resting_status(&link, None),
+            Some(link) => self.resting_status(&link, None),
             None => VaultSyncStatus::off(gate::gate_closed()),
         };
         Ok(self.rest(&vault, status))

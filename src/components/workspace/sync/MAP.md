@@ -23,6 +23,12 @@ shows the verdict; every error is a machine code translated in `sync.errors.*` (
 never shown); the browser build has the `unavailable` port. Keep passwords and codes out of component state
 once they have been used, and out of the DOM text.
 
+A vault that was switched off is resumed ("Switch on again") only when `VaultSyncStatus.resumable`: the link remembers the server address
+and the key of its space, and both must fit the current connection (runtime.rs `link_matches`). Otherwise the panel shows the
+first-time choice (new / existing space, test mark); resuming a space that is gone forgets the stale link. The test mark is asked for on
+the resume path too when the gate is closed. The action rows of the wizard are one row per step (`wizard-actions`): primary first,
+secondary outline, links last.
+
 The window of external changes of the editor ([external-conflict-dialog.tsx](../external-conflict-dialog.tsx)) is tied to an open,
 edited buffer and writes through it, so the comparison of a sync conflict is a window of its own. It reads the two versions
 through the port (`readConflictVersions`; today the file and its copy, later wherever the engine keeps the second version) and

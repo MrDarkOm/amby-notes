@@ -217,7 +217,7 @@ export function ConnectWizard({
   )
 
   const backButton = (to: Step) => (
-    <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => goTo(to)}>
+    <Button type="button" variant="link" size="sm" disabled={busy} onClick={() => goTo(to)}>
       {t("sync.wizard.actions.back")}
     </Button>
   )
@@ -292,13 +292,13 @@ export function ConnectWizard({
           </p>
         )}
         <ErrorLine message={error} />
-        <div className="flex flex-wrap items-center gap-2">
+        <div data-testid="wizard-actions" className="flex flex-wrap items-center gap-2">
           <Button type="submit" size="sm" disabled={busy || url.trim() === ""}>
             {busy ? t("sync.wizard.server.checking") : t("sync.wizard.server.check")}
           </Button>
           <Button
             type="button"
-            variant="ghost"
+            variant="link"
             size="sm"
             onClick={() => void openWebAddressInBrowser(SERVER_GUIDE_URL)}
           >
@@ -316,18 +316,18 @@ export function ConnectWizard({
         <p className="text-[13px]">
           {t("sync.wizard.server.found", { version: server?.serverVersion ?? "" })}
         </p>
-        <div className="flex flex-wrap gap-2">
+        <div data-testid="wizard-actions" className="flex flex-wrap items-center gap-2">
           <Button type="button" size="sm" onClick={() => goTo("create")}>
             {t("sync.wizard.choice.create")}
           </Button>
           <Button type="button" variant="outline" size="sm" onClick={() => goTo("signIn")}>
             {t("sync.wizard.choice.signIn")}
           </Button>
-          <Button type="button" variant="ghost" size="sm" onClick={() => goTo("recover")}>
+          <Button type="button" variant="link" size="sm" onClick={() => goTo("recover")}>
             {t("sync.wizard.choice.forgot")}
           </Button>
+          {backButton("server")}
         </div>
-        {backButton("server")}
       </div>
     )
   }
@@ -365,11 +365,11 @@ export function ConnectWizard({
         />
         {deviceField}
         <ErrorLine message={error} />
-        <div className="flex gap-2">
-          {backButton("choice")}
+        <div data-testid="wizard-actions" className="flex flex-wrap items-center gap-2">
           <Button type="submit" size="sm" disabled={busy || !filled || !passwordValid}>
             {t("sync.wizard.actions.continue")}
           </Button>
+          {backButton("choice")}
         </div>
       </>,
       () => {
@@ -396,11 +396,11 @@ export function ConnectWizard({
         </Field>
         {deviceField}
         <ErrorLine message={error} />
-        <div className="flex gap-2">
-          {backButton("choice")}
+        <div data-testid="wizard-actions" className="flex flex-wrap items-center gap-2">
           <Button type="submit" size="sm" disabled={busy || !filled}>
             {t("sync.wizard.actions.signIn")}
           </Button>
+          {backButton("choice")}
         </div>
       </>,
       () => {
@@ -440,11 +440,11 @@ export function ConnectWizard({
         />
         {deviceField}
         <ErrorLine message={error} />
-        <div className="flex gap-2">
-          {backButton("choice")}
+        <div data-testid="wizard-actions" className="flex flex-wrap items-center gap-2">
           <Button type="submit" size="sm" disabled={busy || !filled || !passwordValid}>
             {t("sync.wizard.actions.recover")}
           </Button>
+          {backButton("choice")}
         </div>
       </>,
       () => {

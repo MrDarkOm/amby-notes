@@ -94,9 +94,17 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
       setStatus(await port.enableVault(chosen, testVault))
     })
 
+  // Only a binding of this server and account is resumed, with its own space (the target is
+  // ignored by the application). Without the mark the closed gate refuses, so it is asked for here.
+  const resumeNeedsMark = gateClosed && !(status?.testVault ?? false)
   const resumeAfterOff = () =>
     act(async () => {
-      setStatus(await port.enableVault({ kind: "new", name: "" }, status?.testVault ?? false))
+      setStatus(
+        await port.enableVault(
+          { kind: "new", name: "" },
+          (status?.testVault ?? false) || testVault,
+        ),
+      )
     })
 
   const disable = () =>
@@ -141,7 +149,7 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
 
   // ----- not switched on -----
   if (!status.enabled) {
-    if (status.linked) {
+    if (status.linked && status.resumable) {
       return (
         <section data-testid="sync-vault" className="space-y-2">
           {header}
@@ -153,8 +161,25 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
               })}
             </p>
           )}
+          {resumeNeedsMark && (
+            <label className="flex items-start gap-2 text-[12px] leading-5">
+              <input
+                type="checkbox"
+                data-testid="sync-test-vault"
+                className="mt-1"
+                checked={testVault}
+                onChange={(event) => setTestVault(event.target.checked)}
+              />
+              {t("sync.vault.testVault")}
+            </label>
+          )}
           {errorLine}
-          <Button type="button" size="sm" disabled={busy} onClick={() => void resumeAfterOff()}>
+          <Button
+            type="button"
+            size="sm"
+            disabled={busy || (resumeNeedsMark && !testVault)}
+            onClick={() => void resumeAfterOff()}
+          >
             {t("sync.vault.resume")}
           </Button>
         </section>

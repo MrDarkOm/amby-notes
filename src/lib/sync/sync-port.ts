@@ -300,6 +300,7 @@ export const unavailableSyncPort: SyncPort = {
   vaultStatus: async () => ({
     enabled: false,
     linked: false,
+    resumable: false,
     testVault: false,
     gateClosed: true,
     spaceId: null,

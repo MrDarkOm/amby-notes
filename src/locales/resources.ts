@@ -3447,6 +3447,9 @@ const ru = {
       warning:
         "Если вы потеряете и пароль, и этот код, данные на сервере не вернёт никто — даже администратор сервера.",
       save: "Сохранить в файл",
+      copy: "Скопировать",
+      copied: "Скопировано",
+      copyFailed: "Не удалось скопировать код. Выделите его и скопируйте вручную.",
       print: "Напечатать",
       saved: "Сохранено: {{path}}",
       confirmPrompt:
@@ -6906,6 +6909,9 @@ const en: typeof ru = {
       warning:
         "If you lose both your password and this code, nobody can bring the data on the server back — not even the server administrator.",
       save: "Save to a file",
+      copy: "Copy",
+      copied: "Copied",
+      copyFailed: "Could not copy the code. Select it and copy it by hand.",
       print: "Print",
       saved: "Saved: {{path}}",
       confirmPrompt:
