@@ -61,6 +61,38 @@ impl Target {
         }))
     }
 
+    /// A fresh server in this process whose data directory starts with the plans file `plans`
+    /// (П51) and with adjusted settings.
+    pub fn in_process_with_plans(plans: &str, adjust: impl FnOnce(&mut Config)) -> Self {
+        Self::from_process(InProcess::start_prepared(
+            |dir| std::fs::write(dir.join("plans.json"), plans).expect("cannot write plans.json"),
+            |config| {
+                config.max_json_bytes = TEST_MAX_JSON_BYTES;
+                config.sse_keepalive_secs = TEST_SSE_KEEPALIVE_SECS;
+                adjust(config);
+            },
+        ))
+    }
+
+    /// An administrator command of appendix Е by its words (П53).
+    pub fn cli(&self, args: &[&str]) -> crate::AdminOutput {
+        self.admin.run(args)
+    }
+
+    /// The same, expecting success.
+    pub fn cli_ok(&self, args: &[&str]) -> crate::AdminOutput {
+        let output = self.admin.run(args);
+        assert_eq!(
+            output.code,
+            0,
+            "`{}` failed (exit {}): {}",
+            args.join(" "),
+            output.code,
+            output.stderr
+        );
+        output
+    }
+
     pub fn from_process(process: InProcess) -> Self {
         let process = Arc::new(process);
         Self {

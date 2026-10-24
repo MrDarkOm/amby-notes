@@ -74,4 +74,14 @@ impl AppState {
             hub,
         })
     }
+
+    /// The start-up check of appendix Е: the plans file is valid (П51) and every pinned user's
+    /// plan is in it (П52). `serve` must call it before it listens; `try_open` itself stays
+    /// lenient, so that `plans check` and `user plan set <name> --default` can run on a state
+    /// whose file has a problem (that is how the problem is cured).
+    ///
+    /// STUB of the red-tests step: `not_implemented`, and `serve` does not call it yet.
+    pub fn check_plans(&self) -> Result<(), crate::plans::PlansError> {
+        unimplemented!("not_implemented: start-up check of the plans")
+    }
 }

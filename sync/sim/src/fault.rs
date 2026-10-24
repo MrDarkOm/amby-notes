@@ -12,9 +12,9 @@ use std::rc::Rc;
 use amby_sync_core::crypto::header::open_header;
 use amby_sync_core::crypto::keys::{BodyId, ItemId, SpaceId, SpaceKey};
 use amby_sync_core::engine::{
-    BlobState, ChangesPage, CommitItem, CommitReply, FsError, Listing, LocalFs, NameRules, Remote,
-    RemoteError, RootState, ServerInfo, StagedWrite, StateError, StateLock, StateStore, StateTx,
-    SyncState, TrashReason,
+    AccountInfo, BlobState, ChangesPage, CommitItem, CommitReply, FsError, Listing, LocalFs,
+    NameRules, Remote, RemoteError, RootState, ServerInfo, StagedWrite, StateError, StateLock,
+    StateStore, StateTx, SyncState, TrashReason,
 };
 
 use crate::vfs::Hash;
@@ -34,8 +34,12 @@ pub enum Port {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RemoteKind {
     Info,
+    /// `GET /v1/account` (appendix Е).
+    Account,
     Changes,
     BlobStart,
+    /// `DELETE …/blobs/{id}` (appendix Е).
+    BlobDelete,
     PutPart(u64),
     Complete,
     Download,
@@ -541,9 +545,26 @@ impl Remote for FaultyRemote {
         self.post(fault, result)
     }
 
-    fn blob_start(&mut self, blob: &BodyId, size: u64) -> Result<BlobState, RemoteError> {
+    fn account(&mut self) -> Result<AccountInfo, RemoteError> {
+        let fault = self.pre("account", RemoteKind::Account, None)?;
+        let result = self.inner.account();
+        self.post(fault, result)
+    }
+
+    fn blob_start(
+        &mut self,
+        blob: &BodyId,
+        size: u64,
+        replaces: Option<&ItemId>,
+    ) -> Result<BlobState, RemoteError> {
         let fault = self.pre("blob_start", RemoteKind::BlobStart, Some(blob))?;
-        let result = self.inner.blob_start(blob, size);
+        let result = self.inner.blob_start(blob, size, replaces);
+        self.post(fault, result)
+    }
+
+    fn blob_delete(&mut self, blob: &BodyId) -> Result<(), RemoteError> {
+        let fault = self.pre("blob_delete", RemoteKind::BlobDelete, Some(blob))?;
+        let result = self.inner.blob_delete(blob);
         self.post(fault, result)
     }
 

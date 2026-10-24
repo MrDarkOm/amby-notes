@@ -461,7 +461,10 @@ impl MiniEngine {
     fn upload(&mut self, bytes: &[u8]) -> Res<BodyId> {
         let body = BodyId::random(&mut *self.ports.rng);
         let sealed = seal_body(&self.config.vk, &body, bytes, &mut *self.ports.rng)?;
-        let state = self.ports.remote.blob_start(&body, sealed.len() as u64)?;
+        let state = self
+            .ports
+            .remote
+            .blob_start(&body, sealed.len() as u64, None)?;
         for (index, part) in sealed.chunks(PART_SIZE as usize).enumerate() {
             if !state.uploaded.contains(&(index as u64)) {
                 self.ports.remote.blob_put_part(&body, index as u64, part)?;
@@ -1659,6 +1662,7 @@ impl SyncEngine for MiniEngine {
             errors: Vec::new(),
             outgoing_paused: false,
             full_reconcile: false,
+            limits: amby_sync_core::engine::PassLimits::unknown(),
         };
         for _ in 0..5 {
             match self.attempt(request, &mut report) {

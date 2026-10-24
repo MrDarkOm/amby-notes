@@ -172,6 +172,12 @@ pub struct WorldOptions {
     /// Settings of an isolated server (limits for tests that need a small one).
     pub max_commit_items: Option<usize>,
     pub max_blob_bytes: Option<u64>,
+    /// The plans file of an isolated server (appendix Е, П51).
+    pub plans: Option<String>,
+    /// The quota of the server for every user (П42, П54).
+    pub quota_bytes: Option<u64>,
+    /// The plan the only account is pinned to at the start (the default of the file otherwise).
+    pub pin_plan: Option<String>,
 }
 
 impl WorldOptions {
@@ -183,7 +189,30 @@ impl WorldOptions {
             seed: 1,
             max_commit_items: None,
             max_blob_bytes: None,
+            plans: None,
+            quota_bytes: None,
+            pin_plan: None,
         }
+    }
+
+    /// A server of its own with this plans file (appendix Е): limits for the engine to meet.
+    pub fn plans(mut self, plans: &str) -> Self {
+        self.isolated = true;
+        self.plans = Some(plans.to_string());
+        self
+    }
+
+    /// The account of the world is pinned to this plan from the start.
+    pub fn pinned(mut self, plan: &str) -> Self {
+        self.pin_plan = Some(plan.to_string());
+        self
+    }
+
+    /// A server of its own with a quota of `n` sealed bytes per user.
+    pub fn quota(mut self, n: u64) -> Self {
+        self.isolated = true;
+        self.quota_bytes = Some(n);
+        self
     }
 
     pub fn isolated(mut self) -> Self {
@@ -288,16 +317,30 @@ impl World {
     pub fn new(builder: EngineBuilder, options: WorldOptions) -> Self {
         assert!(options.devices >= 1 && options.devices <= SHARED_DEVICES);
         let (own, accounts, space) = if options.isolated {
-            let (max_items, max_blob) = (options.max_commit_items, options.max_blob_bytes);
-            let target = Target::in_process_with(move |config| {
+            let (max_items, max_blob, quota) = (
+                options.max_commit_items,
+                options.max_blob_bytes,
+                options.quota_bytes,
+            );
+            let adjust = move |config: &mut amby_sync_server::Config| {
                 if let Some(n) = max_items {
                     config.max_commit_items = n;
                 }
                 if let Some(n) = max_blob {
                     config.max_blob_bytes = n;
                 }
-            });
+                if let Some(n) = quota {
+                    config.quota_bytes_per_user = Some(n);
+                }
+            };
+            let target = match &options.plans {
+                Some(plans) => Target::in_process_with_plans(plans, adjust),
+                None => Target::in_process_with(adjust),
+            };
             let first = enroll(&target, PASSWORD);
+            if let Some(plan) = &options.pin_plan {
+                target.cli_ok(&["user", "plan", "set", &first.username, plan]);
+            }
             let mut accounts = vec![copy_account(&first)];
             for i in 1..options.devices {
                 accounts.push(first.another_device(&format!("device {i}")));
@@ -552,6 +595,40 @@ impl World {
             content,
             body,
         )])
+    }
+
+    // ----- plans and quota (appendix Е) -----
+
+    /// The administrator pins the account of the world to `plan` (`user plan set`); it takes
+    /// effect on the next request, a restart is not needed (П53).
+    pub fn set_plan(&self, plan: &str) {
+        let name = self.accounts[0].username.clone();
+        self.target().cli_ok(&["user", "plan", "set", &name, plan]);
+    }
+
+    /// `GET /v1/account` of the account of the world.
+    pub fn overview(&self) -> serde_json::Value {
+        self.accounts[0].overview()
+    }
+
+    /// The administrator's view of the whole server file for the history checks (rows).
+    pub fn count_rows(&self, table: &str) -> i64 {
+        self.control().sql(|conn| {
+            conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .expect("count")
+        })
+    }
+
+    /// How many requests of this kind device `d` made in its last pass.
+    pub fn remote_calls(&self, d: usize, kind: crate::fault::RemoteKind) -> usize {
+        self.dev(d)
+            .faults
+            .remote_log()
+            .iter()
+            .filter(|call| call.kind == kind)
+            .count()
     }
 
     // ----- the server itself -----

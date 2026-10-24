@@ -229,3 +229,27 @@ fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
     }
     Ok(())
 }
+
+/// What an administrator command printed and the exit code it ended with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CliOutput {
+    /// The exit code of the command line (П38, П53): 0 success, 2 an unknown plan or a bad name,
+    /// 1 anything else.
+    pub code: i32,
+    /// What the command prints on its standard output (`--json` gives one JSON document).
+    pub stdout: String,
+    /// The audit line and the errors (П53): names and plans, never a code, a token or a key.
+    pub stderr: String,
+}
+
+/// Runs the commands of appendix Е (П53) on a running state, as the command line does: `user add
+/// <name> [--plan <plan>] [--json]`, `user list [--json]`, `user plan set <name> <plan>|--default`,
+/// `user plan show <name> [--json]`, `plans list [--json]`, `plans check [<file>]`, `space list
+/// <name> [--json]`, `space remove <name> <space_id> --yes`. `main.rs` hands these to it; the
+/// suite calls it for a server in its own process.
+///
+/// STUB of the red-tests step: the body is `not_implemented`.
+pub fn run_cli(state: &AppState, args: &[&str]) -> CliOutput {
+    let _ = (state, args);
+    unimplemented!("not_implemented: administrator commands of appendix Е")
+}

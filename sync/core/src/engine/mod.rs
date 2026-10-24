@@ -40,13 +40,14 @@ mod util;
 
 pub use model::{
     Approvals, ConflictKind, ConflictRecord, CycleOutcome, CycleReport, CycleRequest, Direction,
-    EngineError, ItemError, ItemErrorKind, ItemRecord, PendingCommit, PendingUpload, PlannedChange,
-    PlannedKind, ReadOnlyItem, RenameHint, StateOp, StateTx, StopReason, SyncState, UnsyncedReason,
-    UnsyncedRecord,
+    EngineError, ItemError, ItemErrorKind, ItemRecord, PassLimits, PendingCommit, PendingUpload,
+    PlannedChange, PlannedKind, ReadOnlyItem, RenameHint, StateOp, StateTx, StopReason, SyncState,
+    UnsyncedReason, UnsyncedRecord,
 };
 pub use ports::{
-    BlobState, ChangeEntry, ChangesPage, Clock, CommitAccepted, CommitItem, CommitReply, FsError,
-    Listing, LocalEntry, LocalFs, LocalKind, NameRules, Remote, RemoteError, RootState, ServerInfo,
-    SnapshotReason, StagedWrite, StateError, StateLock, StateStore, TrashReason, VersionConflict,
+    AccountInfo, BlobState, ChangeEntry, ChangesPage, Clock, CommitAccepted, CommitItem,
+    CommitReply, FsError, LimitSource, Listing, LocalEntry, LocalFs, LocalKind, NameRules, Remote,
+    RemoteError, RootState, ServerInfo, SnapshotReason, StagedWrite, StateError, StateLock,
+    StateStore, TrashReason, VersionConflict,
 };
 pub use sync::{Engine, EngineBuilder, EngineConfig, Ports, SyncEngine};

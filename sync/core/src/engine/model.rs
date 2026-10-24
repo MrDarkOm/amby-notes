@@ -9,7 +9,7 @@ use crate::crypto::header::ItemKind;
 use crate::crypto::keys::{BodyId, ItemId};
 
 use super::names::NameProblem;
-use super::ports::{CommitItem, FsError, RemoteError, StateError};
+use super::ports::{CommitItem, FsError, LimitSource, RemoteError, StateError};
 
 /// The **base** of one item: the last common version of the disk and the server (Д1), plus what
 /// the engine must remember about it.
@@ -98,8 +98,16 @@ pub enum UnsyncedReason {
     Symlink,
     /// The name is not UTF-8.
     NotUtf8,
-    /// The sealed body is larger than the server accepts.
-    TooLarge,
+    /// The sealed body is larger than the plan or the server accepts (Д74): the limit in force
+    /// and where it comes from.
+    TooLarge {
+        /// The largest sealed body, in bytes.
+        max_bytes: u64,
+        /// Plan or server.
+        source: LimitSource,
+    },
+    /// The quota of the user is full: the file is not sent, receiving goes on (Д75).
+    QuotaFull,
     /// The file is larger than this device's memory limit for a file (Д71).
     TooBigForMemory,
     /// An incoming path the rules exclude (`.git/`, temporary files, …).
@@ -118,6 +126,33 @@ pub enum UnsyncedReason {
     /// The system refuses access to the file (permissions, a lock): it is tried again by every
     /// pass and listed meanwhile (Э4).
     NoAccess,
+}
+
+/// The limits a pass worked with, for the interface (Д73, Д78-г). Nothing is kept between passes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PassLimits {
+    /// The largest sealed body (the plan's or the server's, whichever is smaller).
+    pub max_file_bytes: u64,
+    /// Where `max_file_bytes` comes from.
+    pub max_file_source: LimitSource,
+    /// Free sealed bytes of the quota at the end of the pass; `None` when there is no quota or
+    /// the account could not be read.
+    pub free_bytes: Option<u64>,
+    /// Did a file wait because the quota is full (Д75)?
+    pub quota_full: bool,
+}
+
+impl PassLimits {
+    /// "Nothing is known": no limit but the largest number, no quota. The value of a pass that
+    /// has not read the server yet.
+    pub const fn unknown() -> Self {
+        Self {
+            max_file_bytes: u64::MAX,
+            max_file_source: LimitSource::Server,
+            free_bytes: None,
+            quota_full: false,
+        }
+    }
 }
 
 /// One entry of the "not synchronised" list.
@@ -364,6 +399,8 @@ pub struct CycleReport {
     pub outgoing_paused: bool,
     /// The pass was a full reconcile without deletions (Д8, Д58).
     pub full_reconcile: bool,
+    /// The limits of this pass (Д78-г).
+    pub limits: PassLimits,
 }
 
 /// Why a pass could not run to a report.

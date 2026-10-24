@@ -11,11 +11,15 @@ pub mod config;
 mod db;
 mod http;
 pub mod maintenance;
+pub mod plans;
 pub mod state;
 pub mod store;
 
 pub use app::build_app;
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use config::{Config, ConfigError};
-pub use db::DbError;
+pub use db::{DbError, DB_FILE};
 pub use state::AppState;
+
+/// The version of this crate, shown by `GET /v1/info` as `server_version` (П62).
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");

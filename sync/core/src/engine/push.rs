@@ -488,7 +488,7 @@ impl Engine {
         let state = self
             .ports
             .remote
-            .blob_start(&blob_id, sealed.len() as u64)?;
+            .blob_start(&blob_id, sealed.len() as u64, None)?;
         if !state.complete {
             for (index, part) in sealed.chunks(PART_SIZE as usize).enumerate() {
                 if !state.uploaded.contains(&(index as u64)) {

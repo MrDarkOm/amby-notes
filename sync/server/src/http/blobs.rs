@@ -437,3 +437,13 @@ pub(crate) async fn download(
     }
     Ok(response)
 }
+
+/// `DELETE /blobs/{blob_id}` (П56-д): drops an own body that no version refers to. STUB of the
+/// red-tests step: answers `501 not_implemented`.
+pub(crate) async fn delete() -> ApiResult<Response> {
+    Err(ApiError::new(
+        StatusCode::NOT_IMPLEMENTED,
+        code::NOT_IMPLEMENTED,
+        "DELETE of a body is not written yet",
+    ))
+}

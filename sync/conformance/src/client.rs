@@ -262,26 +262,34 @@ impl Account {
         self.api.delete(path, Some(&self.token))
     }
 
+    /// `GET /v1/account` (П61), checked to be 200.
+    pub fn overview(&self) -> Value {
+        self.get("/v1/account").expect(200).json()
+    }
+
     /// Creates a space with a new VK of epoch 1 (П20, Р5).
     pub fn create_space(&self) -> Space {
         self.create_space_named("My vault")
     }
 
-    /// The same with a chosen (encrypted) name.
-    pub fn create_space_named(&self, name: &str) -> Space {
+    /// The body of `POST /v1/spaces` for a new space, and the key of that space (П20).
+    pub fn new_space_request(&self, name: &str) -> (SpaceId, SpaceKey, Value) {
         let id = SpaceId::from_bytes(random16());
         let vk = generate_space_key(1, &mut OsRandom).expect("cannot make a space key");
         let wrapped = wrap_space_key(&self.ak, &id, &vk, &mut OsRandom);
-        self.post(
-            "/v1/spaces",
-            json!({
-                "space_id": hex16(id.as_bytes()),
-                "name_enc": seal_space_name(&self.ak, id.as_bytes(), name),
-                "key_epoch": 1,
-                "wrapped_vk": hex::encode(wrapped),
-            }),
-        )
-        .expect(201);
+        let body = json!({
+            "space_id": hex16(id.as_bytes()),
+            "name_enc": seal_space_name(&self.ak, id.as_bytes(), name),
+            "key_epoch": 1,
+            "wrapped_vk": hex::encode(wrapped),
+        });
+        (id, vk, body)
+    }
+
+    /// The same with a chosen (encrypted) name.
+    pub fn create_space_named(&self, name: &str) -> Space {
+        let (id, vk, body) = self.new_space_request(name);
+        self.post("/v1/spaces", body).expect(201);
         Space {
             api: self.api.clone(),
             token: self.token.clone(),
@@ -408,6 +416,27 @@ impl Space {
         )
     }
 
+    /// `POST …/blobs` with the credit hint `replaces` (П56-б): the item whose body this one
+    /// replaces.
+    pub fn init_blob_replacing(&self, blob: &BodyId, size: u64, replaces: &ItemId) -> Resp {
+        self.post(
+            "/blobs",
+            json!({
+                "blob_id": hex16(blob.as_bytes()),
+                "size": size,
+                "replaces": hex16(replaces.as_bytes()),
+            }),
+        )
+    }
+
+    /// `DELETE …/blobs/{id}` (П56-д).
+    pub fn delete_blob(&self, blob: &BodyId) -> Resp {
+        self.api.delete(
+            &self.path(&format!("/blobs/{}", hex16(blob.as_bytes()))),
+            Some(&self.token),
+        )
+    }
+
     pub fn put_part(&self, blob: &BodyId, part: u64, bytes: Vec<u8>) -> Resp {
         self.api.put_bytes(
             &self.path(&format!("/blobs/{}/parts/{part}", hex16(blob.as_bytes()))),
@@ -500,6 +529,35 @@ impl Space {
             body: Some(*body),
             json,
         }
+    }
+
+    /// A file entry whose body is `len` filler bytes uploaded as they are (the server is blind
+    /// and counts only the size, П42/П55): for the tests of limits and quotas, which need exact
+    /// sizes. The header claims one byte of content.
+    pub fn raw_file(&self, item: &ItemId, base_version: u64, path: &str, len: usize) -> Prepared {
+        let body = new_body();
+        self.upload_sealed(&body, &vec![0x42u8; len]);
+        self.file_with_uploaded_body(item, base_version, path, b"x", &body)
+    }
+
+    /// Like [`Space::raw_file`] for a new version of `item`, asking for the credit of its current
+    /// body with `replaces` (П56-б); the answers are checked.
+    pub fn raw_file_replacing(
+        &self,
+        item: &ItemId,
+        base_version: u64,
+        path: &str,
+        len: usize,
+    ) -> Prepared {
+        let body = new_body();
+        self.init_blob_replacing(&body, len as u64, item)
+            .expect(201);
+        for (index, part) in vec![0x42u8; len].chunks(PART_SIZE as usize).enumerate() {
+            self.put_part(&body, index as u64, part.to_vec())
+                .expect(200);
+        }
+        self.complete_blob(&body).expect(200);
+        self.file_with_uploaded_body(item, base_version, path, b"x", &body)
     }
 
     /// A folder entry: no body (Р2).

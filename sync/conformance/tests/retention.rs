@@ -330,3 +330,345 @@ fn old_attempt_counters_do_not_survive_cleanup_as_a_lock() {
     )
     .expect(200);
 }
+
+// ----- the term fixed at the replacement and the history ceiling (appendix Е: П57-г, П57-д) -----
+
+mod plans {
+    use super::*;
+    use amby_sync_conformance::client::Account;
+    use amby_sync_core::crypto::keys::ItemId;
+    use serde_json::json;
+
+    fn text() -> String {
+        json!({
+            "default_plan": "long",
+            "plans": {
+                "long": {"history_days": 100},
+                "short": {"history_days": 10},
+                "five": {"history_days": 5},
+                "nodays": {"max_total_bytes": 1_000_000},
+                "capped": {"history_days": 30, "max_history_bytes": 5_000},
+                "uncapped": {"history_days": 30}
+            }
+        })
+        .to_string()
+    }
+
+    fn server() -> Target {
+        Target::in_process_with_plans(&text(), |_| {})
+    }
+
+    fn pin(target: &Target, account: &Account, plan: &str) {
+        target.cli_ok(&["user", "plan", "set", &account.username, plan]);
+    }
+
+    fn replace(
+        space: &Space,
+        item: &ItemId,
+        from: u64,
+        len: usize,
+    ) -> amby_sync_core::crypto::keys::BodyId {
+        let next = space.raw_file(item, from, "a.md", len);
+        let body = next.body.unwrap();
+        space.commit_ok(&[next]);
+        body
+    }
+
+    #[test]
+    fn a_replaced_version_keeps_the_term_of_the_plan_of_the_day_it_was_replaced() {
+        // П57-г: v1 was replaced under `long` (100 days); the plan drops to 10 days; v1 still
+        // lives its 100 days, and v2, replaced under the new plan, lives 10.
+        let target = server();
+        let control = in_process_or_skip!(target);
+        let account = enroll(&target, PASSWORD);
+        let space = account.create_space();
+        let item = new_item();
+        let first = space.raw_file(&item, 0, "a.md", 100);
+        let v1 = first.body.unwrap();
+        space.commit_ok(&[first]);
+        replace(&space, &item, 1, 100); // v1 replaced at day 0: kept until day 100
+        pin(&target, &account, "short");
+        days(control, 50);
+        control.run_maintenance();
+        assert_eq!(
+            version_numbers(&space, &item),
+            vec![2, 1],
+            "day 50: v1 is promised until day 100"
+        );
+        replace(&space, &item, 2, 100); // v2 replaced at day 50 under `short`: kept until day 60
+        days(control, 11);
+        control.run_maintenance();
+        assert_eq!(
+            version_numbers(&space, &item),
+            vec![3, 1],
+            "day 61: v2 is gone, v1 is not"
+        );
+        space.download(&v1).expect(200);
+        days(control, 40);
+        control.run_maintenance();
+        assert_eq!(
+            version_numbers(&space, &item),
+            vec![3],
+            "day 101: the promise to v1 is kept and over"
+        );
+        space.download(&v1).expect_error(404, "not_found");
+    }
+
+    #[test]
+    fn raising_the_plan_does_not_prolong_versions_that_are_already_replaced() {
+        // П57-г: a larger plan lengthens the future only.
+        let target = server();
+        let control = in_process_or_skip!(target);
+        let account = enroll(&target, PASSWORD);
+        pin(&target, &account, "short");
+        let space = account.create_space();
+        let item = new_item();
+        space.commit_ok(&[space.raw_file(&item, 0, "a.md", 100)]);
+        replace(&space, &item, 1, 100); // v1: until day 10
+        pin(&target, &account, "long");
+        days(control, 11);
+        control.run_maintenance();
+        assert_eq!(version_numbers(&space, &item), vec![2]);
+    }
+
+    #[test]
+    fn a_deleted_item_waits_the_term_of_the_plan_of_the_day_of_the_deletion() {
+        // П57-г, П36: the deletion commit fixes the term.
+        let target = server();
+        let control = in_process_or_skip!(target);
+        let account = enroll(&target, PASSWORD);
+        let space = account.create_space();
+        let item = new_item();
+        let first = space.raw_file(&item, 0, "a.md", 100);
+        let body = first.body.unwrap();
+        space.commit_ok(&[first]);
+        space.commit_ok(&[space.deletion(&item, 1, "a.md")]); // under `long`: until day 100
+        pin(&target, &account, "short");
+        days(control, 50);
+        control.run_maintenance();
+        assert_eq!(
+            version_numbers(&space, &item),
+            vec![2, 1],
+            "day 50: still restorable"
+        );
+        space.download(&body).expect(200);
+        days(control, 51);
+        control.run_maintenance();
+        space.versions(&item).expect_error(404, "not_found");
+        space.download(&body).expect_error(404, "not_found");
+    }
+
+    #[test]
+    fn a_plan_without_days_falls_back_to_the_setting_of_the_server() {
+        // П50, П54: `nodays` has no `history_days`: the 30 days of the server; `five` has 5.
+        let target = server();
+        let control = in_process_or_skip!(target);
+        let account = enroll(&target, PASSWORD);
+        let space = account.create_space();
+        let (a, b) = (new_item(), new_item());
+        pin(&target, &account, "five");
+        space.commit_ok(&[space.raw_file(&a, 0, "a.md", 100)]);
+        replace(&space, &a, 1, 100);
+        pin(&target, &account, "nodays");
+        space.commit_ok(&[space.raw_file(&b, 0, "b.md", 100)]);
+        replace(&space, &b, 1, 100);
+        days(control, 6);
+        control.run_maintenance();
+        assert_eq!(version_numbers(&space, &a), vec![2], "five days are over");
+        assert_eq!(
+            version_numbers(&space, &b),
+            vec![2, 1],
+            "the server's 30 days are not"
+        );
+        days(control, 25);
+        control.run_maintenance();
+        assert_eq!(version_numbers(&space, &b), vec![2]);
+    }
+
+    #[test]
+    fn a_row_without_keep_until_ms_is_cleaned_by_the_old_rule() {
+        // П57-г, П58: rows from before the migration have no term: `superseded_ms` plus the
+        // setting of the server (30 days), whatever the plan says now.
+        let target = server();
+        let control = in_process_or_skip!(target);
+        let account = enroll(&target, PASSWORD);
+        pin(&target, &account, "short");
+        let space = account.create_space();
+        let (fixed, old) = (new_item(), new_item());
+        for item in [&fixed, &old] {
+            space.commit_ok(&[space.raw_file(item, 0, "a.md", 100)]);
+            replace(&space, item, 1, 100);
+        }
+        control.sql_write(|conn| {
+            let touched = conn
+                .execute(
+                    "UPDATE versions SET keep_until_ms = NULL WHERE item_id = ?1",
+                    [old.as_bytes().as_slice()],
+                )
+                .expect("the column `versions.keep_until_ms` must exist");
+            assert!(touched >= 1);
+        });
+        days(control, 11);
+        control.run_maintenance();
+        assert_eq!(
+            version_numbers(&space, &fixed),
+            vec![2],
+            "the fixed term of 10 days is over"
+        );
+        assert_eq!(
+            version_numbers(&space, &old),
+            vec![2, 1],
+            "no term: the old 30 days apply"
+        );
+        days(control, 20);
+        control.run_maintenance();
+        assert_eq!(version_numbers(&space, &old), vec![2]);
+    }
+
+    #[test]
+    fn the_ceiling_of_the_history_removes_the_oldest_replaced_versions_first() {
+        // П57-д: history 9000 > 5000: v1 (6000 left) and v2 (3000 left) go, v3 and the latest v4
+        // stay, long before the 30 days.
+        let target = server();
+        let control = in_process_or_skip!(target);
+        let account = enroll(&target, PASSWORD);
+        pin(&target, &account, "capped");
+        let space = account.create_space();
+        let item = new_item();
+        let mut bodies = Vec::new();
+        let first = space.raw_file(&item, 0, "a.md", 3000);
+        bodies.push(first.body.unwrap());
+        space.commit_ok(&[first]);
+        for from in 1..4 {
+            days(control, 1);
+            bodies.push(replace(&space, &item, from, 3000));
+        }
+        control.run_maintenance();
+        assert_eq!(version_numbers(&space, &item), vec![4, 3]);
+        space.download(&bodies[0]).expect_error(404, "not_found");
+        space.download(&bodies[1]).expect_error(404, "not_found");
+        space.download(&bodies[2]).expect(200);
+        space.download(&bodies[3]).expect(200);
+        assert_eq!(account.overview()["usage"]["history_bytes"], 3000);
+    }
+
+    #[test]
+    fn across_items_the_order_is_the_time_of_the_replacement_or_the_deletion() {
+        // П57-д: P replaced on day 1, Q on day 2, D deleted on day 3 (3000 bytes each). History
+        // 9000 > 5000: P's and Q's old versions go, the deleted item D stays.
+        let target = server();
+        let control = in_process_or_skip!(target);
+        let account = enroll(&target, PASSWORD);
+        pin(&target, &account, "capped");
+        let space = account.create_space();
+        let (p, q, d) = (new_item(), new_item(), new_item());
+        for item in [&p, &q, &d] {
+            space.commit_ok(&[space.raw_file(item, 0, "a.md", 3000)]);
+        }
+        days(control, 1);
+        replace(&space, &p, 1, 100);
+        days(control, 1);
+        replace(&space, &q, 1, 100);
+        days(control, 1);
+        space.commit_ok(&[space.deletion(&d, 1, "a.md")]);
+        control.run_maintenance();
+        assert_eq!(version_numbers(&space, &p), vec![2]);
+        assert_eq!(version_numbers(&space, &q), vec![2]);
+        assert_eq!(
+            version_numbers(&space, &d),
+            vec![2, 1],
+            "the newest history stays"
+        );
+    }
+
+    #[test]
+    fn a_history_at_or_under_the_ceiling_is_left_alone() {
+        // П57-д: nothing early below the ceiling.
+        let target = server();
+        let control = in_process_or_skip!(target);
+        let account = enroll(&target, PASSWORD);
+        pin(&target, &account, "capped");
+        let space = account.create_space();
+        let item = new_item();
+        space.commit_ok(&[space.raw_file(&item, 0, "a.md", 2500)]);
+        replace(&space, &item, 1, 2500); // history 2500
+        replace(&space, &item, 2, 100); // history 5000: exactly the ceiling
+        control.run_maintenance();
+        assert_eq!(version_numbers(&space, &item), vec![3, 2, 1]);
+        assert_eq!(account.overview()["usage"]["history_bytes"], 5000);
+    }
+
+    #[test]
+    fn without_a_ceiling_the_history_is_cleaned_by_days_only() {
+        // П50, П57-д: no `max_history_bytes` — as before.
+        let target = server();
+        let control = in_process_or_skip!(target);
+        let account = enroll(&target, PASSWORD);
+        pin(&target, &account, "uncapped");
+        let space = account.create_space();
+        let item = new_item();
+        space.commit_ok(&[space.raw_file(&item, 0, "a.md", 9000)]);
+        for from in 1..4 {
+            replace(&space, &item, from, 9000);
+        }
+        control.run_maintenance();
+        assert_eq!(version_numbers(&space, &item), vec![4, 3, 2, 1]);
+        days(control, 31);
+        control.run_maintenance();
+        assert_eq!(version_numbers(&space, &item), vec![4]);
+    }
+
+    #[test]
+    fn the_latest_version_is_never_removed_by_the_ceiling_even_when_it_alone_exceeds_it() {
+        // П57-д: the latest versions are never touched.
+        let target = server();
+        let control = in_process_or_skip!(target);
+        let account = enroll(&target, PASSWORD);
+        pin(&target, &account, "capped");
+        let space = account.create_space();
+        let (item, other) = (new_item(), new_item());
+        space.commit_ok(&[space.raw_file(&item, 0, "a.md", 6000)]);
+        let latest = replace(&space, &item, 1, 9000);
+        space.commit_ok(&[space.raw_file(&other, 0, "o.md", 9000)]);
+        control.run_maintenance();
+        assert_eq!(version_numbers(&space, &item), vec![2]);
+        space.download(&latest).expect(200);
+        assert_eq!(version_numbers(&space, &other), vec![1]);
+        let live = account.overview()["usage"]["live_bytes"].clone();
+        assert_eq!(live, 18_000);
+    }
+
+    #[test]
+    fn a_body_that_the_latest_version_needs_survives_the_removal_of_older_rows() {
+        // П57-д: item X was renamed (its old version shares the body with the latest one);
+        // item Z has real history of 6000 bytes, over the ceiling of 5000. Z's old body goes, X's
+        // shared body stays.
+        let target = server();
+        let control = in_process_or_skip!(target);
+        let account = enroll(&target, PASSWORD);
+        pin(&target, &account, "capped");
+        let space = account.create_space();
+        let (x, z) = (new_item(), new_item());
+        let first = space.raw_file(&x, 0, "x.md", 2000);
+        let shared = first.body.unwrap();
+        space.commit_ok(&[first]);
+        space.commit_ok(&[space.file_with_uploaded_body(&x, 1, "renamed.md", b"x", &shared)]);
+        let z1 = space.raw_file(&z, 0, "z.md", 6000);
+        let z_old = z1.body.unwrap();
+        space.commit_ok(&[z1]);
+        replace(&space, &z, 1, 100);
+        control.run_maintenance();
+        space.download(&z_old).expect_error(404, "not_found");
+        space.download(&shared).expect(200);
+        let feed = space.all_changes(0);
+        let renamed = feed
+            .iter()
+            .find(|c| c["item_id"] == hex16_of(&x).as_str())
+            .unwrap();
+        assert_eq!(space.fetch_file(renamed), b"x");
+    }
+
+    fn hex16_of(item: &ItemId) -> String {
+        amby_sync_conformance::client::hex16(item.as_bytes())
+    }
+}

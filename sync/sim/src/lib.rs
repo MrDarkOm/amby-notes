@@ -27,6 +27,7 @@ pub mod conflicts;
 pub mod dsl;
 pub mod fault;
 pub mod invariants;
+pub mod limits;
 pub mod linemerge;
 pub mod mini;
 pub mod net;

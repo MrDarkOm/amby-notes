@@ -27,7 +27,7 @@ pub mod http;
 pub mod inprocess;
 pub mod target;
 
-pub use admin::{AdminFailure, EnrollTicket, UserAdmin};
+pub use admin::{AdminFailure, AdminOutput, EnrollTicket, UserAdmin};
 pub use http::{Api, Resp, Sse, SseEvent};
 pub use target::Target;
 

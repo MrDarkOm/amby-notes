@@ -13,8 +13,8 @@ use super::decide::{decide, Inputs};
 use super::flow::{Flow, Res};
 use super::merge::is_mergeable_path;
 use super::model::{
-    CycleOutcome, CycleReport, CycleRequest, Direction, EngineError, ItemRecord, ReadOnlyItem,
-    StateOp, StopReason, SyncState, UnsyncedRecord,
+    CycleOutcome, CycleReport, CycleRequest, Direction, EngineError, ItemRecord, PassLimits,
+    ReadOnlyItem, StateOp, StopReason, SyncState, UnsyncedRecord,
 };
 use super::plan::Srv;
 use super::ports::{Clock, CommitReply, LocalFs, Remote, RootState, StateError, StateStore};
@@ -121,6 +121,7 @@ impl SyncEngine for Engine {
             errors: Vec::new(),
             outgoing_paused: false,
             full_reconcile: false,
+            limits: PassLimits::unknown(),
         };
         // Д10: after a lost race the whole pass is made again, a few times.
         for _ in 0..5 {

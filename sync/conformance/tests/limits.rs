@@ -154,3 +154,96 @@ fn the_part_size_is_eight_mebibytes() {
         .json();
     assert_eq!(answer["parts"], 2);
 }
+
+// ----- the codes and their order at `POST …/blobs` (appendix Е: П59, Е.4) -----
+
+mod blob_checks {
+    use super::*;
+    use amby_sync_conformance::client::new_item;
+    use serde_json::json;
+
+    fn small_quota(config: &mut amby_sync_server::Config) {
+        config.quota_bytes_per_user = Some(10_000);
+        config.max_blob_bytes = 8_000;
+    }
+
+    #[test]
+    fn the_413_of_the_server_ceiling_names_size_limit_and_source() {
+        // П59.
+        let target = Target::in_process_with(small_quota);
+        let _ = in_process_or_skip!(target);
+        let space = fresh_space(&target);
+        let refused = space
+            .init_blob(&new_body(), 8_001)
+            .expect_error(413, "blob_too_large");
+        assert_eq!(
+            refused.details(),
+            json!({"size": 8_001, "max_bytes": 8_000, "source": "server"})
+        );
+    }
+
+    #[test]
+    fn the_507_names_what_is_used_the_limit_and_what_is_missing() {
+        // П59: used = live + pending; needed = what is missing, with the credit counted.
+        let target = Target::in_process_with(small_quota);
+        let _ = in_process_or_skip!(target);
+        let space = fresh_space(&target);
+        let item = new_item();
+        space.commit_ok(&[space.raw_file(&item, 0, "a.md", 4_000)]);
+        space.init_blob(&new_body(), 3_000).expect(201);
+        let refused = space
+            .init_blob(&new_body(), 4_000)
+            .expect_error(507, "quota_exceeded");
+        assert_eq!(
+            refused.details(),
+            json!({"used_bytes": 7_000, "limit_bytes": 10_000, "needed_bytes": 1_000})
+        );
+        let with_credit = space
+            .init_blob_replacing(&new_body(), 8_000, &item)
+            .expect_error(507, "quota_exceeded");
+        assert_eq!(
+            with_credit.details(),
+            json!({"used_bytes": 7_000, "limit_bytes": 10_000, "needed_bytes": 1_000}),
+            "needed = used + size - credit - limit = 7000 + 8000 - 4000 - 10 000"
+        );
+    }
+
+    #[test]
+    fn the_size_is_checked_before_the_known_body_and_the_known_body_before_the_quota() {
+        // Е.4: token → fields → size (413) → body exists (200/409) → quota (507).
+        let target = Target::in_process_with(small_quota);
+        let _ = in_process_or_skip!(target);
+        let space = fresh_space(&target);
+        // a body of the right size is known; the quota is then full by another one
+        let known = new_body();
+        space.init_blob(&known, 5_000).expect(201);
+        space.init_blob(&new_body(), 5_000).expect(201);
+        space
+            .init_blob(&new_body(), 1)
+            .expect_error(507, "quota_exceeded");
+        space.init_blob(&known, 5_000).expect(200); // known before quota
+        space
+            .init_blob(&known, 5_001)
+            .expect_error(409, "blob_exists"); // another size: 409 before quota
+                                               // size before everything: a body over the ceiling is 413 even when it would be "known"
+        space
+            .init_blob(&new_body(), 8_001)
+            .expect_error(413, "blob_too_large");
+        // fields before size
+        space
+            .post("/blobs", json!({"blob_id": "zz", "size": 8_001}))
+            .expect_error(400, "bad_request");
+    }
+
+    #[test]
+    fn a_zero_size_is_still_a_bad_request_and_never_a_quota_question() {
+        let target = Target::in_process_with(small_quota);
+        let _ = in_process_or_skip!(target);
+        let space = fresh_space(&target);
+        space.init_blob(&new_body(), 8_000).expect(201);
+        space.init_blob(&new_body(), 2_000).expect(201);
+        space
+            .init_blob(&new_body(), 0)
+            .expect_error(400, "bad_request");
+    }
+}

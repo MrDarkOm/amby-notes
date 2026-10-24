@@ -8,7 +8,7 @@ use crate::crypto::padme::sealed_body_len;
 
 use super::flow::{Flow, Res};
 use super::model::{ItemRecord, StopReason, UnsyncedReason, UnsyncedRecord};
-use super::ports::{FsError, LocalFs, LocalKind, RootState};
+use super::ports::{FsError, LimitSource, LocalFs, LocalKind, RootState};
 use super::rules::is_excluded_path;
 use super::util::{hash_of, is_unmaterialised, nfc, parent};
 
@@ -129,7 +129,10 @@ pub(super) fn scan(
                 if sealed_body_len(entry.size).map_or(true, |len| len > max_blob_bytes) {
                     out.unsynced.push(UnsyncedRecord {
                         path: path.clone(),
-                        reason: UnsyncedReason::TooLarge,
+                        reason: UnsyncedReason::TooLarge {
+                            max_bytes: max_blob_bytes,
+                            source: LimitSource::Server,
+                        },
                     });
                     out.blocked.insert(path);
                     continue;

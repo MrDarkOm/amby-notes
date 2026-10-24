@@ -560,3 +560,13 @@ pub(crate) async fn device_delete(
         .body(axum::body::Body::empty())
         .map_err(ApiError::internal)
 }
+
+/// `GET /v1/account` (П61): the plan, the effective limits, the usage and the spaces with their
+/// sizes. STUB of the red-tests step: answers `501 not_implemented`.
+pub(crate) async fn overview() -> ApiResult<Response> {
+    Err(ApiError::new(
+        StatusCode::NOT_IMPLEMENTED,
+        code::NOT_IMPLEMENTED,
+        "GET /v1/account is not written yet",
+    ))
+}

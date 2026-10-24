@@ -54,6 +54,8 @@ pub struct Config {
     pub trust_proxy: bool,
     /// Sealed bytes one user may keep (`AMBY_SYNC_QUOTA_BYTES_PER_USER`); `None` is no quota (П42).
     pub quota_bytes_per_user: Option<u64>,
+    /// The plans file (`AMBY_SYNC_PLANS_FILE`, П51); `None` is `<data_dir>/plans.json`.
+    pub plans_file: Option<PathBuf>,
     /// Seconds between `: ping` lines on an event stream (П34).
     pub sse_keepalive_secs: u64,
 }
@@ -79,6 +81,7 @@ impl Default for Config {
             login_window_per_user_secs: 3600,
             trust_proxy: false,
             quota_bytes_per_user: None,
+            plans_file: None,
             sse_keepalive_secs: 15,
         }
     }

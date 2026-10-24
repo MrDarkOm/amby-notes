@@ -43,6 +43,17 @@ fn main() -> ExitCode {
         }
     };
 
+    let new_commands = matches!(
+        words.as_slice(),
+        ["plans", ..] | ["space", ..] | ["user", "plan", ..]
+    ) || args.iter().any(|arg| arg == "--plan");
+    if new_commands {
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let output = admin::run_cli(&state, &args);
+        print!("{}", output.stdout);
+        eprint!("{}", output.stderr);
+        return ExitCode::from(u8::try_from(output.code).unwrap_or(1));
+    }
     match words.as_slice() {
         [] | ["serve"] => serve(state),
         ["user", "add", name] => report(admin::user_add(&state, name).map(|added| {
