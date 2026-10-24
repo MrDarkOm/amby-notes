@@ -20,8 +20,8 @@ use crate::sync::secrets::{SecretStore, SECRET_ACCOUNT_KEY, SECRET_DEVICE_TOKEN}
 use crate::sync::session::{Schedule, SessionConfig, SessionHooks, SyncSession};
 use crate::sync::space::{self, LinkedSpace};
 use crate::sync::state_db::{
-    read_meta_only, state_path, SqliteStateStore, META_DEVICE_ID, META_ENABLED, META_KEY_EPOCH, META_SERVER_URL,
-    META_SPACE_ID, META_SPACE_NAME, META_TEST_VAULT, META_WRAPPED_VK,
+    read_meta_only, state_path, SqliteStateStore, META_DEVICE_ID, META_ENABLED, META_KEY_EPOCH,
+    META_SERVER_URL, META_SPACE_ID, META_SPACE_NAME, META_TEST_VAULT, META_WRAPPED_VK,
 };
 use crate::sync::types::SyncError;
 use crate::sync::vault_types::{

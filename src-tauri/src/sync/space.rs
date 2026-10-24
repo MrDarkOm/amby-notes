@@ -241,8 +241,7 @@ pub async fn account_overview(
         // An older server has no such request (Р13): the list of spaces is all it can tell.
         Err(ClientError::Api { status: 404, .. }) => {
             let entries = client.list_spaces(token).await.map_err(client_error)?;
-            let spaces: Vec<StorageView> =
-                entries.iter().map(|entry| row(entry, 0, 0)).collect();
+            let spaces: Vec<StorageView> = entries.iter().map(|entry| row(entry, 0, 0)).collect();
             Ok(AccountOverview {
                 limits_known: false,
                 plan: None,
