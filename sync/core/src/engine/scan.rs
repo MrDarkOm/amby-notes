@@ -127,12 +127,12 @@ pub(super) fn scan(
                     out.blocked.insert(path);
                     continue;
                 }
-                // Д74: a file the base already holds and nobody touched stays as it is, even when
-                // the limit fell below its size since (the server keeps it, nothing is listed).
-                let unchanged = by_path.get(path.as_str()).is_some_and(|record| {
-                    record.size == entry.size && record.mtime_ns == entry.mtime_ns
-                });
-                if !unchanged
+                // Д74: a file the base already holds is read as any other: an unchanged one stays as
+                // it is even when the limit fell below its size, and a changed one takes part in
+                // the rules of Р7 (a foreign edit makes a conflict, nothing is lost); the push
+                // refuses to send it and lists it. Only a file without a base is set aside here,
+                // unread: nothing else can happen to it.
+                if !by_path.contains_key(path.as_str())
                     && sealed_body_len(entry.size).map_or(true, |len| len > max_blob_bytes)
                 {
                     out.unsynced.push(UnsyncedRecord {
