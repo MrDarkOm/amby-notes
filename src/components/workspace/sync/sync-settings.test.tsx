@@ -224,7 +224,7 @@ describe("the Synchronization section of the settings", () => {
     await i18n.changeLanguage("en")
     const port = createFakePort()
     renderSettings(port)
-    expect(await screen.findByLabelText("Server address")).toBeTruthy()
+    expect(await screen.findByRole("radio", { name: /Amby/ })).toBeTruthy()
     expect(document.body.textContent).toMatch(/works in a test mode/i)
     await i18n.changeLanguage("ru")
   })
@@ -238,26 +238,25 @@ describe("the Synchronization section of the settings", () => {
   })
 
   describe("the choice of a server", () => {
-    it("offers the Amby server as not available yet and cannot select it", async () => {
+    it("offers the Amby server as the selected default, without an address field", async () => {
       renderSettings(createFakePort())
       const amby = (await screen.findByRole("radio", { name: /Сервер Amby/ })) as HTMLInputElement
-      expect(amby.disabled).toBe(true)
-      expect(amby.checked).toBe(false)
-      expect(document.body.textContent).toMatch(/скоро будет/)
-      fireEvent.click(amby)
-      expect(screen.getByRole("radio", { name: /Сервер Amby/ })).toBeTruthy()
+      expect(amby.disabled).toBe(false)
+      expect(amby.checked).toBe(true)
+      expect(document.body.textContent).not.toMatch(/скоро будет/)
+      expect(screen.queryByLabelText("Адрес сервера")).toBeNull()
     })
 
-    it("has the own server selected, with the address field", async () => {
+    it("has the address field for the own server", async () => {
       renderSettings(createFakePort())
-      const own = (await screen.findByRole("radio", { name: "Свой сервер" })) as HTMLInputElement
-      expect(own.checked).toBe(true)
-      expect(screen.getByRole("radio", { name: /Сервер Amby/ })).toBeTruthy()
+      fireEvent.click(await screen.findByRole("radio", { name: "Свой сервер" }))
+      expect(screen.getByLabelText("Адрес сервера")).toBeTruthy()
     })
 
     it("opens the install guide of the server in the browser", async () => {
       renderSettings(createFakePort())
-      fireEvent.click(await screen.findByRole("button", { name: /Как поднять свой сервер/ }))
+      fireEvent.click(await screen.findByRole("radio", { name: "Свой сервер" }))
+      fireEvent.click(screen.getByRole("button", { name: /Как поднять свой сервер/ }))
       expect(openWebAddressInBrowser).toHaveBeenCalledWith(
         "https://github.com/MrDarkOm/AmbyNotes-SelfHost",
       )
@@ -270,9 +269,8 @@ describe("the Synchronization section of the settings", () => {
       cleanup()
       await i18n.changeLanguage("en")
       renderSettings(createFakePort())
-      await screen.findByLabelText("Server address")
-      expect(screen.getByRole("radio", { name: "Your own server" })).toBeTruthy()
-      expect(document.body.textContent?.match(/own server/gi)).toHaveLength(2)
+      expect(await screen.findByRole("radio", { name: "Your own server" })).toBeTruthy()
+      expect(document.body.textContent?.match(/own server/gi)).toHaveLength(1)
       await i18n.changeLanguage("ru")
     })
   })

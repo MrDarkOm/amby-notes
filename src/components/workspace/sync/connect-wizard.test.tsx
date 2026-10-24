@@ -79,8 +79,8 @@ describe("the connect wizard", () => {
   describe("the server step", () => {
     it("cannot check an empty address", () => {
       renderWizard(createFakePort())
-      expect(button("Проверить сервер").disabled).toBe(true)
       fireEvent.click(screen.getByRole("radio", { name: /Свой сервер/ }))
+      expect(button("Проверить сервер").disabled).toBe(true)
       type("Адрес сервера", "  ")
       expect(button("Проверить сервер").disabled).toBe(true)
       typeOwnAddress(SERVER)
@@ -95,7 +95,7 @@ describe("the connect wizard", () => {
       )
       expect(screen.getByRole("radio", { name: /Свой сервер/ })).toBeTruthy()
       expect(document.body.textContent).not.toMatch(/скоро/)
-      expect(document.body.textContent).toMatch(/код приглашения/i)
+      expect(document.body.textContent).toMatch(/коду приглашения/i)
       expect(screen.queryByLabelText("Адрес сервера")).toBeNull()
       expect(screen.queryByRole("button", { name: "Как поднять свой сервер" })).toBeNull()
       click("Проверить сервер")
@@ -161,6 +161,7 @@ describe("the connect wizard", () => {
       const port = createFakePort()
       renderWizard(port)
       expect(screen.queryByText(/идут по сети открыто/)).toBeNull()
+      fireEvent.click(screen.getByRole("radio", { name: /Свой сервер/ }))
       fireEvent.click(screen.getByRole("switch", { name: /локальной сети/ }))
       expect(screen.getByText(/идут по сети открыто/)).toBeTruthy()
       typeOwnAddress("http://192.168.1.20:8080")

@@ -3365,7 +3365,7 @@ const ru = {
       server: {
         choiceLabel: "Сервер",
         amby: "Сервер Amby",
-        ambySoon: "скоро будет",
+        ambyHint: "Пока регистрация по коду приглашения: его выдаёт владелец сервера.",
         own: "Свой сервер",
         guide: "Как поднять свой сервер",
         address: "Адрес сервера",
@@ -3469,6 +3469,7 @@ const ru = {
     },
     connected: {
       to: "Подключено к {{host}}",
+      toAmby: "Подключено к серверу Amby ({{host}})",
       user: "Пользователь: {{name}}",
       devices: "Устройства",
       thisDevice: "Это устройство",
@@ -6827,7 +6828,7 @@ const en: typeof ru = {
       server: {
         choiceLabel: "Server",
         amby: "Amby server",
-        ambySoon: "coming soon",
+        ambyHint: "For now registration needs an invitation code, issued by the server owner.",
         own: "Your own server",
         guide: "How to set up your own server",
         address: "Server address",
@@ -6930,6 +6931,7 @@ const en: typeof ru = {
     },
     connected: {
       to: "Connected to {{host}}",
+      toAmby: "Connected to the Amby server ({{host}})",
       user: "User: {{name}}",
       devices: "Devices",
       thisDevice: "This device",
