@@ -238,7 +238,31 @@ pub(crate) async fn commit(
         // is applied inside a savepoint and taken back if it grows the live bytes over the quota.
         let cutoff = crate::quota::pending_cutoff(&state);
         let before = match plan.limits.max_total_bytes {
-            Some(_) => Some(crate::quota::user_usage(tx, auth.user_id, cutoff)?),
+            Some(_) => {
+                let mut usage = crate::quota::user_usage(tx, auth.user_id, cutoff)?;
+                // A body of this batch that waited longer than the cleanup allows is counted as
+                // live by `user_usage` (see `pending_cutoff`); for the growth it is still new.
+                let mut seen = HashSet::new();
+                for blob in entries.iter().filter(|e| !e.deleted).filter_map(|e| e.blob_id) {
+                    if !seen.insert(blob) {
+                        continue;
+                    }
+                    let old_waiting: Option<u64> = tx
+                        .query_row(
+                            "SELECT size FROM blobs b WHERE b.space = ?1 AND b.blob_id = ?2 \
+                             AND b.activity_ms <= ?3 AND NOT EXISTS ( \
+                                SELECT 1 FROM versions v WHERE v.space = b.space AND v.blob_id = b.blob_id)",
+                            params![space.row, blob.as_slice(), cutoff],
+                            |row| row.get(0),
+                        )
+                        .optional()?;
+                    if let Some(size) = old_waiting {
+                        usage.live = usage.live.saturating_sub(size);
+                        usage.pending += size;
+                    }
+                }
+                Some(usage)
+            }
             None => None,
         };
         tx.execute_batch("SAVEPOINT quota_check")?;

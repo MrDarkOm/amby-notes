@@ -94,6 +94,8 @@ struct Run {
     /// Rows of `versions` seen at the last check (they only grow, except at a cleanup).
     versions_seen: i64,
     live_seen: u64,
+    /// The quota at the previous check (`None`: no quota).
+    quota_seen: Option<u64>,
     deleted_since_pass: bool,
     filler_items: Vec<(amby_sync_core::crypto::keys::ItemId, u64, String)>,
     filler: Option<amby_sync_conformance::client::Space>,
@@ -490,8 +492,12 @@ impl Run {
         // 5: the live bytes never grow above the quota of the moment.
         let overview = self.world.overview();
         let live = overview["usage"]["live_bytes"].as_u64().unwrap_or(0);
-        if let Some(total) = overview["limits"]["max_total_bytes"].as_u64() {
-            if live > total && live > self.live_seen {
+        let total_now = overview["limits"]["max_total_bytes"].as_u64();
+        // The plan may change inside a step (a hook in the middle of a pass): growth that the
+        // quota of the previous check allowed is not an overrun.
+        let allowed_before = self.quota_seen.is_none_or(|before| live <= before);
+        if let Some(total) = total_now {
+            if live > total && live > self.live_seen && !allowed_before {
                 return self.fail(
                     Kind::QuotaOverrun,
                     format!(
@@ -502,6 +508,7 @@ impl Run {
             }
         }
         self.live_seen = live;
+        self.quota_seen = total_now;
         Ok(())
     }
 
@@ -578,6 +585,7 @@ pub fn run_limits_scenario_with(
         model: BTreeMap::new(),
         versions_seen: 0,
         live_seen: 0,
+        quota_seen: None,
         deleted_since_pass: false,
         filler_items: Vec::new(),
         filler: Some(filler),
