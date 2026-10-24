@@ -170,9 +170,10 @@ fn d28_foreign_deletion_unchanged_file_goes_to_the_trash(b: EngineBuilder) {
     w.finish(false);
 }
 
-fn d29_both_edited_the_second_becomes_a_copy(b: EngineBuilder) {
-    // Р7 строка 1, Д29, Д46, Д47, О5: the path stays with whoever reached the server first; the
-    // other version lies beside it as `Name.<id>-conflict.ext`; both exist on all devices.
+fn d29_both_edited_the_same_place_keeps_the_second_version_in_a_set(b: EngineBuilder) {
+    // Р7 строка 1, Д29, Д47, Г2, Г20–Г22, О5: the path stays with whoever reached the server
+    // first; the other version lies in `.amby/conflicts/<id>/` (not beside the file), together
+    // with the common base; both exist on all devices.
     let w = pair_with_a(b);
     w.save(0, "Notes/a.md", "zero");
     w.save(1, "Notes/a.md", "one");
@@ -183,27 +184,46 @@ fn d29_both_edited_the_second_becomes_a_copy(b: EngineBuilder) {
         Some("zero"),
         "the first to reach the server keeps the path"
     );
-    let copies = w.copies(1, "Notes/a.md");
-    assert_eq!(copies.len(), 1, "exactly one copy: {copies:?}");
-    assert_eq!(copies.values().next().map(String::as_str), Some("one"));
+    assert!(
+        w.old_copies(1).is_empty(),
+        "no copy beside the file (Г20): {:?}",
+        w.texts(1)
+    );
+    let sets = w.sets(1);
+    assert_eq!(sets.len(), 1, "exactly one set: {:?}", w.texts(1));
+    let set = &sets[0];
+    assert_eq!(set.kind, "bothEdited");
+    assert_eq!(set.path, "Notes/a.md");
+    assert_eq!(set.other, b"one");
+    assert_eq!(
+        set.base.as_deref(),
+        Some(&b"base"[..]),
+        "the common base (Г21)"
+    );
     assert_eq!(report.conflicts.len(), 1);
     let conflict = &report.conflicts[0];
     assert_eq!(conflict.kind, ConflictKind::BothEdited);
     assert_eq!(conflict.original_path, "Notes/a.md");
-    assert_eq!(&conflict.copy_path, copies.keys().next().unwrap());
-    assert_eq!(conflict.id.len(), 12, "the id inside the name");
-    assert!(conflict.copy_path.contains(&conflict.id));
+    assert_eq!(conflict.id.len(), 12, "the id of the set");
+    assert_eq!(conflict.id, set.id);
+    assert_eq!(
+        conflict.copy_path,
+        format!(".amby/conflicts/{}/other.md", set.id),
+        "the record points at the file with the second version (Г25)"
+    );
+    assert!(report.merged_paths.is_empty(), "a conflict is not a merge");
     let history = w.dev(1).fs.history();
     assert!(history
         .iter()
         .any(|h| h.bytes == b"one" && h.reason == SnapshotReason::SyncOverwrite));
     w.pass(0);
+    assert_eq!(w.sets(0).len(), 1, "the other device gets the set too");
+    assert_eq!(w.others(0, "Notes/a.md"), vec!["one".to_string()]);
     assert_eq!(
-        w.copies(0, "Notes/a.md").len(),
-        1,
-        "the other device gets the copy too"
+        w.server_item_count(),
+        5,
+        "keep, a.md and the three files of the set"
     );
-    assert_eq!(w.server_item_count(), 3, "keep, a.md and the copy");
     w.finish(false);
 }
 
@@ -253,8 +273,8 @@ fn d30_foreign_rename_and_own_edit_merge(b: EngineBuilder) {
 }
 
 fn d31_foreign_rename_and_edit_against_own_edit(b: EngineBuilder) {
-    // Р7, Д31, Д46: the server renamed and changed, this device changed: the server version is at
-    // the server's path, the own version beside it as a copy named after that path.
+    // Р7, Д31, Д46, Г20: the server renamed and changed, this device changed: the server version is
+    // at the server's path, the own version in a set that names that path.
     let w = pair_with_a(b);
     let (item, version) = w.item_at("Notes/a.md");
     w.inject_file(&item, version, "Notes/b.md", b"server side");
@@ -262,12 +282,9 @@ fn d31_foreign_rename_and_edit_against_own_edit(b: EngineBuilder) {
     w.pass(1);
     assert_eq!(w.read(1, "Notes/b.md").as_deref(), Some("server side"));
     assert!(!w.dev(1).fs.exists("Notes/a.md"));
-    let copies = w.copies(1, "Notes/b.md");
-    assert_eq!(copies.len(), 1, "{:?}", w.texts(1));
-    assert_eq!(
-        copies.values().next().map(String::as_str),
-        Some("local side")
-    );
+    assert!(w.old_copies(1).is_empty(), "{:?}", w.texts(1));
+    assert_eq!(w.others(1, "Notes/b.md"), vec!["local side".to_string()]);
+    assert_eq!(w.sets(1)[0].kind, "bothEdited");
     w.finish(false);
 }
 
@@ -473,9 +490,10 @@ fn d42_same_file_created_twice_is_one_file(b: EngineBuilder) {
     w.finish(false);
 }
 
-fn d43_created_twice_the_second_becomes_a_copy(b: EngineBuilder) {
-    // Р7 строка 5, Д43, Д46, О5: two different files created at one path: the one that reached
-    // the server first keeps the name, the other becomes a conflict copy; both are everywhere.
+fn d43_created_twice_the_second_goes_into_a_set_without_a_base(b: EngineBuilder) {
+    // Р7 строка 5, Д43, Д46, Г10, Г20, О5: two different files created at one path: the one that
+    // reached the server first keeps the name, the other goes into a set; there is no common
+    // version, so the set has no base; both are everywhere.
     let w = two(b);
     w.save(0, "Keep/k.md", "keep");
     w.save(0, "c.md", "zero");
@@ -484,14 +502,22 @@ fn d43_created_twice_the_second_becomes_a_copy(b: EngineBuilder) {
     w.pass(0);
     let report = w.pass(1);
     assert_eq!(w.read(1, "c.md").as_deref(), Some("zero"));
-    let copies = w.copies(1, "c.md");
-    assert_eq!(copies.len(), 1, "{:?}", w.texts(1));
-    assert_eq!(copies.values().next().map(String::as_str), Some("one"));
+    assert!(w.old_copies(1).is_empty(), "{:?}", w.texts(1));
+    let sets = w.sets(1);
+    assert_eq!(sets.len(), 1, "{:?}", w.texts(1));
+    assert_eq!(sets[0].other, b"one");
+    assert_eq!(sets[0].kind, "bothCreated");
+    assert_eq!(sets[0].path, "c.md");
+    assert!(sets[0].base.is_none(), "nothing was common (Г21)");
     assert_eq!(report.conflicts.len(), 1);
     assert_eq!(report.conflicts[0].kind, ConflictKind::BothCreated);
+    assert!(
+        report.merged_paths.is_empty(),
+        "two new files are never merged (Г4)"
+    );
     assert!(w.dev(1).fs.history().iter().any(|h| h.bytes == b"one"));
     w.pass(0);
-    assert_eq!(w.copies(0, "c.md").len(), 1);
+    assert_eq!(w.others(0, "c.md"), vec!["one".to_string()]);
     w.finish(false);
 }
 
@@ -577,16 +603,24 @@ fn d47_a_conflict_stays_in_the_list_until_resolved(b: EngineBuilder) {
         .expect("resolve");
     assert!(w.dev(1).state.snapshot().conflicts.is_empty());
     assert_eq!(
-        w.copies(1, "Notes/a.md").len(),
+        w.sets(1).len(),
         1,
-        "resolving does not delete the copy file"
+        "resolving the entry does not delete the files of the set"
     );
     w.finish(false);
 }
 
-fn d46_a_repeat_after_a_crash_makes_the_same_copy(b: EngineBuilder) {
-    // Р7, Д46, Д4, С3: the process dies while a conflict is being resolved; the repeat makes the
-    // same copy (the name is deterministic) and no second one.
+fn d46_a_repeat_after_a_crash_makes_the_same_set(b: EngineBuilder) {
+    // Р7, Д46, Д4, С3, Г22, Г23: the process dies while a conflict is being made; the repeat makes
+    // the same set (its name is deterministic) and no second one.
+    let reference = {
+        let w = pair_with_a(b);
+        w.save(0, "Notes/a.md", "zero");
+        w.save(1, "Notes/a.md", "one");
+        w.pass(0);
+        w.pass(1);
+        w.sets(1)[0].id.clone()
+    };
     for crash_at in 1..200 {
         let w = pair_with_a(b);
         w.save(0, "Notes/a.md", "zero");
@@ -596,13 +630,20 @@ fn d46_a_repeat_after_a_crash_makes_the_same_copy(b: EngineBuilder) {
         let _ = w.dev(1).sync();
         let calls_made = w.dev(1).faults.calls();
         w.finish(false);
+        let sets = w.sets(1);
         assert_eq!(
-            w.copies(1, "Notes/a.md").len(),
+            sets.len(),
             1,
             "a crash at call {crash_at} left {:?}",
             w.texts(1)
         );
+        assert_eq!(
+            sets[0].id, reference,
+            "the same name after a crash at {crash_at}"
+        );
+        assert_eq!(sets[0].other, b"one");
         assert_eq!(w.read(1, "Notes/a.md").as_deref(), Some("zero"));
+        assert!(w.old_copies(1).is_empty());
         if calls_made < crash_at {
             break; // the pass ended before the crash point: every point was visited
         }
@@ -618,7 +659,7 @@ both!(
     d26_foreign_rename_moves_the_file,
     d27_foreign_rename_and_edit,
     d28_foreign_deletion_unchanged_file_goes_to_the_trash,
-    d29_both_edited_the_second_becomes_a_copy,
+    d29_both_edited_the_same_place_keeps_the_second_version_in_a_set,
     d29_same_edit_on_both_is_no_conflict,
     d30_foreign_rename_and_own_edit_merge,
     d31_foreign_rename_and_edit_against_own_edit,
@@ -634,10 +675,10 @@ both!(
     d40_both_deleted,
     d41_new_foreign_file_is_created_without_a_snapshot,
     d42_same_file_created_twice_is_one_file,
-    d43_created_twice_the_second_becomes_a_copy,
+    d43_created_twice_the_second_goes_into_a_set_without_a_base,
     d44_deleted_record_without_base,
     d44_deleted_record_alone_creates_nothing,
     d45_new_local_file_becomes_a_new_item,
     d47_a_conflict_stays_in_the_list_until_resolved,
-    d46_a_repeat_after_a_crash_makes_the_same_copy,
+    d46_a_repeat_after_a_crash_makes_the_same_set,
 );

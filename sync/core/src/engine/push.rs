@@ -20,7 +20,7 @@ use super::plan::Undelete;
 use super::ports::{CommitItem, CommitReply, FsError, ServerInfo};
 use super::scan::{scan, Scan};
 use super::sync::Engine;
-use super::util::{hash_of, is_unmaterialised, FixedRandom};
+use super::util::{base_eligible, hash_of, is_unmaterialised, FixedRandom};
 
 /// One change on its way to the server.
 struct Out {
@@ -409,6 +409,12 @@ impl Engine {
                     reason: UnsyncedReason::TooBigForMemory,
                 });
                 return Ok(None);
+            }
+            // Г8 б, Г9: what is sent is the base once the commit is accepted; it is kept before
+            // the commit leaves, under its own hash, so a commit that is not accepted harms
+            // nothing.
+            if base_eligible(path, &bytes) {
+                self.ports.state.base_put(&record.item_id, &hash, &bytes)?;
             }
             let body = self.upload(&record.item_id, &bytes, hash, uploads)?;
             report.uploaded += 1;

@@ -14,6 +14,7 @@
 
 pub mod app_hooks;
 pub mod clock;
+pub mod conflict_store;
 pub mod connection;
 pub mod gate;
 pub mod hints;
@@ -78,6 +79,10 @@ pub fn deactivate_for_closed_vault(app: &tauri::AppHandle) {
     }
 }
 
+#[cfg(test)]
+mod base_store_tests;
+#[cfg(test)]
+mod conflict_store_tests;
 #[cfg(test)]
 mod connection_tests;
 #[cfg(test)]

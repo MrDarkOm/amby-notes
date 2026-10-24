@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::sync::conflict_store::ConflictSource;
+
 /// What the sync of the open vault is doing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -74,6 +76,24 @@ pub struct ConflictView {
     pub copy_path: String,
     /// When the copy was made, Unix milliseconds.
     pub created_ms: i64,
+    /// Where the second version is kept: a set in `.amby/conflicts/` or an old copy beside the
+    /// file (Г32). The fields below were added in stage Э4б; they are optional on the interface
+    /// side so that it can read a status without them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub source: Option<ConflictSource>,
+    /// Both versions can be compared line by line (Г28).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub text: Option<bool>,
+    /// The set has a common base (Г21).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub has_base: Option<bool>,
+    /// This computer made the conflict (Г25, Г34).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub created_here: Option<bool>,
 }
 
 /// A file that is not synchronised on this computer (Р4, Р9).

@@ -2,14 +2,21 @@
 //! one lock (С14). A process that dies leaves the state as the last completed transaction.
 
 use std::cell::{Cell, RefCell};
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
+use amby_sync_core::crypto::keys::ItemId;
+use amby_sync_core::crypto::primitives::blake3_hash;
 use amby_sync_core::engine::{StateError, StateLock, StateOp, StateStore, StateTx, SyncState};
 
 struct Inner {
     state: SyncState,
     locked: Rc<Cell<bool>>,
     transactions: u64,
+    /// The bases (appendix Г, Г6): files of the device, not rows of the state; they survive
+    /// `wipe` only as long as the test lets them (`wipe` takes them too: the folder `.amby/sync/`
+    /// goes as a whole).
+    bases: BTreeMap<([u8; 16], [u8; 32]), Vec<u8>>,
 }
 
 /// Cloning shares the store.
@@ -36,6 +43,7 @@ impl MemState {
             state: SyncState::default(),
             locked: Rc::new(Cell::new(false)),
             transactions: 0,
+            bases: BTreeMap::new(),
         })))
     }
 
@@ -57,9 +65,28 @@ impl MemState {
         StateLock(Box::new(LockToken(inner.locked.clone())))
     }
 
-    /// Forgets everything: the state file is gone (С11, Р10).
+    /// Forgets everything: the state file and the bases are gone (С11, Р10, Г10).
     pub fn wipe(&self) {
-        self.0.borrow_mut().state = SyncState::default();
+        let mut inner = self.0.borrow_mut();
+        inner.state = SyncState::default();
+        inner.bases.clear();
+    }
+
+    /// How many bases are kept (a test of Г9 looks at it).
+    pub fn base_count(&self) -> usize {
+        self.0.borrow().bases.len()
+    }
+
+    /// Damages a stored base without telling anyone (Г7: it must then read as "no base").
+    pub fn damage_base(&self, item: &ItemId, hash: &[u8; 32]) {
+        if let Some(bytes) = self
+            .0
+            .borrow_mut()
+            .bases
+            .get_mut(&(*item.as_bytes(), *hash))
+        {
+            bytes.push(b'!');
+        }
     }
 
     /// Replaces the state wholesale (a test builds a state by hand).
@@ -133,5 +160,30 @@ impl StateStore for MemState {
         }
         inner.locked.set(true);
         Ok(StateLock(Box::new(LockToken(inner.locked.clone()))))
+    }
+
+    fn base_put(&mut self, item: &ItemId, hash: &[u8; 32], bytes: &[u8]) -> Result<(), StateError> {
+        self.0
+            .borrow_mut()
+            .bases
+            .insert((*item.as_bytes(), *hash), bytes.to_vec());
+        Ok(())
+    }
+
+    fn base_get(&mut self, item: &ItemId, hash: &[u8; 32]) -> Result<Option<Vec<u8>>, StateError> {
+        let inner = self.0.borrow();
+        Ok(inner
+            .bases
+            .get(&(*item.as_bytes(), *hash))
+            .filter(|bytes| blake3_hash(bytes) == *hash)
+            .cloned())
+    }
+
+    fn base_prune(&mut self, keep: &[(ItemId, [u8; 32])]) -> Result<(), StateError> {
+        self.0
+            .borrow_mut()
+            .bases
+            .retain(|(item, hash), _| keep.iter().any(|(i, h)| i.as_bytes() == item && h == hash));
+        Ok(())
     }
 }

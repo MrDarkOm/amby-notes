@@ -13,7 +13,7 @@ use amby_sync_core::engine::{RenameHint, UnsyncedReason};
 fn d56_after_a_resync_the_local_version_stays_and_the_servers_becomes_a_copy(b: EngineBuilder) {
     // Р8, С7, Д56, О4, О5: the server went back to an old copy; this device has a newer version
     // of the file. The newer local version stays at the path and goes up, the older version from
-    // the server is kept as a conflict copy; nothing is lost either way, but the new content
+    // the server is kept in a conflict set (К2); nothing is lost either way, but the new content
     // does not end up in the copy.
     let mut w = World::new(b, WorldOptions::new(2).isolated());
     w.save(0, "Keep/k.md", "keep");
@@ -35,12 +35,12 @@ fn d56_after_a_resync_the_local_version_stays_and_the_servers_becomes_a_copy(b: 
             Some("newer"),
             "device {d}"
         );
-        let copies = w.copies(d, "Notes/a.md");
         assert_eq!(
-            copies.values().map(String::as_str).collect::<Vec<_>>(),
-            vec!["base"],
+            w.others(d, "Notes/a.md"),
+            vec!["base".to_string()],
             "device {d}"
         );
+        assert!(w.old_copies(d).is_empty(), "device {d}");
     }
     assert_eq!(
         w.server_files()
@@ -97,13 +97,8 @@ fn d57_after_a_resync_following_a_rollback_the_local_version_stays(b: EngineBuil
         w.read(1, "Notes/a.md").as_deref(),
         Some("mine, newer than anything")
     );
-    assert_eq!(
-        w.copies(1, "Notes/a.md")
-            .values()
-            .map(String::as_str)
-            .collect::<Vec<_>>(),
-        vec!["third"]
-    );
+    assert_eq!(w.others(1, "Notes/a.md"), vec!["third".to_string()]);
+    assert!(w.old_copies(1).is_empty());
     w.finish(false);
     assert_eq!(
         w.read(0, "Notes/a.md").as_deref(),

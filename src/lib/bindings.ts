@@ -1748,6 +1748,18 @@ export type ConflictChoice =
  */
 "keepBoth"
 /**
+ * Where a conflict is kept (Г29).
+ */
+export type ConflictSource = 
+/**
+ * A set in `.amby/conflicts/<id>/` (Г21).
+ */
+"bundle" | 
+/**
+ * A copy `Name.<id>-conflict.ext` beside the file, made before stage Э4б.
+ */
+"legacyCopy"
+/**
  * The two versions of a conflict as text, for the comparison (stage Э4б). A side is `None` when it
  * cannot be shown as text: bytes that are not UTF-8, a file that is gone, or one too large to
  * compare in the window. The text is the whole file as it is on disk (BOM, line endings, properties).
@@ -1789,7 +1801,25 @@ copyPath: string;
 /**
  * When the copy was made, Unix milliseconds.
  */
-createdMs: number }
+createdMs: number; 
+/**
+ * Where the second version is kept: a set in `.amby/conflicts/` or an old copy beside the
+ * file (Г32). The fields below were added in stage Э4б; they are optional on the interface
+ * side so that it can read a status without them.
+ */
+source?: ConflictSource | null; 
+/**
+ * Both versions can be compared line by line (Г28).
+ */
+text?: boolean | null; 
+/**
+ * The set has a common base (Г21).
+ */
+hasBase?: boolean | null; 
+/**
+ * This computer made the conflict (Г25, Г34).
+ */
+createdHere?: boolean | null }
 export type CreateDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string; propertyType: string; beforePropertyId: string | null; options?: string[]; formulaExpression?: string | null; relationTargetDatabaseId?: string | null; relationMaxItems?: number | null; relationTwoWay?: boolean | null; relationInversePropertyName?: string | null; operationId?: string | null; expectedTargetManifestRevision?: string | null; rollupRelationPropertyId?: string | null; rollupTargetPropertyId?: string | null; rollupAggregation?: string | null }
 export type CreateDatabaseRequest = { expectedGeneration: number; mode: DatabaseCreateMode; parentPath: string | null; notePath: string | null; name: string }
 export type CreateDatabaseRowRequest = { expectedGeneration: number; databaseId: string; title: string; template: DatabaseRowTemplate }

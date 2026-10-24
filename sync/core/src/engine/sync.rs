@@ -1,20 +1,22 @@
 //! The engine itself (Д2, Д10): one function, [`SyncEngine::sync_cycle`], and the ports it
 //! works through.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::crypto::header::ItemKind;
 use crate::crypto::keys::{ItemId, SpaceId, SpaceKey};
 use crate::crypto::random::Random;
 
 use super::apply::ApplyCtx;
-use super::classify::classify;
+use super::classify::{classify, Lc};
 use super::decide::{decide, Inputs};
 use super::flow::{Flow, Res};
+use super::merge::is_mergeable_path;
 use super::model::{
     CycleOutcome, CycleReport, CycleRequest, Direction, EngineError, ItemRecord, ReadOnlyItem,
-    StateOp, StopReason, UnsyncedRecord,
+    StateOp, StopReason, SyncState, UnsyncedRecord,
 };
+use super::plan::Srv;
 use super::ports::{Clock, CommitReply, LocalFs, Remote, RootState, StateError, StateStore};
 use super::rules::mass_change_reached;
 use super::scan::scan;
@@ -111,6 +113,7 @@ impl SyncEngine for Engine {
             trashed: 0,
             trashed_paths: Vec::new(),
             restored_paths: Vec::new(),
+            merged_paths: Vec::new(),
             conflicts: Vec::new(),
             unsynced: Vec::new(),
             read_only: Vec::new(),
@@ -292,6 +295,7 @@ impl Engine {
 
         // Д10 step 6: decisions for everything, nothing written yet.
         let classes = classify(&state.items, &disk, &request.rename_hints);
+        let bases = self.load_bases(&state, &classes, &feed.items)?;
         let mut plan = decide(
             &Inputs {
                 state: &state,
@@ -302,6 +306,7 @@ impl Engine {
                 full,
                 resync,
                 forgotten: &forgotten,
+                bases: &bases,
             },
             &feed.items,
         );
@@ -415,6 +420,7 @@ impl Engine {
 
         // Д18: what goes out.
         let after = self.push(&info, &plan.undelete, &request.rename_hints, report)?;
+        self.prune_bases()?;
 
         // Д64: the list is made again every pass.
         let mut unsynced: Vec<UnsyncedRecord> = match &after {
@@ -431,6 +437,68 @@ impl Engine {
                 .apply(&vec![StateOp::SetUnsynced(unsynced.clone())])?;
         }
         report.unsynced = unsynced;
+        Ok(())
+    }
+}
+
+impl Engine {
+    /// The bases of the notes that both sides may have edited (Г6, Г10): those of the items with a
+    /// new server version whose local file was edited here. A base whose bytes do not match its
+    /// hash is not there (Г7).
+    fn load_bases(
+        &mut self,
+        state: &SyncState,
+        classes: &BTreeMap<[u8; 16], Lc>,
+        items: &[Srv],
+    ) -> Res<BTreeMap<[u8; 16], Vec<u8>>> {
+        let mut bases = BTreeMap::new();
+        for srv in items {
+            let key = *srv.item.as_bytes();
+            let Some(record) = state.items.get(&key) else {
+                continue;
+            };
+            let edited = matches!(
+                classes.get(&key),
+                Some(Lc::Edited | Lc::Moved { edited: true, .. })
+            );
+            let (Some(hash), true) = (record.content_hash, edited) else {
+                continue;
+            };
+            if record.deleted
+                || srv.deleted
+                || record.kind != ItemKind::File
+                || is_unmaterialised(record)
+                || srv.version <= record.version
+                || srv.hash == record.content_hash
+                || !is_mergeable_path(&record.path)
+            {
+                continue;
+            }
+            if let Some(bytes) = self.ports.state.base_get(&record.item_id, &hash)? {
+                bases.insert(key, bytes);
+            }
+        }
+        Ok(bases)
+    }
+
+    /// Only the bases that the state refers to stay (Г9).
+    fn prune_bases(&mut self) -> Res<()> {
+        let state = self.ports.state.load()?;
+        let mut keep: Vec<(ItemId, [u8; 32])> = state
+            .items
+            .values()
+            .filter(|r| !r.deleted)
+            .filter_map(|r| r.content_hash.map(|hash| (r.item_id, hash)))
+            .collect();
+        if let Some(pending) = &state.commit {
+            keep.extend(
+                pending
+                    .after
+                    .iter()
+                    .filter_map(|r| r.content_hash.map(|hash| (r.item_id, hash))),
+            );
+        }
+        self.ports.state.base_prune(&keep)?;
         Ok(())
     }
 }

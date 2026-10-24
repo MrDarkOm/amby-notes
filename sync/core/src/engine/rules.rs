@@ -2,7 +2,7 @@
 
 /// Is this path excluded from synchronisation without a word (Р4, Д11)? `.git` at any depth;
 /// `.obsidian/` and `.trash/` at the root; everything in `.amby/` except `properties.json`,
-/// `blocks/`, `graph-layout.json` and `property-backups/`; temporary files
+/// `blocks/`, `graph-layout.json`, `property-backups/` and `conflicts/` (Г24); temporary files
 /// `.<name>.amby-tmp-*`; system litter (`.DS_Store`, `._*`, `Thumbs.db`, `desktop.ini`) at any
 /// depth. `path` is relative, `/` separators.
 pub fn is_excluded_path(path: &str) -> bool {
@@ -16,7 +16,7 @@ pub fn is_excluded_path(path: &str) -> bool {
             let kept = match segments.get(1) {
                 None => false,
                 Some(&("properties.json" | "graph-layout.json")) => segments.len() == 2,
-                Some(&("blocks" | "property-backups")) => true,
+                Some(&("blocks" | "property-backups" | "conflicts")) => true,
                 Some(_) => false,
             };
             if !kept {

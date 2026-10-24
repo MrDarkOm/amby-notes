@@ -382,4 +382,17 @@ pub trait StateStore {
     fn apply(&mut self, tx: &StateTx) -> Result<(), StateError>;
     /// Takes the exclusive lock of the vault (С14, Д9). Busy is [`StateError::Locked`].
     fn lock(&mut self) -> Result<StateLock, StateError>;
+
+    /// Keeps the content of a base (appendix Г, Г6–Г9) under `(item, hash)` where `hash` is the
+    /// BLAKE3 of `bytes`. Durable and atomic before it returns; a repeat is harmless. Written
+    /// **before** the transaction that makes it the base of the record (Г9). Not part of
+    /// [`StateStore::apply`]: it is a file of the device, not a row. Г7.
+    fn base_put(&mut self, item: &ItemId, hash: &[u8; 32], bytes: &[u8]) -> Result<(), StateError>;
+
+    /// The content of a base, **only if** the BLAKE3 of the stored bytes equals `hash`. No base,
+    /// a damaged file or one that belongs to another hash is `Ok(None)`, never an error (Г7, Г10).
+    fn base_get(&mut self, item: &ItemId, hash: &[u8; 32]) -> Result<Option<Vec<u8>>, StateError>;
+
+    /// Removes every base except the listed `(item, hash)` pairs (Г9). Nothing listed removes all.
+    fn base_prune(&mut self, keep: &[(ItemId, [u8; 32])]) -> Result<(), StateError>;
 }

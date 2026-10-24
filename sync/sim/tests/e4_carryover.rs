@@ -207,9 +207,10 @@ fn rename_to_a_name_windows_cannot_hold_is_not_uploaded_again_after_a_full_recon
 }
 
 fn d71_the_copy_of_the_second_item_on_one_path_is_in_the_list_of_conflicts(_b: EngineBuilder) {
-    // Э4 (from Э3), Д71, Д47: two live items end up at one path (another device moved one onto
+    // Э4 (from Э3), Д71, Д47, Г20: two live items end up at one path (another device moved one onto
     // the other). The path stays with the item of the smaller id on every device, the other goes
-    // to a conflict copy, and that copy is in the list of conflicts until the user resolves it.
+    // into a conflict set (it moves to the `other` file of the set), and that conflict is in the
+    // list until the user resolves it.
     let w = two(Engine::boxed);
     let low = ItemId::from_bytes([1; 16]);
     let high = ItemId::from_bytes([2; 16]);
@@ -228,16 +229,21 @@ fn d71_the_copy_of_the_second_item_on_one_path_is_in_the_list_of_conflicts(_b: E
         "{texts:?}"
     );
     assert!(!texts.contains_key("y.md"), "{texts:?}");
-    let copies = w.copies(1, "x.md");
-    assert_eq!(copies.len(), 1, "one copy: {texts:?}");
-    let (copy_path, copy_text) = copies.iter().next().unwrap();
-    assert_eq!(copy_text, "high");
+    assert!(w.old_copies(1).is_empty(), "{texts:?}");
+    let sets = w.sets(1);
+    assert_eq!(sets.len(), 1, "one set: {texts:?}");
+    assert_eq!(sets[0].other, b"high");
+    assert_eq!(sets[0].path, "x.md");
+    assert_eq!(sets[0].kind, "bothCreated");
+    let copy_path = &format!(".amby/conflicts/{}/other.md", sets[0].id);
+    assert_eq!(texts.get(copy_path).map(String::as_str), Some("high"));
 
     let conflicts = w.dev(1).state.snapshot().conflicts;
     assert_eq!(conflicts.len(), 1, "{conflicts:?}");
     assert_eq!(conflicts[0].kind, ConflictKind::BothCreated);
     assert_eq!(conflicts[0].original_path, "x.md");
     assert_eq!(&conflicts[0].copy_path, copy_path);
+    assert_eq!(conflicts[0].id, sets[0].id);
 
     // It stays in the list on later passes (no duplicate entry), until it is resolved.
     w.pass(1);

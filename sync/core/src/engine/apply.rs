@@ -8,16 +8,18 @@ use std::io::Write;
 
 use crate::crypto::header::ItemKind;
 
+use super::conflict_set::{encode_meta, set_paths, SetMeta};
 use super::flow::{Flow, Res};
+use super::merge::{is_mergeable_path, merge_text, MergeOutcome, MERGE_MAX_BYTES};
 use super::model::{
     ConflictRecord, CycleReport, ItemError, ItemErrorKind, StateOp, UnsyncedReason, UnsyncedRecord,
 };
-use super::plan::{Act, CopyPlan, KeepAct, MoveAct, Plan, PutAct, Srv};
+use super::plan::{Act, CopyPlan, KeepAct, LinkBase, MoveAct, Plan, PutAct, Srv};
 use super::ports::{FsError, RemoteError, SnapshotReason, StagedWrite, TrashReason};
 use super::scan::Scan;
 use super::stream::{open_body_stream, StreamError};
 use super::sync::Engine;
-use super::util::{ancestors, depth, hash_of, UNMATERIALISED};
+use super::util::{ancestors, base_eligible, depth, hash_of, UNMATERIALISED};
 
 /// How one action ended.
 enum Step {
@@ -32,6 +34,8 @@ enum Step {
 enum Failed {
     /// This item only.
     Item(ItemErrorKind),
+    /// The file system refused while writing bytes already in memory.
+    Fs(FsError),
     /// The whole pass.
     Pass(Flow),
 }
@@ -43,14 +47,23 @@ pub(super) struct ApplyCtx<'a> {
     pub conflict_ids: BTreeSet<String>,
 }
 
-/// A sink that writes into a staged file and remembers why it failed.
+/// A sink that writes into a staged file and remembers why it failed. With `keep` it also keeps
+/// the bytes of a note that may be the base of a merge (Г6), up to the size limit of Г5.
 struct StagedSink<'a> {
     staged: &'a mut Box<dyn StagedWrite>,
     failure: Option<FsError>,
+    keep: Option<Vec<u8>>,
 }
 
 impl Write for StagedSink<'_> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if let Some(kept) = self.keep.as_mut() {
+            if kept.len() + buf.len() <= MERGE_MAX_BYTES {
+                kept.extend_from_slice(buf);
+            } else {
+                self.keep = None;
+            }
+        }
         match self.staged.write(buf) {
             Ok(()) => Ok(buf.len()),
             Err(error) => {
@@ -63,6 +76,14 @@ impl Write for StagedSink<'_> {
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
+}
+
+/// Writes `bytes` into a staged file in pieces.
+fn write_all(staged: &mut Box<dyn StagedWrite>, bytes: &[u8]) -> Result<(), FsError> {
+    for chunk in bytes.chunks(64 * 1024) {
+        staged.write(chunk)?;
+    }
+    Ok(())
 }
 
 fn fail(plan: &mut Plan, seq: Option<u64>, srv: &Srv, kind: ItemErrorKind) {
@@ -82,6 +103,10 @@ impl Engine {
         ctx: &mut ApplyCtx<'_>,
         report: &mut CycleReport,
     ) -> Res<()> {
+        // Г8 в, Г9: the files that become the common version are kept as bases first.
+        for link in std::mem::take(&mut plan.link_bases) {
+            self.keep_base_of_file(&link)?;
+        }
         let acts = std::mem::take(&mut plan.acts);
         let mut ops: Vec<StateOp> = Vec::new();
         let mut dirs = Vec::new();
@@ -347,6 +372,7 @@ impl Engine {
                         .fs
                         .move_to_trash(&occupant.disk, TrashReason::RemoteDeletion)?;
                 }
+                self.finish_set(copy)?;
                 self.note_conflict(copy, ctx, report)?;
                 renamed = self.ports.fs.rename(&m.from_disk, &m.to);
             }
@@ -366,6 +392,7 @@ impl Engine {
         }
         report.renamed += 1;
         if let Some(copy) = &m.placed_as {
+            self.finish_set(copy)?;
             self.note_conflict(copy, ctx, report)?;
         }
         match &m.then {
@@ -421,57 +448,121 @@ impl Engine {
                 Err(error) => return Err(error.into()),
             },
         };
-        let mut staged = match self.ports.fs.begin_write(&write_path) {
-            Ok(staged) => staged,
-            Err(error @ (FsError::NoSpace | FsError::AccessDenied(_))) => {
-                fail(plan, put.seq, srv, ItemErrorKind::Disk(error));
-                return Ok(Step::Skipped);
+        let note_path = srv.path.as_str();
+        let wants_base = is_mergeable_path(note_path) && srv.size <= MERGE_MAX_BYTES as u64;
+
+        // К1, Г4: both sides changed a note that has a base: the merge comes before the copy.
+        let mut server_bytes: Option<Vec<u8>> = None;
+        let mut merged: Option<Vec<u8>> = None;
+        if let (true, Some(copy), Some(local)) = (put.merge, &put.copy, &local_bytes) {
+            if let Some(base) = &copy.base {
+                if wants_base && local.len() <= MERGE_MAX_BYTES {
+                    let server = match self.download_bytes(srv) {
+                        Ok(bytes) => bytes,
+                        Err(Failed::Item(kind)) => {
+                            fail(plan, put.seq, srv, kind);
+                            return Ok(Step::Skipped);
+                        }
+                        Err(Failed::Fs(error)) => return Err(error.into()),
+                        Err(Failed::Pass(flow)) => return Err(flow),
+                    };
+                    if let MergeOutcome::Clean(bytes) = merge_text(base, local, &server) {
+                        merged = Some(bytes);
+                    }
+                    server_bytes = Some(server);
+                }
             }
-            Err(error) => return Err(error.into()),
+        }
+        let copy = if merged.is_some() {
+            None
+        } else {
+            put.copy.as_ref()
         };
-        match self.download_into(srv, &mut staged) {
-            Ok(()) => {}
-            Err(Failed::Item(kind)) => {
-                staged.abort();
-                fail(plan, put.seq, srv, kind);
-                return Ok(Step::Skipped);
-            }
-            Err(Failed::Pass(flow)) => {
-                staged.abort();
-                return Err(flow);
-            }
-        }
-        if let (Some(copy), Some(bytes)) = (&put.copy, &local_bytes) {
-            // The local content is saved beside the file first, then listed, then replaced (Д47).
-            match self.write_copy(copy, bytes) {
-                Ok(()) => {}
-                Err(error @ (FsError::NoSpace | FsError::AccessDenied(_))) => {
-                    staged.abort();
-                    fail(plan, put.seq, srv, ItemErrorKind::Disk(error));
-                    return Ok(Step::Skipped);
-                }
-                Err(error) => {
-                    staged.abort();
-                    return Err(error.into());
-                }
-            }
-            self.note_conflict(copy, ctx, report)?;
-        }
         let snapshot = put
             .existing
             .is_some()
             .then_some(SnapshotReason::SyncOverwrite);
-        match staged.publish(snapshot) {
-            Ok(()) => {}
-            Err(error @ (FsError::NoSpace | FsError::AccessDenied(_))) => {
-                fail(plan, put.seq, srv, ItemErrorKind::Disk(error));
-                return Ok(Step::Skipped);
+
+        let mut kept: Option<Vec<u8>> = None;
+        // The server's edits are in the local file already (Г16): nothing is written.
+        let already_there = merged.is_some() && merged.as_deref() == local_bytes.as_deref();
+        if !already_there {
+            let mut staged = match self.ports.fs.begin_write(&write_path) {
+                Ok(staged) => staged,
+                Err(error @ (FsError::NoSpace | FsError::AccessDenied(_))) => {
+                    fail(plan, put.seq, srv, ItemErrorKind::Disk(error));
+                    return Ok(Step::Skipped);
+                }
+                Err(error) => return Err(error.into()),
+            };
+            let content = merged.as_deref().or(server_bytes.as_deref());
+            let written = match content {
+                Some(bytes) => write_all(&mut staged, bytes).map_err(Failed::Fs),
+                None => self
+                    .download_into(srv, &mut staged, wants_base)
+                    .map(|bytes| {
+                        kept = bytes;
+                    }),
+            };
+            match written {
+                Ok(()) => {}
+                Err(Failed::Item(kind)) => {
+                    staged.abort();
+                    fail(plan, put.seq, srv, kind);
+                    return Ok(Step::Skipped);
+                }
+                Err(Failed::Fs(error @ (FsError::NoSpace | FsError::AccessDenied(_)))) => {
+                    staged.abort();
+                    fail(plan, put.seq, srv, ItemErrorKind::Disk(error));
+                    return Ok(Step::Skipped);
+                }
+                Err(Failed::Fs(error)) => {
+                    staged.abort();
+                    return Err(error.into());
+                }
+                Err(Failed::Pass(flow)) => {
+                    staged.abort();
+                    return Err(flow);
+                }
             }
-            Err(error) => return Err(error.into()),
+            if let (Some(copy), Some(bytes)) = (copy, &local_bytes) {
+                // The local content is saved first, then listed, then replaced (Д47, Г23).
+                match self.write_copy(copy, bytes) {
+                    Ok(()) => {}
+                    Err(error @ (FsError::NoSpace | FsError::AccessDenied(_))) => {
+                        staged.abort();
+                        fail(plan, put.seq, srv, ItemErrorKind::Disk(error));
+                        return Ok(Step::Skipped);
+                    }
+                    Err(error) => {
+                        staged.abort();
+                        return Err(error.into());
+                    }
+                }
+                self.note_conflict(copy, ctx, report)?;
+            }
+            match staged.publish(snapshot) {
+                Ok(()) => {}
+                Err(error @ (FsError::NoSpace | FsError::AccessDenied(_))) => {
+                    fail(plan, put.seq, srv, ItemErrorKind::Disk(error));
+                    return Ok(Step::Skipped);
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        if merged.is_some() {
+            report.merged_paths.push(put.target.clone());
         }
         report.downloaded += 1;
         if plan.restored.contains(&put.target) {
             report.restored_paths.push(put.target.clone());
+        }
+        // The server's version is the base now, whatever was written (Г8 а, Г16); it is kept
+        // before the state says so (Г9).
+        if let (Some(bytes), Some(hash)) = (server_bytes.or(kept), srv.hash) {
+            if base_eligible(note_path, &bytes) && hash_of(&bytes) == hash {
+                self.ports.state.base_put(&srv.item, &hash, &bytes)?;
+            }
         }
         self.ports
             .state
@@ -497,12 +588,16 @@ impl Engine {
                 }
                 Err(error) => return Err(error.into()),
             };
-            match self.download_into(srv, &mut staged) {
-                Ok(()) => {}
+            match self.download_into(srv, &mut staged, false) {
+                Ok(_) => {}
                 Err(Failed::Item(kind)) => {
                     staged.abort();
                     fail(plan, keep.seq, srv, kind);
                     return Ok(());
+                }
+                Err(Failed::Fs(error)) => {
+                    staged.abort();
+                    return Err(error.into());
                 }
                 Err(Failed::Pass(flow)) => {
                     staged.abort();
@@ -518,6 +613,7 @@ impl Engine {
                 Err(error) => return Err(error.into()),
             }
         }
+        self.finish_set(&keep.copy)?;
         self.note_conflict(&keep.copy, ctx, report)?;
         self.ports
             .state
@@ -530,7 +626,8 @@ impl Engine {
         &mut self,
         srv: &Srv,
         staged: &mut Box<dyn StagedWrite>,
-    ) -> Result<(), Failed> {
+        keep: bool,
+    ) -> Result<Option<Vec<u8>>, Failed> {
         let (Some(body), Some(hash)) = (srv.body, srv.hash) else {
             return Err(Failed::Item(ItemErrorKind::Inconsistent));
         };
@@ -544,6 +641,7 @@ impl Engine {
         let mut sink = StagedSink {
             staged,
             failure: None,
+            keep: keep.then(Vec::new),
         };
         let result = open_body_stream(
             &self.config.vk,
@@ -554,7 +652,7 @@ impl Engine {
             &mut sink,
         );
         match result {
-            Ok(()) => Ok(()),
+            Ok(()) => Ok(sink.keep.take()),
             Err(StreamError::Crypto(error)) => Err(Failed::Item(ItemErrorKind::Invalid(error))),
             Err(StreamError::Read(error)) => Err(Failed::Pass(Flow::Err(
                 super::model::EngineError::Remote(RemoteError::Network(error.to_string())),
@@ -569,19 +667,106 @@ impl Engine {
         }
     }
 
-    /// Creates the file of a conflict copy unless it is there already or arrives from the server.
-    fn write_copy(&mut self, copy: &CopyPlan, bytes: &[u8]) -> Result<(), FsError> {
-        if copy.exists || copy.from_server {
-            return Ok(());
-        }
-        let mut staged = self.ports.fs.begin_write(&copy.path)?;
-        for chunk in bytes.chunks(64 * 1024) {
-            if let Err(error) = staged.write(chunk) {
-                staged.abort();
-                return Err(error);
+    /// Downloads the body of `srv` into memory, verified like a file (Д68).
+    fn download_bytes(&mut self, srv: &Srv) -> Result<Vec<u8>, Failed> {
+        let (Some(body), Some(hash)) = (srv.body, srv.hash) else {
+            return Err(Failed::Item(ItemErrorKind::Inconsistent));
+        };
+        let mut reader = match self.ports.remote.blob_download(&body) {
+            Ok(reader) => reader,
+            Err(RemoteError::Rejected { .. }) => {
+                return Err(Failed::Item(ItemErrorKind::Inconsistent));
+            }
+            Err(error) => return Err(Failed::Pass(error.into())),
+        };
+        let mut out = Vec::new();
+        let result = open_body_stream(
+            &self.config.vk,
+            &body,
+            srv.size,
+            &hash,
+            &mut reader,
+            &mut out,
+        );
+        match result {
+            Ok(()) => Ok(out),
+            Err(StreamError::Crypto(error)) => Err(Failed::Item(ItemErrorKind::Invalid(error))),
+            Err(StreamError::Read(error)) => Err(Failed::Pass(Flow::Err(
+                super::model::EngineError::Remote(RemoteError::Network(error.to_string())),
+            ))),
+            Err(StreamError::Write(error)) => {
+                Err(Failed::Pass(FsError::Io(error.to_string()).into()))
             }
         }
-        staged.publish(None)
+    }
+
+    /// Writes `bytes` to `path`: nothing when the same bytes are there, a snapshot of what else
+    /// is there (Д53).
+    fn put_file(&mut self, path: &str, bytes: &[u8]) -> Result<(), FsError> {
+        let snapshot = match self.ports.fs.read(path) {
+            Ok(existing) if existing == bytes => return Ok(()),
+            Ok(_) => Some(SnapshotReason::SyncOverwrite),
+            Err(FsError::NotFound(_)) => None,
+            Err(error) => return Err(error),
+        };
+        let mut staged = self.ports.fs.begin_write(path)?;
+        if let Err(error) = write_all(&mut staged, bytes) {
+            staged.abort();
+            return Err(error);
+        }
+        staged.publish(snapshot)
+    }
+
+    /// Creates the second version of a conflict (Д47, Г23): `other` first, then the base, then
+    /// `meta.json`; or the old copy beside the file (Г19). Nothing when it is there already or
+    /// arrives from the server.
+    fn write_copy(&mut self, copy: &CopyPlan, bytes: &[u8]) -> Result<(), FsError> {
+        if copy.from_server {
+            return Ok(());
+        }
+        if !copy.exists {
+            self.put_file(&copy.path, bytes)?;
+        }
+        self.finish_set(copy)
+    }
+
+    /// The files of a set besides `other` (Г21, Г23): the base, then `meta.json` last. The file
+    /// `other` is there already, made or moved by the caller.
+    fn finish_set(&mut self, copy: &CopyPlan) -> Result<(), FsError> {
+        if copy.legacy || copy.from_server {
+            return Ok(());
+        }
+        let paths = set_paths(&copy.id, &copy.original);
+        let name_of = |path: &str| path.rsplit('/').next().unwrap_or(path).to_string();
+        if let Some(base) = &copy.base {
+            self.put_file(&paths.base, base)?;
+        }
+        let meta = SetMeta {
+            id: copy.id.clone(),
+            kind: copy.kind,
+            item_id: copy.item,
+            path: copy.original.clone(),
+            other: name_of(&paths.other),
+            other_hash: copy.other_hash,
+            other_size: copy.other_size,
+            base: copy.base.as_ref().map(|_| name_of(&paths.base)),
+            base_hash: copy.base.as_deref().map(hash_of),
+        };
+        self.put_file(&paths.meta, &encode_meta(&meta))
+    }
+
+    /// The file becomes the base of its record, unchanged (Г8 в): its bytes are kept when it is
+    /// a note that can be merged, before the state says so (Г9).
+    fn keep_base_of_file(&mut self, link: &LinkBase) -> Res<()> {
+        match self.ports.fs.read(&link.disk) {
+            Ok(bytes) if hash_of(&bytes) == link.hash && base_eligible(&link.path, &bytes) => {
+                self.ports.state.base_put(&link.item, &link.hash, &bytes)?;
+                Ok(())
+            }
+            // Not there, changed, or not a note: no base, a later clash is a conflict (Г10).
+            Ok(_) | Err(FsError::NotFound(_) | FsError::AccessDenied(_)) => Ok(()),
+            Err(error) => Err(error.into()),
+        }
     }
 
     /// Lists a conflict (Д47) and tells the report.
