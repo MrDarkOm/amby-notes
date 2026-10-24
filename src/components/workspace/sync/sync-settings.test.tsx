@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import i18n from "@/lib/i18n"
 import { SyncPortError, unavailableSyncPort } from "@/lib/sync/sync-port"
+import { openWebAddressInBrowser } from "../tiptap/external-open"
 import { SyncSettings } from "./sync-settings"
 import {
   CONNECTED,
@@ -12,6 +13,8 @@ import {
   vaultStatus,
   type FakePort,
 } from "./fake-sync-port"
+
+vi.mock("../tiptap/external-open", () => ({ openWebAddressInBrowser: vi.fn() }))
 
 function renderSettings(port: FakePort) {
   return render(<SyncSettings port={port} />)
@@ -203,5 +206,45 @@ describe("the Synchronization section of the settings", () => {
     const text = document.body.textContent ?? ""
     expect(text).not.toMatch(/[0-9a-f]{64}/)
     expect(vi.mocked(port.status)).toHaveBeenCalled()
+  })
+
+  describe("the choice of a server", () => {
+    it("offers the Amby server as not available yet and cannot select it", async () => {
+      renderSettings(createFakePort())
+      const amby = (await screen.findByRole("radio", { name: /Сервер Amby/ })) as HTMLInputElement
+      expect(amby.disabled).toBe(true)
+      expect(amby.checked).toBe(false)
+      expect(document.body.textContent).toMatch(/скоро будет/)
+      fireEvent.click(amby)
+      expect(screen.getByLabelText("Адрес сервера")).toBeTruthy()
+    })
+
+    it("has the own server selected, with the address field", async () => {
+      renderSettings(createFakePort())
+      const own = (await screen.findByRole("radio", { name: "Свой сервер" })) as HTMLInputElement
+      expect(own.checked).toBe(true)
+      expect(screen.getByLabelText("Адрес сервера")).toBeTruthy()
+    })
+
+    it("opens the install guide of the server in the browser", async () => {
+      renderSettings(createFakePort())
+      fireEvent.click(await screen.findByRole("button", { name: /Как поднять свой сервер/ }))
+      expect(openWebAddressInBrowser).toHaveBeenCalledWith(
+        "https://github.com/MrDarkOm/amby-notes/blob/main/sync/server/README.md",
+      )
+    })
+
+    it("names the own server only on its option, in both languages", async () => {
+      renderSettings(createFakePort())
+      await screen.findByLabelText("Адрес сервера")
+      expect(screen.getByText("Синхронизация").parentElement?.textContent).not.toMatch(/собственн/i)
+      cleanup()
+      await i18n.changeLanguage("en")
+      renderSettings(createFakePort())
+      await screen.findByLabelText("Server address")
+      expect(screen.getByRole("radio", { name: "Your own server" })).toBeTruthy()
+      expect(document.body.textContent?.match(/own server/gi)).toHaveLength(2)
+      await i18n.changeLanguage("ru")
+    })
   })
 })
