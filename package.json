@@ -17,6 +17,7 @@
     "build:modules": "node scripts/build-modules.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
+    "dev:sign-check": "sh scripts/dev-sign-run.sh --check",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
