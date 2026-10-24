@@ -58,6 +58,8 @@ pub enum Kind {
     /// Е.9, ceiling of the history: a latest version was pruned, or the order "oldest first"
     /// was broken.
     HistoryCeiling,
+    /// Е.9 (Д75): one pass asked the server for the same refused body again and again.
+    LimitRetryStorm,
     /// The engine failed in a way the scenario did not expect.
     Unexpected,
 }

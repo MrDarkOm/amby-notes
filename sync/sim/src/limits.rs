@@ -47,6 +47,7 @@ pub fn plans_text() -> String {
             "tight": {"max_file_bytes": sealed(8_000), "max_total_bytes": 60_000,
                       "history_days": 5, "max_history_bytes": 30_000},
             "roomy": {"max_file_bytes": sealed(60_000), "max_total_bytes": 400_000, "history_days": 20},
+            "tiny": {"max_file_bytes": sealed(60_000), "max_total_bytes": 5_000, "history_days": 5},
             "free": {}
         }
     })
@@ -97,6 +98,25 @@ struct Run {
     filler_items: Vec<(amby_sync_core::crypto::keys::ItemId, u64, String)>,
     filler: Option<amby_sync_conformance::client::Space>,
     trace: Vec<String>,
+    /// A model of a broken pruning of the history: the cleanup also removes a latest version.
+    prune_latest: bool,
+}
+
+/// The filler takes room in its space, by the rules of the server; every refusal is its answer.
+/// Never panics: it runs in a hook in the middle of a pass of the device.
+fn grab_room(space: &amby_sync_conformance::client::Space, size: usize) {
+    let body = amby_sync_conformance::client::new_body();
+    if space.init_blob(&body, size as u64).status != 201 {
+        return;
+    }
+    if space.put_part(&body, 0, vec![0x42; size]).status != 200
+        || space.complete_blob(&body).status != 200
+    {
+        return;
+    }
+    let item = amby_sync_conformance::client::new_item();
+    let prepared = space.file_with_uploaded_body(&item, 0, "grab.bin", b"x", &body);
+    let _ = space.commit(&[prepared]);
 }
 
 impl Run {
@@ -205,11 +225,96 @@ impl Run {
                 4 => faults.drop_request_of(RemoteKind::BlobDelete),
                 _ => {}
             }
+            // The numbers the pass read at its start go stale: another device takes the room, or
+            // the administrator lowers the plan, right before the body is started (Д76).
+            if d == 0 {
+                match self.rng.below(6) {
+                    0 => {
+                        self.world
+                            .log("  (a hook: the filler grabs room before the body starts)");
+                        let space = self.filler.clone().expect("filler space");
+                        let size = 20_000 + self.rng.below(30_000);
+                        faults.before_remote(RemoteKind::BlobStart, move || {
+                            grab_room(&space, size);
+                        });
+                    }
+                    1 => {
+                        self.world
+                            .log("  (a hook: the plan is lowered before the body starts)");
+                        let admin = self.world.target().admin.clone();
+                        let name = self.world.accounts[0].username.clone();
+                        faults.before_remote(RemoteKind::BlobStart, move || {
+                            let _ = admin.run(&["user", "plan", "set", &name, "tight"]);
+                        });
+                    }
+                    2 | 3 => {
+                        self.world
+                            .log("  (a hook: the plan is lowered before the commit)");
+                        let admin = self.world.target().admin.clone();
+                        let name = self.world.accounts[0].username.clone();
+                        faults.before_remote(RemoteKind::Commit, move || {
+                            let _ = admin.run(&["user", "plan", "set", &name, "tiny"]);
+                        });
+                    }
+                    _ => {}
+                }
+            }
         }
         self.log(format!("device {d} syncs (faults: {with_faults})"));
+        let head_before = self.world.server_head();
+        let had_pending = self.world.dev(d).state.snapshot().commit.is_some();
         match self.world.dev(d).sync() {
             Ok(report) => {
+                self.log(format!(
+                    "  -> {:?} up {} down {} trashed {} unsynced {:?} errors {} limits {:?}",
+                    report.outcome,
+                    report.uploaded,
+                    report.downloaded,
+                    report.trashed,
+                    report
+                        .unsynced
+                        .iter()
+                        .map(|u| (&u.path, &u.reason))
+                        .collect::<Vec<_>>(),
+                    report.errors.len(),
+                    report.limits
+                ));
                 if d == 0 {
+                    // Д75: a refused body is asked for once per pass, not again and again.
+                    let starts = self.world.remote_calls(0, RemoteKind::BlobStart);
+                    if starts > self.model.len() + 2 {
+                        return self.fail(
+                            Kind::LimitRetryStorm,
+                            format!(
+                                "{starts} requests to start a body in one pass for {} files",
+                                self.model.len()
+                            ),
+                        );
+                    }
+                    // Е.9 (6), Д76: a commit the server did not take (507) leaves the record of
+                    // what is being sent in the state; nothing but an accepted commit clears it.
+                    let commits = self.world.remote_calls(0, RemoteKind::Commit);
+                    if commits > 0
+                        && !had_pending
+                        && report.outcome == CycleOutcome::Done
+                        // A commit refused for a size (413) is dropped on purpose: nothing was
+                        // applied and every file is judged anew. Only the lack of room (507)
+                        // keeps the record.
+                        && report
+                            .unsynced
+                            .iter()
+                            .any(|u| u.reason == amby_sync_core::engine::UnsyncedReason::QuotaFull)
+                        && !report.unsynced.iter().any(|u| {
+                            matches!(u.reason, amby_sync_core::engine::UnsyncedReason::TooLarge { .. })
+                        })
+                        && self.world.server_head() == head_before
+                        && self.world.dev(0).state.snapshot().commit.is_none()
+                    {
+                        return self.fail(
+                            Kind::SendRecordLost,
+                            "a commit was sent, the server did not take it and the record of it is gone",
+                        );
+                    }
                     if let CycleOutcome::Stopped(StopReason::MassChange { .. }) = report.outcome {
                         if !self.deleted_since_pass {
                             return self.fail(
@@ -229,11 +334,28 @@ impl Run {
     }
 
     fn cleanup(&mut self) -> Result<(), Violation> {
+        // A device that is behind the cleanup meets a gap in the feed, and a pass after a gap is a
+        // full reconcile that believes no deletion (Д58): the file the user deleted comes back.
+        // That is the design, not a limit's doing, so the devices catch up before the cleanup.
+        let _ = self.world.settle();
         self.log("six days pass, the server cleans up");
         let control = self.world.control();
         control.advance(std::time::Duration::from_millis((6 * DAY_MS) as u64));
         let (latest_before, history_before) = self.snapshot();
         control.run_maintenance();
+        if self.prune_latest {
+            control.sql_write(|conn| {
+                let removed = conn
+                    .execute(
+                        "DELETE FROM versions WHERE (space, item_id, version) IN ( \
+                         SELECT space, item_id, version FROM versions \
+                         WHERE superseded_ms IS NULL AND deleted = 0 LIMIT 1)",
+                        [],
+                    )
+                    .expect("the model of a broken pruning");
+                assert!(removed <= 1);
+            });
+        }
         let (latest_after, history_after) = self.snapshot();
         if latest_after != latest_before {
             return self.fail(
@@ -273,7 +395,7 @@ impl Run {
     fn snapshot(&self) -> (Vec<(Vec<u8>, i64)>, Vec<(Vec<u8>, i64, i64, i64)>) {
         self.world.control().sql(|conn| {
             let mut latest = conn
-                .prepare("SELECT item_id, version FROM versions WHERE superseded_ms IS NULL ORDER BY item_id")
+                .prepare("SELECT item_id, version FROM versions WHERE superseded_ms IS NULL AND deleted = 0 ORDER BY item_id")
                 .expect("prepare");
             let latest: Vec<(Vec<u8>, i64)> = latest
                 .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
@@ -374,9 +496,12 @@ impl Run {
             return self.fail(
                 Kind::LimitNotConverged,
                 format!(
-                    "the server has {} files, the user has {}",
+                    "the server has {} files, the user has {}: only on the server {:?}, only with the user {:?}, different {:?}",
                     server.len(),
-                    self.model.len()
+                    self.model.len(),
+                    server.keys().filter(|p| !self.model.contains_key(*p)).collect::<Vec<_>>(),
+                    self.model.keys().filter(|p| !server.contains_key(*p)).collect::<Vec<_>>(),
+                    server.iter().filter(|(p, c)| self.model.get(*p).is_some_and(|m| m != *c)).map(|(p, _)| p).collect::<Vec<_>>(),
                 ),
             );
         }
@@ -404,6 +529,16 @@ impl Run {
 
 /// Runs one scenario of limits from `seed`.
 pub fn run_limits_scenario(builder: EngineBuilder, seed: u64) -> Result<Vec<String>, Failure> {
+    run_limits_scenario_with(builder, seed, false)
+}
+
+/// The same; `prune_latest` makes the cleanup of the server remove a latest version (a model of
+/// a broken pruning, to show that the scenarios notice it).
+pub fn run_limits_scenario_with(
+    builder: EngineBuilder,
+    seed: u64,
+    prune_latest: bool,
+) -> Result<Vec<String>, Failure> {
     let rng = Rng::new(seed);
     let options = WorldOptions::new(2)
         .seed(seed)
@@ -423,6 +558,7 @@ pub fn run_limits_scenario(builder: EngineBuilder, seed: u64) -> Result<Vec<Stri
         filler_items: Vec::new(),
         filler: Some(filler),
         trace: Vec::new(),
+        prune_latest,
     };
     let fail = |run: &Run, step: usize, violation: Violation| Failure {
         seed,

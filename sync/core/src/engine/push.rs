@@ -670,6 +670,19 @@ impl Engine {
                     source: report.limits.max_file_source,
                 }))
             }
+            // A body of the commit is gone from the server: nothing was applied, the record and
+            // the begun uploads of these items go, and the pass is made again from the disk.
+            Err(RemoteError::Rejected { code: reason, .. }) if reason == code::UNKNOWN_BLOB => {
+                let state = self.ports.state.load()?;
+                let mut ops = vec![StateOp::SetCommit(None)];
+                for upload in state.uploads.values() {
+                    if items.iter().any(|item| item.item_id == upload.item_id) {
+                        ops.push(StateOp::RemoveUpload(upload.blob_id));
+                    }
+                }
+                self.ports.state.apply(&ops)?;
+                Err(Flow::Retry)
+            }
             // П56-в: the record of what is being sent stays until it goes through.
             Err(RemoteError::Rejected { code: reason, .. }) if reason == code::QUOTA_EXCEEDED => {
                 Ok(ChunkOutcome::NoRoom)

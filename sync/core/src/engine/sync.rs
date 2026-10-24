@@ -170,9 +170,6 @@ impl Engine {
         if info.protocol_min > 1 || info.protocol_max < 1 {
             return Err(Flow::Stop(StopReason::IncompatibleServer));
         }
-        // Д73: the limits of this pass, read once and not kept.
-        report.limits = self.read_limits(&info)?;
-        let limit = (report.limits.max_file_bytes, report.limits.max_file_source);
         let mut state = self.ports.state.load()?;
 
         // Д56: which server is this?
@@ -203,6 +200,12 @@ impl Engine {
                 Some(_) => {}
             }
         }
+
+        // Д73: the limits of this pass, read once and not kept (after the check of the server,
+        // so that a reset server is told as one).
+        // Д73: the limits of this pass, read once and not kept.
+        report.limits = self.read_limits(&info)?;
+        let limit = (report.limits.max_file_bytes, report.limits.max_file_source);
 
         // Д10 step 3: the disk.
         let disk = scan(
@@ -251,6 +254,22 @@ impl Engine {
                     if reason == code::BLOB_TOO_LARGE =>
                 {
                     self.ports.state.apply(&vec![StateOp::SetCommit(None)])?;
+                }
+                // The server cleaned up a body the held commit refers to (a day without a commit,
+                // П25): nothing was applied; the record and the begun uploads go, and the files
+                // are sent anew below.
+                Err(RemoteError::Rejected { code: reason, .. }) if reason == code::UNKNOWN_BLOB => {
+                    let mut ops = vec![StateOp::SetCommit(None)];
+                    for upload in state.uploads.values() {
+                        if pending
+                            .items
+                            .iter()
+                            .any(|item| item.item_id == upload.item_id)
+                        {
+                            ops.push(StateOp::RemoveUpload(upload.blob_id));
+                        }
+                    }
+                    self.ports.state.apply(&ops)?;
                 }
                 Err(RemoteError::Rejected { code: reason, .. })
                     if reason == code::QUOTA_EXCEEDED =>
