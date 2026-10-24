@@ -2,13 +2,18 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { AlertTriangle, X } from "lucide-react"
 
+import { Button } from "@/components/ui/button"
+import { formatSize } from "@/lib/sync/format-size"
+
 import { syncErrorMessage } from "@/lib/sync/sync-errors"
 import { resolveSyncPort, type ConflictChoice, type SyncPort } from "@/lib/sync/sync-port"
 import { relativeToVault } from "../editor/document-breadcrumbs-utils"
 import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
+import { OPEN_SETTINGS_REQUEST_EVENT } from "../settings-navigation"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import { SyncCompareDialog } from "./sync-compare-dialog"
+import { limitNoticesOf, type LimitNotice } from "./limit-notices"
 import { ConflictList } from "./sync-vault-parts"
 import { useSyncNoticesStore, type SyncConflict } from "./use-sync-notices-store"
 
@@ -31,7 +36,7 @@ function noteName(path: string): string {
  * [`NoteNotices`](../note-notices/note-notices.tsx); both read the same store.
  */
 export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const port = React.useMemo(() => given ?? resolveSyncPort(), [given])
   const vault = useVaultStore((state) => state.vault)
   const conflicts = useSyncNoticesStore((state) => state.conflicts)
@@ -44,14 +49,26 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
   const [error, setError] = React.useState<string | null>(null)
   const seen = React.useRef<Set<string> | null>(null)
   const counter = React.useRef(0)
+  // The notices about the limits of the plan (У3): derived from the last status, so there is one
+  // per cause however many passes repeat it, and a card leaves with its cause.
+  const [limitNotices, setLimitNotices] = React.useState<LimitNotice[]>([])
+  const [dismissedLimits, setDismissedLimits] = React.useState<string[]>([])
 
   React.useEffect(() => {
     // A new vault (or window) starts from its own status.
     seen.current = null
+    setLimitNotices([])
+    setDismissedLimits([])
     useSyncNoticesStore.setState({ conflicts: [], remoteDeleted: [], compareId: null })
     useNoteNoticesStore.setState({ restored: [] })
     let alive = true
     const unlisten: Array<() => void> = []
+    const takeLimits = (status: Parameters<typeof limitNoticesOf>[0]) => {
+      const next = limitNoticesOf(status)
+      setLimitNotices(next)
+      // A card the person closed stays closed until its cause has gone and comes back.
+      setDismissedLimits((closed) => closed.filter((kind) => next.some((n) => n.kind === kind)))
+    }
     const take = (next: SyncConflict[]) => {
       useSyncNoticesStore.getState().setConflicts(next)
       const known = seen.current
@@ -69,10 +86,18 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
     }
     port
       .vaultStatus()
-      .then((status) => alive && seen.current === null && take(status.conflicts))
+      .then((status) => {
+        if (!alive) return
+        takeLimits(status)
+        if (seen.current === null) take(status.conflicts)
+      })
       .catch(() => {})
     port
-      .onVaultStatus((status) => alive && take(status.conflicts))
+      .onVaultStatus((status) => {
+        if (!alive) return
+        takeLimits(status)
+        take(status.conflicts)
+      })
       .then((off) => (alive ? unlisten.push(off) : off()))
       .catch(() => {})
     port
@@ -169,6 +194,13 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
       .finally(() => setResolving(null))
   }
 
+  const shownLimits = limitNotices.filter((notice) => !dismissedLimits.includes(notice.kind))
+  const showList = () => {
+    window.dispatchEvent(
+      new CustomEvent(OPEN_SETTINGS_REQUEST_EVENT, { detail: { section: "sync" } }),
+    )
+  }
+
   const comparing = conflicts.find((item) => item.id === compareId)
 
   return (
@@ -195,6 +227,40 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
               aria-label={t("sync.notices.dismiss")}
               className="shrink-0 text-muted-foreground hover:text-foreground"
               onClick={() => setNotices((list) => list.filter((item) => item.key !== notice.key))}
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        ))}
+        {shownLimits.map((notice) => (
+          <div
+            key={notice.kind}
+            role="status"
+            data-testid="sync-limit-notice"
+            data-kind={notice.kind}
+            className="pointer-events-auto flex items-start gap-2 rounded-lg border border-border bg-popover px-3 py-2 text-[12px] text-popover-foreground shadow-lg"
+          >
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-500" aria-hidden="true" />
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <p>
+                {notice.kind === "tooLarge"
+                  ? t("sync.notices.tooLarge", {
+                      count: notice.count,
+                      limit: formatSize(notice.maxBytes, i18n.language),
+                    })
+                  : t("sync.notices.quotaFull")}
+              </p>
+              {notice.kind === "tooLarge" && (
+                <Button type="button" variant="outline" size="sm" onClick={showList}>
+                  {t("sync.notices.tooLargeShow")}
+                </Button>
+              )}
+            </div>
+            <button
+              type="button"
+              aria-label={t("sync.notices.dismiss")}
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+              onClick={() => setDismissedLimits((closed) => [...closed, notice.kind])}
             >
               <X className="size-3.5" />
             </button>

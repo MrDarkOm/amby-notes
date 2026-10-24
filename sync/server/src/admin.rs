@@ -7,12 +7,12 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use sha2::{Digest, Sha256};
 
 use crate::db::DB_FILE;
 use crate::state::AppState;
-use crate::store::{BlobKey, StoreError, UserRecord};
+use crate::store::{BlobKey, BlobStore, StoreError, UserRecord};
 
 /// Why an administrator command failed. [`AdminError::exit_code`] is the exit code of the
 /// command line (П38).
@@ -242,14 +242,497 @@ pub struct CliOutput {
     pub stderr: String,
 }
 
+impl CliOutput {
+    fn ok(stdout: String) -> Self {
+        Self {
+            code: 0,
+            stdout,
+            stderr: String::new(),
+        }
+    }
+
+    fn fail(code: i32, message: impl std::fmt::Display) -> Self {
+        Self {
+            code,
+            stdout: String::new(),
+            stderr: format!("{message}\n"),
+        }
+    }
+}
+
+impl From<AdminError> for CliOutput {
+    fn from(error: AdminError) -> Self {
+        Self::fail(error.exit_code(), error)
+    }
+}
+
+impl From<rusqlite::Error> for CliOutput {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::fail(1, error)
+    }
+}
+
+/// The words and flags of one command line.
+struct Words<'a> {
+    words: Vec<&'a str>,
+    json: bool,
+    yes: bool,
+    default: bool,
+    plan: Option<&'a str>,
+}
+
+fn split_words<'a>(args: &[&'a str]) -> Result<Words<'a>, CliOutput> {
+    let mut parsed = Words {
+        words: Vec::new(),
+        json: false,
+        yes: false,
+        default: false,
+        plan: None,
+    };
+    let mut args = args.iter().copied();
+    while let Some(arg) = args.next() {
+        match arg {
+            "--json" => parsed.json = true,
+            "--yes" => parsed.yes = true,
+            "--default" => parsed.default = true,
+            "--plan" => {
+                parsed.plan = Some(
+                    args.next()
+                        .ok_or_else(|| CliOutput::fail(2, "--plan needs a plan name"))?,
+                );
+            }
+            flag if flag.starts_with("--") => {
+                return Err(CliOutput::fail(2, format!("unknown option {flag}")));
+            }
+            word => parsed.words.push(word),
+        }
+    }
+    Ok(parsed)
+}
+
+/// Whether `run_cli` handles this command line (the others are in `main.rs`).
+pub fn is_cli_command(args: &[&str]) -> bool {
+    let words: Vec<&str> = args
+        .iter()
+        .copied()
+        .filter(|arg| !arg.starts_with("--"))
+        .collect();
+    matches!(
+        words.as_slice(),
+        ["plans", ..]
+            | ["space", ..]
+            | ["user", "plan", ..]
+            | ["user", "add", _]
+            | ["user", "list"]
+    )
+}
+
 /// Runs the commands of appendix Е (П53) on a running state, as the command line does: `user add
 /// <name> [--plan <plan>] [--json]`, `user list [--json]`, `user plan set <name> <plan>|--default`,
 /// `user plan show <name> [--json]`, `plans list [--json]`, `plans check [<file>]`, `space list
 /// <name> [--json]`, `space remove <name> <space_id> --yes`. `main.rs` hands these to it; the
 /// suite calls it for a server in its own process.
-///
-/// STUB of the red-tests step: the body is `not_implemented`.
 pub fn run_cli(state: &AppState, args: &[&str]) -> CliOutput {
-    let _ = (state, args);
-    unimplemented!("not_implemented: administrator commands of appendix Е")
+    let parsed = match split_words(args) {
+        Ok(parsed) => parsed,
+        Err(output) => return output,
+    };
+    let outcome = match parsed.words.as_slice() {
+        ["user", "add", name] => cli_user_add(state, name, &parsed),
+        ["user", "list"] => cli_user_list(state, &parsed),
+        ["user", "plan", "set", name, plan] => cli_plan_set(state, name, Some(plan)),
+        ["user", "plan", "set", name] if parsed.default => cli_plan_set(state, name, None),
+        ["user", "plan", "show", name] => cli_plan_show(state, name, &parsed),
+        ["plans", "list"] => cli_plans_list(state, &parsed),
+        ["plans", "check"] => cli_plans_check(state, None),
+        ["plans", "check", file] => cli_plans_check(state, Some(Path::new(file))),
+        ["space", "list", name] => cli_space_list(state, name, &parsed),
+        ["space", "remove", name, space] => cli_space_remove(state, name, space, &parsed),
+        _ => Err(CliOutput::fail(
+            2,
+            "usage: user add <name> [--plan <plan>] | user list | user plan set <name> <plan>|--default | \
+             user plan show <name> | plans list | plans check [<file>] | space list <name> | \
+             space remove <name> <space_id> --yes",
+        )),
+    };
+    outcome.unwrap_or_else(|output| output)
+}
+
+type CliResult = Result<CliOutput, CliOutput>;
+
+fn user_row(state: &AppState, name: &str) -> Result<i64, CliOutput> {
+    if !valid_username(name) {
+        return Err(AdminError::InvalidName.into());
+    }
+    state
+        .db
+        .call(|conn| {
+            conn.query_row("SELECT id FROM users WHERE username = ?1", [name], |row| {
+                row.get(0)
+            })
+            .optional()
+        })?
+        .ok_or_else(|| CliOutput::fail(1, "no such user"))
+}
+
+/// A plan the file in force has, by its name; the name rule is checked first (exit 2).
+fn known_plan(state: &AppState, plan: &str) -> Result<(), CliOutput> {
+    if !crate::plans::valid_plan_name(plan) {
+        return Err(CliOutput::fail(2, format!("`{plan}` is not a plan name")));
+    }
+    if !state.plans.plans.contains_key(plan) {
+        return Err(CliOutput::fail(
+            2,
+            format!("there is no plan `{plan}` in the plans file"),
+        ));
+    }
+    Ok(())
+}
+
+fn limits_json(limits: &crate::plans::EffectiveLimits) -> serde_json::Value {
+    serde_json::json!({
+        "max_spaces": limits.max_spaces,
+        "max_total_bytes": limits.max_total_bytes,
+        "max_file_bytes": limits.max_file_bytes,
+        "history_days": limits.history_days,
+        "max_history_bytes": limits.max_history_bytes,
+    })
+}
+
+fn cli_user_add(state: &AppState, name: &str, parsed: &Words<'_>) -> CliResult {
+    if !valid_username(name) {
+        return Err(AdminError::InvalidName.into());
+    }
+    if let Some(plan) = parsed.plan {
+        // Nobody is created for an unknown plan.
+        known_plan(state, plan)?;
+    }
+    let added = user_add(state, name)?;
+    if let Some(plan) = parsed.plan {
+        set_plan(state, name, Some(plan))?;
+    }
+    let stdout = if parsed.json {
+        format!(
+            "{}\n",
+            serde_json::json!({
+                "username": added.username,
+                "enroll_code": added.enroll_code,
+                "expires_ms": added.expires_ms,
+            })
+        )
+    } else {
+        format!(
+            "User {}: one-time enrolment code\n  {}\nValid for {} hours; it works once.\n",
+            added.username, added.enroll_code, state.config.enroll_code_hours
+        )
+    };
+    Ok(CliOutput::ok(stdout))
+}
+
+fn cli_user_list(state: &AppState, parsed: &Words<'_>) -> CliResult {
+    let cutoff = crate::quota::pending_cutoff(state);
+    let rows = state.db.call(|conn| -> rusqlite::Result<Vec<_>> {
+        let mut statement = conn.prepare(
+            "SELECT id, username, has_password, enroll_expires_ms, plan FROM users ORDER BY id",
+        )?;
+        let users = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, bool>(2)?,
+                row.get::<_, Option<i64>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for user in users {
+            let (id, username, has_password, expires, plan) = user?;
+            let used = crate::quota::user_usage(conn, id, cutoff)?.counted();
+            out.push((username, has_password, expires, plan, used));
+        }
+        Ok(out)
+    })?;
+    let mut json = Vec::new();
+    let mut text = String::new();
+    for (username, has_password, expires, pinned, used) in rows {
+        let resolved = crate::quota::resolve_plan(state, pinned.as_deref());
+        json.push(serde_json::json!({
+            "username": username,
+            "has_password": has_password,
+            "enroll_expires_ms": expires,
+            "plan": resolved.name,
+            "pinned": pinned.is_some(),
+            "used_bytes": used,
+        }));
+        let status = if has_password {
+            "has a password".to_string()
+        } else {
+            match expires {
+                Some(expires) => format!("waiting for enrolment, code expires at {expires} ms"),
+                None => "waiting for a new code".to_string(),
+            }
+        };
+        let plan = resolved.name.as_deref().unwrap_or("-");
+        let pin = if pinned.is_some() { " (pinned)" } else { "" };
+        text.push_str(&format!(
+            "{username}\t{status}\t{plan}{pin}\t{used} bytes\n"
+        ));
+    }
+    Ok(CliOutput::ok(if parsed.json {
+        format!("{}\n", serde_json::Value::Array(json))
+    } else {
+        text
+    }))
+}
+
+/// Writes the pin of a user and returns the previous one.
+fn set_plan(state: &AppState, name: &str, plan: Option<&str>) -> Result<Option<String>, CliOutput> {
+    let id = user_row(state, name)?;
+    Ok(state.db.write(|tx| -> rusqlite::Result<Option<String>> {
+        let before = crate::quota::pinned_plan(tx, id)?;
+        tx.execute(
+            "UPDATE users SET plan = ?2 WHERE id = ?1",
+            params![id, plan],
+        )?;
+        Ok(before)
+    })?)
+}
+
+fn cli_plan_set(state: &AppState, name: &str, plan: Option<&str>) -> CliResult {
+    if !valid_username(name) {
+        return Err(AdminError::InvalidName.into());
+    }
+    if let Some(plan) = plan {
+        known_plan(state, plan)?;
+    }
+    let before = set_plan(state, name, plan)?;
+    let label = |plan: Option<&str>| plan.map_or_else(|| "default".to_string(), str::to_string);
+    let line = format!(
+        "plan changed: user {name}, from {} to {}\n",
+        label(before.as_deref()),
+        label(plan)
+    );
+    Ok(CliOutput {
+        code: 0,
+        stdout: line.clone(),
+        stderr: line,
+    })
+}
+
+fn cli_plan_show(state: &AppState, name: &str, parsed: &Words<'_>) -> CliResult {
+    let cutoff = crate::quota::pending_cutoff(state);
+    let id = user_row(state, name)?;
+    let (resolved, usage, spaces) = state.db.call(|conn| -> rusqlite::Result<_> {
+        let resolved = crate::quota::resolve_user(state, conn, id)?;
+        let usage = crate::quota::user_usage(conn, id, cutoff)?;
+        let spaces: u64 = conn.query_row(
+            "SELECT COUNT(*) FROM spaces WHERE user_id = ?1",
+            [id],
+            |row| row.get(0),
+        )?;
+        Ok((resolved, usage, spaces))
+    })?;
+    let plan = serde_json::json!({
+        "name": resolved.name, "title": resolved.title, "pinned": resolved.pinned,
+    });
+    let usage = serde_json::json!({
+        "live_bytes": usage.live, "pending_bytes": usage.pending,
+        "history_bytes": usage.history, "spaces": spaces,
+    });
+    // `limits` are the numbers of the plan as the file has them (null: none), `effective` what
+    // applies after the ceilings of the server (П54).
+    let own = resolved
+        .name
+        .as_deref()
+        .and_then(|plan| state.plans.plans.get(plan))
+        .cloned()
+        .unwrap_or_default();
+    let limits = serde_json::json!({
+        "max_spaces": own.max_spaces,
+        "max_total_bytes": own.max_total_bytes,
+        "max_file_bytes": own.max_file_bytes,
+        "history_days": own.history_days,
+        "max_history_bytes": own.max_history_bytes,
+    });
+    let effective = limits_json(&resolved.limits);
+    if parsed.json {
+        return Ok(CliOutput::ok(format!(
+            "{}\n",
+            serde_json::json!({
+                "username": name, "plan": plan, "limits": limits,
+                "effective": effective, "usage": usage,
+            })
+        )));
+    }
+    Ok(CliOutput::ok(format!(
+        "user {name}\nplan: {plan}\nlimits: {limits}\neffective: {effective}\nusage: {usage}\n"
+    )))
+}
+
+fn cli_plans_list(state: &AppState, parsed: &Words<'_>) -> CliResult {
+    let pinned = state.pinned_plans()?;
+    let total: u64 = state
+        .db
+        .call(|conn| conn.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0)))?;
+    let unpinned = total.saturating_sub(pinned.len() as u64);
+    let mut json = Vec::new();
+    let mut text = String::new();
+    for (name, plan) in &state.plans.plans {
+        let pinned_users = pinned.iter().filter(|(_, have)| have == name).count() as u64;
+        let by_default = if state.plans.default_plan.as_deref() == Some(name) {
+            unpinned
+        } else {
+            0
+        };
+        let users = pinned_users + by_default;
+        json.push(serde_json::json!({
+            "name": name,
+            "title": plan.title,
+            "users": users,
+            "pinned_users": pinned_users,
+            "max_spaces": plan.max_spaces,
+            "max_total_bytes": plan.max_total_bytes,
+            "max_file_bytes": plan.max_file_bytes,
+            "history_days": plan.history_days,
+            "max_history_bytes": plan.max_history_bytes,
+        }));
+        let marker = if state.plans.default_plan.as_deref() == Some(name) {
+            " (default)"
+        } else {
+            ""
+        };
+        text.push_str(&format!("{name}{marker}\t{users} users\n"));
+    }
+    Ok(CliOutput::ok(if parsed.json {
+        format!(
+            "{}\n",
+            serde_json::json!({ "default_plan": state.plans.default_plan, "plans": json })
+        )
+    } else {
+        text
+    }))
+}
+
+fn cli_plans_check(state: &AppState, file: Option<&Path>) -> CliResult {
+    let path = file.map_or_else(|| state.config.plans_path(), Path::to_path_buf);
+    if file.is_some() && !path.exists() {
+        return Err(CliOutput::fail(
+            1,
+            format!("{}: no such file", path.display()),
+        ));
+    }
+    let plans = crate::plans::PlansFile::load(&path).map_err(|error| CliOutput::fail(1, error))?;
+    plans
+        .check_pinned(&state.pinned_plans()?)
+        .map_err(|error| CliOutput::fail(1, error))?;
+    Ok(CliOutput::ok(format!(
+        "{}: ok, {} plans\n",
+        path.display(),
+        plans.plans.len()
+    )))
+}
+
+fn cli_space_list(state: &AppState, name: &str, parsed: &Words<'_>) -> CliResult {
+    let cutoff = crate::quota::pending_cutoff(state);
+    let id = user_row(state, name)?;
+    let rows = state.db.call(|conn| -> rusqlite::Result<Vec<_>> {
+        let sizes = crate::quota::space_usage(conn, id, cutoff)?;
+        let mut statement = conn.prepare(
+            "SELECT id, space_id, created_ms FROM spaces WHERE user_id = ?1 ORDER BY id",
+        )?;
+        let rows = statement.query_map([id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Vec<u8>>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?;
+        rows.map(|row| {
+            let (row_id, space_id, created) = row?;
+            let usage = sizes.get(&row_id).copied().unwrap_or_default();
+            Ok((space_id, created, usage))
+        })
+        .collect()
+    })?;
+    let mut json = Vec::new();
+    let mut text = String::new();
+    for (space_id, created, usage) in rows {
+        let hex = hex_text(&space_id);
+        json.push(serde_json::json!({
+            "space_id": hex, "created_ms": created,
+            "live_bytes": usage.live, "history_bytes": usage.history,
+        }));
+        text.push_str(&format!(
+            "{hex}\tcreated {created} ms\tlive {} bytes\thistory {} bytes\n",
+            usage.live, usage.history
+        ));
+    }
+    Ok(CliOutput::ok(if parsed.json {
+        format!("{}\n", serde_json::Value::Array(json))
+    } else {
+        text
+    }))
+}
+
+fn hex_text(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    bytes.iter().fold(String::new(), |mut out, byte| {
+        let _ = write!(out, "{byte:02x}");
+        out
+    })
+}
+
+fn cli_space_remove(state: &AppState, name: &str, space: &str, parsed: &Words<'_>) -> CliResult {
+    if !parsed.yes {
+        return Err(CliOutput::fail(
+            2,
+            "`space remove` deletes the space with all its versions and bodies for good; make a \
+             `backup` first and add --yes to confirm",
+        ));
+    }
+    let user = user_row(state, name)?;
+    let space_id: [u8; 16] = crate::http::util::unhex_array::<16>(space)
+        .ok_or_else(|| CliOutput::fail(1, "no such space"))?;
+    // The rows go first and the files after, under the lock (as `user remove`).
+    let removed = state.db.write_then(
+        |tx| -> Result<Vec<BlobKey>, CliOutput> {
+            let row: i64 = tx
+                .query_row(
+                    "SELECT id FROM spaces WHERE space_id = ?1 AND user_id = ?2",
+                    params![space_id.as_slice(), user],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .ok_or_else(|| CliOutput::fail(1, "no such space"))?;
+            let keys: Vec<BlobKey> = {
+                let mut statement = tx.prepare("SELECT blob_id FROM blobs WHERE space = ?1")?;
+                let rows = statement.query_map([row], |row| row.get::<_, Vec<u8>>(0))?;
+                rows.filter_map(|blob| blob.ok().and_then(|blob| blob.try_into().ok()))
+                    .map(|blob_id| BlobKey { space_id, blob_id })
+                    .collect()
+            };
+            tx.execute("DELETE FROM spaces WHERE id = ?1", [row])?;
+            Ok(keys)
+        },
+        |tx, keys| {
+            for key in keys {
+                if !crate::maintenance::row_exists(tx, key).map_err(CliOutput::from)? {
+                    state
+                        .files
+                        .delete(key)
+                        .map_err(|error| CliOutput::fail(1, error))?;
+                }
+            }
+            Ok(())
+        },
+    )?;
+    let line = format!(
+        "space removed: user {name}, space {space}, {} bodies\n",
+        removed.len()
+    );
+    Ok(CliOutput {
+        code: 0,
+        stdout: line.clone(),
+        stderr: line,
+    })
 }

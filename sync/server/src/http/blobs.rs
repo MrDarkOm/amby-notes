@@ -105,60 +105,77 @@ pub(crate) async fn start(
     if size == 0 {
         return Err(ApiError::bad_request("`size` must be at least 1"));
     }
-    if size > state.config.max_blob_bytes {
-        return Err(ApiError::new(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            code::BLOB_TOO_LARGE,
-            "the body is larger than the server accepts",
-        ));
-    }
+    let replaces = match request.get("replaces") {
+        None | Some(Value::Null) => None,
+        Some(_) => Some(field_hex::<16>(&request, "replaces")?),
+    };
     let key = BlobKey {
         space_id: space.space_id,
         blob_id,
     };
     let now = state.clock.now_ms();
-    let quota = state.config.quota_bytes_per_user;
-    let outcome = state
-        .db
-        .write(|tx| -> rusqlite::Result<ApiResult<(bool, BlobRow)>> {
-            if let Some(row) = blob_row(tx, space.row, &blob_id)? {
-                if row.size != size {
-                    return Ok(Err(ApiError::new(
-                        StatusCode::CONFLICT,
-                        code::BLOB_EXISTS,
-                        "this body was started with another size",
-                    )));
-                }
-                return Ok(Ok((false, row)));
+    let outcome = state.db.write(|tx| -> ApiResult<(bool, BlobRow)> {
+        let plan = crate::quota::resolve_user(&state, tx, auth.user_id)?;
+        // Е.4: size (413), then a body that is already there (200/409), then the quota (507).
+        if let Some(max) = plan.limits.max_file_bytes {
+            if size > max {
+                return Err(ApiError::new(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    code::BLOB_TOO_LARGE,
+                    "the body is larger than the server accepts",
+                )
+                .with_details(
+                    json!({ "size": size, "max_bytes": max, "source": plan.file_source() }),
+                ));
             }
-            if let Some(quota) = quota {
-                let used: u64 = tx.query_row(
-                    "SELECT COALESCE(SUM(b.size), 0) FROM blobs b JOIN spaces s ON s.id = b.space \
-                 WHERE s.user_id = ?1",
-                    [auth.user_id],
-                    |row| row.get(0),
-                )?;
-                if used.saturating_add(size) > quota {
-                    return Ok(Err(ApiError::new(
-                        StatusCode::INSUFFICIENT_STORAGE,
-                        code::QUOTA_EXCEEDED,
-                        "the storage quota would be exceeded",
-                    )));
-                }
+        }
+        if let Some(row) = blob_row(tx, space.row, &blob_id)? {
+            if row.size != size {
+                return Err(ApiError::new(
+                    StatusCode::CONFLICT,
+                    code::BLOB_EXISTS,
+                    "this body was started with another size",
+                ));
             }
-            tx.execute(
-                "INSERT INTO blobs (space, blob_id, size, complete, created_ms, activity_ms) \
+            return Ok((false, row));
+        }
+        if let Some(limit) = plan.limits.max_total_bytes {
+            let used =
+                crate::quota::user_usage(tx, auth.user_id, crate::quota::pending_cutoff(&state))?
+                    .counted();
+            // П56-б: the hint is checked here, in the space of the caller, and gives a credit
+            // only for a live body.
+            let credit = match &replaces {
+                Some(item) => crate::quota::live_body_of(tx, space.row, item)?,
+                None => 0,
+            };
+            let needed = used.saturating_add(size).saturating_sub(credit);
+            if needed > limit && size > credit {
+                return Err(ApiError::new(
+                    StatusCode::INSUFFICIENT_STORAGE,
+                    code::QUOTA_EXCEEDED,
+                    "the storage quota would be exceeded",
+                )
+                .with_details(json!({
+                    "used_bytes": used,
+                    "limit_bytes": limit,
+                    "needed_bytes": needed - limit,
+                })));
+            }
+        }
+        tx.execute(
+            "INSERT INTO blobs (space, blob_id, size, complete, created_ms, activity_ms) \
              VALUES (?1, ?2, ?3, 0, ?4, ?4)",
-                params![space.row, blob_id.as_slice(), size, now],
-            )?;
-            Ok(Ok((
-                true,
-                BlobRow {
-                    size,
-                    complete: false,
-                },
-            )))
-        })?;
+            params![space.row, blob_id.as_slice(), size, now],
+        )?;
+        Ok((
+            true,
+            BlobRow {
+                size,
+                complete: false,
+            },
+        ))
+    });
     let (created, row) = outcome?;
     if created {
         state.files.create(&key, size)?;
@@ -438,12 +455,57 @@ pub(crate) async fn download(
     Ok(response)
 }
 
-/// `DELETE /blobs/{blob_id}` (П56-д): drops an own body that no version refers to. STUB of the
-/// red-tests step: answers `501 not_implemented`.
-pub(crate) async fn delete() -> ApiResult<Response> {
-    Err(ApiError::new(
-        StatusCode::NOT_IMPLEMENTED,
-        code::NOT_IMPLEMENTED,
-        "DELETE of a body is not written yet",
-    ))
+/// `DELETE /blobs/{blob_id}` (П56-д): drops an own body that no version refers to, the bytes
+/// come back at once. A body a version refers to (the latest or a replaced one) is `409`.
+pub(crate) async fn delete(
+    State(state): State<AppState>,
+    params: Params,
+    request: Request,
+) -> ApiResult<Response> {
+    let (parts, _) = split(request);
+    let auth = authenticate(&state, &parts)?;
+    let space = state
+        .db
+        .call(|conn| owned_space(conn, auth.user_id, space_param(&params)))?;
+    let blob_id = blob_id_from(&params)?;
+    let key = BlobKey {
+        space_id: space.space_id,
+        blob_id,
+    };
+    // The row goes first and the files after, under the lock (as in the cleanup): a body
+    // started again under the same id keeps its new files.
+    state.db.write_then(
+        |tx| -> ApiResult<()> {
+            if blob_row(tx, space.row, &blob_id)?.is_none() {
+                return Err(ApiError::not_found());
+            }
+            let used: bool = tx.query_row(
+                "SELECT EXISTS (SELECT 1 FROM versions WHERE space = ?1 AND blob_id = ?2)",
+                params![space.row, blob_id.as_slice()],
+                |row| row.get(0),
+            )?;
+            if used {
+                return Err(ApiError::new(
+                    StatusCode::CONFLICT,
+                    code::BLOB_EXISTS,
+                    "a version refers to this body",
+                ));
+            }
+            tx.execute(
+                "DELETE FROM blobs WHERE space = ?1 AND blob_id = ?2",
+                params![space.row, blob_id.as_slice()],
+            )?;
+            Ok(())
+        },
+        |tx, ()| {
+            if !crate::maintenance::row_exists(tx, &key)? {
+                state.files.delete(&key)?;
+            }
+            Ok(())
+        },
+    )?;
+    Ok(Response::builder()
+        .status(StatusCode::NO_CONTENT)
+        .body(Body::empty())
+        .map_err(ApiError::internal)?)
 }

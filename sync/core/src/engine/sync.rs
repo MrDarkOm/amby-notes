@@ -3,6 +3,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use amby_sync_proto::error_code as code;
+
 use crate::crypto::header::ItemKind;
 use crate::crypto::keys::{ItemId, SpaceId, SpaceKey};
 use crate::crypto::random::Random;
@@ -14,10 +16,13 @@ use super::flow::{Flow, Res};
 use super::merge::is_mergeable_path;
 use super::model::{
     CycleOutcome, CycleReport, CycleRequest, Direction, EngineError, ItemRecord, PassLimits,
-    ReadOnlyItem, StateOp, StopReason, SyncState, UnsyncedRecord,
+    ReadOnlyItem, StateOp, StopReason, SyncState, UnsyncedReason, UnsyncedRecord,
 };
 use super::plan::Srv;
-use super::ports::{Clock, CommitReply, LocalFs, Remote, RootState, StateError, StateStore};
+use super::ports::{
+    Clock, CommitReply, LimitSource, LocalFs, Remote, RemoteError, RootState, ServerInfo,
+    StateError, StateStore,
+};
 use super::rules::mass_change_reached;
 use super::scan::scan;
 use super::util::is_unmaterialised;
@@ -165,6 +170,9 @@ impl Engine {
         if info.protocol_min > 1 || info.protocol_max < 1 {
             return Err(Flow::Stop(StopReason::IncompatibleServer));
         }
+        // Д73: the limits of this pass, read once and not kept.
+        report.limits = self.read_limits(&info)?;
+        let limit = (report.limits.max_file_bytes, report.limits.max_file_source);
         let mut state = self.ports.state.load()?;
 
         // Д56: which server is this?
@@ -201,7 +209,7 @@ impl Engine {
             &mut *self.ports.fs,
             &state.items,
             self.config.max_file_bytes,
-            info.max_blob_bytes,
+            limit,
         )?;
         let live_files = state
             .items
@@ -219,6 +227,8 @@ impl Engine {
 
         // С2, Д7: a commit that may or may not have arrived is sent again, unchanged, first.
         let mut disk = disk;
+        let mut commit_held = false;
+        let mut quota_held: Vec<UnsyncedRecord> = Vec::new();
         if let Some(pending) = state.commit.clone() {
             let probe = self.ports.remote.changes(state.cursor, Some(1))?;
             if probe.seq < state.cursor {
@@ -227,15 +237,37 @@ impl Engine {
                     cursor: state.cursor,
                 }));
             }
-            match self
-                .ports
-                .remote
-                .commit(&pending.commit_id, &pending.items)?
-            {
-                CommitReply::Accepted(_) => self.commit_accepted(&pending.after, &pending.items)?,
-                CommitReply::Conflict(_) => {
+            match self.ports.remote.commit(&pending.commit_id, &pending.items) {
+                Ok(CommitReply::Accepted(_)) => {
+                    self.commit_accepted(&pending.after, &pending.items)?;
+                }
+                Ok(CommitReply::Conflict(_)) => {
                     self.ports.state.apply(&vec![StateOp::SetCommit(None)])?;
                 }
+                // Д76, П56-в: refused as a whole, nothing was applied. A file that is too big is
+                // forgotten here and judged again below; a full quota keeps the record, and
+                // nothing leaves this device until it goes through.
+                Err(RemoteError::Rejected { code: reason, .. })
+                    if reason == code::BLOB_TOO_LARGE =>
+                {
+                    self.ports.state.apply(&vec![StateOp::SetCommit(None)])?;
+                }
+                Err(RemoteError::Rejected { code: reason, .. })
+                    if reason == code::QUOTA_EXCEEDED =>
+                {
+                    report.limits.quota_full = true;
+                    quota_held = pending
+                        .after
+                        .iter()
+                        .filter(|record| !record.deleted && record.body_id.is_some())
+                        .map(|record| UnsyncedRecord {
+                            path: record.path.clone(),
+                            reason: UnsyncedReason::QuotaFull,
+                        })
+                        .collect();
+                    commit_held = true;
+                }
+                Err(error) => return Err(error.into()),
             }
             state = self.ports.state.load()?;
             // The bases moved: look at the disk again.
@@ -243,7 +275,7 @@ impl Engine {
                 &mut *self.ports.fs,
                 &state.items,
                 self.config.max_file_bytes,
-                info.max_blob_bytes,
+                limit,
             )?;
         }
 
@@ -420,7 +452,11 @@ impl Engine {
         }
 
         // Д18: what goes out.
-        let after = self.push(&info, &plan.undelete, &request.rename_hints, report)?;
+        let after = if commit_held {
+            None
+        } else {
+            self.push(&info, &plan.undelete, &request.rename_hints, report)?
+        };
         self.prune_bases()?;
 
         // Д64: the list is made again every pass.
@@ -429,6 +465,7 @@ impl Engine {
             None => disk.unsynced.clone(),
         };
         unsynced.extend(plan.unsynced);
+        unsynced.extend(quota_held);
         unsynced.sort_by(|a, b| a.path.cmp(&b.path));
         unsynced.dedup_by(|a, b| a.path == b.path && a.reason == b.reason);
         let current = self.ports.state.load()?;
@@ -443,6 +480,38 @@ impl Engine {
 }
 
 impl Engine {
+    /// Д73: `account()` gives the limits of this pass. Without it (an older server, the network)
+    /// only the ceiling of `info` applies and no quota is forecast; the server checks anyway.
+    fn read_limits(&mut self, info: &ServerInfo) -> Res<PassLimits> {
+        let mut limits = PassLimits {
+            max_file_bytes: info.max_blob_bytes,
+            max_file_source: LimitSource::Server,
+            free_bytes: None,
+            quota_full: false,
+        };
+        match self.ports.remote.account() {
+            Ok(account) => {
+                if let Some(max) = account
+                    .max_file_bytes
+                    .filter(|max| *max < info.max_blob_bytes)
+                {
+                    limits.max_file_bytes = max;
+                    limits.max_file_source = LimitSource::Plan;
+                }
+                limits.free_bytes = account.max_total_bytes.map(|total| {
+                    total
+                        .saturating_sub(account.live_bytes)
+                        .saturating_sub(account.pending_bytes)
+                });
+            }
+            Err(error @ (RemoteError::Unauthorized | RemoteError::Revoked)) => {
+                return Err(error.into());
+            }
+            Err(_) => {}
+        }
+        Ok(limits)
+    }
+
     /// The bases of the notes that both sides may have edited (Г6, Г10): those of the items with a
     /// new server version whose local file was edited here. A base whose bytes do not match its
     /// hash is not there (Г7).

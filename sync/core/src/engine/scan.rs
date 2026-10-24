@@ -52,8 +52,9 @@ pub(super) fn scan(
     fs: &mut dyn LocalFs,
     records: &BTreeMap<[u8; 16], ItemRecord>,
     max_file_bytes: u64,
-    max_blob_bytes: u64,
+    limit: (u64, LimitSource),
 ) -> Res<Scan> {
+    let (max_blob_bytes, limit_source) = limit;
     let listing = match fs.list() {
         Ok(listing) => listing,
         Err(FsError::NotFound(_)) if fs.root_state()? == RootState::Missing => {
@@ -126,12 +127,19 @@ pub(super) fn scan(
                     out.blocked.insert(path);
                     continue;
                 }
-                if sealed_body_len(entry.size).map_or(true, |len| len > max_blob_bytes) {
+                // Д74: a file the base already holds and nobody touched stays as it is, even when
+                // the limit fell below its size since (the server keeps it, nothing is listed).
+                let unchanged = by_path.get(path.as_str()).is_some_and(|record| {
+                    record.size == entry.size && record.mtime_ns == entry.mtime_ns
+                });
+                if !unchanged
+                    && sealed_body_len(entry.size).map_or(true, |len| len > max_blob_bytes)
+                {
                     out.unsynced.push(UnsyncedRecord {
                         path: path.clone(),
                         reason: UnsyncedReason::TooLarge {
                             max_bytes: max_blob_bytes,
-                            source: LimitSource::Server,
+                            source: limit_source,
                         },
                     });
                     out.blocked.insert(path);

@@ -17,7 +17,6 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let json = args.iter().any(|arg| arg == "--json");
     let yes = args.iter().any(|arg| arg == "--yes");
     let words: Vec<&str> = args
         .iter()
@@ -43,67 +42,15 @@ fn main() -> ExitCode {
         }
     };
 
-    let new_commands = matches!(
-        words.as_slice(),
-        ["plans", ..] | ["space", ..] | ["user", "plan", ..]
-    ) || args.iter().any(|arg| arg == "--plan");
-    if new_commands {
-        let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        let output = admin::run_cli(&state, &args);
+    let all: Vec<&str> = args.iter().map(String::as_str).collect();
+    if admin::is_cli_command(&all) {
+        let output = admin::run_cli(&state, &all);
         print!("{}", output.stdout);
         eprint!("{}", output.stderr);
         return ExitCode::from(u8::try_from(output.code).unwrap_or(1));
     }
     match words.as_slice() {
         [] | ["serve"] => serve(state),
-        ["user", "add", name] => report(admin::user_add(&state, name).map(|added| {
-            if json {
-                println!(
-                    "{}",
-                    serde_json::json!({
-                        "username": added.username,
-                        "enroll_code": added.enroll_code,
-                        "expires_ms": added.expires_ms,
-                    })
-                );
-            } else {
-                println!("User {}: one-time enrolment code", added.username);
-                println!("  {}", added.enroll_code);
-                println!(
-                    "Valid for {} hours; it works once.",
-                    state.config.enroll_code_hours
-                );
-            }
-        })),
-        ["user", "list"] => report(admin::user_list(&state).map(|users| {
-            if json {
-                let list: Vec<_> = users
-                    .iter()
-                    .map(|user| {
-                        serde_json::json!({
-                            "username": user.username,
-                            "has_password": user.has_password,
-                            "enroll_expires_ms": user.enroll_expires_ms,
-                        })
-                    })
-                    .collect();
-                println!("{}", serde_json::Value::Array(list));
-            } else {
-                for user in users {
-                    let status = if user.has_password {
-                        "has a password".to_string()
-                    } else {
-                        match user.enroll_expires_ms {
-                            Some(expires) => {
-                                format!("waiting for enrolment, code expires at {expires} ms")
-                            }
-                            None => "waiting for a new code".to_string(),
-                        }
-                    };
-                    println!("{}\t{status}", user.username);
-                }
-            }
-        })),
         ["user", "remove", name] => {
             if !yes {
                 eprintln!("`user remove` deletes the user, devices, spaces and bodies for good; add --yes to confirm");
@@ -127,8 +74,11 @@ fn main() -> ExitCode {
         ["backup", target] => report(admin::backup(&state, std::path::Path::new(target))),
         _ => {
             eprintln!(
-                "usage: amby-sync-server [serve | user add <name> [--json] | user list [--json] | \
-                 user remove <name> --yes | maintenance | backup <dir> | healthcheck]"
+                "usage: amby-sync-server [serve | user add <name> [--plan <plan>] [--json] | \
+                 user list [--json] | user plan set <name> <plan>|--default | user plan show <name> \
+                 [--json] | user remove <name> --yes | plans list [--json] | plans check [<file>] | \
+                 space list <name> [--json] | space remove <name> <space_id> --yes | maintenance | \
+                 backup <dir> | healthcheck]"
             );
             ExitCode::from(2)
         }
@@ -172,6 +122,12 @@ fn healthcheck() -> ExitCode {
 /// Runs the HTTP server until a stop signal, with the cleanup every ten minutes and once more
 /// before the stop (П37).
 fn serve(state: AppState) -> ExitCode {
+    // П51, П52: a broken plans file, or a pinned plan the file lost, stops the start with the
+    // reason. `plans check` and `user plan set <name> --default` still work on such a server.
+    if let Err(error) = state.check_plans() {
+        eprintln!("cannot start: {error}");
+        return ExitCode::from(1);
+    }
     let listen = state.config.listen.clone();
     let config = state.config.clone();
     if config.public_url.starts_with("http://")

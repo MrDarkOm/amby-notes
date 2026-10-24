@@ -227,8 +227,7 @@ export function createDesktopSyncPort(): SyncPort {
       }
     },
     listSpaces: () => call(commands.syncListSpaces()),
-    // STUB of the red-tests step of appendix Е: the call to `commands.syncAccountOverview` is not wired yet.
-    accountOverview: () => Promise.reject(new SyncPortError("not_implemented")),
+    accountOverview: (knownVaults) => call(commands.syncAccountOverview(knownVaults)),
     enableVault: (target, testVault) => call(commands.syncEnableVault(target, testVault)),
     disableVault: () => call(commands.syncDisableVault()),
     runNow: async () => {

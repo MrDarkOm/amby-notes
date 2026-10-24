@@ -8,10 +8,21 @@ export type LimitNotice =
  * The notices the status of the sync asks for: "files over the limit were not sent" (the count
  * and the limit of the files listed as `tooLarge`) and "the storage is full" (any `quotaFull`).
  * Nothing for a server without limits.
- *
- * STUB of the red-tests step: no notices.
  */
 export function limitNoticesOf(status: VaultSyncStatus): LimitNotice[] {
-  void status
-  return []
+  const notices: LimitNotice[] = []
+  const large = status.unsynced.filter((item) => item.reason === "tooLarge")
+  if (large.length > 0) {
+    const limits = large
+      .map((item) => item.maxBytes)
+      .filter((n): n is number => typeof n === "number")
+    notices.push({
+      kind: "tooLarge",
+      count: large.length,
+      maxBytes: limits.length > 0 ? Math.min(...limits) : 0,
+    })
+  }
+  if (status.unsynced.some((item) => item.reason === "quotaFull"))
+    notices.push({ kind: "quotaFull" })
+  return notices
 }

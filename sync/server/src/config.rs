@@ -88,6 +88,13 @@ impl Default for Config {
 }
 
 impl Config {
+    /// Where the plans file is: `AMBY_SYNC_PLANS_FILE`, otherwise `<data_dir>/plans.json` (П51).
+    pub fn plans_path(&self) -> PathBuf {
+        self.plans_file
+            .clone()
+            .unwrap_or_else(|| self.data_dir.join("plans.json"))
+    }
+
     /// Reads the settings from the process environment (П40).
     pub fn from_env() -> Result<Self, ConfigError> {
         let vars: HashMap<String, String> = std::env::vars().collect();
@@ -179,6 +186,9 @@ impl Config {
                 &mut quota,
             )?;
             config.quota_bytes_per_user = Some(quota);
+        }
+        if let Some(value) = get("AMBY_SYNC_PLANS_FILE") {
+            config.plans_file = Some(PathBuf::from(non_empty("AMBY_SYNC_PLANS_FILE", value)?));
         }
         check_public_url(&config)?;
         Ok(config)

@@ -15,6 +15,7 @@ import {
   type SyncStatus,
 } from "@/lib/sync/sync-port"
 import { SettingsIntro } from "../settings/settings-common"
+import { AccountStorage } from "./account-storage"
 import { ConnectWizard } from "./connect-wizard"
 import { SyncVaultPanel } from "./sync-vault-panel"
 
@@ -206,6 +207,8 @@ export function SyncSettings({ port: given }: SyncSettingsProps) {
       )}
 
       <SyncVaultPanel port={port} />
+
+      <AccountStorage port={port} />
 
       <section>
         <h3 className="mb-2 text-[12px] font-medium text-muted-foreground">

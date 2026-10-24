@@ -183,6 +183,30 @@ fn prepare(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// Reads values of the table `meta` of the state of `vault` without changing anything: the file
+/// is opened read-only, nothing is created or migrated. `None` when the vault has no readable
+/// state (appendix Е, У5: the account overview only looks).
+pub fn read_meta_only(vault: &Path, keys: &[&str]) -> Option<Vec<Option<String>>> {
+    let path = state_path(vault);
+    if !path.is_file() {
+        return None;
+    }
+    let conn = Connection::open_with_flags(
+        &path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .ok()?;
+    keys.iter()
+        .map(|key| {
+            conn.query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| {
+                row.get::<_, String>(0)
+            })
+            .optional()
+            .ok()
+        })
+        .collect()
+}
+
 impl SqliteStateStore {
     /// Opens (and makes, with its folders) the state of the vault at `vault`.
     pub fn open(vault: &Path) -> Result<Self, StateError> {

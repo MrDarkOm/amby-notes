@@ -436,17 +436,7 @@ impl SyncClient {
                 Some(json!({ "blob_id": hex16(blob.as_bytes()), "size": size })),
             )
             .await?;
-        Ok(BlobState {
-            size: number_field(&value, "size")?,
-            uploaded: value
-                .get("uploaded")
-                .and_then(Value::as_array)
-                .ok_or_else(|| bad("the list of parts is missing"))?
-                .iter()
-                .map(|part| part.as_u64().ok_or_else(|| bad("a part number is wrong")))
-                .collect::<Result<_, _>>()?,
-            complete: bool_field(&value, "complete")?,
-        })
+        blob_state_of(&value)
     }
 
     /// `PUT …/blobs/{id}/parts/{n}` (П22).
@@ -605,17 +595,71 @@ impl SyncClient {
 impl SyncClient {
     /// `GET /v1/account` (П61). A server without it answers `404 not_found`: the caller goes on
     /// as before (Р13).
-    ///
-    /// STUB of the red-tests step of appendix Е: `not_implemented`.
     pub async fn account(&self, token: &DeviceToken) -> Result<AccountView, ClientError> {
-        let _ = token;
-        unimplemented!("not_implemented: GET /v1/account")
+        let value = self
+            .send(Method::GET, "/v1/account", Some(token), None)
+            .await?;
+        let object = |name: &'static str| {
+            value
+                .get(name)
+                .filter(|inner| inner.is_object())
+                .ok_or_else(|| bad("a part of the account is missing"))
+        };
+        let plan = object("plan")?;
+        let limits = object("limits")?;
+        let usage = object("usage")?;
+        let optional_text =
+            |inner: &Value, name: &str| inner.get(name).and_then(Value::as_str).map(str::to_string);
+        let optional_number = |inner: &Value, name: &'static str| match inner.get(name) {
+            None | Some(Value::Null) => Ok(None),
+            Some(_) => number_field(inner, name).map(Some),
+        };
+        let spaces = value
+            .get("spaces")
+            .and_then(Value::as_array)
+            .ok_or_else(|| bad("the list of spaces is missing"))?
+            .iter()
+            .map(|entry| {
+                Ok(AccountSpace {
+                    entry: SpaceEntry {
+                        space_id: hex_array(entry, "space_id")?,
+                        name_enc: hex_bytes(entry, "name_enc")?,
+                        key_epoch: u32::try_from(number_field(entry, "key_epoch")?)
+                            .map_err(|_| bad("an epoch is too large"))?,
+                        wrapped_vk: hex_bytes(entry, "wrapped_vk")?,
+                        seq: number_field(entry, "seq")?,
+                        created_ms: signed_field(entry, "created_ms")?,
+                    },
+                    live_bytes: number_field(entry, "live_bytes")?,
+                    history_bytes: number_field(entry, "history_bytes")?,
+                })
+            })
+            .collect::<Result<Vec<_>, ClientError>>()?;
+        Ok(AccountView {
+            plan: AccountPlan {
+                name: optional_text(plan, "name"),
+                title: optional_text(plan, "title"),
+                pinned: bool_field(plan, "pinned")?,
+            },
+            limits: AccountLimits {
+                max_spaces: optional_number(limits, "max_spaces")?,
+                max_total_bytes: optional_number(limits, "max_total_bytes")?,
+                max_file_bytes: optional_number(limits, "max_file_bytes")?,
+                history_days: number_field(limits, "history_days")?,
+                max_history_bytes: optional_number(limits, "max_history_bytes")?,
+            },
+            usage: AccountUsage {
+                live_bytes: number_field(usage, "live_bytes")?,
+                pending_bytes: number_field(usage, "pending_bytes")?,
+                history_bytes: number_field(usage, "history_bytes")?,
+                spaces: number_field(usage, "spaces")?,
+            },
+            spaces,
+        })
     }
 
     /// `POST …/blobs` with the credit hint `replaces` (П56-б): the item whose current body the new
     /// one replaces. Without a hint it is [`SyncClient::blob_start`].
-    ///
-    /// STUB of the red-tests step of appendix Е: `not_implemented`.
     pub async fn blob_start_replacing(
         &self,
         token: &DeviceToken,
@@ -624,20 +668,49 @@ impl SyncClient {
         size: u64,
         replaces: &ItemId,
     ) -> Result<BlobState, ClientError> {
-        let _ = (token, space, blob, size, replaces);
-        unimplemented!("not_implemented: POST …/blobs with replaces")
+        let value = self
+            .send(
+                Method::POST,
+                &space_path(space, "/blobs"),
+                Some(token),
+                Some(json!({
+                    "blob_id": hex16(blob.as_bytes()),
+                    "size": size,
+                    "replaces": hex16(replaces.as_bytes()),
+                })),
+            )
+            .await?;
+        blob_state_of(&value)
     }
 
     /// `DELETE …/blobs/{id}` (П56-д): drops an own body no version refers to.
-    ///
-    /// STUB of the red-tests step of appendix Е: `not_implemented`.
     pub async fn blob_delete(
         &self,
         token: &DeviceToken,
         space: &[u8; 16],
         blob: &BodyId,
     ) -> Result<(), ClientError> {
-        let _ = (token, space, blob);
-        unimplemented!("not_implemented: DELETE …/blobs/{{id}}")
+        self.send(
+            Method::DELETE,
+            &space_path(space, &format!("/blobs/{}", hex16(blob.as_bytes()))),
+            Some(token),
+            None,
+        )
+        .await?;
+        Ok(())
     }
+}
+
+fn blob_state_of(value: &Value) -> Result<BlobState, ClientError> {
+    Ok(BlobState {
+        size: number_field(value, "size")?,
+        uploaded: value
+            .get("uploaded")
+            .and_then(Value::as_array)
+            .ok_or_else(|| bad("the list of parts is missing"))?
+            .iter()
+            .map(|part| part.as_u64().ok_or_else(|| bad("a part number is wrong")))
+            .collect::<Result<_, _>>()?,
+        complete: bool_field(value, "complete")?,
+    })
 }

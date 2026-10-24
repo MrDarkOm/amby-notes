@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use amby_sync_proto::error_code as code;
 use amby_sync_proto::PART_SIZE;
 
 use crate::crypto::body::seal_body;
@@ -13,11 +14,11 @@ use crate::crypto::padme::sealed_body_len;
 use super::classify::{classify, Lc};
 use super::flow::{Flow, Res};
 use super::model::{
-    CycleReport, ItemRecord, PendingCommit, PendingUpload, RenameHint, StateOp, SyncState,
-    UnsyncedReason, UnsyncedRecord,
+    CycleReport, ItemRecord, PassLimits, PendingCommit, PendingUpload, RenameHint, StateOp,
+    SyncState, UnsyncedReason, UnsyncedRecord,
 };
 use super::plan::Undelete;
-use super::ports::{CommitItem, CommitReply, FsError, ServerInfo};
+use super::ports::{CommitItem, CommitReply, FsError, LimitSource, RemoteError, ServerInfo};
 use super::scan::{scan, Scan};
 use super::sync::Engine;
 use super::util::{base_eligible, hash_of, is_unmaterialised, FixedRandom};
@@ -51,7 +52,7 @@ impl Engine {
             &mut *self.ports.fs,
             &state.items,
             self.config.max_file_bytes,
-            info.max_blob_bytes,
+            (report.limits.max_file_bytes, report.limits.max_file_source),
         )?;
         let classes = classify(&state.items, &disk, hints);
 
@@ -334,6 +335,13 @@ impl Engine {
             .collect();
         if !stale.is_empty() {
             self.ports.state.apply(&stale)?;
+            // Д75: a begun body nobody will commit gives its place back at once. By possibility:
+            // a failing call is not a failing pass, the cleanup of the server (П25) comes anyway.
+            for op in &stale {
+                if let StateOp::RemoveUpload(blob) = op {
+                    let _ = self.ports.remote.blob_delete(blob);
+                }
+            }
         }
 
         // Folders first, then by path: a folder rename that needs several commits sends the
@@ -345,8 +353,25 @@ impl Engine {
                 .then_with(|| a.header.path.cmp(&b.header.path))
         });
         let limit = (info.max_commit_items as usize).max(1);
+        let mut held = false;
         for chunk in outs.chunks(limit) {
-            self.commit_chunk(chunk)?;
+            if held {
+                // A commit refused for lack of room is still the record of what is being sent
+                // (С2, Д7): nothing else may replace it in this pass.
+                mark_waiting(chunk, UnsyncedReason::QuotaFull, &mut skipped);
+                continue;
+            }
+            match self.commit_chunk(chunk, report)? {
+                ChunkOutcome::Sent => {}
+                ChunkOutcome::TooLarge(reason) => {
+                    mark_too_large(chunk, &reason, &mut skipped);
+                }
+                ChunkOutcome::NoRoom => {
+                    held = true;
+                    report.limits.quota_full = true;
+                    mark_waiting(chunk, UnsyncedReason::QuotaFull, &mut skipped);
+                }
+            }
         }
 
         let mut result = disk;
@@ -416,7 +441,68 @@ impl Engine {
             if base_eligible(path, &bytes) {
                 self.ports.state.base_put(&record.item_id, &hash, &bytes)?;
             }
-            let body = self.upload(&record.item_id, &bytes, hash, uploads)?;
+            // Д74, Д75: the forecast. The server decides in the end (Д76); a wrong forecast only
+            // costs one pass.
+            let sealed_len = sealed_body_len(size).unwrap_or(u64::MAX);
+            if sealed_len > report.limits.max_file_bytes {
+                skipped.push(UnsyncedRecord {
+                    path: path.to_string(),
+                    reason: UnsyncedReason::TooLarge {
+                        max_bytes: report.limits.max_file_bytes,
+                        source: report.limits.max_file_source,
+                    },
+                });
+                return Ok(None);
+            }
+            // The credit (П56-б): the current body of the item is replaced by this one.
+            let replaces =
+                (record.version > 0 && record.body_id.is_some()).then_some(record.item_id);
+            let credit = match (replaces, record.size) {
+                (Some(_), old) => sealed_body_len(old).unwrap_or(0),
+                _ => 0,
+            };
+            let growth = sealed_len.saturating_sub(credit);
+            let resuming = uploads
+                .values()
+                .any(|u| u.item_id == record.item_id && u.content_hash == hash && u.size == size);
+            // A body already begun is already counted by the server (pending).
+            if !resuming {
+                if let Some(free) = report.limits.free_bytes {
+                    if growth > free {
+                        report.limits.quota_full = true;
+                        skipped.push(UnsyncedRecord {
+                            path: path.to_string(),
+                            reason: UnsyncedReason::QuotaFull,
+                        });
+                        return Ok(None);
+                    }
+                }
+            }
+            let body = match self.upload(
+                &record.item_id,
+                &bytes,
+                hash,
+                uploads,
+                replaces.as_ref(),
+                &report.limits,
+            )? {
+                Ok(body) => body,
+                Err(reason) => {
+                    if reason == UnsyncedReason::QuotaFull {
+                        report.limits.quota_full = true;
+                    }
+                    skipped.push(UnsyncedRecord {
+                        path: path.to_string(),
+                        reason,
+                    });
+                    return Ok(None);
+                }
+            };
+            if !resuming {
+                if let Some(free) = report.limits.free_bytes.as_mut() {
+                    *free = free.saturating_sub(growth);
+                }
+            }
             report.uploaded += 1;
             header.size = size;
             header.content_hash = Some(hash);
@@ -448,7 +534,9 @@ impl Engine {
         bytes: &[u8],
         hash: [u8; 32],
         uploads: &mut BTreeMap<[u8; 16], PendingUpload>,
-    ) -> Res<BodyId> {
+        replaces: Option<&ItemId>,
+        limits: &PassLimits,
+    ) -> Res<Result<BodyId, UnsyncedReason>> {
         let size = bytes.len() as u64;
         let existing = uploads
             .values()
@@ -485,10 +573,33 @@ impl Engine {
             &mut FixedRandom::new(&prefix),
         )?;
         debug_assert_eq!(Some(sealed.len() as u64), sealed_body_len(size).ok());
-        let state = self
+        let state = match self
             .ports
             .remote
-            .blob_start(&blob_id, sealed.len() as u64, None)?;
+            .blob_start(&blob_id, sealed.len() as u64, replaces)
+        {
+            Ok(state) => state,
+            // Д76: a refusal by a limit is the same as the forecast; the begun record is dropped
+            // (the server has nothing) and the pass goes on.
+            Err(RemoteError::Rejected { code: reason, .. }) if reason == code::BLOB_TOO_LARGE => {
+                uploads.remove(blob_id.as_bytes());
+                self.ports
+                    .state
+                    .apply(&vec![StateOp::RemoveUpload(blob_id)])?;
+                return Ok(Err(UnsyncedReason::TooLarge {
+                    max_bytes: limits.max_file_bytes,
+                    source: limits.max_file_source,
+                }));
+            }
+            Err(RemoteError::Rejected { code: reason, .. }) if reason == code::QUOTA_EXCEEDED => {
+                uploads.remove(blob_id.as_bytes());
+                self.ports
+                    .state
+                    .apply(&vec![StateOp::RemoveUpload(blob_id)])?;
+                return Ok(Err(UnsyncedReason::QuotaFull));
+            }
+            Err(error) => return Err(error.into()),
+        };
         if !state.complete {
             for (index, part) in sealed.chunks(PART_SIZE as usize).enumerate() {
                 if !state.uploaded.contains(&(index as u64)) {
@@ -499,11 +610,11 @@ impl Engine {
             }
             self.ports.remote.blob_complete(&blob_id)?;
         }
-        Ok(blob_id)
+        Ok(Ok(blob_id))
     }
 
     /// One commit, written to the state before it is sent (С2, Д7).
-    fn commit_chunk(&mut self, chunk: &[Out]) -> Res<()> {
+    fn commit_chunk(&mut self, chunk: &[Out], report: &mut CycleReport) -> Res<ChunkOutcome> {
         let mut items = Vec::with_capacity(chunk.len());
         let mut after = Vec::with_capacity(chunk.len());
         for out in chunk {
@@ -532,13 +643,38 @@ impl Engine {
                 items: items.clone(),
                 after: after.clone(),
             }))])?;
-        match self.ports.remote.commit(&commit_id, &items)? {
-            CommitReply::Accepted(_) => self.commit_accepted(&after, &items),
-            CommitReply::Conflict(_) => {
+        match self.ports.remote.commit(&commit_id, &items) {
+            Ok(CommitReply::Accepted(_)) => {
+                self.commit_accepted(&after, &items)?;
+                Ok(ChunkOutcome::Sent)
+            }
+            Ok(CommitReply::Conflict(_)) => {
                 // Nothing was applied (П27): decide again with the new server state (Д7, Д10).
                 self.ports.state.apply(&vec![StateOp::SetCommit(None)])?;
                 Err(Flow::Retry)
             }
+            // Д76, П60-3: refused as a whole, nothing was applied. The limit moved since the
+            // forecast of this pass: read it again, the next pass judges every file anew.
+            Err(RemoteError::Rejected { code: reason, .. }) if reason == code::BLOB_TOO_LARGE => {
+                self.ports.state.apply(&vec![StateOp::SetCommit(None)])?;
+                if let Ok(account) = self.ports.remote.account() {
+                    if let Some(max) = account.max_file_bytes {
+                        if max < report.limits.max_file_bytes {
+                            report.limits.max_file_bytes = max;
+                            report.limits.max_file_source = LimitSource::Plan;
+                        }
+                    }
+                }
+                Ok(ChunkOutcome::TooLarge(UnsyncedReason::TooLarge {
+                    max_bytes: report.limits.max_file_bytes,
+                    source: report.limits.max_file_source,
+                }))
+            }
+            // П56-в: the record of what is being sent stays until it goes through.
+            Err(RemoteError::Rejected { code: reason, .. }) if reason == code::QUOTA_EXCEEDED => {
+                Ok(ChunkOutcome::NoRoom)
+            }
+            Err(error) => Err(error.into()),
         }
     }
 
@@ -558,6 +694,50 @@ impl Engine {
         }
         self.ports.state.apply(&ops)?;
         Ok(())
+    }
+}
+
+/// How a commit ended when the server did not refuse it for a limit.
+enum ChunkOutcome {
+    Sent,
+    /// Refused for the size of a body (`413`); the record of the commit is dropped.
+    TooLarge(UnsyncedReason),
+    /// Refused for the quota (`507`); the record of the commit stays.
+    NoRoom,
+}
+
+/// The files of a refused commit that carry a body wait on disk with the reason.
+fn mark_waiting(chunk: &[Out], reason: UnsyncedReason, skipped: &mut Vec<UnsyncedRecord>) {
+    for out in chunk
+        .iter()
+        .filter(|out| out.blob.is_some() && !out.header.deleted)
+    {
+        skipped.push(UnsyncedRecord {
+            path: out.header.path.clone(),
+            reason: reason.clone(),
+        });
+    }
+}
+
+/// After a `413` of a commit: the bodies over the limit as the account now says; when the
+/// account cannot say which, every body of the commit waits (the next pass judges each anew).
+fn mark_too_large(chunk: &[Out], reason: &UnsyncedReason, skipped: &mut Vec<UnsyncedRecord>) {
+    let UnsyncedReason::TooLarge { max_bytes, .. } = reason else {
+        return mark_waiting(chunk, reason.clone(), skipped);
+    };
+    let over: Vec<&Out> = chunk
+        .iter()
+        .filter(|out| out.blob.is_some() && !out.header.deleted)
+        .filter(|out| sealed_body_len(out.header.size).map_or(true, |len| len > *max_bytes))
+        .collect();
+    if over.is_empty() {
+        return mark_waiting(chunk, reason.clone(), skipped);
+    }
+    for out in over {
+        skipped.push(UnsyncedRecord {
+            path: out.header.path.clone(),
+            reason: reason.clone(),
+        });
     }
 }
 

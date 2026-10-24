@@ -14,7 +14,14 @@ use rusqlite::{Connection, TransactionBehavior};
 
 /// Migrations in order. The schema version is the number of entries applied (`user_version`).
 /// Never edit an applied entry: add a new one.
-const MIGRATIONS: &[&str] = &[SCHEMA_V1];
+const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2];
+
+/// Appendix Е (П58): only additions, no existing row is rewritten.
+const SCHEMA_V2: &str = "
+ALTER TABLE users ADD COLUMN plan TEXT;
+ALTER TABLE versions ADD COLUMN keep_until_ms INTEGER;
+CREATE INDEX versions_keep ON versions(keep_until_ms) WHERE keep_until_ms IS NOT NULL;
+";
 
 const SCHEMA_V1: &str = "
 CREATE TABLE meta (
@@ -153,8 +160,9 @@ pub struct Db {
 
 impl Db {
     /// Opens (creating it on first start) the database in `data_dir`, migrates it and makes sure
-    /// `instance_id` (П10) and the secret of the fake salts (П13) exist.
-    pub fn open(data_dir: &Path) -> Result<Self, DbError> {
+    /// `instance_id` (П10) and the secret of the fake salts (П13) exist. `now_ms` names the copy
+    /// made before a migration and is written to `last_migration` (П58).
+    pub fn open(data_dir: &Path, now_ms: i64) -> Result<Self, DbError> {
         std::fs::create_dir_all(data_dir).map_err(|error| DbError::Io(error.to_string()))?;
         let mut conn = Connection::open(data_dir.join(DB_FILE))?;
         conn.busy_timeout(Duration::from_secs(30))?;
@@ -163,7 +171,7 @@ impl Db {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "FULL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
-        migrate(&mut conn)?;
+        migrate(&mut conn, data_dir, now_ms)?;
         init_identity(&mut conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
@@ -224,10 +232,11 @@ fn user_version(conn: &Connection) -> rusqlite::Result<i64> {
     conn.pragma_query_value(None, "user_version", |row| row.get(0))
 }
 
-/// Checks the file, applies the missing migrations, checks again. Each migration is its own
-/// transaction together with the change of the version number, so a crash leaves the old
-/// version or the new one, never half.
-fn migrate(conn: &mut Connection) -> Result<(), DbError> {
+/// Checks the file, makes a copy of an existing database, applies the missing migrations and
+/// checks again. All steps of an existing database are one transaction together with the change
+/// of the version number and the record `last_migration`, so a crash or a failure leaves the old
+/// version, never half (П58). A fresh database is made step by step; there is nothing to copy.
+fn migrate(conn: &mut Connection, data_dir: &Path, now_ms: i64) -> Result<(), DbError> {
     let found = user_version(conn)?;
     if found > SCHEMA_VERSION {
         return Err(DbError::TooNew {
@@ -240,19 +249,40 @@ fn migrate(conn: &mut Connection) -> Result<(), DbError> {
     }
     if found > 0 {
         // An existing database is about to change: look for damage first, so that a migration
-        // never runs on a broken file.
+        // never runs on a broken file, then keep a copy of the old state (П58).
         quick_check(conn)?;
-    }
-    for (index, sql) in MIGRATIONS.iter().enumerate() {
-        let target = index as i64 + 1;
+        let backup = backup_before_migration(conn, data_dir, now_ms)?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         // Another process may have migrated while this one waited for the lock.
-        if user_version(&tx)? >= target {
-            continue;
+        let current = user_version(&tx)?;
+        if current < SCHEMA_VERSION {
+            for sql in &MIGRATIONS[usize::try_from(current).unwrap_or(0)..] {
+                tx.execute_batch(sql)?;
+            }
+            tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+            let record = serde_json::json!({
+                "from": current,
+                "to": SCHEMA_VERSION,
+                "at_ms": now_ms,
+                "backup": backup,
+            });
+            tx.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('last_migration', ?1)",
+                [record.to_string().into_bytes()],
+            )?;
         }
-        tx.execute_batch(sql)?;
-        tx.pragma_update(None, "user_version", target)?;
         tx.commit()?;
+    } else {
+        for (index, sql) in MIGRATIONS.iter().enumerate() {
+            let target = index as i64 + 1;
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            if user_version(&tx)? >= target {
+                continue;
+            }
+            tx.execute_batch(sql)?;
+            tx.pragma_update(None, "user_version", target)?;
+            tx.commit()?;
+        }
     }
     quick_check(conn)?;
     let mut statement = conn.prepare("PRAGMA foreign_key_check")?;
@@ -260,6 +290,34 @@ fn migrate(conn: &mut Connection) -> Result<(), DbError> {
         return Err(DbError::Damaged("foreign key check failed".into()));
     }
     Ok(())
+}
+
+/// `VACUUM INTO <data_dir>/backups/pre-v<N>-<ms>.db`, then `quick_check` of the copy. A copy
+/// that does not pass is removed and the migration does not start. Returns the file name.
+fn backup_before_migration(
+    conn: &Connection,
+    data_dir: &Path,
+    now_ms: i64,
+) -> Result<String, DbError> {
+    let dir = data_dir.join("backups");
+    std::fs::create_dir_all(&dir).map_err(|error| DbError::Io(error.to_string()))?;
+    let name = format!("pre-v{SCHEMA_VERSION}-{now_ms}.db");
+    let path = dir.join(&name);
+    let text = path.to_string_lossy().into_owned();
+    conn.execute("VACUUM INTO ?1", [text])?;
+    let verdict = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .and_then(|copy| {
+            copy.pragma_query_value(None, "quick_check", |row| row.get::<_, String>(0))
+        });
+    match verdict {
+        Ok(verdict) if verdict == "ok" => Ok(name),
+        other => {
+            let _ = std::fs::remove_file(&path);
+            Err(DbError::Damaged(format!(
+                "the copy before the migration did not pass the check: {other:?}"
+            )))
+        }
+    }
 }
 
 fn quick_check(conn: &Connection) -> Result<(), DbError> {

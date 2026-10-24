@@ -12,6 +12,7 @@ mod db;
 mod http;
 pub mod maintenance;
 pub mod plans;
+mod quota;
 pub mod state;
 pub mod store;
 

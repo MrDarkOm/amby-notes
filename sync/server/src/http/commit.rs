@@ -21,6 +21,8 @@ use crate::state::{AppState, HubEvent};
 /// The shortest envelope of a header: 1 + 4 + 24 + 256 + 16 (П26, Ф18).
 const MIN_HEADER_LEN: usize = 301;
 
+const DAY_MS: i64 = 86_400_000;
+
 /// One entry of a commit request (П26).
 struct Entry {
     item_id: [u8; 16],
@@ -147,8 +149,7 @@ pub(crate) async fn commit(
             .optional()?;
         if let Some((stored, response)) = known {
             if stored == digest {
-                let mut response: Value =
-                    serde_json::from_str(&response).unwrap_or(Value::Null);
+                let mut response: Value = serde_json::from_str(&response).unwrap_or(Value::Null);
                 response["replayed"] = json!(true);
                 return Ok(Outcome::Replayed(response));
             }
@@ -175,6 +176,31 @@ pub(crate) async fn commit(
                         code::UNKNOWN_BLOB,
                         "a body is unknown or not complete",
                     )));
+                }
+            }
+        }
+        // П60-3: a version whose body is larger than the file limit (the limit may have been
+        // lowered after the body was uploaded). The whole batch is refused.
+        let plan = crate::quota::resolve_user(&state, tx, auth.user_id)?;
+        if let Some(max) = plan.limits.max_file_bytes {
+            for entry in entries.iter().filter(|entry| !entry.deleted) {
+                let Some(blob) = &entry.blob_id else { continue };
+                let size: u64 = tx.query_row(
+                    "SELECT size FROM blobs WHERE space = ?1 AND blob_id = ?2",
+                    params![space.row, blob.as_slice()],
+                    |row| row.get(0),
+                )?;
+                if size > max {
+                    return Ok(Outcome::Refused(
+                        ApiError::new(
+                            StatusCode::PAYLOAD_TOO_LARGE,
+                            code::BLOB_TOO_LARGE,
+                            "a body is larger than the plan accepts; nothing was applied",
+                        )
+                        .with_details(
+                            json!({ "size": size, "max_bytes": max, "source": plan.file_source() }),
+                        ),
+                    ));
                 }
             }
         }
@@ -208,23 +234,44 @@ pub(crate) async fn commit(
                 .with_details(json!({ "conflicts": conflicts })),
             ));
         }
-        let head: u64 = tx.query_row("SELECT seq FROM spaces WHERE id = ?1", [space.row], |row| {
-            row.get(0)
-        })?;
+        // П56-в: the live bytes after the batch are checked in this very transaction. The batch
+        // is applied inside a savepoint and taken back if it grows the live bytes over the quota.
+        let cutoff = crate::quota::pending_cutoff(&state);
+        let before = match plan.limits.max_total_bytes {
+            Some(_) => Some(crate::quota::user_usage(tx, auth.user_id, cutoff)?),
+            None => None,
+        };
+        tx.execute_batch("SAVEPOINT quota_check")?;
+        let keep_until = now.saturating_add(
+            i64::try_from(plan.limits.history_days)
+                .unwrap_or(i64::MAX)
+                .saturating_mul(DAY_MS),
+        );
+        let head: u64 =
+            tx.query_row("SELECT seq FROM spaces WHERE id = ?1", [space.row], |row| {
+                row.get(0)
+            })?;
         let seq = head + 1;
         let mut results = Vec::with_capacity(entries.len());
         for (ord, entry) in entries.iter().enumerate() {
             if entry.base_version > 0 {
                 tx.execute(
-                    "UPDATE versions SET superseded_ms = ?4 \
+                    "UPDATE versions SET superseded_ms = ?4, keep_until_ms = ?5 \
                      WHERE space = ?1 AND item_id = ?2 AND version = ?3",
-                    params![space.row, entry.item_id.as_slice(), entry.base_version, now],
+                    params![
+                        space.row,
+                        entry.item_id.as_slice(),
+                        entry.base_version,
+                        now,
+                        keep_until
+                    ],
                 )?;
             }
             let version = entry.base_version + 1;
             tx.execute(
                 "INSERT INTO versions (space, item_id, version, seq, ord, header, blob_id, \
-                 deleted, device_id, committed_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                 deleted, device_id, committed_ms, keep_until_ms) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     space.row,
                     entry.item_id.as_slice(),
@@ -232,15 +279,42 @@ pub(crate) async fn commit(
                     seq,
                     ord as u64,
                     entry.header,
-                    entry.blob_id.as_ref().map(<[u8; 16]>::as_slice),
+                    entry
+                        .blob_id
+                        .as_ref()
+                        .filter(|_| !entry.deleted)
+                        .map(<[u8; 16]>::as_slice),
                     entry.deleted,
                     device_id.as_slice(),
-                    now
+                    now,
+                    entry.deleted.then_some(keep_until)
                 ],
             )?;
             results.push(json!({ "item_id": hex(&entry.item_id), "version": version }));
         }
-        tx.execute("UPDATE spaces SET seq = ?2 WHERE id = ?1", params![space.row, seq])?;
+        tx.execute(
+            "UPDATE spaces SET seq = ?2 WHERE id = ?1",
+            params![space.row, seq],
+        )?;
+        if let (Some(before), Some(limit)) = (before, plan.limits.max_total_bytes) {
+            let after = crate::quota::user_usage(tx, auth.user_id, cutoff)?;
+            if after.live > limit && after.live > before.live {
+                tx.execute_batch("ROLLBACK TO quota_check; RELEASE quota_check")?;
+                return Ok(Outcome::Refused(
+                    ApiError::new(
+                        StatusCode::INSUFFICIENT_STORAGE,
+                        code::QUOTA_EXCEEDED,
+                        "the batch would grow the storage over the quota; nothing was applied",
+                    )
+                    .with_details(json!({
+                        "used_bytes": before.counted(),
+                        "limit_bytes": limit,
+                        "needed_bytes": after.live - limit,
+                    })),
+                ));
+            }
+        }
+        tx.execute_batch("RELEASE quota_check")?;
         let response = json!({
             "commit_id": hex(&commit_id),
             "seq": seq,
