@@ -879,6 +879,18 @@ impl<'a> Decider<'a> {
         then: Option<PutAct>,
     ) {
         let to = self.dest(srv);
+        let (mut rec, mut then) = (rec, then);
+        if self.place_copy.is_some() {
+            // The file goes to a copy name while the server keeps this item at its own path
+            // (Д71). The base must say the file was at `from`: then the next scan finds `from`
+            // empty and the copy name taken by the same bytes, recognises a rename and sends it
+            // (otherwise the winner's file at the server's path would make this item look
+            // edited, and the winner's text would go up as its new version).
+            rec.path = from.to_string();
+            if let Some(put) = then.as_mut() {
+                put.rec.path = from.to_string();
+            }
+        }
         let occupant = self.occupant(&to, srv, from);
         let Some(occupant) = occupant else {
             return;
