@@ -87,6 +87,13 @@ pub(super) fn scan(
         }
     }
 
+    let listed: BTreeSet<String> = listing.entries.iter().map(|e| nfc(&e.path)).collect();
+    let missing_sizes: BTreeSet<u64> = by_path
+        .iter()
+        .filter(|(path, _)| !listed.contains(**path))
+        .map(|(_, record)| record.size)
+        .collect();
+
     let mut out = Scan::default();
     let mut entries = listing.entries;
     entries.sort_by(|a, b| a.path.cmp(&b.path));
@@ -132,7 +139,11 @@ pub(super) fn scan(
                 // the rules of Р7 (a foreign edit makes a conflict, nothing is lost); the push
                 // refuses to send it and lists it. Only a file without a base is set aside here,
                 // unread: nothing else can happen to it.
+                // A file of the size of a base whose path is gone may be that file renamed: it is
+                // read, so that the rename is seen as a rename and not as a deletion (a limit
+                // deletes nothing on the server).
                 if !by_path.contains_key(path.as_str())
+                    && !missing_sizes.contains(&entry.size)
                     && sealed_body_len(entry.size).map_or(true, |len| len > max_blob_bytes)
                 {
                     out.unsynced.push(UnsyncedRecord {

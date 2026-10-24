@@ -488,6 +488,20 @@ impl Run {
         while !self.filler_items.is_empty() {
             self.filler_remove();
         }
+        // The reading device saw few passes and may meet a mass change (Д54): the person says yes,
+        // as this scenario is about limits, not about that guard.
+        let approving = amby_sync_core::engine::CycleRequest {
+            approvals: amby_sync_core::engine::Approvals {
+                mass_change: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        for _ in 0..2 {
+            for d in 0..2 {
+                let _ = self.world.dev(d).sync_with(&approving);
+            }
+        }
         if let Err(error) = self.world.settle() {
             return self.fail(Kind::LimitNotConverged, error);
         }

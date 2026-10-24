@@ -648,7 +648,18 @@ impl Engine {
                 self.commit_accepted(&after, &items)?;
                 Ok(ChunkOutcome::Sent)
             }
-            Ok(CommitReply::Conflict(_)) => {
+            Ok(CommitReply::Conflict(conflicts)) => {
+                // An item the server no longer has (its deletion was cleaned up, П36) is not a
+                // race: the base is forgotten, and the file, if it is still there, goes up as a
+                // new item. Otherwise the same stale base would be refused for ever.
+                let gone: Vec<StateOp> = conflicts
+                    .iter()
+                    .filter(|c| c.current_version == 0 && c.base_version > 0)
+                    .map(|c| StateOp::RemoveItem(c.item_id))
+                    .collect();
+                if !gone.is_empty() {
+                    self.ports.state.apply(&gone)?;
+                }
                 // Nothing was applied (П27): decide again with the new server state (Д7, Д10).
                 self.ports.state.apply(&vec![StateOp::SetCommit(None)])?;
                 Err(Flow::Retry)
