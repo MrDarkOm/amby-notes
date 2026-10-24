@@ -221,3 +221,129 @@ fn creating_a_space_takes_no_time_from_the_clock() {
     let space = account.create_space();
     assert_eq!(space.commit_ok(&[space.folder(&new_item(), 0, "Docs")]), 1);
 }
+
+// ----- the limit of spaces and the account (appendix Е: П60-1, П61) -----
+
+mod space_limit {
+    use super::*;
+    use amby_sync_conformance::in_process_or_skip;
+
+    fn one_space() -> Target {
+        Target::in_process_with_plans(
+            &json!({"default_plan": "one", "plans": {"one": {"max_spaces": 1}, "free": {}}})
+                .to_string(),
+            |_| {},
+        )
+    }
+
+    #[test]
+    fn the_second_space_of_a_one_space_plan_is_403_space_limit_and_nothing_is_created() {
+        // П60-1, П59: `details` say how many are allowed and how many there are.
+        let target = one_space();
+        let _ = in_process_or_skip!(target);
+        let account = enroll(&target, PASSWORD);
+        let first = account.create_space();
+        let refused = account
+            .post("/v1/spaces", account.new_space_request("Second").2)
+            .expect_error(403, "space_limit");
+        assert_eq!(refused.details(), json!({"max_spaces": 1, "spaces": 1}));
+        let list = account.get("/v1/spaces").expect(200).json();
+        assert_eq!(list["spaces"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            list["spaces"][0]["space_id"],
+            hex16(first.id.as_bytes()).as_str()
+        );
+    }
+
+    #[test]
+    fn a_repeated_space_id_is_409_even_at_the_limit() {
+        // П60-1: `space_exists` is checked before the limit (the retry of a lost answer).
+        let target = one_space();
+        let _ = in_process_or_skip!(target);
+        let account = enroll(&target, PASSWORD);
+        let (_, _, body) = account.new_space_request("Only");
+        account.post("/v1/spaces", body.clone()).expect(201);
+        account
+            .post("/v1/spaces", body)
+            .expect_error(409, "space_exists");
+    }
+
+    #[test]
+    fn the_spaces_of_other_users_do_not_count() {
+        // П60-1, П6.
+        let target = one_space();
+        let _ = in_process_or_skip!(target);
+        let (first, second) = (enroll(&target, PASSWORD), enroll(&target, PASSWORD));
+        first.create_space();
+        second.create_space();
+        assert_eq!(first.overview()["usage"]["spaces"], 1);
+        assert_eq!(first.overview()["limits"]["max_spaces"], 1);
+    }
+
+    #[test]
+    fn work_in_the_one_space_goes_on_at_the_limit_and_a_free_plan_has_no_limit() {
+        // П60: nothing but creation is checked; `free` has no `max_spaces`.
+        let target = one_space();
+        let _ = in_process_or_skip!(target);
+        let account = enroll(&target, PASSWORD);
+        let space = account.create_space();
+        space.commit_ok(&[space.folder(&new_item(), 0, "Docs")]);
+        assert_eq!(
+            account.get("/v1/spaces").expect(200).json()["spaces"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        target.cli_ok(&["user", "plan", "set", &account.username, "free"]);
+        for _ in 0..3 {
+            account.create_space();
+        }
+    }
+
+    #[test]
+    fn the_account_lists_the_same_spaces_as_the_listing_and_changes_no_key_material() {
+        // П61: rows as in `GET /v1/spaces` (`name_enc`, `wrapped_vk` byte for byte, same order),
+        // plus sizes.
+        let target = Target::in_process();
+        let _ = in_process_or_skip!(target);
+        let account = enroll(&target, PASSWORD);
+        let first = account.create_space_named("First");
+        let second = account.create_space_named("Second");
+        first.commit_ok(&[first.raw_file(&new_item(), 0, "a.md", 123)]);
+        let listing = account.get("/v1/spaces").expect(200).json();
+        let overview = account.overview();
+        let (listed, shown) = (
+            listing["spaces"].as_array().unwrap(),
+            overview["spaces"].as_array().unwrap(),
+        );
+        assert_eq!(shown.len(), listed.len());
+        for (row, extended) in listed.iter().zip(shown) {
+            for field in [
+                "space_id",
+                "name_enc",
+                "key_epoch",
+                "wrapped_vk",
+                "seq",
+                "created_ms",
+            ] {
+                assert_eq!(
+                    extended[field], row[field],
+                    "`{field}` is the same as in the listing"
+                );
+            }
+            assert!(extended["live_bytes"].is_u64() && extended["history_bytes"].is_u64());
+        }
+        assert_eq!(shown[0]["live_bytes"], 123);
+        assert_eq!(
+            open_space_name(
+                &account.ak,
+                second.id.as_bytes(),
+                shown[1]["name_enc"].as_str().unwrap()
+            ),
+            "Second",
+            "the names stay encrypted for the server and open for the owner"
+        );
+        assert_eq!(unwrap_vk_from_listing(&account.ak, &shown[0]), first.vk);
+    }
+}

@@ -10,6 +10,9 @@ use amby_sync_core::crypto::keys::{AccountKey, SpaceId, SpaceKey};
 use amby_sync_core::crypto::name::{open_space_name, seal_space_name};
 use amby_sync_core::crypto::random::{OsRandom, Random};
 
+use crate::sync::account_types::{
+    AccountOverview, BoundVault, LimitsView, PlanView, StorageView, UsageView,
+};
 use crate::sync::types::SyncError;
 use crate::sync::vault_types::SpaceView;
 
@@ -179,4 +182,85 @@ pub async fn list_spaces(
             created_ms: entry.created_ms,
         })
         .collect())
+}
+
+/// The storages of the account with their plan, limits and sizes (appendix Е, У5): asks the
+/// server for `GET /v1/account`, opens every name with the key of the account (a name that does
+/// not open is `None` and does not spoil the list), marks the space of the open vault
+/// (`current`) and the spaces `bound` vaults of this computer are linked to. A server that does
+/// not know the request (`404`) gives an overview with `limits_known: false`: no plan, no
+/// limits, the spaces from the listing.
+pub async fn account_overview(
+    client: &SyncClient,
+    token: &DeviceToken,
+    account_key: &AccountKey,
+    current: Option<[u8; 16]>,
+    bound: &[BoundVault],
+) -> Result<AccountOverview, SyncError> {
+    let row = |entry: &SpaceEntry, live_bytes: u64, history_bytes: u64| StorageView {
+        space_id: hex::encode(entry.space_id),
+        name: name_of(account_key, entry),
+        live_bytes,
+        history_bytes,
+        this_vault: current == Some(entry.space_id),
+        bound_folder: bound
+            .iter()
+            .find(|vault| vault.space_id == entry.space_id)
+            .map(|vault| vault.folder.clone()),
+    };
+    match client.account(token).await {
+        Ok(view) => {
+            let spaces: Vec<StorageView> = view
+                .spaces
+                .iter()
+                .map(|space| row(&space.entry, space.live_bytes, space.history_bytes))
+                .collect();
+            Ok(AccountOverview {
+                limits_known: true,
+                plan: view.plan.name.map(|name| PlanView {
+                    name,
+                    title: view.plan.title,
+                    pinned: view.plan.pinned,
+                }),
+                limits: LimitsView {
+                    max_spaces: view.limits.max_spaces.and_then(|n| u32::try_from(n).ok()),
+                    max_total_bytes: view.limits.max_total_bytes,
+                    max_file_bytes: view.limits.max_file_bytes,
+                    history_days: u32::try_from(view.limits.history_days).ok(),
+                    max_history_bytes: view.limits.max_history_bytes,
+                },
+                usage: UsageView {
+                    live_bytes: view.usage.live_bytes,
+                    pending_bytes: view.usage.pending_bytes,
+                    history_bytes: view.usage.history_bytes,
+                    spaces: u32::try_from(view.usage.spaces).unwrap_or(u32::MAX),
+                },
+                spaces,
+            })
+        }
+        // An older server has no such request (Р13): the list of spaces is all it can tell.
+        Err(ClientError::Api { status: 404, .. }) => {
+            let entries = client.list_spaces(token).await.map_err(client_error)?;
+            let spaces: Vec<StorageView> = entries.iter().map(|entry| row(entry, 0, 0)).collect();
+            Ok(AccountOverview {
+                limits_known: false,
+                plan: None,
+                limits: LimitsView {
+                    max_spaces: None,
+                    max_total_bytes: None,
+                    max_file_bytes: None,
+                    history_days: None,
+                    max_history_bytes: None,
+                },
+                usage: UsageView {
+                    live_bytes: 0,
+                    pending_bytes: 0,
+                    history_bytes: 0,
+                    spaces: u32::try_from(spaces.len()).unwrap_or(u32::MAX),
+                },
+                spaces,
+            })
+        }
+        Err(error) => Err(client_error(error)),
+    }
 }

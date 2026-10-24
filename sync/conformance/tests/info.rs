@@ -173,3 +173,19 @@ fn unknown_request_fields_are_ignored() {
         )
         .expect(200);
 }
+
+#[test]
+fn server_version_is_the_version_of_the_server_crate_and_not_zero() {
+    // П62: the crate of the server is raised with appendix Е (for example to 0.2.0); the protocol
+    // stays 1. `/v1/info` reports the version of that crate.
+    let target = Target::in_process();
+    let body = info(&target.api);
+    let version = body["server_version"].as_str().unwrap();
+    assert_eq!(version, amby_sync_server::VERSION);
+    assert_ne!(version, "0.0.0");
+    let parts: Vec<&str> = version.split('.').collect();
+    assert_eq!(parts.len(), 3, "a semantic version: {version}");
+    assert!(parts.iter().all(|part| part.parse::<u32>().is_ok()));
+    assert_eq!(body["protocol"]["min"], 1);
+    assert_eq!(body["protocol"]["max"], 1);
+}

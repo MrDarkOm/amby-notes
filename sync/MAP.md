@@ -53,6 +53,8 @@ Inside [server/src/](server/src/lib.rs):
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | [db.rs](server/src/db.rs)                       | SQLite in WAL mode, schema version and migrations (checked before and after), `instance_id`, fake-salt secret |
 | [store.rs](server/src/store.rs)                 | `BlobStore` (files under `blobs/`, parts, atomic join) and `UserStore` (database) behind traits               |
+| [plans.rs](server/src/plans.rs)                 | the plans file: strict parsing, effective limits under the server ceilings (appendix Е, П50–П54)              |
+| [quota.rs](server/src/quota.rs)                 | live / pending / history bytes by queries over the indexes, the plan of a user (П55, П61)                     |
 | [state.rs](server/src/state.rs)                 | `AppState`: settings, clock, stores, the broadcast channel for event streams                                  |
 | [config.rs](server/src/config.rs)               | `AMBY_SYNC_*` variables, the HTTPS rule                                                                       |
 | [app.rs](server/src/app.rs)                     | the router; unknown path and wrong method answer in JSON                                                      |
@@ -67,6 +69,22 @@ Inside [server/src/](server/src/lib.rs):
 | [maintenance.rs](server/src/maintenance.rs)     | cleanup by the `Clock` only (П35–П37)                                                                         |
 | [admin.rs](server/src/admin.rs)                 | `user add                                                                                                     | list | remove`, `backup` (П38, П39) |
 | [main.rs](server/src/main.rs)                   | the command line, `serve` with cleanup every ten minutes, `healthcheck`                                       |
+
+Appendix Е (tariffs and limits; decisions П50–П62, Д73–Д78, У1–У5). Written **tests first**: the stubs below answer
+`not_implemented` / `501`, the tests are red as intended, another session writes the code with the tests frozen. Report with the
+table "requirement → test", the red run and the open points: [sync-plans-tests-report.md](../docs/Road/sync-plans-tests-report.md).
+`npm run sync:plans:red` groups the red tests of this workspace by reason (checks the list in
+[plans-red-manifest.json](plans-red-manifest.json) with [plans_red.py](plans_red.py); after the implementation `--expect-green`),
+`sync:plans:red:app` does the same for the application and vitest, `sync:plans:measure` is the measurement of the quota check (Е.10-7).
+
+| Path                                                                                                                                                                             | Owns                                                                                                                                 |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| [server/src/plans.rs](server/src/plans.rs)                                                                                                                                       | the plans file (П50–П52), `EffectiveLimits` (П54): stubs                                                                             |
+| [server/tests/plans.rs](server/tests/plans.rs), [migration.rs](server/tests/migration.rs)                                                                                        | parsing, resolution, ceilings; schema 1 → 2 (П58) with the hand-made fixture [common/legacy_v1.rs](server/tests/common/legacy_v1.rs) |
+| [conformance/tests/plans.rs](conformance/tests/plans.rs), `quota.rs`, `blobs.rs`, `limits.rs`, `spaces.rs`, `commits.rs`, `retention.rs`, `admin.rs`, `durability.rs`, `info.rs` | the rows of Е.9 on a running server; [measure.rs](conformance/tests/measure.rs) is the ignored measurement                           |
+| `admin::run_cli` in [server/src/admin.rs](server/src/admin.rs)                                                                                                                   | the commands `user plan …`, `plans …`, `space …` (П53): stub, `main.rs` forwards to it                                               |
+| [sim/tests/limits_e.rs](sim/tests/limits_e.rs), [sim/src/limits.rs](sim/src/limits.rs)                                                                                           | engine scenarios Д73–Д78 against the real server with plans; random scenarios with the six invariants of Е.9 and the history ceiling |
+| [client/tests/account.rs](client/tests/account.rs)                                                                                                                               | `SyncClient::account`, `blob_start_replacing`, `blob_delete` (stubs in `client/src/spaces.rs`)                                       |
 
 Running your own server: [server/README.md](server/README.md) and
 [server/docker-compose.yml](server/docker-compose.yml).
@@ -114,7 +132,7 @@ rules, sync; the rest is private to the engine):
 Inside [sim/](sim/src/lib.rs): `vfs.rs` (files in memory with history and trash), `world.rs` (server,
 account, devices), `fault.rs` (crashes, lost requests, lies of the server), `invariants.rs`
 (раздел 7), `scenario.rs` (random scenarios; `AMBY_SIM_SCENARIOS`, `AMBY_SIM_SEED`), `mini.rs` (the
-correct mini-engine and seven broken ones), `dsl.rs` (helpers for the directed tests in `sim/tests/`).
+correct mini-engine and seven broken ones), `limits.rs` + `broken_limits.rs` (scenarios of the limits of appendix Е and the broken engines they must catch), `dsl.rs` (helpers for the directed tests in `sim/tests/`).
 
 Stage Э4 (the engine in the application, light order: tests first, one session, one review). The real
 ports and the session are in [src-tauri/src/sync/](../src-tauri/src/sync/mod.rs) (`vault_fs.rs`,

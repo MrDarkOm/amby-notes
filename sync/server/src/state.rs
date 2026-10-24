@@ -7,6 +7,7 @@ use tokio::sync::broadcast;
 use crate::clock::Clock;
 use crate::config::Config;
 use crate::db::{Db, DbError};
+use crate::plans::{PlansError, PlansFile};
 use crate::store::{BlobStore, DbUserStore, FsBlobStore, UserStore};
 
 /// Something the open event streams (П34) must hear about.
@@ -41,6 +42,11 @@ pub struct AppState {
     pub blobs: Arc<dyn BlobStore>,
     /// Users.
     pub users: Arc<dyn UserStore>,
+    /// The plans read from the file when the state was opened (П51).
+    pub(crate) plans: Arc<PlansFile>,
+    /// Why the plans file could not be read, if so. Opening stays lenient (see
+    /// [`AppState::check_plans`]); `plans` is then empty.
+    pub(crate) plans_error: Option<PlansError>,
     pub(crate) db: Arc<Db>,
     pub(crate) files: Arc<FsBlobStore>,
     pub(crate) hub: broadcast::Sender<HubEvent>,
@@ -60,11 +66,17 @@ impl AppState {
 
     /// The same as [`AppState::open`], returning the reason instead of panicking.
     pub fn try_open(config: Config, clock: Arc<dyn Clock>) -> Result<Self, DbError> {
-        let db = Arc::new(Db::open(&config.data_dir)?);
+        let db = Arc::new(Db::open(&config.data_dir, clock.now_ms())?);
         let files = Arc::new(FsBlobStore::new(&config.data_dir));
         let users = Arc::new(DbUserStore::new(db.clone(), files.clone(), clock.clone()));
         let (hub, _) = broadcast::channel(1024);
+        let (plans, plans_error) = match PlansFile::load(&config.plans_path()) {
+            Ok(plans) => (plans, None),
+            Err(error) => (PlansFile::default(), Some(error)),
+        };
         Ok(Self {
+            plans: Arc::new(plans),
+            plans_error,
             config: Arc::new(config),
             clock,
             blobs: files.clone(),
@@ -72,6 +84,30 @@ impl AppState {
             db,
             files,
             hub,
+        })
+    }
+
+    /// The start-up check of appendix Е: the plans file is valid (П51) and every pinned user's
+    /// plan is in it (П52). `serve` calls it before it listens; `try_open` itself stays lenient,
+    /// so that `plans check` and `user plan set <name> --default` can run on a state whose file
+    /// has a problem (that is how the problem is cured).
+    pub fn check_plans(&self) -> Result<(), PlansError> {
+        if let Some(error) = &self.plans_error {
+            return Err(error.clone());
+        }
+        let pinned = self
+            .pinned_plans()
+            .map_err(|error| PlansError::Io(error.to_string()))?;
+        self.plans.check_pinned(&pinned)
+    }
+
+    /// Every `(user, plan)` that is pinned.
+    pub(crate) fn pinned_plans(&self) -> rusqlite::Result<Vec<(String, String)>> {
+        self.db.call(|conn| {
+            let mut statement = conn
+                .prepare("SELECT username, plan FROM users WHERE plan IS NOT NULL ORDER BY id")?;
+            let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+            rows.collect()
         })
     }
 }

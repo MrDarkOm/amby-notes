@@ -8,7 +8,7 @@ use crate::crypto::padme::sealed_body_len;
 
 use super::flow::{Flow, Res};
 use super::model::{ItemRecord, StopReason, UnsyncedReason, UnsyncedRecord};
-use super::ports::{FsError, LocalFs, LocalKind, RootState};
+use super::ports::{FsError, LimitSource, LocalFs, LocalKind, RootState};
 use super::rules::is_excluded_path;
 use super::util::{hash_of, is_unmaterialised, nfc, parent};
 
@@ -52,8 +52,9 @@ pub(super) fn scan(
     fs: &mut dyn LocalFs,
     records: &BTreeMap<[u8; 16], ItemRecord>,
     max_file_bytes: u64,
-    max_blob_bytes: u64,
+    limit: (u64, LimitSource),
 ) -> Res<Scan> {
+    let (max_blob_bytes, limit_source) = limit;
     let listing = match fs.list() {
         Ok(listing) => listing,
         Err(FsError::NotFound(_)) if fs.root_state()? == RootState::Missing => {
@@ -85,6 +86,13 @@ pub(super) fn scan(
             rest = up;
         }
     }
+
+    let listed: BTreeSet<String> = listing.entries.iter().map(|e| nfc(&e.path)).collect();
+    let missing_sizes: BTreeSet<u64> = by_path
+        .iter()
+        .filter(|(path, _)| !listed.contains(**path))
+        .map(|(_, record)| record.size)
+        .collect();
 
     let mut out = Scan::default();
     let mut entries = listing.entries;
@@ -126,10 +134,24 @@ pub(super) fn scan(
                     out.blocked.insert(path);
                     continue;
                 }
-                if sealed_body_len(entry.size).map_or(true, |len| len > max_blob_bytes) {
+                // Д74: a file the base already holds is read as any other: an unchanged one stays as
+                // it is even when the limit fell below its size, and a changed one takes part in
+                // the rules of Р7 (a foreign edit makes a conflict, nothing is lost); the push
+                // refuses to send it and lists it. Only a file without a base is set aside here,
+                // unread: nothing else can happen to it.
+                // A file of the size of a base whose path is gone may be that file renamed: it is
+                // read, so that the rename is seen as a rename and not as a deletion (a limit
+                // deletes nothing on the server).
+                if !by_path.contains_key(path.as_str())
+                    && !missing_sizes.contains(&entry.size)
+                    && sealed_body_len(entry.size).map_or(true, |len| len > max_blob_bytes)
+                {
                     out.unsynced.push(UnsyncedRecord {
                         path: path.clone(),
-                        reason: UnsyncedReason::TooLarge,
+                        reason: UnsyncedReason::TooLarge {
+                            max_bytes: max_blob_bytes,
+                            source: limit_source,
+                        },
                     });
                     out.blocked.insert(path);
                     continue;

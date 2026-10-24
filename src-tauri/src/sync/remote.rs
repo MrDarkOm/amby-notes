@@ -6,9 +6,9 @@
 use std::io::Read;
 
 use amby_sync_client::{BlobDownload, ClientError, DeviceToken, SyncClient};
-use amby_sync_core::crypto::keys::BodyId;
+use amby_sync_core::crypto::keys::{BodyId, ItemId};
 use amby_sync_core::engine::{
-    BlobState, ChangesPage, CommitItem, CommitReply, Remote, RemoteError, ServerInfo,
+    AccountInfo, BlobState, ChangesPage, CommitItem, CommitReply, Remote, RemoteError, ServerInfo,
 };
 
 /// A signed-in device and a space.
@@ -106,9 +106,44 @@ impl Remote for HttpRemote {
             .map_err(remote_error)
     }
 
-    fn blob_start(&mut self, blob: &BodyId, size: u64) -> Result<BlobState, RemoteError> {
+    fn account(&mut self) -> Result<AccountInfo, RemoteError> {
+        let view = self
+            .handle
+            .block_on(self.client.account(&self.token))
+            .map_err(remote_error)?;
+        Ok(AccountInfo {
+            max_file_bytes: view.limits.max_file_bytes,
+            max_total_bytes: view.limits.max_total_bytes,
+            live_bytes: view.usage.live_bytes,
+            pending_bytes: view.usage.pending_bytes,
+        })
+    }
+
+    fn blob_start(
+        &mut self,
+        blob: &BodyId,
+        size: u64,
+        replaces: Option<&ItemId>,
+    ) -> Result<BlobState, RemoteError> {
+        let started = match replaces {
+            Some(item) => self.handle.block_on(self.client.blob_start_replacing(
+                &self.token,
+                &self.space,
+                blob,
+                size,
+                item,
+            )),
+            None => {
+                self.handle
+                    .block_on(self.client.blob_start(&self.token, &self.space, blob, size))
+            }
+        };
+        started.map_err(remote_error)
+    }
+
+    fn blob_delete(&mut self, blob: &BodyId) -> Result<(), RemoteError> {
         self.handle
-            .block_on(self.client.blob_start(&self.token, &self.space, blob, size))
+            .block_on(self.client.blob_delete(&self.token, &self.space, blob))
             .map_err(remote_error)
     }
 

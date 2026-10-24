@@ -60,6 +60,8 @@ pub mod error_code {
     pub const RATE_LIMITED: &str = "rate_limited";
     /// The user's quota would be exceeded (П42).
     pub const QUOTA_EXCEEDED: &str = "quota_exceeded";
+    /// The user already has as many spaces as the plan allows (appendix Е, П59).
+    pub const SPACE_LIMIT: &str = "space_limit";
     /// A server fault; details only in the log.
     pub const INTERNAL: &str = "internal";
     /// A stub: the handler is not written yet (plan, раздел 6, шаг 1).

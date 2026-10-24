@@ -78,6 +78,7 @@ servers.
 | `AMBY_SYNC_TRUST_PROXY`          | `0`                     | `1` when a proxy such as Caddy sets `X-Forwarded-For`         |
 | `AMBY_SYNC_QUOTA_BYTES_PER_USER` | off                     | most encrypted bytes one user may keep                        |
 | `AMBY_SYNC_MAX_BLOB_BYTES`       | `536870912` (512 MiB)   | biggest single file after encryption                          |
+| `AMBY_SYNC_PLANS_FILE`           | `<data dir>/plans.json` | the plans file (see "Plans and limits"); no file, no plans    |
 | `AMBY_SYNC_RETAIN_VERSION_DAYS`  | `30`                    | how long old versions and deleted files stay restorable       |
 | `AMBY_SYNC_ORPHAN_BLOB_HOURS`    | `24`                    | how long an upload nobody finished or committed is kept       |
 | `AMBY_SYNC_DATA_DIR`             | `/data`                 | database and files (the Docker volume)                        |
@@ -88,6 +89,53 @@ The rest of the limits (login attempts, request sizes) are visible at `/v1/info`
 
 Old versions and deleted files are removed by a cleanup that runs every ten minutes and before the
 server stops; you can also run it by hand with `amby-sync-server maintenance`.
+
+## Plans and limits
+
+By default a user has no limits except the two ceilings above (`AMBY_SYNC_MAX_BLOB_BYTES`,
+`AMBY_SYNC_QUOTA_BYTES_PER_USER`). To give users different limits, write a **plans file**
+(`/data/plans.json`, or the path in `AMBY_SYNC_PLANS_FILE`). Without the file the server behaves
+exactly as before. Numbers are whole bytes (decimal: 1 GB = 1000000000) or days, at least 1; every
+limit is optional (a missing one means "no limit"):
+
+```json
+{
+  "default_plan": "standard",
+  "plans": {
+    "standard": {
+      "title": "Standard",
+      "max_spaces": 1,
+      "max_total_bytes": 1000000000,
+      "max_file_bytes": 20000000,
+      "history_days": 30,
+      "max_history_bytes": 1000000000
+    },
+    "unlimited": { "title": "No limits" }
+  }
+}
+```
+
+A plan name is `a-z 0-9 _ -`, up to 32 characters. The file is read when the server starts; a typo
+(unknown field, zero, repeated name, unknown `default_plan`) stops the start with a message, and so
+does a user pinned to a plan the file no longer has. Check a file before restarting:
+`amby-sync-server plans check [file]`. Where a ceiling and a plan both apply, the smaller wins.
+`max_total_bytes` counts the latest versions of files and uploads waiting for their commit; old
+versions and deleted files are the "history", shown apart. **A limit never deletes anything**: over
+the quota the user can still delete, rename and shrink files, and a lowered plan leaves what is
+there. The one exception is `max_history_bytes`: when the history is bigger, the cleanup removes the
+oldest old versions first, never a latest version.
+
+| Command                                      | What it does                                             |
+| -------------------------------------------- | -------------------------------------------------------- |
+| `user add <name> [--plan <plan>]`            | creates a user, pinned to a plan if given                |
+| `user plan set <name> <plan>` / `--default`  | pins a plan / returns the user to the default plan       |
+| `user plan show <name> [--json]`             | plan, limits and usage of a user                         |
+| `user list [--json]`                         | users with their plan and the bytes they use             |
+| `plans list [--json]` / `plans check [file]` | plans with their users / checks a file and pinned users  |
+| `space list <name> [--json]`                 | spaces of a user with live and history bytes (no names)  |
+| `space remove <name> <space_id> --yes`       | **deletes a space for good** with its versions and files |
+
+A plan change applies at once, without a restart. **Make a `backup` before `space remove`.**
 
 ## Back up
 
@@ -117,6 +165,13 @@ cd sync/server && docker compose up -d --build
 
 The database updates itself on the first start of the new version. Make a backup first. A server
 refuses to open a database written by a newer version, so rolling back needs the backup.
+
+Version 0.2.0 moves the database from schema 1 to 2 (plans). Before it changes anything the server
+copies the database to `<data dir>/backups/pre-v2-<ms>.db`, checks the copy, and records the move in
+the table `meta` (`last_migration`). **To roll back:** stop the server, put that copy in place of
+`amby-sync.db` (delete `amby-sync.db-wal` and `amby-sync.db-shm`), start the previous image. What
+was committed after the move is lost, so do it only while there is no new data; plan assignments
+are lost too, which only means "no limits".
 
 ## Good to know
 

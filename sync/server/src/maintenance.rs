@@ -79,10 +79,12 @@ pub fn run(state: &AppState) -> Result<MaintenanceReport, MaintenanceError> {
             // П36: an item whose last version is a deletion older than the retention goes whole.
             let mut statement = tx.prepare(
                 "SELECT space, item_id, seq FROM versions \
-             WHERE superseded_ms IS NULL AND deleted = 1 AND committed_ms <= ?1",
+             WHERE superseded_ms IS NULL AND deleted = 1 AND \
+             ((keep_until_ms IS NOT NULL AND keep_until_ms <= ?2) \
+              OR (keep_until_ms IS NULL AND committed_ms <= ?1))",
             )?;
             let gone: Vec<(i64, Vec<u8>, i64)> = statement
-                .query_map([now.saturating_sub(version_ms)], |row| {
+                .query_map([now.saturating_sub(version_ms), now], |row| {
                     Ok((row.get(0)?, row.get(1)?, row.get(2)?))
                 })?
                 .collect::<Result<_, _>>()?;
@@ -105,18 +107,24 @@ pub fn run(state: &AppState) -> Result<MaintenanceReport, MaintenanceError> {
                 report.items += 1;
             }
 
-            // П35: an old version lives `retain_version_days` after it was replaced. The feed never
-            // showed it, so nothing in the feed and no `purged_seq` changes.
+            // П35, П57-г: an old version lives the term fixed when it was replaced
+            // (`keep_until_ms`); a row without one (made before the migration) lives
+            // `retain_version_days` after the replacement. The feed never showed it, so nothing in
+            // the feed and no `purged_seq` changes.
+            const EXPIRED: &str = "superseded_ms IS NOT NULL AND \
+                ((keep_until_ms IS NOT NULL AND keep_until_ms <= ?2) \
+                 OR (keep_until_ms IS NULL AND superseded_ms <= ?1))";
             collect_blobs(
                 tx,
-                "superseded_ms IS NOT NULL AND superseded_ms <= ?1",
-                [now.saturating_sub(version_ms)],
+                EXPIRED,
+                [now.saturating_sub(version_ms), now],
                 &mut freed,
             )?;
             report.versions += tx.execute(
-                "DELETE FROM versions WHERE superseded_ms IS NOT NULL AND superseded_ms <= ?1",
-                [now.saturating_sub(version_ms)],
+                &format!("DELETE FROM versions WHERE {EXPIRED}"),
+                [now.saturating_sub(version_ms), now],
             )? as u64;
+            report.versions += trim_histories(state, tx, &mut freed)?;
 
             // A body that lost its last live version goes with it (П35, П36) …
             freed.sort_unstable();
@@ -176,6 +184,74 @@ pub fn run(state: &AppState) -> Result<MaintenanceReport, MaintenanceError> {
     )?;
     sweep_leftovers(state)?;
     Ok(report)
+}
+
+/// A replaced version: space row, item, version number, body.
+type OldestVersion = (i64, Vec<u8>, i64, Option<Vec<u8>>);
+
+/// П57-д: for a user whose plan has `max_history_bytes`, removes the oldest replaced versions (by
+/// the time of the replacement, which for a deleted item is the time of the deletion) until the
+/// history is within the ceiling. Latest versions are never touched, and a body any version still
+/// refers to stays.
+fn trim_histories(
+    state: &AppState,
+    tx: &Transaction<'_>,
+    freed: &mut Vec<(i64, Vec<u8>)>,
+) -> Result<u64, MaintenanceError> {
+    let mut users = tx.prepare("SELECT id FROM users")?;
+    let ids: Vec<i64> = users
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    drop(users);
+    let mut removed = 0;
+    for user in ids {
+        let Some(ceiling) = crate::quota::resolve_user(state, tx, user)?
+            .limits
+            .max_history_bytes
+        else {
+            continue;
+        };
+        let mut history =
+            crate::quota::user_usage(tx, user, crate::quota::pending_cutoff(state))?.history;
+        while history > ceiling {
+            let oldest: Option<OldestVersion> = tx
+                .query_row(
+                    "SELECT v.space, v.item_id, v.version, v.blob_id FROM versions v \
+                     JOIN spaces s ON s.id = v.space \
+                     WHERE s.user_id = ?1 AND v.superseded_ms IS NOT NULL \
+                     ORDER BY v.superseded_ms, v.space, v.item_id, v.version LIMIT 1",
+                    [user],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .map(Some)
+                .or_else(|error| match error {
+                    rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                    other => Err(other),
+                })?;
+            let Some((space, item, version, blob)) = oldest else {
+                break;
+            };
+            tx.execute(
+                "DELETE FROM versions WHERE space = ?1 AND item_id = ?2 AND version = ?3",
+                params![space, item, version],
+            )?;
+            removed += 1;
+            if let Some(blob) = blob {
+                if unreferenced(tx, space, &blob)? {
+                    let size: u64 = tx
+                        .query_row(
+                            "SELECT size FROM blobs WHERE space = ?1 AND blob_id = ?2",
+                            params![space, blob],
+                            |row| row.get(0),
+                        )
+                        .unwrap_or(0);
+                    history = history.saturating_sub(size);
+                    freed.push((space, blob));
+                }
+            }
+        }
+    }
+    Ok(removed)
 }
 
 /// Remembers the bodies that the versions chosen by `filter` refer to.

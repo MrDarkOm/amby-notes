@@ -16,8 +16,9 @@ use amby_sync_core::crypto::keys::{BodyId, ItemId};
 use amby_sync_core::crypto::primitives::blake3_hash;
 use amby_sync_core::engine::names::NameProblem;
 use amby_sync_core::engine::{
-    CommitItem, ConflictKind, ConflictRecord, ItemRecord, PendingCommit, PendingUpload, StateError,
-    StateLock, StateOp, StateStore, StateTx, SyncState, UnsyncedReason, UnsyncedRecord,
+    CommitItem, ConflictKind, ConflictRecord, ItemRecord, LimitSource, PendingCommit,
+    PendingUpload, StateError, StateLock, StateOp, StateStore, StateTx, SyncState, UnsyncedReason,
+    UnsyncedRecord,
 };
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde_json::{json, Value};
@@ -180,6 +181,30 @@ fn prepare(conn: &Connection) -> rusqlite::Result<()> {
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     }
     Ok(())
+}
+
+/// Reads values of the table `meta` of the state of `vault` without changing anything: the file
+/// is opened read-only, nothing is created or migrated. `None` when the vault has no readable
+/// state (appendix Е, У5: the account overview only looks).
+pub fn read_meta_only(vault: &Path, keys: &[&str]) -> Option<Vec<Option<String>>> {
+    let path = state_path(vault);
+    if !path.is_file() {
+        return None;
+    }
+    let conn = Connection::open_with_flags(
+        &path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .ok()?;
+    keys.iter()
+        .map(|key| {
+            conn.query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| {
+                row.get::<_, String>(0)
+            })
+            .optional()
+            .ok()
+        })
+        .collect()
 }
 
 impl SqliteStateStore {
@@ -515,7 +540,15 @@ fn reason_json(reason: &UnsyncedReason) -> Value {
     match reason {
         UnsyncedReason::Symlink => json!({"t": "symlink"}),
         UnsyncedReason::NotUtf8 => json!({"t": "not_utf8"}),
-        UnsyncedReason::TooLarge => json!({"t": "too_large"}),
+        UnsyncedReason::TooLarge { max_bytes, source } => json!({
+            "t": "too_large",
+            "max_bytes": max_bytes,
+            "source": match source {
+                LimitSource::Plan => "plan",
+                LimitSource::Server => "server",
+            },
+        }),
+        UnsyncedReason::QuotaFull => json!({"t": "quota_full"}),
         UnsyncedReason::TooBigForMemory => json!({"t": "too_big_for_memory"}),
         UnsyncedReason::ExcludedPath => json!({"t": "excluded_path"}),
         UnsyncedReason::InvalidName(problem) => {
@@ -534,7 +567,15 @@ fn reason_from_json(value: &Value) -> Option<UnsyncedReason> {
     Some(match value.get("t")?.as_str()? {
         "symlink" => UnsyncedReason::Symlink,
         "not_utf8" => UnsyncedReason::NotUtf8,
-        "too_large" => UnsyncedReason::TooLarge,
+        "too_large" => UnsyncedReason::TooLarge {
+            // A row written before appendix Е has neither field.
+            max_bytes: value.get("max_bytes").and_then(Value::as_u64).unwrap_or(0),
+            source: match value.get("source").and_then(Value::as_str) {
+                Some("plan") => LimitSource::Plan,
+                _ => LimitSource::Server,
+            },
+        },
+        "quota_full" => UnsyncedReason::QuotaFull,
         "too_big_for_memory" => UnsyncedReason::TooBigForMemory,
         "excluded_path" => UnsyncedReason::ExcludedPath,
         "invalid_name" => UnsyncedReason::InvalidName(problem_from_json(value.get("problem")?)?),

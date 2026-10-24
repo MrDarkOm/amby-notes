@@ -23,10 +23,12 @@
     clippy::unnecessary_map_or
 )]
 
+pub mod broken_limits;
 pub mod conflicts;
 pub mod dsl;
 pub mod fault;
 pub mod invariants;
+pub mod limits;
 pub mod linemerge;
 pub mod mini;
 pub mod net;

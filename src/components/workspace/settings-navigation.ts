@@ -12,6 +12,9 @@ export const SETTINGS_SECTION_IDS = [
 
 export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number]
 
+/** A part of the interface that has no access to the workspace asks for Settings with this event. */
+export const OPEN_SETTINGS_REQUEST_EVENT = "amby:open-settings-request"
+
 export interface SettingsNavigationTarget {
   section: SettingsSectionId
   moduleId?: string

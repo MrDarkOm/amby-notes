@@ -1,7 +1,7 @@
 //! Runs the random scenarios of `sync/sim` against the real engine, for a long time and in a few
 //! processes (Э3, step 2 of the implementation session). The simulation itself is not changed.
 //!
-//! `amby-sync-simrun <first seed> <count> [quick|folders]`: every failing seed is printed with
+//! `amby-sync-simrun <first seed> <count> [quick|folders|limits]`: every failing seed is printed with
 //! the violation and the trace of the scenario, the exit code is the number of failures (capped).
 //!
 //! The test client of the server opens a new connection for every request, and on macOS a closed
@@ -50,9 +50,13 @@ fn wait_for_ports() {
 }
 
 /// One scenario; `Err(None)` when the transport of the test client failed (the machine).
-fn attempt(seed: u64, options: Options) -> Result<(), Option<Failure>> {
+fn attempt(seed: u64, options: Options, limits: bool) -> Result<(), Option<Failure>> {
     let outcome = catch_unwind(AssertUnwindSafe(|| {
-        run_scenario(Engine::boxed, seed, options)
+        if limits {
+            amby_sync_sim::limits::run_limits_scenario(Engine::boxed, seed)
+        } else {
+            run_scenario(Engine::boxed, seed, options)
+        }
     }));
     match outcome {
         Ok(Ok(_)) => Ok(()),
@@ -93,18 +97,19 @@ fn main() {
         },
         _ => Options::QUICK,
     };
+    let limits = mode == "limits";
     let started = Instant::now();
     let verbose = std::env::var("SIMRUN_VERBOSE").is_ok();
     let (mut failed, mut passed, mut retried) = (0u32, 0u64, 0u32);
     for seed in first..first + count {
         wait_for_ports();
         let began = Instant::now();
-        let mut result = attempt(seed, options);
+        let mut result = attempt(seed, options, limits);
         if matches!(result, Err(None)) {
             retried += 1;
             std::thread::sleep(Duration::from_secs(40));
             wait_for_ports();
-            result = attempt(seed, options);
+            result = attempt(seed, options, limits);
         }
         if verbose {
             eprintln!("seed {seed}: {:.2} s", began.elapsed().as_secs_f64());

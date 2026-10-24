@@ -43,6 +43,23 @@ pub enum Kind {
     ConflictNotStored,
     /// К2: conflict marks inside a file (Г15 е, Г20).
     Marks,
+    /// Е.9 (1): a local file vanished or changed because of a limit.
+    LimitTouchedLocal,
+    /// Е.9 (2): a version or a body on the server was removed because of a limit.
+    LimitRemovedServer,
+    /// Е.9 (3): after the limits were lifted the files did not converge.
+    LimitNotConverged,
+    /// Е.9 (4): a refusal by a limit stopped the pass as a mass change.
+    LimitMassChange,
+    /// Е.9 (5): the server accepted growth over the quota.
+    QuotaOverrun,
+    /// Е.9 (6): a failure of a call lost the record of what is being sent.
+    SendRecordLost,
+    /// Е.9, ceiling of the history: a latest version was pruned, or the order "oldest first"
+    /// was broken.
+    HistoryCeiling,
+    /// Е.9 (Д75): one pass asked the server for the same refused body again and again.
+    LimitRetryStorm,
     /// The engine failed in a way the scenario did not expect.
     Unexpected,
 }

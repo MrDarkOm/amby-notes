@@ -319,3 +319,138 @@ fn the_server_keeps_the_bytes_it_was_given_without_looking() {
     space.upload_sealed(&body, &nonsense);
     assert_eq!(space.download(&body).expect(200).body, nonsense);
 }
+
+// ----- `DELETE …/blobs/{id}` (appendix Е, П56-д) -----
+
+mod delete_a_body {
+    use super::*;
+    use amby_sync_conformance::client::new_item;
+    use amby_sync_conformance::in_process_or_skip;
+
+    #[test]
+    fn an_abandoned_started_body_is_deleted_and_its_bytes_come_back_at_once() {
+        // П56-д: 204; the pending bytes are gone from the account; the id can be started again.
+        let target = Target::in_process();
+        let _ = in_process_or_skip!(target);
+        let account = enroll(&target, PASSWORD);
+        let space = account.create_space();
+        let body = new_body();
+        space.init_blob(&body, 5000).expect(201);
+        space.put_part(&body, 0, vec![1u8; 5000]).expect(200);
+        assert_eq!(account.overview()["usage"]["pending_bytes"], 5000);
+        space.delete_blob(&body).expect(204);
+        assert_eq!(account.overview()["usage"]["pending_bytes"], 0);
+        space.download(&body).expect_error(404, "not_found");
+        space.init_blob(&body, 5000).expect(201);
+    }
+
+    #[test]
+    fn a_complete_body_that_no_version_uses_is_deleted_with_its_file() {
+        // П56-д: complete but not committed counts as abandoned; the file leaves the disk.
+        let target = Target::in_process();
+        let control = in_process_or_skip!(target);
+        let account = enroll(&target, PASSWORD);
+        let space = account.create_space();
+        let body = new_body();
+        space.upload_sealed(&body, &[2u8; 3000]);
+        let on_disk = |folder: &std::path::Path| -> usize {
+            fn files(path: &std::path::Path) -> usize {
+                std::fs::read_dir(path).map_or(0, |entries| {
+                    entries
+                        .flatten()
+                        .map(|e| {
+                            if e.path().is_dir() {
+                                files(&e.path())
+                            } else {
+                                1
+                            }
+                        })
+                        .sum()
+                })
+            }
+            files(folder)
+        };
+        let blobs = control.data_dir().join("blobs");
+        assert!(on_disk(&blobs) >= 1);
+        space.delete_blob(&body).expect(204);
+        assert_eq!(on_disk(&blobs), 0, "no file of the body is left");
+        space.download(&body).expect_error(404, "not_found");
+    }
+
+    #[test]
+    fn a_body_a_version_refers_to_is_409_blob_exists_and_stays() {
+        // П56-д: the latest version, and also a replaced one (history still refers to it).
+        let target = Target::from_env();
+        let space = fresh_space(&target);
+        let item = new_item();
+        let first = space.file(&item, 0, "a.md", b"one");
+        let old = first.body.unwrap();
+        space.commit_ok(&[first]);
+        let second = space.file(&item, 1, "a.md", b"two");
+        let latest = second.body.unwrap();
+        space.commit_ok(&[second]);
+        space.delete_blob(&latest).expect_error(409, "blob_exists");
+        space.delete_blob(&old).expect_error(409, "blob_exists");
+        space.download(&latest).expect(200);
+        space.download(&old).expect(200);
+    }
+
+    #[test]
+    fn somebody_elses_missing_or_malformed_body_is_404() {
+        // П6, П56-д: the same answer for all three, as everywhere.
+        let target = Target::from_env();
+        let (mine, other) = (fresh_space(&target), fresh_space(&target));
+        let theirs = new_body();
+        other.init_blob(&theirs, 100).expect(201);
+        mine.delete_blob(&theirs).expect_error(404, "not_found");
+        mine.delete_blob(&new_body()).expect_error(404, "not_found");
+        // the other user's blob through the other user's space path
+        let through_other_space = mine.with_token(&other.token);
+        through_other_space
+            .delete_blob(&theirs)
+            .expect_error(404, "not_found");
+        mine.api
+            .delete(&mine.path("/blobs/not-hex"), Some(&mine.token))
+            .expect_error(404, "not_found");
+        other.download(&theirs).expect_error(404, "not_found"); // started, not complete: still 404 to download
+        other.init_blob(&theirs, 100).expect(200); // and it is still there
+    }
+
+    #[test]
+    fn deleting_a_body_needs_a_token() {
+        // П5.
+        let target = Target::from_env();
+        let space = fresh_space(&target);
+        let body = new_body();
+        space.init_blob(&body, 100).expect(201);
+        space
+            .api
+            .delete(
+                &space.path(&format!("/blobs/{}", hex16(body.as_bytes()))),
+                None,
+            )
+            .expect_error(401, "unauthorized");
+        space.init_blob(&body, 100).expect(200);
+    }
+
+    #[test]
+    fn a_malformed_replaces_hint_is_a_bad_request() {
+        // П2 (strict hex), П56-б. An assumption of the tests: a field that is there and wrong is
+        // refused like every other field; ask the reviewer if the server should ignore it.
+        let target = Target::from_env();
+        let space = fresh_space(&target);
+        for bad in [
+            json!("zz"),
+            json!(5),
+            json!("AB".repeat(16)),
+            json!("ab".repeat(15)),
+        ] {
+            space
+                .post(
+                    "/blobs",
+                    json!({"blob_id": hex16(new_body().as_bytes()), "size": 10, "replaces": bad}),
+                )
+                .expect_error(400, "bad_request");
+        }
+    }
+}

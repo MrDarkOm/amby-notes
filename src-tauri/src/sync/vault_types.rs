@@ -103,11 +103,20 @@ pub struct UnsyncedView {
     /// The path.
     pub path: String,
     /// `symlink`, `notUtf8`, `tooLarge`, `tooBigForMemory`, `excludedPath`, `invalidName`,
-    /// `caseCollision`, `nameCollision`, `pathBusy` or `noAccess`.
+    /// `caseCollision`, `nameCollision`, `pathBusy`, `noAccess` or `quotaFull`.
     pub reason: String,
     /// More about the reason: for `invalidName` the problem (`forbiddenChar`, `trailingDot`,
     /// `reservedName`, `segmentTooLong`, `pathTooLong`), for `caseCollision` the other path.
     pub detail: Option<String>,
+    /// For `tooLarge` (appendix Е, Д74): the largest sealed body in force, in bytes. Optional on
+    /// the interface side so that it can read a status without it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub max_bytes: Option<u64>,
+    /// For `tooLarge`: `plan` or `server`, where the limit comes from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub limit_source: Option<String>,
 }
 
 /// What the last pass did.

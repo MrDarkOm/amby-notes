@@ -44,3 +44,5 @@ and a way back from `.amby/trash/`.
 
 Tests sit beside the files. The manual check in a native window, against a server in Docker, is the
 section "Синхронизация" of [native-ui-smoke.md](../../../../docs/native-ui-smoke.md).
+
+Appendix Е (limits of plans): [account-storage.tsx](account-storage.tsx) the storages of the account, plan and gauge (У1, У2, У4); [limit-notices.ts](limit-notices.ts) the cards of У3; sizes in decimal units [format-size.ts](../../../lib/sync/format-size.ts); the cards are drawn by [sync-notices-host.tsx](sync-notices-host.tsx) (“Show the list” asks the workspace for Settings through `OPEN_SETTINGS_REQUEST_EVENT`), the reasons with their limit by `UnsyncedList`, and `space_limit` is met by [sync-vault-panel.tsx](sync-vault-panel.tsx); tests `account-storage.test.tsx`, `sync-limits.test.tsx`.

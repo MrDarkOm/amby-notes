@@ -560,3 +560,64 @@ pub(crate) async fn device_delete(
         .body(axum::body::Body::empty())
         .map_err(ApiError::internal)
 }
+
+/// `GET /v1/account` (П61): the plan, the effective limits, the usage and the spaces with their
+/// sizes. The numbers come from queries over the indexes, no counters (Е.10-7).
+pub(crate) async fn overview(
+    State(state): State<AppState>,
+    request: Request,
+) -> ApiResult<Response> {
+    let (parts, _) = split(request);
+    let auth = authenticate(&state, &parts)?;
+    let body = state.db.call(|conn| -> rusqlite::Result<Value> {
+        let plan = crate::quota::resolve_user(&state, conn, auth.user_id)?;
+        let cutoff = crate::quota::pending_cutoff(&state);
+        let per_space = crate::quota::space_usage(conn, auth.user_id, cutoff)?;
+        let mut usage = crate::quota::Usage::default();
+        for sizes in per_space.values() {
+            usage.live += sizes.live;
+            usage.pending += sizes.pending;
+            usage.history += sizes.history;
+        }
+        let mut statement = conn.prepare(
+            "SELECT id, space_id, name_enc, key_epoch, wrapped_vk, seq, created_ms FROM spaces \
+             WHERE user_id = ?1 ORDER BY id",
+        )?;
+        let rows = statement.query_map([auth.user_id], |row| {
+            let sizes = per_space
+                .get(&row.get::<_, i64>(0)?)
+                .copied()
+                .unwrap_or_default();
+            Ok(json!({
+                "space_id": hex(&row.get::<_, Vec<u8>>(1)?),
+                "name_enc": hex(&row.get::<_, Vec<u8>>(2)?),
+                "key_epoch": row.get::<_, i64>(3)?,
+                "wrapped_vk": hex(&row.get::<_, Vec<u8>>(4)?),
+                "seq": row.get::<_, i64>(5)?,
+                "created_ms": row.get::<_, i64>(6)?,
+                "live_bytes": sizes.live,
+                "history_bytes": sizes.history,
+            }))
+        })?;
+        let spaces = rows.collect::<Result<Vec<_>, _>>()?;
+        let limits = &plan.limits;
+        Ok(json!({
+            "plan": { "name": plan.name, "title": plan.title, "pinned": plan.pinned },
+            "limits": {
+                "max_spaces": limits.max_spaces,
+                "max_total_bytes": limits.max_total_bytes,
+                "max_file_bytes": limits.max_file_bytes,
+                "history_days": limits.history_days,
+                "max_history_bytes": limits.max_history_bytes,
+            },
+            "usage": {
+                "live_bytes": usage.live,
+                "pending_bytes": usage.pending,
+                "history_bytes": usage.history,
+                "spaces": spaces.len(),
+            },
+            "spaces": spaces,
+        }))
+    })?;
+    Ok(json_response(StatusCode::OK, &body))
+}

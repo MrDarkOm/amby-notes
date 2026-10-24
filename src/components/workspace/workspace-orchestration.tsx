@@ -50,7 +50,7 @@ import {
   exportDatabaseSqlite,
   exportActiveLayerImage,
 } from "./editor/layer-export"
-import type { SettingsNavigationTarget } from "./settings-navigation"
+import { OPEN_SETTINGS_REQUEST_EVENT, type SettingsNavigationTarget } from "./settings-navigation"
 import { useSettingsStore } from "./use-settings-store"
 import { findWikiLinkItem } from "./wiki-links"
 import { useLinkSuggestionSources } from "./orchestration/use-link-suggestion-sources"
@@ -501,6 +501,15 @@ export function WorkspaceOrchestration() {
     setSettingsTarget(target)
     setSettingsOpen(true)
   }, [])
+  // The notices of the sync (a card with "Show the list") ask for the sync section this way.
+  React.useEffect(() => {
+    const onRequest = (event: Event) => {
+      const target = (event as CustomEvent<SettingsNavigationTarget | undefined>).detail
+      openSettings(target ?? null)
+    }
+    window.addEventListener(OPEN_SETTINGS_REQUEST_EVENT, onRequest)
+    return () => window.removeEventListener(OPEN_SETTINGS_REQUEST_EVENT, onRequest)
+  }, [openSettings])
 
   const [pendingRenameId, setPendingRenameId] = React.useState<string | null>(null)
   const {

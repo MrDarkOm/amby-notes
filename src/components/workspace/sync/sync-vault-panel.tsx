@@ -5,12 +5,13 @@ import { RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { formatWait, syncCodeMessage, syncErrorMessage } from "@/lib/sync/sync-errors"
-import type {
-  ApprovalKind,
-  ConflictChoice,
-  SpaceView,
-  SyncPort,
-  VaultSyncStatus,
+import {
+  SyncPortError,
+  type ApprovalKind,
+  type ConflictChoice,
+  type SpaceView,
+  type SyncPort,
+  type VaultSyncStatus,
 } from "@/lib/sync/sync-port"
 import { ConflictList, StopNotice, UnsyncedList } from "./sync-vault-parts"
 
@@ -32,6 +33,8 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
   const { t, i18n } = useTranslation()
   const [status, setStatus] = React.useState<VaultSyncStatus | null>(null)
   const [error, setError] = React.useState<string | null>(null)
+  // The code behind `error`: the answer "your plan has no room for another storage" offers a way on.
+  const [errorCode, setErrorCode] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [resolving, setResolving] = React.useState<string | null>(null)
   const [mode, setMode] = React.useState<Mode>("new")
@@ -68,10 +71,12 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
     working.current = true
     setBusy(true)
     setError(null)
+    setErrorCode(null)
     try {
       await action()
     } catch (caught) {
       setError(syncErrorMessage(caught, t))
+      setErrorCode(caught instanceof SyncPortError ? caught.code : null)
     } finally {
       working.current = false
       setBusy(false)
@@ -81,7 +86,12 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
   const chooseExisting = () => {
     setMode("existing")
     if (spaces !== null) return
-    void act(async () => setSpaces(await port.listSpaces()))
+    void act(async () => {
+      const listed = await port.listSpaces()
+      setSpaces(listed)
+      // Nothing to connect to: the way on is to create the first space (owner's request).
+      if (listed.length === 0) setMode("new")
+    })
   }
 
   const gateClosed = status?.gateClosed ?? true
@@ -133,9 +143,26 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
     <h3 className="text-[12px] font-medium text-muted-foreground">{t("sync.vault.title")}</h3>
   )
   const errorLine = error && (
-    <p role="alert" className="text-[12px] text-destructive">
-      {error}
-    </p>
+    <div className="space-y-1.5">
+      <p role="alert" className="text-[12px] text-destructive">
+        {error}
+      </p>
+      {errorCode === "space_limit" && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          onClick={() => {
+            setError(null)
+            setErrorCode(null)
+            chooseExisting()
+          }}
+        >
+          {t("sync.notices.chooseExisting")}
+        </Button>
+      )}
+    </div>
   )
 
   if (!status) {
@@ -231,26 +258,31 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
             />
             {t("sync.vault.connectExisting")}
           </label>
+          {spaces !== null && spaces.length === 0 && (
+            <div className="space-y-1.5 pl-6">
+              <p className="text-[12px] text-muted-foreground">{t("sync.vault.noSpaces")}</p>
+              <p className="text-[12px] text-muted-foreground">{t("sync.vault.noSpacesHint")}</p>
+              <Button type="button" variant="outline" size="sm" onClick={() => setMode("new")}>
+                {t("sync.vault.noSpacesCreate")}
+              </Button>
+            </div>
+          )}
           {mode === "existing" && spaces !== null && (
             <div className="space-y-1 pl-6">
-              {spaces.length === 0 ? (
-                <p className="text-[12px] text-muted-foreground">{t("sync.vault.noSpaces")}</p>
-              ) : (
-                spaces.map((space) => (
-                  <label key={space.spaceId} className="flex items-center gap-2 text-[13px]">
-                    <input
-                      type="radio"
-                      name="sync-space-choice"
-                      checked={spaceId === space.spaceId}
-                      onChange={() => setSpaceId(space.spaceId)}
-                    />
-                    {space.name ?? t("sync.vault.unnamedSpace")}
-                    <span className="text-[11px] text-muted-foreground">
-                      {t("sync.vault.spaceChanges", { count: space.seq })}
-                    </span>
-                  </label>
-                ))
-              )}
+              {spaces.map((space) => (
+                <label key={space.spaceId} className="flex items-center gap-2 text-[13px]">
+                  <input
+                    type="radio"
+                    name="sync-space-choice"
+                    checked={spaceId === space.spaceId}
+                    onChange={() => setSpaceId(space.spaceId)}
+                  />
+                  {space.name ?? t("sync.vault.unnamedSpace")}
+                  <span className="text-[11px] text-muted-foreground">
+                    {t("sync.vault.spaceChanges", { count: space.seq })}
+                  </span>
+                </label>
+              ))}
             </div>
           )}
         </fieldset>

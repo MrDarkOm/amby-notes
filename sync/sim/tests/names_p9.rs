@@ -9,7 +9,7 @@ mod common;
 use common::*;
 
 use amby_sync_core::engine::names::NameProblem;
-use amby_sync_core::engine::{NameRules, UnsyncedReason};
+use amby_sync_core::engine::{LimitSource, NameRules, UnsyncedReason};
 
 fn linux_and(second: Vfs) -> World {
     World::new(
@@ -271,7 +271,13 @@ fn p4_a_file_the_server_cannot_take_is_listed(_b: EngineBuilder) {
     w.pass(0);
     assert_eq!(
         unsynced(&w, 0),
-        vec![("Big/huge.bin".to_string(), UnsyncedReason::TooLarge)]
+        vec![(
+            "Big/huge.bin".to_string(),
+            UnsyncedReason::TooLarge {
+                max_bytes: 100_000,
+                source: LimitSource::Server,
+            }
+        )]
     );
     let on_server = w.server_files();
     assert!(on_server.contains_key("Big/fits.bin"));

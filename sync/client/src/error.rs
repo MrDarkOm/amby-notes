@@ -116,6 +116,7 @@ pub fn describe(code: &str) -> String {
         "rate_limited" => "Too many failed sign-in attempts; wait before trying again.",
         "internal" => "The server failed to handle the request.",
         "not_implemented" => "The server does not support this yet.",
+        "space_limit" => "Your plan allows no more vaults on this server.",
         "quota_exceeded" => "The storage quota on the server is used up.",
         "server_unavailable" => "The server is temporarily unavailable.",
         other => return format!("The server refused the request ({other})."),

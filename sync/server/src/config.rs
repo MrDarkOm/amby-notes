@@ -54,6 +54,8 @@ pub struct Config {
     pub trust_proxy: bool,
     /// Sealed bytes one user may keep (`AMBY_SYNC_QUOTA_BYTES_PER_USER`); `None` is no quota (П42).
     pub quota_bytes_per_user: Option<u64>,
+    /// The plans file (`AMBY_SYNC_PLANS_FILE`, П51); `None` is `<data_dir>/plans.json`.
+    pub plans_file: Option<PathBuf>,
     /// Seconds between `: ping` lines on an event stream (П34).
     pub sse_keepalive_secs: u64,
 }
@@ -79,12 +81,20 @@ impl Default for Config {
             login_window_per_user_secs: 3600,
             trust_proxy: false,
             quota_bytes_per_user: None,
+            plans_file: None,
             sse_keepalive_secs: 15,
         }
     }
 }
 
 impl Config {
+    /// Where the plans file is: `AMBY_SYNC_PLANS_FILE`, otherwise `<data_dir>/plans.json` (П51).
+    pub fn plans_path(&self) -> PathBuf {
+        self.plans_file
+            .clone()
+            .unwrap_or_else(|| self.data_dir.join("plans.json"))
+    }
+
     /// Reads the settings from the process environment (П40).
     pub fn from_env() -> Result<Self, ConfigError> {
         let vars: HashMap<String, String> = std::env::vars().collect();
@@ -176,6 +186,9 @@ impl Config {
                 &mut quota,
             )?;
             config.quota_bytes_per_user = Some(quota);
+        }
+        if let Some(value) = get("AMBY_SYNC_PLANS_FILE") {
+            config.plans_file = Some(PathBuf::from(non_empty("AMBY_SYNC_PLANS_FILE", value)?));
         }
         check_public_url(&config)?;
         Ok(config)

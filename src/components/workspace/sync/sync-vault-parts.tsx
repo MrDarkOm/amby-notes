@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { AlertTriangle } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { formatSize } from "@/lib/sync/format-size"
 import type { ApprovalKind, ConflictChoice, VaultSyncStatus } from "@/lib/sync/sync-port"
 
 type Stop = NonNullable<VaultSyncStatus["stop"]>
@@ -14,6 +15,7 @@ const UNSYNCED_REASONS = [
   "symlink",
   "notUtf8",
   "tooLarge",
+  "quotaFull",
   "tooBigForMemory",
   "excludedPath",
   "invalidName",
@@ -31,9 +33,23 @@ const NAME_PROBLEMS = [
   "pathTooLong",
 ] as const
 
-function reasonText(item: Unsynced, t: ReturnType<typeof useTranslation>["t"]): string {
+function reasonText(
+  item: Unsynced,
+  t: ReturnType<typeof useTranslation>["t"],
+  language: string,
+): string {
   if (!(UNSYNCED_REASONS as readonly string[]).includes(item.reason)) {
     return t("sync.vault.unsynced.unknown")
+  }
+  if (item.reason === "tooLarge" && typeof item.maxBytes === "number") {
+    return t(
+      item.limitSource === "server"
+        ? "sync.vault.unsynced.tooLargeServer"
+        : "sync.vault.unsynced.tooLargePlan",
+      {
+        size: formatSize(item.maxBytes, language),
+      },
+    )
   }
   if (item.reason === "invalidName") {
     const problem = (NAME_PROBLEMS as readonly string[]).includes(item.detail ?? "")
@@ -46,7 +62,7 @@ function reasonText(item: Unsynced, t: ReturnType<typeof useTranslation>["t"]): 
 
 /** The files that stay behind on this computer, with the reason of each (Р4, Р9). */
 export function UnsyncedList({ items }: { items: Unsynced[] }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   if (items.length === 0) return null
   return (
     <section data-testid="sync-unsynced" className="space-y-1.5">
@@ -57,7 +73,9 @@ export function UnsyncedList({ items }: { items: Unsynced[] }) {
         {items.map((item) => (
           <li key={`${item.path}\u0000${item.reason}`} className="px-3 py-2">
             <p className="break-all text-[12px]">{item.path}</p>
-            <p className="text-[11px] text-muted-foreground">{reasonText(item, t)}</p>
+            <p className="text-[11px] text-muted-foreground">
+              {reasonText(item, t, i18n.language)}
+            </p>
           </li>
         ))}
       </ul>

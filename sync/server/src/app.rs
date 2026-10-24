@@ -20,6 +20,7 @@ pub const ROUTES: &[&str] = &[
     "/v1/keys",
     "/v1/devices",
     "/v1/devices/{device_id}",
+    "/v1/account",
     "/v1/spaces",
     "/v1/spaces/{space_id}/changes",
     "/v1/spaces/{space_id}/events",
@@ -57,13 +58,14 @@ pub fn build_app(state: AppState) -> Router {
         .route("/v1/keys", get(account::keys_get).put(account::keys_put))
         .route("/v1/devices", get(account::devices_list))
         .route("/v1/devices/{device_id}", delete(account::device_delete))
+        .route("/v1/account", get(account::overview))
         .route("/v1/spaces", get(spaces::list).post(spaces::create))
         .route("/v1/spaces/{space_id}/changes", get(feed::changes))
         .route("/v1/spaces/{space_id}/events", get(events::events))
         .route("/v1/spaces/{space_id}/blobs", post(blobs::start))
         .route(
             "/v1/spaces/{space_id}/blobs/{blob_id}",
-            get(blobs::download),
+            get(blobs::download).delete(blobs::delete),
         )
         .route(
             "/v1/spaces/{space_id}/blobs/{blob_id}/parts/{n}",

@@ -61,7 +61,7 @@ pub(crate) async fn create(State(state): State<AppState>, request: Request) -> A
     }
     let wrapped_vk = field_hex_vec(&request, "wrapped_vk", WRAPPED_KEY_LEN)?;
     let now = state.clock.now_ms();
-    let exists = state.db.write(|tx| -> rusqlite::Result<bool> {
+    let exists = state.db.write(|tx| -> ApiResult<bool> {
         let taken: bool = tx
             .query_row(
                 "SELECT 1 FROM spaces WHERE space_id = ?1",
@@ -72,6 +72,25 @@ pub(crate) async fn create(State(state): State<AppState>, request: Request) -> A
             .unwrap_or(false);
         if taken {
             return Ok(true);
+        }
+        // П60: the plan allows so many spaces; an existing space is answered before this.
+        if let Some(max) = crate::quota::resolve_user(&state, tx, auth.user_id)?
+            .limits
+            .max_spaces
+        {
+            let have: u64 = tx.query_row(
+                "SELECT COUNT(*) FROM spaces WHERE user_id = ?1",
+                [auth.user_id],
+                |row| row.get(0),
+            )?;
+            if have >= max {
+                return Err(ApiError::new(
+                    StatusCode::FORBIDDEN,
+                    code::SPACE_LIMIT,
+                    "the plan allows no more spaces",
+                )
+                .with_details(json!({ "max_spaces": max, "spaces": have })));
+            }
         }
         tx.execute(
             "INSERT INTO spaces (space_id, user_id, name_enc, key_epoch, wrapped_vk, created_ms) \

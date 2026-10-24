@@ -28,5 +28,8 @@ pub use flows::{
     disconnect_device, enroll_prepared, list_devices, prepare_account, recover_account, sign_in,
     validate_username, Connected, Device, PreparedAccount,
 };
-pub use spaces::{BlobDownload, EventStream, NewSpace, ServerEvent, ServerLimits, SpaceEntry};
+pub use spaces::{
+    AccountLimits, AccountPlan, AccountSpace, AccountUsage, AccountView, BlobDownload, EventStream,
+    NewSpace, ServerEvent, ServerLimits, SpaceEntry,
+};
 pub use url::ServerUrl;

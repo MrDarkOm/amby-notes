@@ -5,6 +5,7 @@
 
 use tauri::State;
 
+use crate::sync::account_types::AccountOverview;
 use crate::sync::password::check_password;
 use crate::sync::runtime::SyncRuntime;
 use crate::sync::service::{PrepareRequest, RecoverRequest, SignInRequest, SyncService};
@@ -214,6 +215,19 @@ pub async fn sync_list_spaces(
     runtime: State<'_, SyncRuntime>,
 ) -> Result<Vec<SpaceView>, SyncError> {
     runtime.list_spaces().await
+}
+
+/// The storages of the account with the plan, the limits and the sizes (appendix Е, У5).
+/// `known_vaults` are the folders of the vaults the application knows, to name the ones linked to
+/// a space.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_account_overview(
+    runtime: State<'_, SyncRuntime>,
+    known_vaults: Vec<String>,
+) -> Result<AccountOverview, SyncError> {
+    let paths: Vec<std::path::PathBuf> = known_vaults.into_iter().map(Into::into).collect();
+    runtime.account_overview(&paths).await
 }
 
 /// Switches sync on for the open vault: a new space or an existing one. While the gate of the

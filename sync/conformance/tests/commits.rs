@@ -566,3 +566,105 @@ fn the_server_never_decides_by_time() {
         "committed_ms follows the server clock: {a} → {b}"
     );
 }
+
+// ----- limits at the commit and the two races of appendix Е (П56-в, П60-3, П27) -----
+
+mod limits {
+    use super::*;
+
+    const QUOTA: u64 = 10_000;
+
+    #[test]
+    fn two_devices_growing_into_the_last_place_at_once_get_exactly_one_acceptance() {
+        // П56-в, П27: live 6000 in item A, quota 10 000. Both devices upload 4000 bytes under
+        // the credit of A (so the bodies are let in), and then commit them as new items at the
+        // same time: 6000 + 4000 fits, the second 4000 does not.
+        let target = Target::in_process_with(|config| config.quota_bytes_per_user = Some(QUOTA));
+        let _ = in_process_or_skip!(target);
+        let account = enroll(&target, PASSWORD);
+        let first = account.create_space();
+        let item = new_item();
+        first.commit_ok(&[first.raw_file(&item, 0, "a.md", 6000)]);
+        let second_device = account.another_device("second");
+        let second = first.with_token(&second_device.token);
+        let (x, y) = (new_body(), new_body());
+        for (space, body) in [(&first, &x), (&second, &y)] {
+            space.init_blob_replacing(body, 4000, &item).expect(201);
+            space.put_part(body, 0, vec![1u8; 4000]).expect(200);
+            space.complete_blob(body).expect(200);
+        }
+        let entries = [
+            first.file_with_uploaded_body(&new_item(), 0, "x.md", b"x", &x),
+            second.file_with_uploaded_body(&new_item(), 0, "y.md", b"x", &y),
+        ];
+        let barrier = Barrier::new(2);
+        let statuses: Vec<u16> = std::thread::scope(|scope| {
+            let handles: Vec<_> = [(&first, &entries[0]), (&second, &entries[1])]
+                .into_iter()
+                .map(|(space, entry)| {
+                    let barrier = &barrier;
+                    scope.spawn(move || {
+                        barrier.wait();
+                        space.commit(std::slice::from_ref(entry)).status
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        let mut sorted = statuses.clone();
+        sorted.sort_unstable();
+        assert_eq!(
+            sorted,
+            vec![200, 507],
+            "exactly one is accepted: {statuses:?}"
+        );
+        assert_eq!(
+            first.all_changes(0).len(),
+            2,
+            "item A and the one accepted item"
+        );
+    }
+
+    #[test]
+    fn a_batch_refused_with_507_leaves_no_trace_and_may_be_retried_when_there_is_room() {
+        // П27: not the folder, not the item of the batch, no `commit_id` kept as an answer.
+        let target = Target::in_process_with(|config| config.quota_bytes_per_user = Some(QUOTA));
+        let control = in_process_or_skip!(target);
+        let space = enroll(&target, PASSWORD).create_space();
+        let item = new_item();
+        space.commit_ok(&[space.raw_file(&item, 0, "a.md", 9000)]);
+        let credit = space.raw_file_replacing(&item, 1, "a.md", 9000);
+        let body = credit.body.unwrap();
+        let folder = space.folder(&new_item(), 0, "Docs");
+        let growing = space.file_with_uploaded_body(&new_item(), 0, "b.md", b"x", &body);
+        let commit_id = random16();
+        space
+            .commit_with(&commit_id, &[folder.clone(), growing.clone()])
+            .expect_error(507, "quota_exceeded");
+        assert_eq!(space.all_changes(0).len(), 1);
+        control.restart_with(|config| config.quota_bytes_per_user = Some(100_000));
+        // the same commit id with the same content: now it is simply accepted, not a replay of the refusal
+        let answer = space
+            .commit_with(&commit_id, &[folder, growing])
+            .expect(200)
+            .json();
+        assert_eq!(answer["replayed"], false);
+        assert_eq!(space.all_changes(0).len(), 3);
+    }
+
+    #[test]
+    fn deleting_and_replacing_by_a_smaller_body_in_one_batch_passes_even_when_a_new_file_joins_it()
+    {
+        // П56-а: what counts is the live bytes AFTER the batch against BEFORE it: here they fall.
+        let target = Target::in_process_with(|config| config.quota_bytes_per_user = Some(QUOTA));
+        let _ = in_process_or_skip!(target);
+        let space = enroll(&target, PASSWORD).create_space();
+        let (big, small) = (new_item(), new_item());
+        space.commit_ok(&[space.raw_file(&big, 0, "big.md", 9000)]);
+        space.commit_ok(&[space.raw_file(&small, 0, "s.md", 999)]);
+        let deletion = space.deletion(&big, 1, "big.md");
+        let fresh = space.raw_file(&new_item(), 0, "new.md", 1);
+        // 9999 live before; 999 + 1 after: the batch passes although a file is new.
+        space.commit_ok(&[deletion, fresh]);
+    }
+}

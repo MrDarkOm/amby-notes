@@ -8,8 +8,8 @@ use std::rc::Rc;
 use amby_sync_conformance::client::{hex16, unhex, Space};
 use amby_sync_core::crypto::keys::{BodyId, ItemId};
 use amby_sync_core::engine::{
-    BlobState, ChangeEntry, ChangesPage, CommitAccepted, CommitItem, CommitReply, Remote,
-    RemoteError, ServerInfo, VersionConflict,
+    AccountInfo, BlobState, ChangeEntry, ChangesPage, CommitAccepted, CommitItem, CommitReply,
+    Remote, RemoteError, ServerInfo, VersionConflict,
 };
 use serde_json::{json, Value};
 
@@ -128,9 +128,29 @@ impl Remote for HttpRemote {
         })
     }
 
-    fn blob_start(&mut self, blob: &BodyId, size: u64) -> Result<BlobState, RemoteError> {
+    fn account(&mut self) -> Result<AccountInfo, RemoteError> {
         let space = self.space();
-        let resp = retrying(|| space.init_blob(blob, size));
+        let resp = retrying(|| space.api.get("/v1/account", Some(&space.token)));
+        let body = check(&resp, &[200])?;
+        Ok(AccountInfo {
+            max_file_bytes: body["limits"]["max_file_bytes"].as_u64(),
+            max_total_bytes: body["limits"]["max_total_bytes"].as_u64(),
+            live_bytes: body["usage"]["live_bytes"].as_u64().unwrap_or(0),
+            pending_bytes: body["usage"]["pending_bytes"].as_u64().unwrap_or(0),
+        })
+    }
+
+    fn blob_start(
+        &mut self,
+        blob: &BodyId,
+        size: u64,
+        replaces: Option<&ItemId>,
+    ) -> Result<BlobState, RemoteError> {
+        let space = self.space();
+        let resp = retrying(|| match replaces {
+            Some(item) => space.init_blob_replacing(blob, size, item),
+            None => space.init_blob(blob, size),
+        });
         let body = check(&resp, &[200, 201])?;
         Ok(BlobState {
             size: body["size"].as_u64().unwrap_or(size),
@@ -140,6 +160,12 @@ impl Remote for HttpRemote {
                 .unwrap_or_default(),
             complete: body["complete"].as_bool().unwrap_or(false),
         })
+    }
+
+    fn blob_delete(&mut self, blob: &BodyId) -> Result<(), RemoteError> {
+        let space = self.space();
+        let resp = retrying(|| space.delete_blob(blob));
+        check(&resp, &[204]).map(|_| ())
     }
 
     fn blob_put_part(&mut self, blob: &BodyId, part: u64, bytes: &[u8]) -> Result<(), RemoteError> {

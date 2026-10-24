@@ -211,6 +211,29 @@ pub struct ServerInfo {
     pub max_commit_items: u32,
 }
 
+/// Where a size limit comes from (appendix Е, П59, Д74): the plan of the user or the ceiling of
+/// the whole server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LimitSource {
+    /// The plan of the user.
+    Plan,
+    /// The setting of the server for everybody.
+    Server,
+}
+
+/// What `GET /v1/account` says that the engine needs (П61, Д73). `None` is "no limit".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountInfo {
+    /// The largest sealed body for this user: the smaller of the plan and the ceiling.
+    pub max_file_bytes: Option<u64>,
+    /// The quota of sealed bytes in all spaces.
+    pub max_total_bytes: Option<u64>,
+    /// Bytes of the latest versions (П55).
+    pub live_bytes: u64,
+    /// Bytes of started bodies no version refers to yet (П55).
+    pub pending_bytes: u64,
+}
+
 /// One entry of the compressed change feed (П31).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChangeEntry {
@@ -339,8 +362,19 @@ pub trait Remote {
     fn info(&mut self) -> Result<ServerInfo, RemoteError>;
     /// `GET …/changes?since=…&limit=…` (П31).
     fn changes(&mut self, since: u64, limit: Option<u32>) -> Result<ChangesPage, RemoteError>;
-    /// `POST …/blobs`: starts a body or finds out how far it got (П21).
-    fn blob_start(&mut self, blob: &BodyId, size: u64) -> Result<BlobState, RemoteError>;
+    /// `GET /v1/account` (П61, Д73). A server without it answers `404`: the error tells the
+    /// engine to go on with the old behaviour.
+    fn account(&mut self) -> Result<AccountInfo, RemoteError>;
+    /// `POST …/blobs`: starts a body or finds out how far it got (П21). `replaces` is the item
+    /// whose current body this one replaces: the server counts its size as a credit (П56-б).
+    fn blob_start(
+        &mut self,
+        blob: &BodyId,
+        size: u64,
+        replaces: Option<&ItemId>,
+    ) -> Result<BlobState, RemoteError>;
+    /// `DELETE …/blobs/{id}`: drops an abandoned body of this user (П56-д, Д75).
+    fn blob_delete(&mut self, blob: &BodyId) -> Result<(), RemoteError>;
     /// `PUT …/blobs/{id}/parts/{n}` (П22).
     fn blob_put_part(&mut self, blob: &BodyId, part: u64, bytes: &[u8]) -> Result<(), RemoteError>;
     /// `POST …/blobs/{id}/complete` (П23).

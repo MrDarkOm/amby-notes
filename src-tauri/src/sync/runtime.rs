@@ -12,6 +12,7 @@ use amby_sync_core::crypto::keys::AccountKey;
 use amby_sync_core::engine::RenameHint;
 use zeroize::Zeroizing;
 
+use crate::sync::account_types::{AccountOverview, BoundVault};
 use crate::sync::connection::ConnectionStore;
 use crate::sync::gate;
 use crate::sync::hints::RenameHints;
@@ -19,8 +20,8 @@ use crate::sync::secrets::{SecretStore, SECRET_ACCOUNT_KEY, SECRET_DEVICE_TOKEN}
 use crate::sync::session::{Schedule, SessionConfig, SessionHooks, SyncSession};
 use crate::sync::space::{self, LinkedSpace};
 use crate::sync::state_db::{
-    state_path, SqliteStateStore, META_DEVICE_ID, META_ENABLED, META_KEY_EPOCH, META_SERVER_URL,
-    META_SPACE_ID, META_SPACE_NAME, META_TEST_VAULT, META_WRAPPED_VK,
+    read_meta_only, state_path, SqliteStateStore, META_DEVICE_ID, META_ENABLED, META_KEY_EPOCH,
+    META_SERVER_URL, META_SPACE_ID, META_SPACE_NAME, META_TEST_VAULT, META_WRAPPED_VK,
 };
 use crate::sync::types::SyncError;
 use crate::sync::vault_types::{
@@ -180,6 +181,52 @@ impl SyncRuntime {
             &credentials.client,
             &credentials.token,
             &credentials.account_key,
+        )
+        .await
+    }
+
+    /// The storages of the account with the plan and the sizes (appendix Е, У5). `known_vaults`
+    /// are the folders of the vaults the application knows; the ones linked to a space are named
+    /// in its row. Only the link of each folder is read (read-only, after the path is made
+    /// canonical); nothing is written to any vault.
+    pub async fn account_overview(
+        &self,
+        known_vaults: &[PathBuf],
+    ) -> Result<AccountOverview, SyncError> {
+        let credentials = self.credentials()?;
+        let linked = |vault: &Path| -> Option<[u8; 16]> {
+            let values = read_meta_only(vault, &[META_SPACE_ID, META_SERVER_URL])?;
+            let space_id = hex_16(values.first()?.as_deref()?)?;
+            // A link made on another server says nothing about this account.
+            match values.get(1)?.as_deref() {
+                Some(url) if !same_server(url, &credentials.server_url) => None,
+                _ => Some(space_id),
+            }
+        };
+        let current = self.inner().vault.as_deref().and_then(linked);
+        let mut bound: Vec<BoundVault> = Vec::new();
+        let mut seen: Vec<PathBuf> = Vec::new();
+        for vault in known_vaults {
+            let Ok(canonical) = std::fs::canonicalize(vault) else {
+                continue;
+            };
+            if seen.contains(&canonical) {
+                continue;
+            }
+            seen.push(canonical.clone());
+            if let (Some(space_id), Some(folder)) = (linked(&canonical), canonical.file_name()) {
+                bound.push(BoundVault {
+                    folder: folder.to_string_lossy().into_owned(),
+                    space_id,
+                });
+            }
+        }
+        space::account_overview(
+            &credentials.client,
+            &credentials.token,
+            &credentials.account_key,
+            current,
+            &bound,
         )
         .await
     }

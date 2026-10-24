@@ -22,8 +22,32 @@ pub struct AdminFailure {
     pub message: String,
 }
 
+/// What a command of appendix Е printed and how it ended (П53).
+#[derive(Debug, Clone)]
+pub struct AdminOutput {
+    pub code: i32,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+impl AdminOutput {
+    /// The standard output as one JSON document (`--json`); fails the test otherwise.
+    pub fn json(&self) -> Value {
+        assert_eq!(
+            self.code, 0,
+            "the command failed (exit {}): {}",
+            self.code, self.stderr
+        );
+        serde_json::from_str(self.stdout.trim())
+            .unwrap_or_else(|error| panic!("not JSON ({error}): {}", self.stdout))
+    }
+}
+
 /// `user add` for any kind of server (П38).
 pub trait UserAdmin: Send + Sync {
+    /// Any administrator command by its words (`["user", "plan", "show", "alice", "--json"]`),
+    /// for the commands of appendix Е (П53).
+    fn run(&self, args: &[&str]) -> AdminOutput;
     fn user_add(&self, username: &str) -> Result<EnrollTicket, AdminFailure>;
     /// `user remove <name> --yes` (П38).
     fn user_remove(&self, username: &str) -> Result<(), AdminFailure>;
@@ -35,6 +59,16 @@ pub struct InProcessAdmin {
 }
 
 impl UserAdmin for InProcessAdmin {
+    fn run(&self, args: &[&str]) -> AdminOutput {
+        let state = self.state.read().unwrap().clone();
+        let output = amby_sync_server::admin::run_cli(&state, args);
+        AdminOutput {
+            code: output.code,
+            stdout: output.stdout,
+            stderr: output.stderr,
+        }
+    }
+
     fn user_add(&self, username: &str) -> Result<EnrollTicket, AdminFailure> {
         let state = self.state.read().unwrap().clone();
         amby_sync_server::admin::user_add(&state, username)
@@ -73,6 +107,23 @@ impl CommandAdmin {
 }
 
 impl UserAdmin for CommandAdmin {
+    fn run(&self, args: &[&str]) -> AdminOutput {
+        let (program, base) = self
+            .command
+            .split_first()
+            .expect("AMBY_SYNC_ADMIN_CMD is empty");
+        let output = Command::new(program)
+            .args(base)
+            .args(args)
+            .output()
+            .unwrap_or_else(|error| panic!("cannot run {program}: {error}"));
+        AdminOutput {
+            code: output.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        }
+    }
+
     fn user_add(&self, username: &str) -> Result<EnrollTicket, AdminFailure> {
         let (program, args) = self.command.split_first().ok_or_else(|| AdminFailure {
             exit_code: None,
