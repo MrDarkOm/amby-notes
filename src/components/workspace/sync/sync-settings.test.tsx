@@ -230,7 +230,7 @@ describe("the Synchronization section of the settings", () => {
       renderSettings(createFakePort())
       fireEvent.click(await screen.findByRole("button", { name: /Как поднять свой сервер/ }))
       expect(openWebAddressInBrowser).toHaveBeenCalledWith(
-        "https://github.com/MrDarkOm/amby-notes/blob/main/sync/server/README.md",
+        "https://github.com/MrDarkOm/AmbyNotes-SelfHost",
       )
     })
 

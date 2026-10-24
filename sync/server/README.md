@@ -25,6 +25,10 @@ devices stay as they are.
 
 ## Quick start (Docker, HTTPS included)
 
+The simplest way is the ready-to-run kit with a prebuilt image
+(`ghcr.io/mrdarkom/ambynotes-sync`): [AmbyNotes-SelfHost](https://github.com/MrDarkOm/AmbyNotes-SelfHost).
+The steps below build the image from this source instead.
+
 You need a machine with Docker, a DNS name pointing at it, and ports 80 and 443 open.
 
 ```bash

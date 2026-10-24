@@ -23,7 +23,7 @@ export interface ConnectWizardProps {
 
 type Step = "server" | "choice" | "create" | "signIn" | "recover" | "recovery"
 
-const SERVER_GUIDE_URL = "https://github.com/MrDarkOm/amby-notes/blob/main/sync/server/README.md"
+const SERVER_GUIDE_URL = "https://github.com/MrDarkOm/AmbyNotes-SelfHost"
 
 function Field({
   label,
