@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Printer, Save } from "lucide-react"
+import { Copy, Printer, Save } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -49,6 +49,7 @@ export function RecoveryCodeStep({
   const { t } = useTranslation()
   const [typed, setTyped] = React.useState<string[]>(() => confirmGroups.map(() => ""))
   const [savedPath, setSavedPath] = React.useState<string | null>(null)
+  const [copied, setCopied] = React.useState(false)
   const [fileError, setFileError] = React.useState<string | null>(null)
   const ready =
     typed.every((group) => group.trim() !== "") && (!askEnrollCode || enrollCode.trim() !== "")
@@ -72,6 +73,17 @@ export function RecoveryCodeStep({
     }
   }
 
+  const copy = async () => {
+    setFileError(null)
+    setCopied(false)
+    try {
+      await navigator.clipboard.writeText(recoveryCode)
+      setCopied(true)
+    } catch {
+      setFileError(t("sync.recovery.copyFailed"))
+    }
+  }
+
   const print = () => {
     // The sheet below is hidden on screen; this class shows it alone while the page is printed.
     const root = document.documentElement
@@ -92,7 +104,7 @@ export function RecoveryCodeStep({
 
       <div
         data-testid="recovery-code"
-        className="select-all break-all rounded-lg border border-border bg-card px-4 py-3 text-center font-mono text-xl tracking-wider"
+        className="select-text break-all rounded-lg border border-border bg-card px-4 py-3 text-center font-mono text-xl tracking-wider"
       >
         {recoveryCode}
       </div>
@@ -106,11 +118,20 @@ export function RecoveryCodeStep({
           <Save />
           {t("sync.recovery.save")}
         </Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => void copy()}>
+          <Copy />
+          {t("sync.recovery.copy")}
+        </Button>
         <Button type="button" variant="outline" size="sm" onClick={print}>
           <Printer />
           {t("sync.recovery.print")}
         </Button>
       </div>
+      {copied && (
+        <p role="status" className="text-[12px] text-muted-foreground">
+          {t("sync.recovery.copied")}
+        </p>
+      )}
       {savedPath && (
         <p className="break-all text-[12px] text-muted-foreground">
           {t("sync.recovery.saved", { path: savedPath })}
@@ -173,12 +194,12 @@ export function RecoveryCodeStep({
             {shownError}
           </p>
         )}
-        <div className="flex gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={onBack} disabled={busy}>
-            {t("sync.wizard.actions.back")}
-          </Button>
+        <div data-testid="wizard-actions" className="flex flex-wrap items-center gap-2">
           <Button type="submit" size="sm" disabled={!ready || busy}>
             {t("sync.recovery.confirm")}
+          </Button>
+          <Button type="button" variant="link" size="sm" onClick={onBack} disabled={busy}>
+            {t("sync.wizard.actions.back")}
           </Button>
         </div>
       </form>

@@ -132,6 +132,10 @@ pub struct VaultSyncStatus {
     pub enabled: bool,
     /// The vault is linked to a space (switched on or off).
     pub linked: bool,
+    /// The link belongs to the connection of this device (the same server and account), so
+    /// switching on again resumes the very same space. A link that is not resumable is stale: the
+    /// screen offers the choice of a space as the first time.
+    pub resumable: bool,
     /// The person marked this vault as a test vault.
     pub test_vault: bool,
     /// Real notes are not allowed yet: the gates of the plan are not passed (stage Э4).
@@ -170,6 +174,7 @@ impl VaultSyncStatus {
         Self {
             enabled: false,
             linked: false,
+            resumable: false,
             test_vault: false,
             gate_closed,
             space_id: None,

@@ -1,6 +1,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 
+import { AMBY_SERVER_URL, isAmbyServer } from "@/lib/sync/amby-server"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
@@ -63,6 +64,8 @@ export function ConnectWizard({
 }: ConnectWizardProps) {
   const { t } = useTranslation()
   const [step, setStep] = React.useState<Step>("server")
+  // The Amby server is the default; a record of another server starts on "own server".
+  const [own, setOwn] = React.useState(Boolean(initial?.url) && !isAmbyServer(initial?.url))
   const [url, setUrl] = React.useState(initial?.url ?? "")
   const [allowHttp, setAllowHttp] = React.useState(initial?.allowHttp ?? false)
   const [server, setServer] = React.useState<ServerCheck | null>(null)
@@ -123,11 +126,13 @@ export function ConnectWizard({
     setStep(next)
   }
 
-  const target = { url: server?.url ?? url.trim(), allowHttp }
+  const chosenUrl = own ? url.trim() : AMBY_SERVER_URL
+  const chosenAllowHttp = own && allowHttp
+  const target = { url: server?.url ?? chosenUrl, allowHttp: chosenAllowHttp }
 
   const checkServer = () =>
     run(async () => {
-      const found = await port.checkServer({ url: url.trim(), allowHttp })
+      const found = await port.checkServer({ url: chosenUrl, allowHttp: chosenAllowHttp })
       setServer(found)
       setStep("choice")
     })
@@ -217,7 +222,7 @@ export function ConnectWizard({
   )
 
   const backButton = (to: Step) => (
-    <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => goTo(to)}>
+    <Button type="button" variant="link" size="sm" disabled={busy} onClick={() => goTo(to)}>
       {t("sync.wizard.actions.back")}
     </Button>
   )
@@ -252,58 +257,68 @@ export function ConnectWizard({
           <legend className="mb-1 text-[12px] font-medium">
             {t("sync.wizard.server.choiceLabel")}
           </legend>
-          <label className="flex items-center gap-2 text-[13px] text-muted-foreground">
-            <input type="radio" name="sync-server" disabled checked={false} readOnly />
-            {t("sync.wizard.server.amby")}
-            <span className="text-[11px]">({t("sync.wizard.server.ambySoon")})</span>
-          </label>
           <label className="flex items-center gap-2 text-[13px]">
-            <input type="radio" name="sync-server" checked readOnly />
+            <input type="radio" name="sync-server" checked={!own} onChange={() => setOwn(false)} />
+            {t("sync.wizard.server.amby")}
+          </label>
+          {!own && (
+            <p className="pl-6 text-[12px] text-muted-foreground">
+              {t("sync.wizard.server.ambyHint")}
+            </p>
+          )}
+          <label className="flex items-center gap-2 text-[13px]">
+            <input type="radio" name="sync-server" checked={own} onChange={() => setOwn(true)} />
             {t("sync.wizard.server.own")}
           </label>
         </fieldset>
-        <Field label={t("sync.wizard.server.address")}>
-          {(id) => (
-            <Input
-              id={id}
-              inputMode="url"
-              autoCapitalize="none"
-              spellCheck={false}
-              placeholder={t("sync.wizard.server.placeholder")}
-              value={url}
-              onChange={(event) => setUrl(event.target.value)}
-            />
-          )}
-        </Field>
-        <div className="flex items-center gap-2">
-          <Switch
-            id="sync-allow-http"
-            checked={allowHttp}
-            onCheckedChange={setAllowHttp}
-            aria-label={t("sync.wizard.server.localNetwork")}
-          />
-          <label htmlFor="sync-allow-http" className="text-[12px]">
-            {t("sync.wizard.server.localNetwork")}
-          </label>
-        </div>
-        {allowHttp && (
-          <p className="text-[12px] text-destructive">
-            {t("sync.wizard.server.localNetworkWarning")}
-          </p>
+        {own && (
+          <>
+            <Field label={t("sync.wizard.server.address")}>
+              {(id) => (
+                <Input
+                  id={id}
+                  inputMode="url"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  placeholder={t("sync.wizard.server.placeholder")}
+                  value={url}
+                  onChange={(event) => setUrl(event.target.value)}
+                />
+              )}
+            </Field>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="sync-allow-http"
+                checked={allowHttp}
+                onCheckedChange={setAllowHttp}
+                aria-label={t("sync.wizard.server.localNetwork")}
+              />
+              <label htmlFor="sync-allow-http" className="text-[12px]">
+                {t("sync.wizard.server.localNetwork")}
+              </label>
+            </div>
+            {allowHttp && (
+              <p className="text-[12px] text-destructive">
+                {t("sync.wizard.server.localNetworkWarning")}
+              </p>
+            )}
+          </>
         )}
         <ErrorLine message={error} />
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="submit" size="sm" disabled={busy || url.trim() === ""}>
+        <div data-testid="wizard-actions" className="flex flex-wrap items-center gap-2">
+          <Button type="submit" size="sm" disabled={busy || (own && url.trim() === "")}>
             {busy ? t("sync.wizard.server.checking") : t("sync.wizard.server.check")}
           </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => void openWebAddressInBrowser(SERVER_GUIDE_URL)}
-          >
-            {t("sync.wizard.server.guide")}
-          </Button>
+          {own && (
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              onClick={() => void openWebAddressInBrowser(SERVER_GUIDE_URL)}
+            >
+              {t("sync.wizard.server.guide")}
+            </Button>
+          )}
         </div>
       </>,
       () => void checkServer(),
@@ -316,18 +331,18 @@ export function ConnectWizard({
         <p className="text-[13px]">
           {t("sync.wizard.server.found", { version: server?.serverVersion ?? "" })}
         </p>
-        <div className="flex flex-wrap gap-2">
+        <div data-testid="wizard-actions" className="flex flex-wrap items-center gap-2">
           <Button type="button" size="sm" onClick={() => goTo("create")}>
             {t("sync.wizard.choice.create")}
           </Button>
           <Button type="button" variant="outline" size="sm" onClick={() => goTo("signIn")}>
             {t("sync.wizard.choice.signIn")}
           </Button>
-          <Button type="button" variant="ghost" size="sm" onClick={() => goTo("recover")}>
+          <Button type="button" variant="link" size="sm" onClick={() => goTo("recover")}>
             {t("sync.wizard.choice.forgot")}
           </Button>
+          {backButton("server")}
         </div>
-        {backButton("server")}
       </div>
     )
   }
@@ -365,11 +380,11 @@ export function ConnectWizard({
         />
         {deviceField}
         <ErrorLine message={error} />
-        <div className="flex gap-2">
-          {backButton("choice")}
+        <div data-testid="wizard-actions" className="flex flex-wrap items-center gap-2">
           <Button type="submit" size="sm" disabled={busy || !filled || !passwordValid}>
             {t("sync.wizard.actions.continue")}
           </Button>
+          {backButton("choice")}
         </div>
       </>,
       () => {
@@ -396,11 +411,11 @@ export function ConnectWizard({
         </Field>
         {deviceField}
         <ErrorLine message={error} />
-        <div className="flex gap-2">
-          {backButton("choice")}
+        <div data-testid="wizard-actions" className="flex flex-wrap items-center gap-2">
           <Button type="submit" size="sm" disabled={busy || !filled}>
             {t("sync.wizard.actions.signIn")}
           </Button>
+          {backButton("choice")}
         </div>
       </>,
       () => {
@@ -440,11 +455,11 @@ export function ConnectWizard({
         />
         {deviceField}
         <ErrorLine message={error} />
-        <div className="flex gap-2">
-          {backButton("choice")}
+        <div data-testid="wizard-actions" className="flex flex-wrap items-center gap-2">
           <Button type="submit" size="sm" disabled={busy || !filled || !passwordValid}>
             {t("sync.wizard.actions.recover")}
           </Button>
+          {backButton("choice")}
         </div>
       </>,
       () => {

@@ -2,6 +2,7 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { Laptop, LogOut, RefreshCw } from "lucide-react"
 
+import { isAmbyServer } from "@/lib/sync/amby-server"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { syncErrorMessage } from "@/lib/sync/sync-errors"
@@ -189,7 +190,9 @@ export function SyncSettings({ port: given }: SyncSettingsProps) {
       {header}
       <div className="rounded-lg border border-border bg-card/30 px-4 py-3">
         <p className="text-[13px] font-medium">
-          {t("sync.connected.to", { host: status.host ?? status.serverUrl ?? "" })}
+          {t(isAmbyServer(status.serverUrl) ? "sync.connected.toAmby" : "sync.connected.to", {
+            host: status.host ?? status.serverUrl ?? "",
+          })}
         </p>
         <p className="mt-0.5 text-[12px] text-muted-foreground">
           {t("sync.connected.user", { name: status.username ?? "" })}

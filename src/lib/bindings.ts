@@ -2635,6 +2635,12 @@ enabled: boolean;
  */
 linked: boolean; 
 /**
+ * The link belongs to the connection of this device (the same server and account), so
+ * switching on again resumes the very same space. A link that is not resumable is stale: the
+ * screen offers the choice of a space as the first time.
+ */
+resumable: boolean; 
+/**
  * The person marked this vault as a test vault.
  */
 testVault: boolean; 

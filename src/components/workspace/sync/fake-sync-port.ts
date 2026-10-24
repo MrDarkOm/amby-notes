@@ -84,6 +84,7 @@ export function vaultStatus(overrides: Partial<VaultSyncStatus> = {}): VaultSync
   return {
     enabled: true,
     linked: true,
+    resumable: false,
     testVault: true,
     gateClosed: true,
     spaceId: "00112233445566778899aabbccddeeff",
@@ -107,6 +108,7 @@ export function vaultStatus(overrides: Partial<VaultSyncStatus> = {}): VaultSync
 export const VAULT_OFF: VaultSyncStatus = vaultStatus({
   enabled: false,
   linked: false,
+  resumable: false,
   testVault: false,
   spaceId: null,
   spaceName: null,

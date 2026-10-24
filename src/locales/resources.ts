@@ -3365,7 +3365,7 @@ const ru = {
       server: {
         choiceLabel: "Сервер",
         amby: "Сервер Amby",
-        ambySoon: "скоро будет",
+        ambyHint: "Пока регистрация по коду приглашения: его выдаёт владелец сервера.",
         own: "Свой сервер",
         guide: "Как поднять свой сервер",
         address: "Адрес сервера",
@@ -3447,6 +3447,9 @@ const ru = {
       warning:
         "Если вы потеряете и пароль, и этот код, данные на сервере не вернёт никто — даже администратор сервера.",
       save: "Сохранить в файл",
+      copy: "Скопировать",
+      copied: "Скопировано",
+      copyFailed: "Не удалось скопировать код. Выделите его и скопируйте вручную.",
       print: "Напечатать",
       saved: "Сохранено: {{path}}",
       confirmPrompt:
@@ -3466,6 +3469,7 @@ const ru = {
     },
     connected: {
       to: "Подключено к {{host}}",
+      toAmby: "Подключено к серверу Amby ({{host}})",
       user: "Пользователь: {{name}}",
       devices: "Устройства",
       thisDevice: "Это устройство",
@@ -6824,7 +6828,7 @@ const en: typeof ru = {
       server: {
         choiceLabel: "Server",
         amby: "Amby server",
-        ambySoon: "coming soon",
+        ambyHint: "For now registration needs an invitation code, issued by the server owner.",
         own: "Your own server",
         guide: "How to set up your own server",
         address: "Server address",
@@ -6906,6 +6910,9 @@ const en: typeof ru = {
       warning:
         "If you lose both your password and this code, nobody can bring the data on the server back — not even the server administrator.",
       save: "Save to a file",
+      copy: "Copy",
+      copied: "Copied",
+      copyFailed: "Could not copy the code. Select it and copy it by hand.",
       print: "Print",
       saved: "Saved: {{path}}",
       confirmPrompt:
@@ -6924,6 +6931,7 @@ const en: typeof ru = {
     },
     connected: {
       to: "Connected to {{host}}",
+      toAmby: "Connected to the Amby server ({{host}})",
       user: "User: {{name}}",
       devices: "Devices",
       thisDevice: "This device",

@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import i18n from "@/lib/i18n"
+import { AMBY_SERVER_URL } from "@/lib/sync/amby-server"
 import { SyncPortError } from "@/lib/sync/sync-port"
 import { ConnectWizard } from "./connect-wizard"
 import {
@@ -17,6 +18,12 @@ const STRONG = "correct horse battery staple 42"
 
 function type(label: string, value: string) {
   fireEvent.change(screen.getByLabelText(label), { target: { value } })
+}
+
+/** Types an address of an own server: the Amby server is the default and has no address field. */
+function typeOwnAddress(value: string) {
+  fireEvent.click(screen.getByRole("radio", { name: /Свой сервер/ }))
+  type("Адрес сервера", value)
 }
 
 function click(name: string | RegExp) {
@@ -38,7 +45,7 @@ function renderWizard(port: FakePort, props: { onConnected?: () => void } = {}) 
 /** Server step done: the address checked and found. */
 async function chooseServer(port: FakePort) {
   void port
-  type("Адрес сервера", SERVER)
+  typeOwnAddress(SERVER)
   click("Проверить сервер")
   await screen.findByText(/Сервер найден/)
 }
@@ -72,11 +79,50 @@ describe("the connect wizard", () => {
   describe("the server step", () => {
     it("cannot check an empty address", () => {
       renderWizard(createFakePort())
+      fireEvent.click(screen.getByRole("radio", { name: /Свой сервер/ }))
       expect(button("Проверить сервер").disabled).toBe(true)
       type("Адрес сервера", "  ")
       expect(button("Проверить сервер").disabled).toBe(true)
-      type("Адрес сервера", SERVER)
+      typeOwnAddress(SERVER)
       expect(button("Проверить сервер").disabled).toBe(false)
+    })
+
+    it("offers the Amby server first and checks it without typing an address", async () => {
+      const port = createFakePort()
+      renderWizard(port)
+      expect((screen.getByRole("radio", { name: /Сервер Amby/ }) as HTMLInputElement).checked).toBe(
+        true,
+      )
+      expect(screen.getByRole("radio", { name: /Свой сервер/ })).toBeTruthy()
+      expect(document.body.textContent).not.toMatch(/скоро/)
+      expect(document.body.textContent).toMatch(/коду приглашения/i)
+      expect(screen.queryByLabelText("Адрес сервера")).toBeNull()
+      expect(screen.queryByRole("button", { name: "Как поднять свой сервер" })).toBeNull()
+      click("Проверить сервер")
+      await screen.findByText(/Сервер найден/)
+      expect(port.checkServer).toHaveBeenCalledWith({ url: AMBY_SERVER_URL, allowHttp: false })
+    })
+
+    it("shows the address field and the guide only for an own server", () => {
+      renderWizard(createFakePort())
+      fireEvent.click(screen.getByRole("radio", { name: /Свой сервер/ }))
+      expect(screen.getByLabelText("Адрес сервера")).toBeTruthy()
+      expect(screen.getByRole("button", { name: "Как поднять свой сервер" })).toBeTruthy()
+      fireEvent.click(screen.getByRole("radio", { name: /Сервер Amby/ }))
+      expect(screen.queryByLabelText("Адрес сервера")).toBeNull()
+    })
+
+    it("starts on the Amby server when that was the server of the record", () => {
+      render(
+        <ConnectWizard
+          port={createFakePort()}
+          onConnected={vi.fn()}
+          initial={{ url: AMBY_SERVER_URL, allowHttp: false, username: "alice" }}
+        />,
+      )
+      expect((screen.getByRole("radio", { name: /Сервер Amby/ }) as HTMLInputElement).checked).toBe(
+        true,
+      )
     })
 
     it("asks the port to check the address and offers the three ways on", async () => {
@@ -103,7 +149,7 @@ describe("the connect wizard", () => {
         },
       })
       renderWizard(port)
-      type("Адрес сервера", SERVER)
+      typeOwnAddress(SERVER)
       click("Проверить сервер")
       const alert = await screen.findByRole("alert")
       expect(alert.textContent).toMatch(message)
@@ -115,9 +161,10 @@ describe("the connect wizard", () => {
       const port = createFakePort()
       renderWizard(port)
       expect(screen.queryByText(/идут по сети открыто/)).toBeNull()
+      fireEvent.click(screen.getByRole("radio", { name: /Свой сервер/ }))
       fireEvent.click(screen.getByRole("switch", { name: /локальной сети/ }))
       expect(screen.getByText(/идут по сети открыто/)).toBeTruthy()
-      type("Адрес сервера", "http://192.168.1.20:8080")
+      typeOwnAddress("http://192.168.1.20:8080")
       click("Проверить сервер")
       await screen.findByText(/Сервер найден/)
       expect(port.checkServer).toHaveBeenCalledWith({
@@ -413,6 +460,38 @@ describe("the connect wizard", () => {
       expect(port.prepareAccount).toHaveBeenCalledTimes(1)
     })
 
+    it("lets the person select part of the code, and copies the whole code on a button", async () => {
+      // the code is not "select all": a single group can be selected or double-clicked
+      const writeText = vi.fn(async () => {})
+      Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
+      const port = createFakePort()
+      renderWizard(port)
+      await reachRecoveryStep(port)
+      const code = screen.getByTestId("recovery-code")
+      expect(code.className).not.toMatch(/select-all/)
+      expect(code.className).toMatch(/select-text/)
+      expect(code.textContent).toBe(FAKE_CODE)
+      click("Скопировать")
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith(FAKE_CODE))
+      expect(await screen.findByText("Скопировано")).toBeTruthy()
+    })
+
+    it("says so when the code could not be copied", async () => {
+      Object.defineProperty(navigator, "clipboard", {
+        value: {
+          writeText: async () => {
+            throw new Error("denied")
+          },
+        },
+        configurable: true,
+      })
+      const port = createFakePort()
+      renderWizard(port)
+      await reachRecoveryStep(port)
+      click("Скопировать")
+      expect((await screen.findByRole("alert")).textContent).toMatch(/Не удалось скопировать/)
+    })
+
     it("saves the code to a file and tells where", async () => {
       const port = createFakePort()
       renderWizard(port)
@@ -670,5 +749,55 @@ describe("the connect wizard", () => {
     click("Создать учётную запись")
     await fillCreateForm()
     expect(container.textContent ?? "").not.toContain(STRONG)
+  })
+})
+
+describe("the action rows of the connect wizard", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("ru")
+  })
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
+  const rowOf = () => screen.getByTestId("wizard-actions")
+  const labels = (row: HTMLElement) =>
+    Array.from(row.querySelectorAll("button")).map((b) => b.textContent?.trim())
+
+  it("keeps the server step's actions in one row, the primary one first", () => {
+    renderWizard(createFakePort())
+    expect(labels(rowOf())).toEqual(["Проверить сервер"])
+    fireEvent.click(screen.getByRole("radio", { name: /Свой сервер/ }))
+    expect(labels(rowOf())).toEqual(["Проверить сервер", "Как поднять свой сервер"])
+  })
+
+  it("puts every action of the choice step, Back included, in one row", async () => {
+    const port = createFakePort()
+    renderWizard(port)
+    await chooseServer(port)
+    expect(labels(rowOf())).toEqual(["Создать учётную запись", "Войти", "Забыли пароль?", "Назад"])
+    expect(screen.getAllByTestId("wizard-actions")).toHaveLength(1)
+  })
+
+  it.each([
+    ["Создать учётную запись", "Продолжить"],
+    ["Войти", "Войти"],
+    ["Забыли пароль?", "Восстановить доступ"],
+  ])("puts the primary action before Back on the step '%s'", async (choice, primary) => {
+    const port = createFakePort()
+    renderWizard(port)
+    await chooseServer(port)
+    click(choice)
+    const row = rowOf()
+    expect(labels(row)).toEqual([primary, "Назад"])
+    expect(screen.getAllByTestId("wizard-actions")).toHaveLength(1)
+  })
+
+  it("puts the primary action before Back on the recovery code step", async () => {
+    const port = createFakePort()
+    renderWizard(port)
+    await reachRecoveryStep(port)
+    expect(labels(rowOf())).toEqual(["Подтвердить и подключиться", "Назад"])
   })
 })

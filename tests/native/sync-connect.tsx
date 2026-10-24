@@ -48,6 +48,20 @@ function field(label: string): HTMLInputElement | null {
   return found?.htmlFor ? (document.getElementById(found.htmlFor) as HTMLInputElement | null) : null
 }
 
+/** The radio of the own server: the Amby server is the default and has no address field. */
+function ownRadio(): HTMLInputElement | null {
+  const label = [...document.querySelectorAll("label")].find(
+    (l) => l.textContent?.trim() === "Свой сервер",
+  )
+  return label?.querySelector("input") ?? null
+}
+
+async function chooseOwnServer() {
+  const radio = await waitFor("the own server option", () => ownRadio())
+  radio.click()
+  await waitFor("the server field", () => field("Адрес сервера"))
+}
+
 function button(name: string): HTMLButtonElement | null {
   return (
     ([...document.querySelectorAll("button")].find(
@@ -83,7 +97,7 @@ async function step(name: string, run: () => Promise<void>) {
 }
 
 async function checkServer() {
-  await waitFor("the server field", () => field("Адрес сервера"))
+  await chooseOwnServer()
   type("Адрес сервера", config.url!)
   await press("Проверить сервер")
   await waitFor("the server to be found", () => text().includes("Сервер найден"))
@@ -110,7 +124,7 @@ try {
     throw new Error("The server, the user and the invitation code come from the environment")
 
   await step("the screen starts with the server step and the honest banner", async () => {
-    await waitFor("the server field", () => field("Адрес сервера"))
+    await chooseOwnServer()
     if (!text().includes("в тестовом режиме")) throw new Error("no banner")
   })
 
@@ -176,7 +190,7 @@ try {
 
   await step("signing out empties the device and returns the wizard", async () => {
     await press("Выйти на этом устройстве")
-    await waitFor("the wizard", () => field("Адрес сервера"))
+    await waitFor("the wizard", () => ownRadio())
     const status = await port.status()
     if (status.connected || status.keysMissing) throw new Error("still connected")
   })
@@ -195,7 +209,7 @@ try {
 
   await step("the forgotten password is replaced by the recovery code", async () => {
     await press("Выйти на этом устройстве")
-    await waitFor("the wizard", () => field("Адрес сервера"))
+    await waitFor("the wizard", () => ownRadio())
     await checkServer()
     await press("Забыли пароль?")
     type("Имя пользователя", config.username!)
@@ -209,7 +223,7 @@ try {
 
   await step("after recovery the old password is refused and the new one works", async () => {
     await press("Выйти на этом устройстве")
-    await waitFor("the wizard", () => field("Адрес сервера"))
+    await waitFor("the wizard", () => ownRadio())
     await checkServer()
     await press("Войти")
     type("Имя пользователя", config.username!)
@@ -224,7 +238,7 @@ try {
 
   await step("the final sign-out leaves nothing behind", async () => {
     await press("Выйти на этом устройстве")
-    await waitFor("the wizard", () => field("Адрес сервера"))
+    await waitFor("the wizard", () => ownRadio())
     const status = await port.status()
     if (status.connected || status.username) throw new Error("a record is left")
   })
