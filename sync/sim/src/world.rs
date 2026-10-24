@@ -278,6 +278,10 @@ pub struct World {
     pub trace: RefCell<Vec<String>>,
     /// Backups of the server taken by tests, kept alive.
     backups: Vec<tempfile::TempDir>,
+    /// Every line any version on the server ever had, kept after the server forgets it (reset,
+    /// restore): a merge may drop a base line the other side removed, and the check must still
+    /// know that line was a version of the server.
+    seen_lines: RefCell<BTreeSet<Vec<u8>>>,
 }
 
 impl World {
@@ -343,6 +347,7 @@ impl World {
             builder,
             trace: RefCell::new(Vec::new()),
             backups: Vec::new(),
+            seen_lines: RefCell::new(BTreeSet::new()),
         }
     }
 
@@ -493,7 +498,7 @@ impl World {
     /// Every line of every version of every item on the server (К1: the lines a merge may drop
     /// because the other side removed them from the base).
     pub fn server_lines(&self) -> BTreeSet<Vec<u8>> {
-        let mut lines = BTreeSet::new();
+        let mut lines = self.seen_lines.borrow().clone();
         for item in self.server_items(true) {
             for version in item.versions {
                 if let Some(bytes) = version.content {
@@ -503,6 +508,7 @@ impl World {
                 }
             }
         }
+        *self.seen_lines.borrow_mut() = lines.clone();
         lines
     }
 
@@ -562,6 +568,7 @@ impl World {
     /// Replaces the server by one started on a backup: the same `instance_id`, the head of the
     /// moment of the copy (С7). The devices' tokens stay valid.
     pub fn restore_server(&mut self, backup: &std::path::Path) {
+        self.server_lines();
         let process = InProcess::start_in(
             backup.to_path_buf(),
             None,
@@ -590,6 +597,7 @@ impl World {
     /// back on it (the model of С7 in appendix В, open question 11): the same keys, the same
     /// `space_id`, new tokens, a new `instance_id`, no data.
     pub fn reset_server(&mut self) {
+        self.server_lines();
         self.control().restart_fresh();
         let username = self.accounts[0].username.clone();
         let ticket = self

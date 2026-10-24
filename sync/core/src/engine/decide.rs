@@ -554,6 +554,43 @@ impl<'a> Decider<'a> {
                         self.place = Some(copy.path.clone());
                         self.place_copy = Some(copy);
                     }
+                } else if stays
+                    && other.item_id != srv.item
+                    && srv.item.as_bytes() < other.item_id.as_bytes()
+                {
+                    // The other way round (Д71): this item has the smaller id and keeps the path,
+                    // so the file of the larger one that stands there goes to a copy name first.
+                    // This entry waits one pass: while it does not stand on the path, the moved
+                    // file is recognised as a rename and is sent to the server in this very pass
+                    // (otherwise the path would hold a foreign file, and the larger item would
+                    // look edited). The devices that parked the larger item get it at the copy
+                    // name, and the entry is decided again next pass with the path free.
+                    if let Some(file) = self.inp.scan.files.get(srv.path.as_str()) {
+                        let Some(copy) = self.copy_for(
+                            &other.item_id,
+                            &srv.path,
+                            file.hash,
+                            file.size,
+                            other.version,
+                            ConflictKind::BothCreated,
+                            None,
+                        ) else {
+                            return self.no_copy_name(srv);
+                        };
+                        self.claim(&copy.path);
+                        self.plan.acts.push(Act::Move(Box::new(MoveAct {
+                            seq: srv.seq,
+                            from_disk: file.disk.clone(),
+                            from: srv.path.clone(),
+                            to: copy.path.clone(),
+                            expect: file.hash,
+                            rec: other.clone(),
+                            then: None,
+                            occupant: None,
+                            placed_as: Some(copy),
+                        })));
+                        return self.plan.hold_before(srv.seq);
+                    }
                 }
             }
         }

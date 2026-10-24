@@ -315,6 +315,18 @@ pub fn check_episode(world: &World, episode: &Episode) -> Result<(), Violation> 
     Ok(())
 }
 
+/// The folders of a device that the engine synchronises. A folder it never synchronises (`.amby`
+/// itself, `.obsidian`, Р4, Д11) is not part of the convergence: the person may leave an empty
+/// `.amby` behind by moving `.amby/conflicts` away, and the other device has none (seed 3006).
+fn synchronised_dirs(device: &crate::world::Device) -> BTreeSet<String> {
+    device
+        .fs
+        .dirs()
+        .into_iter()
+        .filter(|path| !amby_sync_core::engine::rules::is_excluded_path(path))
+        .collect()
+}
+
 pub fn check_convergence(world: &World, options: CheckOptions) -> Result<(), Violation> {
     let first = world.dev(0).fs.files();
     for (i, device) in world.devices.iter().enumerate().skip(1) {
@@ -328,13 +340,13 @@ pub fn check_convergence(world: &World, options: CheckOptions) -> Result<(), Vio
                 ),
             ));
         }
-        if options.folders && world.dev(0).fs.dirs() != device.fs.dirs() {
+        if options.folders && synchronised_dirs(world.dev(0)) != synchronised_dirs(device) {
             return Err(violation(
                 Kind::Convergence,
                 format!(
                     "folders of device 0 {:?} and device {i} {:?} differ",
-                    world.dev(0).fs.dirs(),
-                    device.fs.dirs()
+                    synchronised_dirs(world.dev(0)),
+                    synchronised_dirs(device)
                 ),
             ));
         }

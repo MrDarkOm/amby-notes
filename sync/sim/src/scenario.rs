@@ -158,6 +158,17 @@ impl Run<'_> {
         content(self.counter, size)
     }
 
+    /// A fresh content that is never empty. The protection scenarios need a *real* change: an
+    /// empty file written over an empty file changes nothing, nothing is committed, and there is
+    /// nothing to stop on or to roll back (seed 27 of the long run).
+    fn fresh_nonempty(&mut self) -> Vec<u8> {
+        let bytes = self.fresh();
+        if bytes.is_empty() {
+            return format!("AMBYSIM-{:08x}-small\n", self.counter).into_bytes();
+        }
+        bytes
+    }
+
     fn pick_path(&mut self, existing: &[String]) -> String {
         const DIRS: [&str; 3] = ["", "Notes/", "Ideas/Deep/"];
         if !existing.is_empty() && self.rng.chance(55) {
@@ -608,7 +619,7 @@ impl Run<'_> {
         }
         let mut originals = BTreeMap::new();
         for i in 0..30 {
-            let bytes = self.fresh();
+            let bytes = self.fresh_nonempty();
             let path = format!("Bulk/AMBYSIM-bulk-{i}.md");
             self.world.dev(d).fs.user_write(&path, &bytes);
             originals.insert(path, bytes);
@@ -642,7 +653,7 @@ impl Run<'_> {
             return Err(violation(Kind::Unexpected, error));
         }
         for path in &victims {
-            let bytes = self.fresh();
+            let bytes = self.fresh_nonempty();
             self.world.dev(d).fs.user_write(path, &bytes);
         }
         if let Err(error) = self.world.dev(d).sync() {
@@ -727,13 +738,21 @@ impl Run<'_> {
             return Err(violation(Kind::Unexpected, "no settle before the backup"));
         }
         let backup = self.world.backup_server();
-        let bytes = self.fresh();
+        let head_at_backup = self.world.server_head();
+        let bytes = self.fresh_nonempty();
         self.world
             .dev(0)
             .fs
             .user_write("Notes/AMBYSIM-after-backup.md", &bytes);
         if self.world.settle().is_err() {
             return Err(violation(Kind::Unexpected, "no settle after the backup"));
+        }
+        if self.world.server_head() <= head_at_backup {
+            // Without a newer state on the server there is nothing to go back from.
+            return Err(violation(
+                Kind::Unexpected,
+                "a real change after the backup did not reach the server",
+            ));
         }
         let before: Vec<_> = self.world.devices.iter().map(|d| d.fs.files()).collect();
         self.world.restore_server(&backup);
