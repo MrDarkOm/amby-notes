@@ -184,6 +184,19 @@ impl SyncRuntime {
         .await
     }
 
+    /// The storages of the account with the plan and the sizes (appendix Е, У5). `known_vaults`
+    /// are the folders of the vaults the application knows; the ones linked to a space are named
+    /// in its row.
+    ///
+    /// STUB of the red-tests step of appendix Е: `not_implemented`.
+    pub async fn account_overview(
+        &self,
+        known_vaults: &[PathBuf],
+    ) -> Result<crate::sync::account_types::AccountOverview, SyncError> {
+        let _ = known_vaults;
+        unimplemented!("not_implemented: sync_account_overview")
+    }
+
     /// What the state of `vault` says about its link, if it has a state at all.
     fn read_link(vault: &Path) -> Result<Option<Link>, SyncError> {
         if !state_path(vault).is_file() {

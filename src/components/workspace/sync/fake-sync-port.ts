@@ -3,6 +3,7 @@
 import { vi, type Mock } from "vitest"
 import {
   SyncPortError,
+  type AccountOverview,
   type DeviceView,
   type PasswordCheck,
   type RemoteDeletedEvent,
@@ -121,6 +122,62 @@ export const SPACES: SpaceView[] = [
   { spaceId: "b2".repeat(16), name: null, seq: 3, createdMs: 1_760_000_100_000 },
 ]
 
+/** The overview of the owner's "Standard" plan: one storage of 312 MB of 1 GB, the open vault. */
+export const ACCOUNT_STANDARD: AccountOverview = {
+  limitsKnown: true,
+  plan: { name: "standard", title: "Стандарт", pinned: false },
+  limits: {
+    maxSpaces: 1,
+    maxTotalBytes: 1_000_000_000,
+    maxFileBytes: 20_000_000,
+    historyDays: 30,
+    maxHistoryBytes: 1_000_000_000,
+  },
+  usage: { liveBytes: 312_000_000, pendingBytes: 0, historyBytes: 40_000_000, spaces: 1 },
+  spaces: [
+    {
+      spaceId: "00112233445566778899aabbccddeeff",
+      name: "Рабочее хранилище",
+      liveBytes: 312_000_000,
+      historyBytes: 40_000_000,
+      thisVault: true,
+      boundFolder: "Work",
+    },
+  ],
+}
+
+/** An own server without plans and without limits, with two storages. */
+export const ACCOUNT_UNLIMITED: AccountOverview = {
+  limitsKnown: true,
+  plan: null,
+  limits: {
+    maxSpaces: null,
+    maxTotalBytes: null,
+    maxFileBytes: null,
+    historyDays: 30,
+    maxHistoryBytes: null,
+  },
+  usage: { liveBytes: 312_000_000, pendingBytes: 0, historyBytes: 0, spaces: 2 },
+  spaces: [
+    {
+      spaceId: "a1".repeat(16),
+      name: "Дом",
+      liveBytes: 12_000_000,
+      historyBytes: 0,
+      thisVault: false,
+      boundFolder: null,
+    },
+    {
+      spaceId: "b2".repeat(16),
+      name: "Работа",
+      liveBytes: 300_000_000,
+      historyBytes: 0,
+      thisVault: false,
+      boundFolder: "Work",
+    },
+  ],
+}
+
 const vaultListeners = new Set<(status: VaultSyncStatus) => void>()
 
 /** Tells every screen that listens that the status of the vault changed (the Rust side does it). */
@@ -197,6 +254,7 @@ export function createFakePort(overrides: Partial<SyncPort> = {}): FakePort {
     saveRecoveryCode: async () => "/Users/alice/amby-recovery-code.txt",
     vaultStatus: async () => VAULT_OFF,
     listSpaces: async () => SPACES,
+    accountOverview: async () => ACCOUNT_STANDARD,
     enableVault: async () => vaultStatus(),
     disableVault: async () => VAULT_OFF,
     runNow: async () => {},

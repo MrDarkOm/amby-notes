@@ -206,8 +206,9 @@ pub fn dump(db: &Path) -> Vec<String> {
             .unwrap()
             .map(Result::unwrap)
             .filter(|name| {
-                !(table == "users" && name == "plan")
-                    && !(table == "versions" && name == "keep_until_ms")
+                let added_in_v2 = (table == "users" && name == "plan")
+                    || (table == "versions" && name == "keep_until_ms");
+                !added_in_v2
             })
             .collect();
         columns

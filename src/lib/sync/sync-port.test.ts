@@ -13,6 +13,7 @@ const commands = vi.hoisted(() => ({
   syncListDevices: vi.fn(),
   syncDisconnectDevice: vi.fn(),
   syncSignOut: vi.fn(),
+  syncAccountOverview: vi.fn(),
   exportTextFile: vi.fn(),
 }))
 vi.mock("@/lib/bindings", () => ({ commands }))
@@ -306,5 +307,25 @@ describe("the desktop sync port: the sync of the open vault", () => {
     })
     const unlisten = await unavailableSyncPort.onVaultStatus(() => {})
     expect(() => unlisten()).not.toThrow()
+  })
+})
+
+describe("the account overview of appendix Е (У5)", () => {
+  beforeEach(() => vi.resetAllMocks())
+
+  it("passes the folders of the known vaults to the command and returns the answer", async () => {
+    const port = createDesktopSyncPort()
+    commands.syncAccountOverview.mockResolvedValue(ok({ limitsKnown: true, spaces: [] }))
+    expect(await port.accountOverview(["/a", "/b"])).toEqual({ limitsKnown: true, spaces: [] })
+    expect(commands.syncAccountOverview).toHaveBeenCalledWith(["/a", "/b"])
+  })
+
+  it("turns a failure into the machine code and has nothing in the browser build", async () => {
+    const port = createDesktopSyncPort()
+    commands.syncAccountOverview.mockResolvedValue(failed("unauthorized"))
+    await expect(port.accountOverview([])).rejects.toMatchObject({ code: "unauthorized" })
+    await expect(unavailableSyncPort.accountOverview([])).rejects.toMatchObject({
+      code: "unavailable",
+    })
   })
 })

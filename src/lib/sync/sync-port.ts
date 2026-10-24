@@ -6,6 +6,7 @@
 import { commands } from "@/lib/bindings"
 import { isTauri } from "@/lib/storage"
 import type {
+  AccountOverview,
   ApprovalKind,
   ConflictChoice,
   ConflictVersions,
@@ -23,6 +24,7 @@ import type {
 } from "@/lib/bindings"
 
 export type {
+  AccountOverview,
   ApprovalKind,
   ConflictChoice,
   ConflictVersions,
@@ -122,6 +124,11 @@ export interface SyncPort {
   vaultStatus(): Promise<VaultSyncStatus>
   /** The spaces of the account, for "connect an existing vault". */
   listSpaces(): Promise<SpaceView[]>
+  /**
+   * The storages of the account with the plan, the limits and the sizes (appendix Е, У5). `knownVaults`
+   * are the folders of the vaults the application knows; the ones linked to a space are named in its row.
+   */
+  accountOverview(knownVaults: string[]): Promise<AccountOverview>
   /** Switches sync on for the open vault: a new space or an existing one. */
   enableVault(target: SpaceTarget, testVault: boolean): Promise<VaultSyncStatus>
   /** Switches sync off for the open vault; the link with the space stays. */
@@ -220,6 +227,8 @@ export function createDesktopSyncPort(): SyncPort {
       }
     },
     listSpaces: () => call(commands.syncListSpaces()),
+    // STUB of the red-tests step of appendix Е: the call to `commands.syncAccountOverview` is not wired yet.
+    accountOverview: () => Promise.reject(new SyncPortError("not_implemented")),
     enableVault: (target, testVault) => call(commands.syncEnableVault(target, testVault)),
     disableVault: () => call(commands.syncDisableVault()),
     runNow: async () => {
@@ -318,6 +327,7 @@ export const unavailableSyncPort: SyncPort = {
     last: null,
   }),
   listSpaces: unavailable,
+  accountOverview: unavailable,
   enableVault: unavailable,
   disableVault: unavailable,
   runNow: unavailable,

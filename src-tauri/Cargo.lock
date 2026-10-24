@@ -140,6 +140,7 @@ dependencies = [
  "amby-sync-server",
  "axum",
  "hex",
+ "rusqlite",
  "serde_json",
  "tempfile",
  "tokio",

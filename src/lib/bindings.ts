@@ -1340,6 +1340,19 @@ async syncListSpaces() : Promise<Result<SpaceView[], SyncError>> {
 }
 },
 /**
+ * The storages of the account with the plan, the limits and the sizes (appendix Е, У5).
+ * `known_vaults` are the folders of the vaults the application knows, to name the ones linked to
+ * a space.
+ */
+async syncAccountOverview(knownVaults: string[]) : Promise<Result<AccountOverview, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_account_overview", { knownVaults }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Switches sync on for the open vault: a new space or an existing one. While the gate of the
  * plan is closed the vault has to be marked as a test vault.
  */
@@ -1653,6 +1666,31 @@ async flushDebugLogs() : Promise<Result<null, string>> {
 
 /** user-defined types **/
 
+/**
+ * The answer of `sync_account_overview` (У5).
+ */
+export type AccountOverview = { 
+/**
+ * The server told about the account (`false`: an older server; the interface then shows
+ * "no limits" and nothing about the plan, Р13).
+ */
+limitsKnown: boolean; 
+/**
+ * The plan, if the server has plans.
+ */
+plan: PlanView | null; 
+/**
+ * The limits in force.
+ */
+limits: LimitsView; 
+/**
+ * What is held.
+ */
+usage: UsageView; 
+/**
+ * The storages of the account, in the order of the server.
+ */
+spaces: StorageView[] }
 /**
  * Links a section to stories (a world section) or a story to universes (the stories section).
  * Which one is decided by the section's role.
@@ -2027,6 +2065,30 @@ export type InitWorkshopRequest = { expectedGeneration: number; operationId: str
 export type InstalledModuleInfo = { moduleId: string; activeVersion: string; installedVersions: string[]; installPath: string; entryPath: string; sizeBytes: number }
 export type JsonValue = null | boolean | number | string | JsonValue[] | Partial<{ [key in string]: JsonValue }>
 export type LayerResult = { notePath: string; layerPath: string; kind: string; pathChanges: PathChange[] }
+/**
+ * The limits in force; `None` is "no limit".
+ */
+export type LimitsView = { 
+/**
+ * The most spaces.
+ */
+maxSpaces: number | null; 
+/**
+ * The quota of sealed bytes in all spaces.
+ */
+maxTotalBytes: number | null; 
+/**
+ * The largest file after sealing.
+ */
+maxFileBytes: number | null; 
+/**
+ * Days that replaced and deleted versions are kept.
+ */
+historyDays: number | null; 
+/**
+ * The ceiling of the history in bytes ("history 30 days, up to 1 GB").
+ */
+maxHistoryBytes: number | null }
 export type LinkGraph = { nodes: LinkGraphNode[]; edges: LinkGraphEdge[] }
 export type LinkGraphEdge = { source: string; target: string; label: string; unresolved?: boolean | null }
 export type LinkGraphNode = { id: string; label: string; unresolved?: boolean | null }
@@ -2159,6 +2221,23 @@ warning: string | null;
  */
 suggestions: string[] }
 export type PathChange = { oldPath: string; newPath: string }
+/**
+ * The plan of the user. `None` in [`AccountOverview::plan`] means "no plan" (an own server
+ * without plans, or a server that does not know the account request).
+ */
+export type PlanView = { 
+/**
+ * The key of the plan.
+ */
+name: string; 
+/**
+ * The label for people, if the plan has one.
+ */
+title: string | null; 
+/**
+ * The administrator pinned the user to this plan.
+ */
+pinned: boolean }
 /**
  * One file of a stop for a mass change (Р8, Д54).
  */
@@ -2404,6 +2483,35 @@ export type StopView =
  * The server speaks another protocol.
  */
 { kind: "incompatibleServer" }
+/**
+ * One storage (space) of the account.
+ */
+export type StorageView = { 
+/**
+ * The identifier (hex, 32 characters).
+ */
+spaceId: string; 
+/**
+ * The name; `None` when it cannot be read with this account key.
+ */
+name: string | null; 
+/**
+ * The latest versions, in sealed bytes.
+ */
+liveBytes: number; 
+/**
+ * The history, in sealed bytes.
+ */
+historyBytes: number; 
+/**
+ * The space of the vault that is open now.
+ */
+thisVault: boolean; 
+/**
+ * The name of the folder of a vault of this computer that is linked to this space (never the
+ * path); `None` when no known vault is.
+ */
+boundFolder: string | null }
 export type StorySummary = { storyId: string; workshopId: string; name: string; folderPath: string; cardPath: string; cardNoteId: string | null; databaseId: string | null; fileRevision: string; formatVersion: number; textJson: string | null; text: ProjectTextSummary | null }
 /**
  * A failed sync command: a stable machine code (the codes of table Б.0.1, the codes of
@@ -2558,14 +2666,23 @@ export type UnsyncedView = {
 path: string; 
 /**
  * `symlink`, `notUtf8`, `tooLarge`, `tooBigForMemory`, `excludedPath`, `invalidName`,
- * `caseCollision`, `nameCollision`, `pathBusy` or `noAccess`.
+ * `caseCollision`, `nameCollision`, `pathBusy`, `noAccess` or `quotaFull`.
  */
 reason: string; 
 /**
  * More about the reason: for `invalidName` the problem (`forbiddenChar`, `trailingDot`,
  * `reservedName`, `segmentTooLong`, `pathTooLong`), for `caseCollision` the other path.
  */
-detail: string | null }
+detail: string | null; 
+/**
+ * For `tooLarge` (appendix Е, Д74): the largest sealed body in force, in bytes. Optional on
+ * the interface side so that it can read a status without it.
+ */
+maxBytes?: number | null; 
+/**
+ * For `tooLarge`: `plan` or `server`, where the limit comes from.
+ */
+limitSource?: string | null }
 /**
  * A change to the settings of a Text, Number, Date or Formula property. Only the
  * fields that apply to the property's type may be set.
@@ -2621,6 +2738,26 @@ export type UpdatedDatabasePropertyOptions = { databaseId: string; propertyId: s
 options: DatabaseOptionResult[]; warnings: string[] }
 export type UpdatedTextLevels = { operationId: string; storyId: string; storyRevision: string; manifestRevision: string; levelIds: string[]; replayed: boolean; warnings: string[] }
 export type UpdatedWorkshop = { operationId: string; workshopId: string; name: string; icon: string | null; tags: string[]; workshopRevision: string; replayed: boolean; warnings: string[] }
+/**
+ * What the account holds, in sealed bytes.
+ */
+export type UsageView = { 
+/**
+ * The latest versions of the files.
+ */
+liveBytes: number; 
+/**
+ * Started uploads no version refers to yet.
+ */
+pendingBytes: number; 
+/**
+ * Replaced and deleted versions; not in the quota.
+ */
+historyBytes: number; 
+/**
+ * How many spaces.
+ */
+spaces: number }
 export type VaultPreflight = { notes: number; attachments: number; malformedFrontmatter: string[]; userManagedIds: string[]; duplicateIds: string[]; plannedIdWrites: string[]; unfinishedMigrations: IdMigrationRecovery[] }
 /**
  * The state of the sync of the open vault. No secrets.

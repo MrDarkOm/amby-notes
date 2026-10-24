@@ -108,16 +108,16 @@ fn a_body_goes_up_in_parts_and_resumes() {
     let blob = new_body();
     let part = 8 * 1024 * 1024usize;
     let sealed = pattern(part + 4321);
-    let started = remote.blob_start(&blob, sealed.len() as u64).unwrap();
+    let started = remote.blob_start(&blob, sealed.len() as u64, None).unwrap();
     assert!(!started.complete && started.uploaded.is_empty());
     remote.blob_put_part(&blob, 0, &sealed[..part]).unwrap();
-    let resumed = remote.blob_start(&blob, sealed.len() as u64).unwrap();
+    let resumed = remote.blob_start(&blob, sealed.len() as u64, None).unwrap();
     assert_eq!(resumed.uploaded, vec![0]);
     remote.blob_put_part(&blob, 1, &sealed[part..]).unwrap();
     remote.blob_complete(&blob).unwrap();
     assert!(
         remote
-            .blob_start(&blob, sealed.len() as u64)
+            .blob_start(&blob, sealed.len() as u64, None)
             .unwrap()
             .complete
     );
@@ -289,4 +289,58 @@ fn failures_of_the_client_read_as_the_engine_needs() {
             code: "blob_too_large".into()
         }
     );
+}
+
+// ----- appendix Е: the port knows the account, the credit and the drop of a body -----
+
+#[test]
+fn the_account_gives_the_engine_the_limits_and_the_room() {
+    // Д73, П61: the smaller file limit, the quota, and what is held.
+    let target = Target::in_process_with_plans(
+        r#"{"default_plan": "p", "plans": {"p": {"max_total_bytes": 10000, "max_file_bytes": 4000}}}"#,
+        |_| {},
+    );
+    let account = enroll(&target, "a long enough password for tests");
+    let space = account.create_space();
+    space.commit_ok(&[space.raw_file(&new_item(), 0, "a.md", 1_500)]);
+    space.init_blob(&new_body(), 300).expect(201);
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let client = SyncClient::new(&ServerUrl::parse(target.api.base(), true).unwrap()).unwrap();
+    let mut remote = HttpRemote::new(
+        runtime.handle().clone(),
+        client,
+        DeviceToken::new(account.token.clone()),
+        *space.id.as_bytes(),
+    );
+    let info = remote.account().unwrap();
+    assert_eq!(info.max_file_bytes, Some(4_000));
+    assert_eq!(info.max_total_bytes, Some(10_000));
+    assert_eq!(info.live_bytes, 1_500);
+    assert_eq!(info.pending_bytes, 300);
+}
+
+#[test]
+fn a_credit_hint_lets_a_replacement_in_and_an_abandoned_body_can_be_dropped() {
+    // П56-б, П56-д, Д75.
+    let target = Target::in_process_with(|config| config.quota_bytes_per_user = Some(10_000));
+    let account = enroll(&target, "a long enough password for tests");
+    let space = account.create_space();
+    let item = new_item();
+    space.commit_ok(&[space.raw_file(&item, 0, "a.md", 10_000)]);
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let client = SyncClient::new(&ServerUrl::parse(target.api.base(), true).unwrap()).unwrap();
+    let mut remote = HttpRemote::new(
+        runtime.handle().clone(),
+        client,
+        DeviceToken::new(account.token.clone()),
+        *space.id.as_bytes(),
+    );
+    let blob = new_body();
+    assert!(matches!(
+        remote.blob_start(&blob, 10_000, None),
+        Err(RemoteError::Rejected { status: 507, .. })
+    ));
+    remote.blob_start(&blob, 10_000, Some(&item)).unwrap();
+    remote.blob_delete(&blob).unwrap();
+    space.download(&blob).expect_error(404, "not_found");
 }

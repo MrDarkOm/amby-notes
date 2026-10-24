@@ -47,10 +47,11 @@ fn a_server_without_a_plans_file_shows_no_plan_and_only_its_ceilings() {
         overview["plan"],
         json!({"name": null, "title": null, "pinned": false})
     );
-    assert_eq!(
-        overview["limits"],
-        json!({"max_spaces": null, "max_total_bytes": 9_000, "max_file_bytes": 7_000, "history_days": 12})
-    );
+    let limits = &overview["limits"];
+    assert_eq!(limits["max_spaces"], Value::Null);
+    assert_eq!(limits["max_total_bytes"], 9_000);
+    assert_eq!(limits["max_file_bytes"], 7_000);
+    assert_eq!(limits["history_days"], 12);
     assert_eq!(
         overview["usage"],
         json!({"live_bytes": 0, "pending_bytes": 0, "history_bytes": 0, "spaces": 0})
@@ -80,9 +81,26 @@ fn a_user_without_a_pin_gets_the_default_plan_with_its_effective_limits() {
         overview["plan"],
         json!({"name": "small", "title": "Small", "pinned": false})
     );
+    let limits = &overview["limits"];
+    assert_eq!(limits["max_spaces"], 2);
+    assert_eq!(limits["max_total_bytes"], 10_000);
+    assert_eq!(limits["max_file_bytes"], 4_000);
+    assert_eq!(limits["history_days"], 10);
+}
+
+#[test]
+fn the_account_also_tells_the_ceiling_of_the_history() {
+    // GAP IN П61, found while writing the tests of У2: the line "История 30 дней, до 1 ГБ" needs
+    // `max_history_bytes` (П50), and `limits` of П61 does not list it. The tests ask for it as one
+    // more key of `limits`; `null` is no ceiling. To be confirmed by the reviewer.
+    let target = server();
+    let _ = in_process_or_skip!(target);
+    let account = enroll(&target, PASSWORD);
+    assert_eq!(account.overview()["limits"]["max_history_bytes"], 20_000);
+    target.cli_ok(&["user", "plan", "set", &account.username, "big"]);
     assert_eq!(
-        overview["limits"],
-        json!({"max_spaces": 2, "max_total_bytes": 10_000, "max_file_bytes": 4_000, "history_days": 10})
+        account.overview()["limits"]["max_history_bytes"],
+        Value::Null
     );
 }
 

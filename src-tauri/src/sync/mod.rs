@@ -12,6 +12,7 @@
 //! Neither the password nor a key nor a token nor the recovery code is written to the settings,
 //! to the vault or to a log (О1, Р5).
 
+pub mod account_types;
 pub mod app_hooks;
 pub mod clock;
 pub mod conflict_store;
@@ -79,6 +80,8 @@ pub fn deactivate_for_closed_vault(app: &tauri::AppHandle) {
     }
 }
 
+#[cfg(test)]
+mod account_overview_tests;
 #[cfg(test)]
 mod base_store_tests;
 #[cfg(test)]

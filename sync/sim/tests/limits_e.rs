@@ -308,6 +308,44 @@ fn d76_a_413_from_the_server_after_a_forecast_of_success_becomes_a_listed_reason
     assert!(w.server_files().contains_key("B/b-small.md"));
 }
 
+fn d76_a_413_from_the_commit_refuses_the_batch_and_the_next_pass_sends_what_fits(
+    _b: EngineBuilder,
+) {
+    // Д76, П60-3: both bodies are up; before the commit the plan shrinks under the big one; the
+    // server refuses the whole commit with 413. The pass does not fail, the big file stays and
+    // is listed, and the next pass sends the small one (the forecast now knows the limit).
+    let both = json!({
+        "default_plan": "wide",
+        "plans": {"wide": plan(Some(s(300_000)), None), "narrow": plan(Some(s(30_000)), None)}
+    })
+    .to_string();
+    let w = world(1, &both);
+    w.save(0, "Keep/k.md", "keep");
+    w.pass(0);
+    w.save(0, "A/a-big.bin", &text(100_000, 'a'));
+    w.save(0, "B/b-small.md", &text(1_000, 'b'));
+    let admin = w.target().admin.clone();
+    let name = w.accounts[0].username.clone();
+    w.dev(0).faults.before_remote(RemoteKind::Commit, move || {
+        assert_eq!(admin.run(&["user", "plan", "set", &name, "narrow"]).code, 0);
+    });
+    let report = w
+        .dev(0)
+        .sync()
+        .expect("a refused commit is not a failure of the pass");
+    assert_eq!(report.outcome, CycleOutcome::Done);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    assert!(w.dev(0).fs.exists("A/a-big.bin") && w.dev(0).fs.exists("B/b-small.md"));
+    w.pass(0);
+    let on_server = w.server_files();
+    assert!(on_server.contains_key("B/b-small.md"));
+    assert!(!on_server.contains_key("A/a-big.bin"));
+    assert!(matches!(
+        listed(&w, 0).as_slice(),
+        [(path, UnsyncedReason::TooLarge { .. })] if path == "A/a-big.bin"
+    ));
+}
+
 // ----- Д75: the quota is full -----
 
 /// Sealed size of the 25 000 byte files that fill the quota.
@@ -630,6 +668,7 @@ real_only!(
     d74_a_foreign_edit_of_a_file_that_waits_is_a_conflict_and_both_versions_are_kept,
     d73_without_the_account_the_old_behaviour_holds_and_the_pass_goes_on,
     d76_a_413_from_the_server_after_a_forecast_of_success_becomes_a_listed_reason,
+    d76_a_413_from_the_commit_refuses_the_batch_and_the_next_pass_sends_what_fits,
     d75_a_full_quota_stops_sending_and_keeps_the_file_receiving_goes_on,
     d75_what_waits_goes_up_when_room_appears,
     d75_deletions_renames_and_folders_go_when_the_quota_is_full,

@@ -44,3 +44,5 @@ and a way back from `.amby/trash/`.
 
 Tests sit beside the files. The manual check in a native window, against a server in Docker, is the
 section "Синхронизация" of [native-ui-smoke.md](../../../../docs/native-ui-smoke.md).
+
+Appendix Е (limits of plans; stubs until the code is written, contracts in the tests): [account-storage.tsx](account-storage.tsx) the storages of the account, plan and gauge (У1, У2, У4); [limit-notices.ts](limit-notices.ts) the cards of У3; sizes in decimal units [format-size.ts](../../../lib/sync/format-size.ts); tests `account-storage.test.tsx`, `sync-limits.test.tsx`.

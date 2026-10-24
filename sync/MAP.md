@@ -66,6 +66,22 @@ Inside [server/src/](server/src/lib.rs):
 | [admin.rs](server/src/admin.rs)                 | `user add                                                                                                     | list | remove`, `backup` (П38, П39) |
 | [main.rs](server/src/main.rs)                   | the command line, `serve` with cleanup every ten minutes, `healthcheck`                                       |
 
+Appendix Е (tariffs and limits; decisions П50–П62, Д73–Д78, У1–У5). Written **tests first**: the stubs below answer
+`not_implemented` / `501`, the tests are red as intended, another session writes the code with the tests frozen. Report with the
+table "requirement → test", the red run and the open points: [sync-plans-tests-report.md](../docs/Road/sync-plans-tests-report.md).
+`npm run sync:plans:red` groups the red tests of this workspace by reason (checks the list in
+[plans-red-manifest.json](plans-red-manifest.json) with [plans_red.py](plans_red.py); after the implementation `--expect-green`),
+`sync:plans:red:app` does the same for the application and vitest, `sync:plans:measure` is the measurement of the quota check (Е.10-7).
+
+| Path                                                                                                                                                                             | Owns                                                                                                                                 |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| [server/src/plans.rs](server/src/plans.rs)                                                                                                                                       | the plans file (П50–П52), `EffectiveLimits` (П54): stubs                                                                             |
+| [server/tests/plans.rs](server/tests/plans.rs), [migration.rs](server/tests/migration.rs)                                                                                        | parsing, resolution, ceilings; schema 1 → 2 (П58) with the hand-made fixture [common/legacy_v1.rs](server/tests/common/legacy_v1.rs) |
+| [conformance/tests/plans.rs](conformance/tests/plans.rs), `quota.rs`, `blobs.rs`, `limits.rs`, `spaces.rs`, `commits.rs`, `retention.rs`, `admin.rs`, `durability.rs`, `info.rs` | the rows of Е.9 on a running server; [measure.rs](conformance/tests/measure.rs) is the ignored measurement                           |
+| `admin::run_cli` in [server/src/admin.rs](server/src/admin.rs)                                                                                                                   | the commands `user plan …`, `plans …`, `space …` (П53): stub, `main.rs` forwards to it                                               |
+| [sim/tests/limits_e.rs](sim/tests/limits_e.rs), [sim/src/limits.rs](sim/src/limits.rs)                                                                                           | engine scenarios Д73–Д78 against the real server with plans; random scenarios with the six invariants of Е.9 and the history ceiling |
+| [client/tests/account.rs](client/tests/account.rs)                                                                                                                               | `SyncClient::account`, `blob_start_replacing`, `blob_delete` (stubs in `client/src/spaces.rs`)                                       |
+
 Running your own server: [server/README.md](server/README.md) and
 [server/docker-compose.yml](server/docker-compose.yml).
 

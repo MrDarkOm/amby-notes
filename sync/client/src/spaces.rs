@@ -49,6 +49,70 @@ pub struct SpaceEntry {
     pub created_ms: i64,
 }
 
+/// The plan of the user in `GET /v1/account` (П61).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountPlan {
+    /// The key of the plan; `None` when the server has no plans.
+    pub name: Option<String>,
+    /// The label for people.
+    pub title: Option<String>,
+    /// The administrator pinned the user to this plan.
+    pub pinned: bool,
+}
+
+/// The effective limits in `GET /v1/account`; `None` is no limit (П61).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountLimits {
+    /// Number of spaces.
+    pub max_spaces: Option<u64>,
+    /// Sealed bytes in all spaces.
+    pub max_total_bytes: Option<u64>,
+    /// The largest sealed body.
+    pub max_file_bytes: Option<u64>,
+    /// Days of history.
+    pub history_days: u64,
+    /// The ceiling of the history in bytes (П50); needed by the line of the plan in the
+    /// interface (У2). A key `limits.max_history_bytes` is asked of the server, see the report.
+    pub max_history_bytes: Option<u64>,
+}
+
+/// What the user holds, in sealed bytes (П55, П61).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountUsage {
+    /// The latest versions.
+    pub live_bytes: u64,
+    /// Started bodies no version refers to.
+    pub pending_bytes: u64,
+    /// Replaced and deleted versions before the cleanup; not in the quota.
+    pub history_bytes: u64,
+    /// Number of spaces.
+    pub spaces: u64,
+}
+
+/// A space in `GET /v1/account`: the entry of the listing and its sizes (П61).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountSpace {
+    /// The entry as `GET /v1/spaces` gives it.
+    pub entry: SpaceEntry,
+    /// The latest versions in this space.
+    pub live_bytes: u64,
+    /// The history of this space.
+    pub history_bytes: u64,
+}
+
+/// `GET /v1/account` (П61).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountView {
+    /// The plan.
+    pub plan: AccountPlan,
+    /// The limits in force.
+    pub limits: AccountLimits,
+    /// The usage.
+    pub usage: AccountUsage,
+    /// The spaces with their sizes.
+    pub spaces: Vec<AccountSpace>,
+}
+
 /// What `POST /v1/spaces` sends (П20).
 #[derive(Debug)]
 pub struct NewSpace<'a> {
@@ -535,5 +599,45 @@ impl SyncClient {
             name: String::new(),
             data: String::new(),
         })
+    }
+}
+
+impl SyncClient {
+    /// `GET /v1/account` (П61). A server without it answers `404 not_found`: the caller goes on
+    /// as before (Р13).
+    ///
+    /// STUB of the red-tests step of appendix Е: `not_implemented`.
+    pub async fn account(&self, token: &DeviceToken) -> Result<AccountView, ClientError> {
+        let _ = token;
+        unimplemented!("not_implemented: GET /v1/account")
+    }
+
+    /// `POST …/blobs` with the credit hint `replaces` (П56-б): the item whose current body the new
+    /// one replaces. Without a hint it is [`SyncClient::blob_start`].
+    ///
+    /// STUB of the red-tests step of appendix Е: `not_implemented`.
+    pub async fn blob_start_replacing(
+        &self,
+        token: &DeviceToken,
+        space: &[u8; 16],
+        blob: &BodyId,
+        size: u64,
+        replaces: &ItemId,
+    ) -> Result<BlobState, ClientError> {
+        let _ = (token, space, blob, size, replaces);
+        unimplemented!("not_implemented: POST …/blobs with replaces")
+    }
+
+    /// `DELETE …/blobs/{id}` (П56-д): drops an own body no version refers to.
+    ///
+    /// STUB of the red-tests step of appendix Е: `not_implemented`.
+    pub async fn blob_delete(
+        &self,
+        token: &DeviceToken,
+        space: &[u8; 16],
+        blob: &BodyId,
+    ) -> Result<(), ClientError> {
+        let _ = (token, space, blob);
+        unimplemented!("not_implemented: DELETE …/blobs/{{id}}")
     }
 }

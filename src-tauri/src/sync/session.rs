@@ -754,7 +754,8 @@ fn unsynced_view(record: &UnsyncedRecord) -> UnsyncedView {
     let (reason, detail) = match &record.reason {
         UnsyncedReason::Symlink => ("symlink", None),
         UnsyncedReason::NotUtf8 => ("notUtf8", None),
-        UnsyncedReason::TooLarge => ("tooLarge", None),
+        UnsyncedReason::TooLarge { .. } => ("tooLarge", None),
+        UnsyncedReason::QuotaFull => ("quotaFull", None),
         UnsyncedReason::TooBigForMemory => ("tooBigForMemory", None),
         UnsyncedReason::ExcludedPath => ("excludedPath", None),
         UnsyncedReason::InvalidName(problem) => (
@@ -775,10 +776,25 @@ fn unsynced_view(record: &UnsyncedRecord) -> UnsyncedView {
         UnsyncedReason::PathBusy => ("pathBusy", None),
         UnsyncedReason::NoAccess => ("noAccess", None),
     };
+    let (max_bytes, limit_source) = match &record.reason {
+        UnsyncedReason::TooLarge { max_bytes, source } => (
+            Some(*max_bytes),
+            Some(
+                match source {
+                    amby_sync_core::engine::LimitSource::Plan => "plan",
+                    amby_sync_core::engine::LimitSource::Server => "server",
+                }
+                .to_string(),
+            ),
+        ),
+        _ => (None, None),
+    };
     UnsyncedView {
         path: record.path.clone(),
         reason: reason.to_string(),
         detail,
+        max_bytes,
+        limit_source,
     }
 }
 
@@ -927,6 +943,7 @@ fn run_pass(shared: &Arc<Shared>, request: &CycleRequest) -> Outcome {
                 errors: Vec::new(),
                 outgoing_paused: false,
                 full_reconcile: false,
+                limits: amby_sync_core::engine::PassLimits::unknown(),
             }));
         }
         Err(error) => return Outcome::NoState(state_error(&error)),

@@ -10,6 +10,7 @@ use amby_sync_core::crypto::keys::{AccountKey, SpaceId, SpaceKey};
 use amby_sync_core::crypto::name::{open_space_name, seal_space_name};
 use amby_sync_core::crypto::random::{OsRandom, Random};
 
+use crate::sync::account_types::{AccountOverview, BoundVault};
 use crate::sync::types::SyncError;
 use crate::sync::vault_types::SpaceView;
 
@@ -179,4 +180,23 @@ pub async fn list_spaces(
             created_ms: entry.created_ms,
         })
         .collect())
+}
+
+/// The storages of the account with their plan, limits and sizes (appendix Е, У5): asks the
+/// server for `GET /v1/account`, opens every name with the key of the account (a name that does
+/// not open is `None` and does not spoil the list), marks the space of the open vault
+/// (`current`) and the spaces `bound` vaults of this computer are linked to. A server that does
+/// not know the request (`404`) gives an overview with `limits_known: false`: no plan, no
+/// limits, the spaces from the listing.
+///
+/// STUB of the red-tests step of appendix Е: `not_implemented`.
+pub async fn account_overview(
+    client: &SyncClient,
+    token: &DeviceToken,
+    account_key: &AccountKey,
+    current: Option<[u8; 16]>,
+    bound: &[BoundVault],
+) -> Result<AccountOverview, SyncError> {
+    let _ = (client, token, account_key, current, bound);
+    unimplemented!("not_implemented: sync_account_overview")
 }
