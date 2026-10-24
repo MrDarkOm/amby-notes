@@ -446,7 +446,6 @@ const ru = {
       history: "История",
       links: "Ссылки",
       graph: "Граф связей",
-      sync: "Синхронизация",
       ai: "AI",
       excalidraw: "Excalidraw",
       canvas: "Canvas",
@@ -458,7 +457,6 @@ const ru = {
         history: "Создаёт локальные версии заметок и позволяет восстановить прежнее содержимое.",
         links: "Показывает входящие и исходящие связи открытой заметки.",
         graph: "Открывает интерактивный граф связей между заметками.",
-        sync: "Подключение к своему серверу синхронизации. Заметки пока не передаются.",
         ai: "Локальные и облачные модели для работы с содержимым заметок.",
         excalidraw: "Быстрые зарисовки, схемы и скетчи от руки.",
         canvas: "Визуальная бесконечная доска с карточками заметок, связями и медиа.",
@@ -3156,7 +3154,7 @@ const ru = {
   sync: {
     title: "Синхронизация",
     intro:
-      "Подключение к вашему собственному серверу синхронизации. Всё шифруется на этом устройстве: сервер не видит ни заметок, ни имён файлов, ни пароля.",
+      "Вход в учётную запись и синхронизация заметок между устройствами. Всё шифруется на этом устройстве: сервер не видит ни заметок, ни имён файлов, ни пароля.",
     notYet:
       "Синхронизация заметок работает в тестовом режиме: включайте её только на хранилище, которое не жалко потерять. Мы ещё проверяем, что данные не потеряются.",
     wait: { seconds: "{{n}} с", minutes: "{{n}} мин", hours: "{{n}} ч" },
@@ -3365,6 +3363,11 @@ const ru = {
     },
     wizard: {
       server: {
+        choiceLabel: "Сервер",
+        amby: "Сервер Amby",
+        ambySoon: "скоро будет",
+        own: "Свой сервер",
+        guide: "Как поднять свой сервер",
         address: "Адрес сервера",
         placeholder: "https://sync.example.com",
         localNetwork: "Сервер в локальной сети (без https)",
@@ -3914,7 +3917,6 @@ const en: typeof ru = {
       history: "History",
       links: "Links",
       graph: "Link graph",
-      sync: "Sync",
       ai: "AI",
       excalidraw: "Excalidraw",
       canvas: "Canvas",
@@ -3926,7 +3928,6 @@ const en: typeof ru = {
         history: "Creates local note versions and restores earlier content.",
         links: "Shows incoming and outgoing links for the open note.",
         graph: "Opens an interactive graph of links between notes.",
-        sync: "Connects to your own sync server. Notes are not transferred yet.",
         ai: "Local and cloud models for working with note content.",
         excalidraw: "Hand-drawn diagrams, sketches, and visual notes.",
         canvas: "Visual infinite canvas with note cards, connections, and media.",
@@ -6612,7 +6613,7 @@ const en: typeof ru = {
   sync: {
     title: "Synchronization",
     intro:
-      "Connect to your own sync server. Everything is encrypted on this device: the server sees neither your notes nor file names nor your password.",
+      "Sign in to an account and sync your notes between devices. Everything is encrypted on this device: the server sees neither your notes nor file names nor your password.",
     notYet:
       "Synchronisation of notes works in a test mode: switch it on only for a vault you can afford to lose. We are still checking that no data is lost.",
     wait: { seconds: "{{n}} s", minutes: "{{n}} min", hours: "{{n}} h" },
@@ -6821,6 +6822,11 @@ const en: typeof ru = {
     },
     wizard: {
       server: {
+        choiceLabel: "Server",
+        amby: "Amby server",
+        ambySoon: "coming soon",
+        own: "Your own server",
+        guide: "How to set up your own server",
         address: "Server address",
         placeholder: "https://sync.example.com",
         localNetwork: "Server on the local network (no https)",

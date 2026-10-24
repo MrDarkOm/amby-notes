@@ -120,14 +120,6 @@ export const MODULE_REGISTRY: ModuleDef[] = [
     actions: ["network"],
   },
   {
-    id: "sync",
-    labelKey: "settings.modules.sync",
-    descriptionKey: "settings.modules.descriptions.sync",
-    status: "beta",
-    optIn: true,
-    manifest: { permissions: ["network", "secrets.use"] },
-  },
-  {
     id: "ai",
     labelKey: "settings.modules.ai",
     descriptionKey: "settings.modules.descriptions.ai",

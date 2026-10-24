@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/switch"
 import { syncErrorMessage } from "@/lib/sync/sync-errors"
 import { SyncPortError } from "@/lib/sync/sync-port"
 import type { PreparedAccountView, ServerCheck, SyncPort, SyncStatus } from "@/lib/sync/sync-port"
+import { openWebAddressInBrowser } from "../tiptap/external-open"
 import { NewPasswordFields } from "./password-fields"
 import { RecoveryCodeStep } from "./recovery-code-step"
 
@@ -21,6 +22,8 @@ export interface ConnectWizardProps {
 }
 
 type Step = "server" | "choice" | "create" | "signIn" | "recover" | "recovery"
+
+const SERVER_GUIDE_URL = "https://github.com/MrDarkOm/amby-notes/blob/main/sync/server/README.md"
 
 function Field({
   label,
@@ -245,6 +248,20 @@ export function ConnectWizard({
   if (step === "server") {
     return form(
       <>
+        <fieldset className="space-y-2">
+          <legend className="mb-1 text-[12px] font-medium">
+            {t("sync.wizard.server.choiceLabel")}
+          </legend>
+          <label className="flex items-center gap-2 text-[13px] text-muted-foreground">
+            <input type="radio" name="sync-server" disabled checked={false} readOnly />
+            {t("sync.wizard.server.amby")}
+            <span className="text-[11px]">({t("sync.wizard.server.ambySoon")})</span>
+          </label>
+          <label className="flex items-center gap-2 text-[13px]">
+            <input type="radio" name="sync-server" checked readOnly />
+            {t("sync.wizard.server.own")}
+          </label>
+        </fieldset>
         <Field label={t("sync.wizard.server.address")}>
           {(id) => (
             <Input
@@ -275,9 +292,19 @@ export function ConnectWizard({
           </p>
         )}
         <ErrorLine message={error} />
-        <Button type="submit" size="sm" disabled={busy || url.trim() === ""}>
-          {busy ? t("sync.wizard.server.checking") : t("sync.wizard.server.check")}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="submit" size="sm" disabled={busy || url.trim() === ""}>
+            {busy ? t("sync.wizard.server.checking") : t("sync.wizard.server.check")}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => void openWebAddressInBrowser(SERVER_GUIDE_URL)}
+          >
+            {t("sync.wizard.server.guide")}
+          </Button>
+        </div>
       </>,
       () => void checkServer(),
     )

@@ -126,7 +126,6 @@ export const MODULE_ID_MAP: Record<string, string> = {
   history: "amby.history",
   links: "amby.links",
   graph: "amby.graph",
-  sync: "amby.sync",
   ai: "amby.ai",
   excalidraw: "amby.excalidraw",
   canvas: "amby.canvas",
