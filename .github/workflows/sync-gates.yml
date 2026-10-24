@@ -23,7 +23,9 @@ concurrency:
 
 env:
   # Keep in sync with the matrices below: the summary job fails when fewer jobs delivered results.
-  MUTANT_SHARDS: 20
+  # 64 shards: a mutant costs ~4 min (rebuild + the sim tests), so ~24 per shard stays far below the
+  # 345-minute cut (20 shards of ~75 were cut on the first trial run, 24.10).
+  MUTANT_SHARDS: 64
   SIM_JOBS: 20
   # A simulation job starts SIM_PROCESSES runners (one per CPU of the runner); each runner takes
   # SIM_SCENARIOS seeds in `quick` mode, then the same seeds in `folders` mode.
@@ -41,7 +43,73 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+        shard:
+          [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54,
+            55,
+            56,
+            57,
+            58,
+            59,
+            60,
+            61,
+            62,
+            63,
+          ]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Set up Rust stable
