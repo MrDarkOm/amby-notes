@@ -8,8 +8,10 @@
 //
 // <dir> holds one sub-directory per downloaded artifact. Mutants: `<dir>/*/outcomes.json` of
 // cargo-mutants. Simulation: `<dir>/*/*.log` of `amby-sync-simrun`.
+import console from "node:console"
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import process from "node:process"
 
 const [mode, dir, expectedText, outFile] = process.argv.slice(2)
 const expected = Number(expectedText)
