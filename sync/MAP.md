@@ -51,6 +51,8 @@ Inside [server/src/](server/src/lib.rs):
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | [db.rs](server/src/db.rs)                       | SQLite in WAL mode, schema version and migrations (checked before and after), `instance_id`, fake-salt secret |
 | [store.rs](server/src/store.rs)                 | `BlobStore` (files under `blobs/`, parts, atomic join) and `UserStore` (database) behind traits               |
+| [plans.rs](server/src/plans.rs)                 | the plans file: strict parsing, effective limits under the server ceilings (appendix Е, П50–П54)              |
+| [quota.rs](server/src/quota.rs)                 | live / pending / history bytes by queries over the indexes, the plan of a user (П55, П61)                     |
 | [state.rs](server/src/state.rs)                 | `AppState`: settings, clock, stores, the broadcast channel for event streams                                  |
 | [config.rs](server/src/config.rs)               | `AMBY_SYNC_*` variables, the HTTPS rule                                                                       |
 | [app.rs](server/src/app.rs)                     | the router; unknown path and wrong method answer in JSON                                                      |
@@ -128,7 +130,7 @@ rules, sync; the rest is private to the engine):
 Inside [sim/](sim/src/lib.rs): `vfs.rs` (files in memory with history and trash), `world.rs` (server,
 account, devices), `fault.rs` (crashes, lost requests, lies of the server), `invariants.rs`
 (раздел 7), `scenario.rs` (random scenarios; `AMBY_SIM_SCENARIOS`, `AMBY_SIM_SEED`), `mini.rs` (the
-correct mini-engine and seven broken ones), `dsl.rs` (helpers for the directed tests in `sim/tests/`).
+correct mini-engine and seven broken ones), `limits.rs` + `broken_limits.rs` (scenarios of the limits of appendix Е and the broken engines they must catch), `dsl.rs` (helpers for the directed tests in `sim/tests/`).
 
 Stage Э4 (the engine in the application, light order: tests first, one session, one review). The real
 ports and the session are in [src-tauri/src/sync/](../src-tauri/src/sync/mod.rs) (`vault_fs.rs`,

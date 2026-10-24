@@ -504,8 +504,8 @@ pub(crate) async fn delete(
             Ok(())
         },
     )?;
-    Ok(Response::builder()
+    Response::builder()
         .status(StatusCode::NO_CONTENT)
         .body(Body::empty())
-        .map_err(ApiError::internal)?)
+        .map_err(ApiError::internal)
 }

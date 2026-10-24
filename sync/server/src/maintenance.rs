@@ -186,6 +186,9 @@ pub fn run(state: &AppState) -> Result<MaintenanceReport, MaintenanceError> {
     Ok(report)
 }
 
+/// A replaced version: space row, item, version number, body.
+type OldestVersion = (i64, Vec<u8>, i64, Option<Vec<u8>>);
+
 /// П57-д: for a user whose plan has `max_history_bytes`, removes the oldest replaced versions (by
 /// the time of the replacement, which for a deleted item is the time of the deletion) until the
 /// history is within the ceiling. Latest versions are never touched, and a body any version still
@@ -211,7 +214,7 @@ fn trim_histories(
         let mut history =
             crate::quota::user_usage(tx, user, crate::quota::pending_cutoff(state))?.history;
         while history > ceiling {
-            let oldest: Option<(i64, Vec<u8>, i64, Option<Vec<u8>>)> = tx
+            let oldest: Option<OldestVersion> = tx
                 .query_row(
                     "SELECT v.space, v.item_id, v.version, v.blob_id FROM versions v \
                      JOIN spaces s ON s.id = v.space \
