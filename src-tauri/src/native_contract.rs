@@ -43,7 +43,7 @@ fn manage_harness_sync(app: &tauri::App, app_data: &std::path::Path) {
     use crate::sync::connection::{ConnectionStore, FileConnectionStore, CONNECTION_FILE};
     use crate::sync::secrets::{KeyringStore, SecretStore};
     let secrets: Arc<dyn SecretStore> = if std::env::var_os("AMBY_NATIVE_REAL_KEYCHAIN").is_some() {
-        Arc::new(crate::sync::secrets::CachedSecrets::new(KeyringStore))
+        Arc::new(crate::sync::secrets::BundledSecrets::new(KeyringStore))
     } else {
         Arc::new(MemorySecrets::default())
     };
