@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import i18n from "@/lib/i18n"
+import { AMBY_SERVER_URL } from "@/lib/sync/amby-server"
 import { SyncPortError, unavailableSyncPort } from "@/lib/sync/sync-port"
 import { openWebAddressInBrowser } from "../tiptap/external-open"
 import { SyncSettings } from "./sync-settings"
@@ -31,6 +32,33 @@ async function connected(overrides: Partial<Parameters<typeof createFakePort>[0]
   return port
 }
 
+describe("the server in use", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("ru")
+  })
+  afterEach(cleanup)
+
+  it("says that the Amby server is used, and with its address", async () => {
+    const port = createFakePort({
+      status: async () => ({
+        ...CONNECTED,
+        serverUrl: AMBY_SERVER_URL,
+        host: new URL(AMBY_SERVER_URL).host,
+      }),
+    })
+    renderSettings(port)
+    expect(await screen.findByText(/Подключено к серверу Amby/)).toBeTruthy()
+    expect(
+      screen.getByText(new RegExp(new URL(AMBY_SERVER_URL).host.replace(/\./g, "\\."))),
+    ).toBeTruthy()
+  })
+
+  it("keeps showing the address of an own server", async () => {
+    await connected()
+    expect(screen.queryByText(/сервер[уа]? Amby/)).toBeNull()
+  })
+})
+
 describe("the Synchronization section of the settings", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("ru")
@@ -42,7 +70,7 @@ describe("the Synchronization section of the settings", () => {
     // passed; the section must not promise more (it used to say that notes do not travel at all)
     const port = createFakePort()
     renderSettings(port)
-    await screen.findByLabelText("Адрес сервера")
+    await screen.findByRole("radio", { name: /Сервер Amby/ })
     expect(document.body.textContent).toMatch(/в тестовом режиме/)
     expect(document.body.textContent).not.toMatch(/Заметки пока не синхронизируются/)
   })
@@ -53,14 +81,14 @@ describe("the Synchronization section of the settings", () => {
     expect(await screen.findByTestId("sync-vault")).toBeTruthy()
     cleanup()
     renderSettings(createFakePort())
-    await screen.findByLabelText("Адрес сервера")
+    await screen.findByRole("radio", { name: /Сервер Amby/ })
     expect(screen.queryByTestId("sync-vault")).toBeNull()
   })
 
   it("shows the connect wizard when the device is not connected", async () => {
     const port = createFakePort()
     renderSettings(port)
-    expect(await screen.findByLabelText("Адрес сервера")).toBeTruthy()
+    expect(await screen.findByRole("radio", { name: /Сервер Amby/ })).toBeTruthy()
     expect(screen.queryByText(/Подключено к/)).toBeNull()
   })
 
@@ -70,7 +98,7 @@ describe("the Synchronization section of the settings", () => {
     await screen.findByText("Mac mini")
     expect(screen.getByText("Ноутбук")).toBeTruthy()
     expect(screen.getByText("Неизвестное устройство")).toBeTruthy()
-    expect(screen.queryByLabelText("Адрес сервера")).toBeNull()
+    expect(screen.queryByRole("radio", { name: /Сервер Amby/ })).toBeNull()
   })
 
   it("marks this device and offers no disconnect for it", async () => {
@@ -114,7 +142,7 @@ describe("the Synchronization section of the settings", () => {
     port.status.mockResolvedValue(DISCONNECTED)
     click("Выйти на этом устройстве")
     await waitFor(() => expect(port.signOut).toHaveBeenCalledTimes(1))
-    expect(await screen.findByLabelText("Адрес сервера")).toBeTruthy()
+    expect(await screen.findByRole("radio", { name: /Сервер Amby/ })).toBeTruthy()
     expect(screen.queryByText(/Подключено к/)).toBeNull()
   })
 
@@ -136,7 +164,7 @@ describe("the Synchronization section of the settings", () => {
     renderSettings(port)
     port.status.mockResolvedValue(DISCONNECTED)
     expect((await screen.findByRole("alert")).textContent).toMatch(/отключено/)
-    expect(await screen.findByLabelText("Адрес сервера")).toBeTruthy()
+    expect(await screen.findByRole("radio", { name: /Сервер Amby/ })).toBeTruthy()
   })
 
   it("asks to sign in again when the key store lost the keys", async () => {
@@ -169,8 +197,9 @@ describe("the Synchronization section of the settings", () => {
   it("lists the devices again after the wizard connects", async () => {
     const port = createFakePort()
     renderSettings(port)
-    await screen.findByLabelText("Адрес сервера")
+    await screen.findByRole("radio", { name: /Сервер Amby/ })
     port.status.mockResolvedValue(CONNECTED)
+    fireEvent.click(screen.getByRole("radio", { name: /Свой сервер/ }))
     fireEvent.change(screen.getByLabelText("Адрес сервера"), {
       target: { value: "https://sync.example.com" },
     })
@@ -188,7 +217,7 @@ describe("the Synchronization section of the settings", () => {
   it("explains that the browser build cannot sync", async () => {
     render(<SyncSettings port={unavailableSyncPort} />)
     expect(await screen.findByText(/доступна только в приложении для компьютера/)).toBeTruthy()
-    expect(screen.queryByLabelText("Адрес сервера")).toBeNull()
+    expect(screen.queryByRole("radio", { name: /Сервер Amby/ })).toBeNull()
   })
 
   it("is also available in English", async () => {
@@ -216,14 +245,14 @@ describe("the Synchronization section of the settings", () => {
       expect(amby.checked).toBe(false)
       expect(document.body.textContent).toMatch(/скоро будет/)
       fireEvent.click(amby)
-      expect(screen.getByLabelText("Адрес сервера")).toBeTruthy()
+      expect(screen.getByRole("radio", { name: /Сервер Amby/ })).toBeTruthy()
     })
 
     it("has the own server selected, with the address field", async () => {
       renderSettings(createFakePort())
       const own = (await screen.findByRole("radio", { name: "Свой сервер" })) as HTMLInputElement
       expect(own.checked).toBe(true)
-      expect(screen.getByLabelText("Адрес сервера")).toBeTruthy()
+      expect(screen.getByRole("radio", { name: /Сервер Amby/ })).toBeTruthy()
     })
 
     it("opens the install guide of the server in the browser", async () => {
@@ -236,7 +265,7 @@ describe("the Synchronization section of the settings", () => {
 
     it("names the own server only on its option, in both languages", async () => {
       renderSettings(createFakePort())
-      await screen.findByLabelText("Адрес сервера")
+      await screen.findByRole("radio", { name: /Сервер Amby/ })
       expect(screen.getByText("Синхронизация").parentElement?.textContent).not.toMatch(/собственн/i)
       cleanup()
       await i18n.changeLanguage("en")
