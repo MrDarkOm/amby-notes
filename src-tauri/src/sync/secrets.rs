@@ -118,26 +118,194 @@ impl<S: SecretStore> SecretStore for CachedSecrets<S> {
     }
 }
 
-/// Stub: not yet bundling (tests first).
+/// Both secrets as the one key store entry [`SECRET_BUNDLE`]: a small versioned JSON value
+/// `{"v":1,"account_key":…,"device_token":…}`. One entry means one macOS Keychain prompt, not two.
+/// Callers keep using the logical names [`SECRET_ACCOUNT_KEY`] and [`SECRET_DEVICE_TOKEN`].
+///
+/// The entry is read once per run (a failed read is not remembered, so a denied prompt can be
+/// retried) and served from memory afterwards. One lock covers the store calls as well.
+///
+/// Migration from the former two entries never loses a sign-in: when the new entry is absent both
+/// old ones are read, the new one is written and read back, and only then are the old ones deleted.
+/// Any failure on the way keeps the old entries, and their values are still served this run. When the
+/// new entry exists it wins and the old names are not even read; a leftover is removed on sign-out.
+/// An unreadable new entry (bad JSON, unknown version) is never overwritten by a read: old entries,
+/// if there are any, serve this run, otherwise reading fails; a new sign-in replaces it and a
+/// sign-out removes it.
 pub struct BundledSecrets<S> {
     inner: S,
+    memory: std::sync::Mutex<Option<Bundle>>,
+}
+
+#[derive(Clone, Default, PartialEq, Eq)]
+struct Bundle {
+    account_key: Option<String>,
+    device_token: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StoredBundle {
+    v: u32,
+    account_key: Option<String>,
+    device_token: Option<String>,
+}
+
+const BUNDLE_VERSION: u32 = 1;
+
+/// Why the entry could not be loaded.
+enum LoadError {
+    /// The key store failed or was denied; nothing is known.
+    Unavailable,
+    /// The new entry cannot be understood and there is no old data to fall back on.
+    Corrupt,
+}
+
+impl Bundle {
+    fn parse(raw: &str) -> Option<Self> {
+        let stored: StoredBundle = serde_json::from_str(raw).ok()?;
+        (stored.v == BUNDLE_VERSION).then_some(Self {
+            account_key: stored.account_key,
+            device_token: stored.device_token,
+        })
+    }
+
+    fn to_json(&self) -> String {
+        serde_json::to_string(&StoredBundle {
+            v: BUNDLE_VERSION,
+            account_key: self.account_key.clone(),
+            device_token: self.device_token.clone(),
+        })
+        .unwrap_or_default()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.account_key.is_none() && self.device_token.is_none()
+    }
+
+    fn slot(&mut self, name: &str) -> Result<&mut Option<String>, SecretError> {
+        match name {
+            SECRET_ACCOUNT_KEY => Ok(&mut self.account_key),
+            SECRET_DEVICE_TOKEN => Ok(&mut self.device_token),
+            _ => Err(SecretError),
+        }
+    }
 }
 
 impl<S: SecretStore> BundledSecrets<S> {
     pub fn new(inner: S) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            memory: std::sync::Mutex::new(None),
+        }
+    }
+
+    fn read_old(&self) -> Result<Bundle, SecretError> {
+        Ok(Bundle {
+            account_key: self.inner.get(SECRET_ACCOUNT_KEY)?,
+            device_token: self.inner.get(SECRET_DEVICE_TOKEN)?,
+        })
+    }
+
+    /// Writes the entry and reads it back; anything but the exact bundle is an error.
+    fn write(&self, bundle: &Bundle) -> Result<(), SecretError> {
+        self.inner.set(SECRET_BUNDLE, &bundle.to_json())?;
+        match self
+            .inner
+            .get(SECRET_BUNDLE)?
+            .as_deref()
+            .and_then(Bundle::parse)
+        {
+            Some(stored) if stored == *bundle => Ok(()),
+            _ => Err(SecretError),
+        }
+    }
+
+    fn load(&self) -> Result<Bundle, LoadError> {
+        match self.inner.get(SECRET_BUNDLE) {
+            Err(_) => Err(LoadError::Unavailable),
+            Ok(Some(raw)) => match Bundle::parse(&raw) {
+                Some(bundle) => Ok(bundle),
+                None => {
+                    let old = self.read_old().map_err(|_| LoadError::Unavailable)?;
+                    if old.is_empty() {
+                        Err(LoadError::Corrupt)
+                    } else {
+                        Ok(old)
+                    }
+                }
+            },
+            Ok(None) => {
+                let old = self.read_old().map_err(|_| LoadError::Unavailable)?;
+                if !old.is_empty() && self.write(&old).is_ok() {
+                    // Only a verified new entry lets the old ones go; a failure here is harmless.
+                    let _ = self.inner.delete(SECRET_ACCOUNT_KEY);
+                    let _ = self.inner.delete(SECRET_DEVICE_TOKEN);
+                }
+                Ok(old)
+            }
+        }
+    }
+
+    fn memory(&self) -> std::sync::MutexGuard<'_, Option<Bundle>> {
+        self.memory
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The remembered bundle, loading it first. `Corrupt` is `None` for callers that replace it.
+    fn current(
+        &self,
+        memory: &mut Option<Bundle>,
+        replace_corrupt: bool,
+    ) -> Result<Bundle, SecretError> {
+        if let Some(bundle) = memory.as_ref() {
+            return Ok(bundle.clone());
+        }
+        match self.load() {
+            Ok(bundle) => {
+                *memory = Some(bundle.clone());
+                Ok(bundle)
+            }
+            Err(LoadError::Corrupt) if replace_corrupt => Ok(Bundle::default()),
+            Err(_) => Err(SecretError),
+        }
     }
 }
 
 impl<S: SecretStore> SecretStore for BundledSecrets<S> {
     fn get(&self, name: &str) -> Result<Option<String>, SecretError> {
-        self.inner.get(name)
+        Bundle::default().slot(name)?;
+        let mut memory = self.memory();
+        let mut bundle = self.current(&mut memory, false)?;
+        Ok(bundle.slot(name)?.clone())
     }
+
     fn set(&self, name: &str, value: &str) -> Result<(), SecretError> {
-        self.inner.set(name, value)
+        Bundle::default().slot(name)?;
+        let mut memory = self.memory();
+        let mut bundle = self.current(&mut memory, true)?;
+        *bundle.slot(name)? = Some(value.to_string());
+        self.write(&bundle)?;
+        *memory = Some(bundle);
+        Ok(())
     }
+
     fn delete(&self, name: &str) -> Result<(), SecretError> {
-        self.inner.delete(name)
+        Bundle::default().slot(name)?;
+        let mut memory = self.memory();
+        let mut bundle = self.current(&mut memory, true)?;
+        *bundle.slot(name)? = None;
+        if bundle.is_empty() {
+            // Old names first: if one cannot be removed the new entry stays, so the leftover
+            // can never come back as a sign-in after a sign-out.
+            self.inner.delete(SECRET_ACCOUNT_KEY)?;
+            self.inner.delete(SECRET_DEVICE_TOKEN)?;
+            self.inner.delete(SECRET_BUNDLE)?;
+        } else {
+            self.write(&bundle)?;
+        }
+        *memory = Some(bundle);
+        Ok(())
     }
 }
 
