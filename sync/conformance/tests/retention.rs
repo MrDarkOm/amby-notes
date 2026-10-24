@@ -649,10 +649,11 @@ mod plans {
         pin(&target, &account, "capped");
         let space = account.create_space();
         let (x, z) = (new_item(), new_item());
-        let first = space.raw_file(&x, 0, "x.md", 2000);
+        let content = vec![b'x'; 2000];
+        let first = space.file(&x, 0, "x.md", &content);
         let shared = first.body.unwrap();
         space.commit_ok(&[first]);
-        space.commit_ok(&[space.file_with_uploaded_body(&x, 1, "renamed.md", b"x", &shared)]);
+        space.commit_ok(&[space.file_with_uploaded_body(&x, 1, "renamed.md", &content, &shared)]);
         let z1 = space.raw_file(&z, 0, "z.md", 6000);
         let z_old = z1.body.unwrap();
         space.commit_ok(&[z1]);
@@ -665,7 +666,7 @@ mod plans {
             .iter()
             .find(|c| c["item_id"] == hex16_of(&x).as_str())
             .unwrap();
-        assert_eq!(space.fetch_file(renamed), b"x");
+        assert_eq!(space.fetch_file(renamed), content);
     }
 
     fn hex16_of(item: &ItemId) -> String {

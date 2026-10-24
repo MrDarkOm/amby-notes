@@ -471,11 +471,11 @@ fn d75_a_507_on_one_file_does_not_stop_the_others_and_is_not_repeated(_b: Engine
     w.dev(0)
         .faults
         .before_remote(RemoteKind::BlobStart, move || {
-            space.commit_ok(&[space.raw_file(
+            space.commit_ok(&[space.file(
                 &amby_sync_conformance::client::new_item(),
                 0,
                 "other.bin",
-                70_000,
+                text(70_000, 'o').as_bytes(),
             )]);
         });
     let report = w.dev(0).sync().expect("a 507 is not a failure of the pass");
@@ -589,26 +589,34 @@ fn d78_a_merge_result_that_does_not_fit_stays_local_and_the_server_keeps_the_old
     // keeps the other device's version, nothing is lost.
     let w = world(2, &plans(Some(s(30_000)), None));
     w.set_plan("roomy");
+    let base = format!(
+        "top\n{}\nmiddle\n{}\nbottom\n",
+        text(100, 'm'),
+        text(100, 'n')
+    );
     w.save(0, "Keep/k.md", "keep");
-    w.save(0, "Notes/a.md", "line one\nline two\n");
+    w.save(0, "Notes/a.md", &base);
     w.pass(0);
     w.pass(1);
     w.set_plan("tight");
-    w.save(0, "Notes/a.md", "line one\nline two\nfrom zero\n");
+    // Device 0 edits the top, device 1 the bottom: different places, so К1 merges cleanly.
+    // Each result fits the limit alone; the merge of the two does not.
+    let from_zero = format!("{}\n{}", text(16_000, 'a'), &base);
+    w.save(0, "Notes/a.md", &from_zero);
     w.pass(0);
-    let big = format!("line one\nline two\n{}\n", text(100_000, 'z'));
-    w.save(1, "Notes/a.md", &big);
+    let from_one = format!("{}{}\n", &base, text(16_000, 'z'));
+    w.save(1, "Notes/a.md", &from_one);
     w.pass(1);
     let local = w.read(1, "Notes/a.md").unwrap();
-    assert!(local.contains(&text(100_000, 'z')), "the long edit is kept");
+    assert!(local.contains(&text(16_000, 'z')), "the long edit is kept");
     assert!(
-        local.contains("from zero"),
-        "the other edit is merged in or kept in a set"
+        local.contains(&text(16_000, 'a')),
+        "the other edit is merged in"
     );
     assert!(w
         .server_files()
         .get("Notes/a.md")
-        .is_some_and(|content| content == b"line one\nline two\nfrom zero\n"));
+        .is_some_and(|content| content == from_zero.as_bytes()));
     assert!(listed(&w, 1)
         .iter()
         .any(|(p, r)| p == "Notes/a.md" && matches!(r, UnsyncedReason::TooLarge { .. })));
@@ -646,12 +654,21 @@ fn d78_deleting_a_file_that_never_reached_the_server_sends_nothing(_b: EngineBui
     w.save(0, "Keep/k.md", "keep");
     w.save(0, "Big/huge.bin", &text(100_000, 'h'));
     w.pass(0);
-    let head = w.server_head();
+    let on_server = |w: &World| {
+        w.server_items(false)
+            .into_iter()
+            .flat_map(|item| item.versions)
+            .filter(|v| v.header.path == "Big/huge.bin")
+            .count()
+    };
+    assert_eq!(on_server(&w), 0, "the big file never reached the server");
     w.dev(0).fs.user_delete("Big/huge.bin");
     let report = w.pass(0);
+    // The folder `Big` left empty may be sent (Д45); the file itself never: no version, no
+    // deletion record, no body.
     assert_eq!(
-        w.server_head(),
-        head,
+        on_server(&w),
+        0,
         "no deletion goes for an item the server never had"
     );
     assert!(listed(&w, 0).is_empty());
