@@ -45,9 +45,7 @@ fn unsynced(w: &World, d: usize) -> Vec<(String, UnsyncedReason)> {
 /// Runs `action` after the disk was looked at and before the decisions are applied: the user edits
 /// a file in the middle of a pass (С9).
 fn in_the_middle(w: &World, d: usize, action: impl FnOnce() + 'static) {
-    w.dev(d)
-        .faults
-        .before_remote(RemoteKind::Changes, action);
+    w.dev(d).faults.before_remote(RemoteKind::Changes, action);
 }
 
 // ----- a file that changed after the decision is never touched (С9) -----
@@ -98,7 +96,8 @@ fn sv_a_file_edited_while_the_pass_runs_is_not_overwritten(_b: EngineBuilder) {
     // by the decision made before it.
     assert_eq!(report.conflicts.len() + report.merged_paths.len(), 1);
     assert!(
-        w.others(1, "Notes/a.md").contains(&"edited late".to_string())
+        w.others(1, "Notes/a.md")
+            .contains(&"edited late".to_string())
             || w.read(1, "Notes/a.md").as_deref() == Some("edited late"),
         "the late edit is kept: {:?}",
         w.texts(1)
@@ -168,7 +167,9 @@ fn sv_a_text_file_that_is_not_a_note_is_never_merged(_b: EngineBuilder) {
 // ----- the bases of merges (Г6–Г10) -----
 
 fn lines(n: usize) -> String {
-    (0..n).map(|i| format!("line {i:05} of a big note\n")).collect()
+    (0..n)
+        .map(|i| format!("line {i:05} of a big note\n"))
+        .collect()
 }
 
 fn sv_a_big_note_keeps_its_base_and_is_merged_in_chunks(_b: EngineBuilder) {
@@ -247,7 +248,9 @@ fn sv_a_file_edited_while_the_pass_runs_is_not_kept_as_a_base(_b: EngineBuilder)
     w.save(1, "Keep/k.md", "keep");
     w.save(1, "Notes/m.md", "a\nb\nc\n");
     let fs = w.dev(1).fs.clone();
-    in_the_middle(&w, 1, move || fs.user_write("Notes/m.md", b"a\nb\nedited\n"));
+    in_the_middle(&w, 1, move || {
+        fs.user_write("Notes/m.md", b"a\nb\nedited\n")
+    });
     w.pass(1);
     let puts = w
         .dev(1)
@@ -316,7 +319,12 @@ fn sv_the_server_version_saved_by_a_resync_is_not_written_twice(_b: EngineBuilde
 
 fn sv_the_larger_item_waits_when_another_live_item_keeps_the_path(_b: EngineBuilder) {
     let w = pair_with_a(Engine::boxed);
-    w.inject_file(&ItemId::from_bytes([0xff; 16]), 0, "Notes/a.md", b"from the larger");
+    w.inject_file(
+        &ItemId::from_bytes([0xff; 16]),
+        0,
+        "Notes/a.md",
+        b"from the larger",
+    );
     let report = w.pass(1);
     assert_eq!(w.read(1, "Notes/a.md").as_deref(), Some("base"));
     assert!(report.conflicts.is_empty(), "{:?}", report.conflicts);
@@ -327,7 +335,12 @@ fn sv_the_larger_item_waits_when_another_live_item_keeps_the_path(_b: EngineBuil
 
 fn sv_the_smaller_item_takes_the_path_and_the_other_file_becomes_a_copy(_b: EngineBuilder) {
     let w = pair_with_a(Engine::boxed);
-    w.inject_file(&ItemId::from_bytes([0x00; 16]), 0, "Notes/a.md", b"from the smaller");
+    w.inject_file(
+        &ItemId::from_bytes([0x00; 16]),
+        0,
+        "Notes/a.md",
+        b"from the smaller",
+    );
     let report = w.pass(1);
     assert_eq!(w.read(1, "Notes/a.md").as_deref(), Some("from the smaller"));
     assert_eq!(report.conflicts.len(), 1, "{:?}", report.conflicts);
@@ -471,7 +484,12 @@ fn sv_a_new_item_takes_the_path_that_another_item_leaves_in_the_same_pass(_b: En
     let w = pair_with_a(Engine::boxed);
     w.dev(0).fs.user_rename("Notes/a.md", "Notes/q.md");
     w.pass(0);
-    w.inject_file(&ItemId::from_bytes([0xff; 16]), 0, "Notes/a.md", b"from the larger");
+    w.inject_file(
+        &ItemId::from_bytes([0xff; 16]),
+        0,
+        "Notes/a.md",
+        b"from the larger",
+    );
     let report = w.pass(1);
     assert_eq!(w.read(1, "Notes/q.md").as_deref(), Some("base"));
     assert_eq!(w.read(1, "Notes/a.md").as_deref(), Some("from the larger"));
@@ -561,9 +579,9 @@ fn sv_a_rename_onto_a_name_that_a_deletion_frees_in_the_same_pass_moves_nothing_
     w.dev(1).fs.clear_events();
     w.pass(1);
     w.pass(1);
-    let aside = disk_changes(&w, 1).into_iter().any(|e| {
-        matches!(e, FsEvent::Rename { ref to, .. } if to.contains("amby-swap"))
-    });
+    let aside = disk_changes(&w, 1)
+        .into_iter()
+        .any(|e| matches!(e, FsEvent::Rename { ref to, .. } if to.contains("amby-swap")));
     assert!(!aside, "{:?}", disk_changes(&w, 1));
     assert_eq!(w.read(1, "S/p.md").as_deref(), Some("QQQ"));
     assert!(!w.dev(1).fs.exists("S/q.md"));
@@ -604,7 +622,10 @@ fn sv_the_files_of_a_set_that_are_there_already_are_not_written_again(_b: Engine
             .collect();
         assert!(rewritten.is_empty(), "crash at call {n}: {rewritten:?}");
     }
-    assert!(found > 0, "no moment of the pass left a complete set behind");
+    assert!(
+        found > 0,
+        "no moment of the pass left a complete set behind"
+    );
 }
 
 // ----- decisions on the paths (Д41–Д51) -----
@@ -671,7 +692,11 @@ fn sv_a_parked_file_that_finds_its_place_is_not_a_restored_one(_b: EngineBuilder
     w.dev(1).fs.user_delete("Notes/n");
     let report = w.pass(1);
     assert_eq!(w.read(1, "Notes/n").as_deref(), Some("a file named n"));
-    assert!(report.restored_paths.is_empty(), "{:?}", report.restored_paths);
+    assert!(
+        report.restored_paths.is_empty(),
+        "{:?}",
+        report.restored_paths
+    );
     assert_eq!(report.downloaded, 1);
 }
 
@@ -751,7 +776,10 @@ fn sv_a_folder_renamed_by_the_server_that_we_deleted_is_made_where_the_server_ha
     w.pass(1);
     w.dev(0).fs.user_delete("F");
     w.pass(0);
-    assert!(w.dev(0).fs.is_dir("G"), "the rename of the other side stands");
+    assert!(
+        w.dev(0).fs.is_dir("G"),
+        "the rename of the other side stands"
+    );
     assert!(w.server_folders().contains("G"));
     assert!(!w.server_folders().contains("F"));
     w.finish(true);
@@ -881,9 +909,21 @@ fn sv_a_swap_of_two_names_with_an_independent_rename_is_finished() {
     w.pass(1);
     for d in 0..2 {
         let texts = w.texts(d);
-        assert_eq!(texts.get("S/a.md").map(String::as_str), Some("BBB"), "device {d}: {texts:?}");
-        assert_eq!(texts.get("S/b.md").map(String::as_str), Some("AAA"), "device {d}: {texts:?}");
-        assert_eq!(texts.get("S/d.md").map(String::as_str), Some("CCC"), "device {d}: {texts:?}");
+        assert_eq!(
+            texts.get("S/a.md").map(String::as_str),
+            Some("BBB"),
+            "device {d}: {texts:?}"
+        );
+        assert_eq!(
+            texts.get("S/b.md").map(String::as_str),
+            Some("AAA"),
+            "device {d}: {texts:?}"
+        );
+        assert_eq!(
+            texts.get("S/d.md").map(String::as_str),
+            Some("CCC"),
+            "device {d}: {texts:?}"
+        );
         assert!(texts.keys().all(|p| !p.contains("amby-swap")), "{texts:?}");
     }
 }

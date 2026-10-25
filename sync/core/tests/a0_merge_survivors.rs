@@ -131,7 +131,9 @@ fn an_edit_in_the_middle_of_a_long_note_does_not_touch_the_edges() {
     // The comparison cuts the common beginning and end: an edit at the first line, one at the last
     // line, one in the middle: three hunks of two sides.
     let base = lines("L", 12);
-    let local = base.replacen("L0\n", "first\n", 1).replace("L11\n", "last\n");
+    let local = base
+        .replacen("L0\n", "first\n", 1)
+        .replace("L11\n", "last\n");
     let remote = base.replacen("L6\n", "middle\n", 1);
     let got = clean(&base, &local, &remote);
     assert_eq!(
@@ -243,18 +245,10 @@ fn only_blanks_may_follow_a_closing_fence() {
     }
     // Any other text after the fence: the line does not close the block.
     let base = "```\ncode\n``` x\ntail\n```\nafter\n";
-    conflict(
-        base,
-        &base.replace("tail", "T"),
-        &base.replace("code", "C"),
-    );
+    conflict(base, &base.replace("tail", "T"), &base.replace("code", "C"));
     // A longer fence closes a shorter one; a shorter one does not close a longer one.
     let base = "````\ncode\n```\ntail\n````\nafter\n";
-    conflict(
-        base,
-        &base.replace("tail", "T"),
-        &base.replace("code", "C"),
-    );
+    conflict(base, &base.replace("tail", "T"), &base.replace("code", "C"));
     let base = "```\ncode\n````\ntail\n";
     clean(base, &base.replace("code", "C"), &base.replace("tail", "T"));
 }
@@ -358,7 +352,11 @@ fn a_key_of_the_header_with_a_list_is_one_place_wherever_it_stands() {
     );
     // Keys without a list are single lines: they merge.
     assert_eq!(
-        clean(base, &base.replace("a: 1", "a: 9"), &base.replace("c: 3", "c: 8")),
+        clean(
+            base,
+            &base.replace("a: 1", "a: 9"),
+            &base.replace("c: 3", "c: 8")
+        ),
         "---\na: 9\nb: 2\nc: 8\ntags:\n  - x\n  - y\n---\nbody\n"
     );
     // The list at the very beginning.
@@ -379,10 +377,18 @@ fn a_key_with_a_block_of_text_runs_to_the_next_key() {
         &base.replace("  one", "  ONE"),
         &base.replace("  two", "  TWO"),
     );
-    conflict(base, &base.replace("- p", "- P"), &base.replace("- q", "- Q"));
+    conflict(
+        base,
+        &base.replace("- p", "- P"),
+        &base.replace("- q", "- Q"),
+    );
     // `next: 1` is not a part of `desc`.
     assert_eq!(
-        clean(base, &base.replace("  one", "  ONE"), &base.replace("next: 1", "next: 2")),
+        clean(
+            base,
+            &base.replace("  one", "  ONE"),
+            &base.replace("next: 1", "next: 2")
+        ),
         "---\ndesc: |\n  ONE\n\n  two\nnext: 2\nlist:\n- p\n- q\n---\nbody\n"
     );
 }
@@ -393,7 +399,11 @@ fn the_last_line_of_the_header_is_not_a_line_of_the_body() {
     // code in the note.
     let base = "---\nk: |\n  ```\n---\none\ntwo\nthree\n";
     assert_eq!(
-        clean(base, &base.replace("one", "ONE"), &base.replace("three", "THREE")),
+        clean(
+            base,
+            &base.replace("one", "ONE"),
+            &base.replace("three", "THREE")
+        ),
         "---\nk: |\n  ```\n---\nONE\ntwo\nTHREE\n"
     );
 }
@@ -482,16 +492,16 @@ fn an_insertion_inside_a_block_belongs_to_it() {
 #[test]
 fn two_edits_of_one_side_in_one_block_are_both_kept() {
     // The two hunks are widened to the same block and joined: the result is made of both.
-    let local = BLOCK
-        .replace("code-a", "A\nA2\nA3")
-        .replace("code-c", "C");
+    let local = BLOCK.replace("code-a", "A\nA2\nA3").replace("code-c", "C");
     let remote = BLOCK.replace("after", "AFTER");
     assert_eq!(
         clean(BLOCK, &local, &remote),
         "before\ntop\n```\nA\nA2\nA3\ncode-b\nC\n```\nbottom\nAFTER\n"
     );
     // The first edit is the longer one, the second is shorter.
-    let local = BLOCK.replace("code-a", "A").replace("code-c", "C\nC2\nC3\nC4");
+    let local = BLOCK
+        .replace("code-a", "A")
+        .replace("code-c", "C\nC2\nC3\nC4");
     assert_eq!(
         clean(BLOCK, &local, &remote),
         "before\ntop\n```\nA\ncode-b\nC\nC2\nC3\nC4\n```\nbottom\nAFTER\n"
@@ -520,7 +530,11 @@ fn an_edit_that_runs_into_a_block_pulls_the_whole_block_in() {
 fn several_places_are_widened_one_after_another() {
     // An edit that reaches the first block through a table that reaches the second.
     let base = "```\na\n```\n| x |\n| y |\n```\nb\n```\nend\n";
-    let local = base.replacen("```\na\n```\n| x |\n| y |\n```\nb\n```", "one\ntwo\nthree", 1);
+    let local = base.replacen(
+        "```\na\n```\n| x |\n| y |\n```\nb\n```",
+        "one\ntwo\nthree",
+        1,
+    );
     conflict(base, &local, &base.replace("\nb\n", "\nB\n"));
     conflict(base, &local, &base.replace("\na\n", "\nA\n"));
 }
@@ -555,10 +569,7 @@ fn an_edit_that_closes_the_file_conflicts_with_an_insertion_after_it() {
     conflict(base, local, remote);
     // Not at the end: no conflict.
     let base = "a\nb\nc\n";
-    assert_eq!(
-        clean(base, "A\nb\nc\n", "a\nb\nc\nd\n"),
-        "A\nb\nc\nd\n"
-    );
+    assert_eq!(clean(base, "A\nb\nc\n", "a\nb\nc\nd\n"), "A\nb\nc\nd\n");
 }
 
 #[test]

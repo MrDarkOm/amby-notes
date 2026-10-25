@@ -103,7 +103,10 @@ fn sv_the_time_of_a_file_goes_to_the_server_in_milliseconds(_b: EngineBuilder) {
     let ns = mtime_ns_of(&w, 0, "Notes/a.md");
     let header = &w.versions_at("Notes/a.md")[0].header;
     assert_eq!(header.mtime_ms, ns / 1_000_000);
-    assert!(ns / 1_000_000 > 0 && ns % 1_000_000 != 0, "the test is sharp");
+    assert!(
+        ns / 1_000_000 > 0 && ns % 1_000_000 != 0,
+        "the test is sharp"
+    );
 }
 
 fn sv_the_report_counts_what_the_pass_did(_b: EngineBuilder) {
@@ -232,7 +235,10 @@ fn sv_an_upload_in_the_middle_of_a_pass_does_not_forget_the_uploads_before_it(_b
     w.pass(0);
     assert!(w.dev(0).state.snapshot().uploads.is_empty());
     w.pass(1);
-    assert_eq!(w.read(1, "a1.md").as_deref(), Some(text_of(3_000, 'a').as_str()));
+    assert_eq!(
+        w.read(1, "a1.md").as_deref(),
+        Some(text_of(3_000, 'a').as_str())
+    );
     w.finish(false);
 }
 

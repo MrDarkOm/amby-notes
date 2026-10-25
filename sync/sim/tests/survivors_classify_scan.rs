@@ -31,7 +31,9 @@ fn text_of(n: usize) -> String {
 
 // ----- whole folders that move (Д13) -----
 
-fn sv_d13_a_folder_of_equal_files_moves_as_a_folder_whatever_else_is_in_the_vault(_b: EngineBuilder) {
+fn sv_d13_a_folder_of_equal_files_moves_as_a_folder_whatever_else_is_in_the_vault(
+    _b: EngineBuilder,
+) {
     // Two files of one content: only the rule of the whole folder can tell them apart. A record
     // that sorts after the folder (present, or gone in the same pass) must not hide the move.
     let w = pair_with_a(Engine::boxed);
@@ -91,7 +93,9 @@ fn sv_d13_a_new_short_file_with_the_content_of_a_moved_file_does_not_break_the_s
     w.finish(true);
 }
 
-fn sv_d13_a_folder_copied_to_two_places_is_not_guessed_to_be_moved_to_one_of_them(_b: EngineBuilder) {
+fn sv_d13_a_folder_copied_to_two_places_is_not_guessed_to_be_moved_to_one_of_them(
+    _b: EngineBuilder,
+) {
     // The folder is gone and two copies of it stand: which one is "the" moved folder is not
     // known; nothing is guessed (a deletion and creations, nothing is lost).
     let w = pair_with_a(Engine::boxed);
@@ -261,7 +265,8 @@ fn sv_d61_a_second_spelling_of_the_name_of_a_file_that_cannot_be_read_is_not_syn
     w.pass(0);
     let list = unsynced(&w, 0);
     assert!(
-        list.iter().any(|(_, r)| *r == UnsyncedReason::NameCollision),
+        list.iter()
+            .any(|(_, r)| *r == UnsyncedReason::NameCollision),
         "{list:?}"
     );
     assert_eq!(
