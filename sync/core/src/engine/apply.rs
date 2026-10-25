@@ -153,21 +153,21 @@ impl Engine {
                 break;
             }
             let mut next = Vec::new();
-            let mut progress = false;
             for m in pending {
                 match self.apply_move(&m, plan, ctx, report)? {
                     Step::Done => {
-                        progress = true;
                         for up in ancestors(&m.from) {
                             plan.cleanup.insert(up.to_string());
                         }
                     }
                     Step::Busy => next.push(m),
-                    Step::Skipped => progress = true,
+                    Step::Skipped => {}
                 }
             }
             pending = next;
-            if !pending.is_empty() && !progress && round < 2 {
+            // An independent rename must not delay breaking a cycle: the remaining two
+            // rounds are needed to move both files of a swap to their final names.
+            if !pending.is_empty() && round < 2 {
                 self.break_cycle(&mut pending)?;
             }
         }
