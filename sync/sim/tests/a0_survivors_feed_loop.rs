@@ -12,7 +12,6 @@ use common::*;
 use std::cell::Cell;
 use std::rc::Rc;
 
-
 fn sv_the_feed_is_read_once_and_ends(_b: EngineBuilder) {
     let w = two(Engine::boxed);
     // From the very first pass: the passes of the set-up would wait for ever too.

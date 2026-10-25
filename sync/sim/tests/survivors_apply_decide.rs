@@ -480,6 +480,22 @@ fn sv_a_file_renamed_and_edited_to_the_name_of_the_server_is_written_under_its_o
     assert_eq!(report.conflicts.len(), 1);
 }
 
+fn sv_a_version_the_feed_brings_again_is_not_a_new_version(_b: EngineBuilder) {
+    // The feed is read from the start again (the cursor was lost); the versions are the ones the
+    // state has. A local file that cannot be compared is no error then: nothing is new.
+    let w = pair_with_a(Engine::boxed);
+    w.save(0, "Big/x.md", &text_of(2_000, 'x'));
+    w.pass(0);
+    w.pass(1);
+    *w.dev(1).config_tweak.borrow_mut() = Some(Box::new(|c| c.max_file_bytes = 1_000));
+    let mut state = w.dev(1).state.snapshot();
+    state.cursor = 0;
+    w.dev(1).state.set(state);
+    let report = w.pass(1);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    assert_eq!(w.read(1, "Big/x.md").unwrap().len(), 2_000);
+}
+
 fn sv_a_new_item_takes_the_path_that_another_item_leaves_in_the_same_pass(_b: EngineBuilder) {
     let w = pair_with_a(Engine::boxed);
     w.dev(0).fs.user_rename("Notes/a.md", "Notes/q.md");
@@ -541,6 +557,11 @@ fn sv_two_files_that_swapped_names_arrive_swapped(_b: EngineBuilder) {
     rename_step(&w, "S/tmp.md", "S/b.md");
     let report = w.pass(1);
     assert_eq!(report.renamed, 2);
+    assert_eq!(
+        w.remote_calls(1, RemoteKind::Changes),
+        1,
+        "the swap is finished in the first attempt of the pass"
+    );
     assert_eq!(w.read(1, "S/a.md").as_deref(), Some("BBB"));
     assert_eq!(w.read(1, "S/b.md").as_deref(), Some("AAA"));
     assert!(unsynced(&w, 1).is_empty());
@@ -847,6 +868,7 @@ fn sv_a_file_renamed_and_edited_alike_on_both_sides_goes_to_the_name_of_the_serv
 fn unused(_: ConflictKind) {}
 
 real_only!(
+    sv_a_version_the_feed_brings_again_is_not_a_new_version,
     sv_a_file_renamed_and_edited_to_the_name_of_the_server_is_written_under_its_own_spelling,
     sv_a_conflict_that_another_computer_found_first_is_taken_from_the_server,
     sv_a_deletion_that_names_another_path_does_not_touch_the_file_that_stands_there,
