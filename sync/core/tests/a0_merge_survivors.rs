@@ -692,3 +692,145 @@ fn an_insertion_far_before_or_after_a_block_does_not_belong_to_it() {
         "head\nNEW\nx\ny\n| a |\n| b |\nz\n$$\nf\nG\n$$\nend\n"
     );
 }
+
+// ----- a second, plain implementation of the comparison, run against the merge -----
+
+/// The edits (base start, base end, side lines) of the usual longest-common-subsequence
+/// comparison with the same choices as the engine: the common beginning and end are cut off, and
+/// where the two ways are equally long the base line is skipped.
+fn reference_hunks(base: &[&str], side: &[&str]) -> Vec<(usize, usize, Vec<String>)> {
+    let mut pre = 0;
+    while pre < base.len() && pre < side.len() && base[pre] == side[pre] {
+        pre += 1;
+    }
+    let mut suf = 0;
+    while suf < base.len() - pre
+        && suf < side.len() - pre
+        && base[base.len() - 1 - suf] == side[side.len() - 1 - suf]
+    {
+        suf += 1;
+    }
+    let b = &base[pre..base.len() - suf];
+    let s = &side[pre..side.len() - suf];
+    let (n, m) = (b.len(), s.len());
+    let mut t = vec![vec![0usize; m + 1]; n + 1];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            t[i][j] = if b[i] == s[j] {
+                t[i + 1][j + 1] + 1
+            } else {
+                t[i + 1][j].max(t[i][j + 1])
+            };
+        }
+    }
+    let mut pairs: Vec<(usize, usize)> = (0..pre).map(|k| (k, k)).collect();
+    let (mut i, mut j) = (0, 0);
+    while i < n && j < m {
+        if b[i] == s[j] {
+            pairs.push((i + pre, j + pre));
+            i += 1;
+            j += 1;
+        } else if t[i + 1][j] >= t[i][j + 1] {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+    pairs.extend((0..suf).map(|k| (base.len() - suf + k, side.len() - suf + k)));
+    pairs.push((base.len(), side.len()));
+    let mut out = Vec::new();
+    let (mut pb, mut ps) = (0usize, 0usize);
+    for (mb, ms) in pairs {
+        if mb > pb || ms > ps {
+            out.push((pb, mb, side[ps..ms].iter().map(|l| l.to_string()).collect()));
+        }
+        pb = mb + 1;
+        ps = ms + 1;
+    }
+    out
+}
+
+#[test]
+fn the_merge_agrees_with_a_plain_comparison_on_notes_of_repeated_lines() {
+    let mut rng = Rng(0x1234_5678_9ABC_DEF1);
+    let mut conflicts = 0;
+    let mut cleans = 0;
+    for case in 0..6000 {
+        let n = 6 + rng.below(20) as usize;
+        let kinds = 2 + rng.below(2);
+        let base_lines: Vec<String> = (0..n)
+            .map(|_| format!("{}\n", ["A", "B", "C"][rng.below(kinds) as usize]))
+            .collect();
+        // The local side: a few random edits, anywhere.
+        let mut local_lines = base_lines.clone();
+        for _ in 0..1 + rng.below(4) {
+            let at = rng.below(local_lines.len() as u64 + 1) as usize;
+            match rng.below(3) {
+                0 if at < local_lines.len() => {
+                    local_lines.remove(at);
+                }
+                1 => {
+                    local_lines.insert(at, format!("{}\n", ["A", "B", "C"][rng.below(3) as usize]))
+                }
+                _ if at < local_lines.len() => {
+                    local_lines[at] = format!("{}\n", ["A", "B", "C"][rng.below(3) as usize])
+                }
+                _ => {}
+            }
+        }
+        // The remote side: one line replaced by a line that nothing else has.
+        let mid = rng.below(n as u64) as usize;
+        let mut remote_lines = base_lines.clone();
+        remote_lines[mid] = "R\n".into();
+        let (base, local, remote) = (
+            base_lines.concat(),
+            local_lines.concat(),
+            remote_lines.concat(),
+        );
+        if local == base {
+            continue;
+        }
+        let hunks = reference_hunks(
+            &base_lines.iter().map(String::as_str).collect::<Vec<_>>(),
+            &local_lines.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
+        let remote_hunk = (mid, mid + 1);
+        let overlaps = |h: &(usize, usize, Vec<String>)| {
+            // The ranges of the engine: touching is not overlapping; an insertion lies inside a
+            // range only strictly.
+            let (a, b) = (h.0, h.1);
+            if b > a {
+                a < remote_hunk.1 && remote_hunk.0 < b
+            } else {
+                remote_hunk.0 < a && a < remote_hunk.1
+            }
+        };
+        let got = run(&base, &local, &remote);
+        if hunks.iter().any(overlaps) {
+            conflicts += 1;
+            assert!(
+                matches!(got, MergeOutcome::Conflict(_)),
+                "case {case}: expected a conflict, got {got:?}\nbase {base:?}\nlocal {local:?}\nremote {remote:?}"
+            );
+        } else {
+            cleans += 1;
+            let mut expected: Vec<String> = Vec::new();
+            let mut at = 0;
+            let mut all: Vec<(usize, usize, Vec<String>)> = hunks.clone();
+            all.push((mid, mid + 1, vec!["R\n".to_string()]));
+            all.sort_by_key(|h| (h.0, h.1));
+            for (s, e, repl) in all {
+                expected.extend(base_lines[at..s].iter().cloned());
+                expected.extend(repl);
+                at = e;
+            }
+            expected.extend(base_lines[at..].iter().cloned());
+            assert_eq!(
+                got,
+                MergeOutcome::Clean(expected.concat().into_bytes()),
+                "case {case}\nbase {base:?}\nlocal {local:?}\nremote {remote:?}"
+            );
+        }
+    }
+    assert!(conflicts > 200 && cleans > 200, "{conflicts} {cleans}");
+}
