@@ -584,7 +584,25 @@ impl MiniEngine {
             }
         }
 
-        // An unconfirmed commit goes first (С2, Д7).
+        // The vault folder (Д55).
+        if self.ports.fs.root_state()? == RootState::Missing
+            && self.flaw != Flaw::EmptyVaultSendsDeletes
+        {
+            return Err(Flow::Stop(StopReason::VaultMissing));
+        }
+        let local = self.scan()?;
+        let live = state.items.values().filter(|r| !r.deleted).count();
+        if live > 0
+            && local.is_empty()
+            && !approvals.accept_empty_vault
+            && self.flaw != Flaw::EmptyVaultSendsDeletes
+        {
+            return Err(Flow::Stop(StopReason::VaultEmpty));
+        }
+
+        // An unconfirmed commit goes first (С2, Д7), but after the protection stops on the vault
+        // folder like in the real engine (Р8): a pass that stops sends nothing, not even a commit
+        // that was held back.
         if let Some(pending) = state.commit.clone() {
             match self
                 .ports
@@ -600,22 +618,6 @@ impl MiniEngine {
                 CommitReply::Conflict(_) => self.tx(vec![StateOp::SetCommit(None)])?,
             }
             state = self.st()?;
-        }
-
-        // The vault folder (Д55).
-        if self.ports.fs.root_state()? == RootState::Missing
-            && self.flaw != Flaw::EmptyVaultSendsDeletes
-        {
-            return Err(Flow::Stop(StopReason::VaultMissing));
-        }
-        let local = self.scan()?;
-        let live = state.items.values().filter(|r| !r.deleted).count();
-        if live > 0
-            && local.is_empty()
-            && !approvals.accept_empty_vault
-            && self.flaw != Flaw::EmptyVaultSendsDeletes
-        {
-            return Err(Flow::Stop(StopReason::VaultEmpty));
         }
 
         // The feed (Д14).

@@ -80,6 +80,8 @@ struct Staged {
 
 struct Inner {
     root_present: bool,
+    /// The listing fails with `NotFound` although the folder of the vault is there.
+    list_not_found: bool,
     nodes: BTreeMap<String, Node>,
     rules: NameRules,
     nfc_insensitive: bool,
@@ -140,6 +142,7 @@ impl Vfs {
     pub fn new(rules: NameRules) -> Self {
         Self(Rc::new(RefCell::new(Inner {
             root_present: true,
+            list_not_found: false,
             nodes: BTreeMap::new(),
             rules,
             nfc_insensitive: rules.case_insensitive,
@@ -390,6 +393,11 @@ impl Vfs {
     }
 
     /// The disk with the vault is unplugged or plugged back (Р8, С8).
+    /// Makes the listing fail with `NotFound` while the folder of the vault stays there.
+    pub fn set_list_not_found(&self, on: bool) {
+        self.0.borrow_mut().list_not_found = on;
+    }
+
     pub fn set_root_present(&self, present: bool) {
         self.0.borrow_mut().root_present = present;
     }
@@ -693,7 +701,7 @@ impl LocalFs for Vfs {
 
     fn list(&mut self) -> Result<Listing, FsError> {
         let mut inner = self.0.borrow_mut();
-        if !inner.root_present {
+        if !inner.root_present || inner.list_not_found {
             return Err(FsError::NotFound("the vault folder".into()));
         }
         Self::observe_all(&mut inner);
