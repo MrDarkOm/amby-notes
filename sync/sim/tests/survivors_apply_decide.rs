@@ -334,6 +334,139 @@ fn sv_the_smaller_item_takes_the_path_and_the_other_file_becomes_a_copy(_b: Engi
     assert_eq!(w.others(1, "Notes/a.md"), vec!["base".to_string()]);
 }
 
+fn sv_the_smaller_item_takes_the_path_even_when_the_item_that_gives_way_was_edited(
+    _b: EngineBuilder,
+) {
+    // The item that holds the path is edited on the server in the same pass (its path stays), so
+    // it does not "leave": the smaller item still gets the path and nothing is lost.
+    let w = pair_with_a(Engine::boxed);
+    w.inject_file(&ItemId::from_bytes([0; 16]), 0, "Notes/a.md", b"from B");
+    w.save(0, "Notes/a.md", "A2");
+    w.pass(0);
+    w.pass(1);
+    assert_eq!(w.read(1, "Notes/a.md").as_deref(), Some("from B"));
+    let all: Vec<String> = w
+        .texts(1)
+        .into_iter()
+        .filter(|(p, _)| p.starts_with(".amby/conflicts/") && !p.ends_with("meta.json"))
+        .map(|(_, t)| t)
+        .collect();
+    assert!(all.contains(&"A2".to_string()), "{all:?}");
+    assert!(all.contains(&"base".to_string()), "{all:?}");
+    w.finish(false);
+}
+
+fn sv_a_deletion_that_names_another_path_does_not_touch_the_file_that_stands_there(
+    _b: EngineBuilder,
+) {
+    // Another computer renamed X from A to B and deleted it; the version we see is the deletion,
+    // with the path B. A live item Y of ours stands at B: it has nothing to do with the deletion.
+    let w = pair_with_a(Engine::boxed);
+    let x = ItemId::from_bytes([0x00; 16]);
+    let y = ItemId::from_bytes([0xff; 16]);
+    w.inject_file(&x, 0, "Notes/x-old.md", b"xx");
+    w.inject_file(&y, 0, "Notes/y.md", b"yy");
+    w.pass(1);
+    assert_eq!(w.read(1, "Notes/x-old.md").as_deref(), Some("xx"));
+    w.inject_delete(&x, 1, "Notes/y.md");
+    let report = w.pass(1);
+    assert_eq!(w.read(1, "Notes/y.md").as_deref(), Some("yy"), "Y stays");
+    assert!(report.conflicts.is_empty(), "{:?}", report.conflicts);
+    assert!(!w.dev(1).fs.exists("Notes/x-old.md"), "X is deleted");
+    assert_eq!(report.trashed, 1);
+}
+
+fn sv_a_new_version_of_a_file_with_the_same_content_is_not_judged_by_its_name_again(
+    _b: EngineBuilder,
+) {
+    // Д71: the file here is too big for this computer to look at; a version of the server that
+    // changes nothing (a new time only) is not a reason to refuse it, and the item is an error of
+    // a local file that cannot be compared, as for any version.
+    let w = pair_with_a(Engine::boxed);
+    w.save(0, "Big/x.md", &text_of(2_000, 'x'));
+    w.pass(0);
+    w.pass(1);
+    let (item, version) = w.item_at("Big/x.md");
+    let mut header = w.versions_at("Big/x.md")[0].header.clone();
+    header.version = version + 1;
+    header.mtime_ms += 1;
+    let envelope = amby_sync_core::crypto::header::seal_header(
+        &w.vk,
+        &w.space_id,
+        &item,
+        &header,
+        &mut amby_sync_core::crypto::random::OsRandom,
+    )
+    .unwrap();
+    w.inject_raw(vec![commit_entry(
+        &item,
+        version,
+        &envelope,
+        header.body_id.as_ref(),
+        false,
+    )]);
+    *w.dev(1).config_tweak.borrow_mut() = Some(Box::new(|c| c.max_file_bytes = 1_000));
+    let report = w.pass(1);
+    assert_eq!(report.errors.len(), 1, "{:?}", report.errors);
+}
+
+fn sv_a_conflict_that_another_computer_found_first_is_taken_from_the_server(_b: EngineBuilder) {
+    // Two computers made the same edit; the first found the conflict and its set is on the
+    // server; the second finds the same set (the same name) among the incoming files and does not
+    // write it a second time.
+    let w = three(Engine::boxed);
+    w.save(0, "Keep/k.md", "keep");
+    w.dev(0).fs.user_write("Bin/x.bin", &[1, 2, 3]);
+    w.pass(0);
+    w.pass(1);
+    w.pass(2);
+    w.dev(0).fs.user_write("Bin/x.bin", &[1, 2, 3, 0]);
+    w.pass(0);
+    let local = vec![1u8, 2, 3, 1];
+    w.dev(1).fs.user_write("Bin/x.bin", &local);
+    w.dev(2).fs.user_write("Bin/x.bin", &local);
+    let first = w.pass(1);
+    assert_eq!(first.conflicts.len(), 1);
+    let second = w.pass(2);
+    assert_eq!(second.conflicts.len(), 1);
+    assert_eq!(second.conflicts[0].copy_path, first.conflicts[0].copy_path);
+    assert!(unsynced(&w, 2).is_empty(), "{:?}", unsynced(&w, 2));
+    assert_eq!(w.sets(2).len(), 1);
+    w.finish(false);
+}
+
+fn sv_a_file_renamed_and_edited_to_the_name_of_the_server_is_written_under_its_own_spelling(
+    _b: EngineBuilder,
+) {
+    // Both computers renamed the file to the same name and edited it differently; here the name
+    // is spelled in the other Unicode form (Linux keeps both), so the file is found by what the
+    // system gave and not by the name of the server.
+    let w = World::new(
+        Engine::boxed,
+        WorldOptions::new(2).with_fs(vec![Vfs::linux(), Vfs::linux()]),
+    );
+    w.save(0, "Keep/k.md", "keep");
+    w.save(0, "Notes/a.md", "base");
+    w.pass(0);
+    w.pass(1);
+    let composed = "Notes/\u{e9}.md";
+    let decomposed = "Notes/e\u{301}.md";
+    w.dev(0).fs.user_rename("Notes/a.md", composed);
+    w.save(0, composed, "from the server");
+    hinted(&w, 0, "Notes/a.md", composed);
+    w.dev(1).fs.user_rename("Notes/a.md", decomposed);
+    w.save(1, decomposed, "from here");
+    let report = hinted(&w, 1, "Notes/a.md", composed);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    assert_eq!(
+        w.read(1, decomposed).as_deref(),
+        Some("from the server"),
+        "{:?}",
+        w.texts(1).keys().collect::<Vec<_>>()
+    );
+    assert_eq!(report.conflicts.len(), 1);
+}
+
 fn sv_a_new_item_takes_the_path_that_another_item_leaves_in_the_same_pass(_b: EngineBuilder) {
     let w = pair_with_a(Engine::boxed);
     w.dev(0).fs.user_rename("Notes/a.md", "Notes/q.md");
@@ -370,6 +503,108 @@ fn sv_the_copy_of_a_conflict_goes_to_the_next_name_when_the_first_is_a_file_that
         w.dev(1).fs.content(&first).unwrap(),
         b"a file nobody can read".to_vec()
     );
+}
+
+// ----- cycles of renames and names that are about to be free (Д49) -----
+
+fn rename_step(w: &World, from: &str, to: &str) {
+    w.dev(0).fs.user_rename(from, to);
+    w.pass(0);
+}
+
+fn sv_two_files_that_swapped_names_arrive_swapped(_b: EngineBuilder) {
+    let w = pair_with_a(Engine::boxed);
+    w.save(0, "S/a.md", "AAA");
+    w.save(0, "S/b.md", "BBB");
+    w.pass(0);
+    w.pass(1);
+    rename_step(&w, "S/a.md", "S/tmp.md");
+    rename_step(&w, "S/b.md", "S/a.md");
+    rename_step(&w, "S/tmp.md", "S/b.md");
+    let report = w.pass(1);
+    assert_eq!(report.renamed, 2);
+    assert_eq!(w.read(1, "S/a.md").as_deref(), Some("BBB"));
+    assert_eq!(w.read(1, "S/b.md").as_deref(), Some("AAA"));
+    assert!(unsynced(&w, 1).is_empty());
+    w.finish(false);
+}
+
+fn sv_three_files_that_went_round_arrive_round(_b: EngineBuilder) {
+    let w = pair_with_a(Engine::boxed);
+    for (n, c) in [("a", "AAA"), ("b", "BBB"), ("c", "CCC")] {
+        w.save(0, &format!("S/{n}.md"), c);
+    }
+    w.pass(0);
+    w.pass(1);
+    rename_step(&w, "S/a.md", "S/tmp.md");
+    rename_step(&w, "S/b.md", "S/a.md");
+    rename_step(&w, "S/c.md", "S/b.md");
+    rename_step(&w, "S/tmp.md", "S/c.md");
+    w.pass(1);
+    assert_eq!(w.read(1, "S/a.md").as_deref(), Some("BBB"));
+    assert_eq!(w.read(1, "S/b.md").as_deref(), Some("CCC"));
+    assert_eq!(w.read(1, "S/c.md").as_deref(), Some("AAA"));
+    w.finish(false);
+}
+
+fn sv_a_rename_onto_a_name_that_a_deletion_frees_in_the_same_pass_moves_nothing_aside(
+    _b: EngineBuilder,
+) {
+    let w = pair_with_a(Engine::boxed);
+    w.save(0, "S/p.md", "PPP");
+    w.save(0, "S/q.md", "QQQ");
+    w.pass(0);
+    w.pass(1);
+    w.dev(0).fs.user_delete("S/p.md");
+    w.dev(0).fs.user_rename("S/q.md", "S/p.md");
+    w.pass(0);
+    w.dev(1).fs.clear_events();
+    w.pass(1);
+    w.pass(1);
+    let aside = disk_changes(&w, 1).into_iter().any(|e| {
+        matches!(e, FsEvent::Rename { ref to, .. } if to.contains("amby-swap"))
+    });
+    assert!(!aside, "{:?}", disk_changes(&w, 1));
+    assert_eq!(w.read(1, "S/p.md").as_deref(), Some("QQQ"));
+    assert!(!w.dev(1).fs.exists("S/q.md"));
+    w.finish(false);
+}
+
+// ----- files of a conflict that are there already (Д47, Г23) -----
+
+fn sv_the_files_of_a_set_that_are_there_already_are_not_written_again(_b: EngineBuilder) {
+    // The pass dies somewhere after the set of the conflict is made; the next pass finds it
+    // complete and writes nothing of it again, not even a snapshot of the same bytes.
+    let mut found = 0;
+    for n in 1..80 {
+        let w = pair_with_a(Engine::boxed);
+        w.dev(0).fs.user_write("Bin/x.bin", &[1, 2, 3]);
+        w.pass(0);
+        w.pass(1);
+        w.dev(0).fs.user_write("Bin/x.bin", &[1, 2, 3, 0]);
+        w.pass(0);
+        w.dev(1).fs.user_write("Bin/x.bin", &[1, 2, 3, 1]);
+        w.dev(1).faults.crash_at(n);
+        let _ = w.dev(1).sync();
+        if !w.dev(1).faults.is_dead() || w.sets(1).is_empty() {
+            continue;
+        }
+        if w.dev(1).fs.content("Bin/x.bin").unwrap() != vec![1, 2, 3, 1] {
+            continue; // the file was replaced already: nothing is left to do for the set
+        }
+        found += 1;
+        w.dev(1).fs.clear_events();
+        w.pass(1);
+        let rewritten: Vec<_> = w
+            .dev(1)
+            .fs
+            .events()
+            .into_iter()
+            .filter(|e| matches!(e, FsEvent::Publish { path, .. } if path.starts_with(".amby/conflicts/")))
+            .collect();
+        assert!(rewritten.is_empty(), "crash at call {n}: {rewritten:?}");
+    }
+    assert!(found > 0, "no moment of the pass left a complete set behind");
 }
 
 // ----- decisions on the paths (Д41–Д51) -----
@@ -584,6 +819,15 @@ fn sv_a_file_renamed_and_edited_alike_on_both_sides_goes_to_the_name_of_the_serv
 fn unused(_: ConflictKind) {}
 
 real_only!(
+    sv_a_file_renamed_and_edited_to_the_name_of_the_server_is_written_under_its_own_spelling,
+    sv_a_conflict_that_another_computer_found_first_is_taken_from_the_server,
+    sv_a_deletion_that_names_another_path_does_not_touch_the_file_that_stands_there,
+    sv_a_new_version_of_a_file_with_the_same_content_is_not_judged_by_its_name_again,
+    sv_the_smaller_item_takes_the_path_even_when_the_item_that_gives_way_was_edited,
+    sv_two_files_that_swapped_names_arrive_swapped,
+    sv_three_files_that_went_round_arrive_round,
+    sv_a_rename_onto_a_name_that_a_deletion_frees_in_the_same_pass_moves_nothing_aside,
+    sv_the_files_of_a_set_that_are_there_already_are_not_written_again,
     sv_the_larger_item_waits_when_another_live_item_keeps_the_path,
     sv_the_smaller_item_takes_the_path_and_the_other_file_becomes_a_copy,
     sv_a_new_item_takes_the_path_that_another_item_leaves_in_the_same_pass,

@@ -153,11 +153,13 @@ fn sv_an_empty_folder_deleted_or_renamed_keeps_the_version_the_server_gave(_b: E
     let (old, v_old) = w.item_at("Old");
     w.dev(0).fs.user_delete("Gone");
     w.pass(0);
-    w.dev(0).fs.user_rename("Old", "New");
-    w.pass(0);
+    // Before the next pass reads the commit back from the feed.
     let state = w.dev(0).state.snapshot();
     assert!(state.items[gone.as_bytes()].deleted);
     assert_eq!(state.items[gone.as_bytes()].version, v_gone + 1);
+    w.dev(0).fs.user_rename("Old", "New");
+    w.pass(0);
+    let state = w.dev(0).state.snapshot();
     assert_eq!(state.items[old.as_bytes()].version, v_old + 1);
     assert_eq!(state.items[old.as_bytes()].path, "New");
     let report = w.pass(1);
