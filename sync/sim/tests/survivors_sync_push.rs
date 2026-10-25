@@ -521,7 +521,91 @@ fn sv_a_base_is_read_when_both_sides_edited_a_note(_b: EngineBuilder) {
     assert!(base_gets(&w, 1) >= 1);
 }
 
+/// The entry of the version `version` of `item`, as the server once gave it.
+fn stale_entry(w: &World, item: &ItemId, version: u64) -> amby_sync_core::engine::ChangeEntry {
+    let versions = w.space(0).versions(item).expect(200).json();
+    let v = versions["versions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["version"].as_u64() == Some(version))
+        .unwrap_or_else(|| panic!("no version {version}"));
+    amby_sync_core::engine::ChangeEntry {
+        seq: v["seq"].as_u64().unwrap(),
+        item_id: *item,
+        version,
+        header: hex::decode(v["header"].as_str().unwrap()).unwrap(),
+        blob_id: v["blob_id"].as_str().map(|s| {
+            amby_sync_core::crypto::keys::BodyId::from_bytes(
+                hex::decode(s).unwrap().try_into().unwrap(),
+            )
+        }),
+        blob_size: v["blob_size"].as_u64(),
+        deleted: v["deleted"].as_bool().unwrap(),
+        device_id: [0; 16],
+        committed_ms: 0,
+    }
+}
+
+fn lie_with(w: &World, d: usize, entry: amby_sync_core::engine::ChangeEntry) {
+    w.dev(d).lies.borrow_mut().changes = Some(Box::new(move |mut page| {
+        page.changes.retain(|c| c.item_id != entry.item_id);
+        page.changes.push(entry.clone());
+        page
+    }));
+}
+
+fn sv_the_same_version_with_another_content_hash_stops(_b: EngineBuilder) {
+    // Р6, Д57: only the hash of the content is another.
+    let w = pair_with_a(Engine::boxed);
+    let (item, version) = w.item_at("Notes/a.md");
+    let mut entry = stale_entry(&w, &item, version);
+    let mut header = w.versions_at("Notes/a.md")[0].header.clone();
+    header.content_hash = Some([0x5a; 32]);
+    entry.header = amby_sync_core::crypto::header::seal_header(
+        &w.vk,
+        &w.space_id,
+        &item,
+        &header,
+        &mut SimRandom(7),
+    )
+    .unwrap();
+    lie_with(&w, 1, entry);
+    assert!(matches!(w.stop(1), StopReason::Rollback { .. }));
+}
+
+fn sv_the_same_version_with_another_body_stops(_b: EngineBuilder) {
+    // Р6, Д57: only the body is another (the same text, uploaded again).
+    let w = pair_with_a(Engine::boxed);
+    let (item, version) = w.item_at("Notes/a.md");
+    let other = amby_sync_core::crypto::keys::BodyId::from_bytes([0x66; 16]);
+    let sealed = amby_sync_core::crypto::body::seal_body(
+        &w.vk,
+        &other,
+        b"base",
+        &mut amby_sync_core::crypto::random::OsRandom,
+    )
+    .unwrap();
+    w.space(0).upload_sealed(&other, &sealed);
+    let mut entry = stale_entry(&w, &item, version);
+    let mut header = w.versions_at("Notes/a.md")[0].header.clone();
+    header.body_id = Some(other);
+    entry.blob_id = Some(other);
+    entry.header = amby_sync_core::crypto::header::seal_header(
+        &w.vk,
+        &w.space_id,
+        &item,
+        &header,
+        &mut SimRandom(7),
+    )
+    .unwrap();
+    lie_with(&w, 1, entry);
+    assert!(matches!(w.stop(1), StopReason::Rollback { .. }));
+}
+
 real_only!(
+    sv_the_same_version_with_another_content_hash_stops,
+    sv_the_same_version_with_another_body_stops,
     sv_a_quiet_pass_writes_nothing_and_the_cursor_is_the_head,
     sv_the_cursor_and_the_head_move_each_by_itself,
     sv_a_downloaded_file_gets_its_size_and_time_in_the_state,

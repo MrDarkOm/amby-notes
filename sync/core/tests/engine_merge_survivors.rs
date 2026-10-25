@@ -21,7 +21,7 @@ fn run(base: &str, local: &str, remote: &str) -> MergeOutcome {
     std::thread::spawn(move || {
         let _ = tx.send(merge_text(&b, &l, &r));
     });
-    rx.recv_timeout(Duration::from_secs(20))
+    rx.recv_timeout(Duration::from_secs(6))
         .unwrap_or_else(|_| panic!("the merge did not end (an endless loop) for {base:?}"))
 }
 
@@ -615,6 +615,39 @@ fn edits_in_two_far_segments_of_a_note_with_repeated_lines_are_both_kept() {
         assert_eq!(
             clean(&base, &local, &remote),
             join(&expected),
+            "case {case}: base {base:?}"
+        );
+    }
+}
+
+#[test]
+fn a_long_middle_of_repeated_lines_is_matched_in_order_between_two_far_edits() {
+    // One side edits the first and the last line, so the comparison has to match the whole middle,
+    // which is made of a few kinds of lines; the other side edits a line in the middle. A match of
+    // the middle that is not the longest one would make the first side's edits overlap it.
+    let mut rng = Rng(0x2545_F491_4F6C_DD1D);
+    for case in 0..800 {
+        let n = 12 + rng.below(30) as usize;
+        let kinds = if case % 2 == 0 { 2 } else { 3 };
+        let lines: Vec<String> = (0..n)
+            .map(|_| format!("{}\n", ["A", "B", "C"][rng.below(kinds) as usize]))
+            .collect();
+        let base = lines.concat();
+        let mid = 3 + rng.below((n - 6) as u64) as usize;
+        let mut local = lines.clone();
+        local[0] = "FIRST\n".into();
+        local[n - 1] = "LAST\n".into();
+        let mut remote = lines.clone();
+        remote[mid] = "MIDDLE\n".into();
+        let mut expected = local.clone();
+        expected[mid] = "MIDDLE\n".into();
+        let (local, remote) = (local.concat(), remote.concat());
+        if remote == base || local == base {
+            continue;
+        }
+        assert_eq!(
+            clean(&base, &local, &remote),
+            expected.concat(),
             "case {case}: base {base:?}"
         );
     }

@@ -8,6 +8,7 @@
 mod common;
 use common::*;
 
+use amby_sync_core::crypto::keys::ItemId;
 use amby_sync_core::crypto::primitives::blake3_hash;
 use amby_sync_core::engine::conflict_set::{set_id, set_paths};
 use amby_sync_core::engine::{ConflictKind, RenameHint, UnsyncedReason};
@@ -311,6 +312,66 @@ fn sv_the_server_version_saved_by_a_resync_is_not_written_twice(_b: EngineBuilde
     assert_eq!(w.read(0, "Notes/a.md").as_deref(), Some("local only"));
 }
 
+// ----- two live items at one path (Д49, Д71) -----
+
+fn sv_the_larger_item_waits_when_another_live_item_keeps_the_path(_b: EngineBuilder) {
+    let w = pair_with_a(Engine::boxed);
+    w.inject_file(&ItemId::from_bytes([0xff; 16]), 0, "Notes/a.md", b"from the larger");
+    let report = w.pass(1);
+    assert_eq!(w.read(1, "Notes/a.md").as_deref(), Some("base"));
+    assert!(report.conflicts.is_empty(), "{:?}", report.conflicts);
+    assert!(unsynced(&w, 1)
+        .iter()
+        .any(|(p, r)| p == "Notes/a.md" && *r == UnsyncedReason::PathBusy));
+}
+
+fn sv_the_smaller_item_takes_the_path_and_the_other_file_becomes_a_copy(_b: EngineBuilder) {
+    let w = pair_with_a(Engine::boxed);
+    w.inject_file(&ItemId::from_bytes([0x00; 16]), 0, "Notes/a.md", b"from the smaller");
+    let report = w.pass(1);
+    assert_eq!(w.read(1, "Notes/a.md").as_deref(), Some("from the smaller"));
+    assert_eq!(report.conflicts.len(), 1, "{:?}", report.conflicts);
+    assert_eq!(w.others(1, "Notes/a.md"), vec!["base".to_string()]);
+}
+
+fn sv_a_new_item_takes_the_path_that_another_item_leaves_in_the_same_pass(_b: EngineBuilder) {
+    let w = pair_with_a(Engine::boxed);
+    w.dev(0).fs.user_rename("Notes/a.md", "Notes/q.md");
+    w.pass(0);
+    w.inject_file(&ItemId::from_bytes([0xff; 16]), 0, "Notes/a.md", b"from the larger");
+    let report = w.pass(1);
+    assert_eq!(w.read(1, "Notes/q.md").as_deref(), Some("base"));
+    assert_eq!(w.read(1, "Notes/a.md").as_deref(), Some("from the larger"));
+    assert!(report.conflicts.is_empty(), "{:?}", report.conflicts);
+    assert!(unsynced(&w, 1).is_empty(), "{:?}", unsynced(&w, 1));
+}
+
+fn sv_the_copy_of_a_conflict_goes_to_the_next_name_when_the_first_is_a_file_that_cannot_be_read(
+    _b: EngineBuilder,
+) {
+    let w = pair_with_a(Engine::boxed);
+    w.dev(0).fs.user_write("Bin/x.bin", &[1, 2, 3]);
+    w.pass(0);
+    w.pass(1);
+    let (item, _) = w.item_at("Bin/x.bin");
+    w.dev(0).fs.user_write("Bin/x.bin", &[1, 2, 3, 0]);
+    w.pass(0);
+    let (_, version) = w.item_at("Bin/x.bin");
+    let local = vec![1u8, 2, 3, 1];
+    let id = set_id(&item, &blake3_hash(&local), version, None, 0);
+    let first = set_paths(&id, "Bin/x.bin").other;
+    w.dev(1).fs.user_write(&first, b"a file nobody can read");
+    w.dev(1).fs.set_access_denied(&first, true);
+    w.dev(1).fs.user_write("Bin/x.bin", &local);
+    let report = w.pass(1);
+    assert_eq!(report.conflicts.len(), 1);
+    assert_ne!(report.conflicts[0].copy_path, first);
+    assert_eq!(
+        w.dev(1).fs.content(&first).unwrap(),
+        b"a file nobody can read".to_vec()
+    );
+}
+
 // ----- decisions on the paths (Д41–Д51) -----
 
 fn sv_a_folder_record_over_a_local_file_waits(_b: EngineBuilder) {
@@ -523,6 +584,10 @@ fn sv_a_file_renamed_and_edited_alike_on_both_sides_goes_to_the_name_of_the_serv
 fn unused(_: ConflictKind) {}
 
 real_only!(
+    sv_the_larger_item_waits_when_another_live_item_keeps_the_path,
+    sv_the_smaller_item_takes_the_path_and_the_other_file_becomes_a_copy,
+    sv_a_new_item_takes_the_path_that_another_item_leaves_in_the_same_pass,
+    sv_the_copy_of_a_conflict_goes_to_the_next_name_when_the_first_is_a_file_that_cannot_be_read,
     sv_a_file_edited_while_the_pass_runs_is_not_trashed,
     sv_a_file_edited_while_the_pass_runs_is_not_renamed,
     sv_a_file_edited_while_the_pass_runs_is_not_overwritten,
