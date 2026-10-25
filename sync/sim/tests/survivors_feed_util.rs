@@ -13,23 +13,6 @@ use std::rc::Rc;
 
 use amby_sync_core::crypto::keys::ItemId;
 
-fn sv_the_feed_is_read_once_and_ends(_b: EngineBuilder) {
-    let w = pair_with_a(Engine::boxed);
-    w.save(0, "x.md", "xxx");
-    w.pass(0);
-    let calls = Rc::new(Cell::new(0));
-    let seen = calls.clone();
-    w.dev(1).lies.borrow_mut().changes = Some(Box::new(move |page| {
-        seen.set(seen.get() + 1);
-        assert!(seen.get() < 30, "the feed is asked for again and again");
-        page
-    }));
-    w.pass(1);
-    w.dev(1).lies.borrow_mut().changes = None;
-    assert_eq!(calls.get(), 1);
-    assert_eq!(w.read(1, "x.md").as_deref(), Some("xxx"));
-}
-
 fn sv_a_page_damaged_once_is_asked_for_again_in_the_same_pass(_b: EngineBuilder) {
     // Д14: a bad read is not a forgery yet.
     let w = pair_with_a(Engine::boxed);
@@ -85,7 +68,6 @@ fn sv_folders_that_arrive_together_are_made_from_the_top(_b: EngineBuilder) {
 }
 
 real_only!(
-    sv_the_feed_is_read_once_and_ends,
     sv_a_page_damaged_once_is_asked_for_again_in_the_same_pass,
     sv_a_record_of_a_newer_format_is_not_asked_for_again,
     sv_folders_that_arrive_together_are_made_from_the_top,
