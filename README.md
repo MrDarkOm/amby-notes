@@ -7,7 +7,7 @@
 **Notes that stay yours.**
 
 A calm, local-first workspace for notes, projects and stories.<br />
-Everything lives as plain Markdown files in a folder on your disk — no cloud, no accounts, no lock-in.
+Everything lives as plain Markdown files in a folder on your disk — always yours to open, move and keep.
 
 [![Latest release](https://img.shields.io/github/v/release/MrDarkOm/amby-notes?style=flat-square&color=8b5cf6&label=release)](https://github.com/MrDarkOm/amby-notes/releases/latest)
 [![Platforms](https://img.shields.io/badge/macOS%20·%20Windows%20·%20Linux-1c1c1c?style=flat-square)](#-download)
@@ -136,8 +136,7 @@ folder.
 
 ## 📂 Your files
 
-An Amby vault is an ordinary folder. Open any folder of Markdown — including an Obsidian vault — and
-sync it with whatever you already use: iCloud Drive, Dropbox, Syncthing or Git.
+An Amby vault is an ordinary folder. Open any folder of Markdown — including an Obsidian vault.
 
 ```text
 ~/Notes
