@@ -913,7 +913,6 @@ real_only!(
 /// independent rename is left half done under a service name. Red on the current engine, so it is
 /// ignored until the engine is mended; run it with `--ignored`.
 #[test]
-#[ignore = "a defect of the engine, not yet mended: see docs/Road/sync-gates-survivors-report.md"]
 fn sv_a_swap_of_two_names_with_an_independent_rename_is_finished() {
     let w = pair_with_a(Engine::boxed);
     w.save(0, "S/a.md", "AAA");
