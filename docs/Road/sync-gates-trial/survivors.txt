@@ -1,0 +1,223 @@
+# Выжившие мутанты пробного прогона 40105164912 (код eab5655, строки до тарифов)
+
+MISSED   core/src/crypto/header.rs:154:9: replace || with && in check_path
+MISSED   core/src/crypto/header.rs:194:40: replace | with ^ in hex_decode
+MISSED   core/src/crypto/header.rs:305:9: replace <impl Visitor<'de> for StrictVisitor>::visit_string -> Result<Value, E> with Ok(Default::default())
+MISSED   core/src/crypto/header.rs:309:9: replace <impl Visitor<'de> for StrictVisitor>::visit_none -> Result<Value, E> with Ok(Default::default())
+MISSED   core/src/crypto/header.rs:313:9: replace <impl Visitor<'de> for StrictVisitor>::visit_unit -> Result<Value, E> with Ok(Default::default())
+MISSED   core/src/crypto/padme.rs:17:12: replace < with <= in padme
+MISSED   core/src/crypto/recovery_code.rs:133:46: replace | with ^ in RecoveryCode::parse
+MISSED   core/src/crypto/recovery_code.rs:135:40: replace < with <= in RecoveryCode::parse
+MISSED   core/src/crypto/recovery_code.rs:30:52: replace | with ^ in data_symbols
+MISSED   core/src/crypto/recovery_code.rs:42:44: replace | with ^ in check_symbols
+MISSED   core/src/crypto/recovery_code.rs:42:72: replace | with ^ in check_symbols
+MISSED   core/src/engine/apply.rs:170:36: replace && with || in Engine::apply_plan
+MISSED   core/src/engine/apply.rs:170:49: replace && with || in Engine::apply_plan
+MISSED   core/src/engine/apply.rs:170:58: replace < with <= in Engine::apply_plan
+MISSED   core/src/engine/apply.rs:170:58: replace < with == in Engine::apply_plan
+MISSED   core/src/engine/apply.rs:197:30: replace match guard hash_of(&bytes) == expect with true in Engine::apply_plan
+MISSED   core/src/engine/apply.rs:215:36: replace += with *= in Engine::apply_plan
+MISSED   core/src/engine/apply.rs:262:36: replace && with || in Engine::remove_empty_folders
+MISSED   core/src/engine/apply.rs:298:58: replace == with != in Engine::break_cycle
+MISSED   core/src/engine/apply.rs:299:35: replace match guard next == index with true in Engine::break_cycle
+MISSED   core/src/engine/apply.rs:299:40: replace == with != in Engine::break_cycle
+MISSED   core/src/engine/apply.rs:303:23: replace += with *= in Engine::break_cycle
+MISSED   core/src/engine/apply.rs:304:26: replace > with == in Engine::break_cycle
+MISSED   core/src/engine/apply.rs:304:26: replace > with >= in Engine::break_cycle
+MISSED   core/src/engine/apply.rs:336:26: replace match guard hash_of(&bytes) == m.expect with true in Engine::apply_move
+MISSED   core/src/engine/apply.rs:351:34: replace match guard hash_of(&bytes) == occupant.hash with true in Engine::apply_move
+MISSED   core/src/engine/apply.rs:393:24: replace += with *= in Engine::apply_move
+MISSED   core/src/engine/apply.rs:428:30: replace match guard hash_of(&bytes) == existing.hash with true in Engine::apply_put
+MISSED   core/src/engine/apply.rs:459:31: replace && with || in Engine::apply_put
+MISSED   core/src/engine/apply.rs:556:27: replace += with *= in Engine::apply_put
+MISSED   core/src/engine/apply.rs:582:30: replace && with || in Engine::apply_keep
+MISSED   core/src/engine/apply.rs:61:27: replace + with * in <impl Write for StagedSink<'_>>::write
+MISSED   core/src/engine/apply.rs:707:29: replace match guard existing == bytes with false in Engine::put_file
+MISSED   core/src/engine/apply.rs:707:29: replace match guard existing == bytes with true in Engine::put_file
+MISSED   core/src/engine/apply.rs:707:38: replace == with != in Engine::put_file
+MISSED   core/src/engine/apply.rs:762:26: replace match guard hash_of(&bytes) == link.hash && base_eligible(&link.path, &bytes) with false in Engine::keep_base_of_file
+MISSED   core/src/engine/apply.rs:762:26: replace match guard hash_of(&bytes) == link.hash && base_eligible(&link.path, &bytes) with true in Engine::keep_base_of_file
+MISSED   core/src/engine/apply.rs:762:55: replace && with || in Engine::keep_base_of_file
+MISSED   core/src/engine/apply.rs:791:50: replace == with != in Engine::note_conflict
+MISSED   core/src/engine/apply.rs:83:34: replace * with + in write_all
+MISSED   core/src/engine/classify.rs:120:24: replace == with != in classify
+MISSED   core/src/engine/classify.rs:133:44: replace == with != in classify
+MISSED   core/src/engine/classify.rs:137:44: replace == with != in classify
+MISSED   core/src/engine/classify.rs:140:37: replace || with && in classify
+MISSED   core/src/engine/classify.rs:160:40: replace && with || in classify
+MISSED   core/src/engine/classify.rs:162:37: replace && with || in classify
+MISSED   core/src/engine/classify.rs:162:52: replace && with || in classify
+MISSED   core/src/engine/classify.rs:162:79: replace == with != in classify
+MISSED   core/src/engine/classify.rs:242:28: replace == with != in classify
+MISSED   core/src/engine/classify.rs:250:44: replace == with != in classify
+MISSED   core/src/engine/classify.rs:52:25: replace match guard scan.blocked.contains(&record.path) with false in classify
+MISSED   core/src/engine/classify.rs:77:28: replace == with != in classify
+MISSED   core/src/engine/conflict_set.rs:226:40: replace | with ^ in hex_decode
+MISSED   core/src/engine/decide.rs:1001:13: delete match arm Lc::Deleted in Decider<'a>::known_folder
+MISSED   core/src/engine/decide.rs:1006:25: replace match guard renamed with false in Decider<'a>::known_folder
+MISSED   core/src/engine/decide.rs:1006:25: replace match guard renamed with true in Decider<'a>::known_folder
+MISSED   core/src/engine/decide.rs:109:37: replace > with >= in decide
+MISSED   core/src/engine/decide.rs:109:52: replace && with || in decide
+MISSED   core/src/engine/decide.rs:156:33: replace && with || in Decider<'a>::item
+MISSED   core/src/engine/decide.rs:156:36: delete ! in Decider<'a>::item
+MISSED   core/src/engine/decide.rs:162:32: replace > with >= in Decider<'a>::item
+MISSED   core/src/engine/decide.rs:188:9: replace Decider<'a>::error with ()
+MISSED   core/src/engine/decide.rs:196:9: replace Decider<'a>::claim with ()
+MISSED   core/src/engine/decide.rs:215:51: replace > with >= in Decider<'a>::name_block
+MISSED   core/src/engine/decide.rs:300:17: replace || with && in Decider<'a>::copy_for
+MISSED   core/src/engine/decide.rs:301:17: replace || with && in Decider<'a>::copy_for
+MISSED   core/src/engine/decide.rs:324:9: replace Decider<'a>::link_base with ()
+MISSED   core/src/engine/decide.rs:383:27: replace match guard self.by_path.contains_key(target.as_str()) with false in Decider<'a>::new_item
+MISSED   core/src/engine/decide.rs:390:29: delete ! in Decider<'a>::new_item
+MISSED   core/src/engine/decide.rs:391:21: replace && with || in Decider<'a>::new_item
+MISSED   core/src/engine/decide.rs:395:26: replace && with || in Decider<'a>::new_item
+MISSED   core/src/engine/decide.rs:395:49: replace > with < in Decider<'a>::new_item
+MISSED   core/src/engine/decide.rs:395:49: replace > with == in Decider<'a>::new_item
+MISSED   core/src/engine/decide.rs:395:49: replace > with >= in Decider<'a>::new_item
+MISSED   core/src/engine/decide.rs:508:47: replace || with && in Decider<'a>::new_folder
+MISSED   core/src/engine/decide.rs:531:40: replace && with || in Decider<'a>::known
+MISSED   core/src/engine/decide.rs:531:56: replace && with || in Decider<'a>::known
+MISSED   core/src/engine/decide.rs:540:44: replace > with >= in Decider<'a>::known
+MISSED   core/src/engine/decide.rs:559:44: replace < with <= in Decider<'a>::known
+MISSED   core/src/engine/decide.rs:602:33: replace && with || in Decider<'a>::known
+MISSED   core/src/engine/decide.rs:72:32: replace && with || in decide
+MISSED   core/src/engine/decide.rs:72:60: replace && with || in decide
+MISSED   core/src/engine/decide.rs:753:38: replace match guard same_content with false in Decider<'a>::known
+MISSED   core/src/engine/decide.rs:803:35: replace == with != in Decider<'a>::known
+MISSED   core/src/engine/decide.rs:80:55: delete ! in decide
+MISSED   core/src/engine/decide.rs:830:37: delete field existing from struct PutAct expression in Decider<'a>::known
+MISSED   core/src/engine/decide.rs:86:40: delete ! in decide
+MISSED   core/src/engine/decide.rs:959:23: replace == with != in Decider<'a>::occupant
+MISSED   core/src/engine/decide.rs:981:23: delete ! in Decider<'a>::known_folder
+MISSED   core/src/engine/decide.rs:981:36: replace && with || in Decider<'a>::known_folder
+MISSED   core/src/engine/decide.rs:981:48: replace != with == in Decider<'a>::known_folder
+MISSED   core/src/engine/decide.rs:981:9: replace Decider<'a>::known_folder with ()
+MISSED   core/src/engine/decide.rs:993:28: replace match guard renamed with false in Decider<'a>::known_folder
+MISSED   core/src/engine/decide.rs:993:28: replace match guard renamed with true in Decider<'a>::known_folder
+MISSED   core/src/engine/feed.rs:34:5: replace retriable -> bool with false
+MISSED   core/src/engine/feed.rs:34:5: replace retriable -> bool with true
+MISSED   core/src/engine/merge.rs:112:9: replace Hunk<'_>::is_insertion -> bool with true
+MISSED   core/src/engine/merge.rs:149:44: replace > with >= in diff
+MISSED   core/src/engine/merge.rs:158:26: replace + with * in diff
+MISSED   core/src/engine/merge.rs:158:43: replace + with * in diff
+MISSED   core/src/engine/merge.rs:160:26: replace + with * in diff
+MISSED   core/src/engine/merge.rs:160:31: replace * with + in diff
+MISSED   core/src/engine/merge.rs:160:31: replace * with / in diff
+MISSED   core/src/engine/merge.rs:170:15: replace += with *= in diff
+MISSED   core/src/engine/merge.rs:172:57: replace * with / in diff
+MISSED   core/src/engine/merge.rs:172:69: replace + with * in diff
+MISSED   core/src/engine/merge.rs:211:35: replace > with == in fence_open
+MISSED   core/src/engine/merge.rs:211:35: replace > with >= in fence_open
+MISSED   core/src/engine/merge.rs:225:35: replace > with == in fence_close
+MISSED   core/src/engine/merge.rs:225:35: replace > with >= in fence_close
+MISSED   core/src/engine/merge.rs:230:49: replace == with != in fence_close
+MISSED   core/src/engine/merge.rs:230:63: replace == with != in fence_close
+MISSED   core/src/engine/merge.rs:244:17: replace < with <= in places
+MISSED   core/src/engine/merge.rs:246:21: replace < with <= in places
+MISSED   core/src/engine/merge.rs:257:18: replace - with + in places
+MISSED   core/src/engine/merge.rs:257:18: replace - with / in places
+MISSED   core/src/engine/merge.rs:257:22: replace > with >= in places
+MISSED   core/src/engine/merge.rs:262:19: replace + with * in places
+MISSED   core/src/engine/merge.rs:262:19: replace + with - in places
+MISSED   core/src/engine/merge.rs:274:27: replace + with * in places
+MISSED   core/src/engine/merge.rs:275:21: replace < with <= in places
+MISSED   core/src/engine/merge.rs:278:18: replace - with + in places
+MISSED   core/src/engine/merge.rs:278:18: replace - with / in places
+MISSED   core/src/engine/merge.rs:278:22: replace > with >= in places
+MISSED   core/src/engine/merge.rs:292:27: replace += with *= in places
+MISSED   core/src/engine/merge.rs:292:27: replace += with -= in places
+MISSED   core/src/engine/merge.rs:310:32: replace > with < in widen
+MISSED   core/src/engine/merge.rs:310:32: replace > with >= in widen
+MISSED   core/src/engine/merge.rs:311:33: replace < with <= in widen
+MISSED   core/src/engine/merge.rs:313:24: replace < with <= in widen
+MISSED   core/src/engine/merge.rs:313:24: replace < with == in widen
+MISSED   core/src/engine/merge.rs:313:24: replace < with > in widen
+MISSED   core/src/engine/merge.rs:313:33: replace < with > in widen
+MISSED   core/src/engine/merge.rs:315:35: replace || with && in widen
+MISSED   core/src/engine/merge.rs:315:41: replace > with < in widen
+MISSED   core/src/engine/merge.rs:341:33: replace + with * in widen
+MISSED   core/src/engine/merge.rs:341:33: replace + with - in widen
+MISSED   core/src/engine/merge.rs:341:44: replace - with + in widen
+MISSED   core/src/engine/merge.rs:341:44: replace - with / in widen
+MISSED   core/src/engine/merge.rs:366:28: replace || with && in header_keys
+MISSED   core/src/engine/merge.rs:474:31: replace match guard ranges_overlap(*last, r) with false in merge_text
+MISSED   core/src/engine/merge.rs:94:5: replace leading_blanks -> usize with 0
+MISSED   core/src/engine/push.rs:150:35: replace += with *= in Engine::push
+MISSED   core/src/engine/push.rs:150:35: replace += with -= in Engine::push
+MISSED   core/src/engine/push.rs:166:83: replace + with - in Engine::push
+MISSED   core/src/engine/push.rs:168:35: replace += with *= in Engine::push
+MISSED   core/src/engine/push.rs:168:35: replace += with -= in Engine::push
+MISSED   core/src/engine/push.rs:178:17: delete match arm (ItemKind::Folder, Lc::Moved{to, ..}) in Engine::push
+MISSED   core/src/engine/push.rs:180:83: replace + with * in Engine::push
+MISSED   core/src/engine/push.rs:182:35: replace += with *= in Engine::push
+MISSED   core/src/engine/push.rs:182:35: replace += with -= in Engine::push
+MISSED   core/src/engine/push.rs:204:66: replace && with || in Engine::push
+MISSED   core/src/engine/push.rs:332:27: delete ! in Engine::push
+MISSED   core/src/engine/push.rs:335:12: delete ! in Engine::push
+MISSED   core/src/engine/push.rs:342:57: replace == with != in Engine::push
+MISSED   core/src/engine/push.rs:378:32: replace / with % in Engine::file_out
+MISSED   core/src/engine/push.rs:406:21: replace > with == in Engine::file_out
+MISSED   core/src/engine/push.rs:406:21: replace > with >= in Engine::file_out
+MISSED   core/src/engine/push.rs:420:29: replace += with *= in Engine::file_out
+MISSED   core/src/engine/push.rs:461:66: replace == with != in Engine::upload
+MISSED   core/src/engine/push.rs:464:49: replace != with == in Engine::upload
+MISSED   core/src/engine/push.rs:555:71: replace == with != in Engine::commit_accepted
+MISSED   core/src/engine/push.rs:62:46: replace != with == in Engine::push
+MISSED   core/src/engine/push.rs:62:64: replace || with && in Engine::push
+MISSED   core/src/engine/push.rs:67:34: replace != with == in Engine::push
+MISSED   core/src/engine/push.rs:67:66: replace != with == in Engine::push
+MISSED   core/src/engine/push.rs:76:12: delete ! in Engine::push
+MISSED   core/src/engine/push.rs:95:17: delete match arm (_, Lc::Same | Lc::Blocked) in Engine::push
+MISSED   core/src/engine/scan.rs:113:50: replace || with && in scan
+MISSED   core/src/engine/scan.rs:121:31: replace > with == in scan
+MISSED   core/src/engine/scan.rs:121:31: replace > with >= in scan
+MISSED   core/src/engine/scan.rs:129:71: replace > with >= in scan
+MISSED   core/src/engine/scan.rs:59:38: replace match guard fs.root_state()? == RootState::Missing with false in scan
+MISSED   core/src/engine/scan.rs:59:38: replace match guard fs.root_state()? == RootState::Missing with true in scan
+MISSED   core/src/engine/scan.rs:59:55: replace == with != in scan
+MISSED   core/src/engine/scan.rs:66:32: replace && with || in scan
+MISSED   core/src/engine/scan.rs:66:60: replace && with || in scan
+MISSED   core/src/engine/stream.rs:140:16: replace -= with /= in open_body_stream
+MISSED   core/src/engine/stream.rs:157:18: replace < with <= in read_up_to
+MISSED   core/src/engine/sync.rs:188:32: replace match guard known != info.instance_id with false in Engine::attempt
+MISSED   core/src/engine/sync.rs:208:36: replace && with || in Engine::attempt
+MISSED   core/src/engine/sync.rs:208:64: replace && with || in Engine::attempt
+MISSED   core/src/engine/sync.rs:252:36: replace && with || in Engine::attempt
+MISSED   core/src/engine/sync.rs:265:21: replace || with && in Engine::attempt
+MISSED   core/src/engine/sync.rs:266:21: replace || with && in Engine::attempt
+MISSED   core/src/engine/sync.rs:290:43: replace && with || in Engine::attempt
+MISSED   core/src/engine/sync.rs:371:16: delete ! in Engine::attempt
+MISSED   core/src/engine/sync.rs:402:56: replace == with != in Engine::attempt
+MISSED   core/src/engine/sync.rs:415:19: replace != with == in Engine::attempt
+MISSED   core/src/engine/sync.rs:415:35: replace || with && in Engine::attempt
+MISSED   core/src/engine/sync.rs:415:43: replace != with == in Engine::attempt
+MISSED   core/src/engine/sync.rs:415:57: replace || with && in Engine::attempt
+MISSED   core/src/engine/sync.rs:432:51: replace && with || in Engine::attempt
+MISSED   core/src/engine/sync.rs:432:63: replace == with != in Engine::attempt
+MISSED   core/src/engine/sync.rs:469:17: replace || with && in Engine::load_bases
+MISSED   core/src/engine/sync.rs:470:17: replace || with && in Engine::load_bases
+MISSED   core/src/engine/sync.rs:472:17: replace || with && in Engine::load_bases
+MISSED   core/src/engine/sync.rs:473:17: replace || with && in Engine::load_bases
+MISSED   core/src/engine/util.rs:45:5: replace depth -> usize with 0
+MISSED   core/src/engine/util.rs:45:5: replace depth -> usize with 1
+MISSED   core/src/engine/util.rs:71:9: replace <impl Random for FixedRandom>::fill with ()
+MISSED   core/src/engine/util.rs:73:21: replace += with *= in <impl Random for FixedRandom>::fill
+TIMEOUT  core/src/engine/feed.rs:100:16: delete ! in Engine::read_feed
+TIMEOUT  core/src/engine/merge.rs:139:13: replace += with *= in diff
+TIMEOUT  core/src/engine/merge.rs:146:13: replace += with *= in diff
+TIMEOUT  core/src/engine/merge.rs:173:15: replace += with *= in diff
+TIMEOUT  core/src/engine/merge.rs:175:15: replace += with *= in diff
+TIMEOUT  core/src/engine/merge.rs:245:27: replace + with * in places
+TIMEOUT  core/src/engine/merge.rs:255:19: replace += with *= in places
+TIMEOUT  core/src/engine/merge.rs:255:19: replace += with -= in places
+TIMEOUT  core/src/engine/merge.rs:268:19: replace += with *= in places
+TIMEOUT  core/src/engine/merge.rs:276:19: replace += with *= in places
+TIMEOUT  core/src/engine/merge.rs:295:15: replace += with *= in places
+TIMEOUT  core/src/engine/merge.rs:315:24: replace && with || in widen
+TIMEOUT  core/src/engine/merge.rs:315:31: replace < with <= in widen
+TIMEOUT  core/src/engine/merge.rs:315:31: replace < with == in widen
+TIMEOUT  core/src/engine/merge.rs:315:41: replace > with == in widen
+TIMEOUT  core/src/engine/merge.rs:315:41: replace > with >= in widen
+TIMEOUT  core/src/engine/merge.rs:321:16: delete ! in widen
+TIMEOUT  core/src/engine/stream.rs:161:23: replace match guard e.kind() == std::io::ErrorKind::Interrupted with true in read_up_to
+TIMEOUT  core/src/engine/stream.rs:161:32: replace == with != in read_up_to
