@@ -652,3 +652,32 @@ fn a_long_middle_of_repeated_lines_is_matched_in_order_between_two_far_edits() {
         );
     }
 }
+
+#[test]
+fn an_insertion_far_before_or_after_a_block_does_not_belong_to_it() {
+    let base = "head\nx\ny\ntop\n```\ncode-a\ncode-b\n```\nbottom\ntail\n";
+    let inside = base.replace("code-b", "B");
+    let before = base.replacen("head\n", "head\nNEW\n", 1);
+    assert_eq!(
+        clean(base, &before, &inside),
+        "head\nNEW\nx\ny\ntop\n```\ncode-a\nB\n```\nbottom\ntail\n"
+    );
+    let after = base.replacen("bottom\n", "bottom\nNEW\n", 1);
+    assert_eq!(
+        clean(base, &after, &inside),
+        "head\nx\ny\ntop\n```\ncode-a\nB\n```\nbottom\nNEW\ntail\n"
+    );
+    // The same before a table and a formula.
+    let base = "head\nx\ny\n| a |\n| b |\nz\n$$\nf\ng\n$$\nend\n";
+    let table = base.replace("| b |", "| B |");
+    let formula = base.replace("\ng\n", "\nG\n");
+    let insert = base.replacen("head\n", "head\nNEW\n", 1);
+    assert_eq!(
+        clean(base, &insert, &table),
+        "head\nNEW\nx\ny\n| a |\n| B |\nz\n$$\nf\ng\n$$\nend\n"
+    );
+    assert_eq!(
+        clean(base, &insert, &formula),
+        "head\nNEW\nx\ny\n| a |\n| b |\nz\n$$\nf\nG\n$$\nend\n"
+    );
+}
