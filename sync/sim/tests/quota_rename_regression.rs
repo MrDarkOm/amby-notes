@@ -111,8 +111,8 @@ fn quota_shrink_is_plain_even_when_growth_is_refused() {
     let server_files = w.server_files();
     assert_eq!(
         server_files.get("A/shrink.bin").map(Vec::as_slice),
-        Some(text(30_000, 'a').as_bytes()),
-        "baseline keeps the old version when it holds both bodies"
+        Some(text(20_000, 'b').as_bytes()),
+        "the smaller replacement must pass while growth waits"
     );
     assert!(!server_files.contains_key("B/growth.bin"));
     assert_eq!(
