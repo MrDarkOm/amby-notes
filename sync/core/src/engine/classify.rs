@@ -176,8 +176,22 @@ pub(super) fn classify(
             for path in &new_dirs {
                 if let Some(rel) = path.strip_prefix(&root_prefix) {
                     now.insert(rel.to_string(), None);
-                } else if *path == root {
-                    now.insert(String::new(), None);
+                }
+            }
+            // A folder once synchronised while empty keeps its record after files appear.
+            // Match those directory records too: `new_dirs` contains only empty directories.
+            for (rel, hash) in &old {
+                if hash.is_none() {
+                    let target = if rel.is_empty() {
+                        root.clone()
+                    } else {
+                        format!("{root}/{rel}")
+                    };
+                    if scan.dirs.contains_key(&target)
+                        && !folder_record_paths.contains(target.as_str())
+                    {
+                        now.insert(rel.clone(), None);
+                    }
                 }
             }
             if now == old {
@@ -259,9 +273,11 @@ pub(super) fn classify(
         }
     }
 
-    // 4. The rest is gone.
-    for record in missing.values() {
-        out.insert(*record.item_id.as_bytes(), Lc::Deleted);
+    // 4. The rest is gone. Several live records can temporarily share a path (Д71),
+    // while `missing` is keyed by path. Classify every base, including any record hidden
+    // by another at that path, so an absent file is never mistaken for an unchanged one.
+    for record in &live {
+        out.entry(*record.item_id.as_bytes()).or_insert(Lc::Deleted);
     }
     out
 }
