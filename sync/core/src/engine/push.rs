@@ -367,10 +367,10 @@ impl Engine {
                 ChunkOutcome::TooLarge(reason) => {
                     mark_too_large(chunk, &reason, &mut skipped);
                 }
-                ChunkOutcome::NoRoom => {
+                ChunkOutcome::NoRoom(waiting) => {
                     held = true;
                     report.limits.quota_full = true;
-                    mark_waiting(chunk, UnsyncedReason::QuotaFull, &mut skipped);
+                    mark_waiting(&waiting, UnsyncedReason::QuotaFull, &mut skipped);
                 }
             }
         }
@@ -700,16 +700,33 @@ impl Engine {
                 // Deletions, renames and folders never need room (Д75). A commit that mixes
                 // them with growth is sent again in two: the first goes through, the second keeps
                 // the record of what is being sent.
-                let (grow, plain): (Vec<Out>, Vec<Out>) = chunk
-                    .iter()
-                    .cloned()
-                    .partition(|out| out.blob.is_some() && !out.header.deleted);
+                let state = self.ports.state.load()?;
+                let (grow, plain): (Vec<Out>, Vec<Out>) = chunk.iter().cloned().partition(|out| {
+                    if out.blob.is_none() || out.header.deleted {
+                        return false;
+                    }
+                    // Forecast per-item growth (П56-в): a rename reuses its body and a
+                    // replacement may shrink it. The server can still refuse this forecast
+                    // when another item shares the old body; keep that pending commit below.
+                    let old_size = state
+                        .items
+                        .get(out.item.as_bytes())
+                        .filter(|base| !base.deleted && base.body_id.is_some())
+                        .and_then(|base| sealed_body_len(base.size).ok())
+                        .unwrap_or(0);
+                    sealed_body_len(out.header.size).unwrap_or(u64::MAX) > old_size
+                });
                 if grow.is_empty() || plain.is_empty() {
-                    return Ok(ChunkOutcome::NoRoom);
+                    return Ok(ChunkOutcome::NoRoom(chunk.to_vec()));
                 }
                 self.ports.state.apply(&vec![StateOp::SetCommit(None)])?;
-                self.commit_chunk(&plain, report)?;
-                self.commit_chunk(&grow, report)
+                match self.commit_chunk(&plain, report)? {
+                    ChunkOutcome::Sent => self.commit_chunk(&grow, report),
+                    // The forecast can differ from the server (for example, two items can
+                    // reference one body). Never replace a still-pending plain commit.
+                    ChunkOutcome::NoRoom(_) => Ok(ChunkOutcome::NoRoom(chunk.to_vec())),
+                    refused @ ChunkOutcome::TooLarge(_) => Ok(refused),
+                }
             }
             Err(error) => Err(error.into()),
         }
@@ -739,8 +756,8 @@ enum ChunkOutcome {
     Sent,
     /// Refused for the size of a body (`413`); the record of the commit is dropped.
     TooLarge(UnsyncedReason),
-    /// Refused for the quota (`507`); the record of the commit stays.
-    NoRoom,
+    /// Refused for the quota (`507`); only these changes still wait after a split commit.
+    NoRoom(Vec<Out>),
 }
 
 /// The files of a refused commit that carry a body wait on disk with the reason.
