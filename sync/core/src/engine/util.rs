@@ -83,3 +83,22 @@ pub(super) fn base_eligible(path: &str, bytes: &[u8]) -> bool {
         && !bytes.contains(&0)
         && std::str::from_utf8(bytes).is_ok()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::parent;
+
+    // Exercise the stopping condition directly: a constant Some result would make
+    // ancestors grow without bound before an integration test could report a failure.
+    #[test]
+    fn parent_stops_at_the_root_and_removes_one_component() {
+        for (path, expected) in [
+            ("", None),
+            ("note.md", None),
+            ("a/note.md", Some("a")),
+            ("a/b/note.md", Some("a/b")),
+        ] {
+            assert_eq!(parent(path), expected, "path: {path:?}");
+        }
+    }
+}
