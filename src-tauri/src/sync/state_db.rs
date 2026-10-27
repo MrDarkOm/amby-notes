@@ -26,14 +26,13 @@ use serde_json::{json, Value};
 /// The schema this build writes.
 pub const SCHEMA_VERSION: u32 = 1;
 
-/// Keys of the small table `meta` (ID of the device and of the space, the switch, the mark of a
-/// test vault, Р10).
+/// Keys of the small table `meta` (device, space, switch and legacy metadata, Р10).
 pub const META_DEVICE_ID: &str = "device_id";
 /// The space (hex) this vault is linked to.
 pub const META_SPACE_ID: &str = "space_id";
 /// The name of the space as last read.
 pub const META_SPACE_NAME: &str = "space_name";
-/// `1` when the person marked this vault as a test vault.
+/// Legacy local key, retained so existing vault metadata stays readable.
 pub const META_TEST_VAULT: &str = "test_vault";
 /// `1` when synchronisation is switched on for this vault.
 pub const META_ENABLED: &str = "enabled";

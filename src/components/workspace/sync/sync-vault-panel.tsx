@@ -26,8 +26,6 @@ type Mode = "new" | "existing"
  * Sync of the open vault (docs/sync-plan.md, stage Э4): switching it on, the status, the answers to
  * the stops of Р8, the list of conflicts and the list of files that are not synchronised.
  *
- * While the gate of the plan is closed (real notes are not allowed yet) a vault can be switched on
- * only when the person marks it as a test vault, and the screen says why.
  */
 export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
   const { t, i18n } = useTranslation()
@@ -41,7 +39,6 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
   const [name, setName] = React.useState("")
   const [spaces, setSpaces] = React.useState<SpaceView[] | null>(null)
   const [spaceId, setSpaceId] = React.useState<string | null>(null)
-  const [testVault, setTestVault] = React.useState(false)
   const [confirmingOff, setConfirmingOff] = React.useState(false)
   // A guard that does not wait for a render: two clicks in one tick are one request.
   const working = React.useRef(false)
@@ -94,7 +91,6 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
     })
   }
 
-  const gateClosed = status?.gateClosed ?? true
   const backupPath = status?.backupPath ?? null
   const backupInfo = backupPath ? (
     <div className="space-y-1.5 rounded-lg border border-border bg-card/40 px-3 py-2 text-[12px] leading-5">
@@ -106,25 +102,19 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
     </div>
   ) : null
   const target = mode === "new" ? ({ kind: "new", name: name.trim() } as const) : null
-  const canEnable = !busy && (!gateClosed || testVault) && (mode === "new" || spaceId !== null)
+  const canEnable = !busy && (mode === "new" || spaceId !== null)
 
   const enable = () =>
     act(async () => {
       const chosen = target ?? { kind: "existing" as const, spaceId: spaceId ?? "" }
-      setStatus(await port.enableVault(chosen, gateClosed && testVault))
+      setStatus(await port.enableVault(chosen, false))
     })
 
   // Only a binding of this server and account is resumed, with its own space (the target is
-  // ignored by the application). Without the mark the closed gate refuses, so it is asked for here.
-  const resumeNeedsMark = gateClosed && !(status?.testVault ?? false)
+  // ignored by the application).
   const resumeAfterOff = () =>
     act(async () => {
-      setStatus(
-        await port.enableVault(
-          { kind: "new", name: "" },
-          gateClosed && ((status?.testVault ?? false) || testVault),
-        ),
-      )
+      setStatus(await port.enableVault({ kind: "new", name: "" }, false))
     })
 
   const disable = () =>
@@ -199,25 +189,8 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
             </p>
           )}
           {backupInfo}
-          {resumeNeedsMark && (
-            <label className="flex items-start gap-2 text-[12px] leading-5">
-              <input
-                type="checkbox"
-                data-testid="sync-test-vault"
-                className="mt-1"
-                checked={testVault}
-                onChange={(event) => setTestVault(event.target.checked)}
-              />
-              {t("sync.vault.testVault")}
-            </label>
-          )}
           {errorLine}
-          <Button
-            type="button"
-            size="sm"
-            disabled={busy || (resumeNeedsMark && !testVault)}
-            onClick={() => void resumeAfterOff()}
-          >
+          <Button type="button" size="sm" disabled={busy} onClick={() => void resumeAfterOff()}>
             {t("sync.vault.resume")}
           </Button>
         </section>
@@ -226,15 +199,6 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
     return (
       <section data-testid="sync-vault" className="space-y-3">
         {header}
-        {gateClosed && (
-          <p
-            data-testid="sync-test-warning"
-            role="note"
-            className="rounded-lg border border-border bg-card/40 px-3 py-2 text-[12px] leading-5 text-muted-foreground"
-          >
-            {t("sync.vault.testWarning")}
-          </p>
-        )}
         <p
           data-testid="sync-backup-before-enable"
           className="rounded-lg border border-border bg-card/40 px-3 py-2 text-[12px] leading-5 text-muted-foreground"
@@ -304,18 +268,6 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
             </div>
           )}
         </fieldset>
-        {gateClosed && (
-          <label className="flex items-start gap-2 text-[12px] leading-5">
-            <input
-              type="checkbox"
-              data-testid="sync-test-vault"
-              className="mt-1"
-              checked={testVault}
-              onChange={(event) => setTestVault(event.target.checked)}
-            />
-            {t("sync.vault.testVault")}
-          </label>
-        )}
         {errorLine}
         <Button type="button" size="sm" disabled={!canEnable} onClick={() => void enable()}>
           {t("sync.vault.enable")}
@@ -349,11 +301,6 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
       <div className="rounded-lg border border-border bg-card/30 px-4 py-3">
         <p className="flex items-center gap-2 text-[13px] font-medium">
           {status.spaceName ?? t("sync.vault.unnamedSpace")}
-          {status.gateClosed && status.testVault && (
-            <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-normal text-muted-foreground">
-              {t("sync.vault.testBadge")}
-            </span>
-          )}
         </p>
         <div data-testid="sync-status" role="status" className="mt-1 space-y-0.5">
           <p className="text-[12px]">{line}</p>

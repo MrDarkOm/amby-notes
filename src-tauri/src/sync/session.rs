@@ -154,7 +154,7 @@ pub struct SessionConfig {
     pub vk: SpaceKey,
     /// The identifier of this device on the server (Р10).
     pub device_id: String,
-    /// The vault is marked as a test vault.
+    /// Legacy compatibility value; not a user permission or a visible label.
     pub test_vault: bool,
     /// When passes run.
     pub schedule: Schedule,

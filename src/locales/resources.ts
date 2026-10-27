@@ -3155,8 +3155,6 @@ const ru = {
     title: "Синхронизация",
     intro:
       "Вход в учётную запись и синхронизация заметок между устройствами. Всё шифруется на этом устройстве: сервер не видит ни заметок, ни имён файлов, ни пароля.",
-    notYet:
-      "Синхронизация заметок работает в тестовом режиме: включайте её только на хранилище, которое не жалко потерять. Мы ещё проверяем, что данные не потеряются.",
     wait: { seconds: "{{n}} с", minutes: "{{n}} мин", hours: "{{n}} ч" },
     loading: "Читаем состояние…",
     errors: {
@@ -3206,8 +3204,6 @@ const ru = {
       quota_exceeded: "На сервере кончилось место для ваших данных.",
       blob_too_large: "Файл слишком велик для этого сервера.",
       space_exists: "Хранилище с таким идентификатором уже есть на сервере.",
-      test_vault_required:
-        "Пока синхронизацию можно включить только на тестовом хранилище: отметьте это хранилище как тестовое.",
       space_not_found: "На сервере нет такого хранилища.",
       invalid_space: "Идентификатор хранилища записан неверно.",
       no_vault_open: "Сначала откройте хранилище.",
@@ -3307,8 +3303,6 @@ const ru = {
     vault: {
       title: "Это хранилище",
       cancel: "Отмена",
-      testWarning:
-        "Синхронизация заметок пока экспериментальная. Включать её можно только на тестовом хранилище: скопируйте в него немного заметок, а не рабочие. Мы ещё не прошли все проверки на потерю данных.",
       backupBeforeEnable:
         "Перед первым включением Amby создаст полную копию хранилища рядом с папкой хранилища. Синхронизация не начнётся, если при создании копии возникнет ошибка. Копия будет на том же диске и не защитит от его поломки.",
       backupReady: "Полная копия готова. Путь к папке копии:",
@@ -3324,12 +3318,10 @@ const ru = {
       noSpacesCreate: "Создать новое",
       unnamedSpace: "Без названия",
       spaceChanges: "изменений: {{count}}",
-      testVault: "Это тестовое хранилище: в нём нет единственных копий важных заметок",
       enable: "Включить синхронизацию",
       resume: "Включить снова",
       off: "Синхронизация выключена",
       cannotStart: "Не удалось запустить: {{reason}}",
-      testBadge: "Тестовое хранилище",
       runNow: "Синхронизировать сейчас",
       disable: "Выключить синхронизацию",
       disableConfirm: "Да, выключить",
@@ -6674,8 +6666,6 @@ const en: typeof ru = {
     title: "Synchronization",
     intro:
       "Sign in to an account and sync your notes between devices. Everything is encrypted on this device: the server sees neither your notes nor file names nor your password.",
-    notYet:
-      "Synchronisation of notes works in a test mode: switch it on only for a vault you can afford to lose. We are still checking that no data is lost.",
     wait: { seconds: "{{n}} s", minutes: "{{n}} min", hours: "{{n}} h" },
     loading: "Reading the state…",
     errors: {
@@ -6726,8 +6716,6 @@ const en: typeof ru = {
       quota_exceeded: "The server has no room left for your data.",
       blob_too_large: "The file is too large for this server.",
       space_exists: "A vault with this identifier already exists on the server.",
-      test_vault_required:
-        "For now sync can be switched on only for a test vault: mark this vault as a test vault.",
       space_not_found: "The server has no such vault.",
       invalid_space: "The identifier of the vault is written wrongly.",
       no_vault_open: "Open a vault first.",
@@ -6826,8 +6814,6 @@ const en: typeof ru = {
     vault: {
       title: "This vault",
       cancel: "Cancel",
-      testWarning:
-        "Synchronisation of notes is experimental. It can be switched on only for a test vault: copy a few notes into it, not your working ones. We have not yet passed all the checks against data loss.",
       backupBeforeEnable:
         "Before sync is first switched on, Amby will make a complete copy of the vault beside its folder. If the copy cannot be made, synchronisation will not start. The copy is on the same disk and cannot protect against disk failure.",
       backupReady: "The complete backup is ready. Backup folder path:",
@@ -6843,12 +6829,10 @@ const en: typeof ru = {
       noSpacesCreate: "Create new",
       unnamedSpace: "Unnamed",
       spaceChanges: "changes: {{count}}",
-      testVault: "This is a test vault: it holds no only copies of important notes",
       enable: "Switch on synchronization",
       resume: "Switch on again",
       off: "Synchronization is off",
       cannotStart: "Could not start: {{reason}}",
-      testBadge: "Test vault",
       runNow: "Synchronize now",
       disable: "Switch off synchronization",
       disableConfirm: "Yes, switch off",

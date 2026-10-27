@@ -230,8 +230,8 @@ pub async fn sync_account_overview(
     runtime.account_overview(&paths).await
 }
 
-/// Switches sync on for the open vault: a new space or an existing one. While the gate of the
-/// plan is closed the vault has to be marked as a test vault.
+/// Switches sync on for the open vault after a complete external backup.
+/// `test_vault` is a legacy IPC compatibility argument; the current UI sends false.
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_enable_vault(

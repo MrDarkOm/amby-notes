@@ -449,8 +449,8 @@ impl SyncRuntime {
     }
 
     /// Switches sync on for the vault at `vault` and starts it: makes a new space or connects an
-    /// existing one, remembers the link in `.amby/sync/state.db`. While the gate of the plan is
-    /// closed the vault must be marked as a test vault (`test_vault_required`). A vault already
+    /// existing one, remembers the link in `.amby/sync/state.db` after an external backup.
+    /// The legacy boolean is retained for compatibility. A vault already
     /// linked to a space is switched on again with the same space (the target is ignored).
     pub async fn enable(
         &self,
@@ -483,8 +483,8 @@ impl SyncRuntime {
             (Some(link), Some(credentials)) => Self::link_matches(link, credentials),
             _ => false,
         };
-        // The mark of a test vault belongs to the vault and to its link: a resumed link needs no
-        // new mark, a stale one does not lend its mark to another space.
+        // Preserve the legacy value only with its own link; a different account
+        // or space must not inherit local metadata from a stale link.
         let marked = test_vault || (resumable && link.as_ref().is_some_and(|link| link.test_vault));
         gate::check_gate(marked)?;
         let credentials = self.credentials()?;

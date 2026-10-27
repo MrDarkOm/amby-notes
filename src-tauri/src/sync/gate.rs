@@ -1,8 +1,6 @@
-//! The gate before real notes (decision of the owner, 22 October 2026; docs/sync-plan.md, stage
-//! Э4): until one run of the mutation testing of the engine and a long run of the simulation have
-//! passed, synchronisation may be switched on only for a vault the person explicitly marked as a
-//! test vault. When the owner confirms both runs, [`GATES_PASSED`] becomes `true` in its own
-//! commit.
+//! Audit record of the completed pre-release checks (docs/sync-plan.md, stage Э4).
+//! The helpers retain compatibility with historical state; the product no longer asks
+//! the person to classify a vault before enabling sync.
 
 use crate::sync::types::SyncError;
 
@@ -10,8 +8,7 @@ use crate::sync::types::SyncError;
 /// shards, explained survivors, all 64,000 scenarios and simulator self-checks).
 pub const GATES_PASSED: bool = true;
 
-/// May sync be switched on for a vault marked (or not) as a test vault? `test_vault_required` when
-/// the gate is closed and the vault is not marked.
+/// Compatibility check against the confirmed gate state of this build.
 pub fn check_gate(test_vault: bool) -> Result<(), SyncError> {
     check_gate_with(GATES_PASSED, test_vault)
 }
@@ -25,7 +22,7 @@ pub fn check_gate_with(gates_passed: bool, test_vault: bool) -> Result<(), SyncE
     }
 }
 
-/// Is the gate closed for a vault that is not marked as a test vault?
+/// Legacy gate status, false in the confirmed build.
 pub fn gate_closed() -> bool {
     !GATES_PASSED
 }

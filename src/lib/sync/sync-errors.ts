@@ -49,7 +49,6 @@ export const KNOWN_SYNC_ERROR_CODES: readonly string[] = [
   "blob_too_large",
   "space_exists",
   "space_limit",
-  "test_vault_required",
   "space_not_found",
   "invalid_space",
   "no_vault_open",
