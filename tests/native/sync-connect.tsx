@@ -123,9 +123,9 @@ try {
   if (!config?.url || !config.username || !config.enrollCode)
     throw new Error("The server, the user and the invitation code come from the environment")
 
-  await step("the screen starts with the server step and the honest banner", async () => {
+  await step("the screen starts with server selection", async () => {
     await chooseOwnServer()
-    if (!text().includes("в тестовом режиме")) throw new Error("no banner")
+    if (text().includes("в тестовом режиме")) throw new Error("obsolete banner is shown")
   })
 
   await step("a server that is not there is reported, a good one is found", async () => {

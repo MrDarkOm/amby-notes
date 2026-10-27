@@ -1353,8 +1353,8 @@ async syncAccountOverview(knownVaults: string[]) : Promise<Result<AccountOvervie
 }
 },
 /**
- * Switches sync on for the open vault: a new space or an existing one. While the gate of the
- * plan is closed the vault has to be marked as a test vault.
+ * Switches sync on for the open vault after a complete external backup.
+ * `test_vault` is a legacy IPC compatibility argument; the current UI sends false.
  */
 async syncEnableVault(target: SpaceTarget, testVault: boolean) : Promise<Result<VaultSyncStatus, SyncError>> {
     try {
@@ -2778,11 +2778,11 @@ linked: boolean;
  */
 resumable: boolean; 
 /**
- * The person marked this vault as a test vault.
+ * Legacy stored value retained for IPC compatibility; never displayed by the UI.
  */
 testVault: boolean; 
 /**
- * Real notes are not allowed yet: the gates of the plan are not passed (stage Э4).
+ * Legacy gate state; false after the confirmed runs of stage Э4.
  */
 gateClosed: boolean; 
 /**

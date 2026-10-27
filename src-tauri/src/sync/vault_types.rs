@@ -145,9 +145,9 @@ pub struct VaultSyncStatus {
     /// switching on again resumes the very same space. A link that is not resumable is stale: the
     /// screen offers the choice of a space as the first time.
     pub resumable: bool,
-    /// The person marked this vault as a test vault.
+    /// Legacy stored value retained for IPC compatibility; never displayed by the UI.
     pub test_vault: bool,
-    /// Real notes are not allowed yet: the gates of the plan are not passed (stage Э4).
+    /// Legacy gate state; false after the confirmed runs of stage Э4.
     pub gate_closed: bool,
     /// Complete external pre-sync copy, containing `vault/`, a manifest and restore instructions.
     #[serde(default, skip_serializing_if = "Option::is_none")]

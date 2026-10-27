@@ -163,14 +163,14 @@ describe("the list of files that stay behind (У3, Д74)", () => {
 describe("the wizard meets the limit of storages (У3, Д77)", () => {
   async function refused() {
     const port = createFakePort({
-      vaultStatus: async () => ({ ...VAULT_OFF, gateClosed: true }),
+      vaultStatus: async () => VAULT_OFF,
       enableVault: async () => {
         throw new SyncPortError("space_limit")
       },
       listSpaces: async () => SPACES,
     })
     render(<SyncVaultPanel port={port} />)
-    fireEvent.click(await screen.findByTestId("sync-test-vault"))
+    await screen.findByTestId("sync-backup-before-enable")
     fireEvent.click(screen.getByRole("button", { name: "Включить синхронизацию" }))
     return port
   }
@@ -182,6 +182,7 @@ describe("the wizard meets the limit of storages (У3, Д77)", () => {
     expect(message.textContent).toMatch(/Подключите существующее/)
     expect(message.textContent).toMatch(/обратитесь к владельцу сервера/)
     expect(port.enableVault).toHaveBeenCalledTimes(1)
+    expect(port.enableVault).toHaveBeenCalledWith({ kind: "new", name: "" }, false)
     fireEvent.click(screen.getByRole("button", { name: "Выбрать существующее" }))
     await waitFor(() => expect(port.listSpaces).toHaveBeenCalled())
     expect(await screen.findByText("Рабочее")).toBeTruthy()
@@ -204,7 +205,7 @@ describe("the wizard meets the limit of storages (У3, Д77)", () => {
 describe("an empty list of spaces is not a dead end (owner's request, row «Пустой список пространств»)", () => {
   async function chooseExistingWithNoSpaces() {
     const port = createFakePort({
-      vaultStatus: async () => ({ ...VAULT_OFF, gateClosed: true }),
+      vaultStatus: async () => VAULT_OFF,
       listSpaces: async () => [],
     })
     render(<SyncVaultPanel port={port} />)

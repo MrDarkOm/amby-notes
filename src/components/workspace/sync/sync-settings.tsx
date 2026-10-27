@@ -101,17 +101,7 @@ export function SyncSettings({ port: given }: SyncSettingsProps) {
     void loadDevices()
   }
 
-  const header = (
-    <>
-      <SettingsIntro title={t("sync.title")} description={t("sync.intro")} />
-      <p
-        role="note"
-        className="rounded-lg border border-border bg-card/40 px-3 py-2 text-[12px] leading-5 text-muted-foreground"
-      >
-        {t("sync.notYet")}
-      </p>
-    </>
-  )
+  const header = <SettingsIntro title={t("sync.title")} description={t("sync.intro")} />
 
   if (unavailable) {
     return (
