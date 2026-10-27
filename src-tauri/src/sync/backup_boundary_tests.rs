@@ -5,7 +5,8 @@ use crate::frontmatter::{clear_atomic_write_failure, inject_nth_atomic_write_fai
 
 #[test]
 fn an_error_after_receipt_publication_keeps_the_complete_copy_for_retry() {
-    let container = std::env::temp_dir().join(format!("amby-backup-boundary-{}", ulid::Ulid::generate()));
+    let container =
+        std::env::temp_dir().join(format!("amby-backup-boundary-{}", ulid::Ulid::generate()));
     let vault = container.join("vault");
     std::fs::create_dir_all(&vault).unwrap();
     std::fs::write(vault.join("n.md"), b"the only version").unwrap();
@@ -15,7 +16,10 @@ fn an_error_after_receipt_publication_keeps_the_complete_copy_for_retry() {
         Ok(())
     });
     clear_atomic_write_failure();
-    assert!(result.is_err(), "the caller must see the durability failure");
+    assert!(
+        result.is_err(),
+        "the caller must see the durability failure"
+    );
     let receipt: serde_json::Value = serde_json::from_slice(
         &std::fs::read(vault.join(".amby/sync/pre-sync-backup.json")).unwrap(),
     )

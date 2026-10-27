@@ -41,6 +41,13 @@ durable too; activation preflights both before conditional rollback through
 index loading, and propagates errors instead of silently skipping recovery. Keep excluded
 metadata directories out of indexing. Do not silently assign or migrate IDs.
 
+Before the first sync pass, [sync/backup.rs](sync/backup.rs) creates a full external
+copy beside the vault (`<vault>.amby-backups/<operation>/vault`), verifies files and
+SQLite online snapshots, then publishes a version-1 manifest and local receipt.
+`runtime.rs` enforces this before enablement and legacy automatic resumption;
+`VaultSyncStatus.backup_path` exposes the completed location. This is separate
+from per-file history and the migration backups inside a vault.
+
 Tests live beside services, in `*_test.rs`, `*_tests.rs`, bundle tests and
 [desktop_e2e_tests.rs](desktop_e2e_tests.rs). Include collisions, failed writes,
 rollback and original-byte preservation where relevant. Run `npm run rust:test`;

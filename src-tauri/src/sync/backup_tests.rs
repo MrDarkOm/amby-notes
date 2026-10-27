@@ -178,6 +178,10 @@ fn symlinked_or_special_source_entries_fail_without_publishing_receipt_or_backup
 
 #[cfg(unix)]
 #[test]
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "APFS rejects non-UTF-8 names before the backup can inspect them (EILSEQ)"
+)]
 fn non_utf8_source_names_fail_closed_without_receipt() {
     use std::os::unix::ffi::OsStrExt;
 

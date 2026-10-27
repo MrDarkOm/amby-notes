@@ -453,6 +453,34 @@ Local history protects against accidental application actions and failed saves;
 it is not a substitute for a second physical copy. A protected vault should be
 backed up by the operating system or a sync service with version history.
 
+Before enabling sync, Amby creates `<vault-name>.amby-backups/<ULID>/` beside
+the vault. `vault/` contains all files and empty directories, including unknown
+metadata and durable `.amby/` data. Known `.amby/notes.db` and
+`.amby/sync/state.db` use consistent SQLite online snapshots (`VACUUM INTO`,
+`quick_check`); their WAL/SHM files are not copied separately. The version-1 local
+receipt `.amby/sync/pre-sync-backup.json` itself is omitted. That receipt holds
+the canonical source path, backup root and SHA-256 of the manifest, with no
+credentials; it is not synchronised. A copied vault at another path gets its own
+backup. Other files retain their bytes. Symlinks, special entries, unsupported
+names, unreadable files and changes detected while copying block completion
+instead of being silently skipped.
+
+A directory with `INCOMPLETE`, or without a valid version-1 `manifest.json`, is
+not a completed backup. File hashes and the source inventory are checked before
+publishing the immutable manifest; only then is a receipt written in the vault.
+The copy remains unchanged after later edits. A missing or damaged copy is
+reported when manually enabling sync again. Automatic resumption validates the
+receipt and manifest without rehashing every backup file. This is a snapshot of
+files on disk, not an ongoing backup or protection against failure of that disk.
+
+The settings show its full path; `RESTORE.txt` in the copy has Russian and English
+instructions. To restore, turn sync off, close Amby and copy `vault/` into a new
+folder, never over a working vault. Before opening that new folder, rename its
+`.amby/sync` directory to `.amby/sync-before-restore` if present (choose another
+unused name if necessary). This preserves the old device state while preventing
+automatic resumption. Open the new folder, check its contents, and reconnect
+sync explicitly. Keep the original vault and the immutable copy until verified.
+
 Git is a useful optional third layer for Markdown-first vaults: initialise it
 only with the user's explicit choice, commit the user-visible note and asset
 files, and keep `.amby/` ignored because it contains rebuildable indexes and

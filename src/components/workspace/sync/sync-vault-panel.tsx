@@ -95,13 +95,23 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
   }
 
   const gateClosed = status?.gateClosed ?? true
+  const backupPath = status?.backupPath ?? null
+  const backupInfo = backupPath ? (
+    <div className="space-y-1.5 rounded-lg border border-border bg-card/40 px-3 py-2 text-[12px] leading-5">
+      <p>{t("sync.vault.backupReady")}</p>
+      <code data-testid="sync-backup-path" className="block select-text break-all font-mono">
+        {backupPath}
+      </code>
+      <p>{t("sync.vault.restoreInstructions")}</p>
+    </div>
+  ) : null
   const target = mode === "new" ? ({ kind: "new", name: name.trim() } as const) : null
   const canEnable = !busy && (!gateClosed || testVault) && (mode === "new" || spaceId !== null)
 
   const enable = () =>
     act(async () => {
       const chosen = target ?? { kind: "existing" as const, spaceId: spaceId ?? "" }
-      setStatus(await port.enableVault(chosen, testVault))
+      setStatus(await port.enableVault(chosen, gateClosed && testVault))
     })
 
   // Only a binding of this server and account is resumed, with its own space (the target is
@@ -112,7 +122,7 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
       setStatus(
         await port.enableVault(
           { kind: "new", name: "" },
-          (status?.testVault ?? false) || testVault,
+          gateClosed && ((status?.testVault ?? false) || testVault),
         ),
       )
     })
@@ -188,6 +198,7 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
               })}
             </p>
           )}
+          {backupInfo}
           {resumeNeedsMark && (
             <label className="flex items-start gap-2 text-[12px] leading-5">
               <input
@@ -224,6 +235,13 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
             {t("sync.vault.testWarning")}
           </p>
         )}
+        <p
+          data-testid="sync-backup-before-enable"
+          className="rounded-lg border border-border bg-card/40 px-3 py-2 text-[12px] leading-5 text-muted-foreground"
+        >
+          {t("sync.vault.backupBeforeEnable")}
+        </p>
+        {backupInfo}
         <fieldset className="space-y-2">
           <legend className="mb-1 text-[12px] font-medium">{t("sync.vault.spaceLegend")}</legend>
           <label className="flex items-center gap-2 text-[13px]">
@@ -286,16 +304,18 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
             </div>
           )}
         </fieldset>
-        <label className="flex items-start gap-2 text-[12px] leading-5">
-          <input
-            type="checkbox"
-            data-testid="sync-test-vault"
-            className="mt-1"
-            checked={testVault}
-            onChange={(event) => setTestVault(event.target.checked)}
-          />
-          {t("sync.vault.testVault")}
-        </label>
+        {gateClosed && (
+          <label className="flex items-start gap-2 text-[12px] leading-5">
+            <input
+              type="checkbox"
+              data-testid="sync-test-vault"
+              className="mt-1"
+              checked={testVault}
+              onChange={(event) => setTestVault(event.target.checked)}
+            />
+            {t("sync.vault.testVault")}
+          </label>
+        )}
         {errorLine}
         <Button type="button" size="sm" disabled={!canEnable} onClick={() => void enable()}>
           {t("sync.vault.enable")}
@@ -325,10 +345,11 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
   return (
     <section data-testid="sync-vault" className="space-y-3">
       {header}
+      {backupInfo}
       <div className="rounded-lg border border-border bg-card/30 px-4 py-3">
         <p className="flex items-center gap-2 text-[13px] font-medium">
           {status.spaceName ?? t("sync.vault.unnamedSpace")}
-          {status.testVault && (
+          {status.gateClosed && status.testVault && (
             <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-normal text-muted-foreground">
               {t("sync.vault.testBadge")}
             </span>

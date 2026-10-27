@@ -42,6 +42,10 @@ envelope or cannot be tiled is chosen as a whole. A different `amby-id` is never
 marked only for a note that is open (Р8); the note stays open under the rule for externally deleted documents, with its own card
 and a way back from `.amby/trash/`.
 
+Before the first pass Rust creates a verified external copy beside the vault.
+The panel explains it and shows `VaultSyncStatus.backupPath` with safe restore
+instructions. See [the backup contract](../../../../docs/vault-format.md#backup-and-git-policy).
+
 Tests sit beside the files. The manual check in a native window, against a server in Docker, is the
 section "Синхронизация" of [native-ui-smoke.md](../../../../docs/native-ui-smoke.md).
 
