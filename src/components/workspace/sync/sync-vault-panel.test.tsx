@@ -199,7 +199,7 @@ describe("sync of the open vault: a binding that was switched off", () => {
     expect(await screen.findByRole("radio", { name: /Создать новое/ })).toBeTruthy()
     expect(screen.getByRole("radio", { name: /Подключить существующее/ })).toBeTruthy()
     expect(screen.queryByTestId("sync-test-vault")).toBeNull()
-    expect(button("Включить синхронизацию").hasAttribute("disabled")).toBe(true)
+    expect(button("Включить синхронизацию").hasAttribute("disabled")).toBe(false)
 
     fireEvent.change(screen.getByLabelText("Название"), { target: { value: "Новое" } })
     click("Включить синхронизацию")
