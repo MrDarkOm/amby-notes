@@ -149,6 +149,10 @@ pub struct VaultSyncStatus {
     pub test_vault: bool,
     /// Real notes are not allowed yet: the gates of the plan are not passed (stage Э4).
     pub gate_closed: bool,
+    /// Complete external pre-sync copy, containing `vault/`, a manifest and restore instructions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub backup_path: Option<String>,
     /// The space on the server (hex), if linked.
     pub space_id: Option<String>,
     /// Its name, if it could be read.
@@ -186,6 +190,7 @@ impl VaultSyncStatus {
             resumable: false,
             test_vault: false,
             gate_closed,
+            backup_path: None,
             space_id: None,
             space_name: None,
             phase: SyncPhase::Off,

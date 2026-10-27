@@ -2,8 +2,8 @@
 
 The always-present "Synchronization" settings section (sync is not a module). Plan:
 [sync-plan.md](../../../../docs/sync-plan.md) (Р5, Р12, stage Э4). The connection, and the sync of the open
-vault under it. Until the gates of the plan are passed a vault can be switched on only when the person marks
-it as a test vault, and the screen says so.
+vault under it. The gates were completed and confirmed on 27 October 2026:
+real vaults are allowed, with an external backup before the first pass. Legacy test marks remain readable.
 
 | Concern                                                                                                                                                                                                                                                           | Owner                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -41,6 +41,10 @@ that does not pass the Live admission is shown as source; a file that is not Mar
 envelope or cannot be tiled is chosen as a whole. A different `amby-id` is never taken over. A deletion from another computer is
 marked only for a note that is open (Р8); the note stays open under the rule for externally deleted documents, with its own card
 and a way back from `.amby/trash/`.
+
+Before the first pass Rust creates a verified external copy beside the vault.
+The panel explains it and shows `VaultSyncStatus.backupPath` with safe restore
+instructions. See [the backup contract](../../../../docs/vault-format.md#backup-and-git-policy).
 
 Tests sit beside the files. The manual check in a native window, against a server in Docker, is the
 section "Синхронизация" of [native-ui-smoke.md](../../../../docs/native-ui-smoke.md).

@@ -6,8 +6,9 @@
 
 use crate::sync::types::SyncError;
 
-/// Both runs of the gate are done and confirmed by the owner. Not yet.
-pub const GATES_PASSED: bool = false;
+/// Confirmed by the owner on 27 October 2026: run 40383686825 (all 64 mutation
+/// shards, explained survivors, all 64,000 scenarios and simulator self-checks).
+pub const GATES_PASSED: bool = true;
 
 /// May sync be switched on for a vault marked (or not) as a test vault? `test_vault_required` when
 /// the gate is closed and the vault is not marked.

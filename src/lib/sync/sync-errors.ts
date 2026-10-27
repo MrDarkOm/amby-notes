@@ -59,6 +59,11 @@ export const KNOWN_SYNC_ERROR_CODES: readonly string[] = [
   "vault_locked",
   "state_error",
   "state_newer",
+  // the complete pre-sync vault backup
+  "backup_failed",
+  "backup_unsafe_entry",
+  "backup_changed",
+  "backup_invalid",
 ]
 
 const UNKNOWN_KEY = "sync.errors.unknown"

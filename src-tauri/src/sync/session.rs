@@ -304,6 +304,7 @@ impl SyncSession {
             linked: true,
             test_vault: config.test_vault,
             gate_closed: gate::gate_closed(),
+            backup_path: crate::sync::backup::read_path(&config.vault),
             space_id: Some(space_hex),
             space_name: config.space_name.clone(),
             phase: SyncPhase::Idle,

@@ -2786,6 +2786,10 @@ testVault: boolean;
  */
 gateClosed: boolean; 
 /**
+ * Complete external pre-sync copy, containing `vault/`, a manifest and restore instructions.
+ */
+backupPath?: string | null; 
+/**
  * The space on the server (hex), if linked.
  */
 spaceId: string | null; 

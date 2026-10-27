@@ -81,6 +81,49 @@ describe("sync of the open vault: switching it on", () => {
     )
   })
 
+  it("explains the complete backup made before sync starts", async () => {
+    await show({ ...VAULT_OFF, gateClosed: false })
+    const panel = await screen.findByTestId("sync-vault")
+    expect(panel.textContent).toMatch(/полную копию/i)
+    expect(panel.textContent).toMatch(/рядом с папкой/i)
+    expect(panel.textContent).toMatch(/синхронизация не начнётся.*если.*ошиб/i)
+  })
+
+  it("hides the legacy test-vault checkbox when the gate is open", async () => {
+    await show({ ...VAULT_OFF, gateClosed: false, testVault: true })
+    expect(screen.queryByTestId("sync-test-vault")).toBeNull()
+  })
+
+  it("shows the completed backup path and safe restore instructions", async () => {
+    const backupPath = "/notes.amby-backups/01J9TEST/vault"
+    await show({ ...VAULT_OFF, gateClosed: false, backupPath } as VaultSyncStatus)
+    const panel = await screen.findByTestId("sync-vault")
+    expect(panel.textContent).toContain(backupPath)
+    expect(panel.textContent).toMatch(/подпапк.*vault/i)
+    expect(panel.textContent).toMatch(/выключ.*синхронизац/i)
+    expect(panel.textContent).toMatch(/закрой.*Amby/i)
+    expect(panel.textContent).toMatch(/новую папку/i)
+    expect(panel.textContent).toMatch(/активн.*хранилищ/i)
+  })
+
+  it("does not enable sync when creating its pre-sync backup fails", async () => {
+    const port = await show(
+      { ...VAULT_OFF, gateClosed: false },
+      {
+        enableVault: async () => {
+          throw new SyncPortError("backup_failed")
+        },
+      },
+    )
+    click("Включить синхронизацию")
+    expect(await screen.findByRole("alert").then((alert) => alert.textContent)).toMatch(
+      /резервн.*коп/i,
+    )
+    expect(port.enableVault).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId("sync-status")).toBeNull()
+    expect(button("Включить синхронизацию").hasAttribute("disabled")).toBe(false)
+  })
+
   it("lists the spaces of the account to connect an existing one", async () => {
     const port = await show({ ...VAULT_OFF, gateClosed: true })
     fireEvent.click(await screen.findByRole("radio", { name: /Подключить существующее/ }))
@@ -266,6 +309,11 @@ describe("sync of the open vault: the status", () => {
   it("marks a test vault", async () => {
     await show(vaultStatus({ testVault: true }))
     expect((await screen.findByTestId("sync-vault")).textContent).toMatch(/Тестовое хранилище/)
+  })
+
+  it("does not show a legacy test-vault badge after the gate opens", async () => {
+    await show(vaultStatus({ gateClosed: false, testVault: true }))
+    expect(screen.queryByText("Тестовое хранилище")).toBeNull()
   })
 
   it("asks for a pass now and shows what it did", async () => {
@@ -574,6 +622,10 @@ describe("sync of the open vault: texts", () => {
       "quota_exceeded",
       "blob_too_large",
       "space_exists",
+      "backup_failed",
+      "backup_unsafe_entry",
+      "backup_changed",
+      "backup_invalid",
     ]
     for (const code of codes) {
       expect(KNOWN_SYNC_ERROR_CODES, code).toContain(code)

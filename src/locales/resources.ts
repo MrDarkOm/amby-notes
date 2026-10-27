@@ -3218,6 +3218,13 @@ const ru = {
       vault_locked: "Это хранилище уже синхронизирует другая копия приложения.",
       state_error: "Не удалось прочитать или записать состояние синхронизации в папке хранилища.",
       state_newer: "Состояние синхронизации записала более новая версия Amby. Обновите приложение.",
+      backup_failed:
+        "Не удалось создать резервную копию хранилища перед запуском синхронизации. Синхронизация не началась.",
+      backup_unsafe_entry:
+        "Копирование остановлено: в хранилище есть объект, который нельзя безопасно скопировать.",
+      backup_changed:
+        "Хранилище изменилось во время копирования. Синхронизация не началась; попробуйте снова.",
+      backup_invalid: "Созданную копию не удалось проверить. Синхронизация не началась.",
       space_limit:
         "На вашем тарифе больше нет места для новых хранилищ. Подключите существующее или обратитесь к владельцу сервера.",
       unknown: "Что-то пошло не так. Код ошибки: {{code}}.",
@@ -3302,6 +3309,11 @@ const ru = {
       cancel: "Отмена",
       testWarning:
         "Синхронизация заметок пока экспериментальная. Включать её можно только на тестовом хранилище: скопируйте в него немного заметок, а не рабочие. Мы ещё не прошли все проверки на потерю данных.",
+      backupBeforeEnable:
+        "Перед первым включением Amby создаст полную копию хранилища рядом с папкой хранилища. Синхронизация не начнётся, если при создании копии возникнет ошибка. Копия будет на том же диске и не защитит от его поломки.",
+      backupReady: "Полная копия готова. Путь к папке копии:",
+      restoreInstructions:
+        "Для восстановления сначала выключите синхронизацию и закройте Amby. Скопируйте подпапку vault из этой копии в новую папку. До её открытия переименуйте внутри неё .amby/sync в .amby/sync-before-restore и сохраните эту папку: в состоянии синхронизации может быть включён автоматический запуск. Затем откройте новую папку и подключите синхронизацию заново. Не восстанавливайте копию поверх активного хранилища.",
       spaceLegend: "Пространство на сервере",
       createNew: "Создать новое",
       nameLabel: "Название",
@@ -6727,6 +6739,13 @@ const en: typeof ru = {
       state_error:
         "The state of synchronisation in the folder of the vault could not be read or written.",
       state_newer: "A newer version of Amby wrote the state of synchronisation. Update the app.",
+      backup_failed:
+        "The complete vault backup could not be created before sync started. Synchronisation did not start.",
+      backup_unsafe_entry:
+        "Copying stopped because the vault contains an item that cannot be copied safely.",
+      backup_changed:
+        "The vault changed while it was being copied. Synchronisation did not start; try again.",
+      backup_invalid: "The completed backup could not be verified. Synchronisation did not start.",
       space_limit:
         "Your plan has no room for another storage. Connect an existing one or ask the owner of the server.",
       unknown: "Something went wrong. Error code: {{code}}.",
@@ -6809,6 +6828,11 @@ const en: typeof ru = {
       cancel: "Cancel",
       testWarning:
         "Synchronisation of notes is experimental. It can be switched on only for a test vault: copy a few notes into it, not your working ones. We have not yet passed all the checks against data loss.",
+      backupBeforeEnable:
+        "Before sync is first switched on, Amby will make a complete copy of the vault beside its folder. If the copy cannot be made, synchronisation will not start. The copy is on the same disk and cannot protect against disk failure.",
+      backupReady: "The complete backup is ready. Backup folder path:",
+      restoreInstructions:
+        "To restore, first switch off synchronisation and close Amby. Copy the vault subfolder from this backup into a new folder. Before opening it, rename .amby/sync inside the new folder to .amby/sync-before-restore and keep that folder: its sync state may have automatic start enabled. Then open the new folder and connect sync again. Never restore a copy over an active vault.",
       spaceLegend: "Space on the server",
       createNew: "Create a new one",
       nameLabel: "Name",

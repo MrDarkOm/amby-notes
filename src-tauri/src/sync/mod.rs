@@ -14,6 +14,7 @@
 
 pub mod account_types;
 pub mod app_hooks;
+pub mod backup;
 pub mod clock;
 pub mod conflict_store;
 pub mod connection;
@@ -83,6 +84,10 @@ pub fn deactivate_for_closed_vault(app: &tauri::AppHandle) {
 #[cfg(test)]
 mod account_overview_tests;
 #[cfg(test)]
+mod backup_boundary_tests;
+#[cfg(test)]
+mod backup_tests;
+#[cfg(test)]
 mod base_store_tests;
 #[cfg(test)]
 mod conflict_store_tests;
@@ -100,6 +105,8 @@ mod ports_scenarios_tests;
 mod remote_tests;
 #[cfg(test)]
 mod rules_doc_tests;
+#[cfg(test)]
+mod runtime_backup_tests;
 #[cfg(test)]
 mod runtime_tests;
 #[cfg(test)]

@@ -182,20 +182,23 @@ static VAULT_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// A vault in a temporary folder, removed when it is dropped. The path is canonical.
 pub struct TempVault {
     pub root: PathBuf,
+    container: PathBuf,
 }
 
 impl TempVault {
     /// A new empty folder.
     pub fn new(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
+        let container = std::env::temp_dir().join(format!(
             "amby-{label}-{}-{}",
             std::process::id(),
             VAULT_COUNTER.fetch_add(1, Ordering::SeqCst)
         ));
-        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&container);
+        let root = container.join(label);
         std::fs::create_dir_all(&root).unwrap();
         Self {
             root: root.canonicalize().unwrap(),
+            container,
         }
     }
 
@@ -283,7 +286,7 @@ impl TempVault {
 
 impl Drop for TempVault {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
+        let _ = std::fs::remove_dir_all(&self.container);
     }
 }
 

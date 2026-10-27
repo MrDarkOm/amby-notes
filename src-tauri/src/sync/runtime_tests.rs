@@ -11,6 +11,7 @@ use amby_sync_core::crypto::keys::SpaceId;
 use amby_sync_core::crypto::random::OsRandom;
 
 use super::connection::{ConnectionRecord, ConnectionStore};
+use super::gate;
 use super::runtime::SyncRuntime;
 use super::secrets::{SecretStore, SECRET_ACCOUNT_KEY, SECRET_DEVICE_TOKEN};
 use super::session::Schedule;
@@ -160,25 +161,54 @@ fn a_closed_gate_refuses_a_vault_that_is_not_marked_and_changes_nothing() {
     let vault = TempVault::new("real");
     vault.put("Notes/important.md", b"real notes");
     let before = server_spaces(&env).len();
-    let error = run(
-        &env,
-        pc.runtime.enable(
-            &vault.root,
-            SpaceTarget::New {
-                name: String::new(),
-            },
-            false,
-        ),
-    )
-    .unwrap_err();
-    assert_eq!(error.code, "test_vault_required");
-    assert_eq!(server_spaces(&env).len(), before, "no space was made");
-    assert!(
-        !state_path(&vault.root).exists(),
-        "the vault was not touched"
-    );
-    assert!(pc.runtime.status().gate_closed);
-    assert!(!pc.runtime.status().enabled);
+    if gate::gate_closed() {
+        let error = run(
+            &env,
+            pc.runtime.enable(
+                &vault.root,
+                SpaceTarget::New {
+                    name: String::new(),
+                },
+                false,
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "test_vault_required");
+        assert_eq!(server_spaces(&env).len(), before, "no space was made");
+        assert!(
+            !state_path(&vault.root).exists(),
+            "the vault was not touched"
+        );
+        assert_eq!(pc.runtime.status().gate_closed, gate::gate_closed());
+        assert!(!pc.runtime.status().enabled);
+    } else {
+        let status = run(
+            &env,
+            pc.runtime.enable(
+                &vault.root,
+                SpaceTarget::New {
+                    name: String::new(),
+                },
+                false,
+            ),
+        )
+        .unwrap();
+        assert!(status.enabled && status.linked);
+        assert!(!status.test_vault);
+        assert!(!status.gate_closed);
+        let backup_path = status.backup_path.as_deref().unwrap();
+        assert_eq!(
+            Some(backup_path),
+            super::backup::read_path(&vault.root).as_deref()
+        );
+        assert_eq!(
+            std::fs::read(std::path::Path::new(backup_path).join("vault/Notes/important.md"))
+                .unwrap(),
+            b"real notes"
+        );
+        assert_eq!(server_spaces(&env).len(), before + 1);
+        pc.runtime.deactivate_vault();
+    }
 }
 
 #[test]
@@ -319,7 +349,7 @@ fn opening_a_switched_on_vault_resumes_it_and_opening_another_stops_the_first() 
     let status = run(&env, after_restart.runtime.activate_vault(&two.root)).unwrap();
     assert!(!status.enabled && !status.linked);
     assert_eq!(status.phase, SyncPhase::Off);
-    assert!(status.gate_closed);
+    assert_eq!(status.gate_closed, gate::gate_closed());
     // The first session let go of its lock.
     let (session, _) = env.start(&one, &env.account);
     session.stop();
@@ -553,14 +583,16 @@ fn a_copied_vault_does_not_carry_the_test_mark_to_another_device() {
     assert_ne!(state.meta(META_TEST_VAULT).unwrap().as_deref(), Some("1"));
     drop(state);
 
-    let refused = run(
-        &env,
-        second
-            .runtime
-            .enable(&copy.root, SpaceTarget::New { name: "x".into() }, false),
-    )
-    .unwrap_err();
-    assert_eq!(refused.code, "test_vault_required");
+    if gate::gate_closed() {
+        let refused = run(
+            &env,
+            second
+                .runtime
+                .enable(&copy.root, SpaceTarget::New { name: "x".into() }, false),
+        )
+        .unwrap_err();
+        assert_eq!(refused.code, "test_vault_required");
+    }
     let marked = run(
         &env,
         second
@@ -643,13 +675,15 @@ fn a_link_made_with_another_account_is_not_resumed_and_the_chosen_space_is_used(
     assert!(!status.resumable, "{status:?}");
 
     // The old mark of a test vault does not count for the new account.
-    let refused = run(
-        &env,
-        pc.runtime
-            .enable(&vault.root, SpaceTarget::New { name: "x".into() }, false),
-    )
-    .unwrap_err();
-    assert_eq!(refused.code, "test_vault_required");
+    if gate::gate_closed() {
+        let refused = run(
+            &env,
+            pc.runtime
+                .enable(&vault.root, SpaceTarget::New { name: "x".into() }, false),
+        )
+        .unwrap_err();
+        assert_eq!(refused.code, "test_vault_required");
+    }
 
     let on = run(
         &env,
@@ -780,15 +814,17 @@ fn resuming_on_another_device_needs_the_test_mark_again_and_starts_nothing_witho
     let status = run(&env, again.runtime.activate_vault(&vault.root)).unwrap();
     assert!(status.resumable && !status.test_vault, "{status:?}");
 
-    let refused = run(
-        &env,
-        again
-            .runtime
-            .enable(&vault.root, SpaceTarget::New { name: "".into() }, false),
-    )
-    .unwrap_err();
-    assert_eq!(refused.code, "test_vault_required");
-    assert_eq!(again.runtime.status().phase, SyncPhase::Off);
+    if gate::gate_closed() {
+        let refused = run(
+            &env,
+            again
+                .runtime
+                .enable(&vault.root, SpaceTarget::New { name: "".into() }, false),
+        )
+        .unwrap_err();
+        assert_eq!(refused.code, "test_vault_required");
+        assert_eq!(again.runtime.status().phase, SyncPhase::Off);
+    }
 
     let on = run(
         &env,
