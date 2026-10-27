@@ -2,8 +2,8 @@
 
 The always-present "Synchronization" settings section (sync is not a module). Plan:
 [sync-plan.md](../../../../docs/sync-plan.md) (Р5, Р12, stage Э4). The connection, and the sync of the open
-vault under it. Until the gates of the plan are passed a vault can be switched on only when the person marks
-it as a test vault, and the screen says so.
+vault under it. The gates were completed and confirmed on 27 October 2026:
+real vaults are allowed, with an external backup before the first pass. Legacy test marks remain readable.
 
 | Concern                                                                                                                                                                                                                                                           | Owner                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
