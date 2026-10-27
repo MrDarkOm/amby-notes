@@ -86,6 +86,8 @@ mod account_overview_tests;
 #[cfg(test)]
 mod backup_tests;
 #[cfg(test)]
+mod backup_boundary_tests;
+#[cfg(test)]
 mod base_store_tests;
 #[cfg(test)]
 mod conflict_store_tests;
