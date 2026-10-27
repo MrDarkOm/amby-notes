@@ -20,6 +20,7 @@ mod recycle_bin;
 mod state;
 pub mod sync;
 mod system_recycle_bin;
+mod updater;
 pub mod vault;
 mod vault_context;
 pub mod vault_index;
