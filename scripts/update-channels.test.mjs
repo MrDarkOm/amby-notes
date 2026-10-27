@@ -1,4 +1,8 @@
 import assert from "node:assert/strict"
+import { execFileSync } from "node:child_process"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
 import test from "node:test"
 
 import {
@@ -170,4 +174,65 @@ test("manifest numeric version must equal the tag base version", () => {
       }),
     /version/i,
   )
+})
+
+test("feeds CLI accepts --feed-dir and writes the beta feed", (context) => {
+  const directory = mkdtempSync(join(tmpdir(), "amby update feeds "))
+  context.after(() => rmSync(directory, { recursive: true, force: true }))
+  const manifestPath = join(directory, "latest manifest.json")
+  const feedDirectory = join(directory, "feed files")
+  writeFileSync(manifestPath, JSON.stringify(manifest()), "utf8")
+
+  execFileSync(
+    process.execPath,
+    [
+      resolve("scripts/update-channels.mjs"),
+      "feeds",
+      "--tag",
+      "v0.1.9-beta.2",
+      "--manifest",
+      manifestPath,
+      "--feed-dir",
+      feedDirectory,
+    ],
+    { env: { ...process.env, GITHUB_REPOSITORY: `${owner}/${repo}` } },
+  )
+
+  const feed = JSON.parse(readFileSync(join(feedDirectory, "beta.json"), "utf8"))
+  assert.equal(feed.version, "0.1.9-beta.2")
+})
+
+test("validates every installer-qualified asset in latest.json", () => {
+  const candidate = manifest()
+  candidate.platforms["windows-x86_64-msi"] = {
+    signature: "signature-windows-x86_64-msi",
+    url: "https://example.org/foreign-installer.msi",
+  }
+
+  assert.throws(
+    () =>
+      applyReleaseToFeeds(currentFeeds(null, null), candidate, "v0.1.9-beta.2", {
+        rootVersion,
+        owner,
+        repo,
+      }),
+    /url|repository/i,
+  )
+})
+
+test("config CLI handles spaced output paths and prints a normalized path", (context) => {
+  const directory = mkdtempSync(join(tmpdir(), "amby release config "))
+  context.after(() => rmSync(directory, { recursive: true, force: true }))
+  const outputPath = join(directory, "tauri release config.json")
+
+  const stdout = execFileSync(
+    process.execPath,
+    [resolve("scripts/update-channels.mjs"), "config", "--tag", "v0.1.9-beta.2", "--output", outputPath],
+    { encoding: "utf8" },
+  )
+
+  assert.equal(stdout.trim(), resolve(outputPath).replaceAll("\\", "/"))
+  const config = JSON.parse(readFileSync(outputPath, "utf8"))
+  assert.equal(config.bundle.createUpdaterArtifacts, true)
+  assert.equal(config.bundle.windows.wix.version, "0.1.902")
 })
