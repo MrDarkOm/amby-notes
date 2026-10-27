@@ -220,16 +220,6 @@ export function UpdateSettings() {
       <Row label={t("settings.updates.currentVersion")}>
         <span className="text-[13px] tabular-nums text-muted-foreground">{version}</span>
       </Row>
-      <Row label={t("settings.updates.license")} hint={t("settings.updates.licenseHint")}>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => void openWebAddressInBrowser(SOURCE_CODE_URL)}
-        >
-          {t("settings.updates.sourceAction")}
-        </Button>
-      </Row>
       <Row label={t("settings.updates.check")} hint={status}>
         <Button
           type="button"
@@ -246,6 +236,16 @@ export function UpdateSettings() {
           {update
             ? t("settings.updates.install", { version: update.version })
             : t("settings.updates.checkAction")}
+        </Button>
+      </Row>
+      <Row label={t("settings.updates.license")} hint={t("settings.updates.licenseHint")}>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => void openWebAddressInBrowser(SOURCE_CODE_URL)}
+        >
+          {t("settings.updates.sourceAction")}
         </Button>
       </Row>
     </>
