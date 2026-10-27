@@ -130,4 +130,57 @@ describe("update channel preference", () => {
     expect(screen.queryByRole("button", { name: /Установить 0\.2\.0/ })).toBeNull()
     expect(staleUpdate.install).not.toHaveBeenCalled()
   })
+
+  it("closes a late update result when the settings panel unmounts during a check", async () => {
+    let resolveCheck: (value: ReturnType<typeof availableUpdate>) => void = () => {}
+    updater.check.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCheck = resolve
+      }),
+    )
+    const view = render(<UpdateSettings />)
+    fireEvent.click(screen.getByRole("button", { name: "Проверить" }))
+    await screen.findByText(/Проверяем GitHub Releases/)
+    view.unmount()
+
+    const lateUpdate = availableUpdate()
+    resolveCheck(lateUpdate)
+    await waitFor(() => expect(lateUpdate.close).toHaveBeenCalledOnce())
+    expect(lateUpdate.install).not.toHaveBeenCalled()
+  })
+
+  it("discards an available update when another window changes the channel", async () => {
+    const staleUpdate = availableUpdate()
+    updater.check.mockResolvedValue(staleUpdate)
+    const view = render(<UpdateSettings />)
+    fireEvent.click(screen.getByRole("button", { name: "Проверить" }))
+    await screen.findByRole("button", { name: /Установить 0\.2\.0/ })
+
+    settings.updates = { autoUpdate: true, channel: "beta" }
+    view.rerender(<UpdateSettings />)
+
+    await waitFor(() => expect(staleUpdate.close).toHaveBeenCalledOnce())
+    expect(screen.queryByRole("button", { name: /Установить 0\.2\.0/ })).toBeNull()
+    expect(staleUpdate.install).not.toHaveBeenCalled()
+  })
+
+  it("keeps an already running install alive if another window changes the channel", async () => {
+    let finishInstall: (() => void) | undefined
+    const update = availableUpdate()
+    update.install.mockImplementation(
+      () => new Promise<void>((resolve) => (finishInstall = resolve)),
+    )
+    updater.check.mockResolvedValue(update)
+    const view = render(<UpdateSettings />)
+    fireEvent.click(screen.getByRole("button", { name: "Проверить" }))
+    await screen.findByRole("button", { name: /Установить 0\.2\.0/ })
+    fireEvent.click(screen.getByRole("button", { name: /Установить 0\.2\.0/ }))
+    await waitFor(() => expect(update.install).toHaveBeenCalledOnce())
+
+    settings.updates = { autoUpdate: true, channel: "beta" }
+    view.rerender(<UpdateSettings />)
+    expect(update.close).not.toHaveBeenCalled()
+
+    finishInstall?.()
+  })
 })
