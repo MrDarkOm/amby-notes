@@ -18,7 +18,23 @@ vi.mock("@/lib/storage", () => ({
 }))
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: native.getCurrentWindow }))
 vi.mock("@tauri-apps/api/app", () => ({ getBundleType: native.getBundleType }))
-vi.mock("@tauri-apps/plugin-updater", () => ({ check: native.check }))
+vi.mock("@tauri-apps/plugin-updater", () => ({
+  check: native.check,
+  Update: class {
+    constructor(metadata: object) {
+      return metadata
+    }
+  },
+}))
+vi.mock("@/lib/bindings", () => ({
+  commands: {
+    checkAppUpdate: async (...args: unknown[]) => ({
+      status: "ok",
+      data: await native.check(...args),
+    }),
+    appReleaseVersion: async () => ({ status: "ok", data: "0.1.9-beta.2" }),
+  },
+}))
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: native.relaunch }))
 vi.mock("@/lib/logger", () => ({
   logger: { warn: native.warn },
@@ -118,7 +134,7 @@ describe("silent startup updates", () => {
   it("checks endpoint connectivity with a short timeout and opens when current", async () => {
     const { runAutomaticAppUpdate } = await import("./app-updater")
     expect(await runAutomaticAppUpdate()).toBe("ready")
-    expect(native.check).toHaveBeenCalledWith({ timeout: 5000 })
+    expect(native.check).toHaveBeenCalledWith("stable", 5000)
     expect(native.confirmAction).not.toHaveBeenCalled()
     expect(native.relaunch).not.toHaveBeenCalled()
   })
@@ -226,7 +242,7 @@ describe("silent startup updates", () => {
     native.check.mockResolvedValue(update)
     const { checkForAppUpdate } = await import("./app-updater")
     const manual = await checkForAppUpdate()
-    expect(native.check).toHaveBeenCalledWith({ timeout: 30_000 })
+    expect(native.check).toHaveBeenCalledWith("stable", 30_000)
     const progress = vi.fn()
     await manual!.install(progress)
     expect(progress.mock.calls.map(([value]) => value)).toEqual([
@@ -235,5 +251,20 @@ describe("silent startup updates", () => {
       { phase: "installing" },
       { phase: "restarting" },
     ])
+  })
+})
+
+describe("native update channels", () => {
+  it("passes the chosen channel to the native check for manual and startup checks", async () => {
+    const { checkForAppUpdate, runAutomaticAppUpdate } = await import("./app-updater")
+    await checkForAppUpdate("beta")
+    expect(native.check).toHaveBeenLastCalledWith("beta", 30_000)
+    await runAutomaticAppUpdate("beta")
+    expect(native.check).toHaveBeenLastCalledWith("beta", 5_000)
+  })
+
+  it("shows the beta release identity instead of losing its build number", async () => {
+    const { getCurrentAppVersion } = await import("./app-updater")
+    expect(await getCurrentAppVersion()).toBe("0.1.9-beta.2")
   })
 })
