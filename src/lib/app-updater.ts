@@ -1,6 +1,8 @@
 import type { DownloadEvent, Update } from "@tauri-apps/plugin-updater"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import packageJson from "../../package.json"
+import { commands } from "@/lib/bindings"
+import type { UpdateChannelPref } from "@/components/workspace/app-config"
 import { errorType, logger } from "@/lib/logger"
 import { isTauri } from "@/lib/storage"
 
@@ -32,8 +34,9 @@ export function isAppUpdaterAvailable(): boolean {
 export async function getCurrentAppVersion(): Promise<string> {
   if (!isTauri()) return packageJson.version
   try {
-    const { getVersion } = await import("@tauri-apps/api/app")
-    return await getVersion()
+    const result = await commands.appReleaseVersion()
+    if (result.status === "error") throw new Error(result.error)
+    return result.data
   } catch (error) {
     logger.warn("updater.version_read_failed", { errorType: errorType(error) })
     return packageJson.version
@@ -82,12 +85,17 @@ function wrapUpdate(update: Update): AvailableAppUpdate {
 }
 
 export async function checkForAppUpdate(
+  channel: UpdateChannelPref = "stable",
   timeoutMs = CHECK_TIMEOUT_MS,
 ): Promise<AvailableAppUpdate | null> {
   if (!isAppUpdaterAvailable()) return null
-  const { check } = await import("@tauri-apps/plugin-updater")
-  const update = await check({ timeout: timeoutMs })
-  return update ? wrapUpdate(update) : null
+  const result = await commands.checkAppUpdate(channel, timeoutMs)
+  if (result.status === "error") throw new Error(result.error)
+  if (!result.data) return null
+  const { Update } = await import("@tauri-apps/plugin-updater")
+  return wrapUpdate(
+    new Update({ ...result.data, body: result.data.body ?? undefined, rawJson: {} }),
+  )
 }
 
 let automaticUpdateTask: Promise<StartupUpdateResult> | null = null
@@ -98,13 +106,15 @@ let automaticUpdateTask: Promise<StartupUpdateResult> | null = null
  * The update endpoint request itself checks connectivity (including DNS/TLS);
  * no unrelated ping service or unreliable navigator.onLine hint is needed.
  */
-export function runAutomaticAppUpdate(): Promise<StartupUpdateResult> {
+export function runAutomaticAppUpdate(
+  channel: UpdateChannelPref = "stable",
+): Promise<StartupUpdateResult> {
   if (import.meta.env.DEV || !isAppUpdaterAvailable()) return Promise.resolve("ready")
-  automaticUpdateTask ??= installStartupUpdate()
+  automaticUpdateTask ??= installStartupUpdate(channel)
   return automaticUpdateTask
 }
 
-async function installStartupUpdate(): Promise<StartupUpdateResult> {
+async function installStartupUpdate(channel: UpdateChannelPref): Promise<StartupUpdateResult> {
   let update: AvailableAppUpdate | null = null
   try {
     if (getCurrentWindow().label !== "main") return "ready"
@@ -113,7 +123,7 @@ async function installStartupUpdate(): Promise<StartupUpdateResult> {
     // Linux package installs invoke pkexec/GUI sudo inside the native updater.
     // Keep those explicit in settings; portable AppImage updates stay silent.
     if (bundleType === "deb" || bundleType === "rpm") return "ready"
-    update = await checkForAppUpdate(STARTUP_CHECK_TIMEOUT_MS)
+    update = await checkForAppUpdate(channel, STARTUP_CHECK_TIMEOUT_MS)
     if (!update) return "ready"
 
     await update.install()

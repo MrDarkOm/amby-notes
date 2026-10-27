@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import test from "node:test"
+import process from "node:process"
 
 import {
   applyReleaseToFeeds,
@@ -14,6 +15,7 @@ import {
 const owner = "MrDarkOm"
 const repo = "amby-notes"
 const rootVersion = "0.1.9"
+const packageVersion = JSON.parse(readFileSync(resolve("package.json"), "utf8")).version
 
 function manifest(version = rootVersion) {
   const platforms = Object.fromEntries(
@@ -181,7 +183,7 @@ test("feeds CLI accepts --feed-dir and writes the beta feed", (context) => {
   context.after(() => rmSync(directory, { recursive: true, force: true }))
   const manifestPath = join(directory, "latest manifest.json")
   const feedDirectory = join(directory, "feed files")
-  writeFileSync(manifestPath, JSON.stringify(manifest()), "utf8")
+  writeFileSync(manifestPath, JSON.stringify({ ...manifest(), version: packageVersion }), "utf8")
 
   execFileSync(
     process.execPath,
@@ -189,7 +191,7 @@ test("feeds CLI accepts --feed-dir and writes the beta feed", (context) => {
       resolve("scripts/update-channels.mjs"),
       "feeds",
       "--tag",
-      "v0.1.9-beta.2",
+      `v${packageVersion}-beta.2`,
       "--manifest",
       manifestPath,
       "--feed-dir",
@@ -199,7 +201,7 @@ test("feeds CLI accepts --feed-dir and writes the beta feed", (context) => {
   )
 
   const feed = JSON.parse(readFileSync(join(feedDirectory, "beta.json"), "utf8"))
-  assert.equal(feed.version, "0.1.9-beta.2")
+  assert.equal(feed.version, `${packageVersion}-beta.2`)
 })
 
 test("validates every installer-qualified asset in latest.json", () => {
@@ -227,12 +229,22 @@ test("config CLI handles spaced output paths and prints a normalized path", (con
 
   const stdout = execFileSync(
     process.execPath,
-    [resolve("scripts/update-channels.mjs"), "config", "--tag", "v0.1.9-beta.2", "--output", outputPath],
+    [
+      resolve("scripts/update-channels.mjs"),
+      "config",
+      "--tag",
+      `v${packageVersion}-beta.2`,
+      "--output",
+      outputPath,
+    ],
     { encoding: "utf8" },
   )
 
   assert.equal(stdout.trim(), resolve(outputPath).replaceAll("\\", "/"))
   const config = JSON.parse(readFileSync(outputPath, "utf8"))
   assert.equal(config.bundle.createUpdaterArtifacts, true)
-  assert.equal(config.bundle.windows.wix.version, "0.1.902")
+  assert.equal(
+    config.bundle.windows.wix.version,
+    windowsInstallerVersion(packageVersion, `v${packageVersion}-beta.2`),
+  )
 })

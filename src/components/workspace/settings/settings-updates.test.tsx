@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import i18n from "@/lib/i18n"
+import { chooseOption, selectedText } from "@/lib/test-utils/amby-select"
 import { UpdateSettings } from "./settings-updates"
 
 const settings = vi.hoisted(() => ({
@@ -57,14 +58,14 @@ beforeEach(async () => {
 afterEach(cleanup)
 
 describe("update channel preference", () => {
-  it("offers stable by default and explains what each channel receives", () => {
+  it("offers stable by default and explains what each channel receives", async () => {
     render(<UpdateSettings />)
-    expect((channelSelect() as HTMLSelectElement).value).toBe("stable")
-    expect(screen.getByRole("option", { name: "Стабильный" })).toBeTruthy()
-    expect(screen.getByRole("option", { name: "Бета" })).toBeTruthy()
+    expect(selectedText("Канал обновлений")).toBe("Стабильный")
     expect(screen.getByText(/только финальные стабильные версии/i)).toBeTruthy()
 
-    fireEvent.change(channelSelect(), { target: { value: "beta" } })
+    fireEvent.click(channelSelect())
+    expect(await screen.findByRole("option", { name: "Стабильный" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("option", { name: "Бета" }))
     expect(screen.getByText(/бета-версии и последующие финальные/i)).toBeTruthy()
     expect(
       screen.getByText(/при возврате на стабильный канал откат не устанавливается/i),
@@ -73,7 +74,7 @@ describe("update channel preference", () => {
 
   it("persists a selected channel together with the current automatic-update setting", async () => {
     render(<UpdateSettings />)
-    fireEvent.change(channelSelect(), { target: { value: "beta" } })
+    await chooseOption("Канал обновлений", "Бета")
 
     await waitFor(() =>
       expect(settings.setPrefs).toHaveBeenCalledWith({
@@ -103,7 +104,7 @@ describe("update channel preference", () => {
     await screen.findByRole("button", { name: /Установить 0\.2\.0/ })
     expect(updater.check).toHaveBeenCalledWith("stable")
 
-    fireEvent.change(channelSelect(), { target: { value: "beta" } })
+    await chooseOption("Канал обновлений", "Бета")
     await waitFor(() => expect(update.close).toHaveBeenCalledOnce())
     expect(screen.queryByRole("button", { name: /Установить 0\.2\.0/ })).toBeNull()
     expect(update.install).not.toHaveBeenCalled()

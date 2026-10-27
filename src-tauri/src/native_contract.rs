@@ -91,6 +91,7 @@ fn run_native_ui(root: std::path::PathBuf) {
     crate::state::init_logging();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(NativeAppDataRoot(root.join(".app-data")))
         .manage(crate::vault_context::VaultContext::new())
         .manage(crate::watcher::WatcherState::new())
@@ -143,6 +144,7 @@ pub fn run_native_contract() {
     context.config_mut().app.windows.clear();
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(NativeAppDataRoot(root.join(".app-data")))
         .manage(crate::vault_context::VaultContext::new())
         .manage(crate::watcher::WatcherState::new())

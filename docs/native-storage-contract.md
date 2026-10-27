@@ -72,3 +72,8 @@ rollback after a read-only related schema changes, malformed YAML, legacy aliase
 and metadata preservation have focused Rust coverage. The native interrupted-state
 fixture above still exercises version-1 property creation. Manual dialog smoke
 and Windows/Linux execution remain separate checks.
+
+The native updater scenario checks the compiled release identity against the app
+version and verifies that the generic plugin check (including a downgrade flag)
+is denied by real WebView capabilities. It makes no update request and performs
+no installation. This does not certify signed artifact replacement.

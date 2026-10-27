@@ -54,3 +54,6 @@ Relation command/projection acceptance also runs through
 replacement across two databases must update inverse queries before rebuild.
 [projection_test.rs](../src-tauri/src/database/projection_test.rs) covers inverse Rollup, self-relation deduplication,
 projection failure warnings and source-byte preservation without a watcher.
+
+[native/updater-contract.ts](native/updater-contract.ts) checks release identity
+and the updater capability boundary in the isolated native contract runner.
