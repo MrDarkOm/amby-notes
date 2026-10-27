@@ -92,6 +92,7 @@ fn digest(path: &Path) -> Result<(u64, String), SyncError> {
 
 fn private_dir(path: &Path) -> Result<(), SyncError> {
     let mut builder = fs::DirBuilder::new();
+    builder.recursive(false);
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
