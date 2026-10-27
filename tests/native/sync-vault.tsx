@@ -217,10 +217,14 @@ async function run() {
     document.querySelector('[data-testid="sync-vault"]'),
   )
 
-  await step("the screen warns about the test mode and demands the test mark", async () => {
-    await waitFor("the warning", () => document.querySelector('[data-testid="sync-test-warning"]'))
+  await step("the vault can be enabled without a legacy mark", async () => {
     const enable = await waitFor("the enable button", () => button("Включить синхронизацию"))
-    if (!enable.disabled) throw new Error("the button must wait for the test mark")
+    if (enable.disabled) throw new Error("the enable button is unexpectedly disabled")
+    if (
+      document.querySelector('[data-testid="sync-test-warning"], [data-testid="sync-test-vault"]')
+    ) {
+      throw new Error("obsolete controls are still shown")
+    }
   })
 
   if (!first) {
@@ -248,13 +252,12 @@ async function run() {
     })
   }
 
-  await step("the vault is switched on with the test mark", async () => {
-    ;(document.querySelector('[data-testid="sync-test-vault"]') as HTMLInputElement).click()
+  await step("the vault is switched on after its backup", async () => {
     await press("Включить синхронизацию")
     await waitFor("the status", () => document.querySelector('[data-testid="sync-status"]'))
     await untilIdle("the first pass")
     const status = await port.vaultStatus()
-    if (!status.testVault) throw new Error("the test mark was lost")
+    if (!status.backupPath) throw new Error("the pre-sync backup is missing")
     if (status.spaceName !== config.spaceName) throw new Error(`name: ${status.spaceName}`)
   })
 

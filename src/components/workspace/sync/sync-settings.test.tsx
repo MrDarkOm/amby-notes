@@ -65,13 +65,12 @@ describe("the Synchronization section of the settings", () => {
   })
   afterEach(cleanup)
 
-  it("says honestly that the synchronisation of notes is still experimental", async () => {
-    // stage Э4: notes do travel now, but only on a test vault until the gates of the plan are
-    // passed; the section must not promise more (it used to say that notes do not travel at all)
+  it("does not carry the obsolete test-mode warning", async () => {
     const port = createFakePort()
     renderSettings(port)
     await screen.findByRole("radio", { name: /Сервер Amby/ })
-    expect(document.body.textContent).toMatch(/в тестовом режиме/)
+    expect(screen.queryByRole("note")).toBeNull()
+    expect(document.body.textContent).not.toMatch(/экспериментальн|тестовом режиме/i)
     expect(document.body.textContent).not.toMatch(/Заметки пока не синхронизируются/)
   })
 
@@ -225,7 +224,8 @@ describe("the Synchronization section of the settings", () => {
     const port = createFakePort()
     renderSettings(port)
     expect(await screen.findByRole("radio", { name: /Amby/ })).toBeTruthy()
-    expect(document.body.textContent).toMatch(/works in a test mode/i)
+    expect(screen.queryByRole("note")).toBeNull()
+    expect(document.body.textContent).not.toMatch(/works in a test mode/i)
     await i18n.changeLanguage("ru")
   })
 

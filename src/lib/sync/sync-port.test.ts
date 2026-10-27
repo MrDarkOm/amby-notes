@@ -244,11 +244,11 @@ describe("the desktop sync port: the sync of the open vault", () => {
 
   it("turns a failed command into a SyncPortError with the machine code", async () => {
     const c = commands as unknown as Record<string, ReturnType<typeof vi.fn>>
-    c.syncEnableVault = vi.fn().mockResolvedValue(failed("test_vault_required"))
+    c.syncEnableVault = vi.fn().mockResolvedValue(failed("storage_error"))
     const port = createDesktopSyncPort()
     await expect(port.enableVault({ kind: "new", name: "" }, false)).rejects.toMatchObject({
       name: "SyncPortError",
-      code: "test_vault_required",
+      code: "storage_error",
     })
     c.syncApprove = vi.fn().mockRejectedValue(new Error("raw text with /Users/x/path"))
     await expect(port.approve("resync")).rejects.toMatchObject({ code: "ipc_failed" })
