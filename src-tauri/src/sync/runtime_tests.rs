@@ -498,16 +498,29 @@ fn the_renames_of_amby_reach_the_next_pass() {
         }],
     );
     pc.runtime.sync_now().unwrap();
-    wait_until("the rename reaches the server", || {
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        wait_until("the rename reaches the server", || {
+            let page = env
+                .account
+                .get(&format!("/v1/spaces/{id}/changes?since=0"))
+                .json();
+            let list = page["changes"].as_array().unwrap();
+            list.len() == 2
+                && list.iter().all(|c| c["deleted"] != true)
+                && list.iter().any(|c| c["version"] == 2)
+        });
+    }));
+    if let Err(error) = outcome {
         let page = env
             .account
             .get(&format!("/v1/spaces/{id}/changes?since=0"))
             .json();
-        let list = page["changes"].as_array().unwrap();
-        list.len() == 2
-            && list.iter().all(|c| c["deleted"] != true)
-            && list.iter().any(|c| c["version"] == 2)
-    });
+        eprintln!(
+            "rename timeout: server={page}, status={:?}",
+            pc.runtime.status()
+        );
+        std::panic::resume_unwind(error);
+    }
     assert!(pc.runtime.hints().is_empty(), "the hints were used");
     pc.runtime.deactivate_vault();
 }
