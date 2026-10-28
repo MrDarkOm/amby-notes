@@ -1467,11 +1467,14 @@ fn a_note_brought_back_after_a_deletion_here_is_reported_here() {
     let (sb, recorder_b) = env.start(&b, &env.another_computer("B"));
     settle(&sa, &sb);
     b.remove("Notes/n.md");
-    pass(&sb); // the deletion goes up
+    let after_delete = pass(&sb); // the deletion goes up
     a.put("Notes/n.md", b"edited on a");
-    pass(&sa); // the edit goes up and beats the deletion
-    pass(&sb); // B receives the note again
+    let after_edit = pass(&sa); // the edit goes up and beats the deletion
+    let after_restore = pass(&sb); // B receives the note again
     assert_eq!(b.text("Notes/n.md").as_deref(), Some("edited on a"));
+    if recorder_b.restored_after_local_deletion().is_empty() {
+        eprintln!("restore diagnostics: deletion={after_delete:?}, edit={after_edit:?}, restore={after_restore:?}");
+    }
     assert_eq!(
         recorder_b.restored_after_local_deletion(),
         vec!["Notes/n.md"]
