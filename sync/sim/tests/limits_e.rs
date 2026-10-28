@@ -601,10 +601,10 @@ fn d78_a_merge_result_that_does_not_fit_stays_local_and_the_server_keeps_the_old
     w.set_plan("tight");
     // Device 0 edits the top, device 1 the bottom: different places, so К1 merges cleanly.
     // Each result fits the limit alone; the merge of the two does not.
-    let from_zero = format!("{}\n{}", text(16_000, 'a'), &base);
+    let from_zero = format!("{}\n{}", text(16_000, 'a'), base);
     w.save(0, "Notes/a.md", &from_zero);
     w.pass(0);
-    let from_one = format!("{}{}\n", &base, text(16_000, 'z'));
+    let from_one = format!("{}{}\n", base, text(16_000, 'z'));
     w.save(1, "Notes/a.md", &from_one);
     w.pass(1);
     let local = w.read(1, "Notes/a.md").unwrap();
