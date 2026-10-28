@@ -16,7 +16,9 @@ fn credential_error(_: keyring::Error) -> String {
 }
 
 fn read_credential(credential_id: &str) -> keyring::Result<String> {
-    keyring::Entry::new(SERVICE_NAME, credential_id)?.get_password()
+    crate::keychain_access::access(true, || {
+        keyring::Entry::new(SERVICE_NAME, credential_id)?.get_password()
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -45,8 +47,10 @@ pub fn get_credential(credential_id: &str) -> Result<String, String> {
 }
 
 pub fn set_credential(credential_id: &str, secret: &str) -> Result<(), String> {
-    let entry = keyring::Entry::new(SERVICE_NAME, credential_id).map_err(credential_error)?;
-    entry.set_password(secret).map_err(credential_error)?;
+    crate::keychain_access::access(true, || {
+        keyring::Entry::new(SERVICE_NAME, credential_id)?.set_password(secret)
+    })
+    .map_err(credential_error)?;
     // A fresh entry must see the exact stored value before store reports success.
     // This also prevents an accidental switch back to entry-local mock storage.
     match read_credential(credential_id) {
@@ -56,11 +60,11 @@ pub fn set_credential(credential_id: &str, secret: &str) -> Result<(), String> {
 }
 
 pub fn delete_credential_entry(credential_id: &str) -> Result<(), String> {
-    let entry = keyring::Entry::new(SERVICE_NAME, credential_id).map_err(credential_error)?;
-    match entry.delete_credential() {
-        Ok(()) => Ok(()),
-        Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(credential_error(e)),
+    match crate::keychain_access::access(true, || {
+        keyring::Entry::new(SERVICE_NAME, credential_id)?.delete_credential()
+    }) {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(credential_error(error)),
     }
 }
 

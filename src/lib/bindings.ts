@@ -1200,6 +1200,30 @@ async inspectAiCredential(credentialId: string) : Promise<Result<CredentialInfo,
     else return { status: "error", error: e  as any };
 }
 },
+async listVaultBackups(expectedVault: string) : Promise<Result<BackupCatalog, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_vault_backups", { expectedVault }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async verifyVaultBackup(expectedGeneration: number, backupId: string) : Promise<Result<BackupInfo, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("verify_vault_backup", { expectedGeneration, backupId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async restoreVaultBackup(expectedGeneration: number, backupId: string, operationId: string) : Promise<Result<RestoredBackup | null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_vault_backup", { expectedGeneration, backupId, operationId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Asks a server for `/v1/info` and checks the address (П9, П41).
  */
@@ -1281,9 +1305,9 @@ async syncRecover(url: string, allowHttp: boolean, username: string, recoveryCod
 /**
  * The state of the connection (no network).
  */
-async syncStatus() : Promise<Result<SyncStatus, SyncError>> {
+async syncStatus(interactive: boolean | null) : Promise<Result<SyncStatus, SyncError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("sync_status") };
+    return { status: "ok", data: await TAURI_INVOKE("sync_status", { interactive }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1743,6 +1767,9 @@ export type ApprovalKind =
  * Forget the link with the server and reconcile this vault with it again by content.
  */
 "resync"
+export type BackupCatalog = { vault: string; generation: number; backups: BackupInfo[] }
+export type BackupCondition = "unchecked" | "verified" | "damaged" | "incomplete" | "missing"
+export type BackupInfo = { id: string; createdMs: number; bytes: number; files: number; status: BackupCondition }
 export type ChangeDatabasePropertyTypeRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; propertyType: string; relationTargetDatabaseId?: string | null; relationMaxItems?: number | null; relationTwoWay?: boolean | null; relationInversePropertyName?: string | null; operationId?: string | null; expectedRelatedManifestRevisions?: DatabaseManifestRevision[] }
 export type ChangedDatabasePropertyType = { databaseId: string; propertyId: string; propertyType: string; manifestRevision: string; operationId: string | null; inversePropertyId: string | null; manifestRevisions: DatabaseManifestRevision[]; warnings: string[] }
 /**
@@ -2360,6 +2387,7 @@ export type ResolvedRecordReferences = {
  */
 references: RecordReference[] }
 export type RestoreDeletedNoteRequest = { expectedGeneration: number; noteId: string; path: string; content: string; sourceTemplate: string; originWindow: string }
+export type RestoredBackup = { path: string }
 export type RollbackModuleResult = { success: boolean; moduleId: string; rolledBackToVersion: string; previousVersion: string; activeInstallPath: string }
 export type SearchRelationCandidatesRequest = { expectedGeneration: number; 
 /**

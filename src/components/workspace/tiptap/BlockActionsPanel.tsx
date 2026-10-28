@@ -267,7 +267,9 @@ export function BlockActionsPanel({
           })
         }
         if (insertPos !== null) {
-          editor.view.dispatch(editor.state.tr.insertText(` ^${blockId}`, insertPos))
+          editor.view.dispatch(
+            editor.state.tr.insertText(` ^${blockId}`, insertPos).setMeta("uiEvent", "input"),
+          )
           anchor = `^${blockId}`
         }
       }

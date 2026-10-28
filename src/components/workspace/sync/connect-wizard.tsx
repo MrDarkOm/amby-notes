@@ -1,5 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
+import { UserRound, Server, CircleCheck } from "lucide-react"
 
 import { AMBY_SERVER_URL, isAmbyServer } from "@/lib/sync/amby-server"
 import { Button } from "@/components/ui/button"
@@ -64,6 +65,7 @@ export function ConnectWizard({
 }: ConnectWizardProps) {
   const { t } = useTranslation()
   const [step, setStep] = React.useState<Step>("server")
+  const [accountMode, setAccountMode] = React.useState<"create" | "signIn" | "recover" | null>(null)
   // The Amby server is the default; a record of another server starts on "own server".
   const [own, setOwn] = React.useState(Boolean(initial?.url) && !isAmbyServer(initial?.url))
   const [url, setUrl] = React.useState(initial?.url ?? "")
@@ -134,7 +136,7 @@ export function ConnectWizard({
     run(async () => {
       const found = await port.checkServer({ url: chosenUrl, allowHttp: chosenAllowHttp })
       setServer(found)
-      setStep("choice")
+      setStep(accountMode ?? "choice")
     })
 
   const prepare = () =>
@@ -250,11 +252,54 @@ export function ConnectWizard({
     </Field>
   )
 
+  const accountChoice = (
+    <section className="sync-connect-account">
+      <div className="sync-connect-heading">
+        <span className="sync-connect-symbol">
+          <UserRound className="size-5" aria-hidden="true" />
+        </span>
+        <div>
+          <h3>{t("sync.layout.accountTitle")}</h3>
+          <p>{t("sync.layout.accountHint")}</p>
+        </div>
+      </div>
+      <div
+        data-testid={step === "choice" ? "wizard-actions" : undefined}
+        className="sync-connect-options"
+      >
+        {(["create", "signIn", "recover"] as const).map((mode) => (
+          <Button
+            key={mode}
+            type="button"
+            size="sm"
+            variant={accountMode === mode ? "default" : mode === "recover" ? "link" : "outline"}
+            aria-pressed={accountMode === mode}
+            disabled={busy}
+            onClick={() => {
+              if (step === "server") setAccountMode(mode)
+              else goTo(mode)
+            }}
+          >
+            {t(
+              mode === "create"
+                ? "sync.wizard.choice.create"
+                : mode === "signIn"
+                  ? "sync.wizard.choice.signIn"
+                  : "sync.wizard.choice.forgot",
+            )}
+          </Button>
+        ))}
+        {step === "choice" && backButton("server")}
+      </div>
+    </section>
+  )
+
   if (step === "server") {
-    return form(
+    const serverForm = form(
       <>
         <fieldset className="space-y-2">
-          <legend className="mb-1 text-[12px] font-medium">
+          <legend className="sync-connect-server-title">
+            <Server className="size-4" aria-hidden="true" />
             {t("sync.wizard.server.choiceLabel")}
           </legend>
           <label className="flex items-center gap-2 text-[13px]">
@@ -323,26 +368,28 @@ export function ConnectWizard({
       </>,
       () => void checkServer(),
     )
+    return (
+      <div className="sync-connect-stack">
+        {accountChoice}
+        <section className="sync-connect-server">{serverForm}</section>
+      </div>
+    )
   }
 
   if (step === "choice") {
     return (
-      <div className="space-y-4">
-        <p className="text-[13px]">
-          {t("sync.wizard.server.found", { version: server?.serverVersion ?? "" })}
-        </p>
-        <div data-testid="wizard-actions" className="flex flex-wrap items-center gap-2">
-          <Button type="button" size="sm" onClick={() => goTo("create")}>
-            {t("sync.wizard.choice.create")}
-          </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => goTo("signIn")}>
-            {t("sync.wizard.choice.signIn")}
-          </Button>
-          <Button type="button" variant="link" size="sm" onClick={() => goTo("recover")}>
-            {t("sync.wizard.choice.forgot")}
-          </Button>
-          {backButton("server")}
-        </div>
+      <div className="sync-connect-stack">
+        {accountChoice}
+        <section className="sync-connect-server sync-connect-verified">
+          <CircleCheck className="size-5" aria-hidden="true" />
+          <div>
+            <h3>{t("sync.wizard.server.choiceLabel")}</h3>
+            <p className="text-[12px] text-muted-foreground">
+              {t("sync.wizard.server.found", { version: server?.serverVersion ?? "" })}
+            </p>
+            <p className="text-[11px] text-muted-foreground">{server?.host}</p>
+          </div>
+        </section>
       </div>
     )
   }

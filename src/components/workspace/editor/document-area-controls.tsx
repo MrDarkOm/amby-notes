@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next"
-import { EyeOff, Files, Maximize2 } from "lucide-react"
+import { PanelBottomClose, Files, Maximize2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { PageFloatingBar } from "../page-chrome/page-floating-bar"
 import { useSettingsStore } from "../use-settings-store"
@@ -113,7 +113,7 @@ export function DocumentAreaControls({
           }}
           className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground"
         >
-          <EyeOff className="size-3.5 shrink-0" />
+          <PanelBottomClose className="size-3.5 shrink-0" />
           <span>{t("docEditor.hideBottomBar")}</span>
         </button>
       </div>

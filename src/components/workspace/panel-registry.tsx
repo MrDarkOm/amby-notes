@@ -142,6 +142,7 @@ export interface PanelRenderProps {
   onOpenSettings?: (target?: SettingsNavigationTarget) => void
 
   // Right side
+  propertyError?: string | null
   properties?: DocumentProperties | FolderProperties | null
   attachments?: AttachmentItem[]
   attachmentImages?: AttachmentItem[]
@@ -153,7 +154,7 @@ export interface PanelRenderProps {
   onUpsertCustomProperty?: (property: CustomProperty) => Promise<CustomProperty>
   onDeleteCustomProperty?: (propertyId: string) => Promise<void>
   onReorderCustomProperties?: (propertyIds: string[]) => Promise<void>
-  onHistoryRestored?: () => Promise<void>
+  onHistoryRestored?: (path?: string) => Promise<void>
   workspaceSwitcher?: React.ReactNode
 }
 

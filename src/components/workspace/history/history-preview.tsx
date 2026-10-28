@@ -22,19 +22,77 @@ import { Input } from "@/components/ui/input"
 import { IconValue } from "../icon-value"
 import { sortTreeItems, type TreeSortDirection, type TreeSortKey } from "../tree-sort"
 import { diffHistory } from "./history-model"
-import type { useHistory } from "./use-history"
+import { useHistory } from "./use-history"
 
 export function HistoryPreview({
   history,
   name,
+  path,
   treeItems,
-  onSelect,
+  onRestored,
 }: {
   history: ReturnType<typeof useHistory>
   name: string
+  path: string | null | undefined
   treeItems: TreeItem[]
-  onSelect: (id: string) => void
+  onRestored?: (path?: string) => Promise<void>
 }) {
+  const [browsedNote, setBrowsedNote] = React.useState<TreeItem | null>(null)
+  if (!history.selected) return null
+  const targetPath = browsedNote?.path ?? path
+  const close = () => {
+    setBrowsedNote(null)
+    void history.select(null)
+    void history.refresh()
+  }
+  return (
+    <HistoryPreviewContents
+      key={targetPath}
+      path={targetPath}
+      name={browsedNote?.name ?? name}
+      initialSnapshotId={browsedNote ? undefined : history.selected.id}
+      treeItems={treeItems}
+      onSelect={setBrowsedNote}
+      onClose={close}
+      onRestored={async () => {
+        await onRestored?.(targetPath ?? undefined)
+        close()
+      }}
+    />
+  )
+}
+
+function HistoryPreviewContents({
+  path,
+  name,
+  initialSnapshotId,
+  treeItems,
+  onSelect,
+  onClose,
+  onRestored,
+}: {
+  path: string | null | undefined
+  name: string
+  initialSnapshotId?: string
+  treeItems: TreeItem[]
+  onSelect: (item: TreeItem) => void
+  onClose: () => void
+  onRestored: () => Promise<void>
+}) {
+  const history = useHistory(path, onRestored)
+  const opened = React.useRef(false)
+  const hadSelection = React.useRef(false)
+  React.useEffect(() => {
+    if (history.selected) hadSelection.current = true
+    else if (hadSelection.current && !history.busy) onClose()
+  }, [history.selected, history.busy, onClose])
+  React.useEffect(() => {
+    if (history.loading || opened.current) return
+    opened.current = true
+    const entry =
+      history.snapshots.find((entry) => entry.id === initialSnapshotId) ?? history.snapshots[0]
+    if (entry) void history.select(entry)
+  }, [history, initialSnapshotId])
   const { t, i18n } = useTranslation()
   const diff = React.useMemo(
     () => (history.preview ? diffHistory(history.preview.previous, history.preview.current) : null),
@@ -87,6 +145,7 @@ export function HistoryPreview({
                 "--amby-density-padding-left": `${8 + depth * 12}px`,
               } as React.CSSProperties
             }
+            disabled={history.busy || (!folder && !item.path)}
             onClick={() =>
               folder
                 ? setExpandedFolders((current) => {
@@ -95,7 +154,7 @@ export function HistoryPreview({
                     else next.add(item.id)
                     return next
                   })
-                : (onSelect(item.id), setBrowseOpen(false), void history.select(null))
+                : (onSelect(item), setBrowseOpen(false))
             }
           >
             {folder ? (
@@ -134,9 +193,9 @@ export function HistoryPreview({
     })
   return (
     <Dialog
-      open={Boolean(entry)}
+      open
       onOpenChange={(open) => {
-        if (!open && !history.busy) void history.select(null)
+        if (!open && !history.busy) onClose()
       }}
     >
       <DialogContent
@@ -156,8 +215,9 @@ export function HistoryPreview({
               variant="ghost"
               size="icon-sm"
               className="size-7"
-              title={t("historyPanel.openNote")}
-              aria-label={t("historyPanel.openNote")}
+              title={t("historyPanel.selectNote")}
+              aria-label={t("historyPanel.selectNote")}
+              disabled={history.busy}
               onClick={() => setBrowseOpen((open) => !open)}
             >
               <ArrowLeftRight className="size-4" />
@@ -170,7 +230,7 @@ export function HistoryPreview({
             {history.error}
           </p>
         )}
-        {history.previewLoading ? (
+        {history.loading || history.previewLoading ? (
           <div
             role="status"
             className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground"
@@ -275,9 +335,20 @@ export function HistoryPreview({
           </>
         ) : (
           <div className="flex flex-1 items-center justify-center">
-            <Button variant="outline" onClick={() => entry && void history.select(entry)}>
-              {t("historyPanel.retry")}
-            </Button>
+            {history.error ? (
+              <Button
+                variant="outline"
+                onClick={() =>
+                  entry
+                    ? void history.select(entry)
+                    : ((opened.current = false), void history.refresh())
+                }
+              >
+                {t("historyPanel.retry")}
+              </Button>
+            ) : (
+              <p className="text-sm text-muted-foreground">{t("historyPanel.empty")}</p>
+            )}
           </div>
         )}
         <div className="flex flex-wrap items-center justify-between gap-3 bg-white px-6 py-3">
@@ -325,7 +396,7 @@ export function HistoryPreview({
                   value={browseQuery}
                   onChange={(event) => setBrowseQuery(event.target.value)}
                   placeholder={t("historyPanel.searchNotes")}
-                  className="h-7 rounded-none border-0 bg-transparent pl-8 text-xs shadow-none focus-visible:ring-0"
+                  className="amby-inset-icon-input h-7 rounded-none border-0 bg-transparent pl-8 text-xs shadow-none focus-visible:ring-0"
                 />
               </div>
               <Button

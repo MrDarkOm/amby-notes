@@ -56,3 +56,5 @@ See [project backend map](../../../src-tauri/src/project/MAP.md).
 Verification: [storage.test.ts](storage.test.ts), focused repository/port tests,
 [ipc-vault-scope.test.ts](../ipc-vault-scope.test.ts), and relevant live/native
 scenarios from [the tests map](../../../tests/MAP.md).
+
+Backup catalog, verification and native folder-picker restore: [backup-repository.ts](backup-repository.ts), exported by `index.ts`; generated types are in `bindings.ts`. The browser refuses these filesystem operations.

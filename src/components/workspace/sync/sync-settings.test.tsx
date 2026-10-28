@@ -265,7 +265,8 @@ describe("the Synchronization section of the settings", () => {
     it("names the own server only on its option, in both languages", async () => {
       renderSettings(createFakePort())
       await screen.findByRole("radio", { name: /Сервер Amby/ })
-      expect(screen.getByText("Синхронизация").parentElement?.textContent).not.toMatch(/собственн/i)
+      expect(screen.queryByRole("heading", { name: "Синхронизация" })).toBeNull()
+      expect(document.body.textContent?.match(/свой сервер/gi)).toHaveLength(1)
       cleanup()
       await i18n.changeLanguage("en")
       renderSettings(createFakePort())
@@ -273,5 +274,29 @@ describe("the Synchronization section of the settings", () => {
       expect(document.body.textContent?.match(/own server/gi)).toHaveLength(1)
       await i18n.changeLanguage("ru")
     })
+  })
+})
+
+describe("keychain access requires an explicit sign-in action", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("ru")
+  })
+  afterEach(cleanup)
+
+  it("opens settings without authorization and requests it only after the sign-in button", async () => {
+    const port = createFakePort({
+      status: async (interactive) => {
+        if (interactive) return CONNECTED
+        throw new SyncPortError("keychain_unavailable")
+      },
+    })
+    const view = renderSettings(port)
+    await screen.findByRole("button", { name: "Продолжить вход в аккаунт" })
+    expect(port.status.mock.calls.every((args) => args[0] !== true)).toBe(true)
+    view.rerender(<SyncSettings port={port} />)
+    expect(port.status.mock.calls.every((args) => args[0] !== true)).toBe(true)
+    click("Продолжить вход в аккаунт")
+    await screen.findByText(/Подключено к sync\.example\.com/)
+    expect(port.status).toHaveBeenCalledWith(true)
   })
 })

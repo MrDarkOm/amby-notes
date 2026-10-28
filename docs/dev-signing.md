@@ -1,7 +1,13 @@
 # macOS signing and the Keychain prompt
 
 Sync keeps the account key and the device token in the system key store as one entry
-(`com.ambynotes.sync` / `credentials`). macOS asks for the login password the first time a build reads
+(`com.ambynotes.sync` / `credentials`). Background sync and settings status reads suppress macOS
+Keychain dialogs. If macOS refuses silent access, settings offers “Continue signing in”; only that
+explicit action (or saving a new account sign-in) permits the system dialog. Successful reads remain
+cached for the process. The macOS interaction switch is process-wide, so sync and AI credential I/O
+share a lock; the previous interaction policy is restored before another caller proceeds.
+
+When interaction is explicitly allowed, macOS asks for the login password the first time a build reads
 an entry and offers "Always Allow". That answer is remembered **for the signature of the program**, so
 what the signature is decides how often the prompt comes back.
 

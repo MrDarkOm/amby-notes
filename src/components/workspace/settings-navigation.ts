@@ -30,6 +30,7 @@ export function isSettingsModuleId(value: string | null): value is string {
 
 /** Maps an activity-bar control to the part of Settings responsible for it. */
 export function settingsTargetForActivityButton(buttonId: string): SettingsNavigationTarget {
+  if (buttonId === "refresh") return { section: "sync" }
   const moduleId = buttonId === "network" ? "graph" : buttonId
   if (isSettingsModuleId(moduleId)) return { section: "modules", moduleId }
   return { section: "general" }
@@ -48,6 +49,7 @@ const MODULE_SETTINGS_LABEL_KEYS: Record<string, string> = {
 }
 
 export function settingsLabelKeyForActivityButton(buttonId: string): string {
+  if (buttonId === "refresh") return "activityBar.syncSettings"
   const { moduleId } = settingsTargetForActivityButton(buttonId)
   return (moduleId && MODULE_SETTINGS_LABEL_KEYS[moduleId]) ?? "activityBar.generalSettings"
 }

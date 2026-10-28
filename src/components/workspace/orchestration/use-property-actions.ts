@@ -13,6 +13,12 @@ import {
 import { countFolderContents } from "../folder-view-utils"
 import type { Tab } from "../use-tabs-store"
 import { useDocStore } from "../use-doc-store"
+import { useVaultStore } from "../use-vault-store"
+import {
+  beginPropertyMutation,
+  enqueueNotePropertyMutation,
+  propertyVersion,
+} from "../note-mutation-queue"
 import { workspaceRelativePath } from "../vault/use-vault-session"
 import type { AttachmentItem } from "../panel-registry"
 
@@ -129,128 +135,176 @@ export function usePropertyActions({
     return items
   }, [currentDoc, includeAttachmentImages])
 
-  const patchAllDocKeys = React.useCallback(
-    (updater: (current: NoteProperties) => NoteProperties) => {
-      if (!currentDoc) return
+  const [failure, setFailure] = React.useState<{ generation: number; noteId: string } | null>(null)
+  const generation = useVaultStore((state) => state.generation)
+  const noteId = currentDoc?.noteId ?? currentDoc?.id
+
+  const scope = React.useCallback(() => {
+    if (!vault || !currentDoc || !noteId) throw new Error("No active document")
+    if (useVaultStore.getState().switching) {
+      setFailure({ generation, noteId })
+      throw new Error("Vault switch in progress")
+    }
+    const isCurrent = () =>
+      useVaultStore.getState().generation === generation && useVaultStore.getState().vault === vault
+    const matches = (doc: OpenDocument) =>
+      doc.path === currentDoc.path || (doc.noteId ?? doc.id) === noteId
+    const patch = (update: (properties: NoteProperties) => NoteProperties) => {
+      if (!isCurrent()) return
       const store = useDocStore.getState()
-      const keys = new Set<string>()
-      if (currentDoc.id) keys.add(currentDoc.id)
-      if (currentDoc.path) keys.add(currentDoc.path)
-      if (currentDoc.noteId) keys.add(currentDoc.noteId)
-      if (activeTab?.fileId) keys.add(activeTab.fileId)
-      for (const key of keys) {
-        const doc = store.openDocs[key]
-        if (doc) {
-          const current = doc.noteProperties ?? {
-            hasFrontmatter: false,
-            properties: [],
-            customProperties: [],
-          }
-          store.patchDoc(key, { noteProperties: updater(current) })
-        }
+      for (const [key, doc] of Object.entries(store.openDocs)) {
+        if (matches(doc))
+          store.patchDoc(key, {
+            noteProperties: update(
+              doc.noteProperties ?? { hasFrontmatter: false, properties: [], customProperties: [] },
+            ),
+          })
       }
-    },
-    [activeTab?.fileId, currentDoc],
-  )
+    }
+    const reload = async (version: number) => {
+      if (!isCurrent()) return
+      const properties = await getNoteProperties(vault, noteId)
+      if (!isCurrent()) return
+      // Metadata must never overwrite the body or its external-edit revision.
+      if (propertyVersion(generation, noteId) === version) patch(() => properties)
+    }
+    const run = <T>(
+      optimistic: (properties: NoteProperties) => NoteProperties,
+      write: () => Promise<T>,
+    ) => {
+      const mutation = beginPropertyMutation(generation, noteId)
+      setFailure(null)
+      patch(optimistic)
+      return enqueueNotePropertyMutation(generation, noteId, async () => {
+        try {
+          if (!isCurrent()) throw new Error("Vault changed")
+          const store = useDocStore.getState()
+          if (
+            Object.entries(store.openDocs).some(
+              ([key, doc]) => matches(doc) && store.externalConflicts[key],
+            )
+          )
+            throw new Error("Note has unresolved external edits")
+          const result = await write()
+          await reload(mutation.version)
+          return result
+        } catch (error) {
+          if (isCurrent()) {
+            setFailure({ generation, noteId })
+            await reload(mutation.version).catch(() => {})
+          }
+          throw error
+        } finally {
+          mutation.finish()
+        }
+      })
+    }
+    return { patch, run }
+  }, [currentDoc, generation, noteId, vault])
 
   const handleUpsertCustomProperty = React.useCallback(
     async (property: CustomProperty) => {
-      if (!vault || !currentDoc) throw new Error("No active document")
-      const noteId = currentDoc.noteId ?? currentDoc.id
-
-      patchAllDocKeys((current: NoteProperties) => {
-        const next = [...current.customProperties]
-        const index = next.findIndex(
-          (item: CustomProperty) =>
-            item.id === property.id ||
-            (property.name && item.name.toLowerCase() === property.name.toLowerCase()),
-        )
-        if (index >= 0) next[index] = { ...next[index], ...property }
-        else next.push(property)
-        return { ...current, customProperties: next }
-      })
-
-      const saved = await upsertCustomProperty(vault, noteId, property)
-      logger.info("property.upsert", {
-        noteId,
-        propertyId: saved.id,
-        name: saved.name,
-        propertyType: saved.propertyType,
-      })
-      try {
-        const refreshed = await getNoteProperties(vault, noteId)
-        patchAllDocKeys(() => refreshed)
-      } catch {
-        patchAllDocKeys((current: NoteProperties) => {
-          const next = [...current.customProperties]
-          const index = next.findIndex((item: CustomProperty) => item.id === saved.id)
-          if (index >= 0) next[index] = saved
-          else next.push(saved)
-          return { ...current, customProperties: next }
-        })
+      const { run } = scope()
+      const latest = currentDoc
+        ? useDocStore.getState().openDocs[currentDoc.id]?.noteProperties
+        : undefined
+      const previous = latest?.customProperties.find(
+        (item) =>
+          item.id === property.id || item.name.toLowerCase() === property.name.trim().toLowerCase(),
+      )
+      const next = {
+        ...property,
+        name: property.name.trim(),
+        id: property.id || previous?.id || crypto.randomUUID(),
       }
-      return saved
+      return run(
+        (current) => {
+          const properties = [...current.properties]
+          const previousName = current.customProperties.find((item) => item.id === next.id)?.name
+          const frontIndex = properties.findIndex(
+            (item) =>
+              item.key === previousName || item.key.toLowerCase() === next.name.toLowerCase(),
+          )
+          const front = {
+            key: next.name,
+            value: next.value,
+            valueKind: ["number", "date", "checkbox"].includes(next.propertyType)
+              ? next.propertyType
+              : "text",
+          }
+          if (frontIndex >= 0) properties[frontIndex] = front
+          else properties.push(front)
+          const custom = [...current.customProperties]
+          const index = custom.findIndex(
+            (item) => item.id === next.id || item.name.toLowerCase() === next.name.toLowerCase(),
+          )
+          if (index >= 0) custom[index] = next
+          else custom.push(next)
+          return { ...current, hasFrontmatter: true, properties, customProperties: custom }
+        },
+        async () => {
+          const saved = await upsertCustomProperty(vault!, noteId!, next)
+          logger.info("property.upsert", { noteId, propertyId: saved.id })
+          return saved
+        },
+      )
     },
-    [currentDoc, patchAllDocKeys, vault],
+    [currentDoc, noteId, scope, vault],
   )
 
   const handleDeleteCustomProperty = React.useCallback(
     async (propertyId: string) => {
-      if (!vault || !currentDoc) return
-      const noteId = currentDoc.noteId ?? currentDoc.id
-
-      patchAllDocKeys((current: NoteProperties) => ({
-        ...current,
-        properties: current.properties.filter((item: { key: string }) => item.key !== propertyId),
-        customProperties: current.customProperties.filter(
-          (item: CustomProperty) => item.id !== propertyId,
-        ),
-      }))
-
-      await deleteCustomProperty(vault, noteId, propertyId)
-      logger.info("property.delete", { noteId, propertyId })
-      try {
-        const refreshed = await getNoteProperties(vault, noteId)
-        patchAllDocKeys(() => refreshed)
-      } catch {
-        // Optimistic state already set
-      }
+      const { run } = scope()
+      await run(
+        (current) => {
+          const target = current.customProperties.find(
+            (item) =>
+              item.id === propertyId || item.name.toLowerCase() === propertyId.toLowerCase(),
+          )
+          const name = (target?.name ?? propertyId).toLowerCase()
+          return {
+            ...current,
+            properties: current.properties.filter((item) => item.key.toLowerCase() !== name),
+            customProperties: current.customProperties.filter(
+              (item) => item.id !== propertyId && item.name.toLowerCase() !== name,
+            ),
+          }
+        },
+        () => deleteCustomProperty(vault!, noteId!, propertyId),
+      )
     },
-    [currentDoc, patchAllDocKeys, vault],
+    [noteId, scope, vault],
   )
 
   const handleReorderCustomProperties = React.useCallback(
     async (propertyIds: string[]) => {
-      if (!vault || !currentDoc?.noteProperties) return
-      const noteId = currentDoc.noteId ?? currentDoc.id
-
-      patchAllDocKeys((current: NoteProperties) => {
-        const byId = new Map(
-          current.customProperties.map((property: CustomProperty) => [property.id, property]),
-        )
-        return {
-          ...current,
-          customProperties: propertyIds.flatMap((id) => {
-            const property = byId.get(id)
-            return property ? [property] : []
-          }),
-        }
-      })
-
-      await reorderCustomProperties(vault, noteId, propertyIds)
-      logger.info("property.reorder", { noteId, count: propertyIds.length })
-      try {
-        const refreshed = await getNoteProperties(vault, noteId)
-        patchAllDocKeys(() => refreshed)
-      } catch {
-        // Optimistic state already set
-      }
+      const { run } = scope()
+      const current = currentDoc
+        ? (useDocStore.getState().openDocs[currentDoc.id]?.noteProperties?.customProperties ?? [])
+        : []
+      const byId = new Map(current.map((property) => [property.id, property]))
+      // The backend order contract includes all sidecar properties, including
+      // metadata for fields rendered from frontmatter in another section.
+      const completeIds = [
+        ...new Set([...propertyIds, ...current.map((property) => property.id)]),
+      ].filter((id) => byId.has(id))
+      await run(
+        (properties) => ({
+          ...properties,
+          customProperties: completeIds.map((id) => byId.get(id)!),
+        }),
+        () => reorderCustomProperties(vault!, noteId!, completeIds),
+      )
     },
-    [currentDoc?.noteProperties, currentDoc?.noteId, currentDoc?.id, patchAllDocKeys, vault],
+    [currentDoc, noteId, scope, vault],
   )
 
   return {
     currentProperties,
+    propertyError:
+      failure?.generation === generation && failure.noteId === noteId
+        ? t("infoPanel.saveFailed")
+        : null,
     attachments,
     attachmentImages,
     handleUpsertCustomProperty,

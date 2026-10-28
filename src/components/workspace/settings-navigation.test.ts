@@ -26,7 +26,7 @@ describe("settingsTargetForActivityButton", () => {
     expect(settingsLabelKeyForActivityButton("tags")).toBe("activityBar.tagsSettings")
   })
 
-  it("uses General for controls without dedicated settings", () => {
-    expect(settingsTargetForActivityButton("refresh")).toEqual({ section: "general" })
+  it("opens synchronization for refresh", () => {
+    expect(settingsTargetForActivityButton("refresh")).toEqual({ section: "sync" })
   })
 })

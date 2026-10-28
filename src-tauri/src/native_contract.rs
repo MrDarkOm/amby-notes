@@ -135,6 +135,15 @@ pub fn run_native_contract() {
         std::env::temp_dir().join(format!("amby-native-contract-{}", ulid::Ulid::generate()));
     fs::create_dir_all(&root).expect("create disposable native vault");
     let root = root.canonicalize().expect("canonical test root");
+    if contract_page() == "tests/native/index.html" {
+        // Under .amby so loading the harness root cannot index or rewrite the immutable copy.
+        let fixture = root.join(".amby/native-backup-fixture");
+        fs::create_dir_all(fixture.join(".amby")).expect("backup fixture directory");
+        fs::write(fixture.join("note.md"), b"\xef\xbb\xbfNative backup\r\n")
+            .expect("backup fixture note");
+        fs::write(fixture.join(".amby/keep.bin"), [0, 255, 42]).expect("backup fixture sidecar");
+        crate::sync::backup::ensure(&fixture).expect("verified native backup fixture");
+    }
     let setup_root = root.clone();
     let app_data_root = root.join(".app-data");
     let exit_code = Arc::new(AtomicI32::new(1));

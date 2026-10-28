@@ -31,13 +31,11 @@ pub trait SecretStore: Send + Sync {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct KeyringStore;
 
-fn entry(name: &str) -> Result<keyring::Entry, SecretError> {
-    keyring::Entry::new(KEYRING_SERVICE, name).map_err(|_| SecretError)
-}
-
 impl SecretStore for KeyringStore {
     fn get(&self, name: &str) -> Result<Option<String>, SecretError> {
-        match entry(name)?.get_password() {
+        match crate::keychain_access::sync_access(|| {
+            keyring::Entry::new(KEYRING_SERVICE, name)?.get_password()
+        }) {
             Ok(value) => Ok(Some(value)),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(_) => Err(SecretError),
@@ -45,7 +43,10 @@ impl SecretStore for KeyringStore {
     }
 
     fn set(&self, name: &str, value: &str) -> Result<(), SecretError> {
-        entry(name)?.set_password(value).map_err(|_| SecretError)?;
+        crate::keychain_access::sync_access(|| {
+            keyring::Entry::new(KEYRING_SERVICE, name)?.set_password(value)
+        })
+        .map_err(|_| SecretError)?;
         // A fresh entry must see the exact stored value; this also catches a build that fell
         // back to entry-local mock storage.
         match self.get(name)? {
@@ -55,7 +56,9 @@ impl SecretStore for KeyringStore {
     }
 
     fn delete(&self, name: &str) -> Result<(), SecretError> {
-        match entry(name)?.delete_credential() {
+        match crate::keychain_access::sync_access(|| {
+            keyring::Entry::new(KEYRING_SERVICE, name)?.delete_credential()
+        }) {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(_) => Err(SecretError),
         }

@@ -56,6 +56,7 @@ export function PanelHost({ side, activeId, props, flush = false }: PanelHostPro
     .filter((definition): definition is PanelDef => Boolean(definition))
   return (
     <div
+      data-panel-side={side}
       className={`amby-panel-shell mt-0 min-h-0 rounded-xl ${
         flush
           ? "h-full w-full"

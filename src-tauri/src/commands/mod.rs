@@ -1,4 +1,5 @@
 pub mod assets;
+pub mod backups;
 pub mod database;
 pub mod debug;
 pub mod external;

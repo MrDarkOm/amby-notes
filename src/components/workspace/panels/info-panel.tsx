@@ -8,7 +8,6 @@ import {
   CheckSquare,
   ChevronDown,
   Copy,
-  Folder,
   GripVertical,
   Hash,
   Link2,
@@ -57,6 +56,7 @@ import { PropertyHeaderMenu } from "../database/table-view"
 import { databasePropertyIconKey } from "../database/property-icon"
 import { useViewStateStore } from "../use-view-state-store"
 import { PanelHeader } from "./panel-header"
+import { findTreeItem, formatModified } from "../workspace-tree-utils"
 
 const PROPERTY_TYPE_FALLBACKS = {
   text: "Текст",
@@ -67,7 +67,7 @@ const PROPERTY_TYPE_FALLBACKS = {
   url: "Ссылка",
 } as const
 
-function databasePropertyIcon(property: DatabasePropertySummary) {
+function databasePropertyIcon(property: Pick<DatabasePropertySummary, "propertyType">) {
   return property.propertyType === "number"
     ? Hash
     : property.propertyType === "checkbox"
@@ -203,7 +203,11 @@ function useMotionPropertyOrder(
     [commitOrder],
   )
 
-  return { order, draggingId, reorder, startDrag, endDrag, moveWithKeyboard }
+  const sourceSet = new Set(sourceIds)
+  const currentOrder = order.filter((id) => sourceSet.has(id))
+  const seen = new Set(currentOrder)
+  currentOrder.push(...sourceIds.filter((id) => !seen.has(id)))
+  return { order: currentOrder, draggingId, reorder, startDrag, endDrag, moveWithKeyboard }
 }
 
 function DatabasePropertyRow({
@@ -279,7 +283,7 @@ function DatabasePropertyRow({
         <PropertyDragIcon
           icon={
             <IconValue
-              value={iconValue}
+              value={iconValue && iconValue !== "◆" ? iconValue : undefined}
               fallback={<PropertyIcon className="size-3.5" aria-hidden="true" />}
               className="size-3.5"
             />
@@ -297,7 +301,7 @@ function DatabasePropertyRow({
           property={property}
           onRename={onRename}
           onDelete={onDelete}
-          iconValue={iconValue}
+          iconValue={iconValue === "◆" ? undefined : iconValue}
           onIconChange={onIconChange}
           trigger={
             <button
@@ -387,7 +391,7 @@ function DatabaseSchemaRow({
         <PropertyDragIcon
           icon={
             <IconValue
-              value={iconValue}
+              value={iconValue && iconValue !== "◆" ? iconValue : undefined}
               fallback={<PropertyIcon className="size-3.5" aria-hidden="true" />}
               className="size-3.5"
             />
@@ -405,7 +409,7 @@ function DatabaseSchemaRow({
           property={property}
           onRename={onRename}
           onDelete={onDelete}
-          iconValue={iconValue}
+          iconValue={iconValue === "◆" ? undefined : iconValue}
           onIconChange={onIconChange}
           trigger={
             <button
@@ -501,6 +505,7 @@ function PropertyRow({
 }) {
   const { t } = useTranslation()
   const dragControls = useDragControls()
+  const PropertyIcon = databasePropertyIcon(property)
   const [value, setValue] = React.useState(property.value)
   React.useEffect(() => setValue(property.value), [property.value])
   const options = property.settings
@@ -510,7 +515,11 @@ function PropertyRow({
 
   async function saveValue(next = value) {
     if (next === property.value) return
-    await onValueSave({ ...property, value: next })
+    try {
+      await onValueSave({ ...property, value: next })
+    } catch {
+      /* The panel displays the write failure. */
+    }
   }
 
   const checked = value === "true"
@@ -539,8 +548,8 @@ function PropertyRow({
         <PropertyDragIcon
           icon={
             <IconValue
-              value={property.icon}
-              fallback={property.propertyType === "checkbox" ? "☑️" : "◆"}
+              value={property.icon && property.icon !== "◆" ? property.icon : undefined}
+              fallback={<PropertyIcon className="size-3.5" aria-hidden="true" />}
               className="size-3.5"
             />
           }
@@ -623,7 +632,10 @@ function PropertyRow({
             }
             value={value}
             disabled={disabled}
-            className="h-7 w-full min-w-0 rounded-md bg-transparent px-1 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:bg-accent/40"
+            className={cn(
+              "h-7 w-full min-w-0 rounded-md bg-transparent px-1 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:bg-accent/40",
+              property.propertyType === "number" && "amby-property-number font-mono tabular-nums",
+            )}
             placeholder="—"
             onChange={(event) => setValue(event.target.value)}
             onBlur={() => void saveValue()}
@@ -741,6 +753,13 @@ function FrontmatterPropertyValue({
               ? "url"
               : "text")
 
+  async function commitValue(next: string) {
+    try {
+      await onSave?.(next)
+    } catch {
+      /* The panel displays the write failure. */
+    }
+  }
   const [value, setValue] = React.useState(property.value)
   const [isEditingList, setIsEditingList] = React.useState(false)
   React.useEffect(() => setValue(property.value), [property.value])
@@ -769,7 +788,7 @@ function FrontmatterPropertyValue({
           onClick={async () => {
             const next = checked ? "false" : "true"
             setValue(next)
-            await onSave?.(next)
+            await commitValue(next)
           }}
           className={cn(
             "flex size-4 shrink-0 items-center justify-center rounded border",
@@ -798,7 +817,7 @@ function FrontmatterPropertyValue({
         ]}
         onValueChange={(next) => {
           setValue(next)
-          void onSave?.(next)
+          void commitValue(next)
         }}
       />
     )
@@ -808,11 +827,14 @@ function FrontmatterPropertyValue({
     return (
       <input
         type="number"
+        aria-label={property.key}
+        step="any"
+        inputMode="decimal"
         value={value}
         disabled={disabled}
         onChange={(event) => setValue(event.target.value)}
         onBlur={() => {
-          if (value !== property.value) void onSave?.(value)
+          if (value !== property.value) void commitValue(value)
         }}
         onKeyDown={(event) => {
           if (event.key === "Enter") event.currentTarget.blur()
@@ -821,7 +843,7 @@ function FrontmatterPropertyValue({
             event.currentTarget.blur()
           }
         }}
-        className="h-7 w-full min-w-0 rounded-md bg-transparent px-1 font-mono text-xs tabular-nums text-foreground outline-none focus:bg-accent/40"
+        className="amby-property-number h-7 w-full min-w-0 rounded-md bg-transparent px-1 font-mono text-xs tabular-nums text-foreground outline-none focus:bg-accent/40"
       />
     )
   }
@@ -834,7 +856,7 @@ function FrontmatterPropertyValue({
         disabled={disabled}
         onChange={(event) => setValue(event.target.value)}
         onBlur={() => {
-          if (value !== property.value) void onSave?.(value)
+          if (value !== property.value) void commitValue(value)
         }}
         className="h-7 w-full min-w-0 rounded-md bg-transparent px-1 text-xs text-foreground outline-none focus:bg-accent/40"
       />
@@ -874,7 +896,7 @@ function FrontmatterPropertyValue({
       onChange={setValue}
       onSave={async () => {
         setIsEditingList(false)
-        if (value !== property.value) await onSave?.(value)
+        if (value !== property.value) await commitValue(value)
       }}
       onReset={() => {
         setValue(property.value)
@@ -930,16 +952,16 @@ function FrontmatterPropertyRow({
     (newIcon: string) => {
       setCurrentIcon(newIcon)
       setShowEmojiPicker(false)
-      void onIconChange?.(newIcon)
+      void Promise.resolve(onIconChange?.(newIcon)).catch(() => setCurrentIcon(iconValue))
     },
-    [onIconChange],
+    [iconValue, onIconChange],
   )
 
   const handleClearIcon = React.useCallback(() => {
     setCurrentIcon("")
     setShowEmojiPicker(false)
-    void onIconChange?.("")
-  }, [onIconChange])
+    void Promise.resolve(onIconChange?.("")).catch(() => setCurrentIcon(iconValue))
+  }, [iconValue, onIconChange])
 
   React.useEffect(() => {
     if (!popoverOpen) {
@@ -966,6 +988,8 @@ function FrontmatterPropertyRow({
     try {
       setIsRenaming(true)
       await onRename?.(trimmed)
+    } catch {
+      setNameDraft(property.key)
     } finally {
       setIsRenaming(false)
     }
@@ -974,14 +998,22 @@ function FrontmatterPropertyRow({
   const handleTypeChange = React.useCallback(
     async (nextType: string) => {
       setSelectedType(nextType)
-      await onChangeType?.(nextType)
+      try {
+        await onChangeType?.(nextType)
+      } catch {
+        setSelectedType(propertyType)
+      }
     },
-    [onChangeType],
+    [onChangeType, propertyType],
   )
 
   const handleSettingsCommit = React.useCallback(async () => {
     if (settingsDraft !== settings) {
-      await onChangeSettings?.(settingsDraft)
+      try {
+        await onChangeSettings?.(settingsDraft)
+      } catch {
+        setSettingsDraft(settings)
+      }
     }
   }, [onChangeSettings, settings, settingsDraft])
 
@@ -996,7 +1028,7 @@ function FrontmatterPropertyRow({
           onOpenChange={(open) => {
             if (!open) {
               if (settingsDraft !== settings) {
-                void onChangeSettings?.(settingsDraft)
+                void handleSettingsCommit()
               }
               void commitRename()
             }
@@ -1152,7 +1184,11 @@ function FrontmatterPropertyRow({
                       type="button"
                       onClick={async () => {
                         setPopoverOpen(false)
-                        await onDelete()
+                        try {
+                          await onDelete()
+                        } catch {
+                          /* The panel displays the write failure. */
+                        }
                       }}
                       className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-destructive hover:bg-destructive/10 cursor-pointer"
                       title={t("infoPanel.deleteProperty")}
@@ -1180,8 +1216,72 @@ function FrontmatterPropertyRow({
   )
 }
 
+function MetadataSection({
+  id,
+  type,
+  created,
+  modified,
+}: {
+  id: string
+  type: string
+  created?: string
+  modified?: string
+}) {
+  const { t } = useTranslation()
+  const [copied, setCopied] = React.useState(false)
+
+  async function copyId() {
+    try {
+      await navigator.clipboard.writeText(id)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1400)
+    } catch {
+      // Clipboard access can be unavailable in browser previews.
+    }
+  }
+
+  return (
+    <details className="group/metadata shrink-0 px-4 pb-4">
+      <summary className="flex cursor-pointer list-none items-center justify-between px-1 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground [&::-webkit-details-marker]:hidden">
+        {t("infoPanel.metadata")}
+        <ChevronDown className="size-3.5 rotate-180 group-open/metadata:rotate-0" />
+      </summary>
+      <div className="max-h-[40vh] overflow-y-auto text-[10px]">
+        {[
+          [t("infoPanel.type"), type],
+          [t("infoPanel.created"), created || "—"],
+          [t("infoPanel.modified"), modified || "—"],
+        ].map(([label, value]) => (
+          <div key={label} className="flex items-start justify-between gap-3 px-1 py-2">
+            <span className="text-muted-foreground">{label}</span>
+            <span className="min-w-0 max-w-[65%] break-words text-right text-foreground">
+              {value}
+            </span>
+          </div>
+        ))}
+        <div className="flex items-start gap-2 px-1 py-2">
+          <span className="text-muted-foreground">{t("infoPanel.id")}</span>
+          <code className="min-w-0 flex-1 break-all text-right font-mono text-[10px] leading-relaxed text-foreground">
+            {id}
+          </code>
+          <button
+            type="button"
+            onClick={() => void copyId()}
+            className="flex size-4 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            title={t(copied ? "infoPanel.copied" : "infoPanel.copyId")}
+          >
+            {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+          </button>
+        </div>
+      </div>
+    </details>
+  )
+}
+
 export function InfoPanel({
+  treeItems,
   properties,
+  propertyError,
   databaseProperties,
   onSelect,
   onUpsertCustomProperty,
@@ -1189,23 +1289,62 @@ export function InfoPanel({
   onReorderCustomProperties,
 }: PanelRenderProps) {
   const { t } = useTranslation()
-  const [aboutOpen, setAboutOpen] = React.useState(false)
-  const [copied, setCopied] = React.useState(false)
   const [propertyEditorOpen, setPropertyEditorOpen] = React.useState(false)
   const [editingProperty, setEditingProperty] = React.useState<CustomProperty | null>(null)
   const [databasePropertyEditorOpen, setDatabasePropertyEditorOpen] = React.useState(false)
   const [editingDatabaseProperty, setEditingDatabaseProperty] =
     React.useState<CustomProperty | null>(null)
-  const [noteDatabaseContext, setNoteDatabaseContext] = React.useState<DatabaseNoteContext | null>(
-    null,
-  )
+  const [noteContextState, setNoteContextState] = React.useState<{
+    noteId: string | null
+    generation: number | null
+    context: DatabaseNoteContext | null
+  } | null>(null)
   const [propertyOrderBusy, setPropertyOrderBusy] = React.useState(false)
   const [customPropertyOrderBusy, setCustomPropertyOrderBusy] = React.useState(false)
   const databases = useDatabaseStore((state) => state.databases)
   const databaseInvalidationSeq = useDatabaseStore((state) => state.invalidationSeq)
   const vaultGeneration = useDatabaseStore((state) => state.vaultGeneration)
+  const contextNoteId = properties?.id ?? null
+  const contextKind = properties?.kind
+  const contextScope = React.useRef({ noteId: contextNoteId, generation: vaultGeneration })
+  contextScope.current = { noteId: contextNoteId, generation: vaultGeneration }
+  const noteDatabaseContext =
+    noteContextState?.noteId === contextNoteId && noteContextState?.generation === vaultGeneration
+      ? noteContextState.context
+      : null
+  const setNoteDatabaseContext = React.useCallback(
+    (next: React.SetStateAction<DatabaseNoteContext | null>) => {
+      setNoteContextState((previous) => {
+        if (
+          contextScope.current.noteId !== contextNoteId ||
+          contextScope.current.generation !== vaultGeneration
+        )
+          return previous
+        const context =
+          previous?.noteId === contextNoteId && previous?.generation === vaultGeneration
+            ? previous.context
+            : null
+        return {
+          noteId: contextNoteId,
+          generation: vaultGeneration,
+          context: typeof next === "function" ? next(context) : next,
+        }
+      })
+    },
+    [contextNoteId, vaultGeneration],
+  )
+  React.useEffect(() => {
+    setPropertyEditorOpen(false)
+    setEditingProperty(null)
+    setDatabasePropertyEditorOpen(false)
+    setEditingDatabaseProperty(null)
+  }, [contextNoteId, databaseProperties?.id, vaultGeneration])
   const setDatabaseCatalog = useDatabaseStore((state) => state.setCatalog)
   const invalidateDatabaseHosts = useDatabaseStore((state) => state.invalidateHosts)
+  const refreshDatabaseCatalog = React.useCallback(async () => {
+    const catalog = await listDatabases()
+    if (useDatabaseStore.getState().vaultGeneration === vaultGeneration) setDatabaseCatalog(catalog)
+  }, [setDatabaseCatalog, vaultGeneration])
   const iconOverrides = useViewStateStore((state) => state.iconOverrides)
   const setIcon = useViewStateStore((state) => state.setIcon)
   const [databaseSchemaBusy, setDatabaseSchemaBusy] = React.useState(false)
@@ -1255,22 +1394,21 @@ export function InfoPanel({
 
   React.useEffect(() => {
     let cancelled = false
-    if (!properties || properties.kind === "folder") {
+    if (!contextNoteId || contextKind === "folder") {
       setNoteDatabaseContext(null)
       return
     }
-    void getDatabaseNoteContext(properties.id)
+    void getDatabaseNoteContext(contextNoteId)
       .then((context) => {
         if (!cancelled) setNoteDatabaseContext(context)
       })
       .catch(() => {
-        if (!cancelled) setNoteDatabaseContext(null)
+        // Keep the last successful context during a transient reload failure.
       })
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [databaseInvalidationSeq, properties?.id, properties?.kind])
+  }, [databaseInvalidationSeq, contextNoteId, contextKind, vaultGeneration, setNoteDatabaseContext])
 
   // The same write path as the table: Relation goes through the Relation
   // command (inverse side and rollups stay consistent), writes to one row are
@@ -1314,18 +1452,15 @@ export function InfoPanel({
           expectedManifestRevision: context.manifestRevision,
           name,
         })
-        const [refreshed, catalog] = await Promise.all([
-          getDatabaseNoteContext(context.row.noteId),
-          listDatabases(),
-        ])
+        const refreshed = await getDatabaseNoteContext(context.row.noteId)
         setNoteDatabaseContext(refreshed)
-        setDatabaseCatalog(catalog)
+        void refreshDatabaseCatalog().catch(() => {})
         invalidateDatabaseHosts()
       } finally {
         setDatabaseSchemaBusy(false)
       }
     },
-    [invalidateDatabaseHosts, noteDatabaseContext, setDatabaseCatalog],
+    [invalidateDatabaseHosts, noteDatabaseContext, refreshDatabaseCatalog, setNoteDatabaseContext],
   )
 
   const deleteNoteDatabaseProperty = React.useCallback(
@@ -1340,18 +1475,15 @@ export function InfoPanel({
           propertyId: property.propertyId,
           expectedManifestRevision: context.manifestRevision,
         })
-        const [refreshed, catalog] = await Promise.all([
-          getDatabaseNoteContext(context.row.noteId),
-          listDatabases(),
-        ])
+        const refreshed = await getDatabaseNoteContext(context.row.noteId)
         setNoteDatabaseContext(refreshed)
-        setDatabaseCatalog(catalog)
+        void refreshDatabaseCatalog().catch(() => {})
         invalidateDatabaseHosts()
       } finally {
         setDatabaseSchemaBusy(false)
       }
     },
-    [invalidateDatabaseHosts, noteDatabaseContext, setDatabaseCatalog],
+    [invalidateDatabaseHosts, noteDatabaseContext, refreshDatabaseCatalog, setNoteDatabaseContext],
   )
 
   const renameSchemaProperty = React.useCallback(
@@ -1422,8 +1554,7 @@ export function InfoPanel({
               }
             : current,
         )
-        const catalog = await listDatabases()
-        setDatabaseCatalog(catalog)
+        void refreshDatabaseCatalog().catch(() => {})
         invalidateDatabaseHosts()
       } catch (error) {
         const refreshed = await getDatabaseNoteContext(context.row.noteId).catch(() => null)
@@ -1433,7 +1564,7 @@ export function InfoPanel({
         setPropertyOrderBusy(false)
       }
     },
-    [invalidateDatabaseHosts, noteDatabaseContext, setDatabaseCatalog],
+    [invalidateDatabaseHosts, noteDatabaseContext, refreshDatabaseCatalog, setNoteDatabaseContext],
   )
 
   const persistDatabaseSchemaOrder = React.useCallback(
@@ -1506,6 +1637,36 @@ export function InfoPanel({
     const property = visibleCustomProperties.find((candidate) => candidate.id === id)
     return property ? [property] : []
   })
+  const hasNoteProperties =
+    nonDatabaseFrontmatterProperties.length +
+      nonDuplicateCustomProperties.length +
+      (noteDatabaseContext?.properties.length ?? 0) >
+    0
+  const metadataId = databaseProperties?.id ?? properties?.id
+  const metadataKind = databaseProperties ? "database" : (properties?.kind ?? "document")
+  const attachedNoteId = databaseProperties
+    ? databases.find((database) => database.databaseId === databaseProperties.id)?.attachedNoteId
+    : null
+  const metadataItem = metadataId
+    ? (findTreeItem(treeItems, metadataId) ??
+      (attachedNoteId ? findTreeItem(treeItems, attachedNoteId) : null))
+    : null
+  const documentMetadata = !databaseProperties && properties?.kind !== "folder" ? properties : null
+  const metadata = metadataId ? (
+    <MetadataSection
+      key={`${metadataKind}:${metadataId}`}
+      id={metadataId}
+      type={databaseProperties ? t("infoPanel.databaseType") : (properties?.type ?? "—")}
+      created={
+        documentMetadata?.created ||
+        (metadataItem?.created ? formatModified(metadataItem.created) : undefined)
+      }
+      modified={
+        documentMetadata?.modified ||
+        (metadataItem?.modified ? formatModified(metadataItem.modified) : undefined)
+      }
+    />
+  ) : null
   if (databaseProperties) {
     return (
       <div className="flex h-full min-h-0 flex-col">
@@ -1593,7 +1754,7 @@ export function InfoPanel({
             {!databaseProperties.locked && (
               <button
                 type="button"
-                className="flex items-center gap-2 px-1.5 py-1 text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex items-start gap-2 px-1.5 py-1 text-left text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                 title={t("infoPanel.addProperty")}
                 disabled={databaseSchemaBusy}
                 onClick={() => {
@@ -1605,63 +1766,9 @@ export function InfoPanel({
                 {t("infoPanel.addProperty")}
               </button>
             )}
-            <section className="overflow-hidden rounded-lg border border-border bg-background/30">
-              <button
-                type="button"
-                className="flex w-full items-center justify-between px-3 py-2.5 text-left"
-                aria-expanded={aboutOpen}
-                onClick={() => setAboutOpen((open) => !open)}
-              >
-                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                  {t("infoPanel.aboutDatabase")}
-                </span>
-                <motion.span
-                  className="flex text-muted-foreground"
-                  initial={false}
-                  animate={{ rotate: aboutOpen ? 180 : 0 }}
-                  transition={motionTransitions.default}
-                >
-                  <ChevronDown className="size-3.5" />
-                </motion.span>
-              </button>
-              {aboutOpen && (
-                <div className="divide-y divide-border border-t border-border text-[10px]">
-                  {[
-                    [t("infoPanel.type"), t("infoPanel.databaseType")],
-                    [t("infoPanel.databaseRows"), String(databaseProperties.rowCount ?? "—")],
-                    [t("infoPanel.databaseProperties"), String(databaseProperties.propertyCount)],
-                    [t("infoPanel.databaseViews"), String(databaseProperties.viewCount)],
-                  ].map(([label, value]) => (
-                    <div key={label} className="flex items-start justify-between gap-3 px-3 py-2">
-                      <span className="text-muted-foreground">{label}</span>
-                      <span className="min-w-0 max-w-[65%] break-words text-right text-foreground">
-                        {value}
-                      </span>
-                    </div>
-                  ))}
-                  <div className="flex items-start gap-2 px-3 py-2">
-                    <span className="text-muted-foreground">{t("infoPanel.id")}</span>
-                    <code className="min-w-0 flex-1 break-all text-right font-mono text-[10px] text-foreground">
-                      {databaseProperties.id}
-                    </code>
-                    <button
-                      type="button"
-                      onClick={() => copyId(databaseProperties.id)}
-                      className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                      title={t("infoPanel.copyId")}
-                    >
-                      {copied ? (
-                        <Check className="size-3.5 text-emerald-600 dark:text-emerald-400" />
-                      ) : (
-                        <Copy className="size-3.5" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </section>
           </div>
         </ScrollArea>
+        {metadata}
         <PropertyEditor
           property={editingDatabaseProperty}
           open={databasePropertyEditorOpen}
@@ -1707,16 +1814,6 @@ export function InfoPanel({
   }
   const warningKey =
     properties.kind === "folder" ? null : noteEditingPolicy(properties.frontmatter).warningKey
-  async function copyId(id: string) {
-    try {
-      await navigator.clipboard.writeText(id)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1400)
-    } catch {
-      // Clipboard access can be unavailable in browser previews.
-    }
-  }
-
   function openPropertyEditor() {
     setEditingProperty(null)
     setPropertyEditorOpen(true)
@@ -1733,42 +1830,8 @@ export function InfoPanel({
             </span>
           }
         />
-        <ScrollArea className="flex-1">
-          <div className="space-y-5 px-4 pb-4">
-            <section className="overflow-hidden rounded-lg border border-border bg-background/30">
-              <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
-                <Folder className="size-4 text-muted-foreground" />
-                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                  {t("infoPanel.aboutFolder")}
-                </span>
-              </div>
-              <div className="divide-y divide-border text-[10px]">
-                {[
-                  [t("infoPanel.type"), properties.type],
-                  [t("infoPanel.notesCount"), String(properties.noteCount)],
-                  [t("infoPanel.foldersCount"), String(properties.folderCount)],
-                  [t("infoPanel.path"), properties.path || "—"],
-                ].map(([label, value]) => (
-                  <div key={label} className="flex items-start justify-between gap-3 px-3 py-2">
-                    <span className="text-muted-foreground">{label}</span>
-                    <span
-                      className="min-w-0 max-w-[65%] break-words text-right text-foreground"
-                      title={value}
-                    >
-                      {value}
-                    </span>
-                  </div>
-                ))}
-                <div className="flex items-start gap-2 px-3 py-2">
-                  <span className="text-muted-foreground">{t("infoPanel.id")}</span>
-                  <code className="min-w-0 flex-1 break-all text-right font-mono text-[10px] text-foreground">
-                    {properties.id}
-                  </code>
-                </div>
-              </div>
-            </section>
-          </div>
-        </ScrollArea>
+        <div className="flex-1" />
+        {metadata}
       </div>
     )
   }
@@ -1798,16 +1861,18 @@ export function InfoPanel({
       />
       <ScrollArea className="flex-1">
         <div className="space-y-5 px-4 pb-4">
+          {propertyError && (
+            <p role="alert" className="text-xs text-destructive">
+              {propertyError}
+            </p>
+          )}
           {warningKey && (
             <p role="status" className="text-xs text-muted-foreground">
               {t(warningKey)}
             </p>
           )}
-          <section>
-            {(noteDatabaseContext?.properties.length ?? 0) +
-              nonDuplicateCustomProperties.length +
-              nonDatabaseFrontmatterProperties.length >
-            0 ? (
+          {hasNoteProperties ? (
+            <section>
               <div className="space-y-0.5">
                 {noteDatabaseContext && orderedNoteDatabaseProperties.length > 0 && (
                   <Reorder.Group
@@ -2005,86 +2070,21 @@ export function InfoPanel({
                   </Reorder.Group>
                 )}
               </div>
-            ) : (
-              <div className="space-y-1 px-1 py-3 text-xs text-muted-foreground">
-                <div>{t("infoPanel.noCustom")}</div>
-                <div className="text-[11px] text-muted-foreground/75">
-                  {t("infoPanel.noCustomHint")}
-                </div>
-              </div>
-            )}
-          </section>
+            </section>
+          ) : null}
           <button
             type="button"
-            className="flex items-center gap-2 px-1.5 py-1 text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex items-start gap-2 px-1.5 py-1 text-left text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
             title={t("infoPanel.addProperty")}
             disabled={Boolean(properties.frontmatter.parseError)}
             onClick={openPropertyEditor}
           >
-            <Plus className="size-3.5" />
-            {t("infoPanel.addProperty")}
+            <Plus className="mt-0.5 size-3.5 shrink-0" />
+            {t(hasNoteProperties ? "infoPanel.addProperty" : "infoPanel.addFirstProperty")}
           </button>
-          <section className="overflow-hidden rounded-lg border border-border bg-background/30">
-            <button
-              type="button"
-              className="flex w-full items-center justify-between px-3 py-2.5 text-left"
-              aria-expanded={aboutOpen}
-              onClick={() => setAboutOpen((open) => !open)}
-            >
-              <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                {t("infoPanel.about")}
-              </span>
-              <motion.span
-                className="flex text-muted-foreground"
-                initial={false}
-                animate={{ rotate: aboutOpen ? 180 : 0 }}
-                transition={motionTransitions.default}
-              >
-                <ChevronDown className="size-3.5" />
-              </motion.span>
-            </button>
-            {aboutOpen && (
-              <div className="divide-y divide-border border-t border-border text-[10px]">
-                {[
-                  [t("infoPanel.type"), properties.type],
-                  [t("infoPanel.created"), properties.created || "—"],
-                  [t("infoPanel.modified"), properties.modified || "—"],
-                ].map(([label, value]) => (
-                  <div key={label} className="flex items-start justify-between gap-3 px-3 py-2">
-                    <span className="text-muted-foreground">{label}</span>
-                    <span className="min-w-0 max-w-[65%] break-words text-right text-foreground">
-                      {value}
-                    </span>
-                  </div>
-                ))}
-                <div className="flex items-start gap-2 px-3 py-2">
-                  <span className="text-muted-foreground">{t("infoPanel.id")}</span>
-                  <code className="min-w-0 flex-1 break-all font-mono text-[10px] leading-relaxed text-foreground">
-                    {properties.id}
-                  </code>
-                  <button
-                    type="button"
-                    onClick={() => copyId(properties.id)}
-                    className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                    title={t("infoPanel.copyId")}
-                  >
-                    {copied ? (
-                      <Check className="size-3.5 text-emerald-600 dark:text-emerald-400" />
-                    ) : (
-                      <Copy className="size-3.5" />
-                    )}
-                  </button>
-                </div>
-                {copied && (
-                  <div className="px-3 pb-2 text-[10px] text-emerald-600 dark:text-emerald-400">
-                    {t("infoPanel.copied")}
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
         </div>
       </ScrollArea>
+      {metadata}
       <PropertyEditor
         property={editingProperty}
         open={propertyEditorOpen}
@@ -2098,9 +2098,6 @@ export function InfoPanel({
             : null
         }
         onSave={async (property, options) => {
-          if (editingProperty?.name && editingProperty.name !== property.name) {
-            await onDeleteCustomProperty?.(editingProperty.name)
-          }
           if (options?.addToDatabase && noteDatabaseContext && !noteDatabaseContext.locked) {
             const existsInDb = noteDatabaseContext.properties.some(
               (p) => p.name.trim().toLowerCase() === property.name.trim().toLowerCase(),
@@ -2120,15 +2117,13 @@ export function InfoPanel({
                     property.icon,
                   )
                 }
-                const [refreshed, catalog] = await Promise.all([
-                  getDatabaseNoteContext(noteDatabaseContext.row.noteId),
-                  listDatabases(),
-                ])
+                const refreshed = await getDatabaseNoteContext(noteDatabaseContext.row.noteId)
                 setNoteDatabaseContext(refreshed)
-                setDatabaseCatalog(catalog)
+                void refreshDatabaseCatalog().catch(() => {})
                 invalidateDatabaseHosts()
               } catch (err) {
-                console.error("Failed to create database property schema:", err)
+                invalidateDatabaseHosts()
+                throw err
               }
             }
           }

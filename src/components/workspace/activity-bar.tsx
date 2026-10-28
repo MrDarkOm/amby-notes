@@ -12,7 +12,8 @@ import {
   Upload,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { motion } from "motion/react"
+import { motion, useReducedMotion } from "motion/react"
+import { MotionSpinner } from "@/lib/motion"
 
 import { cn } from "@/lib/utils"
 import { motionTransitions } from "@/lib/motion-config"
@@ -41,9 +42,13 @@ import {
   settingsTargetForActivityButton,
   type SettingsNavigationTarget,
 } from "./settings-navigation"
+import type { useRefreshSync } from "./sync/use-refresh-sync"
+import { syncErrorMessage } from "@/lib/sync/sync-errors"
 import type { HelpContext } from "./help-modal"
+import { useSettingsStore } from "./use-settings-store"
 
 interface ActivityBarProps {
+  refreshSync?: ReturnType<typeof useRefreshSync>
   side: Side
   buttons: ActivityButton[]
   activeView: PanelId | null
@@ -99,8 +104,11 @@ export function ActivityBar({
   onSetButtonHidden,
   onOpenSettings,
   helpContext,
+  refreshSync,
 }: ActivityBarProps) {
   const { t } = useTranslation()
+  const dockWidth = useSettingsStore((state) => (state.prefs.density === "compact" ? 32 : 48))
+  const reducedMotion = useReducedMotion()
   const [isAutoHideHover, setIsAutoHideHover] = React.useState(false)
   const isExpanded = pinned || autoHideReveal || isAutoHideHover
   const sideButtons = buttonsForSide(buttons, side)
@@ -262,9 +270,11 @@ export function ActivityBar({
     if (!def) return null
     const isActive = def.kind === "view" && isPanelOpen && activeView === def.id
     const isDragging = draggingId === def.id
+    const sync = def.id === "refresh" ? refreshSync : undefined
     const Icon = def.icon
-    const label =
-      def.id === "help" && helpContext && helpContext !== "workspace"
+    const label = sync
+      ? `${t("sync.refresh.action")} — ${t(`sync.refresh.${sync.state}`)}${sync.error ? `: ${syncErrorMessage(sync.error, t)}` : ""}`
+      : def.id === "help" && helpContext && helpContext !== "workspace"
         ? t("actions.helpWithContext", { context: t(`help.tabs.${helpContext}`) })
         : t(def.labelKey)
     const settingsTarget = settingsTargetForActivityButton(def.id)
@@ -273,9 +283,12 @@ export function ActivityBar({
       <motion.button
         type="button"
         draggable={false}
+        disabled={sync?.busy}
+        aria-busy={sync ? sync.busy || sync.state === "running" : undefined}
         title={label}
         aria-label={label}
         data-tooltip-side={side === "left" ? "right" : "left"}
+        data-sync-state={sync?.state}
         data-activity-button={def.id}
         data-activity-zone={zone}
         data-active={isActive || undefined}
@@ -306,14 +319,28 @@ export function ActivityBar({
         whileTap={{ scale: 0.88, y: 1 }}
         transition={motionTransitions.fast}
       >
-        <Icon
-          className={cn(
-            "size-4",
-            isActive &&
-              // Fill only closed shapes: an open stroke would be filled as a stray wedge.
-              "fill-primary text-primary [fill-opacity:0.25] [&_path:not([d$=Z]):not([d$=z])]:fill-none",
-          )}
-        />
+        {sync && (sync.busy || sync.state === "running") && !reducedMotion ? (
+          <MotionSpinner>
+            <Icon className={cn("size-4", sync && "amby-sync-arrows")} />
+          </MotionSpinner>
+        ) : (
+          <Icon
+            className={cn(
+              "size-4",
+              sync && "amby-sync-arrows",
+              isActive &&
+                "fill-primary text-primary [fill-opacity:0.25] [&_path:not([d$=Z]):not([d$=z])]:fill-none",
+            )}
+          />
+        )}
+        {sync && (
+          <span
+            className="amby-sync-badge"
+            data-sync-state={sync.state}
+            role="status"
+            aria-label={t(`sync.refresh.${sync.state}`)}
+          />
+        )}
       </motion.button>
     )
 
@@ -380,7 +407,7 @@ export function ActivityBar({
         <motion.div
           className="relative shrink-0"
           initial={false}
-          animate={{ width: isExpanded ? 48 : 4 }}
+          animate={{ width: isExpanded ? dockWidth : 4 }}
           transition={motionTransitions.panel}
           onMouseEnter={() => {
             setIsAutoHideHover(true)
@@ -394,11 +421,12 @@ export function ActivityBar({
           <motion.div
             data-activity-bar={side}
             className={cn(
-              "absolute inset-y-0 flex w-12 flex-col bg-background",
+              "absolute inset-y-0 flex flex-col bg-background",
               side === "left" ? "left-0" : "right-0",
             )}
+            style={{ width: "var(--amby-dock-width)" }}
             initial={false}
-            animate={{ x: isExpanded ? 0 : side === "left" ? -44 : 44 }}
+            animate={{ x: isExpanded ? 0 : (side === "left" ? -1 : 1) * (dockWidth - 4) }}
             transition={motionTransitions.panel}
           >
             {/* The bar is split 2:1 from the top: the upper two thirds belong to the section

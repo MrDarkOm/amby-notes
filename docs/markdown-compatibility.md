@@ -59,6 +59,11 @@ special visual widget for every construct. For example, Mermaid and math may
 remain portable Markdown text/code until their dedicated renderer is enabled;
 their source is still preserved exactly.
 
+When an external audio, video or PDF attachment temporarily falls back to the
+editor's schema DOM, it is represented by an inert marked link rather than an
+image request. Its source, alternate text and title survive HTML parsing; this
+does not change the Markdown source or normal image rendering.
+
 ## Status legend
 
 | Status                 | Meaning                                                                                                                            |

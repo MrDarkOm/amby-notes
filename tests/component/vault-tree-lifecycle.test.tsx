@@ -152,6 +152,53 @@ describe("vault tree component lifecycle", () => {
     expect(useVaultStore.getState().backendGeneration).toBe(7)
   })
 
+  it("closes the current vault only after preserving its session", async () => {
+    const view = renderHook(() => useVaultData())
+    await waitFor(() => expect(view.result.current.treeItems).toEqual(tree))
+    act(() => {
+      useTabsStore.getState().openItem({ kind: "document", fileId: "note", title: "Note" })
+      useDocStore.getState().setDoc("note", {
+        id: "note",
+        path: "/vault/Folder/Note.md",
+        title: "Note",
+        content: "Saved text",
+        source: "Saved text",
+        created: "",
+        modified: "",
+        wordCount: 2,
+      })
+    })
+    let finishSave: (() => void) | undefined
+    vi.mocked(saveSession).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishSave = resolve
+        }),
+    )
+    let closing!: Promise<void>
+    act(() => {
+      closing = view.result.current.loadVault(null)
+    })
+    await waitFor(() => expect(finishSave).toBeDefined())
+    expect(useVaultStore.getState().vault).toBe("/vault")
+    expect(useDocStore.getState().openDocs.note.content).toBe("Saved text")
+    await act(async () => {
+      finishSave!()
+      await closing
+    })
+    expect(saveSession).toHaveBeenCalledWith(
+      expect.objectContaining({ tabs: [{ fileId: "note", title: "Note" }] }),
+    )
+    expect(useVaultStore.getState().vault).toBeNull()
+    expect(useVaultStore.getState().backendGeneration).toBeNull()
+    expect(useDocStore.getState().openDocs).toEqual({})
+    expect(useTabsStore.getState().tabs).toEqual([])
+    expect(view.result.current.treeItems).toEqual([])
+    await waitFor(() =>
+      expect(saveWorkspaces).toHaveBeenCalledWith(expect.objectContaining({ lastOpened: null })),
+    )
+  })
+
   it("keeps the loaded tree if refreshing the same vault fails, and permits a retry", async () => {
     const view = renderHook(() => useVaultData())
     await waitFor(() => expect(view.result.current.treeItems).toEqual(tree))

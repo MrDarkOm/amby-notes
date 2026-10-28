@@ -26,9 +26,11 @@ Read [Markdown compatibility](../../../../docs/markdown-compatibility.md) and
 | Tags / wiki links / transclusions            | [tags-wikilinks.ts](tags-wikilinks.ts), [WikiLinkContextMenu.tsx](WikiLinkContextMenu.tsx), [transclusion-node.ts](transclusion-node.ts), [transclusion-view.tsx](transclusion-view.tsx)                                                                                                                                |
 | Images / attachments / bookmarks / drops     | [amby-image.ts](amby-image.ts), [image-line.ts](image-line.ts), [media-drop.ts](media-drop.ts), [asset-resolver.ts](asset-resolver.ts), [attachment-kind.ts](attachment-kind.ts), [attachment-view.tsx](attachment-view.tsx), [bookmark-card.ts](bookmark-card.ts)                                                      |
 | Amby blocks and callouts                     | [amby-block-node.ts](amby-block-node.ts), [AmbyBlockView.tsx](AmbyBlockView.tsx), [callout-node.ts](callout-node.ts)                                                                                                                                                                                                    |
-| Source ↔ rich selection                      | [markdown-selection.ts](markdown-selection.ts)                                                                                                                                                                                                                                                                          |
+| Source ↔ rich selection                      | [markdown-selection.ts](markdown-selection.ts), pointer gaps: [use-gap-selection.ts](use-gap-selection.ts), [nearest-line.ts](nearest-line.ts)                                                                                                                                                                          |
 
-Pictures: [ImageToolbar.tsx](ImageToolbar.tsx), `image-*.ts`. Selection: [selection-highlight.ts](selection-highlight.ts).
+Block-link IDs: [block-anchors.ts](block-anchors.ts).
+
+Pictures: [image-placement.ts](image-placement.ts), [ImageToolbar.tsx](ImageToolbar.tsx). Selection: [selection-highlight.ts](selection-highlight.ts).
 
 The insert menu's "Database view" item opens the database picker inside
 `BlockInsertPanel`; the slash text is removed only together with the insertion.
@@ -46,9 +48,8 @@ leave the visible label as ordinary text, never appear in Markdown, and preserve
 normal navigation outside the control. Do not add feature rules to the serializer
 without a lossless fixture and a rejection case for unsupported input.
 
-Pasted plain text that is Markdown is read by the note parser and inserted as new
-blocks without kept source; nodes from the parser belong to its own schema and are
-rebuilt for the editor's schema before they are inserted. Behaviour that depends on
+Markdown paste uses the note parser and creates new blocks without kept source,
+rebuilt for the editor's schema. Behaviour that depends on
 real typing, focus or the clipboard also has a case in
 [the browser suite](../../../../tests/e2e/).
 
@@ -67,7 +68,7 @@ A display formula is made and changed through [math-block.ts](math-block.ts), wh
 refuses TeX that would not read back as the same block. The TeX being written is in the
 node view's text area, not in the document, until it is applied.
 
-Tests start with [markdown.test.ts](markdown.test.ts) and [fixtures/](fixtures/).
+Tests: [markdown.test.ts](markdown.test.ts) and [fixtures/](fixtures/).
 The no-edit and edit invariants live in
 [markdown-block-source.test.ts](markdown-block-source.test.ts). Link titles ([markdown-link-title.test.ts](markdown-link-title.test.ts)), ordered-list
 numbers ([markdown-ordered-list.test.ts](markdown-ordered-list.test.ts)), typed text,

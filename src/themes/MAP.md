@@ -16,7 +16,8 @@ portable theme format and localization contract.
 | Workspace icon encoding / rendering       | [icon-values.ts](../components/workspace/icon-values.ts), [icon-value.tsx](../components/workspace/icon-value.tsx), [EmojiPickerPanel.tsx](../components/workspace/tiptap/EmojiPickerPanel.tsx) |
 
 Static visual definitions belong here; components consume tokens and only local
-behavior/layout styling. Themes are validated data, never executable CSS/JS or
+behavior/layout styling. Compact density joins workspace surfaces inside a rounded frame with panel dividers;
+`--amby-dock-width` keeps the activity rail, header and overlays aligned. Themes are validated data, never executable CSS/JS or
 remote resources. Preserve the token allowlist, format version and no-overwrite
 rules. Render encoded icons through `IconValue`, not as strings.
 

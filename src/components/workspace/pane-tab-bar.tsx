@@ -117,6 +117,7 @@ export function PaneTabBar({
   return (
     <div
       data-pane-tab-bar={paneId}
+      data-pane-edge-aligned={!leftInsetClass || undefined}
       onPointerDown={onFocusPane}
       className={cn(
         "relative flex h-11 shrink-0 select-none items-center gap-1 overflow-hidden px-0",

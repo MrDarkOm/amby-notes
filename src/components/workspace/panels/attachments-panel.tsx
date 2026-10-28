@@ -181,7 +181,7 @@ export function AttachmentsPanel({
         />
       )}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="min-h-0 flex-1 gap-0">
-        <TabsList className="mx-4 mb-3 grid h-8 w-[calc(100%-2rem)] grid-cols-2">
+        <TabsList className="mx-4 mb-3 grid h-8 w-auto grid-cols-2">
           <TabsTrigger
             value="notes"
             title={t("attachmentsPanel.notes")}

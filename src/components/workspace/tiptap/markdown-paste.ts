@@ -1,6 +1,7 @@
 import { Extension } from "@tiptap/core"
 import { Fragment, Slice, type Node as PMNode } from "@tiptap/pm/model"
 import { Plugin, PluginKey, type EditorState, type Transaction } from "@tiptap/pm/state"
+import { imagesOnly, insertImageBlock } from "./image-placement"
 import { sameDocument } from "./markdown-block-source"
 import { getMarkdownParser } from "./markdown-parser"
 import { docToNormalizedMarkdown } from "./markdown-serializer"
@@ -111,7 +112,12 @@ export function pasteMarkdown(state: EditorState, text: string): Transaction | n
   const content = Fragment.fromJSON(state.schema, parsed.toJSON())
   const only = content.childCount === 1 ? content.firstChild : null
   const tr = state.tr
-  if (only && only.type.name === "paragraph") {
+  const images = imagesOnly(content)
+  if (images) {
+    tr.deleteSelection()
+    let pos = tr.selection.from
+    for (const image of images) pos = insertImageBlock(tr, pos, image)
+  } else if (only && only.type.name === "paragraph") {
     // One paragraph is text for the place the cursor is in, with the spaces around it
     // that Markdown itself would not keep.
     const lead = /^[ \t]*/u.exec(text)?.[0] ?? ""

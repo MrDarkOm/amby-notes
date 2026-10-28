@@ -2,8 +2,7 @@
 
 The always-present "Synchronization" settings section (sync is not a module). Plan:
 [sync-plan.md](../../../../docs/sync-plan.md) (Р5, Р12, stage Э4). The connection, and the sync of the open
-vault under it. The gates were completed and confirmed on 27 October 2026:
-real vaults are allowed, with an external backup before the first pass.
+vault under it. Real vaults require an external backup before the first pass.
 
 | Concern                                                                                                                                                                                                                                                           | Owner                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -26,8 +25,8 @@ once they have been used, and out of the DOM text.
 A vault that was switched off is resumed ("Switch on again") only when `VaultSyncStatus.resumable`: the link remembers the server address
 and the key of its space, and both must fit the current connection (runtime.rs `link_matches`). Otherwise the panel shows the
 first-time choice (new / existing space); resuming a space that is gone forgets the stale link.
-There are no classification checkboxes or badges; legacy backend flags do not affect the panel.
-The action rows of the wizard are one row per step (`wizard-actions`): primary first,
+Legacy flags do not affect the panel. Setup uses the form; the switch resumes/disables.
+Account choice precedes server setup. Action rows are one per step (`wizard-actions`): primary first,
 secondary outline, links last. The server step offers the Amby server (default, address in `src/lib/sync/amby-server.ts`, no address field) or an own server (address field, guide link).
 
 The window of external changes of the editor ([external-conflict-dialog.tsx](../external-conflict-dialog.tsx)) is tied to an open,
@@ -44,10 +43,11 @@ marked only for a note that is open (Р8); the note stays open under the rule fo
 and a way back from `.amby/trash/`.
 
 Before the first pass Rust creates a verified external copy beside the vault.
-The panel explains it and shows `VaultSyncStatus.backupPath` with safe restore
-instructions. See [the backup contract](../../../../docs/vault-format.md#backup-and-git-policy).
+Backup manager is collapsed: [backup-panel.tsx](../backup/backup-panel.tsx). See [the backup contract](../../../../docs/vault-format.md#backup-and-git-policy).
 
 Tests sit beside the files. The manual check in a native window, against a server in Docker, is the
 section "Синхронизация" of [native-ui-smoke.md](../../../../docs/native-ui-smoke.md).
 
-Appendix Е (limits of plans): [account-storage.tsx](account-storage.tsx) the storages of the account, plan and gauge (У1, У2, У4); [limit-notices.ts](limit-notices.ts) the cards of У3; sizes in decimal units [format-size.ts](../../../lib/sync/format-size.ts); the cards are drawn by [sync-notices-host.tsx](sync-notices-host.tsx) (“Show the list” asks the workspace for Settings through `OPEN_SETTINGS_REQUEST_EVENT`), the reasons with their limit by `UnsyncedList`, and `space_limit` is met by [sync-vault-panel.tsx](sync-vault-panel.tsx); tests `account-storage.test.tsx`, `sync-limits.test.tsx`.
+Appendix Е (limits of plans): [account-storage.tsx](account-storage.tsx) the storages of the account, plan and gauge (У1, У2, У4); connection changes refresh the list, including a queued read; [limit-notices.ts](limit-notices.ts) the cards of У3; sizes in decimal units [format-size.ts](../../../lib/sync/format-size.ts); the cards are drawn by [sync-notices-host.tsx](sync-notices-host.tsx) (“Show the list” asks the workspace for Settings through `OPEN_SETTINGS_REQUEST_EVENT`), the reasons with their limit by `UnsyncedList`, and `space_limit` is met by [sync-vault-panel.tsx](sync-vault-panel.tsx); tests `account-storage.test.tsx`, `sync-limits.test.tsx`.
+
+Dock: [use-refresh-sync.ts](use-refresh-sync.ts). `SyncVaultPanel` owns the switch; `renderAccountHeader` groups it with account actions in `SyncSettings`.

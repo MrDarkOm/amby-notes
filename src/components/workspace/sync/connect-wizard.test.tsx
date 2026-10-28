@@ -76,6 +76,21 @@ describe("the connect wizard", () => {
     vi.restoreAllMocks()
   })
 
+  it("offers account choice above the server and continues with the chosen sign-in", async () => {
+    const port = createFakePort()
+    renderWizard(port)
+    const account = screen.getByRole("heading", { name: "Аккаунт" })
+    const server = screen.getByRole("group", { name: "Сервер" })
+    expect(account.compareDocumentPosition(server) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    click("Войти")
+    expect(port.signIn).not.toHaveBeenCalled()
+    click("Проверить сервер")
+    await screen.findByLabelText("Пароль")
+    expect(screen.getByLabelText("Имя пользователя")).toBeTruthy()
+    expect(port.checkServer).toHaveBeenCalledWith({ url: AMBY_SERVER_URL, allowHttp: false })
+    expect(port.signIn).not.toHaveBeenCalled()
+  })
+
   describe("the server step", () => {
     it("cannot check an empty address", () => {
       renderWizard(createFakePort())
@@ -153,7 +168,9 @@ describe("the connect wizard", () => {
       click("Проверить сервер")
       const alert = await screen.findByRole("alert")
       expect(alert.textContent).toMatch(message)
-      expect(screen.queryByRole("button", { name: "Создать учётную запись" })).toBeNull()
+      click("Создать учётную запись")
+      expect(screen.queryByLabelText("Имя пользователя")).toBeNull()
+      expect(port.prepareAccount).not.toHaveBeenCalled()
     })
 
     it("warns about plain http and passes the choice on", async () => {

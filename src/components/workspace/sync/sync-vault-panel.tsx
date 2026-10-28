@@ -1,8 +1,20 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { RefreshCw } from "lucide-react"
+import {
+  RefreshCw,
+  CircleCheck,
+  Cloud,
+  TriangleAlert,
+  ShieldCheck,
+  ChevronRight,
+} from "lucide-react"
 
+import { MotionSpinner } from "@/lib/motion"
+import { refreshSyncState } from "./use-refresh-sync"
+import { BackupPanel } from "../backup/backup-panel"
+import { useVaultStore } from "../use-vault-store"
 import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { formatWait, syncCodeMessage, syncErrorMessage } from "@/lib/sync/sync-errors"
 import {
@@ -18,6 +30,9 @@ import { ConflictList, StopNotice, UnsyncedList } from "./sync-vault-parts"
 export interface SyncVaultPanelProps {
   /** The port to use. */
   port: SyncPort
+  vault?: string | null
+  onConnectionChange?: () => void
+  renderAccountHeader?: (syncControl: React.ReactNode) => React.ReactNode
 }
 
 type Mode = "new" | "existing"
@@ -27,8 +42,15 @@ type Mode = "new" | "existing"
  * the stops of Р8, the list of conflicts and the list of files that are not synchronised.
  *
  */
-export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
+export function SyncVaultPanel({
+  port,
+  vault: givenVault,
+  renderAccountHeader,
+  onConnectionChange,
+}: SyncVaultPanelProps) {
   const { t, i18n } = useTranslation()
+  const storedVault = useVaultStore((state) => state.vault)
+  const vault = givenVault === undefined ? storedVault : givenVault
   const [status, setStatus] = React.useState<VaultSyncStatus | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   // The code behind `error`: the answer "your plan has no room for another storage" offers a way on.
@@ -39,7 +61,6 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
   const [name, setName] = React.useState("")
   const [spaces, setSpaces] = React.useState<SpaceView[] | null>(null)
   const [spaceId, setSpaceId] = React.useState<string | null>(null)
-  const [confirmingOff, setConfirmingOff] = React.useState(false)
   // A guard that does not wait for a render: two clicks in one tick are one request.
   const working = React.useRef(false)
 
@@ -93,13 +114,17 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
 
   const backupPath = status?.backupPath ?? null
   const backupInfo = backupPath ? (
-    <div className="space-y-1.5 rounded-lg border border-border bg-card/40 px-3 py-2 text-[12px] leading-5">
-      <p>{t("sync.vault.backupReady")}</p>
-      <code data-testid="sync-backup-path" className="block select-text break-all font-mono">
-        {backupPath}
-      </code>
-      <p>{t("sync.vault.restoreInstructions")}</p>
-    </div>
+    <details className="sync-backup-details">
+      <summary>
+        <ShieldCheck className="size-4" aria-hidden="true" />
+        <span>{t("backups.title")}</span>
+
+        <ChevronRight className="size-3.5" aria-hidden="true" />
+      </summary>
+      <div className="sync-backup-content">
+        <BackupPanel vault={vault} />
+      </div>
+    </details>
   ) : null
   const target = mode === "new" ? ({ kind: "new", name: name.trim() } as const) : null
   const canEnable = !busy && (mode === "new" || spaceId !== null)
@@ -108,6 +133,7 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
     act(async () => {
       const chosen = target ?? { kind: "existing" as const, spaceId: spaceId ?? "" }
       setStatus(await port.enableVault(chosen, false))
+      onConnectionChange?.()
     })
 
   // Only a binding of this server and account is resumed, with its own space (the target is
@@ -115,12 +141,13 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
   const resumeAfterOff = () =>
     act(async () => {
       setStatus(await port.enableVault({ kind: "new", name: "" }, false))
+      onConnectionChange?.()
     })
 
   const disable = () =>
     act(async () => {
       setStatus(await port.disableVault())
-      setConfirmingOff(false)
+      onConnectionChange?.()
     })
 
   const approve = (kind: ApprovalKind) => act(() => port.approve(kind))
@@ -139,9 +166,6 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
       })
   }
 
-  const header = (
-    <h3 className="text-[12px] font-medium text-muted-foreground">{t("sync.vault.title")}</h3>
-  )
   const errorLine = error && (
     <div className="space-y-1.5">
       <p role="alert" className="text-[12px] text-destructive">
@@ -165,21 +189,54 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
     </div>
   )
 
+  const syncControl = (
+    <label className="sync-enable-control">
+      <span>{t(status?.enabled ? "sync.layout.enabled" : "sync.layout.disabled")}</span>
+      <Switch
+        aria-label={t("sync.title")}
+        checked={status?.enabled ?? false}
+        disabled={!status || busy || (!status.enabled && !status.resumable)}
+        title={!status?.enabled && !status?.resumable ? t("sync.vault.connectFirst") : undefined}
+        onCheckedChange={(enabled) => {
+          if (!enabled) void disable()
+          else if (status?.resumable) void resumeAfterOff()
+        }}
+      />
+    </label>
+  )
+  const frame = (content: React.ReactNode) => (
+    <>
+      {renderAccountHeader ? renderAccountHeader(syncControl) : syncControl}
+      <div className="sync-vault-zone">{content}</div>
+    </>
+  )
+
   if (!status) {
-    return (
-      <section data-testid="sync-vault" className="space-y-2">
-        {header}
+    return frame(
+      <section data-testid="sync-vault" className="sync-vault-card space-y-2">
         {errorLine}
-      </section>
+      </section>,
     )
   }
 
   // ----- not switched on -----
   if (!status.enabled) {
     if (status.linked && status.resumable) {
-      return (
-        <section data-testid="sync-vault" className="space-y-2">
-          {header}
+      return frame(
+        <section data-testid="sync-vault" className="sync-vault-card space-y-2">
+          <div className="sync-vault-heading">
+            <div className="sync-vault-symbol">
+              <Cloud aria-hidden="true" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="sync-vault-name">
+                {status.spaceName ?? t("sync.vault.unnamedSpace")}
+              </h3>
+            </div>
+            <Button type="button" size="sm" disabled={busy} onClick={() => void resumeAfterOff()}>
+              {t("sync.vault.resume")}
+            </Button>
+          </div>
           <p className="text-[13px]">{t("sync.vault.off")}</p>
           {status.errorCode && (
             <p role="alert" className="text-[12px] text-destructive">
@@ -188,24 +245,20 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
               })}
             </p>
           )}
-          {backupInfo}
+          {backupInfo && <div className="sync-vault-footer">{backupInfo}</div>}
           {errorLine}
-          <Button type="button" size="sm" disabled={busy} onClick={() => void resumeAfterOff()}>
-            {t("sync.vault.resume")}
-          </Button>
-        </section>
+        </section>,
       )
     }
-    return (
-      <section data-testid="sync-vault" className="space-y-3">
-        {header}
+    return frame(
+      <section data-testid="sync-vault" className="sync-vault-card space-y-3">
         <p
           data-testid="sync-backup-before-enable"
           className="rounded-lg border border-border bg-card/40 px-3 py-2 text-[12px] leading-5 text-muted-foreground"
         >
           {t("sync.vault.backupBeforeEnable")}
         </p>
-        {backupInfo}
+        {backupInfo && <div className="sync-vault-footer">{backupInfo}</div>}
         <fieldset className="space-y-2">
           <legend className="mb-1 text-[12px] font-medium">{t("sync.vault.spaceLegend")}</legend>
           <label className="flex items-center gap-2 text-[13px]">
@@ -269,10 +322,21 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
           )}
         </fieldset>
         {errorLine}
-        <Button type="button" size="sm" disabled={!canEnable} onClick={() => void enable()}>
-          {t("sync.vault.enable")}
+        <Button
+          type="button"
+          size="sm"
+          disabled={!canEnable}
+          aria-busy={busy}
+          onClick={() => void enable()}
+        >
+          {busy && (
+            <MotionSpinner>
+              <RefreshCw />
+            </MotionSpinner>
+          )}
+          {t(busy ? "sync.vault.working" : "sync.vault.enable")}
         </Button>
-      </section>
+      </section>,
     )
   }
 
@@ -294,29 +358,52 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
     default:
       line = t("sync.vault.status.idle")
   }
-  return (
-    <section data-testid="sync-vault" className="space-y-3">
-      {header}
-      {backupInfo}
-      <div className="rounded-lg border border-border bg-card/30 px-4 py-3">
-        <p className="flex items-center gap-2 text-[13px] font-medium">
-          {status.spaceName ?? t("sync.vault.unnamedSpace")}
-        </p>
-        <div data-testid="sync-status" role="status" className="mt-1 space-y-0.5">
-          <p className="text-[12px]">{line}</p>
-          {status.phase === "idle" && (
-            <p className="text-[11px] text-muted-foreground">
-              {lastSync
-                ? t("sync.vault.status.lastSync", { date: lastSync.toLocaleString(i18n.language) })
-                : t("sync.vault.status.never")}
-            </p>
-          )}
-          {status.phase === "waiting" && status.errorCode && (
-            <p data-testid="sync-status-detail" className="text-[11px] text-muted-foreground">
-              {syncCodeMessage(status.errorCode, t)}
-            </p>
-          )}
+  const state = refreshSyncState(status)
+  const StatusIcon = state === "problem" ? TriangleAlert : state === "synced" ? CircleCheck : Cloud
+  if (state === "problem" && status.phase === "idle") line = t("sync.layout.attention")
+  if (state === "pending") line = t("sync.refresh.pending")
+  return frame(
+    <section data-testid="sync-vault" className="sync-vault-card" data-sync-state={state}>
+      <div className="sync-vault-heading">
+        <div className="sync-vault-symbol">
+          <StatusIcon aria-hidden="true" />
         </div>
+        <div className="min-w-0 flex-1">
+          <h3 className="sync-vault-name">{status.spaceName ?? t("sync.vault.unnamedSpace")}</h3>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          disabled={busy || status.phase === "running"}
+          onClick={() => void act(() => port.runNow())}
+        >
+          {busy || status.phase === "running" ? (
+            <MotionSpinner>
+              <RefreshCw />
+            </MotionSpinner>
+          ) : (
+            <RefreshCw />
+          )}
+          {t("sync.vault.runNow")}
+        </Button>
+      </div>
+      <div data-testid="sync-status" role="status" className="sync-vault-status">
+        <p className="sync-status-line">
+          <span className="sync-status-dot" />
+          {line}
+        </p>
+        {status.phase === "idle" && (
+          <p className="sync-status-time">
+            {lastSync
+              ? t("sync.vault.status.lastSync", { date: lastSync.toLocaleString(i18n.language) })
+              : t("sync.vault.status.never")}
+          </p>
+        )}
+        {status.phase === "waiting" && status.errorCode && (
+          <p data-testid="sync-status-detail" className="sync-status-time">
+            {syncCodeMessage(status.errorCode, t)}
+          </p>
+        )}
       </div>
 
       {status.stop && (
@@ -345,38 +432,7 @@ export function SyncVaultPanel({ port }: SyncVaultPanelProps) {
       <ConflictList items={status.conflicts} busyId={resolving} onResolve={resolve} />
       <UnsyncedList items={status.unsynced} />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={busy}
-          onClick={() => void act(() => port.runNow())}
-        >
-          <RefreshCw />
-          {t("sync.vault.runNow")}
-        </Button>
-        {confirmingOff ? (
-          <>
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              disabled={busy}
-              onClick={() => void disable()}
-            >
-              {t("sync.vault.disableConfirm")}
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmingOff(false)}>
-              {t("sync.vault.cancel")}
-            </Button>
-          </>
-        ) : (
-          <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmingOff(true)}>
-            {t("sync.vault.disable")}
-          </Button>
-        )}
-      </div>
-    </section>
+      {backupInfo && <div className="sync-vault-footer">{backupInfo}</div>}
+    </section>,
   )
 }

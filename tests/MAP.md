@@ -54,3 +54,8 @@ Relation command/projection acceptance also runs through
 replacement across two databases must update inverse queries before rebuild.
 [projection_test.rs](../src-tauri/src/database/projection_test.rs) covers inverse Rollup, self-relation deduplication,
 projection failure warnings and source-byte preservation without a watcher.
+
+Backup catalog and stale activation checks cross real IPC in
+[native/backup-contract.ts](native/backup-contract.ts). Restore byte preservation,
+exclusive destinations and interrupted operations are covered beside
+[backup_restore.rs](../src-tauri/src/sync/backup_restore.rs).

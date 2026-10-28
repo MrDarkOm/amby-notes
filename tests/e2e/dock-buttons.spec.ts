@@ -84,3 +84,19 @@ test("each dock zone switches off only its own buttons, never settings", async (
     .evaluateAll((buttons) => buttons.map((button) => button.getAttribute("data-activity-button")))
   expect(order.indexOf("tags")).toBe(order.indexOf("files") + 1)
 })
+
+test("refresh shows local status and opens sync settings from its menu", async ({ page }) => {
+  await seedVault(page, { Note: "Text\n" })
+  const refresh = dockButton(page, "refresh")
+  await expect(refresh).toHaveAttribute(
+    "aria-label",
+    `${ru.sync.refresh.action} — ${ru.sync.refresh.local}`,
+  )
+  await expect(refresh.locator("[data-sync-state='local']")).toBeVisible()
+  await refresh.click()
+  await expect(refresh).toBeEnabled()
+  await expect(refresh.locator("[data-sync-state='local']")).toBeVisible()
+  await refresh.click({ button: "right" })
+  await page.getByRole("menuitem", { name: ru.activityBar.syncSettings, exact: true }).click()
+  await expect(page.getByText(ru.sync.errors.unavailable, { exact: true })).toBeVisible()
+})

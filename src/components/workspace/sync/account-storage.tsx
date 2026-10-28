@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { RefreshCw } from "lucide-react"
+import { RefreshCw, Database } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -12,6 +12,7 @@ import { useVaultStore } from "../use-vault-store"
 export interface AccountStorageProps {
   /** The port to use; the application's own by default. */
   port?: SyncPort
+  revision?: number
 }
 
 type Level = "ok" | "warn" | "full"
@@ -31,10 +32,10 @@ const LEVEL_CLASS: Record<Level, string> = {
 /**
  * The section "Хранилища аккаунта" of the synchronisation settings (docs/sync-plan.md, appendix
  * Е, У1, У2, У4): the plan and its limits, the gauge of the used place, and one row per storage.
- * It reads the server when it opens, on the button, and when a pass ends with a limit announced;
+ * It reads on open, manual refresh, successful connection changes and a pass with a limit;
  * never on a timer. There is no way to delete a storage yet (Э5).
  */
-export function AccountStorage({ port: given }: AccountStorageProps) {
+export function AccountStorage({ port: given, revision = 0 }: AccountStorageProps) {
   const { t, i18n } = useTranslation()
   const port = React.useMemo(() => given ?? resolveSyncPort(), [given])
   const vaults = useVaultStore((state) => state.vaults)
@@ -45,15 +46,22 @@ export function AccountStorage({ port: given }: AccountStorageProps) {
   const paths = React.useRef(vaultPaths)
   paths.current = vaultPaths
   const reading = React.useRef(false)
+  const pending = React.useRef(false)
 
   const load = React.useCallback(async (): Promise<void> => {
-    if (reading.current) return
+    if (reading.current) {
+      pending.current = true
+      return
+    }
     reading.current = true
     setLoading(true)
     try {
-      const next = await port.accountOverview(paths.current)
-      setData(next)
-      setError(null)
+      do {
+        pending.current = false
+        const next = await port.accountOverview(paths.current)
+        setData(next)
+        setError(null)
+      } while (pending.current)
     } catch (caught) {
       setError(syncErrorMessage(caught, t))
     } finally {
@@ -64,7 +72,7 @@ export function AccountStorage({ port: given }: AccountStorageProps) {
 
   React.useEffect(() => {
     void load()
-  }, [load])
+  }, [load, revision])
 
   // A pass that ends with a limit announced asks the server again (the numbers moved).
   React.useEffect(() => {
@@ -93,17 +101,18 @@ export function AccountStorage({ port: given }: AccountStorageProps) {
   const language = i18n.language
   const size = (bytes: number) => formatSize(bytes, language)
   const heading = (
-    <div className="flex items-center justify-between gap-2">
-      <h3 className="text-[12px] font-medium text-muted-foreground">{t("sync.account.title")}</h3>
+    <div className="sync-storage-heading flex items-center justify-between gap-2">
+      <h3 className="sync-section-title">{t("sync.account.title")}</h3>
       <Button
         type="button"
         variant="ghost"
         size="sm"
+        title={t("sync.account.refresh")}
+        aria-label={t("sync.account.refresh")}
         disabled={loading}
         onClick={() => void load()}
       >
         <RefreshCw />
-        {t("sync.account.refresh")}
       </Button>
     </div>
   )
@@ -115,7 +124,7 @@ export function AccountStorage({ port: given }: AccountStorageProps) {
 
   if (!data) {
     return (
-      <section className="space-y-2">
+      <section className="sync-section space-y-2">
         {heading}
         {errorLine}
       </section>
@@ -132,10 +141,10 @@ export function AccountStorage({ port: given }: AccountStorageProps) {
   )
 
   return (
-    <section data-testid="account-storage" className="space-y-3">
+    <section data-testid="account-storage" className="sync-section space-y-3">
       {heading}
       {errorLine}
-      <div className="space-y-2 rounded-lg border border-border bg-card/30 px-4 py-3">
+      <div className="sync-storage-plan space-y-2">
         <p className="text-[13px] font-medium">
           {plan
             ? t("sync.account.plan", { name: plan.title ?? plan.name })
@@ -199,27 +208,35 @@ export function AccountStorage({ port: given }: AccountStorageProps) {
           <p className="text-[11px] text-muted-foreground">{t("sync.account.ownerChangesPlan")}</p>
         )}
       </div>
-      <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+      <ul className="sync-storage-list">
         {sorted.map((space) => (
-          <li key={space.spaceId} data-testid="storage-row" className="space-y-0.5 px-4 py-2.5">
-            <div className="flex items-baseline justify-between gap-3">
-              <p data-testid="storage-name" className="min-w-0 truncate text-[13px]">
-                {space.name ?? t("sync.account.nameUnavailable")}
-              </p>
-              <p className="shrink-0 text-[12px]">{size(space.liveBytes)}</p>
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              {space.thisVault
-                ? t("sync.account.thisVault")
-                : space.boundFolder !== null
-                  ? t("sync.account.boundHere", { folder: space.boundFolder })
-                  : t("sync.account.elsewhere")}
-            </p>
-            {space.historyBytes > 0 && (
+          <li
+            key={space.spaceId}
+            data-testid="storage-row"
+            data-current={space.thisVault || undefined}
+            className="sync-storage-row"
+          >
+            <Database className="sync-storage-icon size-4" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline justify-between gap-3">
+                <p data-testid="storage-name" className="min-w-0 truncate text-[13px]">
+                  {space.name ?? t("sync.account.nameUnavailable")}
+                </p>
+                <p className="shrink-0 text-[12px]">{size(space.liveBytes)}</p>
+              </div>
               <p className="text-[11px] text-muted-foreground">
-                {t("sync.account.rowHistory", { size: size(space.historyBytes) })}
+                {space.thisVault
+                  ? t("sync.account.thisVault")
+                  : space.boundFolder !== null
+                    ? t("sync.account.boundHere", { folder: space.boundFolder })
+                    : t("sync.account.elsewhere")}
               </p>
-            )}
+              {space.historyBytes > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  {t("sync.account.rowHistory", { size: size(space.historyBytes) })}
+                </p>
+              )}
+            </div>
           </li>
         ))}
       </ul>

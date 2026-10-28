@@ -36,29 +36,34 @@ export function PropertyEditor({
   const [draft, setDraft] = React.useState<CustomProperty>({
     id: "",
     name: "",
-    icon: "◆",
+    icon: "",
     propertyType: "text",
     value: "",
     settings: "",
   })
   const [emojiOpen, setEmojiOpen] = React.useState(false)
   const emojiRef = React.useRef<HTMLButtonElement>(null)
+  const saveAttempt = React.useRef(0)
   const [saving, setSaving] = React.useState(false)
+  const [error, setError] = React.useState("")
   const [addToDatabase, setAddToDatabase] = React.useState(true)
 
   React.useEffect(() => {
+    saveAttempt.current++
+    setSaving(false)
     if (!open) return
     setDraft(
       property ?? {
         id: "",
         name: "",
-        icon: "◆",
+        icon: "",
         propertyType: "text",
         value: "",
         settings: "",
       },
     )
     setEmojiOpen(false)
+    setError("")
     setAddToDatabase(true)
   }, [open, property])
 
@@ -82,12 +87,16 @@ export function PropertyEditor({
 
   async function save() {
     if (!draft.name.trim() || saving) return
+    const attempt = saveAttempt.current
     setSaving(true)
+    setError("")
     try {
       await onSave(draft, { addToDatabase: Boolean(databaseContext && !draft.id && addToDatabase) })
-      onOpenChange(false)
+      if (attempt === saveAttempt.current) onOpenChange(false)
+    } catch {
+      if (attempt === saveAttempt.current) setError(t("infoPanel.saveFailed"))
     } finally {
-      setSaving(false)
+      if (attempt === saveAttempt.current) setSaving(false)
     }
   }
 
@@ -97,6 +106,11 @@ export function PropertyEditor({
         <DialogHeader>
           <DialogTitle className="text-sm">{t("infoPanel.propertyEditor")}</DialogTitle>
         </DialogHeader>
+        {error && (
+          <p role="alert" className="text-xs text-destructive">
+            {error}
+          </p>
+        )}
         <div className="flex items-center gap-2">
           <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
             <PopoverTrigger asChild>
@@ -211,7 +225,9 @@ export function PropertyEditor({
               }
               value={draft.value}
               onChange={(event) => setDraft((value) => ({ ...value, value: event.target.value }))}
-              className="h-9 text-xs"
+              className={
+                draft.propertyType === "number" ? "amby-property-number h-9 text-xs" : "h-9 text-xs"
+              }
             />
           )}
         </label>
@@ -261,9 +277,19 @@ export function PropertyEditor({
             <button
               type="button"
               className="inline-flex items-center gap-1.5 text-xs text-destructive"
+              disabled={saving}
               onClick={async () => {
-                await onDelete(draft.id)
-                onOpenChange(false)
+                const attempt = saveAttempt.current
+                setSaving(true)
+                setError("")
+                try {
+                  await onDelete(draft.id)
+                  if (attempt === saveAttempt.current) onOpenChange(false)
+                } catch {
+                  if (attempt === saveAttempt.current) setError(t("infoPanel.saveFailed"))
+                } finally {
+                  if (attempt === saveAttempt.current) setSaving(false)
+                }
               }}
             >
               <Trash2 className="size-3.5" />

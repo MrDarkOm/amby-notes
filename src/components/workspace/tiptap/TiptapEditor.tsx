@@ -31,7 +31,8 @@ import { CROP_IMAGE_EVENT, OPEN_IMAGE_VIEWER_EVENT } from "./image-commands"
 import { attachmentKind, localFileKind } from "./attachment-kind"
 import { TextSelection } from "@tiptap/pm/state"
 import { selectEndOfNote } from "./line-after-block"
-import { isClickInInterlineGap, nearestLinePos } from "./nearest-line"
+import { nearestLinePos } from "./nearest-line"
+import { useGapSelection } from "./use-gap-selection"
 import { isImageLinePos } from "./image-line"
 import { BlockHandles } from "./BlockHandles"
 import { BlockInsertPanel } from "./BlockInsertPanel"
@@ -665,6 +666,8 @@ export function TiptapEditor({
     }
   }, [closeMenu, editor, openSelectionMenu])
 
+  useGapSelection(editor, wrapperRef)
+
   // Click in the empty page: the cursor goes to the nearest line, or to the end of the note.
   const focusAtPoint = React.useCallback(
     (x: number, y: number) => {
@@ -928,11 +931,7 @@ export function TiptapEditor({
           target === event.currentTarget ||
           target === editor.view.dom ||
           target.classList.contains("amby-column-content")
-        const isInterline =
-          !isContainerGap &&
-          editor.state.selection.empty &&
-          isClickInInterlineGap(editor.view, target, event.clientX, event.clientY)
-        if (!isContainerGap && !isInterline) return
+        if (!isContainerGap) return
         focusAtPoint(event.clientX, event.clientY)
       }}
       onKeyDownCapture={() => {

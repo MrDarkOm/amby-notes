@@ -8,6 +8,7 @@ mod durable;
 mod frontmatter;
 mod history;
 pub mod index;
+mod keychain_access;
 pub mod logging;
 mod model;
 pub mod package_manager;
@@ -186,6 +187,9 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         credentials::store_ai_credential,
         credentials::delete_ai_credential,
         credentials::inspect_ai_credential,
+        commands::backups::list_vault_backups,
+        commands::backups::verify_vault_backup,
+        commands::backups::restore_vault_backup,
         commands::sync::sync_check_server,
         commands::sync::sync_check_password,
         commands::sync::sync_prepare_account,

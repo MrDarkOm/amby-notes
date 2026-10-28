@@ -36,7 +36,15 @@ export function WorkspaceLayout({
   rightActivityBar,
   rightSidebar,
 }: WorkspaceLayoutProps) {
-  if (noVault) return noVault
+  if (noVault)
+    return (
+      <>
+        {noVault}
+        {dialogs}
+        {notice}
+        {deleteConfirmationDialog}
+      </>
+    )
 
   if (isFocusMode) {
     return (

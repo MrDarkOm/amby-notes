@@ -76,11 +76,11 @@ export function VaultManager({
   return (
     <div className="flex w-full flex-col gap-4">
       <div className="flex flex-col gap-1.5">
-        <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+        <p className="text-[11px] font-medium uppercase tracking-wider text-foreground">
           {t("startScreen.recent")}
         </p>
         {vaults.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-border px-3 py-3 text-[12px] text-muted-foreground">
+          <p className="rounded-lg border border-dashed border-border px-3 py-3 text-[12px] text-foreground">
             {t("startScreen.noRecent")}
           </p>
         ) : (
@@ -118,10 +118,15 @@ export function VaultManager({
                       onClick={() => onSelect(vault.path)}
                       className="min-w-0 flex-1 rounded-md text-left outline-none focus-visible:bg-accent/70"
                     >
-                      <span className="block truncate text-[13px] text-foreground">
-                        {vault.name}
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="truncate text-[13px] text-foreground">{vault.name}</span>
+                        {vault.detached && (
+                          <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] text-foreground">
+                            {t("vaultPicker.detached")}
+                          </span>
+                        )}
                       </span>
-                      <span className="block truncate text-[10px] text-muted-foreground">
+                      <span className="block truncate text-[10px] text-foreground">
                         {vault.path}
                       </span>
                     </button>
@@ -163,14 +168,18 @@ export function VaultManager({
                         <FolderOpen className="size-3.5 text-muted-foreground" />
                         {t("vaultPicker.showInExplorer")}
                       </DropdownMenuItem>
-                      <DropdownMenuSeparator className="bg-accent" />
-                      <DropdownMenuItem
-                        className="flex items-center gap-2 text-[13px] text-red-400 focus:bg-accent focus:text-red-300"
-                        onSelect={() => onDelete(vault.id)}
-                      >
-                        <Unlink className="size-3.5" />
-                        {t("vaultPicker.detach")}
-                      </DropdownMenuItem>
+                      {!vault.detached && (
+                        <>
+                          <DropdownMenuSeparator className="bg-accent" />
+                          <DropdownMenuItem
+                            className="flex items-center gap-2 text-[13px] text-red-400 focus:bg-accent focus:text-red-300"
+                            onSelect={() => onDelete(vault.id)}
+                          >
+                            <Unlink className="size-3.5" />
+                            {t("vaultPicker.detach")}
+                          </DropdownMenuItem>
+                        </>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </li>
@@ -189,12 +198,12 @@ export function VaultManager({
         {t("vaultPicker.choose")}
       </button>
 
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[12px] text-muted-foreground">
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[12px] font-medium text-foreground">
           {t("settings.appearance.language")}
         </span>
         <Select value={language} onValueChange={(v) => setPrefs({ language: v as Language })}>
-          <SelectTrigger className="h-8 w-44 border-border bg-card text-[13px] text-foreground">
+          <SelectTrigger className="h-9 w-full border-border bg-card text-[13px] text-foreground">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

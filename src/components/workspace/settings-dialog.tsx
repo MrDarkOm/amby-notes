@@ -97,6 +97,8 @@ const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform
 const SETTINGS_WINDOW_LABEL = "settings"
 const SETTINGS_MODULE_CHANGE_EVENT = "amby:settings-module-change"
 const SETTINGS_CONTEXT_CHANGE_EVENT = "amby:settings-context-change"
+const SETTINGS_READY_EVENT = "amby:settings-ready"
+let settingsWindowQueue: Promise<unknown> = Promise.resolve()
 
 interface ModuleChangePayload {
   id: string
@@ -126,26 +128,47 @@ function settingsWindowUrl(
   return `/?${params.toString()}`
 }
 
-async function openSettingsWindow(
+function openSettingsWindow(
   activeModules: string[],
   title: string,
   vault: string | null,
   target: SettingsNavigationTarget | null,
+  prewarm = false,
+): Promise<boolean> {
+  const operation = settingsWindowQueue.then(() =>
+    openSettingsWindowNow(activeModules, title, vault, target, prewarm),
+  )
+  settingsWindowQueue = operation.catch(() => {})
+  return operation
+}
+
+async function openSettingsWindowNow(
+  activeModules: string[],
+  title: string,
+  vault: string | null,
+  target: SettingsNavigationTarget | null,
+  prewarm: boolean,
 ): Promise<boolean> {
   try {
     const existing = await WebviewWindow.getByLabel(SETTINGS_WINDOW_LABEL)
     if (existing) {
-      await existing.unminimize()
-      await existing.show()
-      await existing.setFocus()
+      if (prewarm) return true
       await emitTo<SettingsContextPayload>(SETTINGS_WINDOW_LABEL, SETTINGS_CONTEXT_CHANGE_EVENT, {
         activeModules,
         vault,
         target: target ?? undefined,
       }).catch(() => {})
+      await existing.unminimize()
+      await existing.show()
+      await existing.setFocus()
       return true
     }
 
+    let markReady: (() => void) | undefined
+    const readySignal = new Promise<void>((resolve) => {
+      markReady = resolve
+    })
+    const stopReady = await listen(SETTINGS_READY_EVENT, () => markReady?.())
     const child = new WebviewWindow(SETTINGS_WINDOW_LABEL, {
       url: settingsWindowUrl(activeModules, vault, target),
       title,
@@ -154,7 +177,8 @@ async function openSettingsWindow(
       minWidth: 680,
       minHeight: 480,
       center: true,
-      focus: true,
+      focus: false,
+      visible: false,
       resizable: true,
       maximizable: true,
       minimizable: true,
@@ -164,28 +188,37 @@ async function openSettingsWindow(
       hiddenTitle: isMac,
       trafficLightPosition: isMac ? new LogicalPosition(14, 22) : undefined,
     })
-    return await new Promise<boolean>((resolve) => {
+    const ready = await new Promise<boolean>((resolve) => {
       let settled = false
       const settle = (opened: boolean) => {
         if (settled) return
         settled = true
+        window.clearTimeout(timeout)
+        stopReady()
         resolve(opened)
       }
-      const timeout = window.setTimeout(() => settle(false), 3_000)
-      void child
-        .once("tauri://created", () => {
-          window.clearTimeout(timeout)
-          settle(true)
-        })
-        .catch(() => settle(false))
+      const timeout = window.setTimeout(() => settle(false), 8_000)
+      void readySignal.then(() => settle(true))
       void child
         .once("tauri://error", (event) => {
           console.error("Failed to open settings window:", event.payload)
-          window.clearTimeout(timeout)
           settle(false)
         })
         .catch(() => settle(false))
     })
+    if (!ready) {
+      void child.destroy().catch(() => {})
+      return false
+    }
+    if (prewarm) return true
+    await emitTo<SettingsContextPayload>(SETTINGS_WINDOW_LABEL, SETTINGS_CONTEXT_CHANGE_EVENT, {
+      activeModules,
+      vault,
+      target: target ?? undefined,
+    })
+    await child.show()
+    await child.setFocus()
+    return true
   } catch (error) {
     console.error("Failed to open settings window:", error)
     return false
@@ -318,6 +351,7 @@ export function SettingsDialog({
         label: t("settings.groups.startup"),
         description: `${t("settings.startup.reopenLastVault")} · ${t("settings.startup.restoreSession")}`,
       },
+      { section: "sync", label: t("backups.title"), description: t("backups.intro") },
       {
         section: "general",
         label: t("settings.groups.updates"),
@@ -393,6 +427,16 @@ export function SettingsDialog({
   }, [activeModules, standalone, vault])
 
   React.useEffect(() => {
+    if (standalone || !isTauri()) return
+    const timer = window.setTimeout(() => {
+      void openSettingsWindow(activeModules, t("settings.window.title"), vault, null, true)
+    }, 500)
+    return () => window.clearTimeout(timer)
+    // Warm up only once; current context is sent again when opening.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [standalone])
+
+  React.useEffect(() => {
     if (!open || standalone || !isTauri() || useInlineFallback) return
     let cancelled = false
     void openSettingsWindow(
@@ -438,7 +482,7 @@ export function SettingsDialog({
           setMaximized((value) => !value)
         }}
         onClose={() => {
-          if (standalone && isTauri()) void getCurrentWindow().close()
+          if (standalone && isTauri()) void getCurrentWindow().hide()
           else onOpenChange(false)
         }}
       />
@@ -457,7 +501,7 @@ export function SettingsDialog({
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t("settings.search.placeholder")}
               aria-label={t("settings.search.placeholder")}
-              className="h-8 bg-card pl-8 text-[12px]"
+              className="amby-inset-icon-input h-8 bg-card pl-8 text-[12px]"
             />
           </div>
           {saveError && (
@@ -804,7 +848,7 @@ export function SettingsDialog({
 
               {/* ── Synchronization ───────────────────────────────────────── */}
               <TabsContent value="sync" className="space-y-6">
-                <SyncSettings />
+                <SyncSettings vault={vault} />
               </TabsContent>
 
               <TabsContent value="modules">
@@ -855,13 +899,36 @@ export function StandaloneSettingsWindow() {
 
   React.useEffect(() => {
     if (!isTauri()) return
-    return adoptAsyncDisposer(
+    let disposed = false
+    let stopContext: (() => void) | undefined
+    let stopClose: (() => void) | undefined
+    void Promise.all([
       listen<SettingsContextPayload>(SETTINGS_CONTEXT_CHANGE_EVENT, (event) => {
         setActiveModules(event.payload.activeModules)
         setVault(event.payload.vault)
-        if (event.payload.target) setNavigationTarget(event.payload.target)
+        setNavigationTarget(event.payload.target ?? null)
       }),
-    )
+      getCurrentWindow().onCloseRequested((event) => {
+        event.preventDefault()
+        void getCurrentWindow().hide()
+      }),
+    ])
+      .then(([context, close]) => {
+        if (disposed) {
+          context()
+          close()
+          return
+        }
+        stopContext = context
+        stopClose = close
+        void emitTo("main", SETTINGS_READY_EVENT)
+      })
+      .catch((error) => console.error("Failed to initialize settings window:", error))
+    return () => {
+      disposed = true
+      stopContext?.()
+      stopClose?.()
+    }
   }, [])
 
   const handleModuleEnabledChange = React.useCallback((id: string, enabled: boolean) => {
@@ -882,7 +949,7 @@ export function StandaloneSettingsWindow() {
       vault={vault}
       navigationTarget={navigationTarget}
       onOpenChange={(next) => {
-        if (!next && isTauri()) void getCurrentWindow().close()
+        if (!next && isTauri()) void getCurrentWindow().hide()
       }}
       activeModules={activeModules}
       onModuleEnabledChange={handleModuleEnabledChange}

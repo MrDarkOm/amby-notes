@@ -160,8 +160,20 @@ pub async fn sync_recover(
 /// The state of the connection (no network).
 #[tauri::command]
 #[specta::specta]
-pub fn sync_status(service: State<'_, SyncService>) -> Result<SyncStatus, SyncError> {
-    service.status()
+pub fn sync_status(
+    app: tauri::AppHandle,
+    service: State<'_, SyncService>,
+    interactive: Option<bool>,
+) -> Result<SyncStatus, SyncError> {
+    if interactive == Some(true) {
+        let status = crate::keychain_access::account_action(|| service.status())?;
+        if status.connected {
+            resume_open_vault(&app);
+        }
+        Ok(status)
+    } else {
+        service.status()
+    }
 }
 
 /// The devices of the account (П19).

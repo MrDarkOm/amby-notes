@@ -111,6 +111,15 @@ describe("the desktop sync port", () => {
     await expect(port.cancelPending()).resolves.toBeUndefined()
   })
 
+  it("keeps status reads silent unless the sign-in action explicitly permits interaction", async () => {
+    const port = createDesktopSyncPort()
+    commands.syncStatus.mockResolvedValue(ok({ connected: false }))
+    await port.status()
+    expect(commands.syncStatus).toHaveBeenLastCalledWith(false)
+    await port.status(true)
+    expect(commands.syncStatus).toHaveBeenLastCalledWith(true)
+  })
+
   it("turns an error answer into a SyncPortError with the machine code and the wait", async () => {
     const port = createDesktopSyncPort()
     commands.syncSignIn.mockResolvedValue(failed("rate_limited", 840))

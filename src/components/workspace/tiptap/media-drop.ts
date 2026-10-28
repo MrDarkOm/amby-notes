@@ -3,6 +3,7 @@ import { Plugin, PluginKey, Selection } from "@tiptap/pm/state"
 import type { EditorView } from "@tiptap/pm/view"
 
 import { getAssetContext } from "./asset-resolver"
+import { insertImageAtPoint, insertImageBlock } from "./image-placement"
 import { attachmentKind } from "./attachment-kind"
 import { importAsset, importAssetBytes, isTauri, type ImportedAsset } from "@/lib/storage"
 import { errorType, logger } from "@/lib/logger"
@@ -44,13 +45,13 @@ export function insertImportedAssets(
   requestedPos: number,
   assets: ImportedAsset[],
   signal?: AbortSignal,
+  point?: { x: number; y: number },
 ): boolean {
   if (signal?.aborted || assets.length === 0) return false
   const { state } = view
   const tr = state.tr
   let insertPos = inlineInsertionPos(view, requestedPos)
-  if (insertPos == null) return false
-  const insertionAnchor = insertPos
+  if (insertPos == null) insertPos = Math.max(0, Math.min(requestedPos, state.doc.content.size))
   for (const asset of assets) {
     if (signal?.aborted) return false
     if (asset.kind === "image" || attachmentKind(asset.relPath)) {
@@ -62,17 +63,26 @@ export function insertImportedAssets(
         asset.kind === "image" ? null : asset.fileName,
       )
       if (!image) continue
-      tr.insert(insertPos, image)
+      if (point && assets.length === 1 && insertImageAtPoint(view, tr, point, image)) {
+        view.dispatch(tr)
+        return true
+      }
+      insertPos = insertImageBlock(tr, insertPos, image)
+      continue
     } else {
       const text = asset.fileName
-      tr.insertText(text, insertPos)
       const link = state.schema.marks.link
-      if (link) tr.addMark(insertPos, insertPos + text.length, link.create({ href: asset.relPath }))
+      const marks = link ? [link.create({ href: asset.relPath })] : []
+      const node = state.schema.text(text, marks)
+      if (tr.doc.resolve(insertPos).parent.inlineContent) {
+        tr.insert(insertPos, node)
+        insertPos += text.length
+      } else {
+        const paragraph = state.schema.nodes.paragraph.create(null, node)
+        tr.insert(insertPos, paragraph)
+        insertPos += paragraph.nodeSize
+      }
     }
-    // Always remap the original anchor through every completed step. Remapping
-    // an already-mapped position compounds earlier offsets and eventually
-    // produces an out-of-range position for batches of three or more items.
-    insertPos = tr.mapping.map(insertionAnchor, 1)
   }
   if (signal?.aborted || !tr.docChanged) return false
   view.dispatch(tr)
@@ -209,11 +219,12 @@ async function handleFileList(
   files: FileList,
   dropPos: number,
   signal?: AbortSignal,
+  point?: { x: number; y: number },
 ) {
   const ctx = getImportContextForView(view)
   if (!ctx || !isTauri()) return false
   const imported = await importFiles(ctx, Array.from(files), signal)
-  return insertImportedAssets(view, dropPos, imported, signal)
+  return insertImportedAssets(view, dropPos, imported, signal, point)
 }
 
 function sessionSignal(view: EditorView): AbortSignal {
@@ -253,7 +264,10 @@ export const MediaDrop = Extension.create({
             })
             if (!coords) return false
             event.preventDefault()
-            void handleFileList(view, dt.files, coords.pos, sessionSignal(view))
+            void handleFileList(view, dt.files, coords.pos, sessionSignal(view), {
+              x: event.clientX,
+              y: event.clientY,
+            })
             return true
           },
           handlePaste(view, event) {
@@ -283,7 +297,11 @@ export const MediaDrop = Extension.create({
               if (IMAGE_EXT_RE.test(text)) {
                 event.preventDefault()
                 const image = createImageNode(view, text)
-                if (image) view.dispatch(view.state.tr.insert(view.state.selection.from, image))
+                if (image) {
+                  const tr = view.state.tr
+                  insertImageBlock(tr, view.state.selection.from, image)
+                  view.dispatch(tr)
+                }
                 return true
               }
             }
@@ -325,7 +343,7 @@ export async function bindTauriFileDrop(
       : view.state.selection.from
     if (pos == null) return
     const imported = await importDroppedPaths(ctx, payload.paths, signal)
-    insertImportedAssets(view, pos, imported, signal)
+    insertImportedAssets(view, pos, imported, signal, clientPosition ?? undefined)
   })
   return () => {
     // HMR can dispose a webview listener after Tauri has already removed it.

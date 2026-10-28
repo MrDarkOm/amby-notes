@@ -35,6 +35,62 @@ const mockDocumentWithFrontmatter: DocumentProperties = {
 }
 
 describe("InfoPanel frontmatter properties", () => {
+  it("uses type icons for legacy diamonds and keeps chosen icons", () => {
+    const doc: DocumentProperties = {
+      ...mockDocumentWithFrontmatter,
+      frontmatter: {
+        hasFrontmatter: true,
+        properties: [{ key: "existing", value: "true", valueKind: "checkbox" }],
+        customProperties: [
+          {
+            id: "existing-id",
+            name: "existing",
+            icon: "◆",
+            propertyType: "checkbox",
+            value: "true",
+            settings: "",
+          },
+          {
+            id: "count-id",
+            name: "count",
+            icon: "◆",
+            propertyType: "number",
+            value: "1",
+            settings: "",
+          },
+          {
+            id: "custom-id",
+            name: "custom",
+            icon: "🌿",
+            propertyType: "text",
+            value: "",
+            settings: "",
+          },
+        ],
+      },
+    }
+    const { container } = render(
+      <InfoPanel
+        treeItems={[]}
+        selectedId={doc.id}
+        vault="/test-vault"
+        onSelect={() => {}}
+        onOpenVault={() => {}}
+        properties={doc}
+      />,
+    )
+    expect(
+      screen.getByRole("button", { name: "existing" }).querySelector(".lucide-square-check-big"),
+    ).not.toBeNull()
+    expect(
+      container.querySelector('[data-sortable-property-id="count-id"] .lucide-hash'),
+    ).not.toBeNull()
+    expect(
+      container.querySelector('[data-sortable-property-id="custom-id"]')?.textContent,
+    ).toContain("🌿")
+    expect(container.textContent).not.toContain("◆")
+  })
+
   it("renders frontmatter properties excluding amby-id and id", () => {
     const { container } = render(
       <InfoPanel

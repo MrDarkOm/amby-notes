@@ -402,13 +402,14 @@ impl SyncService {
             session,
             account_key,
         } = connected;
-        let stored = self
-            .secrets
-            .set(SECRET_ACCOUNT_KEY, &to_hex(account_key.as_bytes()))
-            .and_then(|()| {
-                self.secrets
-                    .set(SECRET_DEVICE_TOKEN, session.token.expose())
-            });
+        let stored = crate::keychain_access::account_action(|| {
+            self.secrets
+                .set(SECRET_ACCOUNT_KEY, &to_hex(account_key.as_bytes()))
+                .and_then(|()| {
+                    self.secrets
+                        .set(SECRET_DEVICE_TOKEN, session.token.expose())
+                })
+        });
         let failure = match stored {
             Err(error) => Some(SyncError::from(error)),
             Ok(()) => self

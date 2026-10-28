@@ -96,8 +96,8 @@ interface RecoverInput extends ServerTarget {
 
 /** Everything the connect screen can ask of the application. */
 export interface SyncPort {
-  /** The state of the connection; no network. */
-  status(): Promise<SyncStatus>
+  /** The state of the connection; no network. Only an explicit sign-in action may pass `true` to permit a system key store dialog. */
+  status(interactive?: boolean): Promise<SyncStatus>
   /** `/v1/info` of a server. */
   checkServer(target: ServerTarget): Promise<ServerCheck>
   /** The verdict on a password while it is typed. */
@@ -177,7 +177,7 @@ async function call<T>(command: Promise<Result<T, SyncError>>): Promise<T> {
 /** The port that calls the Rust commands. */
 export function createDesktopSyncPort(): SyncPort {
   return {
-    status: () => call(commands.syncStatus()),
+    status: (interactive = false) => call(commands.syncStatus(interactive)),
     checkServer: ({ url, allowHttp }) => call(commands.syncCheckServer(url, allowHttp)),
     checkPassword: async (password, username) => {
       try {

@@ -21,15 +21,17 @@ export function planVaultStartup({
   windowLabel,
   lastOpened,
   reopenLastVault,
+  hasRecentVaults = false,
 }: {
   isDesktop: boolean
   windowLabel: string
   lastOpened: string | null
   reopenLastVault: boolean
+  hasRecentVaults?: boolean
 }): VaultStartupPlan {
   if (isDesktop && windowLabel !== MAIN_WINDOW_LABEL) return { kind: "attach-active" }
   if (lastOpened && reopenLastVault) return { kind: "activate", path: lastOpened }
-  if (!isDesktop) return { kind: "activate", path: "web-vault" }
+  if (!isDesktop && !hasRecentVaults) return { kind: "activate", path: "web-vault" }
   return { kind: "idle" }
 }
 

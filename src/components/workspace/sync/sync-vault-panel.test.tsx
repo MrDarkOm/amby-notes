@@ -88,16 +88,11 @@ describe("sync of the open vault: switching it on", () => {
     expect(screen.queryByTestId("sync-test-vault")).toBeNull()
   })
 
-  it("shows the completed backup path and safe restore instructions", async () => {
-    const backupPath = "/notes.amby-backups/01J9TEST/vault"
-    await show({ ...VAULT_OFF, gateClosed: false, backupPath } as VaultSyncStatus)
+  it("offers the backup manager instead of a manual restore procedure", async () => {
+    await show({ ...VAULT_OFF, backupPath: "/notes.amby-backups/01J9TEST/vault" })
     const panel = await screen.findByTestId("sync-vault")
-    expect(panel.textContent).toContain(backupPath)
-    expect(panel.textContent).toMatch(/подпапк.*vault/i)
-    expect(panel.textContent).toMatch(/выключ.*синхронизац/i)
-    expect(panel.textContent).toMatch(/закрой.*Amby/i)
-    expect(panel.textContent).toMatch(/новую папку/i)
-    expect(panel.textContent).toMatch(/активн.*хранилищ/i)
+    expect(panel.querySelector("summary")?.textContent).toContain("Резервные копии")
+    expect(panel.textContent).not.toMatch(/переименуйте|закройте Amby/)
   })
 
   it("does not enable sync when creating its pre-sync backup fails", async () => {
@@ -157,14 +152,31 @@ describe("sync of the open vault: switching it on", () => {
     expect(port.enableVault).toHaveBeenCalledTimes(1)
   })
 
+  it("does not start creating a space from the top switch before the form is submitted", async () => {
+    const port = await show({ ...VAULT_OFF })
+    const toggle = screen.getByRole("switch", { name: "Синхронизация" })
+    expect(toggle.hasAttribute("disabled")).toBe(true)
+    fireEvent.click(toggle)
+    expect(port.enableVault).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText("Название"), { target: { value: "Amby" } })
+    expect(button("Включить синхронизацию").hasAttribute("disabled")).toBe(false)
+    click("Включить синхронизацию")
+    await waitFor(() =>
+      expect(port.enableVault).toHaveBeenCalledWith({ kind: "new", name: "Amby" }, false),
+    )
+  })
+
   it("does not switch on twice while the first request is running", async () => {
     let release: (status: VaultSyncStatus) => void = () => {}
     const port = await show(
       { ...VAULT_OFF },
       { enableVault: () => new Promise<VaultSyncStatus>((resolve) => (release = resolve)) },
     )
-    click("Включить синхронизацию")
-    click("Включить синхронизацию")
+    const start = button("Включить синхронизацию")
+    fireEvent.click(start)
+    fireEvent.click(start)
+    expect(start.getAttribute("aria-busy")).toBe("true")
+    expect(start.textContent).toContain("Подождите")
     expect(port.enableVault).toHaveBeenCalledTimes(1)
     await act(async () => release(vaultStatus()))
     await screen.findByTestId("sync-status")
@@ -354,15 +366,33 @@ describe("sync of the open vault: the status", () => {
     expect(vaultListenerCount()).toBe(0)
   })
 
-  it("switches off only after a confirmation", async () => {
-    const port = await show(vaultStatus())
-    click("Выключить синхронизацию")
-    expect(port.disableVault).not.toHaveBeenCalled()
-    click("Отмена")
-    expect(port.disableVault).not.toHaveBeenCalled()
-    click("Выключить синхронизацию")
-    click("Да, выключить")
+  it("switches off and resumes the existing space through the top switch", async () => {
+    const port = await show(vaultStatus(), {
+      disableVault: async () => vaultStatus({ enabled: false, phase: "off", resumable: true }),
+    })
+    fireEvent.click(screen.getByRole("switch", { name: "Синхронизация" }))
     await waitFor(() => expect(port.disableVault).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("false"),
+    )
+    fireEvent.click(screen.getByRole("switch"))
+    await waitFor(() =>
+      expect(port.enableVault).toHaveBeenCalledWith({ kind: "new", name: "" }, false),
+    )
+    await waitFor(() =>
+      expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("true"),
+    )
+  })
+
+  it("keeps the switch on and reports a failed disable", async () => {
+    await show(vaultStatus(), {
+      disableVault: async () => {
+        throw new SyncPortError("ipc_failed")
+      },
+    })
+    fireEvent.click(screen.getByRole("switch"))
+    await screen.findByRole("alert")
+    expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("true")
   })
 })
 
@@ -584,6 +614,14 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
     expect(text).toMatch(/слишком большой для этого компьютера/)
     expect(text).toMatch(/Нет доступа к файлу/)
     expect(text).toMatch(/Причина не распознана/)
+  })
+
+  it("does not call an idle pass fully synchronized when files remain unsynced", async () => {
+    await show(vaultStatus({ unsynced: [{ path: "large.bin", reason: "tooLarge", detail: null }] }))
+    const status = await screen.findByTestId("sync-status")
+    expect(status.textContent).toContain("Требуется внимание")
+    expect(status.textContent).not.toContain("Всё синхронизировано")
+    expect(await screen.findByTestId("sync-unsynced")).toBeTruthy()
   })
 
   it("shows no lists when there is nothing to show", async () => {

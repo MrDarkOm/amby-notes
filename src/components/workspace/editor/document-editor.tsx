@@ -530,7 +530,7 @@ export function DocumentEditor({
   return (
     <div className="relative flex h-full min-w-0 flex-1 flex-col">
       <div
-        className={`relative ${isFocusMode ? "" : "mb-2"} mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]`}
+        className={`amby-workspace-surface relative ${isFocusMode ? "" : "mb-2"} mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]`}
         style={{ boxShadow: "var(--note-surface-shadow)" }}
       >
         {headerElement}

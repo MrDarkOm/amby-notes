@@ -1,4 +1,4 @@
-import { Maximize2, PanelBottom } from "lucide-react"
+import { Maximize2, PanelBottomClose, PanelBottomOpen } from "lucide-react"
 import type { TFunction } from "i18next"
 
 import type { ContentWidth } from "../app-config"
@@ -40,7 +40,11 @@ export function bottomBarMenuItem(t: TFunction, shown: boolean, disabled = false
     id: "bottom-bar",
     growLabel: true,
     label: shown ? t("docEditor.hideBottomBar") : t("docEditor.showBottomBar"),
-    icon: <PanelBottom className="size-3.5 text-muted-foreground" />,
+    icon: shown ? (
+      <PanelBottomClose className="size-3.5 text-muted-foreground" />
+    ) : (
+      <PanelBottomOpen className="size-3.5 text-muted-foreground" />
+    ),
     disabled,
     onSelect: () => {
       const currentEditor = useSettingsStore.getState().prefs.editor

@@ -3,6 +3,7 @@
 import { act, cleanup, renderHook } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useDocStore, type Document } from "../use-doc-store"
+import { beginPropertyMutation } from "../note-mutation-queue"
 import { useMarkdownAutosave } from "./use-markdown-autosave"
 import * as storage from "@/lib/storage"
 import {
@@ -85,6 +86,66 @@ describe("useMarkdownAutosave", () => {
     expect(useDocStore.getState().openDocs[doc.id].content).toBe("newer unsaved text")
     expect(useDocStore.getState().unsavedFileIds.has(doc.id)).toBe(true)
     result.current.autosave.cancelGeneration(1)
+  })
+
+  it("does not replace a newly edited property with an older autosave read", async () => {
+    const old = {
+      hasFrontmatter: true,
+      properties: [{ key: "Status", value: "old", valueKind: "text" }],
+      customProperties: [],
+    }
+    const next = { ...old, properties: [{ key: "Status", value: "new", valueKind: "text" }] }
+    const doc: Document = {
+      id: "note-race",
+      title: "Note",
+      path: "/vault/Note.md",
+      content: "saved",
+      source: "saved",
+      revision: "before",
+      created: "",
+      modified: "",
+      wordCount: 1,
+      noteProperties: old,
+    }
+    useDocStore.getState().setDoc(doc.id, doc)
+    vi.spyOn(storage, "writeNote").mockResolvedValue({
+      path: doc.path,
+      revision: "after",
+      indexState: "healthy",
+      warnings: [],
+    })
+    let finishRead!: () => void
+    vi.spyOn(storage, "getNoteProperties").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishRead = () => resolve(old)
+        }),
+    )
+    const { result } = renderHook(() =>
+      useMarkdownAutosave({
+        vault: "/vault",
+        autosaveGeneration: 19,
+        backendGeneration: 1,
+        windowLabel: "main",
+        applyMutationResult: vi.fn(),
+      }),
+    )
+    act(() => result.current.handleContentChange(doc.id, "new body"))
+    let saving!: Promise<void>
+    act(() => {
+      saving = result.current.autosave.flush(result.current.autosaveKey(doc.id))
+    })
+    await vi.waitFor(() => expect(finishRead).toBeDefined())
+    const mutation = beginPropertyMutation(19, doc.id)
+    act(() => useDocStore.getState().patchDoc(doc.id, { noteProperties: next }))
+    await act(async () => {
+      finishRead()
+      await saving
+    })
+    mutation.finish()
+    expect(useDocStore.getState().openDocs[doc.id].noteProperties).toEqual(next)
+    expect(useDocStore.getState().openDocs[doc.id].content).toBe("new body")
+    result.current.autosave.cancelGeneration(19)
   })
 
   it("asks for a history snapshot on the save that follows a source rewrite, once", async () => {

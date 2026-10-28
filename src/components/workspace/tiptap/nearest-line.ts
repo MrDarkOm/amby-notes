@@ -47,6 +47,17 @@ function posInElementAtPoint(
 
     if (bestLineRect) {
       const lineCenterY = (bestLineRect.top + bestLineRect.bottom) / 2
+      // At the line's centre WebKit can hit-test X directly. Avoid measuring every
+      // character of a long wrapped paragraph on each mouse movement.
+      const elementRect = element.getBoundingClientRect()
+      const hit = view.posAtCoords({
+        left: Math.max(elementRect.left + 1, Math.min(elementRect.right - 1, x)),
+        top: lineCenterY,
+      })
+      if (hit && view.state.doc.resolve(hit.pos).parent.inlineContent) {
+        const dom = view.domAtPos(hit.pos).node
+        if (element.contains(dom)) return hit.pos
+      }
       const lineTol = Math.max((bestLineRect.bottom - bestLineRect.top) * 0.65, 6)
 
       let bestNode: Text | null = null
@@ -138,7 +149,9 @@ export function isClickInInterlineGap(
   const matchingLine = lineRects.find((r) => y >= r.top - 2 && y <= r.bottom + 2)
   if (matchingLine && x >= matchingLine.left + 12 && x <= matchingLine.right - 12) {
     try {
-      const caretCoords = view.coordsAtPos(view.state.selection.from)
+      const hit = view.posAtCoords({ left: x, top: y })
+      if (!hit) return true
+      const caretCoords = view.coordsAtPos(hit.pos)
       if (Math.abs(caretCoords.left - x) > 24) {
         return true
       }

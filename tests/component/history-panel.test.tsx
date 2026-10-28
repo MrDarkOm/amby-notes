@@ -96,6 +96,47 @@ describe("history interface", () => {
     expect(screen.queryByRole("button", { name: /Корзина/ })).toBeNull()
     expect(screen.getAllByRole("button", { name: /Посмотреть версию/ })).toHaveLength(1)
   })
+  it("browses another note's history without navigating the editor, including empty history", async () => {
+    const otherEntry = { ...entries[0], id: "other-snapshot" }
+    vi.mocked(storage.listSnapshots).mockImplementation(async (path) =>
+      path === "/vault/Other.md" ? [otherEntry] : path === "/vault/Empty.md" ? [] : entries,
+    )
+    vi.mocked(storage.readSnapshotText).mockImplementation(async (id) => ({
+      sourcePath: id === otherEntry.id ? "/vault/Other.md" : props.currentDocPath,
+      content: id === otherEntry.id ? "other version" : "before",
+    }))
+    render(
+      <HistoryPanel
+        {...props}
+        treeItems={[
+          { id: "other", name: "Other", path: "/vault/Other.md", type: "file" },
+          { id: "empty", name: "Empty", path: "/vault/Empty.md", type: "file" },
+        ]}
+      />,
+    )
+    fireEvent.click(await screen.findByRole("button", { name: "Открыть полную историю" }))
+    await screen.findByText("before")
+    fireEvent.click(screen.getByRole("button", { name: "Выберите заметку" }))
+    fireEvent.click(screen.getByRole("button", { name: "Other" }))
+    await screen.findByText("other version")
+    expect(screen.getByRole("heading", { name: "Other" })).toBeTruthy()
+    expect(storage.readFile).toHaveBeenCalledWith("/vault/Other.md")
+    expect(props.onSelect).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: "Выберите заметку" }))
+    fireEvent.click(screen.getByRole("button", { name: "Empty" }))
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Empty" })).toBeTruthy())
+    expect(screen.getByRole("dialog")).toBeTruthy()
+    expect(
+      screen.getByRole("button", { name: "Восстановить версию" }).hasAttribute("disabled"),
+    ).toBe(true)
+    expect(props.onSelect).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: "Выберите заметку" }))
+    fireEvent.click(screen.getByRole("button", { name: "Other" }))
+    await screen.findByText("other version")
+    fireEvent.click(screen.getByRole("button", { name: "Восстановить версию" }))
+    await waitFor(() => expect(storage.restoreSnapshot).toHaveBeenCalledWith("other-snapshot"))
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+  })
   it("discards an old note response after switching notes", async () => {
     const old = deferred<storage.SnapshotEntry[]>()
     vi.mocked(storage.listSnapshots)

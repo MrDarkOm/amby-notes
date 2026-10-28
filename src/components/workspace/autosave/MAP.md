@@ -15,6 +15,17 @@ Read [vault format](../../../../docs/vault-format.md) before changing persistenc
 | Queue and durable draft bridge           | [per-key-queue.ts](../../../lib/per-key-queue.ts), [recovery-drafts.ts](../../../lib/recovery-drafts.ts)                                                                     |
 | Filesystem save and recovery             | [storage map](../../../lib/storage/MAP.md), [Rust map](../../../../src-tauri/src/MAP.md)                                                                                     |
 
+Body saves and standalone property writes share [note-mutation-queue.ts](../note-mutation-queue.ts).
+Property edits increment a per-note revision before their optimistic update; older reads must
+not replace that state. Publishing metadata never replaces dirty body text or its external-edit revision.
+Pending property writes participate in the close/switch save barrier; new property
+intents are blocked while `useVaultStore.switching` changes the backend context.
+
+[use-vault-data.ts](../use-vault-data.ts) closes the active workspace with `loadVault(null)`:
+flush autosaves and persist its session before clearing buffers and returning to the start screen.
+Canceling a failed-save confirmation leaves the vault attached. Detached records stay in
+recent history (`VaultRecord.detached`); successful activation reconnects them.
+
 A failed save of an open note sets `saveFailed` in [note-notices](../note-notices/MAP.md) (cleared by the next successful save or a
 new load); the native error dialog stays only for a note that is no longer open. A recovery draft that differs from the disk is
 not asked about in a dialog: `resolveMarkdownRecoveryLoad` returns it as an `offer`, `use-document-loading.ts` registers it as a

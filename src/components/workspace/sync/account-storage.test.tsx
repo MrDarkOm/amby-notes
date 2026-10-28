@@ -13,6 +13,7 @@ import {
   ACCOUNT_STANDARD,
   ACCOUNT_UNLIMITED,
   CONNECTED,
+  VAULT_OFF,
   createFakePort,
   emitVaultStatus,
   vaultStatus,
@@ -318,5 +319,52 @@ describe("the texts of appendix Е exist in every language", () => {
         }
       }
     }
+  })
+})
+
+describe("account storage after a connection change", () => {
+  it("shows a newly created space immediately without reopening settings", async () => {
+    let created = false
+    const fresh = {
+      ...ACCOUNT_STANDARD,
+      spaces: [{ ...ACCOUNT_STANDARD.spaces[0], name: "New space", thisVault: true }],
+    }
+    const port = createFakePort({
+      status: async () => CONNECTED,
+      vaultStatus: async () => VAULT_OFF,
+      accountOverview: async () => (created ? fresh : { ...ACCOUNT_STANDARD, spaces: [] }),
+      enableVault: async () => {
+        created = true
+        return vaultStatus({ spaceName: "New space" })
+      },
+    })
+    render(<SyncSettings port={port} />)
+    await screen.findByTestId("account-storage")
+    fireEvent.change(await screen.findByLabelText("Название"), { target: { value: "New space" } })
+    fireEvent.click(screen.getByRole("button", { name: "Включить синхронизацию" }))
+    await waitFor(() => expect(screen.getByTestId("storage-name").textContent).toBe("New space"))
+    expect(port.accountOverview).toHaveBeenCalledTimes(2)
+  })
+
+  it("queues a connection refresh while an older account read is still pending", async () => {
+    let finish: (value: AccountOverview) => void = () => {}
+    const accountOverview = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<AccountOverview>((resolve) => {
+            finish = resolve
+          }),
+      )
+      .mockResolvedValue(ACCOUNT_STANDARD)
+    const port = createFakePort({ accountOverview })
+    const { rerender } = render(<AccountStorage port={port} revision={0} />)
+    await waitFor(() => expect(port.accountOverview).toHaveBeenCalledTimes(1))
+    rerender(<AccountStorage port={port} revision={1} />)
+    await act(async () => finish({ ...ACCOUNT_STANDARD, spaces: [] }))
+    await waitFor(() => expect(port.accountOverview).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect(screen.getAllByTestId("storage-row").length).toBe(ACCOUNT_STANDARD.spaces.length),
+    )
   })
 })

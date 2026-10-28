@@ -473,13 +473,42 @@ reported when manually enabling sync again. Automatic resumption validates the
 receipt and manifest without rehashing every backup file. This is a snapshot of
 files on disk, not an ongoing backup or protection against failure of that disk.
 
-The settings show its full path; `RESTORE.txt` in the copy has Russian and English
-instructions. To restore, turn sync off, close Amby and copy `vault/` into a new
-folder, never over a working vault. Before opening that new folder, rename its
-`.amby/sync` directory to `.amby/sync-before-restore` if present (choose another
-unused name if necessary). This preserves the old device state while preventing
-automatic resumption. Open the new folder, check its contents, and reconnect
-sync explicitly. Keep the original vault and the immutable copy until verified.
+Settings → General → Backups lists the open vault's completed, incomplete,
+missing and damaged copies. Metadata alone is never labeled verified: explicit
+verification hashes every copied file against the version-1 manifest and, for
+the recorded pre-sync copy, verifies the receipt's manifest digest. The same
+manager is available from the sync vault's backup disclosure. It does not read
+credentials and works without a sync account. Existing `RESTORE.txt` files remain
+unchanged as an emergency manual procedure.
+
+Restoring asks for a parent folder through the native picker. Backup IDs are
+resolved by Rust under the active vault's backup family (or its recorded receipt),
+not from renderer-supplied filesystem paths. Catalogs carry the backend vault
+generation; stale verification/restore requests are refused, including a vault
+switch while the folder picker is open. The destination must be outside the
+active vault and backup directory.
+
+Each restore exclusively reserves `<vault-name>-restored-<operation-id>/` with
+an `INCOMPLETE` marker and a version-1 `operation.json` journal. Its `vault/`
+subfolder receives the files byte for byte. Only `.amby/sync` is mapped to a new,
+unused `.amby/sync-before-restore-<ULID>` path **in the new copy**, preserving the
+old durable state and preventing automatic sync. No note IDs, unknown sidecars,
+BOMs or line endings are rewritten. The backup is verified before copying and
+again after it; the output is checked against the manifest with this sole path
+mapping. Directory and file durability precede the completed journal and removal
+of `INCOMPLETE`. A completed operation replays only if the output is unchanged;
+it never overwrites later edits. On failure the partial folder and journal remain,
+and a retry can create a new operation. The UI reports success only after the
+completion boundary and offers an explicit "Open in Amby" action using the normal
+save/close/profile-selection path. The source vault and immutable backup remain
+unchanged and can keep working while a separate copy is restored.
+
+Rollback is to keep using the original vault; no original data was replaced.
+After verifying the restored notes, the owner may remove an unwanted partial
+restore folder through the operating system. Amby does not silently delete it.
+Automatic schedules, retention pruning and discovery of moved external backups
+are outside this first recovery UI; the backup still does not protect against
+failure of its physical disk.
 
 Git is a useful optional third layer for Markdown-first vaults: initialise it
 only with the user's explicit choice, commit the user-visible note and asset

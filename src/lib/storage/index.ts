@@ -1,3 +1,4 @@
+import { createBackupPort } from "./backup-repository"
 import { DesktopAdapter } from "./desktop-adapter"
 import { WebAdapter } from "./web-adapter"
 import { NotesRepository } from "./notes-repository"
@@ -702,3 +703,11 @@ export const inspectAiCredential = (credentialId: string): Promise<CredentialInf
   settingsRepository.inspectAiCredential(credentialId)
 
 export { joinStoragePath } from "./storage-path"
+
+export {
+  BackupOperationError,
+  type BackupPort,
+  type BackupCatalog,
+  type BackupInfo,
+} from "./backup-repository"
+export const resolveBackupPort = () => createBackupPort(isTauri())

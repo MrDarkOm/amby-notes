@@ -1,4 +1,5 @@
 import { Extension } from "@tiptap/core"
+import { blockAnchorSuffix } from "./block-anchors"
 import {
   Plugin,
   PluginKey,
@@ -18,17 +19,11 @@ import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view"
  * text are left alone.
  */
 
-function isImageLine(node: {
-  type: { name: string }
-  childCount: number
-  forEach: (fn: (child: { type: { name: string } }) => void) => void
-}): boolean {
+function isImageLine(node: PMNode): boolean {
   if (node.type.name !== "paragraph" || node.childCount === 0) return false
-  let onlyImages = true
-  node.forEach((child) => {
-    if (child.type.name !== "image") onlyImages = false
-  })
-  return onlyImages
+  const anchor = blockAnchorSuffix(node)
+  const content = anchor ? node.content.cut(0, anchor.offset) : node.content
+  return content.childCount > 0 && content.content.every((child) => child.type.name === "image")
 }
 
 /** Whether a document position is inside a line that holds only images. */

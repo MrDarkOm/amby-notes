@@ -15,6 +15,7 @@ src-tauri/target/
 dist-ssr
 # Local release evidence and generated installers; never source data for Git.
 /.release-evidence/
+/test-results/
 *.local
 .env
 .env.*

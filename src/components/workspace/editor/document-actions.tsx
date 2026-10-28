@@ -340,7 +340,7 @@ export function FilePickerModal({
                 onChange={(event) => onQueryChange(event.target.value)}
                 onKeyDown={handlePickerKeyDown}
                 placeholder={t("docEditor.filePickerSearch")}
-                className="h-9 pl-8 text-xs"
+                className="amby-inset-icon-input h-9 pl-8 text-xs"
               />
             </div>
             <div className="max-h-72 space-y-1 overflow-y-auto">

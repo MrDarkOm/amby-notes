@@ -54,3 +54,7 @@ rollback and original-byte preservation where relevant. Run `npm run rust:test`;
 IPC changes regenerate [bindings.ts](../../src/lib/bindings.ts) through Specta.
 Backend-heavy changes also need `npm run rust:clippy`; see
 [the tests map](../../tests/MAP.md) for live native checks.
+
+System key store UI policy: [keychain_access.rs](keychain_access.rs) serializes macOS access, suppresses dialogs for background sync, and permits them only in synchronous explicit account actions. AI credential access shares the lock.
+
+Backup catalog and verified separate-folder restore: [sync/backup_restore.rs](sync/backup_restore.rs), called by [commands/backups.rs](commands/backups.rs). Restore journals, generation scoping and preserved sync state: [vault format](../../docs/vault-format.md#backup-and-git-policy).
