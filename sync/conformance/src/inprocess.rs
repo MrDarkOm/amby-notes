@@ -167,6 +167,14 @@ impl InProcess {
     /// server (С7). `instance_id` must change (П10).
     pub fn restart_fresh(&self) {
         self.stop();
+        // Release the old SQLite connection before deleting its files. Windows
+        // does not allow removing a database while our own state still holds it.
+        let placeholder_dir = tempfile::tempdir().expect("cannot create a temporary state");
+        let mut placeholder_config = self.config.clone();
+        placeholder_config.data_dir = placeholder_dir.path().to_path_buf();
+        let placeholder = AppState::open(placeholder_config, self.clock.clone());
+        let old_state = std::mem::replace(&mut *self.state.write().unwrap(), placeholder);
+        drop(old_state);
         for entry in std::fs::read_dir(&self.data_dir).expect("cannot read the data directory") {
             let path = entry.expect("bad directory entry").path();
             if path.is_dir() {

@@ -220,7 +220,10 @@ fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
             if !same {
                 // A file removed by the cleanup while we copy is not an error.
                 match fs::copy(entry.path(), &destination) {
-                    Ok(_) => fs::File::open(&destination)?.sync_all()?,
+                    Ok(_) => fs::OpenOptions::new()
+                        .write(true)
+                        .open(&destination)?
+                        .sync_all()?,
                     Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                     Err(error) => return Err(error),
                 }

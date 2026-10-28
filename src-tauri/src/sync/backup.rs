@@ -63,6 +63,11 @@ fn no_links(path: &Path) -> Result<(), SyncError> {
     let mut part = PathBuf::new();
     for component in path.components() {
         part.push(component);
+        // A Windows drive or verbatim prefix is not a path on its own. Inspect
+        // it only after the root separator has been appended.
+        if matches!(component, Component::Prefix(_)) {
+            continue;
+        }
         match fs::symlink_metadata(&part) {
             Ok(m) if m.file_type().is_symlink() => return Err(error("backup_unsafe_entry")),
             Ok(_) => {}
@@ -273,7 +278,13 @@ fn sqlite_copy(source: &Path, target: &Path) -> Result<(), SyncError> {
     if check != "ok" {
         return Err(error("backup_failed"));
     }
-    File::open(target)
+    drop(copy);
+    drop(db);
+    // Windows FlushFileBuffers requires a writable file handle. SQLite has
+    // finished and closed the snapshot before we open it for durability.
+    fs::OpenOptions::new()
+        .write(true)
+        .open(target)
         .and_then(|file| file.sync_all())
         .map_err(failed)?;
     Ok(())

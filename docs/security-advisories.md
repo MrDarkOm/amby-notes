@@ -101,3 +101,13 @@ off) moved the lockfile to `brace-expansion` 5.0.12, `dompurify` 3.4.16 and
 the full tree and for `--omit=dev`. This closes the "npm audit not run" item of
 handoff stage 2. The exceptions listed for Rust (`npm run audit:rust`) are
 unchanged and were not re-reviewed here.
+
+## Dependency remediation — 2026-10-28
+
+The beta release gate identified GHSA-cg2g-xh64-v4q7, GHSA-mrv2-3pqr-j5jr and
+GHSA-c6gr-qvv4-5v3f in DOMPurify, and GHSA-vfgh-jcmw-g37q and GHSA-gfr2-rv44-r23c
+in markdown-it. The lockfile selects DOMPurify 3.4.17 and markdown-it 14.3.3.
+Rust TLS verification uses rustls-webpki 0.103.16, webpki-root-certs and
+webpki-roots 1.0.11 (RUSTSEC-2026-0381 to 0383). Tokio 1.53.3 addresses the
+I/O safety warning RUSTSEC-2026-0386. Existing documented Rust exceptions are
+unchanged.
