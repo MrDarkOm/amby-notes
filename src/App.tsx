@@ -20,6 +20,7 @@ function PreferencesGate() {
   const preferencesReady = useApplyPreferences()
   const windowStateReady = useWindowStatePersistence(!isSettingsWindow)
   const autoUpdate = useSettingsStore((state) => state.prefs.updates.autoUpdate)
+  const updateChannel = useSettingsStore((state) => state.prefs.updates.channel)
   const startupUpdateRef = React.useRef<Promise<StartupUpdateResult> | null>(null)
   const [startupUpdateReady, setStartupUpdateReady] = React.useState(isSettingsWindow)
 
@@ -27,7 +28,9 @@ function PreferencesGate() {
     if (!preferencesReady || isSettingsWindow) return
     // Snapshot the hydrated preference once. Enabling automatic updates while
     // notes are open takes effect on the next launch, avoiding a surprise exit.
-    startupUpdateRef.current ??= autoUpdate ? runAutomaticAppUpdate() : Promise.resolve("ready")
+    startupUpdateRef.current ??= autoUpdate
+      ? runAutomaticAppUpdate(updateChannel)
+      : Promise.resolve("ready")
     let cancelled = false
     void startupUpdateRef.current.then((result) => {
       if (!cancelled && result === "ready") setStartupUpdateReady(true)
@@ -35,7 +38,7 @@ function PreferencesGate() {
     return () => {
       cancelled = true
     }
-  }, [autoUpdate, preferencesReady])
+  }, [autoUpdate, preferencesReady, updateChannel])
 
   if (!preferencesReady || !windowStateReady || !startupUpdateReady) {
     return (

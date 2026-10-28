@@ -554,6 +554,12 @@ const ru = {
     updates: {
       autoUpdate: "Автообновление",
       autoUpdateHint: "При запуске устанавливать новую версию и перезапускаться без уведомлений",
+      channel: "Канал обновлений",
+      channelStable: "Стабильный",
+      channelBeta: "Бета",
+      stableChannelHint: "Получать только финальные стабильные версии",
+      betaChannelHint:
+        "Получать бета-версии и последующие финальные версии. При возврате на стабильный канал откат не устанавливается: дождитесь подходящей финальной версии.",
       currentVersion: "Текущая версия",
       license: "Лицензия",
       licenseHint:
@@ -4154,6 +4160,12 @@ const en: typeof ru = {
     updates: {
       autoUpdate: "Automatic updates",
       autoUpdateHint: "Install a new version at startup and restart without notifications",
+      channel: "Update channel",
+      channelStable: "Stable",
+      channelBeta: "Beta",
+      stableChannelHint: "Receive final stable releases only",
+      betaChannelHint:
+        "Receive beta releases and later stable releases. Switching back to stable does not downgrade; wait for a suitable final release.",
       currentVersion: "Current version",
       license: "License",
       licenseHint: "Amby is free software under the GNU AGPL-3.0 and comes with no warranty",

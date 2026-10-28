@@ -355,6 +355,7 @@ export interface EditorPrefs {
 
 export type DeleteModePref = "system" | "vault" | "permanent"
 export const DELETE_MODES: DeleteModePref[] = ["system", "vault", "permanent"]
+export type UpdateChannelPref = "stable" | "beta"
 
 export interface FilePrefs {
   /** Where deleting a file sends it. `permanent` always asks for confirmation. */
@@ -367,8 +368,10 @@ export interface StartupPrefs {
 }
 
 export interface UpdatePrefs {
-  /** Check GitHub Releases at launch and offer to install a signed update. */
+  /** Check the selected release channel at launch and install a newer signed update. */
   autoUpdate: boolean
+  /** Release channel used for manual and automatic update checks. */
+  channel: UpdateChannelPref
 }
 
 export type LogLevelPref = DebugConfig["logLevel"]
@@ -442,7 +445,7 @@ export const DEFAULT_PREFS: AppPreferences = {
   },
   startup: { reopenLastVault: true, restoreSession: true },
   files: { deleteMode: "system" },
-  updates: { autoUpdate: true },
+  updates: { autoUpdate: true, channel: "stable" },
   debug: { ...DEFAULT_DEBUG_PREFS },
   docks: { leftPinned: true, rightPinned: true, rightEnabled: true },
   window: {
@@ -529,6 +532,7 @@ export function normalizeAppPreferences(
     },
     updates: {
       autoUpdate: typeof up.autoUpdate === "boolean" ? up.autoUpdate : true,
+      channel: oneOf<UpdateChannelPref>(up.channel, ["stable", "beta"], "stable"),
     },
     debug: {
       enabled: typeof dbg.enabled === "boolean" ? dbg.enabled : DEFAULT_DEBUG_PREFS.enabled,

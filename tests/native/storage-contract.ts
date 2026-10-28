@@ -4,6 +4,7 @@ import { storageContractCases } from "../../src/lib/storage/storage-contract"
 import { nativeDatabaseCases } from "./database-contract"
 import { nativeNoteCases } from "./note-contract"
 import { nativeBackupCases } from "./backup-contract"
+import { nativeUpdaterCases } from "./updater-contract"
 import { nativeDebugCases } from "./debug-contract"
 
 const root = (window as unknown as { __AMBY_NATIVE_TEST_ROOT__: string }).__AMBY_NATIVE_TEST_ROOT__
@@ -18,6 +19,7 @@ try {
     ...nativeNoteCases,
     ...nativeDebugCases,
     ...nativeBackupCases,
+    ...nativeUpdaterCases,
   ].entries()) {
     await adapter.loadVaultData(root)
     const vaultPath = await adapter.createFolder(root, `case-${index}`)

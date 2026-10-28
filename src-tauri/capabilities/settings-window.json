@@ -2,7 +2,9 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "settings-window",
   "description": "Restricted capability for the native settings window",
-  "windows": ["settings"],
+  "windows": [
+    "settings"
+  ],
   "permissions": [
     "core:event:default",
     "core:app:allow-version",
@@ -20,7 +22,8 @@
     "dialog:allow-message",
     "dialog:allow-open",
     "dialog:allow-save",
-    "updater:default",
+    "updater:allow-download-and-install",
+    "core:resources:allow-close",
     "process:allow-restart"
   ]
 }

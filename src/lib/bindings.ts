@@ -6,6 +6,28 @@
 
 
 export const commands = {
+/**
+ * Public identity of this build, including the beta number embedded at release build time.
+ */
+async appReleaseVersion() : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("app_release_version") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Check one fixed channel. Arbitrary URLs and downgrade flags are not accepted.
+ */
+async checkAppUpdate(channel: UpdateChannel, timeoutMs: number) : Promise<Result<AppUpdateInfo | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("check_app_update", { channel, timeoutMs }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async loadVault(vaultPath: string) : Promise<Result<LoadVaultResult, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("load_vault", { vaultPath }) };
@@ -1752,6 +1774,10 @@ export type AiMessage = {
  */
 role: string; content: string }
 /**
+ * Webview-owned Tauri updater resource; signed download details stay on the native side.
+ */
+export type AppUpdateInfo = { rid: number; currentVersion: string; version: string; body: string | null }
+/**
  * The answer to a stop of Р8 (Д60). Each lasts one pass.
  */
 export type ApprovalKind = 
@@ -2711,6 +2737,7 @@ maxBytes?: number | null;
  * For `tooLarge`: `plan` or `server`, where the limit comes from.
  */
 limitSource?: string | null }
+export type UpdateChannel = "stable" | "beta"
 /**
  * A change to the settings of a Text, Number, Date or Formula property. Only the
  * fields that apply to the property's type may be set.
