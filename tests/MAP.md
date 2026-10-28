@@ -59,3 +59,6 @@ Backup catalog and stale activation checks cross real IPC in
 [native/backup-contract.ts](native/backup-contract.ts). Restore byte preservation,
 exclusive destinations and interrupted operations are covered beside
 [backup_restore.rs](../src-tauri/src/sync/backup_restore.rs).
+
+[native/updater-contract.ts](native/updater-contract.ts) checks release identity
+and the updater capability boundary in the isolated native contract runner.

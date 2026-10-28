@@ -21,6 +21,7 @@ mod recycle_bin;
 mod state;
 pub mod sync;
 mod system_recycle_bin;
+mod updater;
 pub mod vault;
 mod vault_context;
 pub mod vault_index;
@@ -46,6 +47,8 @@ use watcher::WatcherState;
 /// types can't drift from the Rust signatures).
 fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
+        updater::app_release_version,
+        updater::check_app_update,
         commands::vault::load_vault,
         commands::vault::load_active_vault,
         commands::vault::reindex_vault,

@@ -51,6 +51,7 @@ jobs:
       - run: npm run version:check
         env:
           RELEASE_TAG: ${{ github.ref_name }}
+
       - name: Release notes exist (updates/upd_<version>.md)
         shell: bash
         run: |
@@ -165,6 +166,18 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
 
+      - name: Prepare release identity and installer version
+        id: release_config
+        shell: bash
+        env:
+          AMBY_RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          config_path="$(node scripts/update-channels.mjs config \
+            --tag "$AMBY_RELEASE_TAG" \
+            --output "$RUNNER_TEMP/tauri release ${GITHUB_RUN_ID}.json")"
+          echo "AMBY_RELEASE_TAG=$AMBY_RELEASE_TAG" >> "$GITHUB_ENV"
+          echo "path=$config_path" >> "$GITHUB_OUTPUT"
+
       # The text of the release and of the in-app update: the version's notes without their
       # title line (the title is the release name), then the shared installation footer.
       - name: Release notes
@@ -175,7 +188,7 @@ jobs:
           {
             echo "body<<AMBY_RELEASE_NOTES"
             if [[ "$GITHUB_REF_NAME" == *-beta.* ]]; then
-              echo "> **Пробная версия для обкатки.** Автообновление её не ставит: она скачивается вручную."
+              echo "> **Пробная версия для обкатки.**"
               echo
             fi
             tail -n +2 "updates/upd_${version%%-beta.*}.md"
@@ -195,21 +208,119 @@ jobs:
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-beta.') }}
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} --config "${{ steps.release_config.outputs.path }}"
+
+  validate-release-manifest:
+    name: Validate signed release manifest
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Download the completed draft manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-candidate"
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern latest.json \
+            --dir "$RUNNER_TEMP/release-candidate"
+      - name: Validate manifest before publishing the release
+        env:
+          AMBY_RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          node scripts/update-channels.mjs feeds \
+            --tag "$AMBY_RELEASE_TAG" \
+            --manifest "$RUNNER_TEMP/release-candidate/latest.json" \
+            --feed-dir "$RUNNER_TEMP/empty channel feeds"
 
   publish-release:
     name: Publish GitHub Release
-    needs: publish
+    needs: validate-release-manifest
     runs-on: ubuntu-latest
     steps:
       - name: Publish the complete multi-platform release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
-        # A pre-release never becomes "latest": the in-app updater reads only the latest release.
+        # Keep GitHub's stable latest release independent from the generated channel feeds.
         run: |
           if [[ "$RELEASE_TAG" == *-beta.* ]]; then
             gh release edit "$RELEASE_TAG" --draft=false --prerelease --repo "$GITHUB_REPOSITORY"
           else
             gh release edit "$RELEASE_TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"
           fi
+
+  publish-update-feeds:
+    name: Publish signed update channel feeds
+    needs: publish-release
+    runs-on: ubuntu-latest
+    concurrency:
+      group: amby-update-feed
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Download the completed release manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-candidate"
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern latest.json \
+            --dir "$RUNNER_TEMP/release-candidate"
+      - name: Update the orphaned feed branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          feed_dir="$RUNNER_TEMP/update-feed-worktree"
+          if git ls-remote --exit-code --heads origin update-feed >/dev/null; then
+            git fetch origin refs/heads/update-feed:refs/remotes/origin/update-feed
+            git worktree add --detach "$feed_dir" refs/remotes/origin/update-feed
+            git -C "$feed_dir" switch -c update-feed
+          else
+            ls_remote_status=$?
+            if [[ "$ls_remote_status" -ne 2 ]]; then
+              echo "Unable to check the update-feed branch (git ls-remote exited $ls_remote_status)." >&2
+              exit "$ls_remote_status"
+            fi
+            git worktree add --orphan -b update-feed "$feed_dir"
+          fi
+
+          node scripts/update-channels.mjs feeds \
+            --tag "$RELEASE_TAG" \
+            --manifest "$RUNNER_TEMP/release-candidate/latest.json" \
+            --feed-dir "$feed_dir"
+
+          git -C "$feed_dir" config user.name "github-actions[bot]"
+          git -C "$feed_dir" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for feed in stable.json beta.json; do
+            if [[ -f "$feed_dir/$feed" ]]; then
+              git -C "$feed_dir" add -- "$feed"
+            fi
+          done
+          if git -C "$feed_dir" diff --cached --quiet; then
+            echo "Update feed is already current."
+            exit 0
+          fi
+          git -C "$feed_dir" commit -m "Update release feed for $RELEASE_TAG"
+          git -C "$feed_dir" push origin HEAD:update-feed

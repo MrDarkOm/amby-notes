@@ -73,6 +73,7 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     expect(settings.panelScope).toBe("global")
     expect(settings.prefs.theme).toBe("dark")
     expect(settings.prefs.updates.autoUpdate).toBe(true)
+    expect(settings.prefs.updates.channel).toBe("stable")
     expect(settings.experimental.databasesV1).toBe(false)
 
     const workspaces = await loadWorkspaces()
@@ -183,6 +184,31 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     )
 
     expect((await loadSettings()).prefs.updates.autoUpdate).toBe(false)
+  })
+
+  it("defaults missing and invalid update channels to stable without changing auto-update", async () => {
+    store.set(
+      "amby:g:" + SETTINGS_FILE,
+      JSON.stringify({ prefs: { updates: { autoUpdate: false, channel: "nightly" } } }),
+    )
+
+    expect((await loadSettings()).prefs.updates).toEqual({
+      autoUpdate: false,
+      channel: "stable",
+    })
+    expect(normalizeAppPreferences({ updates: { autoUpdate: true } }).updates).toEqual({
+      autoUpdate: true,
+      channel: "stable",
+    })
+  })
+
+  it("preserves a valid beta update channel", () => {
+    expect(
+      normalizeAppPreferences({ updates: { autoUpdate: false, channel: "beta" } }).updates,
+    ).toEqual({
+      autoUpdate: false,
+      channel: "beta",
+    })
   })
 
   it("normalizes persisted window and panel dimensions", () => {

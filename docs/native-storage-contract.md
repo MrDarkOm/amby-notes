@@ -77,3 +77,8 @@ and Windows/Linux execution remain separate checks.
 through generated IPC, then rejects verification with a stale vault generation.
 It does not automate the OS folder picker; restore copy, byte preservation and
 interruption cases run in the Rust backup restore tests.
+
+The native updater scenario checks the compiled release identity against the app
+version and verifies that the generic plugin check (including a downgrade flag)
+is denied by real WebView capabilities. It makes no update request and performs
+no installation. This does not certify signed artifact replacement.
