@@ -1200,6 +1200,260 @@ async inspectAiCredential(credentialId: string) : Promise<Result<CredentialInfo,
     else return { status: "error", error: e  as any };
 }
 },
+async listVaultBackups(expectedVault: string) : Promise<Result<BackupCatalog, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_vault_backups", { expectedVault }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async verifyVaultBackup(expectedGeneration: number, backupId: string) : Promise<Result<BackupInfo, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("verify_vault_backup", { expectedGeneration, backupId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async restoreVaultBackup(expectedGeneration: number, backupId: string, operationId: string) : Promise<Result<RestoredBackup | null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_vault_backup", { expectedGeneration, backupId, operationId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Asks a server for `/v1/info` and checks the address (П9, П41).
+ */
+async syncCheckServer(url: string, allowHttp: boolean) : Promise<Result<ServerCheck, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_check_server", { url, allowHttp }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The verdict on a password while the person types it (Р5).
+ */
+async syncCheckPassword(password: string, username: string) : Promise<PasswordCheck> {
+    return await TAURI_INVOKE("sync_check_password", { password, username });
+},
+/**
+ * Makes the keys of a new account and returns the recovery code to show (Р5, О3).
+ */
+async syncPrepareAccount(url: string, allowHttp: boolean, username: string, enrollCode: string, password: string, deviceName: string) : Promise<Result<PreparedAccountView, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_prepare_account", { url, allowHttp, username, enrollCode, password, deviceName }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The person typed back the asked groups of the recovery code: sends the account (О3).
+ */
+async syncConfirmRecoveryCode(groups: string[]) : Promise<Result<SyncStatus, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_confirm_recovery_code", { groups }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Another invitation code for the prepared account (the keys and the recovery code stay).
+ */
+async syncSetEnrollCode(enrollCode: string) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_set_enroll_code", { enrollCode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Forgets the prepared account.
+ */
+async syncCancelPending() : Promise<void> {
+    await TAURI_INVOKE("sync_cancel_pending");
+},
+/**
+ * Signs in on this device with the password (Р5).
+ */
+async syncSignIn(url: string, allowHttp: boolean, username: string, password: string, deviceName: string) : Promise<Result<SyncStatus, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_sign_in", { url, allowHttp, username, password, deviceName }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Replaces a forgotten password with the recovery code and signs in (Р5, О3).
+ */
+async syncRecover(url: string, allowHttp: boolean, username: string, recoveryCode: string, newPassword: string, deviceName: string) : Promise<Result<SyncStatus, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_recover", { url, allowHttp, username, recoveryCode, newPassword, deviceName }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The state of the connection (no network).
+ */
+async syncStatus(interactive: boolean | null) : Promise<Result<SyncStatus, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_status", { interactive }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The devices of the account (П19).
+ */
+async syncListDevices() : Promise<Result<DeviceView[], SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_list_devices") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Disconnects a device (П19).
+ */
+async syncDisconnectDevice(deviceId: string) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_disconnect_device", { deviceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Signs this device out (Р5).
+ */
+async syncSignOut() : Promise<Result<SignOutResult, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_sign_out") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The state of the sync of the open vault; no network.
+ */
+async syncVaultStatus() : Promise<VaultSyncStatus> {
+    return await TAURI_INVOKE("sync_vault_status");
+},
+/**
+ * The spaces of the account, for "connect an existing vault" (Р5).
+ */
+async syncListSpaces() : Promise<Result<SpaceView[], SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_list_spaces") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The storages of the account with the plan, the limits and the sizes (appendix Е, У5).
+ * `known_vaults` are the folders of the vaults the application knows, to name the ones linked to
+ * a space.
+ */
+async syncAccountOverview(knownVaults: string[]) : Promise<Result<AccountOverview, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_account_overview", { knownVaults }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Switches sync on for the open vault after a complete external backup.
+ * `test_vault` is a legacy IPC compatibility argument; the current UI sends false.
+ */
+async syncEnableVault(target: SpaceTarget, testVault: boolean) : Promise<Result<VaultSyncStatus, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_enable_vault", { target, testVault }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Switches sync off for the open vault; the link with the space stays.
+ */
+async syncDisableVault() : Promise<Result<VaultSyncStatus, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_disable_vault") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * A pass now.
+ */
+async syncRunNow() : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_run_now") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The answer to a stop of Р8.
+ */
+async syncApprove(kind: ApprovalKind) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_approve", { kind }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Resolves a conflict of the list (Р7).
+ */
+async syncResolveConflict(id: string, choice: ConflictChoice) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_resolve_conflict", { id, choice }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The two versions of a conflict as text, for the comparison (stage Э4б).
+ */
+async syncReadConflictVersions(id: string) : Promise<Result<ConflictVersions, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_read_conflict_versions", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Resolves a conflict with a text put together by the comparison (stage Э4б).
+ */
+async syncResolveConflictWithText(id: string, text: string, stamp: string) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_resolve_conflict_with_text", { id, text, stamp }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async cancelAiRequest(streamId: string) : Promise<Result<boolean, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("cancel_ai_request", { streamId }) };
@@ -1437,6 +1691,31 @@ async flushDebugLogs() : Promise<Result<null, string>> {
 /** user-defined types **/
 
 /**
+ * The answer of `sync_account_overview` (У5).
+ */
+export type AccountOverview = { 
+/**
+ * The server told about the account (`false`: an older server; the interface then shows
+ * "no limits" and nothing about the plan, Р13).
+ */
+limitsKnown: boolean; 
+/**
+ * The plan, if the server has plans.
+ */
+plan: PlanView | null; 
+/**
+ * The limits in force.
+ */
+limits: LimitsView; 
+/**
+ * What is held.
+ */
+usage: UsageView; 
+/**
+ * The storages of the account, in the order of the server.
+ */
+spaces: StorageView[] }
+/**
  * Links a section to stories (a world section) or a story to universes (the stories section).
  * Which one is decided by the section's role.
  */
@@ -1472,6 +1751,25 @@ export type AiMessage = {
  * "user" | "assistant"
  */
 role: string; content: string }
+/**
+ * The answer to a stop of Р8 (Д60). Each lasts one pass.
+ */
+export type ApprovalKind = 
+/**
+ * Go on despite a mass change.
+ */
+"massChange" | 
+/**
+ * The folder of the vault really is empty.
+ */
+"emptyVault" | 
+/**
+ * Forget the link with the server and reconcile this vault with it again by content.
+ */
+"resync"
+export type BackupCatalog = { vault: string; generation: number; backups: BackupInfo[] }
+export type BackupCondition = "unchecked" | "verified" | "damaged" | "incomplete" | "missing"
+export type BackupInfo = { id: string; createdMs: number; bytes: number; files: number; status: BackupCondition }
 export type ChangeDatabasePropertyTypeRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; propertyType: string; relationTargetDatabaseId?: string | null; relationMaxItems?: number | null; relationTwoWay?: boolean | null; relationInversePropertyName?: string | null; operationId?: string | null; expectedRelatedManifestRevisions?: DatabaseManifestRevision[] }
 export type ChangedDatabasePropertyType = { databaseId: string; propertyId: string; propertyType: string; manifestRevision: string; operationId: string | null; inversePropertyId: string | null; manifestRevisions: DatabaseManifestRevision[]; warnings: string[] }
 /**
@@ -1498,6 +1796,95 @@ changed: boolean;
 skipped: string[]; workshopRevision: string; warnings: string[] }
 export type ConfigureDatabaseRollupRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; relationPropertyId: string; targetPropertyId: string; aggregation: string }
 export type ConfiguredDatabaseRollup = { databaseId: string; propertyId: string; aggregation: string; manifestRevision: string; warnings: string[] }
+/**
+ * How a conflict is resolved (Р7).
+ */
+export type ConflictChoice = 
+/**
+ * Keep the file under its name, the copy goes to the trash of the vault.
+ */
+"keepOriginal" | 
+/**
+ * The content of the copy replaces the file (the replaced version stays in the history).
+ */
+"keepCopy" | 
+/**
+ * Both stay as files; the entry leaves the list.
+ */
+"keepBoth"
+/**
+ * Where a conflict is kept (Г29).
+ */
+export type ConflictSource = 
+/**
+ * A set in `.amby/conflicts/<id>/` (Г21).
+ */
+"bundle" | 
+/**
+ * A copy `Name.<id>-conflict.ext` beside the file, made before stage Э4б.
+ */
+"legacyCopy"
+/**
+ * The two versions of a conflict as text, for the comparison (stage Э4б). A side is `None` when it
+ * cannot be shown as text: bytes that are not UTF-8, a file that is gone, or one too large to
+ * compare in the window. The text is the whole file as it is on disk (BOM, line endings, properties).
+ */
+export type ConflictVersions = { 
+/**
+ * The file under its name.
+ */
+original: string | null; 
+/**
+ * The second version.
+ */
+copy: string | null; 
+/**
+ * A fingerprint of both files as they were read; `resolve_conflict_with_text` refuses a text
+ * built from versions that have changed since (`conflict_changed`).
+ */
+stamp: string }
+/**
+ * An unresolved conflict (Р7).
+ */
+export type ConflictView = { 
+/**
+ * The id inside the name of the copy; used to resolve it.
+ */
+id: string; 
+/**
+ * `bothEdited` or `bothCreated`.
+ */
+kind: string; 
+/**
+ * The file that kept the name.
+ */
+originalPath: string; 
+/**
+ * The copy with the other version.
+ */
+copyPath: string; 
+/**
+ * When the copy was made, Unix milliseconds.
+ */
+createdMs: number; 
+/**
+ * Where the second version is kept: a set in `.amby/conflicts/` or an old copy beside the
+ * file (Г32). The fields below were added in stage Э4б; they are optional on the interface
+ * side so that it can read a status without them.
+ */
+source?: ConflictSource | null; 
+/**
+ * Both versions can be compared line by line (Г28).
+ */
+text?: boolean | null; 
+/**
+ * The set has a common base (Г21).
+ */
+hasBase?: boolean | null; 
+/**
+ * This computer made the conflict (Г25, Г34).
+ */
+createdHere?: boolean | null }
 export type CreateDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string; propertyType: string; beforePropertyId: string | null; options?: string[]; formulaExpression?: string | null; relationTargetDatabaseId?: string | null; relationMaxItems?: number | null; relationTwoWay?: boolean | null; relationInversePropertyName?: string | null; operationId?: string | null; expectedTargetManifestRevision?: string | null; rollupRelationPropertyId?: string | null; rollupTargetPropertyId?: string | null; rollupAggregation?: string | null }
 export type CreateDatabaseRequest = { expectedGeneration: number; mode: DatabaseCreateMode; parentPath: string | null; notePath: string | null; name: string }
 export type CreateDatabaseRowRequest = { expectedGeneration: number; databaseId: string; title: string; template: DatabaseRowTemplate }
@@ -1612,6 +1999,30 @@ export type DeleteDatabaseViewRequest = { expectedGeneration: number; databaseId
  */
 export type DeleteMode = "system" | "vault" | "permanent"
 export type DeletedDatabaseProperty = { databaseId: string; propertyId: string; manifestRevision: string; warnings: string[] }
+/**
+ * A device in the list (П19, Ф34).
+ */
+export type DeviceView = { 
+/**
+ * The identifier on the server.
+ */
+deviceId: string; 
+/**
+ * The name, or `None` when it cannot be read.
+ */
+name: string | null; 
+/**
+ * Created, Unix milliseconds.
+ */
+createdMs: number; 
+/**
+ * Last seen by the server, Unix milliseconds.
+ */
+lastSeenMs: number; 
+/**
+ * This device.
+ */
+current: boolean }
 export type DuplicateDatabaseRowRequest = { expectedGeneration: number; databaseId: string; noteId: string; 
 /**
  * Title of the copy; the caller localizes the "copy" wording.
@@ -1681,6 +2092,30 @@ export type InitWorkshopRequest = { expectedGeneration: number; operationId: str
 export type InstalledModuleInfo = { moduleId: string; activeVersion: string; installedVersions: string[]; installPath: string; entryPath: string; sizeBytes: number }
 export type JsonValue = null | boolean | number | string | JsonValue[] | Partial<{ [key in string]: JsonValue }>
 export type LayerResult = { notePath: string; layerPath: string; kind: string; pathChanges: PathChange[] }
+/**
+ * The limits in force; `None` is "no limit".
+ */
+export type LimitsView = { 
+/**
+ * The most spaces.
+ */
+maxSpaces: number | null; 
+/**
+ * The quota of sealed bytes in all spaces.
+ */
+maxTotalBytes: number | null; 
+/**
+ * The largest file after sealing.
+ */
+maxFileBytes: number | null; 
+/**
+ * Days that replaced and deleted versions are kept.
+ */
+historyDays: number | null; 
+/**
+ * The ceiling of the history in bytes ("history 30 days, up to 1 GB").
+ */
+maxHistoryBytes: number | null }
 export type LinkGraph = { nodes: LinkGraphNode[]; edges: LinkGraphEdge[] }
 export type LinkGraphEdge = { source: string; target: string; label: string; unresolved?: boolean | null }
 export type LinkGraphNode = { id: string; label: string; unresolved?: boolean | null }
@@ -1760,7 +2195,88 @@ notebooks: Notebook[];
 truncated: boolean }
 export type OperationWarning = "indexRebuildRequired"
 export type PageInfo = { title: string; description: string | null }
+/**
+ * What the last pass did.
+ */
+export type PassSummary = { 
+/**
+ * Files written from the server.
+ */
+downloaded: number; 
+/**
+ * Bodies uploaded.
+ */
+uploaded: number; 
+/**
+ * Files renamed on disk.
+ */
+renamed: number; 
+/**
+ * Files moved to the trash of the vault.
+ */
+trashed: number }
+/**
+ * The verdict on a password (Р5: 12 characters and a sufficient `zxcvbn` score).
+ */
+export type PasswordCheck = { 
+/**
+ * The password is accepted.
+ */
+ok: boolean; 
+/**
+ * The `zxcvbn` score, 0 (worst) to 4.
+ */
+score: number; 
+/**
+ * The length in characters.
+ */
+length: number; 
+/**
+ * The least length accepted (12).
+ */
+minLength: number; 
+/**
+ * The password is shorter than the least length.
+ */
+tooShort: boolean; 
+/**
+ * A machine name of the main weakness found (`zxcvbn` warning), if any.
+ */
+warning: string | null; 
+/**
+ * Machine names of the advice of `zxcvbn`.
+ */
+suggestions: string[] }
 export type PathChange = { oldPath: string; newPath: string }
+/**
+ * The plan of the user. `None` in [`AccountOverview::plan`] means "no plan" (an own server
+ * without plans, or a server that does not know the account request).
+ */
+export type PlanView = { 
+/**
+ * The key of the plan.
+ */
+name: string; 
+/**
+ * The label for people, if the plan has one.
+ */
+title: string | null; 
+/**
+ * The administrator pinned the user to this plan.
+ */
+pinned: boolean }
+/**
+ * One file of a stop for a mass change (Р8, Д54).
+ */
+export type PlannedView = { 
+/**
+ * The path in the vault.
+ */
+path: string; 
+/**
+ * `overwrite`, `trash` or `sendDelete`.
+ */
+action: string }
 /**
  * Which database `ensure_plot_links` makes ready.
  */
@@ -1773,6 +2289,18 @@ export type PlotLinksTarget =
  * The anchors database: it gets the "Arcs" and "Universe" relations.
  */
 "anchors"
+/**
+ * The recovery code of a prepared account and the groups the person has to type back.
+ */
+export type PreparedAccountView = { 
+/**
+ * The code as printed: 14 groups of four symbols joined by `-` (Ф30). Shown once.
+ */
+recoveryCode: string; 
+/**
+ * Two different positions, from 1 to 14, in ascending order.
+ */
+confirmGroups: number[] }
 export type ProjectCatalog = { vaultGeneration: number; 
 /**
  * Changes whenever the index is rebuilt.
@@ -1859,6 +2387,7 @@ export type ResolvedRecordReferences = {
  */
 references: RecordReference[] }
 export type RestoreDeletedNoteRequest = { expectedGeneration: number; noteId: string; path: string; content: string; sourceTemplate: string; originWindow: string }
+export type RestoredBackup = { path: string }
 export type RollbackModuleResult = { success: boolean; moduleId: string; rolledBackToVersion: string; previousVersion: string; activeInstallPath: string }
 export type SearchRelationCandidatesRequest = { expectedGeneration: number; 
 /**
@@ -1882,11 +2411,216 @@ export type SectionState =
  * No database has this ID. The entry is kept and shown as missing.
  */
 "missing"
+/**
+ * The answer of "check the server" (`/v1/info`, П9).
+ */
+export type ServerCheck = { 
+/**
+ * The normalised address.
+ */
+url: string; 
+/**
+ * The host for display.
+ */
+host: string; 
+/**
+ * The version of the server program.
+ */
+serverVersion: string; 
+/**
+ * `instance_id` (П10).
+ */
+instanceId: string }
+/**
+ * The result of signing out.
+ */
+export type SignOutResult = { 
+/**
+ * The server was told to disconnect this device. `false` when it could not be reached: the
+ * device is signed out here anyway and can be disconnected from another device.
+ */
+serverNotified: boolean }
 export type SnapshotEntry = { id: string; createdAtMs: number; reason: string; sizeBytes: number }
 export type SnapshotText = { sourcePath: string; content: string }
+/**
+ * Which space this vault is linked to.
+ */
+export type SpaceTarget = 
+/**
+ * Make a new space with this name.
+ */
+{ kind: "new"; name: string } | 
+/**
+ * Use a space that exists on the server.
+ */
+{ kind: "existing"; spaceId: string }
+/**
+ * A space of the account, for "connect an existing vault".
+ */
+export type SpaceView = { 
+/**
+ * The identifier (hex, 32 characters).
+ */
+spaceId: string; 
+/**
+ * The name; `None` when it cannot be read with this account key.
+ */
+name: string | null; 
+/**
+ * The number of the last commit.
+ */
+seq: number; 
+/**
+ * Created, Unix milliseconds.
+ */
+createdMs: number }
 export type StagedPackageInfo = { stagingId: string; manifest: ModuleManifest; stagingPath: string }
+/**
+ * Why synchronisation stopped and waits for the person (Р8, Д60).
+ */
+export type StopView = 
+/**
+ * Too many files would be overwritten, deleted or sent as deleted.
+ */
+{ kind: "massChange"; direction: string; total: number; files: PlannedView[] } | 
+/**
+ * The folder of the vault is gone (an unplugged disk?).
+ */
+{ kind: "vaultMissing" } | 
+/**
+ * The folder of the vault is empty but sync remembers files.
+ */
+{ kind: "vaultEmpty" } | 
+/**
+ * The server was reset: it has another identity.
+ */
+{ kind: "serverReset" } | 
+/**
+ * The server has fewer changes than this computer already saw.
+ */
+{ kind: "serverBehind" } | 
+/**
+ * The server showed an older version of a file.
+ */
+{ kind: "rollback" } | 
+/**
+ * The server no longer accepts this computer (sign in again).
+ */
+{ kind: "authRequired" } | 
+/**
+ * The server speaks another protocol.
+ */
+{ kind: "incompatibleServer" }
+/**
+ * One storage (space) of the account.
+ */
+export type StorageView = { 
+/**
+ * The identifier (hex, 32 characters).
+ */
+spaceId: string; 
+/**
+ * The name; `None` when it cannot be read with this account key.
+ */
+name: string | null; 
+/**
+ * The latest versions, in sealed bytes.
+ */
+liveBytes: number; 
+/**
+ * The history, in sealed bytes.
+ */
+historyBytes: number; 
+/**
+ * The space of the vault that is open now.
+ */
+thisVault: boolean; 
+/**
+ * The name of the folder of a vault of this computer that is linked to this space (never the
+ * path); `None` when no known vault is.
+ */
+boundFolder: string | null }
 export type StorySummary = { storyId: string; workshopId: string; name: string; folderPath: string; cardPath: string; cardNoteId: string | null; databaseId: string | null; fileRevision: string; formatVersion: number; textJson: string | null; text: ProjectTextSummary | null }
+/**
+ * A failed sync command: a stable machine code (the codes of table Б.0.1, the codes of
+ * [`ClientError::code`], and the codes of the application below) and, for a rate limit, the
+ * seconds to wait.
+ * 
+ * Codes of the application: `weak_password`, `password_too_short`, `no_pending_account`,
+ * `recovery_confirmation_mismatch`, `invalid_recovery_code`, `not_connected`,
+ * `already_connected`, `keychain_unavailable`, `storage_error`.
+ */
+export type SyncError = { 
+/**
+ * The machine code.
+ */
+code: string; 
+/**
+ * Seconds to wait before the next try (`rate_limited`).
+ */
+retryAfterSecs: number | null }
+/**
+ * What the sync of the open vault is doing.
+ */
+export type SyncPhase = 
+/**
+ * This vault is not synchronised (never enabled, or switched off).
+ */
+"off" | 
+/**
+ * Enabled, nothing to do right now; waits for a change on disk or on the server.
+ */
+"idle" | 
+/**
+ * A pass is running.
+ */
+"running" | 
+/**
+ * A pass failed (no network, the server is busy): it will be repeated after a pause (Д19).
+ */
+"waiting" | 
+/**
+ * A stop of Р8 or a failure that needs the person: nothing happens until they answer.
+ */
+"stopped"
 export type SyncReport = { inserted: number; updated: number; deleted: number; warnings: string[]; pathToId: Partial<{ [key in string]: string }> }
+/**
+ * The state of the connection as the interface needs it. No secrets.
+ */
+export type SyncStatus = { 
+/**
+ * This device is signed in: the record exists and the key store holds AK and the token.
+ */
+connected: boolean; 
+/**
+ * A record exists but the key store lost AK or the token (cleared keychain): the person
+ * has to sign in again.
+ */
+keysMissing: boolean; 
+/**
+ * An account was prepared and waits for the confirmation of the recovery code.
+ */
+pending: boolean; 
+/**
+ * The address of the server, normalised.
+ */
+serverUrl: string | null; 
+/**
+ * The host for "connected to …".
+ */
+host: string | null; 
+/**
+ * The user name on the server.
+ */
+username: string | null; 
+/**
+ * The identifier of this device on the server.
+ */
+deviceId: string | null; 
+/**
+ * Whether the server was added with the "local network" switch.
+ */
+allowHttp: boolean }
 export type TagEntry = { tag: string; notes: IndexedNote[] }
 /**
  * How an entry of the `text` block relates to the text database.
@@ -1951,6 +2685,33 @@ group: string }
 export type TrashEntry = { id: string; originalPath: string; deletedAtMs: number; name: string }
 export type TreeItem = { id: string; path: string; name: string; type: string; icon: string; created?: number | null; modified?: number | null; children?: TreeItem[] | null }
 /**
+ * A file that is not synchronised on this computer (Р4, Р9).
+ */
+export type UnsyncedView = { 
+/**
+ * The path.
+ */
+path: string; 
+/**
+ * `symlink`, `notUtf8`, `tooLarge`, `tooBigForMemory`, `excludedPath`, `invalidName`,
+ * `caseCollision`, `nameCollision`, `pathBusy`, `noAccess` or `quotaFull`.
+ */
+reason: string; 
+/**
+ * More about the reason: for `invalidName` the problem (`forbiddenChar`, `trailingDot`,
+ * `reservedName`, `segmentTooLong`, `pathTooLong`), for `caseCollision` the other path.
+ */
+detail: string | null; 
+/**
+ * For `tooLarge` (appendix Е, Д74): the largest sealed body in force, in bytes. Optional on
+ * the interface side so that it can read a status without it.
+ */
+maxBytes?: number | null; 
+/**
+ * For `tooLarge`: `plan` or `server`, where the limit comes from.
+ */
+limitSource?: string | null }
+/**
  * A change to the settings of a Text, Number, Date or Formula property. Only the
  * fields that apply to the property's type may be set.
  */
@@ -2005,7 +2766,109 @@ export type UpdatedDatabasePropertyOptions = { databaseId: string; propertyId: s
 options: DatabaseOptionResult[]; warnings: string[] }
 export type UpdatedTextLevels = { operationId: string; storyId: string; storyRevision: string; manifestRevision: string; levelIds: string[]; replayed: boolean; warnings: string[] }
 export type UpdatedWorkshop = { operationId: string; workshopId: string; name: string; icon: string | null; tags: string[]; workshopRevision: string; replayed: boolean; warnings: string[] }
+/**
+ * What the account holds, in sealed bytes.
+ */
+export type UsageView = { 
+/**
+ * The latest versions of the files.
+ */
+liveBytes: number; 
+/**
+ * Started uploads no version refers to yet.
+ */
+pendingBytes: number; 
+/**
+ * Replaced and deleted versions; not in the quota.
+ */
+historyBytes: number; 
+/**
+ * How many spaces.
+ */
+spaces: number }
 export type VaultPreflight = { notes: number; attachments: number; malformedFrontmatter: string[]; userManagedIds: string[]; duplicateIds: string[]; plannedIdWrites: string[]; unfinishedMigrations: IdMigrationRecovery[] }
+/**
+ * The state of the sync of the open vault. No secrets.
+ */
+export type VaultSyncStatus = { 
+/**
+ * The vault is linked to a space and switched on.
+ */
+enabled: boolean; 
+/**
+ * The vault is linked to a space (switched on or off).
+ */
+linked: boolean; 
+/**
+ * The link belongs to the connection of this device (the same server and account), so
+ * switching on again resumes the very same space. A link that is not resumable is stale: the
+ * screen offers the choice of a space as the first time.
+ */
+resumable: boolean; 
+/**
+ * Legacy stored value retained for IPC compatibility; never displayed by the UI.
+ */
+testVault: boolean; 
+/**
+ * Legacy gate state; false after the confirmed runs of stage Э4.
+ */
+gateClosed: boolean; 
+/**
+ * Complete external pre-sync copy, containing `vault/`, a manifest and restore instructions.
+ */
+backupPath?: string | null; 
+/**
+ * The space on the server (hex), if linked.
+ */
+spaceId: string | null; 
+/**
+ * Its name, if it could be read.
+ */
+spaceName: string | null; 
+/**
+ * What it is doing.
+ */
+phase: SyncPhase; 
+/**
+ * When the last pass ended well, Unix milliseconds.
+ */
+lastSyncMs: number | null; 
+/**
+ * Seconds until the next try after a failure.
+ */
+nextTrySecs: number | null; 
+/**
+ * The machine code of the last failure (`network`, `timeout`, `server_unavailable`, …).
+ */
+errorCode: string | null; 
+/**
+ * The stop that waits for an answer.
+ */
+stop: StopView | null; 
+/**
+ * Outgoing changes wait for an unfinished operation to end (Р8).
+ */
+outgoingPaused: boolean; 
+/**
+ * Some file needs a newer Amby (С13).
+ */
+needsUpdate: boolean; 
+/**
+ * Open conflicts.
+ */
+conflicts: ConflictView[]; 
+/**
+ * Files that are not synchronised here.
+ */
+unsynced: UnsyncedView[]; 
+/**
+ * Files that failed in the last pass and will be tried again.
+ */
+itemErrors: number; 
+/**
+ * What the last pass did.
+ */
+last: PassSummary | null }
 export type WorkshopSectionSummary = { id: string; role: string; name: string; databaseId: string; 
 /**
  * The relative path recorded in the structure file (a hint).

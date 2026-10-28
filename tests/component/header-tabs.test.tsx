@@ -107,7 +107,7 @@ describe("HeaderTabs tab layout and close button visibility", () => {
 
     const activeTab = screen.getByTitle("Short")
     const inactiveTab = screen.getByTitle("A very long note title that spans many words")
-    expect(activeTab.className).toContain("h-9")
+    expect(activeTab.className).toContain("h-10")
     expect(inactiveTab.className).toContain("h-8")
   })
 

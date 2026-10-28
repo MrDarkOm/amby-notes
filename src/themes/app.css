@@ -246,6 +246,7 @@
     --app-font-scale: 1;
     --editor-font-size: 1.02rem;
     /* Interface spacing scale; compact density sets this to 0.5 below. */
+    --amby-dock-width: 48px;
     --app-density-spacing-scale: 1;
     --app-density-padding-min: 0.25rem;
     --app-density-gap-min: 0.25rem;
@@ -3582,10 +3583,85 @@ em-emoji-picker {
   font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
 }
 
+/* Property numbers use a quiet text field rather than native browser steppers. */
+.amby-property-number {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.amby-property-number::-webkit-inner-spin-button,
+.amby-property-number::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Block-link IDs are retained in the document and shown only in Source mode. */
+.amby-block-anchor-marker {
+  display: none;
+}
+
 /* ── Activity bar buttons (left/right vertical rails) ────────────────────── */
+
+/* Allow the tab's small bridge to cross the header edge while keeping long tab rows clipped. */
+[data-pane-tab-bar],
+[data-pane-tab-bar] > div:first-child {
+  overflow: visible;
+  clip-path: inset(0 0 -2px 0);
+}
+
+[data-pane-tab-bar] {
+  z-index: 2;
+}
+
+/* At a pane's left edge the selected first tab and the surface share one border. */
+body:has(header [data-pane-edge-aligned] > div:first-child > [data-active-tab]:first-child)
+  .amby-workspace-frame:not([data-split])
+  .amby-workspace-surface,
+[data-pane-id]:has(> [data-pane-edge-aligned] > div:first-child > [data-active-tab]:first-child)
+  .amby-workspace-surface {
+  border-top-left-radius: 0;
+}
+
+/* The selected tab grows into the document below, with shallow concave feet. */
+[data-active-tab] > .amby-active-tab-surface {
+  bottom: -2px;
+}
+
+.amby-active-tab-surface {
+  border-bottom: 0;
+  border-radius: 0.625rem 0.625rem 0 0;
+  background: var(--note-surface);
+}
+
+.amby-active-tab-surface::before,
+.amby-active-tab-surface::after {
+  position: absolute;
+  bottom: 0;
+  width: 0.5rem;
+  height: 0.5rem;
+  content: "";
+  pointer-events: none;
+}
+
+.amby-active-tab-surface::before {
+  left: -0.5rem;
+  background: radial-gradient(circle at top left, transparent 0.45rem, var(--note-surface) 0.5rem);
+}
+
+[data-tab-item-key]:first-child .amby-active-tab-surface::before {
+  display: none;
+}
+
+.amby-active-tab-surface::after {
+  right: -0.5rem;
+  background: radial-gradient(circle at top right, transparent 0.45rem, var(--note-surface) 0.5rem);
+}
 
 .amby-activity-button[data-dragging="true"] {
   opacity: 0.4;
+}
+
+.amby-activity-button:hover:not([data-active="true"]) {
+  background: color-mix(in srgb, hsl(var(--muted)) 92%, #000);
 }
 
 .amby-activity-button[data-active="true"] {
@@ -3598,11 +3674,15 @@ em-emoji-picker {
 
 .amby-activity-button[data-active="true"]:hover {
   color: color-mix(in srgb, hsl(var(--muted-foreground)) 88%, #000);
-  background: color-mix(in srgb, hsl(var(--muted)) 84%, #000);
+  background: color-mix(in srgb, hsl(var(--muted)) 96%, #fff);
 }
 
 /* In dark themes the rail sits on a lighter workspace. Make the selected
    button read as a pressed surface instead of letting it blend into the rail. */
+html.dark .amby-activity-button:hover:not([data-active="true"]) {
+  background: color-mix(in srgb, var(--note-surface) 80%, #000);
+}
+
 html.dark .amby-activity-button[data-active="true"] {
   color: color-mix(in srgb, hsl(var(--foreground)) 58%, hsl(var(--muted-foreground)));
   background: color-mix(in srgb, var(--note-surface) 80%, #000);
@@ -3614,7 +3694,7 @@ html.dark .amby-activity-button[data-active="true"] {
 
 html.dark .amby-activity-button[data-active="true"]:hover {
   color: color-mix(in srgb, hsl(var(--foreground)) 64%, hsl(var(--muted-foreground)));
-  background: color-mix(in srgb, var(--note-surface) 70%, #000);
+  background: color-mix(in srgb, var(--note-surface) 94%, #fff);
 }
 
 .amby-activity-button[data-drop-target="true"] {
@@ -4137,7 +4217,67 @@ html[data-font-scale] :where([class~="text-[13px]"]) {
 }
 
 html[data-density="compact"] {
+  --amby-dock-width: 32px;
   --app-density-spacing-scale: 0.5;
+}
+
+/* The outside is one rounded surface; the panels meet at straight dividers. */
+html[data-density="compact"] .amby-workspace-frame {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--panel-border);
+  border-radius: 0.9rem;
+  box-shadow: var(--panel-shadow);
+}
+
+/* Split pane tabs extend into the title bar and must remain visible. */
+html[data-density="compact"] .amby-workspace-frame[data-split] {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* Flush surfaces form one workspace; side panels own the vertical dividers. */
+html[data-density="compact"] .amby-panel-shell {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border-radius: 0;
+}
+
+html[data-density="compact"] .amby-panel-host,
+html[data-density="compact"] .amby-workspace-surface {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none !important;
+}
+
+html[data-density="compact"] .amby-panel-shell[data-panel-side="left"] > .amby-panel-host {
+  border-right: 1px solid var(--panel-border);
+}
+
+html[data-density="compact"] .amby-panel-shell[data-panel-side="right"] > .amby-panel-host {
+  border-left: 1px solid var(--panel-border);
+}
+
+html[data-density="compact"] .amby-workspace-stage {
+  padding-right: 0;
+}
+
+html[data-density="compact"] [data-pane-id] {
+  padding-inline: 0;
+}
+
+html[data-density="compact"] [data-activity-bar] > [data-activity-zone] {
+  gap: 2px;
+  padding-block: 4px;
+}
+
+/* An inset icon still needs room when generic input padding is reduced. */
+html[data-density="compact"] .amby-inset-icon-input {
+  padding-left: 2rem !important;
 }
 
 /* Inline indentation values are calculated from hierarchy depth in React and
@@ -4154,8 +4294,9 @@ html[data-density="compact"] .amby-tree-row.amby-density-inline-padding-left {
   padding-left: var(--amby-density-padding-left) !important;
 }
 
-html[data-density="compact"] [data-slot="tabs-trigger"] {
-  min-height: 2rem;
+html[data-density="compact"] [data-slot="tabs-list"] > [data-slot="tabs-trigger"] {
+  min-height: 0;
+  max-height: 100%;
 }
 
 html[data-density="compact"] .amby-activity-button {
@@ -4163,12 +4304,11 @@ html[data-density="compact"] .amby-activity-button {
   height: 2rem;
 }
 
-html[data-density="compact"] [role="treeitem"] {
-  line-height: 1.15;
-}
-
 html[data-density="compact"] .amby-tree-row {
-  padding-block: 0.125rem;
+  min-height: 1.75rem;
+  gap: 0.375rem;
+  padding-block: 0.25rem;
+  padding-right: 23px;
 }
 
 html[data-density="compact"] .amby-panel-host input,
@@ -5354,4 +5494,627 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
 .amby-resize-handle:active .amby-resize-handle-line,
 .amby-resize-handle[data-resizing="true"] .amby-resize-handle-line {
   background: hsl(var(--foreground) / 0.35);
+}
+
+/* Sync: the sheet with the recovery code. Hidden on screen. While the page is printed the
+   recovery step puts `sync-printing` on <html>, and then only this sheet is shown. */
+/* The comparison of two versions of a note (sync conflicts): the note is drawn read only, the blocks
+   that differ are marked. */
+.compare-note .ProseMirror {
+  min-height: 0;
+  padding: 0;
+}
+
+.compare-hunk {
+  border-color: color-mix(in srgb, var(--primary) 35%, transparent);
+  background: color-mix(in srgb, var(--primary) 5%, transparent);
+}
+
+.compare-hunk-side {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+/* The notices of a note above its bottom bar: a bulb with the number and a stack of cards. */
+.note-notices-bulb {
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border));
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  color: var(--foreground);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.12);
+  backdrop-filter: blur(8px);
+}
+
+.note-notices-bulb[data-urgent="true"] {
+  border-color: color-mix(in srgb, var(--destructive) 45%, var(--border));
+}
+
+.note-notice-card {
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--popover) 96%, transparent);
+  color: var(--popover-foreground);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.14);
+  backdrop-filter: blur(8px);
+}
+
+.note-notice-card[data-urgent="true"] {
+  border-color: color-mix(in srgb, var(--destructive) 45%, var(--border));
+}
+
+.sync-print-sheet {
+  display: none;
+}
+
+@media print {
+  html.sync-printing body * {
+    visibility: hidden;
+  }
+
+  html.sync-printing .sync-print-sheet,
+  html.sync-printing .sync-print-sheet * {
+    visibility: visible;
+  }
+
+  html.sync-printing .sync-print-sheet {
+    display: block;
+    position: fixed;
+    inset: 0;
+    padding: 24mm 20mm;
+    background: #fff;
+    color: #000;
+  }
+
+  html.sync-printing .sync-print-sheet h1 {
+    margin: 0 0 8mm;
+    font-size: 20pt;
+  }
+
+  html.sync-printing .sync-print-sheet .sync-print-code {
+    margin: 10mm 0;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 18pt;
+    letter-spacing: 0.08em;
+    word-break: break-all;
+  }
+}
+
+.amby-activity-button[data-sync-state] {
+  --amby-sync-color: hsl(var(--muted-foreground));
+}
+.amby-activity-button[data-sync-state="synced"] {
+  --amby-sync-color: var(--editor-text-green);
+}
+.amby-activity-button[data-sync-state="running"] {
+  --amby-sync-color: hsl(var(--primary));
+}
+.amby-activity-button[data-sync-state="pending"] {
+  --amby-sync-color: var(--editor-text-orange);
+}
+.amby-activity-button[data-sync-state="problem"] {
+  --amby-sync-color: hsl(var(--destructive));
+}
+/* RefreshCw's lower arc and its arrowhead share the status color. */
+.amby-sync-arrows path:nth-of-type(n + 3) {
+  stroke: var(--amby-sync-color);
+}
+.amby-sync-badge {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--amby-sync-color);
+  pointer-events: none;
+}
+.amby-sync-badge[data-sync-state="checking"] {
+  opacity: 0.5;
+}
+
+/* Synchronization settings: current vault first, account tools second. */
+.sync-settings-page {
+  width: 100%;
+  max-width: 880px;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.sync-vault-zone {
+  border: 1px solid hsl(var(--border));
+  border-radius: 14px;
+  padding: 22px;
+  background: linear-gradient(135deg, hsl(var(--muted) / 0.45), hsl(var(--background)) 70%);
+}
+.sync-vault-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.sync-vault-symbol,
+.sync-account-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+}
+.sync-vault-symbol svg {
+  width: 23px;
+  height: 23px;
+}
+.sync-vault-card[data-sync-state="synced"] .sync-vault-symbol {
+  color: var(--editor-text-green);
+  background: color-mix(in srgb, var(--editor-text-green) 9%, transparent);
+}
+.sync-vault-card[data-sync-state="problem"] .sync-vault-symbol {
+  color: hsl(var(--destructive));
+}
+.sync-eyebrow {
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+  margin-bottom: 3px;
+}
+.sync-vault-name {
+  font-size: 18px;
+  line-height: 1.3;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.sync-vault-status {
+  margin: 20px 0;
+}
+.sync-status-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.sync-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.sync-vault-card[data-sync-state="synced"] .sync-status-line {
+  color: var(--editor-text-green);
+}
+.sync-vault-card[data-sync-state="problem"] .sync-status-line {
+  color: hsl(var(--destructive));
+}
+.sync-status-time {
+  margin-top: 5px;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+.sync-vault-footer {
+  border-top: 1px solid hsl(var(--border));
+  padding-top: 12px;
+  margin-top: 16px;
+}
+.sync-backup-details {
+  min-width: 0;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+.sync-backup-details summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  list-style: none;
+}
+.sync-backup-details summary::-webkit-details-marker {
+  display: none;
+}
+.sync-backup-details summary:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 5px;
+  border-radius: 3px;
+}
+.sync-backup-details[open] summary > svg:last-child {
+  transform: rotate(90deg);
+}
+.sync-backup-link {
+  margin-left: auto;
+  font-size: 11px;
+}
+.sync-backup-content {
+  padding-top: 14px;
+  display: grid;
+  gap: 9px;
+  line-height: 1.7;
+  color: hsl(var(--foreground));
+}
+.sync-backup-content code {
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: hsl(var(--muted));
+  font-size: 10px;
+}
+.sync-vault-card > section,
+.sync-vault-card > p[role="note"] {
+  margin-block: 12px;
+}
+.sync-account-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.sync-account-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+}
+.sync-account-server {
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.sync-private-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+}
+.sync-section {
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  padding: 14px 16px;
+  min-width: 0;
+}
+.sync-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+.sync-storage-plan {
+  padding: 10px 0 14px;
+}
+.sync-storage-list,
+.sync-device-list {
+  margin-top: 12px;
+}
+.sync-storage-row,
+.sync-device-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 0;
+  border-top: 1px solid hsl(var(--border));
+}
+.sync-storage-row:last-child,
+.sync-device-row:last-child {
+  padding-bottom: 0;
+}
+.sync-storage-icon {
+  flex-shrink: 0;
+  color: hsl(var(--muted-foreground));
+}
+.sync-device-row {
+  flex-wrap: wrap;
+}
+.sync-device-row > div:first-of-type {
+  min-width: 100px;
+}
+.sync-device-row > div.flex {
+  flex-wrap: wrap;
+}
+.sync-device-current {
+  border-radius: 5px;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  padding: 3px 6px;
+  font-size: 10px;
+}
+.sync-device-row button {
+  height: 28px;
+  font-size: 11px;
+}
+.sync-account-strip .sync-account-signout {
+  margin-top: 3px;
+  padding-inline: 0;
+  height: 22px;
+  gap: 5px;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+.sync-account-heading {
+  display: grid;
+  gap: 3px;
+}
+.sync-account-heading h2 {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.sync-enable-control {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-left: auto;
+  flex-shrink: 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  cursor: pointer;
+}
+@media (max-width: 520px) {
+  .sync-vault-zone {
+    padding: 16px;
+  }
+  .sync-vault-heading > button {
+    width: 100%;
+    margin-top: 4px;
+  }
+  .sync-backup-link {
+    display: none;
+  }
+}
+
+/* Account identity stays compact; plan and vaults remain visible beside devices. */
+.sync-settings-page > .sync-account-strip {
+  padding: 10px 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  background: hsl(var(--card) / 0.35);
+  align-items: flex-start;
+  flex-wrap: nowrap;
+  gap: 10px;
+}
+.sync-account-identity {
+  flex-shrink: 0;
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+.sync-account-connection {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  margin-left: auto;
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.sync-settings-sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.sync-settings-sections > .sync-section {
+  padding: 16px;
+}
+.sync-storage-row[data-current="true"] [data-testid="storage-name"] {
+  font-weight: 500;
+}
+.sync-storage-row[data-current="true"] .sync-storage-icon {
+  color: hsl(var(--primary));
+}
+.sync-account-signout > svg {
+  width: 13px;
+  height: 13px;
+}
+.sync-vault-card {
+  min-width: 0;
+}
+.sync-vault-status {
+  margin-bottom: 18px;
+}
+.sync-devices {
+  padding: 18px 20px;
+}
+.sync-devices-heading > h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sync-devices .sync-device-row {
+  gap: 12px;
+  padding-block: 14px;
+}
+.sync-devices .sync-device-row:last-child {
+  padding-bottom: 0;
+}
+
+.sync-devices-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.sync-devices-heading > .sync-private-badge {
+  margin-left: auto;
+}
+
+.sync-storage-heading,
+.sync-devices-heading {
+  min-height: 24px;
+}
+.sync-storage-heading > button[data-slot="button"] {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+}
+
+.sync-connect-stack {
+  display: grid;
+  gap: 16px;
+}
+.sync-connect-account,
+.sync-connect-server {
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  padding: 18px 20px;
+}
+.sync-connect-account {
+  background: hsl(var(--card) / 0.35);
+}
+.sync-connect-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.sync-connect-symbol {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+}
+.sync-connect-heading h3,
+.sync-connect-verified h3 {
+  font-size: 14px;
+  font-weight: 600;
+}
+.sync-connect-heading p {
+  font-size: 11px;
+  line-height: 1.6;
+  margin-top: 3px;
+  color: hsl(var(--muted-foreground));
+}
+.sync-connect-options {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sync-connect-server-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.sync-connect-verified {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.sync-connect-verified > svg {
+  color: var(--editor-text-green);
+  margin-top: 2px;
+}
+
+.backup-panel {
+  container-type: inline-size;
+  padding: 12px 0;
+  display: grid;
+  gap: 12px;
+}
+.backup-intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.backup-intro > p,
+.backup-caption {
+  font-size: 12px;
+  line-height: 1.65;
+  color: hsl(var(--muted-foreground));
+}
+.backup-list {
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  overflow: hidden;
+}
+.backup-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+}
+.backup-row + .backup-row {
+  border-top: 1px solid hsl(var(--border));
+}
+.backup-symbol {
+  padding-top: 2px;
+  color: hsl(var(--muted-foreground));
+  flex-shrink: 0;
+}
+.backup-row-text {
+  flex: 1;
+  min-width: 0;
+}
+.backup-row-text h4 {
+  font-size: 12px;
+  font-weight: 500;
+}
+.backup-row-text p {
+  margin-top: 3px;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+.backup-condition {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+  font-size: 10px;
+  color: hsl(var(--muted-foreground));
+}
+.backup-condition[data-state="verified"] {
+  color: var(--editor-text-green);
+}
+.backup-condition[data-state="damaged"],
+.backup-condition[data-state="missing"] {
+  color: hsl(var(--destructive));
+}
+.backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.backup-actions button {
+  font-size: 11px;
+}
+.backup-result {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  background: hsl(var(--muted) / 0.35);
+  font-size: 12px;
+}
+.backup-result p {
+  color: hsl(var(--muted-foreground));
+  line-height: 1.65;
+}
+.backup-result code {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  user-select: text;
+}
+.backup-result > button {
+  justify-self: start;
+}
+@container (max-width: 500px) {
+  .backup-row {
+    flex-wrap: wrap;
+  }
+  .backup-row-text {
+    flex-basis: calc(100% - 26px);
+  }
+  .backup-actions {
+    margin-left: auto;
+  }
 }

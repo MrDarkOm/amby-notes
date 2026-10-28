@@ -1,8 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { useTranslation } from "react-i18next"
-import { AlertTriangle } from "lucide-react"
 
 import type { EditorHandle } from "../tiptap/constants"
 import type { MarkdownSelection } from "../tiptap/markdown-selection"
@@ -18,8 +16,8 @@ import { DocumentBody, type EditorFrameProps } from "./document-body"
 import { NotePdfExport, NotePdfExportDialog, type PdfExportOptions } from "./note-pdf-export"
 import { inspectMarkdownCompatibility, noteEditingPolicy } from "./note-editing-policy"
 import type { DocumentViewMode, EditorLayer } from "./use-document-view-mode"
-import { Button } from "@/components/ui/button"
-import { useDocStore } from "../use-doc-store"
+import { NoteNotices } from "../note-notices/note-notices"
+import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { editorSurfaceLeases, type EditorSurface } from "../database/peek/editor-surface-lease"
 import type { ContentWidth } from "../app-config"
 
@@ -261,8 +259,6 @@ export function DocumentEditor({
   const [filePickerQuery, setFilePickerQuery] = React.useState("")
   const [layerConfirm, setLayerConfirm] = React.useState<EditorLayer | null>(null)
   const [editorSelection, setEditorSelection] = React.useState<MarkdownSelection | null>(null)
-  const [restoringDeleted, setRestoringDeleted] = React.useState(false)
-  const [restoreError, setRestoreError] = React.useState(false)
   const [pdfExportDialogOpen, setPdfExportDialogOpen] = React.useState(false)
   const [pdfExportRequest, setPdfExportRequest] = React.useState<{
     id: number
@@ -270,7 +266,6 @@ export function DocumentEditor({
   } | null>(null)
   const editorSelectionRef = React.useRef<MarkdownSelection | null>(null)
   const editorRef = React.useRef<EditorHandle>(null as unknown as EditorHandle)
-  const { t } = useTranslation()
   // Compatibility of the note as loaded decides whether Live Preview is forced off.
   const loadedCompatibility = React.useMemo(
     () => inspectMarkdownCompatibility(currentAdmission.content, currentAdmission.source),
@@ -300,7 +295,13 @@ export function DocumentEditor({
   const leaseOwner = documentId ? editorSurfaceLeases.owner(documentId) : null
   const blockedByOtherSurface =
     !hasEditorLease && leaseOwner !== null && leaseOwner !== editorSurfaceOwner
-  const effectiveLocked = isLocked || editingPolicy.readOnly || blockedByOtherSurface
+  // An unsaved draft found at opening waits for an answer in the notices; the text stays read only
+  // until then, so that typing cannot overwrite the draft that is still being offered.
+  const draftPending = useNoteNoticesStore((state) =>
+    Boolean(documentId && state.draftOffers[documentId]),
+  )
+  const effectiveLocked =
+    isLocked || editingPolicy.readOnly || blockedByOtherSurface || draftPending
   const effectiveViewMode = editingPolicy.sourceOnly ? "source" : viewMode
 
   const flatTreeItems = React.useMemo(() => flattenTree(treeItems ?? []), [treeItems])
@@ -357,24 +358,6 @@ export function DocumentEditor({
     editorSelectionRef.current = null
     setEditorSelection(null)
   }, [document?.id])
-
-  React.useEffect(() => {
-    setRestoringDeleted(false)
-    setRestoreError(false)
-  }, [document?.id, document?.externallyDeleted])
-
-  async function restoreDeletedDocument() {
-    if (!onRestoreDeleted || restoringDeleted) return
-    setRestoringDeleted(true)
-    setRestoreError(false)
-    try {
-      await onRestoreDeleted()
-    } catch {
-      setRestoreError(true)
-    } finally {
-      setRestoringDeleted(false)
-    }
-  }
 
   const handleContentChange = (v: string) => {
     if (!document || effectiveLocked) return
@@ -497,83 +480,11 @@ export function DocumentEditor({
     />
   )
 
-  const canRestore =
+  const canRestoreDeleted =
     Boolean(onRestoreDeleted) &&
     !document?.id.startsWith("database:") &&
     !document?.path.endsWith(".canvas") &&
     !document?.path.endsWith(".excalidraw")
-
-  const deletedBanner = document?.externallyDeleted ? (
-    <div
-      role="alert"
-      className="flex shrink-0 items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-950 dark:text-amber-100"
-    >
-      <AlertTriangle className="size-4 shrink-0 text-amber-600 dark:text-amber-300" />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium">{t("conflict.deletedBannerTitle")}</p>
-        <p className="text-xs text-amber-900/75 dark:text-amber-100/75">
-          {t("conflict.deletedBannerDescription")}
-        </p>
-        {restoreError && (
-          <p className="mt-1 text-xs text-destructive">{t("conflict.restoreFailed")}</p>
-        )}
-      </div>
-      {canRestore ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={restoringDeleted}
-          onClick={() => void restoreDeletedDocument()}
-          className="shrink-0 border-amber-500/40 bg-transparent text-amber-950 hover:bg-amber-500/15 dark:text-amber-100"
-        >
-          {restoringDeleted ? t("conflict.saving") : t("conflict.restoreDeleted")}
-        </Button>
-      ) : onCloseTab ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={onCloseTab}
-          className="shrink-0 border-amber-500/40 bg-transparent text-amber-950 hover:bg-amber-500/15 dark:text-amber-100"
-        >
-          {t("common.close")}
-        </Button>
-      ) : null}
-    </div>
-  ) : null
-
-  const externalConflict = useDocStore((s) =>
-    document?.id ? s.externalConflicts[document.id] : undefined,
-  )
-  const openConflictDialog = useDocStore((s) => s.openConflictDialog)
-
-  const conflictBanner =
-    externalConflict && !document?.externallyDeleted ? (
-      <div
-        role="alert"
-        className="flex shrink-0 items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-950 dark:text-amber-100"
-      >
-        <AlertTriangle className="size-4 shrink-0 text-amber-600 dark:text-amber-300" />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">{t("conflict.pausedAutosaveBannerTitle")}</p>
-          <p className="text-xs text-amber-900/75 dark:text-amber-100/75">
-            {t("conflict.pausedAutosaveBannerDescription")}
-          </p>
-        </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            if (document?.id) openConflictDialog(document.id)
-          }}
-          className="shrink-0 border-amber-500/40 bg-transparent text-amber-950 hover:bg-amber-500/15 dark:text-amber-100"
-        >
-          {t("conflict.resolveConflict")}
-        </Button>
-      </div>
-    ) : null
 
   const pdfExportDialog = document ? (
     <NotePdfExportDialog
@@ -619,17 +530,10 @@ export function DocumentEditor({
   return (
     <div className="relative flex h-full min-w-0 flex-1 flex-col">
       <div
-        className={`relative ${isFocusMode ? "" : "mb-2"} mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]`}
+        className={`amby-workspace-surface relative ${isFocusMode ? "" : "mb-2"} mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]`}
         style={{ boxShadow: "var(--note-surface-shadow)" }}
       >
         {headerElement}
-        {deletedBanner}
-        {conflictBanner}
-        {editingPolicy.warningKey && (
-          <p role="status" className="px-4 py-2 text-xs text-muted-foreground">
-            {t(editingPolicy.warningKey)}
-          </p>
-        )}
         <DocumentBody
           docId={document.id}
           docTitle={document.title}
@@ -680,6 +584,13 @@ export function DocumentEditor({
           onScrollPositionChange={onScrollPositionChange}
           viewModeMenuOpen={viewModeMenuOpen}
           onViewModeMenuOpenChange={(open) => setExclusiveMenu("view", open)}
+        />
+        <NoteNotices
+          document={document}
+          warningKey={editingPolicy.warningKey}
+          canRestoreDeleted={canRestoreDeleted}
+          onRestoreDeleted={onRestoreDeleted}
+          onCloseTab={onCloseTab}
         />
       </div>
 

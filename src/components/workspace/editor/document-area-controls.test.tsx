@@ -53,7 +53,7 @@ describe("the note's floating bar, drawn by the shared bar", () => {
     fireEvent.click(settings)
     fireEvent.click(screen.getByRole("button", { name: "100%" }))
     expect(onContentWidthChange).toHaveBeenCalledWith("full")
-    fireEvent.click(screen.getByRole("button", { name: "Скрыть нижнюю панель" }))
+    fireEvent.click(screen.getByRole("button", { name: "Скрыть статусную панель" }))
     await waitFor(() =>
       expect(useSettingsStore.getState().prefs.editor.showAreaControls).toBe(false),
     )

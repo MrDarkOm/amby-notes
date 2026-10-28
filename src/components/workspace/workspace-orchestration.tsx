@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next"
 import { ChevronDown, FolderOpen } from "lucide-react"
 import { motion } from "motion/react"
 import { ActivityBar } from "./activity-bar"
+import { useRefreshSync } from "./sync/use-refresh-sync"
 import { PanelHost } from "./panel-host"
 import { ResizeHandle } from "./resize-handle"
 // Lazy-loaded so @xyflow/react and d3-force are excluded from the initial bundle.
@@ -50,10 +51,11 @@ import {
   exportDatabaseSqlite,
   exportActiveLayerImage,
 } from "./editor/layer-export"
-import type { SettingsNavigationTarget } from "./settings-navigation"
+import { OPEN_SETTINGS_REQUEST_EVENT, type SettingsNavigationTarget } from "./settings-navigation"
 import { useSettingsStore } from "./use-settings-store"
 import { findWikiLinkItem } from "./wiki-links"
 import { useLinkSuggestionSources } from "./orchestration/use-link-suggestion-sources"
+import { useRefreshTreeOnArchiveChange } from "./use-archive-tree-refresh"
 import { applyTreePatch, filterDeletedTabs, planMutation } from "./workspace-mutations"
 import {
   useViewStateStore,
@@ -110,7 +112,6 @@ const DatabaseWorkspace = React.lazy(() =>
 import type { DatabaseSummary } from "@/lib/storage/database-types"
 import { discardRecoveryDraft, remapRecoveryDraft } from "@/lib/recovery-drafts"
 import {
-  isTauri,
   readFile,
   readNote,
   restoreDeletedNote,
@@ -384,6 +385,7 @@ export function WorkspaceOrchestration() {
     windowLabel,
   } = useVaultData({ onExternalChange })
   useLinkSuggestionSources(vault, treeItems)
+  useRefreshTreeOnArchiveChange(refreshTree)
 
   // Action is stable in zustand, so read it once without subscribing.
   const { applyMutation, patchDoc, markSaved, clearExternalConflict } = useDocStore.getState()
@@ -473,6 +475,9 @@ export function WorkspaceOrchestration() {
   const [isHelpOpen, setIsHelpOpen] = React.useState(false)
   const [settingsOpen, setSettingsOpen] = React.useState(false)
   const [vaultManagerOpen, setVaultManagerOpen] = React.useState(false)
+  React.useEffect(() => {
+    if (!vault) setVaultManagerOpen(false)
+  }, [vault])
   const [settingsTarget, setSettingsTarget] = React.useState<SettingsNavigationTarget | null>(null)
   const defaultViewMode = useSettingsStore((s) => s.prefs.editor.defaultViewMode)
   const defaultContentWidth = useSettingsStore((s) => s.prefs.editor.contentWidth)
@@ -499,6 +504,15 @@ export function WorkspaceOrchestration() {
     setSettingsTarget(target)
     setSettingsOpen(true)
   }, [])
+  // The notices of the sync (a card with "Show the list") ask for the sync section this way.
+  React.useEffect(() => {
+    const onRequest = (event: Event) => {
+      const target = (event as CustomEvent<SettingsNavigationTarget | undefined>).detail
+      openSettings(target ?? null)
+    }
+    window.addEventListener(OPEN_SETTINGS_REQUEST_EVENT, onRequest)
+    return () => window.removeEventListener(OPEN_SETTINGS_REQUEST_EVENT, onRequest)
+  }, [openSettings])
 
   const [pendingRenameId, setPendingRenameId] = React.useState<string | null>(null)
   const {
@@ -653,7 +667,7 @@ export function WorkspaceOrchestration() {
     }
   }
 
-  async function refreshVault() {
+  async function refreshLocalVault() {
     try {
       await flushAutosaveGeneration(useVaultStore.getState().generation)
     } catch (e) {
@@ -703,18 +717,22 @@ export function WorkspaceOrchestration() {
       }
     } catch (error) {
       logger.error("refresh_vault.failed", { errorType: errorType(error) })
+      throw error
     }
   }
 
+  const refreshSync = useRefreshSync(refreshLocalVault)
+
   const actionContext: ActionContext = {
     openGraphTab,
-    refreshVault,
+    refreshVault: refreshSync.refresh,
     openSearch: () => setSearchOpen(true),
     openSettings,
     openHelp: () => setIsHelpOpen(true),
   }
 
   const activityBarPresetProps = {
+    refreshSync,
     presets: presetOptions,
     activePresetId,
     onSwitchPreset: (id: string) => switchPreset(id, { vault }),
@@ -1287,6 +1305,7 @@ export function WorkspaceOrchestration() {
       vault,
       vaults,
       onRequestProfileSelection: (path) => setPendingVaultPath(path),
+      onOpenRestored: () => setSettingsOpen(false),
     })
 
   const handleViewModeChange = (mode: DocumentViewMode) => {
@@ -1333,29 +1352,36 @@ export function WorkspaceOrchestration() {
     handleToggleLayerLock(currentDoc.id, activeLayer)
   }, [activeLayers, currentDoc, handleToggleLayerLock])
 
-  const handleHistoryRestored = React.useCallback(async () => {
-    if (!vault) return
-    await refreshTree(vault)
-    if (!currentDocId) return
-    const beforeRead = useDocStore.getState().openDocs[currentDocId]
-    const note = await readNote(vault, currentDocId)
-    // A restored trash item may refresh a different, actively edited note.
-    // Never replace new edits that arrived while the backend was responding.
-    const state = useDocStore.getState()
-    if (
-      useVaultStore.getState().vault !== vault ||
-      state.openDocs[currentDocId] !== beforeRead ||
-      state.unsavedFileIds.has(currentDocId) ||
-      state.externalConflicts[currentDocId]
-    )
-      return
-    patchDoc(currentDocId, {
-      content: note.content,
-      revision: note.revision,
-      source: note.source,
-    })
-    markSaved(currentDocId)
-  }, [vault, currentDocId, patchDoc, markSaved, refreshTree])
+  const handleHistoryRestored = React.useCallback(
+    async (path?: string) => {
+      if (!vault) return
+      await refreshTree(vault)
+      if (useVaultStore.getState().vault !== vault) return
+      const openDocs = useDocStore.getState().openDocs
+      const targetId = path
+        ? Object.values(openDocs).find((doc) => doc.path === path)?.id
+        : currentDocId
+      if (!targetId) return
+      const beforeRead = openDocs[targetId]
+      const note = await readNote(vault, targetId)
+      // Never replace edits that arrived while the restored note was being reloaded.
+      const state = useDocStore.getState()
+      if (
+        useVaultStore.getState().vault !== vault ||
+        state.openDocs[targetId] !== beforeRead ||
+        state.unsavedFileIds.has(targetId) ||
+        state.externalConflicts[targetId]
+      )
+        return
+      patchDoc(targetId, {
+        content: note.content,
+        revision: note.revision,
+        source: note.source,
+      })
+      markSaved(targetId)
+    },
+    [vault, currentDocId, patchDoc, markSaved, refreshTree],
+  )
 
   // Lazily load the canvas layer file when the canvas layer becomes active.
   React.useEffect(() => {
@@ -1443,6 +1469,7 @@ export function WorkspaceOrchestration() {
 
   const {
     currentProperties,
+    propertyError,
     attachments,
     attachmentImages,
     handleUpsertCustomProperty,
@@ -1689,6 +1716,7 @@ export function WorkspaceOrchestration() {
       onCreativeChanged: refreshAfterCreativeWrite,
       onOpenSettings: openSettings,
       properties: currentProperties,
+      propertyError,
       attachments,
       attachmentImages,
       databaseProperties: selectedDatabase
@@ -1769,6 +1797,7 @@ export function WorkspaceOrchestration() {
       handleAttachLayerToFile,
       linkedLayersByDoc,
       currentProperties,
+      propertyError,
       attachments,
       attachmentImages,
       selectedDatabase,
@@ -2593,7 +2622,7 @@ export function WorkspaceOrchestration() {
             >
               <React.Suspense fallback={<LazyEditorFallback />}>
                 <div
-                  className="relative mb-2 mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
+                  className="amby-workspace-surface relative mb-2 mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
                   style={{ boxShadow: "var(--note-surface-shadow)" }}
                 >
                   <GraphTabView
@@ -2628,7 +2657,7 @@ export function WorkspaceOrchestration() {
             creativeEnabled ? (
               <React.Suspense fallback={<LazyEditorFallback />}>
                 <div
-                  className="relative mb-2 mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
+                  className="amby-workspace-surface relative mb-2 mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
                   style={{ boxShadow: "var(--note-surface-shadow)" }}
                 >
                   {renderCreativeProject(leafActiveTab, leaf.id)}
@@ -2667,11 +2696,24 @@ export function WorkspaceOrchestration() {
     )
   }
 
-  if (!vault && isTauri()) {
+  const workspaceProfileDialog = (
+    <WorkspaceProfileModal
+      open={Boolean(pendingVaultPath)}
+      workspaceName={
+        pendingVaultPath
+          ? pendingVaultPath.replace(/\\/g, "/").split("/").filter(Boolean).pop() || undefined
+          : undefined
+      }
+      onConfirm={handleConfirmProfile}
+      onCancel={() => setPendingVaultPath(null)}
+    />
+  )
+
+  if (!vault) {
     return (
       <WorkspaceLayout
         deleteConfirmationDialog={null}
-        dialogs={null}
+        dialogs={workspaceProfileDialog}
         focusContent={null}
         focusLeftOverlay={null}
         focusRightOverlay={null}
@@ -2714,7 +2756,7 @@ export function WorkspaceOrchestration() {
           graphEnabled ? (
             <React.Suspense fallback={<LazyEditorFallback />}>
               <div
-                className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
+                className="amby-workspace-surface relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
                 style={{ boxShadow: "var(--note-surface-shadow)" }}
               >
                 <GraphTabView
@@ -2748,7 +2790,7 @@ export function WorkspaceOrchestration() {
           creativeEnabled ? (
             <React.Suspense fallback={<LazyEditorFallback />}>
               <div
-                className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
+                className="amby-workspace-surface relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
                 style={{ boxShadow: "var(--note-surface-shadow)" }}
               >
                 {renderCreativeProject()}
@@ -2895,16 +2937,7 @@ export function WorkspaceOrchestration() {
           onOpenChange={setIsHelpOpen}
           initialContext={currentHelpContext}
         />
-        <WorkspaceProfileModal
-          open={Boolean(pendingVaultPath)}
-          workspaceName={
-            pendingVaultPath
-              ? pendingVaultPath.replace(/\\/g, "/").split("/").filter(Boolean).pop() || undefined
-              : undefined
-          }
-          onConfirm={handleConfirmProfile}
-          onCancel={() => setPendingVaultPath(null)}
-        />
+        {workspaceProfileDialog}
         {deleteConfirmationDialog}
         {propertyMigrationDialog}
       </div>
@@ -2985,81 +3018,31 @@ export function WorkspaceOrchestration() {
           />
         )}
 
-        {leftDockPinned && isLeftSidebarOpen && (
-          <>
-            <div
-              style={{
-                width: isLeftSidebarVisible ? "var(--amby-left-panel-width, 300px)" : 0,
-                transition:
-                  resizingSide === "left" ? "none" : "width 320ms cubic-bezier(0.16, 1, 0.3, 1)",
-              }}
-              onMouseEnter={() => setSidebarHover("left", true)}
-              onMouseLeave={() => setSidebarHover("left", false)}
-              className={
-                isCompactLayout
-                  ? "fixed bottom-0 left-10 top-11 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl"
-                  : "relative shrink-0 overflow-hidden"
-              }
-            >
+        <div
+          className="amby-workspace-frame flex min-h-0 min-w-0 flex-1"
+          data-split={isMultiPane || undefined}
+        >
+          {leftDockPinned && isLeftSidebarOpen && (
+            <>
               <div
-                className="relative h-full shrink-0"
-                style={{ width: "var(--amby-left-panel-width, 300px)" }}
+                style={{
+                  width: isLeftSidebarVisible ? "var(--amby-left-panel-width, 300px)" : 0,
+                  transition:
+                    resizingSide === "left" ? "none" : "width 320ms cubic-bezier(0.16, 1, 0.3, 1)",
+                }}
+                onMouseEnter={() => setSidebarHover("left", true)}
+                onMouseLeave={() => setSidebarHover("left", false)}
+                className={
+                  isCompactLayout
+                    ? "fixed bottom-0 left-[var(--amby-dock-width)] top-11 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl"
+                    : "relative shrink-0 overflow-hidden"
+                }
               >
-                <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />
-                {!isCompactLayout && (
-                  <ResizeHandle
-                    side="right"
-                    active={resizingSide === "left"}
-                    onMouseDown={startResize("left")}
-                  />
-                )}
-              </div>
-            </div>
-          </>
-        )}
-
-        {!leftDockPinned && (
-          <div
-            className="amby-sidebar-overlay--left fixed bottom-0 left-0 top-11 z-40 rounded-r-2xl"
-            style={{
-              width: isLeftSidebarVisible ? "calc(var(--amby-left-panel-width, 300px) + 48px)" : 4,
-              transition:
-                resizingSide === "left" ? "none" : "width 320ms cubic-bezier(0.16, 1, 0.3, 1)",
-            }}
-            onMouseEnter={() => setSidebarHover("left", true)}
-            onMouseLeave={() => setSidebarHover("left", false)}
-          >
-            <div className="flex h-full w-full overflow-hidden rounded-r-2xl bg-background">
-              <div
-                className="flex h-full shrink-0"
-                style={{ width: "calc(var(--amby-left-panel-width, 300px) + 48px)" }}
-              >
-                <ActivityBar
-                  side="left"
-                  buttons={leftButtons}
-                  activeView={activeBySide.left}
-                  isPanelOpen={isLeftSidebarVisible}
-                  onActivate={handleActivate}
-                  onMoveToOtherSide={
-                    rightPanelEnabled ? (defId) => moveButtonToSide(defId, "right") : undefined
-                  }
-                  onPointerDownButton={dnd.onPointerDown}
-                  draggingId={dnd.draggingId}
-                  {...activityBarPresetProps}
-                  {...activityDockProps("left")}
-                  helpContext={currentHelpContext}
-                  autoHideReveal
-                />
                 <div
                   className="relative h-full shrink-0"
                   style={{ width: "var(--amby-left-panel-width, 300px)" }}
                 >
-                  <PanelHost
-                    side="left"
-                    activeId={activeBySide.left}
-                    props={panelRenderProps}
-                    flush
-                  />
+                  <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />
                   {!isCompactLayout && (
                     <ResizeHandle
                       side="right"
@@ -3069,67 +3052,128 @@ export function WorkspaceOrchestration() {
                   )}
                 </div>
               </div>
-            </div>
-          </div>
-        )}
-
-        <main
-          ref={mainStageRef}
-          className={cn(
-            "relative flex flex-1 gap-0 overflow-hidden",
-            !rightPanelEnabled && "pr-2",
-            isMultiPane && "-mt-11",
+            </>
           )}
-        >
-          {splitLayout.leaves.map((leaf) => renderPaneLeaf(leaf))}
-          {isMultiPane &&
-            splitLayout.dividers.map((divider) => (
-              <SplitResizeHandle
-                key={divider.splitId}
-                divider={divider}
-                containerRef={mainStageRef}
-                onResize={(splitId, ratio) => useTabsStore.getState().setSplitRatio(splitId, ratio)}
-              />
-            ))}
-          <PaneDropOverlay
-            hoverTarget={paneDnd.hoverTarget}
-            leaves={splitLayout.leaves}
-            tabDrag={paneDnd.tabDrag}
-          />
-        </main>
 
-        {rightPanelEnabled && rightDockPinned && isRightSidebarOpen && (
-          <>
+          {!leftDockPinned && (
             <div
+              className="amby-sidebar-overlay--left fixed bottom-0 left-0 top-11 z-40 rounded-r-2xl"
               style={{
-                width: isRightSidebarVisible ? "var(--amby-right-panel-width, 300px)" : 0,
+                width: isLeftSidebarVisible
+                  ? "calc(var(--amby-left-panel-width, 300px) + var(--amby-dock-width))"
+                  : 4,
                 transition:
-                  resizingSide === "right" ? "none" : "width 320ms cubic-bezier(0.16, 1, 0.3, 1)",
+                  resizingSide === "left" ? "none" : "width 320ms cubic-bezier(0.16, 1, 0.3, 1)",
               }}
-              onMouseEnter={() => setSidebarHover("right", true)}
-              onMouseLeave={() => setSidebarHover("right", false)}
-              className={
-                isCompactLayout
-                  ? "fixed bottom-0 right-10 top-11 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl"
-                  : "relative shrink-0 overflow-hidden"
-              }
+              onMouseEnter={() => setSidebarHover("left", true)}
+              onMouseLeave={() => setSidebarHover("left", false)}
             >
-              <div
-                className="relative h-full shrink-0"
-                style={{ width: "var(--amby-right-panel-width, 300px)" }}
-              >
-                {!isCompactLayout && (
-                  <ResizeHandle
+              <div className="flex h-full w-full overflow-hidden rounded-r-2xl bg-background">
+                <div
+                  className="flex h-full shrink-0"
+                  style={{
+                    width: "calc(var(--amby-left-panel-width, 300px) + var(--amby-dock-width))",
+                  }}
+                >
+                  <ActivityBar
                     side="left"
-                    active={resizingSide === "right"}
-                    onMouseDown={startResize("right")}
+                    buttons={leftButtons}
+                    activeView={activeBySide.left}
+                    isPanelOpen={isLeftSidebarVisible}
+                    onActivate={handleActivate}
+                    onMoveToOtherSide={
+                      rightPanelEnabled ? (defId) => moveButtonToSide(defId, "right") : undefined
+                    }
+                    onPointerDownButton={dnd.onPointerDown}
+                    draggingId={dnd.draggingId}
+                    {...activityBarPresetProps}
+                    {...activityDockProps("left")}
+                    helpContext={currentHelpContext}
+                    autoHideReveal
                   />
-                )}
-                <PanelHost side="right" activeId={activeBySide.right} props={panelRenderProps} />
+                  <div
+                    className="relative h-full shrink-0"
+                    style={{ width: "var(--amby-left-panel-width, 300px)" }}
+                  >
+                    <PanelHost
+                      side="left"
+                      activeId={activeBySide.left}
+                      props={panelRenderProps}
+                      flush
+                    />
+                    {!isCompactLayout && (
+                      <ResizeHandle
+                        side="right"
+                        active={resizingSide === "left"}
+                        onMouseDown={startResize("left")}
+                      />
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
-          </>
-        )}
+          )}
+
+          <main
+            ref={mainStageRef}
+            className={cn(
+              "amby-workspace-stage relative flex flex-1 gap-0 overflow-hidden",
+              !rightPanelEnabled && "pr-2",
+              isMultiPane && "-mt-11",
+            )}
+          >
+            {splitLayout.leaves.map((leaf) => renderPaneLeaf(leaf))}
+            {isMultiPane &&
+              splitLayout.dividers.map((divider) => (
+                <SplitResizeHandle
+                  key={divider.splitId}
+                  divider={divider}
+                  containerRef={mainStageRef}
+                  onResize={(splitId, ratio) =>
+                    useTabsStore.getState().setSplitRatio(splitId, ratio)
+                  }
+                />
+              ))}
+            <PaneDropOverlay
+              hoverTarget={paneDnd.hoverTarget}
+              leaves={splitLayout.leaves}
+              tabDrag={paneDnd.tabDrag}
+            />
+          </main>
+
+          {rightPanelEnabled && rightDockPinned && isRightSidebarOpen && (
+            <>
+              <div
+                style={{
+                  width: isRightSidebarVisible ? "var(--amby-right-panel-width, 300px)" : 0,
+                  transition:
+                    resizingSide === "right" ? "none" : "width 320ms cubic-bezier(0.16, 1, 0.3, 1)",
+                }}
+                onMouseEnter={() => setSidebarHover("right", true)}
+                onMouseLeave={() => setSidebarHover("right", false)}
+                className={
+                  isCompactLayout
+                    ? "fixed bottom-0 right-[var(--amby-dock-width)] top-11 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl"
+                    : "relative shrink-0 overflow-hidden"
+                }
+              >
+                <div
+                  className="relative h-full shrink-0"
+                  style={{ width: "var(--amby-right-panel-width, 300px)" }}
+                >
+                  {!isCompactLayout && (
+                    <ResizeHandle
+                      side="left"
+                      active={resizingSide === "right"}
+                      onMouseDown={startResize("right")}
+                    />
+                  )}
+                  <PanelHost side="right" activeId={activeBySide.right} props={panelRenderProps} />
+                </div>
+              </div>
+            </>
+          )}
+        </div>
 
         {rightPanelEnabled && rightDockPinned && (
           <ActivityBar
@@ -3152,7 +3196,7 @@ export function WorkspaceOrchestration() {
             className="amby-sidebar-overlay--right fixed bottom-0 right-0 top-11 z-40 rounded-l-2xl"
             style={{
               width: isRightSidebarVisible
-                ? "calc(var(--amby-right-panel-width, 300px) + 48px)"
+                ? "calc(var(--amby-right-panel-width, 300px) + var(--amby-dock-width))"
                 : 4,
               transition:
                 resizingSide === "right" ? "none" : "width 320ms cubic-bezier(0.16, 1, 0.3, 1)",
@@ -3163,7 +3207,9 @@ export function WorkspaceOrchestration() {
             <div className="flex h-full w-full justify-end overflow-hidden rounded-l-2xl bg-background">
               <div
                 className="flex h-full shrink-0"
-                style={{ width: "calc(var(--amby-right-panel-width, 300px) + 48px)" }}
+                style={{
+                  width: "calc(var(--amby-right-panel-width, 300px) + var(--amby-dock-width))",
+                }}
               >
                 <div
                   className="relative h-full shrink-0"
@@ -3255,16 +3301,7 @@ export function WorkspaceOrchestration() {
         onOpenChange={setIsHelpOpen}
         initialContext={currentHelpContext}
       />
-      <WorkspaceProfileModal
-        open={Boolean(pendingVaultPath)}
-        workspaceName={
-          pendingVaultPath
-            ? pendingVaultPath.replace(/\\/g, "/").split("/").filter(Boolean).pop() || undefined
-            : undefined
-        }
-        onConfirm={handleConfirmProfile}
-        onCancel={() => setPendingVaultPath(null)}
-      />
+      {workspaceProfileDialog}
     </div>
   )
 }

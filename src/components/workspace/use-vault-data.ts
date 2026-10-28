@@ -189,7 +189,6 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
   async function loadVault(path: string | null, activateBackend = true) {
     const currentVault = useVaultStore.getState().vault
     if (switchRef.current.inFlight) return
-    if (activateBackend && !path) return
     // React Refresh can remount this hook while the stores and backend remain
     // alive. Reload its local tree without activating the vault again, flushing
     // or clearing document buffers, or restoring an older session over live tabs.
@@ -204,6 +203,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     }
     const requestId = switchRef.current.requestId + 1
     switchRef.current = { inFlight: true, requestId }
+    useVaultStore.setState({ switching: true })
     const oldGeneration = useVaultStore.getState().generation
     try {
       if (currentVault) {
@@ -214,6 +214,38 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
           logger.warn("vault_switch.autosave_flush_failed", { errorType: errorType(error) })
         }
         if (!flush.flushed && !(await confirmAction(t("recovery.switchAfterSaveFailure")))) return
+      }
+      if (activateBackend && !path) {
+        if (currentVault && ownsPersistence) {
+          const tabsState = useTabsStore.getState()
+          const viewState = useViewStateStore.getState()
+          const documents = tabsState.tabs.filter((tab) => tab.kind === "document")
+          const active = documents.find((tab) => tab.key === tabsState.activeTabKey)
+          await saveSession({
+            schemaVersion: SESSION_SCHEMA_VERSION,
+            tabs: documents.map((tab) => ({ fileId: tab.fileId, title: tab.title })),
+            activeFileId: active?.fileId ?? documents[0]?.fileId ?? "",
+            favorites: [...viewState.favorites],
+            viewModes: viewState.viewModes,
+            primaryLayers: viewState.primaryLayers,
+            contentWidths: viewState.contentWidths,
+            databaseTitleLabels: viewState.databaseTitleLabels,
+            nestedNotesPlacements: viewState.nestedNotesPlacements,
+            locked: [...viewState.lockedFileIds],
+            icons: viewState.iconOverrides,
+            closedTreeIds: [...viewState.closedTreeIds],
+          })
+        }
+        sessionHydratedRef.current = false
+        cancelAutosaveGeneration(oldGeneration)
+        clearDocs()
+        setTabs([])
+        setActiveTabKey("")
+        setTreeItems([])
+        setLinkGraph({ nodes: [], edges: [] })
+        setBackendGeneration(null)
+        setVault(null)
+        return
       }
       if (desktop && activateBackend && path) {
         let preflight = await preflightVault(path)
@@ -339,7 +371,11 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
       if (switchRef.current.requestId === requestId) {
         logger.error("vault_switch.activation_failed", { errorType: errorType(err) })
         const details = err instanceof Error ? err.message : String(err)
-        await showErrorMessage(t("errors.vaultOpenFailed", { details })).catch((dialogError) =>
+        await showErrorMessage(
+          t(activateBackend && !path ? "errors.vaultCloseFailed" : "errors.vaultOpenFailed", {
+            details,
+          }),
+        ).catch((dialogError) =>
           logger.warn("vault_switch.error_dialog_failed", {
             errorType: errorType(dialogError),
           }),
@@ -348,6 +384,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     } finally {
       if (switchRef.current.requestId === requestId) {
         switchRef.current = { ...switchRef.current, inFlight: false }
+        useVaultStore.setState({ switching: false })
       }
     }
   }
@@ -819,6 +856,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         windowLabel,
         lastOpened: file.lastOpened,
         reopenLastVault: reopen,
+        hasRecentVaults: file.recent.length > 0,
       })
       if (startup.kind === "activate") void loadVault(startup.path)
       else if (startup.kind === "attach-active") void loadVault(null, false)

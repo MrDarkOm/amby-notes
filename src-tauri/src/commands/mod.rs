@@ -1,4 +1,5 @@
 pub mod assets;
+pub mod backups;
 pub mod database;
 pub mod debug;
 pub mod external;
@@ -7,4 +8,5 @@ pub mod modules;
 pub mod mutations;
 pub mod notes;
 pub mod project;
+pub mod sync;
 pub mod vault;

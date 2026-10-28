@@ -31,6 +31,7 @@ import { WorkspacePicker, type VaultRecord } from "./workspace-picker"
 import { IconValue } from "./icon-value"
 import { isRichIconValue } from "./icon-values"
 import { KNOWN_ICONS } from "./tree/tree-types"
+import { handleDragStart } from "./editor/document-header-utils"
 import { beginTabPointerDown } from "./pane-dnd"
 import {
   DropdownMenu,
@@ -57,7 +58,7 @@ export interface HeaderTab {
   Icon?: LucideIcon
 }
 
-export function tabEmoji(icon?: string) {
+function tabEmoji(icon?: string) {
   return Boolean(icon && (isRichIconValue(icon) || !KNOWN_ICONS.has(icon)))
 }
 
@@ -255,10 +256,10 @@ interface HeaderTabsProps {
   hideCenterTabsWhenSplit?: boolean
 }
 
-// Keep the title-bar controls aligned with the real `w-12` activity rails.
+// Keep the title-bar controls aligned with the activity rails.
 // Using an approximate width here makes the sidebar toggles jump when a panel
 // opens or closes.
-const ACTIVITY_BAR_WIDTH = 48
+const ACTIVITY_BAR_WIDTH = "var(--amby-dock-width, 48px)"
 // Windows keeps the right-sidebar toggle beside the three native-style
 // window controls, so the full edge-control cluster is four 48px slots.
 const WINDOW_CONTROLS_WIDTH = 192
@@ -268,21 +269,6 @@ const MACOS_SIDEBAR_TOGGLE_WIDTH = 44
 // plus) — keeps a uniform 32×32 hit area, rounding and hover highlight.
 export const HEADER_ICON_BTN =
   "flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-
-export function handleDragStart(e: React.MouseEvent) {
-  if (e.button !== 0) return
-  // Skip drag when the click originated on an interactive element.
-  // Without this guard the mousedown bubbles from e.g. a sidebar-toggle button
-  // up to the drag-region div, startDragging() captures the mouse pointer, and
-  // the button's click event never fires.
-  if ((e.target as HTMLElement).closest("button, a, input, select, [role='button']")) return
-  if (isTauri()) {
-    e.preventDefault()
-    getCurrentWindow()
-      .startDragging()
-      .catch(() => {})
-  }
-}
 
 export interface TabItemProps {
   tab: HeaderTab
@@ -326,7 +312,7 @@ export function TabItem({
     <motion.div
       key={tab.key}
       data-tab-item-key={tab.key}
-      layout="position"
+      data-active-tab={isSelected || undefined}
       initial={{ opacity: 0, scale: 0.9, y: -2 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       // A closing tab folds its width away in the normal flow, so its neighbours slide over at
@@ -365,16 +351,17 @@ export function TabItem({
       className={cn(
         "group relative flex w-48 shrink min-w-10 cursor-pointer items-center justify-between self-center rounded-lg border px-2.5 text-sm select-none",
         isSelected
-          ? "h-9 text-foreground border-transparent"
+          ? "h-10 self-end text-foreground border-0"
           : "h-8 text-muted-foreground border-transparent hover:bg-accent/40 hover:text-foreground",
       )}
     >
       {isSelected && (
         <motion.div
+          layout="position"
           layoutId={layoutGroupId}
           className={cn(
-            "absolute inset-0 rounded-lg bg-[var(--note-surface)] shadow-xs border",
-            isPaneFocused ? "border-border/80" : "border-border/50 opacity-85",
+            "amby-active-tab-surface absolute inset-0 border",
+            isPaneFocused ? "border-border/80" : "border-border/50",
           )}
           transition={{ type: "spring", stiffness: 500, damping: 38 }}
         />
@@ -507,18 +494,17 @@ export function HeaderTabs({
   const { t } = useTranslation()
   const hideCenterStrip = isSplit && hideCenterTabsWhenSplit
   // The left header dock ends on the same divider as the left body panel.
-  // On macOS the 80px traffic-light region already consumes 36px more than the
-  // 44px activity rail, so subtract that difference from the panel header.
-  const rightDockWidth = rightPanelEnabled && isRightDockPinned ? ACTIVITY_BAR_WIDTH : 0
+  // On macOS account for the fixed traffic-light region and the current rail width.
+  const rightDockWidth = rightPanelEnabled && isRightDockPinned ? ACTIVITY_BAR_WIDTH : "0px"
   // When the right panel is hidden, edge controls still occupy the end of the
   // header: the system window controls on Windows/Linux or the right-sidebar
   // toggle on macOS. Keep the view controls to their left.
   const leftPanelHeaderCssWidth = isMac
-    ? `max(0px, calc(var(--amby-left-panel-width, ${leftTreeWidth}px) - ${80 - ACTIVITY_BAR_WIDTH}px))`
+    ? `max(0px, calc(var(--amby-left-panel-width, ${leftTreeWidth}px) + ${ACTIVITY_BAR_WIDTH} - 80px))`
     : `var(--amby-left-panel-width, ${leftTreeWidth}px)`
   const rightHeaderInsetCss =
     rightPanelEnabled && isRightSidebarOpen && isRightDockPinned
-      ? `max(${isMac ? MACOS_SIDEBAR_TOGGLE_WIDTH : WINDOW_CONTROLS_WIDTH}px, calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth}px))`
+      ? `max(${isMac ? MACOS_SIDEBAR_TOGGLE_WIDTH : WINDOW_CONTROLS_WIDTH}px, calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth}))`
       : `${isMac ? MACOS_SIDEBAR_TOGGLE_WIDTH : WINDOW_CONTROLS_WIDTH}px`
   const [isMaximized, setIsMaximized] = React.useState(false)
   const lastClickTimeRef = React.useRef(0)
@@ -712,7 +698,8 @@ export function HeaderTabs({
       ) : (
         /* Windows: the left toggle is aligned with the left activity rail. */
         <div
-          className="pointer-events-auto flex w-12 shrink-0 items-center justify-center bg-background"
+          className="pointer-events-auto flex shrink-0 items-center justify-center bg-background"
+          style={{ width: ACTIVITY_BAR_WIDTH }}
           onMouseDown={handleDragStart}
         >
           {leftSidebarToggle}
@@ -768,6 +755,12 @@ export function HeaderTabs({
       ) : (
         <div
           data-pane-tab-bar={paneId}
+          data-pane-edge-aligned={
+            (isLeftSidebarOpen && isLeftDockPinned && leftTreeWidth > 0) ||
+            (!isMac && !isLeftSidebarOpen && isLeftDockPinned)
+              ? true
+              : undefined
+          }
           className={cn(
             "pointer-events-auto flex min-w-0 flex-1 items-center gap-1 overflow-hidden pr-1",
             isMac
@@ -844,7 +837,7 @@ export function HeaderTabs({
         style={{
           width:
             rightPanelEnabled && isRightSidebarOpen && isRightDockPinned
-              ? `calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth}px)`
+              ? `calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth})`
               : isMac
                 ? 0
                 : rightDockWidth,

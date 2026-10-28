@@ -393,7 +393,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         insertPos,
       }
     })
-  }, [editor, isEditorSurfaceHidden])
+  }, [editor, isEditorSurfaceHidden, getVisibleEditorBounds])
 
   React.useEffect(() => {
     if (editor.isDestroyed) return
@@ -885,7 +885,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       widgetLeaveRef.current = null
       window.removeEventListener("scroll", onChange, true)
     }
-  }, [editor, applyVisibility, isEditorSurfaceHidden])
+  }, [editor, applyVisibility, isEditorSurfaceHidden, getVisibleEditorBounds])
 
   // Close menus when clicking outside.
   React.useEffect(() => {

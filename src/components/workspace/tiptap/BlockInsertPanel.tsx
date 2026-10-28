@@ -1,5 +1,6 @@
 "use client"
 
+import { insertImageBlock } from "./image-placement"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import type { Editor, Range } from "@tiptap/core"
@@ -195,7 +196,12 @@ export function BlockInsertPanel({
     if (!url) return
     const chain = editor.chain().focus()
     if (source === "slash" && range) chain.deleteRange(range)
-    chain.insertContent({ type: "image", attrs: { src: url } }).run()
+    chain
+      .command(({ tr, state }) => {
+        insertImageBlock(tr, tr.selection.from, state.schema.nodes.image.create({ src: url }))
+        return true
+      })
+      .run()
     onClose()
   }
 

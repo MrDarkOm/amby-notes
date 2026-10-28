@@ -251,7 +251,7 @@ describe("the header menu of a page", () => {
     openMenu()
     expect(menuRows()).toEqual([
       "Ширина контента",
-      "Скрыть нижнюю панель",
+      "Скрыть статусную панель",
       "Настроить стол",
       "Собрать рукопись",
       "Добавить в избранное",
@@ -269,7 +269,7 @@ describe("the header menu of a page", () => {
     openMenu()
     expect(menuRows()).toEqual([
       "Ширина контента",
-      "Скрыть нижнюю панель",
+      "Скрыть статусную панель",
       "Открыть в новой вкладке",
       "Разделить вправо",
       "Разделить вниз",
@@ -352,13 +352,13 @@ describe("the header menu of a page", () => {
     mount("w")
     expect(bar().getByText(/сл\./)).toBeTruthy()
     openMenu()
-    fireEvent.click(screen.getByRole("menuitem", { name: "Скрыть нижнюю панель" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Скрыть статусную панель" }))
     await waitFor(() =>
       expect(useSettingsStore.getState().prefs.editor.showAreaControls).toBe(false),
     )
     expect(document.querySelector("div.bottom-2.right-4")).toBeNull()
     openMenu()
-    fireEvent.click(screen.getByRole("menuitem", { name: "Показать нижнюю панель" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Показать статусную панель" }))
     await waitFor(() =>
       expect(useSettingsStore.getState().prefs.editor.showAreaControls).toBe(true),
     )

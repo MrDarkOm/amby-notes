@@ -43,7 +43,62 @@ Those directories, along with `.amby/`, are excluded from the note index.
   restore. Completed IDs replay the original property IDs without another write.
   Configuration changes may affect up to three manifests and preserve the old
   inverse property when disconnecting a pair. Version-1 remains readable.
+- `sync/` — the state of encrypted synchronisation **of this device** (see
+  the sync plan, Р10): `state.db` (SQLite with a schema number in `PRAGMA user_version`),
+  `lock` (held by one pass of the engine) and `session.lock` (held while the sync of this vault runs, so
+  that two programs never synchronise one vault). `state.db` is not a cache and not the only copy of
+  the data: when it is lost or damaged (a damaged file is moved aside as `state.db.broken-<time>`), the
+  device reconciles every file again by content hash, links what is equal, makes conflict copies of
+  what differs and deletes nothing. A `state.db` written by a newer Amby (a newer schema number) is
+  left untouched. It also keeps the identity of the device and of the space: a vault copied to another
+  computer is noticed by that and starts from a full reconcile instead of posing as the old device.
+  It is never synchronised. `sync/bases/` holds the **base** of each synchronised Markdown note: the
+  bytes of the last version the device knew to be equal on disk and on the server, kept under the
+  content hash (`<item id>/<hash>`), so that edits of two computers in different places of a note can be
+  merged (sync plan, appendix Г, Г6–Г9). A base is rebuildable in the sense that losing it only turns the
+  next merge into a conflict; it is checked against its hash before it is used, and it never leaves the
+  device.
+- `conflicts/<id>/` — the **second version of a conflicted file**, kept by synchronisation instead of a
+  copy beside the file (sync plan, appendix Г, Г20–Г30). `<id>` is twelve lowercase hex characters.
+  A set holds `other<ext>` (the bytes of the version that did not keep the name, byte for byte, with the
+  extension of the original), `base<ext>` (the common base, only for a text conflict that had one) and
+  `meta.json` (compact UTF-8 JSON, written last: `v`, `id`, `kind`, `item_id`, `path`, `other`,
+  `other_hash`, `other_size`, `base`, `base_hash`; no time and nothing that depends on the device, so two
+  devices that make the same set write the same bytes). A set exists only when `meta.json` and an `other`
+  file with the hash from `meta.json` are both there. The files are ordinary synchronised files: the
+  conflict is listed and resolved from any device, and resolving it moves the set to the vault trash
+  (`.amby/trash/`). Conflict marks (`<<<<<<<` and the like) are never written into a note. Conflict copies
+  made before this layout (`Name.<id>-conflict.md` beside the file) stay where they are and are still
+  listed as conflicts. The indexer does not read this folder.
 - future versioned, documented metadata files.
+
+### Which files of `.amby/` are synchronised
+
+Every file or folder in `.amby/` states here whether it travels to the other devices. **A new file
+that does not say so is not synchronised** (sync plan, Р4): an unknown file neither leaves the
+computer nor gets lost. The engine enforces the same list (`sync/core/src/engine/rules.rs`), and a
+test holds the two together.
+
+| Entry                      | Synchronised | Why                                                               |
+| -------------------------- | ------------ | ----------------------------------------------------------------- |
+| `properties.json`          | yes          | user data of the notes                                            |
+| `blocks/`                  | yes          | per-note UI sidecars                                              |
+| `graph-layout.json`        | yes          | user state                                                        |
+| `property-backups/`        | yes          | immutable backups of removed properties                           |
+| `conflicts/`               | yes          | second versions of conflicts, listed and resolved from any device |
+| `notes.db`, `-wal`, `-shm` | no           | rebuildable index                                                 |
+| `history/`                 | no           | each device keeps its own snapshots                               |
+| `recovery/`                | no           | drafts and journals of this device                                |
+| `trash/`                   | no           | each device keeps its own trash                                   |
+| `migrations/`              | no           | journals of this device                                           |
+| `sync/`                    | no           | state of synchronisation of this device                           |
+| `workspace.json`, others   | no           | not named: the default is "no"                                    |
+
+Files written by synchronisation itself follow the rules of the vault: a file that arrives from another
+device replaces the local one only after a history snapshot with the reason `sync-overwrite` (taken
+even when the history is switched off), and a file deleted on another device goes to `.amby/trash/`
+whatever the delete mode (sync plan, Р8). The writes of synchronisation are not registered as
+writes of the application, so the watcher reports them like changes made by another program.
 
 The directory is application metadata, not an Obsidian configuration directory.
 Amby must not change `.obsidian` settings or plugin data.
@@ -85,6 +140,17 @@ member of a duplicate group. Body saves, deleted-note restoration, and durable
 custom-property mutations are refused until the identity is unique again.
 The editor and properties panel show a localized read-only warning. Malformed
 YAML uses the separate body-editing policy below; it is not an ID conflict.
+
+A **conflict copy made by synchronisation before the layout of `.amby/conflicts/`** (`Name.<12 hex>-conflict.md`, next to
+the file, listed in the list of conflicts of the sync screen) carries the same
+`amby-id` as the file it was copied from. It is the one duplicate that never takes
+the identity and never blocks the other: the file under its real name keeps the
+stable ID and stays editable whatever the order of paths, and the copy is a
+visible, searchable, read-only duplicate until the person resolves the conflict
+(keep the file, replace it with the copy, or keep both). Nothing is written into
+either file for this. Any other file with the same ID still blocks both, as above.
+A copy never holds the identity, even when its file is missing: then it has only its path-scoped conflict
+key. Once "keep both" gives the copy an `amby-id` of its own, it is an ordinary note.
 
 The index's `identity_version = 3` marker invalidates the metadata skip path
 once so older cached interpretations are re-read. SQLite is still disposable;
@@ -386,6 +452,63 @@ save.
 Local history protects against accidental application actions and failed saves;
 it is not a substitute for a second physical copy. A protected vault should be
 backed up by the operating system or a sync service with version history.
+
+Before enabling sync, Amby creates `<vault-name>.amby-backups/<ULID>/` beside
+the vault. `vault/` contains all files and empty directories, including unknown
+metadata and durable `.amby/` data. Known `.amby/notes.db` and
+`.amby/sync/state.db` use consistent SQLite online snapshots (`VACUUM INTO`,
+`quick_check`); their WAL/SHM files are not copied separately. The version-1 local
+receipt `.amby/sync/pre-sync-backup.json` itself is omitted. That receipt holds
+the canonical source path, backup root and SHA-256 of the manifest, with no
+credentials; it is not synchronised. A copied vault at another path gets its own
+backup. Other files retain their bytes. Symlinks, special entries, unsupported
+names, unreadable files and changes detected while copying block completion
+instead of being silently skipped.
+
+A directory with `INCOMPLETE`, or without a valid version-1 `manifest.json`, is
+not a completed backup. File hashes and the source inventory are checked before
+publishing the immutable manifest; only then is a receipt written in the vault.
+The copy remains unchanged after later edits. A missing or damaged copy is
+reported when manually enabling sync again. Automatic resumption validates the
+receipt and manifest without rehashing every backup file. This is a snapshot of
+files on disk, not an ongoing backup or protection against failure of that disk.
+
+Settings → General → Backups lists the open vault's completed, incomplete,
+missing and damaged copies. Metadata alone is never labeled verified: explicit
+verification hashes every copied file against the version-1 manifest and, for
+the recorded pre-sync copy, verifies the receipt's manifest digest. The same
+manager is available from the sync vault's backup disclosure. It does not read
+credentials and works without a sync account. Existing `RESTORE.txt` files remain
+unchanged as an emergency manual procedure.
+
+Restoring asks for a parent folder through the native picker. Backup IDs are
+resolved by Rust under the active vault's backup family (or its recorded receipt),
+not from renderer-supplied filesystem paths. Catalogs carry the backend vault
+generation; stale verification/restore requests are refused, including a vault
+switch while the folder picker is open. The destination must be outside the
+active vault and backup directory.
+
+Each restore exclusively reserves `<vault-name>-restored-<operation-id>/` with
+an `INCOMPLETE` marker and a version-1 `operation.json` journal. Its `vault/`
+subfolder receives the files byte for byte. Only `.amby/sync` is mapped to a new,
+unused `.amby/sync-before-restore-<ULID>` path **in the new copy**, preserving the
+old durable state and preventing automatic sync. No note IDs, unknown sidecars,
+BOMs or line endings are rewritten. The backup is verified before copying and
+again after it; the output is checked against the manifest with this sole path
+mapping. Directory and file durability precede the completed journal and removal
+of `INCOMPLETE`. A completed operation replays only if the output is unchanged;
+it never overwrites later edits. On failure the partial folder and journal remain,
+and a retry can create a new operation. The UI reports success only after the
+completion boundary and offers an explicit "Open in Amby" action using the normal
+save/close/profile-selection path. The source vault and immutable backup remain
+unchanged and can keep working while a separate copy is restored.
+
+Rollback is to keep using the original vault; no original data was replaced.
+After verifying the restored notes, the owner may remove an unwanted partial
+restore folder through the operating system. Amby does not silently delete it.
+Automatic schedules, retention pruning and discovery of moved external backups
+are outside this first recovery UI; the backup still does not protect against
+failure of its physical disk.
 
 Git is a useful optional third layer for Markdown-first vaults: initialise it
 only with the user's explicit choice, commit the user-visible note and asset

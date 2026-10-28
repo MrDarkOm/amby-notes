@@ -8,6 +8,7 @@ mod durable;
 mod frontmatter;
 mod history;
 pub mod index;
+mod keychain_access;
 pub mod logging;
 mod model;
 pub mod package_manager;
@@ -18,6 +19,7 @@ mod property_store;
 mod recovery;
 mod recycle_bin;
 mod state;
+pub mod sync;
 mod system_recycle_bin;
 pub mod vault;
 mod vault_context;
@@ -185,6 +187,31 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         credentials::store_ai_credential,
         credentials::delete_ai_credential,
         credentials::inspect_ai_credential,
+        commands::backups::list_vault_backups,
+        commands::backups::verify_vault_backup,
+        commands::backups::restore_vault_backup,
+        commands::sync::sync_check_server,
+        commands::sync::sync_check_password,
+        commands::sync::sync_prepare_account,
+        commands::sync::sync_confirm_recovery_code,
+        commands::sync::sync_set_enroll_code,
+        commands::sync::sync_cancel_pending,
+        commands::sync::sync_sign_in,
+        commands::sync::sync_recover,
+        commands::sync::sync_status,
+        commands::sync::sync_list_devices,
+        commands::sync::sync_disconnect_device,
+        commands::sync::sync_sign_out,
+        commands::sync::sync_vault_status,
+        commands::sync::sync_list_spaces,
+        commands::sync::sync_account_overview,
+        commands::sync::sync_enable_vault,
+        commands::sync::sync_disable_vault,
+        commands::sync::sync_run_now,
+        commands::sync::sync_approve,
+        commands::sync::sync_resolve_conflict,
+        commands::sync::sync_read_conflict_versions,
+        commands::sync::sync_resolve_conflict_with_text,
         ai::cancel_ai_request,
         ai::ai_chat,
         commands::modules::stage_module_package,
@@ -260,6 +287,37 @@ pub fn run() {
                     }
                 }
                 Err(_) => debug.set_file_error("AppDataUnavailable"),
+            }
+
+            {
+                // Encrypted sync (stage Э4): the key store holds AK and the token, the app data
+                // holds the address and the name (docs/sync-plan.md, Р5).
+                use tauri::Manager;
+                let root = app_data::app_root(app.handle())?;
+                let secrets: std::sync::Arc<dyn sync::secrets::SecretStore> = std::sync::Arc::new(
+                    sync::secrets::BundledSecrets::new(sync::secrets::KeyringStore),
+                );
+                let connection: std::sync::Arc<dyn sync::connection::ConnectionStore> =
+                    std::sync::Arc::new(sync::connection::FileConnectionStore::new(
+                        root.join(sync::connection::CONNECTION_FILE),
+                    ));
+                app.manage(sync::service::SyncService::new(
+                    secrets.clone(),
+                    connection.clone(),
+                ));
+                // The sync of the open vault (stage Э4): the engine, its session and the hooks
+                // that tell the windows.
+                let batch = app.state::<WatcherState>().batch.clone();
+                app.manage(sync::runtime::SyncRuntime::new(
+                    secrets,
+                    connection,
+                    tauri::async_runtime::handle().inner().clone(),
+                    sync::session::Schedule::production(),
+                    std::sync::Arc::new(sync::app_hooks::AppHooks::new(
+                        app.handle().clone(),
+                        batch,
+                    )),
+                ));
             }
 
             #[cfg(target_os = "macos")]

@@ -118,6 +118,28 @@ describe("TooltipProvider", () => {
     expect(screen.getByRole("tooltip").style.opacity).toBe("0")
   })
 
+  it("does not reopen a tooltip when a click focuses the trigger, but allows keyboard focus", () => {
+    vi.useFakeTimers()
+    const { container } = render(
+      <>
+        <button title="Настройки">Настройки</button>
+        <TooltipProvider />
+      </>,
+    )
+    const trigger = container.querySelector("button") as HTMLButtonElement
+    vi.spyOn(trigger, "matches").mockImplementation((selector) => selector === ":focus-visible")
+
+    fireEvent.pointerDown(trigger)
+    fireEvent.focusIn(trigger)
+    act(() => vi.advanceTimersByTime(1000))
+    expect(screen.queryByRole("tooltip")).toBeNull()
+
+    fireEvent.keyDown(document, { key: "Tab" })
+    fireEvent.focusIn(trigger)
+    act(() => vi.advanceTimersByTime(1000))
+    expect(screen.getByRole("tooltip").textContent).toBe("Настройки")
+  })
+
   it("positions tooltips at bottom by default", () => {
     vi.useFakeTimers()
     const { container } = render(

@@ -50,11 +50,39 @@ specta-typescript = "0.0.9"
 tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }
 sha2 = "0.10"
 ring = "0.17"
+# Encrypted sync (docs/sync-plan.md, stage Э4): the sign-in client, the cryptography and the wire constants.
+amby-sync-client = { path = "../sync/client" }
+amby-sync-core = { path = "../sync/core" }
+amby-sync-proto = { path = "../sync/proto" }
+zxcvbn = "3"
+zeroize = "1"
+hex = "0.4"
+unicode-normalization = "0.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "3.7"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["NSApplication", "NSImage"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["NSData", "NSError", "NSFileManager", "NSString", "NSURL"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_UI_Shell"] }
+
+[dev-dependencies]
+# The server of the sync workspace, started inside a test (stage Э4: the link against a real server).
+amby-sync-conformance = { path = "../sync/conformance" }
+
+# Argon2id uses 64 MiB per derivation: optimised even in debug and test builds, otherwise every
+# test that signs in would take seconds (the same rule as in sync/Cargo.toml).
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.test.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
+[profile.test.package.blake2]
+opt-level = 3
+[profile.dev.package.chacha20poly1305]
+opt-level = 3
+[profile.test.package.chacha20poly1305]
+opt-level = 3

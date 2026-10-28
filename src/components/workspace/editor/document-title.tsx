@@ -96,7 +96,7 @@ export function DocumentTitle({
               }
             }}
           >
-            <IconValue value={fileIcon} className="size-8 rounded-md" />
+            <IconValue value={fileIcon} className="size-8 rounded-md text-3xl" />
           </motion.button>
         ) : (
           <motion.button

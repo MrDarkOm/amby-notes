@@ -416,6 +416,11 @@ pub fn snapshot_before_write(
 /// switched off for the vault.
 pub const SOURCE_REWRITE_REASON: &str = "note-rewrite";
 
+/// A file is replaced by a version that arrived from the server (docs/sync-plan.md, Р8). Like
+/// [`SOURCE_REWRITE_REASON`] it is never coalesced with autosaves and is taken even when history
+/// is switched off for the vault: it is the only copy of what the replacement overwrites.
+pub const SYNC_OVERWRITE_REASON: &str = "sync-overwrite";
+
 fn is_autosave_snapshot(reason: &str) -> bool {
     matches!(reason, "note-save" | "file-save")
 }
@@ -503,7 +508,10 @@ fn snapshot_before_write_at(
     reason: &str,
     created_at_ms: u64,
 ) -> Result<Option<String>, String> {
-    if reason != SOURCE_REWRITE_REASON && !is_history_enabled(vault) {
+    if reason != SOURCE_REWRITE_REASON
+        && reason != SYNC_OVERWRITE_REASON
+        && !is_history_enabled(vault)
+    {
         return Ok(None);
     }
     let _lock = history_lock();

@@ -370,7 +370,7 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
             maxLength={80}
             aria-label={t("databaseOptions.newOption")}
             placeholder={t("databaseOptions.newOption")}
-            className="h-8 w-full rounded-lg border border-dashed border-input bg-transparent pl-7 pr-2 text-[13px] outline-none placeholder:text-muted-foreground hover:border-foreground/30 focus:border-solid focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60"
+            className="amby-inset-icon-input h-8 w-full rounded-lg border border-dashed border-input bg-transparent pl-7 pr-2 text-[13px] outline-none placeholder:text-muted-foreground hover:border-foreground/30 focus:border-solid focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60"
             onChange={(event) => setNewName(event.target.value)}
             onKeyDown={(event) => {
               if (event.key !== "Enter") return

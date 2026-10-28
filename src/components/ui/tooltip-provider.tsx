@@ -71,6 +71,7 @@ export function TooltipProvider() {
   }, [tooltipDelayMs])
 
   React.useLayoutEffect(() => {
+    let keyboardInteraction = true
     // The rich editor draws its own document and watches it for changes. Taking the
     // `title` off a link it drew makes it draw the link again, title included, and with
     // several such links in a note this never ends. Only controls inside a node view
@@ -229,6 +230,7 @@ export function TooltipProvider() {
     }
 
     const onFocusIn = (event: FocusEvent) => {
+      if (!keyboardInteraction) return
       const target = getTarget(event)
       if (!target) return
       const focusedEl = event.target instanceof HTMLElement ? event.target : null
@@ -244,7 +246,14 @@ export function TooltipProvider() {
       }
     }
     const onFocusOut = () => hide()
-    const dismissOnInteraction = () => hide()
+    const onPointerDown = () => {
+      keyboardInteraction = false
+      hide()
+    }
+    const onKeyDown = () => {
+      keyboardInteraction = true
+      hide()
+    }
     const dismissWhenHidden = () => {
       if (document.visibilityState !== "visible") hide()
     }
@@ -279,13 +288,13 @@ export function TooltipProvider() {
     })
     document.addEventListener("pointerover", onPointerOver)
     document.addEventListener("pointerout", onPointerOut)
-    document.addEventListener("pointerdown", dismissOnInteraction, true)
+    document.addEventListener("pointerdown", onPointerDown, true)
     document.addEventListener("focusin", onFocusIn)
     document.addEventListener("focusout", onFocusOut)
-    document.addEventListener("keydown", dismissOnInteraction, true)
+    document.addEventListener("keydown", onKeyDown, true)
     document.addEventListener("visibilitychange", dismissWhenHidden)
     document.addEventListener("mouseleave", hide)
-    window.addEventListener("blur", dismissOnInteraction)
+    window.addEventListener("blur", hide)
     window.addEventListener("resize", reposition)
     window.addEventListener("scroll", hide, true)
 
@@ -293,13 +302,13 @@ export function TooltipProvider() {
       observer.disconnect()
       document.removeEventListener("pointerover", onPointerOver)
       document.removeEventListener("pointerout", onPointerOut)
-      document.removeEventListener("pointerdown", dismissOnInteraction, true)
+      document.removeEventListener("pointerdown", onPointerDown, true)
       document.removeEventListener("focusin", onFocusIn)
       document.removeEventListener("focusout", onFocusOut)
-      document.removeEventListener("keydown", dismissOnInteraction, true)
+      document.removeEventListener("keydown", onKeyDown, true)
       document.removeEventListener("visibilitychange", dismissWhenHidden)
       document.removeEventListener("mouseleave", hide)
-      window.removeEventListener("blur", dismissOnInteraction)
+      window.removeEventListener("blur", hide)
       window.removeEventListener("resize", reposition)
       window.removeEventListener("scroll", hide, true)
     }

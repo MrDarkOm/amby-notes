@@ -115,7 +115,7 @@ function AmbyImageContent({ node, selected, editor, updateAttributes }: NodeView
       className={`amby-image-wrap${alignClass}${selected ? " is-selected" : ""}${isResizing ? " is-resizing" : ""}`}
       data-asset-src={src}
     >
-      <span className="amby-image-container">
+      <span className="amby-image-container" data-drag-handle="">
         <img
           ref={imgRef}
           key={resolved}

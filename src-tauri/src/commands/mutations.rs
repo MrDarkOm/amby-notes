@@ -654,6 +654,7 @@ pub fn move_item(
     db: tauri::State<'_, VaultContext>,
     runtime: tauri::State<'_, DatabaseRuntimeState>,
     watcher_state: tauri::State<'_, WatcherState>,
+    sync_runtime: tauri::State<'_, crate::sync::runtime::SyncRuntime>,
     source_path: String,
     target_path: String,
 ) -> Result<MutationOutcome, String> {
@@ -661,6 +662,10 @@ pub fn move_item(
     let source_path = paths::guard(&db, &source_path)?;
     let target_path = paths::guard(&db, &target_path)?;
     let preview = preview_move_item(&source_path, &target_path)?;
+    // Synchronisation learns that this is a move, before the change reaches the disk (Д70).
+    if let Ok(root) = db.root() {
+        sync_runtime.note_renames(&root, &preview.path_changes);
+    }
     let (vault_root, generation, prepared_plan) = {
         let conn_guard = db.conn.lock().unwrap();
         let conn = conn_guard.as_ref().ok_or("No vault open")?;
@@ -891,12 +896,17 @@ pub fn rename_item(
     db: tauri::State<'_, VaultContext>,
     runtime: tauri::State<'_, DatabaseRuntimeState>,
     watcher_state: tauri::State<'_, WatcherState>,
+    sync_runtime: tauri::State<'_, crate::sync::runtime::SyncRuntime>,
     path: String,
     new_name: String,
 ) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock().unwrap();
     let path = paths::guard(&db, &path)?;
     let preview = preview_rename_item(&path, &new_name)?;
+    // Synchronisation learns that this is a rename, before the change reaches the disk (Д70).
+    if let Ok(root) = db.root() {
+        sync_runtime.note_renames(&root, &preview.path_changes);
+    }
     let (vault_root, generation, inputs) = {
         let conn_guard = db.conn.lock().unwrap();
         let conn = conn_guard.as_ref().ok_or("No vault open")?;

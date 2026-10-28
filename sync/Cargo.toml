@@ -1,0 +1,62 @@
+# Cargo workspace of encrypted sync (plan: docs/sync-plan.md, decision Р12). It is separate from
+# src-tauri so that the server builds in Docker without Tauri and its target dir stays apart.
+[workspace]
+resolver = "2"
+members = ["proto", "core", "server", "conformance", "client", "sim", "simrun"]
+# cargo-fuzz crate: has its own workspace and builds only on nightly.
+exclude = ["core/fuzz"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.85"
+license = "AGPL-3.0-only"
+repository = "https://github.com/MrDarkOm/amby-notes"
+publish = false
+
+[workspace.dependencies]
+amby-sync-proto = { path = "proto" }
+amby-sync-core = { path = "core" }
+amby-sync-client = { path = "client" }
+argon2 = "0.5"
+blake3 = "1"
+chacha20poly1305 = "0.10"
+getrandom = "0.3"
+hkdf = "0.12"
+sha2 = "0.10"
+serde = "1"
+serde_json = "1"
+thiserror = "2"
+unicode-normalization = "0.1"
+zeroize = { version = "1", features = ["derive"] }
+# Server (Э2). rusqlite is the same version as in the app (src-tauri).
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal", "fs", "io-util"] }
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
+hmac = "0.12"
+subtle = "2"
+rusqlite = { version = "0.32", features = ["bundled"] }
+# Client of the protocol (Э4): the same HTTP stack as the application (src-tauri), rustls, no OpenSSL.
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "webpki-roots"] }
+url = "2"
+# Only for tests.
+hex = "0.4"
+tempfile = "3"
+# HTTP client of the conformance suite: plain HTTP only, no TLS stack.
+ureq = { version = "2", default-features = false }
+proptest = "1"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+
+# Key derivation runs Argon2id with 64 MiB: dependencies are optimised even in debug builds,
+# otherwise every test that derives a key would take seconds.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.test.package."*"]
+opt-level = 3

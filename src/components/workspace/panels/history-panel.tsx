@@ -23,7 +23,6 @@ function HistoryContents({
   currentDocPath,
   currentDocId,
   treeItems,
-  onSelect,
   onHistoryRestored,
 }: PanelRenderProps) {
   const { t, i18n } = useTranslation()
@@ -242,7 +241,13 @@ function HistoryContents({
           <Trash2 className="size-3.5" />
         </Button>
       </footer>
-      <HistoryPreview history={history} name={name} treeItems={treeItems} onSelect={onSelect} />
+      <HistoryPreview
+        history={history}
+        name={name}
+        path={currentDocPath}
+        treeItems={treeItems}
+        onRestored={onHistoryRestored}
+      />
     </div>
   )
 }

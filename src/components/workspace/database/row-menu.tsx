@@ -501,7 +501,7 @@ function MovePage({
           value={query}
           placeholder={t("databaseRowMenu.searchDatabases")}
           aria-label={t("databaseRowMenu.searchDatabases")}
-          className="h-8 w-full rounded-md border border-border bg-transparent pl-8 pr-2 text-[13px] outline-none focus:border-ring"
+          className="amby-inset-icon-input h-8 w-full rounded-md border border-border bg-transparent pl-8 pr-2 text-[13px] outline-none focus:border-ring"
           onChange={(event) => setQuery(event.target.value)}
         />
       </div>

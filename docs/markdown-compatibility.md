@@ -59,6 +59,11 @@ special visual widget for every construct. For example, Mermaid and math may
 remain portable Markdown text/code until their dedicated renderer is enabled;
 their source is still preserved exactly.
 
+When an external audio, video or PDF attachment temporarily falls back to the
+editor's schema DOM, it is represented by an inert marked link rather than an
+image request. Its source, alternate text and title survive HTML parsing; this
+does not change the Markdown source or normal image rendering.
+
 ## Status legend
 
 | Status                 | Meaning                                                                                                                            |
@@ -161,3 +166,11 @@ When adding a Live Preview feature, add a fixture or focused round-trip case
 first. When rewriting a construct would lose anything a reader of the note sees,
 the block must be kept as its source text (or the note kept Source-only): add
 that case and its test before the feature.
+
+## Comparison of two versions (sync conflicts)
+
+The comparison window of a sync conflict reads the block source that Live Preview keeps (`markdownBlockSource`, and
+`markdownItemSource` for list items) and builds the result from those source texts and the whitespace between them; it never writes
+the result from the drawing. Untouched blocks, BOM and line endings of the file stay byte for byte. A version that does not pass the
+admission above is compared as source; mixed line endings, an unterminated properties envelope or a file that cannot be cut exactly
+are chosen as a whole version. Owner: `src/components/workspace/sync/compare/block-compare.ts`.

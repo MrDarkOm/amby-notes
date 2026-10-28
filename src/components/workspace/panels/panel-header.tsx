@@ -59,7 +59,7 @@ export function PanelSearch({
           onChange={(event) => onChange(event.target.value)}
           aria-label={ariaLabel ?? placeholder}
           placeholder={placeholder}
-          className="h-8 min-w-0 bg-transparent pl-8 text-xs"
+          className="amby-inset-icon-input h-8 min-w-0 bg-transparent pl-8 text-xs"
         />
       </div>
       {trailing}

@@ -12,6 +12,69 @@ use tauri::Manager;
 
 pub(crate) struct NativeAppDataRoot(pub std::path::PathBuf);
 
+/// The key store of the harness: in memory, so that a check never writes to the key store of the
+/// person who runs it. `AMBY_NATIVE_REAL_KEYCHAIN=1` opts in to the system key store.
+#[derive(Default)]
+struct MemorySecrets(std::sync::Mutex<std::collections::HashMap<String, String>>);
+
+impl crate::sync::secrets::SecretStore for MemorySecrets {
+    fn get(&self, name: &str) -> Result<Option<String>, crate::sync::secrets::SecretError> {
+        Ok(self.0.lock().unwrap().get(name).cloned())
+    }
+
+    fn set(&self, name: &str, value: &str) -> Result<(), crate::sync::secrets::SecretError> {
+        self.0
+            .lock()
+            .unwrap()
+            .insert(name.to_string(), value.to_string());
+        Ok(())
+    }
+
+    fn delete(&self, name: &str) -> Result<(), crate::sync::secrets::SecretError> {
+        self.0.lock().unwrap().remove(name);
+        Ok(())
+    }
+}
+
+/// The sync service and the sync of the open vault in the harness: the record lives in the
+/// isolated app data, the key store in memory unless `AMBY_NATIVE_REAL_KEYCHAIN` asks for the
+/// system one. Both share the same stores, as in the application.
+fn manage_harness_sync(app: &tauri::App, app_data: &std::path::Path) {
+    use crate::sync::connection::{ConnectionStore, FileConnectionStore, CONNECTION_FILE};
+    use crate::sync::secrets::{KeyringStore, SecretStore};
+    let secrets: Arc<dyn SecretStore> = if std::env::var_os("AMBY_NATIVE_REAL_KEYCHAIN").is_some() {
+        Arc::new(crate::sync::secrets::BundledSecrets::new(KeyringStore))
+    } else {
+        Arc::new(MemorySecrets::default())
+    };
+    let connection: Arc<dyn ConnectionStore> =
+        Arc::new(FileConnectionStore::new(app_data.join(CONNECTION_FILE)));
+    app.manage(crate::sync::service::SyncService::new(
+        secrets.clone(),
+        connection.clone(),
+    ));
+    let batch = app.state::<crate::watcher::WatcherState>().batch.clone();
+    app.manage(crate::sync::runtime::SyncRuntime::new(
+        secrets,
+        connection,
+        tauri::async_runtime::handle().inner().clone(),
+        crate::sync::session::Schedule::production(),
+        Arc::new(crate::sync::app_hooks::AppHooks::new(
+            app.handle().clone(),
+            batch,
+        )),
+    ));
+}
+
+/// The pages the contract harness may load (an allow-list: the name comes from the environment).
+fn contract_page() -> &'static str {
+    match std::env::var("AMBY_NATIVE_PAGE").as_deref() {
+        Ok("sync-connect") => "tests/native/sync-connect.html",
+        Ok("sync-vault") => "tests/native/sync-vault.html",
+        _ => "tests/native/index.html",
+    }
+}
+
 /// Full production React UI with isolated settings and WebView state. Files
 /// remain available after exit so close/reopen and external edits are testable.
 fn run_native_ui(root: std::path::PathBuf) {
@@ -22,6 +85,7 @@ fn run_native_ui(root: std::path::PathBuf) {
         "Only a profile created by the native UI runner may be used"
     );
     let profile = root.join(".webview");
+    let app_data_root = root.join(".app-data");
     let mut context = tauri::generate_context!();
     context.config_mut().app.windows.clear();
     crate::state::init_logging();
@@ -37,6 +101,7 @@ fn run_native_ui(root: std::path::PathBuf) {
         .manage(crate::logging::DebugState(crate::logging::global_runtime()))
         .invoke_handler(crate::specta_builder().invoke_handler())
         .setup(move |app| {
+            manage_harness_sync(app, &app_data_root);
             let debug = crate::logging::global_runtime();
             debug.set_app(app.handle().clone());
             debug
@@ -70,7 +135,17 @@ pub fn run_native_contract() {
         std::env::temp_dir().join(format!("amby-native-contract-{}", ulid::Ulid::generate()));
     fs::create_dir_all(&root).expect("create disposable native vault");
     let root = root.canonicalize().expect("canonical test root");
+    if contract_page() == "tests/native/index.html" {
+        // Under .amby so loading the harness root cannot index or rewrite the immutable copy.
+        let fixture = root.join(".amby/native-backup-fixture");
+        fs::create_dir_all(fixture.join(".amby")).expect("backup fixture directory");
+        fs::write(fixture.join("note.md"), b"\xef\xbb\xbfNative backup\r\n")
+            .expect("backup fixture note");
+        fs::write(fixture.join(".amby/keep.bin"), [0, 255, 42]).expect("backup fixture sidecar");
+        crate::sync::backup::ensure(&fixture).expect("verified native backup fixture");
+    }
     let setup_root = root.clone();
+    let app_data_root = root.join(".app-data");
     let exit_code = Arc::new(AtomicI32::new(1));
     let result_code = exit_code.clone();
     let mut context = tauri::generate_context!();
@@ -87,6 +162,7 @@ pub fn run_native_contract() {
         .manage(crate::logging::DebugState(crate::logging::global_runtime()))
         .invoke_handler(crate::specta_builder().invoke_handler())
         .setup(move |app| {
+            manage_harness_sync(app, &app_data_root);
             let debug = crate::logging::global_runtime();
             debug.set_app(app.handle().clone());
             debug
@@ -96,13 +172,24 @@ pub fn run_native_contract() {
                 )
                 .map_err(std::io::Error::other)?;
             let initialization = format!(
-                "window.__AMBY_NATIVE_TEST_ROOT__ = {};",
-                serde_json::to_string(&setup_root.to_string_lossy()).unwrap()
+                "window.__AMBY_NATIVE_TEST_ROOT__ = {}; window.__AMBY_NATIVE_SYNC__ = {};",
+                serde_json::to_string(&setup_root.to_string_lossy()).unwrap(),
+                // Where the sync check finds its server and the one-time codes (env, never a file).
+                serde_json::json!({
+                    "url": std::env::var("AMBY_NATIVE_SYNC_URL").ok(),
+                    "username": std::env::var("AMBY_NATIVE_SYNC_USER").ok(),
+                    "enrollCode": std::env::var("AMBY_NATIVE_SYNC_CODE").ok(),
+                    // The check of two computers: which one this process is, the password of the
+                    // account and the name of the shared space.
+                    "role": std::env::var("AMBY_NATIVE_SYNC_ROLE").ok(),
+                    "password": std::env::var("AMBY_NATIVE_SYNC_PASSWORD").ok(),
+                    "spaceName": std::env::var("AMBY_NATIVE_SYNC_SPACE").ok(),
+                })
             );
             tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
-                tauri::WebviewUrl::App("tests/native/index.html".into()),
+                tauri::WebviewUrl::App(contract_page().into()),
             )
             .title("Amby native storage contract (disposable vault)")
             .data_directory(setup_root.join(".webview"))

@@ -1,6 +1,8 @@
 name: CLA
 
 # Asks the author of a pull request to sign the Contributor License Agreement (CLA.md) once.
+# GitHub runs this from the pull request's target branch, so it works for pull requests into dev
+# (where CONTRIBUTING.md sends them) and, after the next stable promotion, into main too.
 # Signatures are kept in signatures/cla.json on the cla-signatures branch. The pull request's
 # code is never checked out here, so pull_request_target runs nothing from the contribution.
 on:
@@ -30,6 +32,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           path-to-signatures: signatures/cla.json
-          path-to-document: https://github.com/MrDarkOm/amby-notes/blob/main/CLA.md
+          path-to-document: https://github.com/MrDarkOm/amby-notes/blob/dev/CLA.md
           branch: cla-signatures
           allowlist: MrDarkOm,DarkOm,dependabot[bot],github-actions[bot]

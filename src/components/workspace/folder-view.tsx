@@ -158,7 +158,7 @@ export function FolderView({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t("folderView.search")}
-            className="h-10 w-full rounded-xl border border-border bg-card pl-10 pr-4 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring/40"
+            className="amby-inset-icon-input h-10 w-full rounded-xl border border-border bg-card pl-10 pr-4 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring/40"
           />
         </div>
 

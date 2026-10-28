@@ -1,0 +1,37 @@
+[package]
+name = "amby-sync-server"
+description = "Amby sync: blind encrypted storage server"
+version = "0.2.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+name = "amby_sync_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "amby-sync-server"
+path = "src/main.rs"
+
+[dependencies]
+amby-sync-proto.workspace = true
+axum.workspace = true
+futures-util.workspace = true
+getrandom.workspace = true
+hmac.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

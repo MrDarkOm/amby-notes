@@ -23,6 +23,8 @@ export type ModulePermission =
   | "write-databases"
   | "ui-panel"
   | "ui-action"
+  | "network"
+  | "secrets.use"
 
 export interface ModuleManifest {
   permissions: ModulePermission[]
@@ -116,13 +118,6 @@ export const MODULE_REGISTRY: ModuleDef[] = [
     status: "ready",
     manifest: { permissions: ["ui-action", "read-vault-meta"] },
     actions: ["network"],
-  },
-  {
-    id: "sync",
-    labelKey: "settings.modules.sync",
-    descriptionKey: "settings.modules.descriptions.sync",
-    status: "preview",
-    manifest: { permissions: ["read-vault-meta"] },
   },
   {
     id: "ai",

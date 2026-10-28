@@ -184,6 +184,7 @@ export function useApplyPreferences(): boolean {
     // the same light/dark mode instead of exposing an unstyled white canvas.
     try {
       localStorage.setItem("amby:theme-mode", theme.mode)
+      localStorage.setItem("amby:theme-background", theme.tokens["--background"] ?? "")
       localStorage.setItem("theme", theme.mode)
     } catch {
       // Storage can be unavailable in restricted browser contexts.

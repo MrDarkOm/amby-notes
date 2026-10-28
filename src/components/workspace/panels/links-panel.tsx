@@ -1,10 +1,13 @@
 "use client"
 
 import * as React from "react"
-import { Link as LinkIcon } from "lucide-react"
+import { ArrowRight, Link as LinkIcon, List } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { LinkGraphEdge, PanelRenderProps } from "../panel-registry"
@@ -13,6 +16,8 @@ import { PanelHeader, PanelSearch } from "./panel-header"
 export function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRenderProps) {
   const { t } = useTranslation()
   const [query, setQuery] = React.useState("")
+  const [allOpen, setAllOpen] = React.useState(false)
+  const [allQuery, setAllQuery] = React.useState("")
   const nodes = linkGraph?.nodes ?? []
   const edges = linkGraph?.edges ?? []
   const nodeById = new Map(nodes.map((node) => [node.id, node]))
@@ -28,7 +33,12 @@ export function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRende
   }
   const visibleOutgoing = outgoing.filter(matchesQuery)
   const visibleBacklinks = backlinks.filter(matchesQuery)
-  const allLinks = edges.filter(matchesQuery)
+  const allSearch = allQuery.trim().toLocaleLowerCase()
+  const allLinks = edges.filter((edge) => {
+    const from = nodeById.get(edge.source)?.label ?? edge.source
+    const to = nodeById.get(edge.target)?.label ?? edge.label
+    return `${from} ${to} ${edge.label}`.toLocaleLowerCase().includes(allSearch)
+  })
 
   function LinkRow({ edge, direction }: { edge: LinkGraphEdge; direction: "out" | "in" | "all" }) {
     const source = nodeById.get(edge.source)
@@ -94,10 +104,23 @@ export function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRende
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PanelHeader title={t("panels.links")} />
+      <PanelHeader
+        title={t("panels.links")}
+        actions={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            title={t("linksPanel.all")}
+            aria-label={t("linksPanel.all")}
+            onClick={() => setAllOpen(true)}
+          >
+            <List className="size-4" />
+          </Button>
+        }
+      />
       <PanelSearch value={query} onChange={setQuery} placeholder={t("linksPanel.search")} />
       <Tabs value={activeTab} onValueChange={setActiveTab} className="min-h-0 flex-1 gap-0">
-        <TabsList className="mx-4 mb-3 grid h-8 w-[calc(100%-2rem)] grid-cols-3">
+        <TabsList className="mx-4 mb-3 grid h-8 w-[calc(100%-2rem)] grid-cols-2">
           <TabsTrigger
             value="outgoing"
             title={t("linksPanel.outgoing")}
@@ -114,14 +137,6 @@ export function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRende
           >
             <span className="truncate">{t("linksPanel.backlinks")}</span>
           </TabsTrigger>
-          <TabsTrigger
-            value="all"
-            title={t("linksPanel.all")}
-            aria-label={t("linksPanel.all")}
-            className="min-w-0 px-2 text-[11px] leading-none"
-          >
-            <span className="truncate">{t("linksPanel.all")}</span>
-          </TabsTrigger>
         </TabsList>
         <TabsContent value="outgoing" className="min-h-0">
           <ScrollArea className="h-full">
@@ -137,14 +152,67 @@ export function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRende
             </div>
           </ScrollArea>
         </TabsContent>
-        <TabsContent value="all" className="min-h-0">
-          <ScrollArea className="h-full">
-            <div className="space-y-1 px-4 pb-4">
-              <Section list={allLinks} direction="all" />
-            </div>
-          </ScrollArea>
-        </TabsContent>
       </Tabs>
+      <Dialog open={allOpen} onOpenChange={setAllOpen}>
+        <DialogContent
+          className="flex h-[min(76vh,720px)] min-h-0 flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-4xl"
+          aria-describedby={undefined}
+        >
+          <div className="border-b px-5 pb-4 pt-5 pr-12">
+            <DialogTitle className="text-xl tracking-tight">{t("linksPanel.all")}</DialogTitle>
+            <Input
+              className="mt-4"
+              value={allQuery}
+              onChange={(event) => setAllQuery(event.target.value)}
+              placeholder={t("linksPanel.search")}
+              aria-label={t("linksPanel.search")}
+            />
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            {allLinks.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">{t("graph.noLinks")}</p>
+            ) : (
+              <div className="space-y-1">
+                {allLinks.map((edge, index) => {
+                  const source = nodeById.get(edge.source)
+                  const target = nodeById.get(edge.target)
+                  const select = (id: string) => {
+                    setAllOpen(false)
+                    onSelectLink?.(id)
+                  }
+                  return (
+                    <div
+                      key={`${edge.source}-${edge.target}-${index}`}
+                      className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-2 hover:bg-muted/50"
+                    >
+                      <button
+                        className="min-w-0 flex-1 truncate rounded text-left text-sm hover:text-primary focus-visible:outline focus-visible:outline-1"
+                        disabled={!source || source.unresolved}
+                        onClick={() => source && select(source.id)}
+                      >
+                        {source?.label ?? edge.source}
+                      </button>
+                      <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
+                      <button
+                        className="min-w-0 flex-1 truncate rounded text-left text-sm hover:text-primary focus-visible:outline focus-visible:outline-1 disabled:text-muted-foreground"
+                        disabled={!target || target.unresolved}
+                        onClick={() => target && select(target.id)}
+                      >
+                        {target?.label ?? edge.label}
+                      </button>
+                      {edge.unresolved && (
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {t("linksPanel.unresolved")}
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

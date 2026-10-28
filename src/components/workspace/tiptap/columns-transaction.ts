@@ -1,4 +1,4 @@
-import type { ResolvedPos } from "@tiptap/pm/model"
+import type { Node as PMNode, ResolvedPos } from "@tiptap/pm/model"
 import type { EditorState, Transaction } from "@tiptap/pm/state"
 
 export type ColumnDropSide = "left" | "right"
@@ -68,6 +68,35 @@ export function removeEmptyColumnAtSelection(state: EditorState): Transaction | 
   const { $from } = state.selection
   if ($from.parent.type.name !== "paragraph" || $from.parent.content.size !== 0) return null
   return removeColumnAtResolvedPosition(state, $from)
+}
+
+/** Insert a new standalone block beside a row, using the existing column format. */
+export function insertBlockBeside(
+  tr: Transaction,
+  targetPos: number,
+  block: PMNode,
+  side: ColumnDropSide,
+): number | null {
+  const { doc } = tr
+  const { column, columnSet } = doc.type.schema.nodes
+  const target = doc.nodeAt(targetPos)
+  if (!column || !columnSet || !target) return null
+  const $target = doc.resolve(targetPos)
+  if ($target.parent.type.name === "column") {
+    const columnPos = $target.before($target.depth)
+    const insertPos = side === "left" ? columnPos : columnPos + $target.parent.nodeSize
+    tr.insert(insertPos, column.create(null, block))
+    return insertPos + 1
+  }
+  if ($target.depth !== 0) return null
+  const original = column.create(null, target)
+  const added = column.create(null, block)
+  tr.replaceWith(
+    targetPos,
+    targetPos + target.nodeSize,
+    columnSet.create(null, side === "left" ? [added, original] : [original, added]),
+  )
+  return targetPos + 2 + (side === "right" ? original.nodeSize : 0)
 }
 
 /** Build the document transaction used by the block gutter's side-drop zone. */

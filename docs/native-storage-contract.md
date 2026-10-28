@@ -72,3 +72,8 @@ rollback after a read-only related schema changes, malformed YAML, legacy aliase
 and metadata preservation have focused Rust coverage. The native interrupted-state
 fixture above still exercises version-1 property creation. Manual dialog smoke
 and Windows/Linux execution remain separate checks.
+
+`tests/native/backup-contract.ts` lists and verifies a disposable pre-sync backup
+through generated IPC, then rejects verification with a stale vault generation.
+It does not automate the OS folder picker; restore copy, byte preservation and
+interruption cases run in the Rust backup restore tests.

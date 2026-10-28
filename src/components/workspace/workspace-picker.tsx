@@ -10,6 +10,8 @@ export interface VaultRecord {
   id: string
   name: string
   path: string
+  /** Kept in recent history, but excluded from the attached workspace switcher. */
+  detached?: boolean
 }
 
 interface WorkspacePickerProps {
@@ -36,6 +38,7 @@ export function WorkspacePicker({
 }: WorkspacePickerProps) {
   const { t } = useTranslation()
   const [open, setOpen] = React.useState(false)
+  const attachedVaults = vaults.filter((vault) => !vault.detached)
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -47,12 +50,12 @@ export function WorkspacePicker({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex max-h-56 flex-col overflow-y-auto">
-          {vaults.length === 0 && (
+          {attachedVaults.length === 0 && (
             <p className="px-2 py-1.5 text-[12px] text-muted-foreground">
               {t("vaultPicker.noVaults")}
             </p>
           )}
-          {vaults.map((vault) => (
+          {attachedVaults.map((vault) => (
             <button
               key={vault.id}
               type="button"

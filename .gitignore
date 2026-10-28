@@ -15,6 +15,7 @@ src-tauri/target/
 dist-ssr
 # Local release evidence and generated installers; never source data for Git.
 /.release-evidence/
+/test-results/
 *.local
 .env
 .env.*
@@ -38,3 +39,11 @@ dist-ssr
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 OldPlans/
+
+# Encrypted sync workspace (docs/sync-plan.md, Р12)
+sync/target/
+sync/core/fuzz/target/
+sync/core/fuzz/artifacts/
+sync/core/fuzz/corpus/
+sync/reference/.venv/
+sync/reference/__pycache__/
