@@ -797,6 +797,9 @@ fn a_mass_deletion_stops_before_it_leaves_and_before_it_arrives() {
     sb.stop();
 }
 
+// Windows refuses to rename a folder with open handles inside it, so an unplugged disk cannot be
+// imitated by moving the vault there
+#[cfg(not(windows))]
 #[test]
 fn a_vault_folder_that_disappears_is_not_a_deletion() {
     // Р8, С8: an unplugged disk
@@ -1466,15 +1469,14 @@ fn a_note_brought_back_after_a_deletion_here_is_reported_here() {
     let (sa, _) = env.start(&a, &env.account);
     let (sb, recorder_b) = env.start(&b, &env.another_computer("B"));
     settle(&sa, &sb);
+    // The edit is made before the deletion goes up: a background pass of A that ran in between
+    // (a loaded machine) would apply the deletion first, and the edit would then be a new note
     b.remove("Notes/n.md");
-    let after_delete = pass(&sb); // the deletion goes up
     a.put("Notes/n.md", b"edited on a");
-    let after_edit = pass(&sa); // the edit goes up and beats the deletion
-    let after_restore = pass(&sb); // B receives the note again
+    pass(&sb); // the deletion goes up, or is refused because the edit got there first
+    pass(&sa); // the edit goes up and beats the deletion
+    pass(&sb); // B receives the note again
     assert_eq!(b.text("Notes/n.md").as_deref(), Some("edited on a"));
-    if recorder_b.restored_after_local_deletion().is_empty() {
-        eprintln!("restore diagnostics: deletion={after_delete:?}, edit={after_edit:?}, restore={after_restore:?}");
-    }
     assert_eq!(
         recorder_b.restored_after_local_deletion(),
         vec!["Notes/n.md"]
