@@ -1,3 +1,6 @@
 # Byte-level interoperability fixtures must not be converted on checkout.
 tests/fixtures/compatibility-vault/CRLF.md -text whitespace=cr-at-eol
 tests/fixtures/compatibility-vault/BOM.md -text
+
+# This documented sync contract is checked byte-for-byte by cross-platform tests.
+docs/vault-format.md text eol=lf

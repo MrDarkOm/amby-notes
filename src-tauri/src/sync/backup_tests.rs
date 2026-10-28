@@ -43,6 +43,21 @@ fn json(path: &Path) -> Value {
     serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
 }
 
+#[cfg(windows)]
+#[test]
+fn backup_accepts_canonical_windows_paths_and_keeps_the_source() {
+    let temp = TestDir::new();
+    let vault = vault_at(temp.path(), "canonical vault")
+        .canonicalize()
+        .unwrap();
+    fs::write(vault.join("note.md"), b"original").unwrap();
+    let root = PathBuf::from(backup::ensure(&vault).unwrap());
+    assert_eq!(fs::read(vault.join("note.md")).unwrap(), b"original");
+    assert_eq!(fs::read(root.join("vault/note.md")).unwrap(), b"original");
+    assert!(root.join("manifest.json").is_file());
+    assert!(!root.join("INCOMPLETE").exists());
+}
+
 #[test]
 fn backup_copies_notes_attachments_empty_directories_and_durable_unknown_amby_data() {
     let temp = TestDir::new();

@@ -661,13 +661,15 @@ describe("the stories of a universe: order, cards and timeline", () => {
     })
     expect(savedOrder()).toEqual(["note_twin", "note_hills"])
     // The first story cannot step out to the left.
-    expect(
-      (
-        within(region).getByRole("button", {
-          name: "Сдвинуть «Близнец» позже",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(false)
+    await waitFor(() =>
+      expect(
+        (
+          within(region).getByRole("button", {
+            name: "Сдвинуть «Близнец» позже",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false),
+    )
   })
 
   it("moves a story by dragging it onto another place", async () => {
