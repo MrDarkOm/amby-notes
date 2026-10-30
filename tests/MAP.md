@@ -62,3 +62,7 @@ exclusive destinations and interrupted operations are covered beside
 
 [native/updater-contract.ts](native/updater-contract.ts) checks release identity
 and the updater capability boundary in the isolated native contract runner.
+
+[native/ai-contract.ts](native/ai-contract.ts) checks conversation save, stale
+revisions, archive restore and per-vault consent across real IPC and reactivation.
+Its read-only streaming turn uses the disposable [native fake provider](../src-tauri/src/native_contract_ai.rs).

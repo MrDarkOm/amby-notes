@@ -391,3 +391,118 @@ test("the text toolbar follows the selection when the note scrolls, and hides wh
   await page.mouse.wheel(0, -5000)
   await expect(toolbar).toBeVisible()
 })
+
+test("a picture can be moved by dragging the picture itself", async ({ page }, testInfo) => {
+  await seedVault(page, { Note: `Before\n\n![Picture](${PNG})\n\nAfter\n\nTarget\n` })
+  await openInLive(page, "Note")
+  const editor = liveEditor(page)
+  const picture = editor.locator(".amby-image-container img")
+  await expect(picture).toHaveAttribute("draggable", "false")
+  // A normal press still selects, and Escape cancels a pointer drag without a move.
+  const origin = (await picture.boundingBox())!
+  await page.mouse.move(origin.x + 80, origin.y + 35)
+  await page.mouse.down()
+  await page.mouse.move(origin.x + 100, origin.y + 110, { steps: 5 })
+  const preview = page.locator(".amby-image-drag-preview")
+  await expect(preview.locator("img")).toHaveAttribute("src", PNG)
+  await expect(editor.locator(".amby-image-drag-source")).toHaveCSS("opacity", "0.25")
+  await expect
+    .poll(async () => Math.abs((await preview.boundingBox())!.x - (origin.x + 20)))
+    .toBeLessThan(4)
+  await page.mouse.move(origin.x + 140, origin.y + 120, { steps: 3 })
+  await expect
+    .poll(async () => Math.abs((await preview.boundingBox())!.x - (origin.x + 60)))
+    .toBeLessThan(4)
+  const above = (await editor.getByText("After", { exact: true }).boundingBox())!
+  const below = (await editor.getByText("Target", { exact: true }).boundingBox())!
+  const midpoint = (above.y + above.height + below.y) / 2
+  const line = page.locator(".amby-block-drop-indicator")
+  // The same slot reached from either paragraph must have exactly one stable line.
+  for (const y of [above.y + above.height - 1, midpoint, below.y + 1]) {
+    await page.mouse.move(above.x + 16, y, { steps: 3 })
+    await expect(line).toHaveCount(1)
+    await expect
+      .poll(async () => {
+        const box = (await line.boundingBox())!
+        return Math.abs(box.y + box.height / 2 - midpoint)
+      })
+      .toBeLessThan(2)
+  }
+  const screenshot = testInfo.outputPath("image-lift.png")
+  await page.screenshot({ path: screenshot })
+  await testInfo.attach("image-lift", { path: screenshot, contentType: "image/png" })
+  await page.mouse.move(above.x + 24, above.y + above.height / 2, { steps: 3 })
+  await expect(page.locator(".amby-block-drop-indicator--column")).toHaveCount(0)
+  await page.mouse.move(above.x - 24, above.y + above.height / 2, { steps: 3 })
+  await expect(page.locator(".amby-block-drop-indicator--column")).toHaveCount(1)
+
+  await page.keyboard.press("Escape")
+  await page.mouse.up()
+  await expect(preview).toHaveCount(0)
+  await expect(editor.locator(".amby-image-drag-source")).toHaveCount(0)
+  await expect(editor.locator("p").nth(1).locator(".amby-image-container img")).toHaveCount(1)
+
+  const target = editor.getByText("Target", { exact: true })
+  const box = (await target.boundingBox())!
+  await picture.dragTo(target, {
+    sourcePosition: { x: 80, y: 35 },
+    targetPosition: { x: 16, y: box.height - 1 },
+  })
+  await expect(editor.locator(".amby-image-container img")).toHaveCount(1)
+  await expect
+    .poll(() =>
+      editor
+        .locator("p")
+        .evaluateAll((paragraphs) =>
+          paragraphs.map((paragraph) =>
+            paragraph.querySelector(".amby-image-container img")
+              ? "PICTURE"
+              : paragraph.textContent,
+          ),
+        ),
+    )
+    .toEqual(["Before", "After", "Target", "PICTURE"])
+  await waitForAutosaveWindow(page)
+  const stored = await storedMarkdown(page, "Note")
+  expect(stored.indexOf("![Picture]")).toBeGreaterThan(stored.indexOf("Target"))
+  expect(stored.match(/!\[Picture\]/gu)).toHaveLength(1)
+  await editor.press("Meta+z")
+  await expect(editor.locator("p").nth(1).locator(".amby-image-container img")).toHaveCount(1)
+})
+
+test("holding a lifted picture near the note edge scrolls and Escape cleans up", async ({
+  page,
+}) => {
+  await seedVault(page, {
+    Note: `![Picture](${PNG})\n\n${Array.from({ length: 50 }, (_, index) => `Paragraph ${index}`).join("\n\n")}\n`,
+  })
+  await openInLive(page, "Note")
+  const editor = liveEditor(page)
+  const image = editor.locator(".amby-image-container img")
+  const origin = (await image.boundingBox())!
+  const bounds = await editor.evaluate((element) => {
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+      if (
+        /(auto|scroll)/u.test(getComputedStyle(parent).overflowY) &&
+        parent.scrollHeight > parent.clientHeight
+      ) {
+        parent.setAttribute("data-image-scroll-test", "")
+        const rect = parent.getBoundingClientRect()
+        return { x: rect.left + rect.width / 2, y: rect.bottom - 12 }
+      }
+    }
+    throw new Error("No note scroll container")
+  })
+  await page.mouse.move(origin.x + 80, origin.y + 35)
+  await page.mouse.down()
+  await page.mouse.move(bounds.x, bounds.y, { steps: 8 })
+  await expect(page.locator(".amby-image-drag-preview")).toBeVisible()
+  await expect
+    .poll(() => page.locator("[data-image-scroll-test]").evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(40)
+  await page.keyboard.press("Escape")
+  await page.mouse.up()
+  await expect(page.locator(".amby-image-drag-preview")).toHaveCount(0)
+  await expect(page.locator("body")).not.toHaveClass(/amby-image-dragging/)
+  await expect(editor.locator(".amby-image-container img")).toHaveCount(1)
+})

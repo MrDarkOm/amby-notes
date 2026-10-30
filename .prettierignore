@@ -10,3 +10,5 @@ sync/target
 sync/core/fuzz/target
 sync/reference/.venv
 sync/vectors
+
+build/site

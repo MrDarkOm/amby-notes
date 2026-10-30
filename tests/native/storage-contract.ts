@@ -6,6 +6,7 @@ import { nativeNoteCases } from "./note-contract"
 import { nativeBackupCases } from "./backup-contract"
 import { nativeUpdaterCases } from "./updater-contract"
 import { nativeDebugCases } from "./debug-contract"
+import { nativeAiCases } from "./ai-contract"
 
 const root = (window as unknown as { __AMBY_NATIVE_TEST_ROOT__: string }).__AMBY_NATIVE_TEST_ROOT__
 if (!root || !("__TAURI_INTERNALS__" in window))
@@ -17,6 +18,7 @@ try {
     ...storageContractCases,
     ...nativeDatabaseCases,
     ...nativeNoteCases,
+    ...nativeAiCases,
     ...nativeDebugCases,
     ...nativeBackupCases,
     ...nativeUpdaterCases,

@@ -22,3 +22,6 @@ its menu, order and separators.
 
 The bar's width decides what a docked header shows (`PageHeaderSize`: the path goes under 420 px, the layer switch folds
 under 340, the focus button goes under 250). Tests: `*.test.tsx` beside the files.
+
+Help anchors (`data-help-target`) identify visible page navigation and bottom-bar controls for the
+[interface map](../help-modal.tsx); keep them on the actual controls, including floating headers.

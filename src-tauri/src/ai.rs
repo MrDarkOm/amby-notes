@@ -24,6 +24,14 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tauri::Emitter;
 
+pub mod chats;
+pub mod codex;
+pub(crate) mod consent;
+mod index_snapshot;
+mod provider_stream;
+mod tools;
+pub mod turn;
+
 pub const MAX_MESSAGES_COUNT: usize = 100;
 pub const MAX_TOTAL_PROMPT_BYTES: usize = 512 * 1024; // 512 KB
 pub const MAX_SYSTEM_PROMPT_BYTES: usize = 128 * 1024; // 128 KB
@@ -33,6 +41,53 @@ pub const MAX_ERROR_PREVIEW_CHARS: usize = 500;
 
 #[derive(Clone, Default)]
 pub struct AiStreamState(pub Arc<Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>>);
+
+impl AiStreamState {
+    fn register(&self, id: &str) -> Result<tokio::sync::watch::Receiver<bool>, &'static str> {
+        if id.is_empty() || id.len() > 128 {
+            return Err("invalidConfiguration");
+        }
+        let mut map = self.0.lock().map_err(|_| "requestFailed")?;
+        if let Some(existing) = map.get(id) {
+            if *existing.borrow() {
+                map.remove(id);
+                return Err("cancelled");
+            }
+            return Err("invalidConfiguration");
+        }
+        if map.len() >= 1024 {
+            return Err("requestFailed");
+        }
+        let (sender, receiver) = tokio::sync::watch::channel(false);
+        map.insert(id.to_owned(), sender);
+        Ok(receiver)
+    }
+
+    fn cancel(&self, id: &str) -> Result<bool, String> {
+        if id.is_empty() || id.len() > 128 {
+            return Ok(false);
+        }
+        let mut map = self.0.lock().map_err(|error| error.to_string())?;
+        if let Some(sender) = map.get(id) {
+            // Repeated cancellation must not remove a pending tombstone.
+            if sender.is_closed() {
+                return Ok(false);
+            }
+            let sender = map.remove(id).expect("sender is present");
+            let _ = sender.send(true);
+            return Ok(true);
+        }
+        if map.len() >= 1024 {
+            map.retain(|_, sender| !sender.is_closed());
+        }
+        if map.len() < 1024 {
+            let (sender, receiver) = tokio::sync::watch::channel(true);
+            drop(receiver);
+            map.insert(id.to_owned(), sender);
+        }
+        Ok(false)
+    }
+}
 
 struct StreamGuard {
     stream_id: String,
@@ -58,7 +113,7 @@ pub struct AiMessage {
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AiConfig {
-    /// Wire family: "ollama" | "openai" | "anthropic" | "azure".
+    /// Wire family: "ollama" | "openai" | "anthropic" | "azure" | "codex".
     pub provider: String,
     pub model: String,
     /// Empty string falls back to the family's default endpoint.
@@ -79,7 +134,11 @@ pub enum AiErrorCode {
     MissingCredential,
     InvalidConfiguration,
     ProviderRejected,
+    ToolsUnsupported,
+    PrivacyConsentRequired,
     InvalidResponse,
+    /// The Codex agent attempted something outside Amby's boundary.
+    AgentBoundary,
     Network,
     RequestFailed,
 }
@@ -844,13 +903,7 @@ pub fn cancel_ai_request(
     state: tauri::State<AiStreamState>,
     stream_id: String,
 ) -> Result<bool, String> {
-    let mut map = state.0.lock().map_err(|e| e.to_string())?;
-    if let Some(tx) = map.remove(&stream_id) {
-        let _ = tx.send(true);
-        Ok(true)
-    } else {
-        Ok(false)
-    }
+    state.cancel(&stream_id)
 }
 
 #[tauri::command]
@@ -887,17 +940,12 @@ pub async fn ai_chat(
     }
 
     // 2. Setup cancellation watch
-    let (tx, rx) = tokio::sync::watch::channel(false);
     let active_id = stream_id
         .clone()
         .unwrap_or_else(|| ulid::Ulid::generate().to_string());
-    {
-        let mut map = state
-            .0
-            .lock()
-            .map_err(|_| ai_chat_error(&config.provider, "stream state unavailable"))?;
-        map.insert(active_id.clone(), tx);
-    }
+    let rx = state
+        .register(&active_id)
+        .map_err(|code| ai_chat_error(&config.provider, code))?;
     let _guard = StreamGuard {
         stream_id: active_id.clone(),
         state: state.0.clone(),
@@ -965,6 +1013,17 @@ pub async fn ai_chat(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ai1_u8_cancellation_before_registration_survives_repeated_stop() {
+        let state = AiStreamState::default();
+        assert!(!state.cancel("stream").unwrap());
+        assert!(!state.cancel("stream").unwrap());
+        assert!(matches!(state.register("stream"), Err("cancelled")));
+        let receiver = state.register("another").unwrap();
+        assert!(state.cancel("another").unwrap());
+        assert!(*receiver.borrow());
+    }
 
     #[test]
     fn test_url_policy_allowed() {

@@ -58,3 +58,9 @@ Verification: [storage.test.ts](storage.test.ts), focused repository/port tests,
 scenarios from [the tests map](../../../tests/MAP.md).
 
 Backup catalog, verification and native folder-picker restore: [backup-repository.ts](backup-repository.ts), exported by `index.ts`; generated types are in `bindings.ts`. The browser refuses these filesystem operations.
+
+AI conversation persistence: [ai-chat-repository.ts](ai-chat-repository.ts) calls
+generation-scoped native commands, refuses browser persistence and uses revisions
+to prevent stale overwrites. Native storage is [ai/chats.rs](../../../src-tauri/src/ai/chats.rs).
+
+Archive preview: `readTrashPreview(id, relativePath)` goes through `HistoryRepository` and the desktop adapter to Rust. It reads only the selected archived payload, without restoration; the browser adapter refuses filesystem archive access.

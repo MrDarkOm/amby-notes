@@ -24,6 +24,7 @@ import { useSettingsStore } from "../use-settings-store"
 import { useDocStore, type Document } from "../use-doc-store"
 import { useTabsStore } from "../use-tabs-store"
 import { useViewStateStore } from "../use-view-state-store"
+import { useVaultStore } from "../use-vault-store"
 import {
   findTreeItem,
   nextAvailableNoteName,
@@ -135,6 +136,7 @@ export function useDocumentCrud({
   autosave,
   autosaveKey,
   handleApplyMutation,
+  handleContentChange,
   loadDoc,
   releaseUnusedDocumentBuffers,
   recoveryScope,
@@ -373,8 +375,15 @@ export function useDocumentCrud({
     [handleDeleteFiles],
   )
   const createDocumentIn = React.useCallback(
-    async (parentId: string | null, inNewTab = false) => {
+    async (parentId: string | null, inNewTab = false, initialContent?: string) => {
       if (!vault) return
+      const vaultState = useVaultStore.getState()
+      if (vaultState.switching || vaultState.vault !== vault) return
+      const generation = vaultState.generation
+      const stillActive = () => {
+        const current = useVaultStore.getState()
+        return !current.switching && current.vault === vault && current.generation === generation
+      }
       const parent = parentId ? findTreeItem(treeItems, parentId) : null
       const normalize = (path: string) => path.replace(/\\/gu, "/").replace(/\/+$/u, "")
       const parentPath = normalize(parent?.path ?? parentId ?? vault)
@@ -413,6 +422,7 @@ export function useDocumentCrud({
       const finishLocalMutation = beginLocalTreeMutation()
       try {
         const result = await createNote(vault, parent?.path ?? parentId ?? vault, title)
+        if (!stillActive()) return
         handleApplyMutation(result)
         finishLocalMutation()
         setTreeItems((current) => removeTreeItem(current, optimisticId))
@@ -423,6 +433,7 @@ export function useDocumentCrud({
           readNote(vault, id),
           getNoteProperties(vault, id).catch(() => undefined),
         ])
+        if (!stillActive()) return
         const actualTitle = result.primaryPath ? wsPathStem(result.primaryPath) : title
         logger.info("file.create_note", { id, title: actualTitle, inNewTab })
         setDoc(id, {
@@ -438,6 +449,7 @@ export function useDocumentCrud({
           noteProperties,
           noteId: id,
         })
+        if (initialContent) handleContentChange(id, initialContent)
         openItem({ kind: "document", fileId: id, title: actualTitle }, inNewTab)
         // Trigger this after the document/tab state is ready. The sidebar
         // otherwise receives the trigger and then immediately loses its edit
@@ -456,6 +468,7 @@ export function useDocumentCrud({
     },
     [
       handleApplyMutation,
+      handleContentChange,
       openItem,
       releaseUnusedDocumentBuffers,
       setDoc,

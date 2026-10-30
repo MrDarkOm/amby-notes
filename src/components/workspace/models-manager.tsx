@@ -13,7 +13,24 @@ import {
   storeAiCredential,
   type CredentialInfo,
 } from "@/lib/storage"
-import { AI_PROVIDERS, blankModel, findProvider, type AiModel, type AiSettings } from "./app-config"
+import {
+  aiCodexLogin,
+  aiCodexLoginCancel,
+  aiCodexLogout,
+  aiCodexStatus,
+  aiErrorMessage,
+} from "@/lib/ai"
+import {
+  AI_PROVIDERS,
+  blankModel,
+  changeProvider,
+  codexStatusKey,
+  findProvider,
+  isCodexModel,
+  modelSupportsTools,
+  type AiModel,
+  type AiSettings,
+} from "./app-config"
 
 // ── Models library manager ────────────────────────────────────────────────────
 
@@ -101,6 +118,37 @@ function ModelEditor({
     "h-7 w-full min-w-0 rounded border border-border bg-card px-2 text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
   const label = "text-[10px] uppercase tracking-wider text-muted-foreground"
   const set = (patch: Partial<AiModel>) => onChange({ ...model, ...patch })
+
+  const codex = isCodexModel(model)
+  const [codexHint, setCodexHint] = React.useState<ReturnType<typeof codexStatusKey> | null>(null)
+  const [codexBusy, setCodexBusy] = React.useState<"signIn" | "signOut" | null>(null)
+  const [codexError, setCodexError] = React.useState<string | null>(null)
+  const mounted = React.useRef(true)
+  React.useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+  const refreshCodex = React.useCallback(async () => {
+    const status = await aiCodexStatus()
+    if (mounted.current) setCodexHint(codexStatusKey(status))
+  }, [])
+  React.useEffect(() => {
+    if (codex) void refreshCodex()
+  }, [codex, refreshCodex])
+  const codexAction = async (kind: "signIn" | "signOut") => {
+    setCodexBusy(kind)
+    setCodexError(null)
+    try {
+      await (kind === "signIn" ? aiCodexLogin() : aiCodexLogout())
+    } catch (error) {
+      if (mounted.current) setCodexError(aiErrorMessage(error))
+    } finally {
+      if (mounted.current) setCodexBusy(null)
+    }
+    await refreshCodex()
+  }
 
   const [inputKey, setInputKey] = React.useState("")
   const [credInfo, setCredInfo] = React.useState<CredentialInfo | null>(null)
@@ -205,7 +253,7 @@ function ModelEditor({
             ...locals.map((p) => ({ value: p.id, label: p.label, group: t("models.local") })),
             ...clouds.map((p) => ({ value: p.id, label: p.label, group: t("models.cloud") })),
           ]}
-          onValueChange={(next) => set({ provider: next })}
+          onValueChange={(next) => onChange(changeProvider(model, next))}
         />
       </div>
 
@@ -217,22 +265,91 @@ function ModelEditor({
           className={field}
           value={model.model}
           onChange={(e) => set({ model: e.target.value })}
-          placeholder={provider?.defaultModel || t("models.modelPlaceholder")}
-        />
-      </div>
-
-      <div className="flex flex-col gap-1">
-        <label className={label}>{provider?.azure ? "Endpoint" : "Base URL"}</label>
-        <input
-          className={field}
-          value={model.baseUrl}
-          onChange={(e) => set({ baseUrl: e.target.value })}
           placeholder={
-            provider?.defaultBaseUrl ||
-            (provider?.azure ? "https://<resource>.openai.azure.com" : t("models.optional"))
+            codex
+              ? t("models.codexModelPlaceholder")
+              : provider?.defaultModel || t("models.modelPlaceholder")
           }
         />
       </div>
+
+      {!codex && (
+        <div className="flex flex-col gap-1">
+          <label className={label}>{provider?.azure ? "Endpoint" : "Base URL"}</label>
+          <input
+            className={field}
+            value={model.baseUrl}
+            onChange={(e) => set({ baseUrl: e.target.value })}
+            placeholder={
+              provider?.defaultBaseUrl ||
+              (provider?.azure ? "https://<resource>.openai.azure.com" : t("models.optional"))
+            }
+          />
+        </div>
+      )}
+
+      {!codex && (
+        <label className="flex items-center gap-2 text-[12px] text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={modelSupportsTools(model)}
+            onChange={(event) => set({ supportsTools: event.target.checked })}
+          />
+          {t("models.supportsTools")}
+        </label>
+      )}
+
+      {codex && codexHint && (
+        <p
+          className={cn(
+            "text-[11px] leading-snug",
+            codexHint === "ready"
+              ? "text-emerald-600 dark:text-emerald-400"
+              : "text-amber-600 dark:text-amber-400",
+          )}
+        >
+          {t(`models.codexStatus.${codexHint}`)}
+        </p>
+      )}
+
+      {codex && codexError && (
+        <p role="alert" className="text-[11px] leading-snug text-destructive">
+          {codexError}
+        </p>
+      )}
+
+      {codex && codexBusy === "signIn" && (
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <span>{t("models.codexWaiting")}</span>
+          <button
+            type="button"
+            className="rounded border border-border px-2 py-0.5 text-[11px] hover:bg-accent"
+            onClick={() => void aiCodexLoginCancel()}
+          >
+            {t("models.codexCancel")}
+          </button>
+        </div>
+      )}
+
+      {codex && !codexBusy && codexHint === "signedOut" && (
+        <button
+          type="button"
+          className="self-start rounded border border-border px-2 py-1 text-[12px] hover:bg-accent"
+          onClick={() => void codexAction("signIn")}
+        >
+          {t("models.codexSignIn")}
+        </button>
+      )}
+
+      {codex && !codexBusy && codexHint === "ready" && (
+        <button
+          type="button"
+          className="self-start rounded border border-border px-2 py-1 text-[12px] hover:bg-accent"
+          onClick={() => void codexAction("signOut")}
+        >
+          {t("models.codexSignOut")}
+        </button>
+      )}
 
       {provider?.needsKey && (
         <div className="flex flex-col gap-1">
@@ -305,7 +422,9 @@ function ModelEditor({
       )}
 
       {provider?.kind === "cloud" && (
-        <p className="text-[10px] leading-snug text-muted-foreground">{t("models.privacyNote")}</p>
+        <p className="text-[10px] leading-snug text-muted-foreground">
+          {t(codex ? "models.codexPrivacyNote" : "models.privacyNote")}
+        </p>
       )}
     </div>
   )

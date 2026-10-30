@@ -32,3 +32,8 @@ Use the existing document buffer for views of the same note. See database
 Tests: [note-editing-policy.test.ts](note-editing-policy.test.ts),
 [document-title.test.tsx](document-title.test.tsx),
 [source-editor.test.tsx](../source-editor.test.tsx), plus current colocated editor tests.
+
+Archive and history share the isolated [snapshot reader](../common/snapshot-preview.tsx),
+[snapshot Read surface](../common/snapshot-read-preview.tsx) and [extensions](../common/snapshot-extensions.ts).
+They reuse the Live schema/parser, reject document-changing transactions and never join autosave.
+The [read-only image view](../common/snapshot-image.tsx) uses [snapshot asset paths](../common/snapshot-assets.ts) to resolve attachments from an explicit preview path (archived payload for Archive, original note for History); historical image bytes are not versioned. Live external blocks remain inert; Source mode keeps the full original text.

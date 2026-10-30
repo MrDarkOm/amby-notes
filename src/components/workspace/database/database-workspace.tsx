@@ -137,6 +137,8 @@ interface DatabaseWorkspaceProps {
   onOpenInNewTab: () => void
   hostKind?: DatabaseHostKind
   hostId?: string | null
+  /** Only the active workspace tab consumes navigation from the database panel. */
+  isNavigationTarget?: boolean
   vault?: string
   isLocked?: boolean
   onToggleLock?: () => void
@@ -213,6 +215,7 @@ export function DatabaseWorkspace({
   title,
   hostKind = "tab",
   hostId = null,
+  isNavigationTarget = false,
   vault,
   isLocked: propIsLocked,
   onToggleLock,
@@ -281,6 +284,15 @@ export function DatabaseWorkspace({
     setViewScope(databaseId)
     setSelectedViewIdState(readLastView(databaseId))
   }
+  const requestedView = useDatabaseStore((state) => state.requestedView)
+  React.useEffect(() => {
+    if (!isNavigationTarget || !database || requestedView?.databaseId !== database.databaseId)
+      return
+    if (database.views.some((view) => view.viewId === requestedView.viewId)) {
+      setSelectedViewId(requestedView.viewId)
+    }
+    useDatabaseStore.getState().clearRequestedView(requestedView)
+  }, [database, isNavigationTarget, requestedView, setSelectedViewId])
   const [activeViewMenuOpen, setActiveViewMenuOpen] = React.useState(false)
   const [viewDisplayModes, setViewDisplayModes] = React.useState<
     Record<string, "both" | "icon" | "text">

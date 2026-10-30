@@ -1,5 +1,6 @@
 "use client"
 
+import { IS_SITE_DEMO } from "@/lib/site-demo"
 import * as React from "react"
 import {
   ArrowLeft,
@@ -283,7 +284,7 @@ export function ActivityBar({
       <motion.button
         type="button"
         draggable={false}
-        disabled={sync?.busy}
+        disabled={sync?.busy || (IS_SITE_DEMO && def.id === "settings")}
         aria-busy={sync ? sync.busy || sync.state === "running" : undefined}
         title={label}
         aria-label={label}
@@ -360,6 +361,7 @@ export function ActivityBar({
           <ContextMenuContent className="min-w-64 w-auto border-border bg-popover p-1 text-foreground">
             <ContextMenuItem
               className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
+              disabled={IS_SITE_DEMO}
               onSelect={() => onOpenSettings(settingsTarget)}
             >
               <Settings2 className="size-4 text-muted-foreground" />

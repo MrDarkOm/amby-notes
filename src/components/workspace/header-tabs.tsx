@@ -1,5 +1,6 @@
 "use client"
 
+import { IS_SITE_DEMO } from "@/lib/site-demo"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { AnimatePresence, motion } from "motion/react"
@@ -21,9 +22,9 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
-const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform)
+const isMac = IS_SITE_DEMO || (typeof navigator !== "undefined" && /Mac/i.test(navigator.platform))
 import { cn } from "@/lib/utils"
-import { motionTransitions } from "@/lib/motion-config"
+import { motionTransition, motionTransitions } from "@/lib/motion-config"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { isTauri } from "@/lib/storage"
 import { adoptAsyncDisposer } from "@/lib/async-disposable"
@@ -273,7 +274,6 @@ export const HEADER_ICON_BTN =
 export interface TabItemProps {
   tab: HeaderTab
   paneId?: string
-  layoutGroupId?: string
   isSelected: boolean
   isPaneFocused?: boolean
   isUnsaved?: boolean
@@ -291,7 +291,6 @@ export interface TabItemProps {
 export function TabItem({
   tab,
   paneId = "pane-root",
-  layoutGroupId = "activeHeaderTabPill",
   isSelected,
   isPaneFocused = true,
   isUnsaved,
@@ -357,13 +356,14 @@ export function TabItem({
     >
       {isSelected && (
         <motion.div
-          layout="position"
-          layoutId={layoutGroupId}
+          initial={{ scaleY: 0.08 }}
+          animate={{ scaleY: 1 }}
+          transition={motionTransition({ duration: 0.34, ease: [0.22, 1, 0.36, 1] })}
+          style={{ originY: 1 }}
           className={cn(
             "amby-active-tab-surface absolute inset-0 border",
             isPaneFocused ? "border-border/80" : "border-border/50",
           )}
-          transition={{ type: "spring", stiffness: 500, damping: 38 }}
         />
       )}
       {showDivider && !isHovered && (
@@ -499,9 +499,11 @@ export function HeaderTabs({
   // When the right panel is hidden, edge controls still occupy the end of the
   // header: the system window controls on Windows/Linux or the right-sidebar
   // toggle on macOS. Keep the view controls to their left.
-  const leftPanelHeaderCssWidth = isMac
-    ? `max(0px, calc(var(--amby-left-panel-width, ${leftTreeWidth}px) + ${ACTIVITY_BAR_WIDTH} - 80px))`
-    : `var(--amby-left-panel-width, ${leftTreeWidth}px)`
+  const leftPanelHeaderCssWidth = IS_SITE_DEMO
+    ? `var(--amby-left-panel-width, ${leftTreeWidth}px)`
+    : isMac
+      ? `max(0px, calc(var(--amby-left-panel-width, ${leftTreeWidth}px) + ${ACTIVITY_BAR_WIDTH} - 80px))`
+      : `var(--amby-left-panel-width, ${leftTreeWidth}px)`
   const rightHeaderInsetCss =
     rightPanelEnabled && isRightSidebarOpen && isRightDockPinned
       ? `max(${isMac ? MACOS_SIDEBAR_TOGGLE_WIDTH : WINDOW_CONTROLS_WIDTH}px, calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth}))`
@@ -690,7 +692,14 @@ export function HeaderTabs({
       }}
     >
       {/* macOS traffic light spacer — native buttons live here */}
-      {isMac ? (
+      {IS_SITE_DEMO ? (
+        <div
+          className="flex shrink-0 items-center justify-center"
+          style={{ width: ACTIVITY_BAR_WIDTH }}
+        >
+          {leftSidebarToggle}
+        </div>
+      ) : isMac ? (
         <div
           className="pointer-events-auto w-[80px] shrink-0 bg-background"
           onMouseDown={handleDragStart}
@@ -757,13 +766,13 @@ export function HeaderTabs({
           data-pane-tab-bar={paneId}
           data-pane-edge-aligned={
             (isLeftSidebarOpen && isLeftDockPinned && leftTreeWidth > 0) ||
-            (!isMac && !isLeftSidebarOpen && isLeftDockPinned)
+            ((IS_SITE_DEMO || !isMac) && !isLeftSidebarOpen && isLeftDockPinned)
               ? true
               : undefined
           }
           className={cn(
             "pointer-events-auto flex min-w-0 flex-1 items-center gap-1 overflow-hidden pr-1",
-            isMac
+            isMac && !IS_SITE_DEMO
               ? isLeftSidebarOpen && isLeftDockPinned
                 ? "pl-0"
                 : "pl-9"
@@ -826,7 +835,7 @@ export function HeaderTabs({
 
       {/* Sidebar toggles are window-edge controls: unlike panel content they
           never move when a sidebar opens, closes, or is resized. */}
-      {isMac && (
+      {isMac && !IS_SITE_DEMO && (
         <div className="pointer-events-auto absolute left-[80px] top-1.5 z-20">
           {leftSidebarToggle}
         </div>

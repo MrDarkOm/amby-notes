@@ -128,6 +128,7 @@ import type {
   SnapshotEntry,
   SnapshotText,
   TrashEntry,
+  TrashPreview,
   TreeItem,
   VaultPreflight,
   VaultTagEntry,
@@ -1041,6 +1042,10 @@ export class DesktopAdapter implements StoragePort {
 
   async readSnapshotText(snapshotId: string): Promise<SnapshotText> {
     return unwrapCommand(commands.readSnapshotText(snapshotId))
+  }
+
+  async readTrashPreview(trashId: string, relativePath: string): Promise<TrashPreview> {
+    return unwrapCommand(commands.readTrashPreview(trashId, relativePath))
   }
 
   async listTrash(): Promise<TrashEntry[]> {

@@ -88,8 +88,12 @@ describe("history interface", () => {
     expect(screen.getAllByRole("button", { name: /Посмотреть версию/ })).toHaveLength(1)
     fireEvent.click(screen.getByRole("button", { name: /Посмотреть версию/ }))
     const dialog = await screen.findByRole("dialog")
-    await waitFor(() => expect(within(dialog).getByText("before")).toBeTruthy())
-    expect(within(dialog).getByText("after")).toBeTruthy()
+    // Read preview loads its rich renderer lazily, independently for both panes.
+    await within(dialog).findByText("before", {}, { timeout: 5000 })
+    await within(dialog).findByText("after", {}, { timeout: 5000 })
+    expect(
+      within(dialog).getByRole("button", { name: "Просмотр" }).getAttribute("aria-pressed"),
+    ).toBe("true")
     expect(within(dialog).getByText("+1 строка")).toBeTruthy()
     expect(storage.restoreSnapshot).not.toHaveBeenCalled()
     fireEvent.click(within(dialog).getByRole("button", { name: "Закрыть" }))
@@ -115,7 +119,7 @@ describe("history interface", () => {
       />,
     )
     fireEvent.click(await screen.findByRole("button", { name: "Открыть полную историю" }))
-    await screen.findByText("before")
+    await screen.findByText("before", {}, { timeout: 5000 })
     fireEvent.click(screen.getByRole("button", { name: "Выберите заметку" }))
     fireEvent.click(screen.getByRole("button", { name: "Other" }))
     await screen.findByText("other version")

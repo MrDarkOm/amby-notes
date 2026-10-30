@@ -1,6 +1,7 @@
 import * as React from "react"
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react"
 
+import { beginImagePointerDrag } from "./image-placement"
 import { attachmentKind, localFileKind } from "./attachment-kind"
 import { AttachmentImageView } from "./attachment-view"
 import {
@@ -122,6 +123,12 @@ function AmbyImageContent({ node, selected, editor, updateAttributes }: NodeView
           src={resolved}
           alt={alt}
           draggable={false}
+          onPointerDown={(event) => {
+            const wrapper = event.currentTarget.closest(".amby-image-wrap")
+            if (!isResizing && wrapper instanceof HTMLElement) {
+              beginImagePointerDrag(editor.view, event.nativeEvent, wrapper)
+            }
+          }}
           style={{
             width: displayWidth ? `${displayWidth}px` : undefined,
           }}

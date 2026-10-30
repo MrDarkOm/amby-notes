@@ -45,6 +45,7 @@ import type {
   SnapshotEntry,
   SnapshotText,
   TrashEntry,
+  TrashPreview,
   TreeItem,
   VaultPreflight,
   VaultTagEntry,
@@ -1475,6 +1476,10 @@ export class WebAdapterCore implements StoragePort {
 
   async readSnapshotText(_snapshotId: string): Promise<SnapshotText> {
     return webHistoryUnavailable()
+  }
+
+  async readTrashPreview(_trashId: string, _relativePath: string): Promise<TrashPreview> {
+    return webTrashUnavailable()
   }
 
   async listTrash(): Promise<TrashEntry[]> {

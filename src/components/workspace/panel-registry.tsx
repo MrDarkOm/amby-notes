@@ -94,6 +94,7 @@ export interface PanelRenderProps {
   onDelete?: (id: string, mode?: "archive") => void
   onDeleteMany?: (ids: string[]) => void
   onNewFile?: (parentId: string | null) => void
+  onCreateNoteFromText?: (content: string) => void | Promise<void>
   onNewFolder?: (parentId: string | null) => void
   onNewCanvas?: (parentId: string | null) => void
   onNewSketch?: (parentId: string | null) => void

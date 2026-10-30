@@ -16,6 +16,11 @@ Those directories, along with `.amby/`, are excluded from the note index.
 - `notes.db` — rebuildable SQLite index for note metadata, links, tags, and
   search. It is never the only copy of note content.
 - `blocks/<note-id>.json` — per-note UI block sidecars.
+- `ai/chats/<ULID>.json` — versioned, device-local AI conversations. Unsupported or
+  damaged files are retained without rewriting; removing a conversation moves its file
+  to the vault-local trash. Conversations are not synchronised.
+- `ai/consents.json` — versioned per-provider decisions on sending search results to
+  cloud services; provider endpoints are represented by hashes. It stays on this device.
 - `graph-layout.json` — version-1 layout of a locked link graph: `locked`, node
   positions keyed by node ID (`nodes: { id: [x, y] }`) and the view (`camera`).
   It is user state, not a cache; a missing, unlocked or unknown-version file only
@@ -88,6 +93,7 @@ test holds the two together.
 | `conflicts/`               | yes          | second versions of conflicts, listed and resolved from any device |
 | `notes.db`, `-wal`, `-shm` | no           | rebuildable index                                                 |
 | `history/`                 | no           | each device keeps its own snapshots                               |
+| `ai/`                      | no           | conversations remain on this device                               |
 | `recovery/`                | no           | drafts and journals of this device                                |
 | `trash/`                   | no           | each device keeps its own trash                                   |
 | `migrations/`              | no           | journals of this device                                           |
@@ -414,6 +420,11 @@ Canvas, Excalidraw, and database layers, and can be restored inside Amby. After
 a successful delete/archive, queued saves for affected open documents are
 discarded so they cannot recreate the removed files. Unsaved editor text is
 retained in recovery drafts when the chosen resolution requires it.
+
+Archive preview reads the selected payload by trash ID and a payload-relative path. It never
+restores, indexes, or rewrites content. Manifest, payload and child paths reject symlinks and
+traversal; text is capped at 256 KiB and directory listings at 500 entries, with truncation
+reported to the UI. Unsupported or binary files remain restorable without being decoded.
 
 ## Recovery journal
 

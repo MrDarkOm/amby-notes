@@ -27,6 +27,7 @@ This is an ownership index of the working code, not a feature-completion claim.
 | Sync connect screen: settings section, wizard, recovery code   | [Sync UI](src/components/workspace/sync/MAP.md)            |
 | Test selection, fixtures, native verification                  | [Tests](tests/MAP.md)                                      |
 | Product contracts versus proposals and historical audits       | [Documentation](docs/MAP.md)                               |
+| Product website and interactive browser demo                   | [Website](site/MAP.md)                                     |
 | Public release notes                                           | [Updates](updates/README.md)                               |
 
 ## Trace a change across layers

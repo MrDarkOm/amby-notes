@@ -305,7 +305,7 @@ export function FilesPanel(props: PanelRenderProps) {
   )
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div data-help-scope="files" className="flex h-full min-h-0 flex-col">
       <PanelHeader
         hideTitle
         title={t("panels.files")}
@@ -493,6 +493,7 @@ export function FilesPanel(props: PanelRenderProps) {
 
             <div className="shrink-0 p-2">
               <Button
+                data-help-target="create"
                 className="w-full gap-2 border border-foreground/10 bg-foreground/10 font-medium text-foreground shadow-sm hover:bg-foreground/15 hover:shadow-md active:shadow-sm focus-visible:ring-1 focus-visible:ring-foreground/20"
                 whileTap={{ y: 1, scale: 0.99 }}
                 onClick={handleNewButtonClick}

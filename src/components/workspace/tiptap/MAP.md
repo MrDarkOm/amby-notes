@@ -1,6 +1,6 @@
 # Tiptap and Markdown map
 
-This folder owns rich editing and byte-preserving Markdown conversion.
+Owns rich editing and byte-preserving Markdown conversion.
 Read [Markdown compatibility](../../../../docs/markdown-compatibility.md) and
 [vault format](../../../../docs/vault-format.md) before serialization changes.
 
@@ -30,7 +30,7 @@ Read [Markdown compatibility](../../../../docs/markdown-compatibility.md) and
 
 Block-link IDs: [block-anchors.ts](block-anchors.ts).
 
-Pictures: [image-placement.ts](image-placement.ts), [ImageToolbar.tsx](ImageToolbar.tsx). Selection: [selection-highlight.ts](selection-highlight.ts).
+Drag: [placement](image-placement.ts), [feedback](image-drag-feedback.ts), [shared geometry](block-drop-geometry.ts). Selection: [selection-highlight.ts](selection-highlight.ts).
 
 The insert menu's "Database view" item opens the database picker inside
 `BlockInsertPanel`; the slash text is removed only together with the insertion.

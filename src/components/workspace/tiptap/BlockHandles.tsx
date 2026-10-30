@@ -8,6 +8,7 @@ import { GripVertical } from "lucide-react"
 import { animate } from "motion/react"
 
 import { motionTransition, motionTransitions } from "@/lib/motion-config"
+import { blockContentRect, blockSideAtPoint, blockInsertionLineTop } from "./block-drop-geometry"
 import { BlockActionsPanel } from "./BlockActionsPanel"
 import { BlockInsertPanel } from "./BlockInsertPanel"
 import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "./floating-menu-events"
@@ -112,6 +113,7 @@ interface DragRowTarget {
   node: PMNode
   element: HTMLElement
   rect: DOMRect
+  contentRect: DOMRect
 }
 
 interface ColumnGeometry {
@@ -931,7 +933,6 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       let dragRaf: number | null = null
       let lastX = e.clientX
       let lastY = e.clientY
-      const dragOriginX = e.clientX
       let dragRows: DragRowTarget[] = []
       let dragRowsScrollTop = scrollContainer.scrollTop
 
@@ -1003,6 +1004,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
             node: target.node,
             element,
             rect,
+            contentRect: blockContentRect(element),
           })
 
           // Keep walking: duplicate children collapse through `seen`, while a
@@ -1025,8 +1027,16 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       }
 
       function findClosestDragRow(clientX: number, clientY: number) {
-        const viewport = scrollContainer.getBoundingClientRect()
-        if (clientY < viewport.top - 16 || clientY > viewport.bottom + 16) return null
+        const viewport = (
+          editorDom.closest(".amby-editor-scroll") ?? scrollContainer
+        ).getBoundingClientRect()
+        if (
+          clientX < viewport.left ||
+          clientX > viewport.right ||
+          clientY < viewport.top - 16 ||
+          clientY > viewport.bottom + 16
+        )
+          return null
 
         let closest: { row: DragRowTarget; rect: DOMRect } | null = null
         let closestScore = Number.POSITIVE_INFINITY
@@ -1117,57 +1127,27 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         const sourceIsSoleColumnBlock =
           $source?.parent.type.name === "column" && $source.parent.childCount === 1
         const targetIsColumnBlock = doc.resolve(targetPos).parent.type.name === "column"
-        // In an existing layout the broad middle area always means “move this
-        // block”. Only the outer 18% reorders a whole single-block column.
-        // Top-level blocks keep wider edges because that gesture creates a new
-        // column and has no cross-column move ambiguity.
-        const edgeRatio = sourceIsTopLevel ? 0.34 : sourceIsSoleColumnBlock ? 0.18 : 0
-        const horizontalEdge = rect.width * edgeRatio
-        // A plain vertical drag begins in the gutter, so the pointer must move
-        // horizontally before edge zones can mean “create/reorder columns”.
-        // This keeps the default gesture axis-locked like property reordering.
-        const hasHorizontalIntent = Math.abs(clientX - dragOriginX) >= 24
-        const side: ColumnDropSide | null =
-          hasHorizontalIntent &&
-          edgeRatio > 0 &&
-          clientX >= rect.left &&
-          clientX <= rect.left + horizontalEdge
-            ? "left"
-            : hasHorizontalIntent &&
-                edgeRatio > 0 &&
-                clientX >= rect.right - horizontalEdge &&
-                clientX <= rect.right
-              ? "right"
-              : null
+        const originalContent = closest.row.contentRect
+        const contentRect = new DOMRect(
+          originalContent.left,
+          originalContent.top + dragRowsScrollTop - scrollContainer.scrollTop,
+          originalContent.width,
+          originalContent.height,
+        )
+        const side =
+          sourceIsTopLevel || sourceIsSoleColumnBlock
+            ? blockSideAtPoint(contentRect, clientX, clientY)
+            : null
         const canCreateColumns =
           side && sourcePos >= 0 && (sourceIsTopLevel || targetIsColumnBlock)
             ? createColumnsFromDrop(view.state, sourcePos, targetPos, side) !== null
             : false
         if (side && canCreateColumns) {
-          showSideIndicator(rect, side)
+          showSideIndicator(contentRect, side)
           return { targetPos, before: false, side }
         }
         const before = clientY < rect.top + rect.height / 2
-        const $target = doc.resolve(targetPos)
-        const parentDepth = closest.row.depth - 1
-        const parent = $target.node(parentDepth)
-        const index = $target.index(parentDepth)
-        let lineTop = before ? rect.top : rect.bottom
-
-        if (before && index > 0) {
-          const previous = parent.child(index - 1)
-          const previousDom = view.nodeDOM(targetPos - previous.nodeSize)
-          if (previousDom instanceof HTMLElement) {
-            const previousRect = previousDom.getBoundingClientRect()
-            lineTop = (previousRect.bottom + rect.top) / 2
-          }
-        } else if (!before && index + 1 < parent.childCount) {
-          const nextDom = view.nodeDOM(targetPos + targetNode.nodeSize)
-          if (nextDom instanceof HTMLElement) {
-            const nextRect = nextDom.getBoundingClientRect()
-            lineTop = (rect.bottom + nextRect.top) / 2
-          }
-        }
+        const lineTop = blockInsertionLineTop(view, targetPos, rect, before)
 
         showIndicatorAt(rect, lineTop, targetIsColumnBlock)
         return { targetPos, before, side: null }
@@ -1332,7 +1312,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
 
         if (target.side) {
           const tr = createColumnsFromDrop(state, srcPos, target.targetPos, target.side)
-          if (tr) dispatch(tr)
+          if (tr) dispatch(tr.setMeta("uiEvent", "drop"))
           return
         }
 
@@ -1348,7 +1328,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         const $ins = doc.resolve(insertPos)
         const crossColumn = moveBlockAcrossColumns(state, srcPos, target.targetPos, target.before)
         if (crossColumn) {
-          dispatch(crossColumn)
+          dispatch(crossColumn.setMeta("uiEvent", "drop"))
           return
         }
         const parentKey = ($p: ResolvedPos) => ($p.depth === 0 ? -1 : $p.before($p.depth))
@@ -1361,7 +1341,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         const mappedInsert = tr.mapping.map(insertPos, -1)
         try {
           tr.insert(mappedInsert, srcNode)
-          if (tr.docChanged) dispatch(tr)
+          if (tr.docChanged) dispatch(tr.setMeta("uiEvent", "drop"))
         } catch {
           /* swallow */
         }

@@ -2,19 +2,22 @@
 // through the Rust backend (so the webview CSP stays locked); this wrapper just
 // resolves the call and, in browser-only dev mode, fails with a clear message.
 
-import { isTauri } from "./storage"
+import { isTauri, resolveAiChatRepository } from "./storage"
 import i18n from "./i18n"
 import { commands } from "./bindings"
 import type {
   AiChatError as GeneratedAiChatError,
   AiConfig as GeneratedAiConfig,
   AiMessage as GeneratedAiMessage,
+  AiTurnResult,
+  ChatSource,
+  CodexStatus,
 } from "./bindings"
 import { listen } from "@tauri-apps/api/event"
 import { unwrapCommand } from "./storage/ipc-result"
 
 /** Wire "family" the Rust backend dispatches on. */
-export type AiFamily = "ollama" | "openai" | "anthropic" | "azure"
+export type AiFamily = "ollama" | "openai" | "anthropic" | "azure" | "codex"
 
 /** Flat wire shape expected by the `ai_chat` Rust command (camelCase). */
 export interface AiConfig {
@@ -64,7 +67,13 @@ export class AiRequestError extends Error {
   readonly provider: string
 
   constructor({ code, provider }: AiChatErrorPayload) {
-    super(i18n.t(`ai.errors.${code}`))
+    super(
+      provider === "codex" && code === "providerRejected"
+        ? i18n.t("ai.errors.codexRejected")
+        : provider === "codex" && code === "missingCredential"
+          ? i18n.t("ai.errors.codexSignedOut")
+          : i18n.t(`ai.errors.${code}`),
+    )
     this.name = "AiRequestError"
     this.code = code
     this.provider = provider
@@ -83,6 +92,121 @@ export interface AiChatOptions {
   onToken?: (delta: string) => void
   /** Abort signal to cancel the ongoing request on the backend. */
   signal?: AbortSignal
+}
+
+export interface AiTurnEvent {
+  streamId: string
+  sequence: number
+  kind: "token" | "toolStart" | "toolEnd" | "done" | "error"
+  payload: {
+    delta?: string
+    tool?: string
+    query?: string
+    noteIds?: string[]
+    source?: ChatSource | null
+    error?: unknown
+  }
+}
+
+export interface AiTurnOptions extends AiChatOptions {
+  generation: number
+  noteIds: string[]
+  folders: string[]
+  initialSources: ChatSource[]
+  searchEnabled: boolean
+  supportsTools: boolean
+  onEvent?: (event: AiTurnEvent) => void
+}
+
+export async function aiSearchConsent(generation: number, config: AiConfig): Promise<string> {
+  return resolveAiChatRepository().consent(generation, toGeneratedConfig(config))
+}
+
+export async function aiSetSearchConsent(
+  generation: number,
+  config: AiConfig,
+  allowed: boolean,
+): Promise<void> {
+  return resolveAiChatRepository().setConsent(generation, toGeneratedConfig(config), allowed)
+}
+
+/** Whether the user's own Codex can be used; outside the desktop app it is "missing". */
+export async function aiCodexStatus(): Promise<CodexStatus> {
+  if (!isTauri()) return { installed: false, supported: false, signedIn: false }
+  try {
+    return await commands.aiCodexStatus()
+  } catch {
+    return { installed: false, supported: false, signedIn: false }
+  }
+}
+
+/** Sign in to ChatGPT inside Amby's own Codex: opens the browser and resolves when done. */
+export async function aiCodexLogin(): Promise<void> {
+  if (!isTauri()) throw new AiUnavailableError()
+  const result = await commands.aiCodexLogin()
+  if (result.status !== "ok") throw new AiRequestError(result.error)
+}
+
+/** Stops a sign-in that is waiting for the browser. */
+export async function aiCodexLoginCancel(): Promise<boolean> {
+  if (!isTauri()) return false
+  try {
+    return await commands.aiCodexLoginCancel()
+  } catch {
+    return false
+  }
+}
+
+export async function aiCodexLogout(): Promise<void> {
+  if (!isTauri()) throw new AiUnavailableError()
+  const result = await commands.aiCodexLogout()
+  if (result.status !== "ok") throw new AiRequestError(result.error)
+}
+
+/** Run one turn against a specific vault activation. */
+export async function aiRunTurn(
+  config: AiConfig,
+  messages: AiMessage[],
+  opts: AiTurnOptions,
+): Promise<AiTurnResult> {
+  if (!isTauri()) throw new AiUnavailableError()
+  const streamId = crypto.randomUUID()
+  const onAbort = () => {
+    void cancelAiChat(streamId)
+  }
+  if (opts.signal?.aborted) throw new Error("Request cancelled")
+  opts.signal?.addEventListener("abort", onAbort, { once: true })
+  let unlisten: (() => void) | null = null
+  let sequence = 0
+  try {
+    unlisten = await listen<AiTurnEvent>("ai:event", ({ payload }) => {
+      if (opts.signal?.aborted || payload.streamId !== streamId || payload.sequence <= sequence)
+        return
+      sequence = payload.sequence
+      if (payload.kind === "token" && typeof payload.payload.delta === "string")
+        opts.onToken?.(payload.payload.delta)
+      opts.onEvent?.(payload)
+    })
+    if (opts.signal?.aborted) throw new Error("Request cancelled")
+    const result = await commands.aiRunTurn({
+      generation: opts.generation,
+      config: toGeneratedConfig(config),
+      messages: toGeneratedMessages(messages),
+      system: opts.system ?? null,
+      noteIds: opts.noteIds,
+      folders: opts.folders,
+      initialSources: opts.initialSources,
+      searchEnabled: opts.searchEnabled,
+      supportsTools: opts.supportsTools,
+      streamId,
+    })
+    if (opts.signal?.aborted) throw new Error("Request cancelled")
+    if (result.status === "ok") return result.data
+    throw new AiRequestError(result.error)
+  } finally {
+    opts.signal?.removeEventListener("abort", onAbort)
+    unlisten?.()
+  }
 }
 
 /**
@@ -124,19 +248,22 @@ export async function aiChat(
   }
 
   let unlisten: (() => void) | null = null
-  if (opts.onToken) {
-    unlisten = await listen<{ streamId: string; delta: string }>("ai:token", (e) => {
-      if (e.payload.streamId === streamId) opts.onToken!(e.payload.delta)
-    })
-  }
-
   try {
+    if (opts.onToken) {
+      unlisten = await listen<{ streamId: string; delta: string }>("ai:token", (e) => {
+        if (!opts.signal?.aborted && e.payload.streamId === streamId) opts.onToken!(e.payload.delta)
+      })
+    }
+    // Cancellation can happen while the event listener is being registered, before
+    // the backend has a request to cancel. Never start that request afterwards.
+    if (opts.signal?.aborted) throw new Error("Request cancelled")
     const result = await commands.aiChat(
       toGeneratedConfig(config),
       toGeneratedMessages(messages),
       system,
       streamId,
     )
+    if (opts.signal?.aborted) throw new Error("Request cancelled")
     if (result.status === "ok") return result.data
     throw new AiRequestError(result.error)
   } finally {

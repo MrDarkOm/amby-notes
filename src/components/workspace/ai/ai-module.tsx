@@ -11,7 +11,7 @@ export const AI_MODULE_DEFINITION: ModuleDefinition = {
     publisher: "Amby",
     kind: "official",
     minAppVersion: "0.1.5",
-    permissions: ["ui-panel", "read-notes", "write-notes"],
+    permissions: ["ui-panel", "read-notes"],
     contributions: {
       panels: ["ai"],
     },

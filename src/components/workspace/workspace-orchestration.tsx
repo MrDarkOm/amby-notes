@@ -1,5 +1,6 @@
 "use client"
 
+import { IS_SITE_DEMO } from "@/lib/site-demo"
 import { registerDatabaseNavigation } from "./database/database-navigation"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
@@ -501,6 +502,7 @@ export function WorkspaceOrchestration() {
   )
 
   const openSettings = React.useCallback((target: SettingsNavigationTarget | null = null) => {
+    if (IS_SITE_DEMO) return
     setSettingsTarget(target)
     setSettingsOpen(true)
   }, [])
@@ -1687,6 +1689,7 @@ export function WorkspaceOrchestration() {
       onDelete: handleDeleteFile,
       onDeleteMany: handleDeleteFiles,
       onNewFile: handleNewFileIn,
+      onCreateNoteFromText: (content) => handleNewFileIn(null, true, content),
       onNewFolder: handleNewFolderIn,
       onNewCanvas: handleNewCanvasIn,
       onNewSketch: handleNewSketchIn,
@@ -2135,6 +2138,7 @@ export function WorkspaceOrchestration() {
                 icon={treeItem?.icon ?? attachedDatabase.icon}
                 hostKind="layer"
                 hostId={doc.id}
+                isNavigationTarget={tab?.key === activeTabKey}
                 isLocked={isLayerLocked(lockedFileIds, viewModes, doc.id, "database")}
                 onToggleLock={() => handleToggleLayerLock(doc.id, "database")}
                 contentWidth={
@@ -2745,6 +2749,7 @@ export function WorkspaceOrchestration() {
   if (isFocusMode) {
     return (
       <div
+        data-help-area="content"
         className="fixed inset-0 z-50 flex flex-col overflow-hidden bg-background"
         onMouseMove={(e) => {
           const w = window.innerWidth
@@ -2843,6 +2848,7 @@ export function WorkspaceOrchestration() {
               helpContext={currentHelpContext}
             />
             <div
+              data-help-area="left-panel"
               style={{ width: "var(--amby-left-panel-width, 300px)" }}
               className="min-h-0 shrink-0"
             >
@@ -2860,7 +2866,11 @@ export function WorkspaceOrchestration() {
             transition={motionTransitions.panel}
             onMouseLeave={() => setFocusShowRight(false)}
           >
-            <div style={{ width: "var(--amby-right-panel-width, 300px)" }} className="shrink-0">
+            <div
+              data-help-area="right-panel"
+              style={{ width: "var(--amby-right-panel-width, 300px)" }}
+              className="shrink-0"
+            >
               <PanelHost
                 side="right"
                 activeId={activeBySide.right}
@@ -3025,6 +3035,7 @@ export function WorkspaceOrchestration() {
           {leftDockPinned && isLeftSidebarOpen && (
             <>
               <div
+                data-help-area="left-panel"
                 style={{
                   width: isLeftSidebarVisible ? "var(--amby-left-panel-width, 300px)" : 0,
                   transition:
@@ -3115,6 +3126,7 @@ export function WorkspaceOrchestration() {
           )}
 
           <main
+            data-help-area="content"
             ref={mainStageRef}
             className={cn(
               "amby-workspace-stage relative flex flex-1 gap-0 overflow-hidden",
@@ -3144,6 +3156,7 @@ export function WorkspaceOrchestration() {
           {rightPanelEnabled && rightDockPinned && isRightSidebarOpen && (
             <>
               <div
+                data-help-area="right-panel"
                 style={{
                   width: isRightSidebarVisible ? "var(--amby-right-panel-width, 300px)" : 0,
                   transition:

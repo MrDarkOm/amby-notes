@@ -23,6 +23,7 @@ import type {
   SnapshotEntry,
   SnapshotText,
   TrashEntry,
+  TrashPreview,
   TreeItem,
   VaultPreflight,
   VaultTagEntry,
@@ -129,6 +130,7 @@ export interface StoragePort extends DatabasePort, ProjectPort {
   restoreSnapshot(snapshotId: string): Promise<string>
   deleteSnapshot(snapshotId: string): Promise<void>
   readSnapshotText(snapshotId: string): Promise<SnapshotText>
+  readTrashPreview(trashId: string, relativePath: string): Promise<TrashPreview>
   listTrash(): Promise<TrashEntry[]>
   restoreTrash(trashId: string): Promise<FsMutationResult>
   purgeTrash(trashId: string): Promise<void>

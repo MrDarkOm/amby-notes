@@ -73,8 +73,20 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::history::delete_recovery,
         commands::history::list_recovery,
         commands::history::list_trash,
+        commands::history::read_trash_preview,
         commands::history::restore_trash,
         commands::history::purge_trash,
+        commands::ai_chats::ai_list_chats,
+        commands::ai_chats::ai_load_chat,
+        commands::ai_chats::ai_save_chat,
+        commands::ai_chats::ai_trash_chat,
+        commands::ai_chats::ai_search_consent,
+        commands::ai_chats::ai_set_search_consent,
+        ai::turn::ai_run_turn,
+        ai::codex::launch::ai_codex_status,
+        ai::codex::launch::ai_codex_login,
+        ai::codex::launch::ai_codex_login_cancel,
+        ai::codex::launch::ai_codex_logout,
         commands::notes::read_note,
         commands::notes::write_note,
         commands::notes::restore_deleted_note,
@@ -273,6 +285,7 @@ pub fn run() {
         .manage(vault_context::VaultContext::new())
         .manage(WatcherState::new())
         .manage(ai::AiStreamState::default())
+        .manage(ai::codex::launch::LoginSlot::default())
         .manage(database::runtime_state::DatabaseRuntimeState::default())
         .manage(database::mutation_state::DatabaseMutationState::default())
         .manage(database::history::DatabaseHistoryState::default())

@@ -1,3 +1,5 @@
+import { blockContentRect, blockSideAtPoint, blockInsertionLineTop } from "./block-drop-geometry"
+import { imageDragFeedback, imageDragScrollContainer } from "./image-drag-feedback"
 import { Extension } from "@tiptap/core"
 import { Fragment, type Node as PMNode } from "@tiptap/pm/model"
 import { NodeSelection, Plugin, PluginKey, type Transaction } from "@tiptap/pm/state"
@@ -52,37 +54,53 @@ function dropTarget(
   view: EditorView,
   x: number,
   y: number,
-  sourcePos: number | null,
+  _sourcePos: number | null,
 ): ImageDropTarget | null {
+  const viewport = (
+    view.dom.closest(".amby-editor-scroll") ??
+    view.dom.parentElement ??
+    view.dom
+  ).getBoundingClientRect()
+  if (x < viewport.left || x > viewport.right || y < viewport.top - 16 || y > viewport.bottom + 16)
+    return null
   const hit = view.posAtCoords({ left: x, top: y })
-  if (!hit) return null
-  const $pos = view.state.doc.resolve(hit.pos)
+  let $pos = hit ? view.state.doc.resolve(hit.pos) : null
+  // A gap between blocks resolves to the doc itself in WebKit. Keep a visible
+  // destination there by using the closest actual row, as the block Grab does.
+  if (!$pos || $pos.depth === 0) {
+    const bounds = view.dom.getBoundingClientRect()
+    if (y < bounds.top - 40 || y > bounds.bottom + 40) return null
+    let closest: number | null = null
+    let score = Infinity
+    view.state.doc.descendants((node, pos) => {
+      if (
+        !node.isBlock ||
+        !["doc", "column"].includes(view.state.doc.resolve(pos).parent.type.name)
+      )
+        return
+      const dom = view.nodeDOM(pos)
+      if (!(dom instanceof HTMLElement)) return
+      const rect = dom.getBoundingClientRect()
+      if (!rect.height || !rect.width) return
+      const distance =
+        Math.max(rect.top - y, y - rect.bottom, 0) * 1000 +
+        Math.max(rect.left - x, x - rect.right, 0)
+      if (distance <= score) {
+        closest = pos
+        score = distance
+      }
+    })
+    if (closest === null) return null
+    $pos = view.state.doc.resolve(closest + 1)
+  }
   for (let depth = $pos.depth; depth > 0; depth--) {
     if (!["doc", "column"].includes($pos.node(depth - 1).type.name)) continue
     const pos = $pos.before(depth)
     const dom = view.nodeDOM(pos)
     if (!(dom instanceof HTMLElement)) return null
-    let rect = dom.getBoundingClientRect()
-    // The image's visible edge may be far from the paragraph's full-width edge.
-    let closest = Infinity
-    for (const image of dom.querySelectorAll<HTMLElement>(".amby-image-wrap")) {
-      if (sourcePos !== null && view.posAtDOM(image, 0) === sourcePos) continue
-      const imageRect = (image.querySelector("img") ?? image).getBoundingClientRect()
-      const distance =
-        Math.max(imageRect.left - x, x - imageRect.right, 0) +
-        Math.max(imageRect.top - y, y - imageRect.bottom, 0)
-      if (distance < closest) {
-        closest = distance
-        rect = imageRect
-      }
-    }
-    const inHeight = y > rect.top + rect.height * 0.1 && y < rect.bottom - rect.height * 0.1
-    const side =
-      inHeight && x >= rect.left - 40 && x < rect.left + rect.width * 0.34
-        ? "left"
-        : inHeight && x > rect.right - rect.width * 0.34 && x <= rect.right + 40
-          ? "right"
-          : null
+    const contentRect = blockContentRect(dom)
+    const side = blockSideAtPoint(contentRect, x, y)
+    const rect = side ? contentRect : dom.getBoundingClientRect()
     return { pos, rect, side, before: y < rect.top + rect.height / 2 }
   }
   return null
@@ -104,7 +122,64 @@ export function insertImageAtPoint(
   return true
 }
 
-/** Native image drags move the picture, even when old Markdown put several in one paragraph. */
+function placeImage(
+  view: EditorView,
+  dragged: { pos: number; node: PMNode } | null,
+  image: PMNode,
+  target: ImageDropTarget,
+  moved: boolean,
+): boolean {
+  let tr = view.state.tr
+  if (moved && dragged) {
+    const $source = tr.doc.resolve(dragged.pos)
+    if ($source.parent.type.name === "paragraph" && $source.parent.childCount === 1) {
+      if ($source.before() === target.pos) return true
+      if (target.side) {
+        const columns = createColumnsFromDrop(view.state, $source.before(), target.pos, target.side)
+        if (columns) {
+          view.dispatch(columns.setMeta("uiEvent", "drop"))
+          return true
+        }
+      }
+      const cleanup = removeSoleBlockColumn(view.state, $source.before())
+      if (cleanup) tr = cleanup
+      else tr.delete($source.before(), $source.after())
+    } else tr.delete(dragged.pos, dragged.pos + dragged.node.nodeSize)
+  }
+  // Collapsing a two-column set replaces its entire range, so a step map
+  // cannot locate a surviving child inside that range. Follow its node identity.
+  const originalTarget = view.state.doc.nodeAt(target.pos)
+  let survivingTarget: number | null = null
+  tr.doc.descendants((node, pos) => {
+    if (node === originalTarget && survivingTarget === null) survivingTarget = pos
+  })
+  const targetPos = survivingTarget ?? tr.mapping.map(target.pos, 1)
+  const block = tr.doc.nodeAt(targetPos)
+  if (!block) return true
+  const paragraph = tr.doc.type.schema.nodes.paragraph.create(null, image)
+  if (target.side) {
+    const pos = insertBlockBeside(tr, targetPos, paragraph, target.side)
+    if (pos !== null) {
+      tr.setSelection(NodeSelection.create(tr.doc, pos + 1))
+      view.dispatch(tr.setMeta("uiEvent", "drop"))
+      return true
+    }
+  }
+  const insertPos = target.before ? targetPos : targetPos + block.nodeSize
+  tr.insert(insertPos, paragraph)
+  tr.setSelection(NodeSelection.create(tr.doc, insertPos + 1))
+  view.dispatch(tr.setMeta("uiEvent", "drop"))
+  return true
+}
+
+const pointerDrags = new WeakMap<EditorView, (event: PointerEvent, wrapper: HTMLElement) => void>()
+
+/** Node views forward pointer gestures here; the placement plugin owns their lifecycle. */
+export function beginImagePointerDrag(view: EditorView, event: PointerEvent, wrapper: HTMLElement) {
+  pointerDrags.get(view)?.(event, wrapper)
+}
+
+/** Pointer gestures and external image drops share lossless image placement. */
 export const ImagePlacement = Extension.create({
   name: "imagePlacement",
   addProseMirrorPlugins() {
@@ -118,10 +193,137 @@ export const ImagePlacement = Extension.create({
       clearIndicator()
       source = null
     }
+    let stopPointer = () => {}
+    const showIndicator = (view: EditorView, x: number, y: number) => {
+      const target = dropTarget(view, x, y, source?.pos ?? null)
+      if (!target) {
+        clearIndicator()
+        return false
+      }
+      if (!indicator) {
+        indicator = document.createElement("div")
+        document.body.appendChild(indicator)
+      }
+      const { rect, side } = target
+      indicator.className =
+        "amby-block-drop-indicator" + (side ? " amby-block-drop-indicator--column" : "")
+      const lineTop = side ? rect.top : blockInsertionLineTop(view, target.pos, rect, target.before)
+      Object.assign(indicator.style, {
+        left: `${side === "right" ? rect.right - 3 : rect.left}px`,
+        top: `${side ? lineTop : lineTop - 1}px`,
+        width: `${side ? 3 : rect.width}px`,
+        height: `${side ? rect.height : 2}px`,
+      })
+      return true
+    }
+    const beginPointer = (view: EditorView, event: PointerEvent, wrapper: HTMLElement) => {
+      if (!view.editable || event.button !== 0 || event.ctrlKey) return
+      stopPointer()
+      clear()
+      const pos = view.posAtDOM(wrapper, 0)
+      const node = view.state.doc.nodeAt(pos)
+      if (node?.type.name !== "image") return
+      event.preventDefault() // Keep WKWebView's native asset/file drag from taking over.
+      source = { pos, node }
+      const dragged = source
+      view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)))
+      const start = { x: event.clientX, y: event.clientY }
+      let active = false
+      let feedback: ReturnType<typeof imageDragFeedback> = null
+      let frame: number | null = null
+      let last = start
+      const scrollContainer = imageDragScrollContainer(view.dom)
+      const paint = () => {
+        frame = null
+        if (!active) return
+        feedback?.position(last.x, last.y)
+        if (scrollContainer) {
+          const bounds = scrollContainer.getBoundingClientRect()
+          const distance =
+            last.y < bounds.top + 56
+              ? last.y - bounds.top - 56
+              : last.y > bounds.bottom - 56
+                ? last.y - bounds.bottom + 56
+                : 0
+          if (distance) {
+            scrollContainer.scrollTop +=
+              Math.sign(distance) * Math.min(18, Math.pow(Math.abs(distance) / 56, 2) * 18)
+            frame = requestAnimationFrame(paint)
+          }
+        }
+        showIndicator(view, last.x, last.y)
+      }
+      const move = (next: PointerEvent) => {
+        if (next.pointerId !== event.pointerId) return
+        if (!view.editable || view.state.doc.nodeAt(pos) !== node) {
+          stopPointer()
+          return
+        }
+        if (!active && Math.hypot(next.clientX - start.x, next.clientY - start.y) < 6) return
+        if (!active) {
+          active = true
+          feedback = imageDragFeedback(wrapper, start)
+        }
+        next.preventDefault()
+        last = { x: next.clientX, y: next.clientY }
+        if (frame === null) frame = requestAnimationFrame(paint)
+      }
+      const up = (next: PointerEvent) => {
+        if (next.pointerId !== event.pointerId) return
+        const target =
+          active && next.type === "pointerup"
+            ? dropTarget(view, next.clientX, next.clientY, pos)
+            : null
+        const lifted = feedback
+        feedback = null
+        stopPointer()
+        if (target && view.editable && view.state.doc.nodeAt(pos) === node) {
+          placeImage(view, dragged, node, target, true)
+          // React node views settle on the next paint after the transaction.
+          requestAnimationFrame(() => {
+            const dom = view.isDestroyed ? null : view.nodeDOM(view.state.selection.from)
+            const image = dom instanceof HTMLElement ? dom.querySelector("img") : null
+            lifted?.finish(image?.getBoundingClientRect())
+          })
+        } else lifted?.finish()
+      }
+      const escape = (next: KeyboardEvent) => {
+        if (next.key === "Escape") stopPointer()
+      }
+      const doc = view.dom.ownerDocument
+      stopPointer = () => {
+        if (frame !== null) cancelAnimationFrame(frame)
+        frame = null
+        active = false
+        feedback?.finish()
+        feedback = null
+        doc.removeEventListener("pointermove", move)
+        doc.removeEventListener("pointerup", up)
+        doc.removeEventListener("pointercancel", up)
+        doc.removeEventListener("keydown", escape)
+        doc.defaultView?.removeEventListener("blur", stopPointer)
+        stopPointer = () => {}
+        clear()
+      }
+      doc.addEventListener("pointermove", move)
+      doc.addEventListener("pointerup", up)
+      doc.addEventListener("pointercancel", up)
+      doc.addEventListener("keydown", escape)
+      doc.defaultView?.addEventListener("blur", stopPointer)
+    }
     return [
       new Plugin({
         key: new PluginKey("imagePlacement"),
-        view: () => ({ destroy: clear }),
+        view: (view) => {
+          pointerDrags.set(view, (event, wrapper) => beginPointer(view, event, wrapper))
+          return {
+            destroy: () => {
+              stopPointer()
+              pointerDrags.delete(view)
+              clear()
+            },
+          }
+        },
         props: {
           handleDOMEvents: {
             dragstart(view, event) {
@@ -142,26 +344,8 @@ export const ImagePlacement = Extension.create({
                 (item) => item.kind === "file" && item.type.startsWith("image/"),
               )
               if ((!source && !externalImage) || !view.editable) return false
-              const target = dropTarget(view, event.clientX, event.clientY, source?.pos ?? null)
-              if (!target) {
-                clearIndicator()
-                return false
-              }
               event.preventDefault()
-              if (!indicator) {
-                indicator = document.createElement("div")
-                document.body.appendChild(indicator)
-              }
-              const { rect, side } = target
-              indicator.className =
-                "amby-block-drop-indicator" + (side ? " amby-block-drop-indicator--column" : "")
-              Object.assign(indicator.style, {
-                left: `${side === "right" ? rect.right - 3 : rect.left}px`,
-                top: `${side ? rect.top : target.before ? rect.top : rect.bottom}px`,
-                width: `${side ? 3 : rect.width}px`,
-                height: `${side ? rect.height : 2}px`,
-              })
-              return true
+              return showIndicator(view, event.clientX, event.clientY)
             },
             dragleave(view, event) {
               if (!(event.relatedTarget instanceof Node) || !view.dom.contains(event.relatedTarget))
@@ -193,52 +377,7 @@ export const ImagePlacement = Extension.create({
             const image = dragged?.node ?? images[0]
             const target = dropTarget(view, event.clientX, event.clientY, dragged?.pos ?? null)
             if (!target) return false
-            let tr = view.state.tr
-            if (moved && dragged) {
-              const $source = tr.doc.resolve(dragged.pos)
-              if ($source.parent.type.name === "paragraph" && $source.parent.childCount === 1) {
-                if ($source.before() === target.pos) return true
-                if (target.side) {
-                  const columns = createColumnsFromDrop(
-                    view.state,
-                    $source.before(),
-                    target.pos,
-                    target.side,
-                  )
-                  if (columns) {
-                    view.dispatch(columns.setMeta("uiEvent", "drop"))
-                    return true
-                  }
-                }
-                const cleanup = removeSoleBlockColumn(view.state, $source.before())
-                if (cleanup) tr = cleanup
-                else tr.delete($source.before(), $source.after())
-              } else tr.delete(dragged.pos, dragged.pos + dragged.node.nodeSize)
-            }
-            // Collapsing a two-column set replaces its entire range, so a step map
-            // cannot locate a surviving child inside that range. Follow its node identity.
-            const originalTarget = view.state.doc.nodeAt(target.pos)
-            let survivingTarget: number | null = null
-            tr.doc.descendants((node, pos) => {
-              if (node === originalTarget && survivingTarget === null) survivingTarget = pos
-            })
-            const targetPos = survivingTarget ?? tr.mapping.map(target.pos, 1)
-            const block = tr.doc.nodeAt(targetPos)
-            if (!block) return true
-            const paragraph = tr.doc.type.schema.nodes.paragraph.create(null, image)
-            if (target.side) {
-              const pos = insertBlockBeside(tr, targetPos, paragraph, target.side)
-              if (pos !== null) {
-                tr.setSelection(NodeSelection.create(tr.doc, pos + 1))
-                view.dispatch(tr.setMeta("uiEvent", "drop"))
-                return true
-              }
-            }
-            const insertPos = target.before ? targetPos : targetPos + block.nodeSize
-            tr.insert(insertPos, paragraph)
-            tr.setSelection(NodeSelection.create(tr.doc, insertPos + 1))
-            view.dispatch(tr.setMeta("uiEvent", "drop"))
-            return true
+            return placeImage(view, dragged, image, target, moved)
           },
         },
       }),

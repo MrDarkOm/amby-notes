@@ -98,6 +98,7 @@ export function PageMenu({ groups, open, onOpenChange }: PageMenuProps) {
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
         <Button
+          data-help-target="page-menu"
           variant="ghost"
           size="icon"
           aria-label={t("docEditor.moreActions")}

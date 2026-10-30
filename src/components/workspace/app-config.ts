@@ -222,6 +222,16 @@ export const AI_PROVIDERS: ProviderInfo[] = [
     needsKey: false,
   },
   {
+    // The user's own Codex CLI signed in with ChatGPT; no API key, no endpoint.
+    id: "codex",
+    label: "Codex (ChatGPT)",
+    family: "codex",
+    kind: "cloud",
+    defaultBaseUrl: "",
+    defaultModel: "",
+    needsKey: false,
+  },
+  {
     id: "openai",
     label: "OpenAI",
     family: "openai",
@@ -293,6 +303,71 @@ export interface AiModel {
   credentialId?: string | null
   /** Azure only. */
   apiVersion: string
+  /** Undefined uses the default for the configured endpoint. */
+  supportsTools?: boolean
+}
+
+/** Moving a model entry to another provider starts from that provider's own model and
+ *  endpoint: a name or URL left over from the previous provider would be rejected there. */
+export function changeProvider(model: AiModel, providerId: string): AiModel {
+  const provider = findProvider(providerId)
+  if (!provider || model.provider === providerId) return model
+  const codex = providerId === "codex"
+  return {
+    ...model,
+    provider: providerId,
+    model: codex ? "" : provider.defaultModel,
+    baseUrl: "",
+    supportsTools: undefined,
+    apiVersion: provider.azure ? model.apiVersion : "",
+  }
+}
+
+/** Agent mode: the conversation goes to the user's own Codex, not to an endpoint. */
+export function isCodexModel(model: AiModel): boolean {
+  return model.provider === "codex"
+}
+
+/** One hint for the settings screen, from what the backend found on this machine. */
+export function codexStatusKey(status: {
+  installed: boolean
+  supported: boolean
+  signedIn: boolean
+}): "missing" | "unsupported" | "signedOut" | "ready" {
+  if (!status.installed) return "missing"
+  if (!status.supported) return "unsupported"
+  return status.signedIn ? "ready" : "signedOut"
+}
+
+/** Classify only addresses known to stay on a local network as local. */
+export function isLocalAiModel(model: AiModel): boolean {
+  if (isCodexModel(model)) return false
+  const provider = findProvider(model.provider)
+  const address = model.baseUrl.trim() || provider?.defaultBaseUrl || ""
+  if (!address) return provider?.kind === "local"
+  try {
+    const host = new URL(address).hostname.toLowerCase().replace(/^\[|\]$/g, "")
+    if (host === "localhost" || host.endsWith(".localhost")) return true
+    if (host === "::1" || /^(?:fc|fd)[0-9a-f]*:/i.test(host)) return true
+    const parts = host.split(".").map(Number)
+    if (
+      parts.length !== 4 ||
+      parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)
+    )
+      return false
+    return (
+      parts[0] === 127 ||
+      parts[0] === 10 ||
+      (parts[0] === 192 && parts[1] === 168) ||
+      (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31)
+    )
+  } catch {
+    return false
+  }
+}
+
+export function modelSupportsTools(model: AiModel): boolean {
+  return model.supportsTools ?? !isLocalAiModel(model)
 }
 
 /** AI settings = a library of models + which one is active. Secrets are stored
@@ -643,10 +718,11 @@ export async function migrateLegacyAiKeys(
       baseUrl: typeof m.baseUrl === "string" ? m.baseUrl : "",
       credentialId: credId,
       apiVersion: typeof m.apiVersion === "string" ? m.apiVersion : "",
+      supportsTools: typeof m.supportsTools === "boolean" ? m.supportsTools : undefined,
     })
   }
   if (models.length === 0) {
-    return { ai: DEFAULT_AI, migrated }
+    return { ai: { models: [], activeModelId: null }, migrated }
   }
   const activeModelId =
     typeof d.activeModelId === "string" && models.some((m) => m.id === d.activeModelId)

@@ -9,6 +9,7 @@ import type {
   SnapshotEntry,
   SnapshotText,
   TrashEntry,
+  TrashPreview,
 } from "./types"
 
 export class HistoryRepository {
@@ -46,6 +47,10 @@ export class HistoryRepository {
 
   async readSnapshotText(snapshotId: string): Promise<SnapshotText> {
     return this.port().readSnapshotText(snapshotId)
+  }
+
+  async readTrashPreview(trashId: string, relativePath: string): Promise<TrashPreview> {
+    return this.port().readTrashPreview(trashId, relativePath)
   }
 
   async listTrash(): Promise<TrashEntry[]> {
