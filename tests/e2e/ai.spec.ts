@@ -5,7 +5,6 @@ test("AI panel selects and removes note context in a browser workspace", async (
   await seedVault(page, { First: "# First\n\nSome text.", Second: "# Second\n\nAnother note." })
   await openNote(page, "First")
   await page.locator('[data-activity-button="ai"]').click()
-  await expect(page.getByText("Контекст:")).toBeVisible()
   await expect(page.getByRole("button", { name: "Убрать заметку из контекста" })).toBeVisible()
   const composer = page.getByPlaceholder("Сообщение…")
   await composer.fill("Compare @Sec")

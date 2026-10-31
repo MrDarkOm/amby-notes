@@ -2,11 +2,14 @@
 
 import { AmbySelect } from "@/components/ui/amby-select"
 import * as React from "react"
-import { Check, KeyRound, Plus, Trash2, X } from "lucide-react"
+import { Check, ChevronDown, ChevronRight, Cloud, HardDrive, KeyRound, Plus, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Switch } from "@/components/ui/switch"
+import { ProviderIcon } from "./ai/provider-icon"
+import { hasProviderMark } from "./ai/provider-marks"
 import {
   deleteAiCredential,
   inspectAiCredential,
@@ -27,6 +30,7 @@ import {
   codexStatusKey,
   findProvider,
   isCodexModel,
+  isLocalAiModel,
   modelSupportsTools,
   type AiModel,
   type AiSettings,
@@ -43,6 +47,9 @@ export function ModelsManager({
 }) {
   const { t } = useTranslation()
   const [storageError, setStorageError] = React.useState<string | null>(null)
+  const [openId, setOpenId] = React.useState<string | null>(
+    () => ai.activeModelId ?? ai.models[0]?.id ?? null,
+  )
   const updateModel = (next: AiModel) =>
     onChange({ ...ai, models: ai.models.map((m) => (m.id === next.id ? next : m)) })
 
@@ -64,11 +71,12 @@ export function ModelsManager({
   const addModel = () => {
     const m = blankModel()
     onChange({ models: [...ai.models, m], activeModelId: ai.activeModelId ?? m.id })
+    setOpenId(m.id)
   }
 
   return (
     <ScrollArea className="min-h-0 flex-1">
-      <div className="flex flex-col gap-2.5 p-3">
+      <div className="flex flex-col gap-2 p-3">
         {storageError && (
           <p role="alert" className="text-[12px] text-destructive">
             {storageError}
@@ -79,19 +87,95 @@ export function ModelsManager({
             {t("models.empty")}
           </p>
         )}
-        {ai.models.map((m) => (
-          <ModelEditor
-            key={m.id}
-            model={m}
-            active={m.id === ai.activeModelId}
-            onChange={updateModel}
-            onDelete={() => void deleteModel(m.id)}
-          />
-        ))}
+        <div role="radiogroup" aria-label={t("ai.activeModel")} className="flex flex-col gap-2">
+          {ai.models.map((m) => {
+            const open = m.id === openId
+            const active = m.id === ai.activeModelId
+            const provider = findProvider(m.provider)
+            return (
+              <div
+                key={m.id}
+                className={cn(
+                  "overflow-hidden rounded-xl border bg-card",
+                  active ? "border-primary/40" : "border-border",
+                )}
+              >
+                <div className="flex items-center gap-1 pl-2 pr-1">
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    title={t(active ? "models.active" : "models.makeActive")}
+                    aria-label={t(active ? "models.active" : "models.makeActive")}
+                    onClick={() => {
+                      if (!active) onChange({ ...ai, activeModelId: m.id })
+                    }}
+                    className="flex size-6 shrink-0 items-center justify-center rounded-full hover:bg-accent"
+                  >
+                    <span
+                      className={cn(
+                        "flex size-3.5 items-center justify-center rounded-full border",
+                        active ? "border-primary bg-primary" : "border-muted-foreground/60",
+                      )}
+                    >
+                      {active && <span className="size-1.5 rounded-full bg-primary-foreground" />}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    onClick={() => setOpenId(open ? null : m.id)}
+                    className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-2.5 text-left hover:bg-accent/50"
+                  >
+                    <ProviderIcon
+                      providerId={m.provider}
+                      kind={isLocalAiModel(m) ? "local" : "cloud"}
+                      className="size-[18px] text-foreground/80"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-medium text-foreground">
+                        {m.label || t("models.namePlaceholder")}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {provider?.label ?? m.provider}
+                      </span>
+                    </span>
+                    {hasProviderMark(m.provider) &&
+                      (isLocalAiModel(m) ? (
+                        <HardDrive
+                          role="img"
+                          aria-label={t("ai.localModel")}
+                          className="size-3.5 shrink-0 text-muted-foreground"
+                        />
+                      ) : (
+                        <Cloud
+                          role="img"
+                          aria-label={t("ai.cloudModel")}
+                          className="size-3.5 shrink-0 text-muted-foreground"
+                        />
+                      ))}
+                    {open ? (
+                      <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                    )}
+                  </button>
+                </div>
+                {open && (
+                  <ModelEditor
+                    model={m}
+                    onChange={updateModel}
+                    onDelete={() => void deleteModel(m.id)}
+                  />
+                )}
+              </div>
+            )
+          })}
+        </div>
         <button
           type="button"
           onClick={addModel}
-          className="flex items-center justify-center gap-1.5 rounded-md border border-dashed border-border px-2 py-2 text-[12px] text-muted-foreground hover:border-border hover:text-foreground"
+          className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-border px-2 py-2.5 text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <Plus className="size-3.5" />
           {t("models.add")}
@@ -103,20 +187,18 @@ export function ModelsManager({
 
 function ModelEditor({
   model,
-  active,
   onChange,
   onDelete,
 }: {
   model: AiModel
-  active: boolean
   onChange: (next: AiModel) => void
   onDelete: () => void
 }) {
   const { t } = useTranslation()
   const provider = findProvider(model.provider)
   const field =
-    "h-7 w-full min-w-0 rounded border border-border bg-card px-2 text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
-  const label = "text-[10px] uppercase tracking-wider text-muted-foreground"
+    "h-8 w-full min-w-0 rounded-lg border border-border bg-background px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
+  const label = "text-xs text-muted-foreground"
   const set = (patch: Partial<AiModel>) => onChange({ ...model, ...patch })
 
   const codex = isCodexModel(model)
@@ -220,28 +302,167 @@ function ModelEditor({
   const locals = AI_PROVIDERS.filter((p) => p.kind === "local")
   const clouds = AI_PROVIDERS.filter((p) => p.kind === "cloud")
 
-  return (
+  const connection = codex ? (
     <div
-      className={cn(
-        "flex flex-col gap-2 rounded-lg border bg-background p-2.5",
-        active ? "border-ring/60" : "border-border",
-      )}
+      data-codex-connection
+      className="flex flex-col gap-2 rounded-lg border border-border bg-background p-2.5"
     >
-      <div className="flex items-center gap-2">
+      {codexHint && (
+        <div className="flex items-start gap-2">
+          <span
+            aria-hidden="true"
+            className={cn(
+              "mt-1 size-2 shrink-0 rounded-full",
+              codexHint === "ready" ? "bg-emerald-500" : "bg-amber-500",
+            )}
+          />
+          <p className="text-xs leading-snug text-foreground">
+            {t(`models.codexStatus.${codexHint}`)}
+          </p>
+        </div>
+      )}
+      {codexError && (
+        <p role="alert" className="text-xs leading-snug text-destructive">
+          {codexError}
+        </p>
+      )}
+      {codexBusy === "signIn" && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="min-w-0 flex-1">{t("models.codexWaiting")}</span>
+          <button
+            type="button"
+            className="shrink-0 rounded-md border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
+            onClick={() => void aiCodexLoginCancel()}
+          >
+            {t("models.codexCancel")}
+          </button>
+        </div>
+      )}
+      {!codexBusy && codexHint === "signedOut" && (
+        <button
+          type="button"
+          className="self-start rounded-md border border-border px-2.5 py-1 text-xs text-foreground hover:bg-accent"
+          onClick={() => void codexAction("signIn")}
+        >
+          {t("models.codexSignIn")}
+        </button>
+      )}
+      {!codexBusy && codexHint === "ready" && (
+        <button
+          type="button"
+          className="self-start rounded-md border border-border px-2.5 py-1 text-xs text-foreground hover:bg-accent"
+          onClick={() => void codexAction("signOut")}
+        >
+          {t("models.codexSignOut")}
+        </button>
+      )}
+    </div>
+  ) : (
+    <>
+      <div className="flex flex-col gap-1">
+        <label className={label}>{provider?.azure ? "Endpoint" : "Base URL"}</label>
         <input
-          className={cn(field, "flex-1 font-medium")}
+          className={field}
+          value={model.baseUrl}
+          onChange={(e) => set({ baseUrl: e.target.value })}
+          placeholder={
+            provider?.defaultBaseUrl ||
+            (provider?.azure ? "https://<resource>.openai.azure.com" : t("models.optional"))
+          }
+        />
+      </div>
+
+      {provider?.needsKey && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between">
+            <label className={label}>{t("models.apiKey")}</label>
+            {credInfo?.exists && (
+              <span className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400">
+                <KeyRound className="size-3" />
+                {t("models.keyStoredInKeychain")}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <input
+              className={field}
+              type="password"
+              value={inputKey}
+              onChange={(e) => setInputKey(e.target.value)}
+              onBlur={() => {
+                if (inputKey) void handleSaveKey(inputKey)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && inputKey) {
+                  e.preventDefault()
+                  void handleSaveKey(inputKey)
+                }
+              }}
+              placeholder={credInfo?.masked || t("models.keyPlaceholder")}
+            />
+            {inputKey ? (
+              <button
+                type="button"
+                title={t("models.keySaved")}
+                disabled={savingKey}
+                onClick={() => void handleSaveKey(inputKey)}
+                className="shrink-0 rounded-md bg-primary/15 p-1.5 text-primary hover:bg-primary/25"
+              >
+                <Check className="size-3.5" />
+              </button>
+            ) : credInfo?.exists ? (
+              <button
+                type="button"
+                title={t("models.clearKey")}
+                disabled={savingKey}
+                onClick={() => void handleClearKey()}
+                className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-destructive"
+              >
+                <X className="size-3.5" />
+              </button>
+            ) : null}
+          </div>
+        </div>
+      )}
+      {keyError && (
+        <p role="alert" className="text-xs text-destructive">
+          {keyError}
+        </p>
+      )}
+
+      {provider?.azure && (
+        <div className="flex flex-col gap-1">
+          <label className={label}>{t("models.apiVersion")}</label>
+          <input
+            className={field}
+            value={model.apiVersion}
+            onChange={(e) => set({ apiVersion: e.target.value })}
+            placeholder="2024-06-01"
+          />
+        </div>
+      )}
+
+      <label className="flex items-center justify-between gap-3 text-[13px] text-foreground">
+        <span>{t("models.supportsTools")}</span>
+        <Switch
+          aria-label={t("models.supportsTools")}
+          checked={modelSupportsTools(model)}
+          onCheckedChange={(checked) => set({ supportsTools: checked })}
+        />
+      </label>
+    </>
+  )
+
+  return (
+    <div className="flex flex-col gap-3 border-t border-border px-3 pb-3 pt-3">
+      <div className="flex flex-col gap-1">
+        <label className={label}>{t("models.namePlaceholder")}</label>
+        <input
+          className={cn(field, "font-medium")}
           value={model.label}
           onChange={(e) => set({ label: e.target.value })}
           placeholder={t("models.namePlaceholder")}
         />
-        <button
-          type="button"
-          title={t("models.delete")}
-          onClick={onDelete}
-          className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-red-400"
-        >
-          <Trash2 className="size-3.5" />
-        </button>
       </div>
 
       <div className="flex flex-col gap-1">
@@ -273,159 +494,21 @@ function ModelEditor({
         />
       </div>
 
-      {!codex && (
-        <div className="flex flex-col gap-1">
-          <label className={label}>{provider?.azure ? "Endpoint" : "Base URL"}</label>
-          <input
-            className={field}
-            value={model.baseUrl}
-            onChange={(e) => set({ baseUrl: e.target.value })}
-            placeholder={
-              provider?.defaultBaseUrl ||
-              (provider?.azure ? "https://<resource>.openai.azure.com" : t("models.optional"))
-            }
-          />
-        </div>
-      )}
-
-      {!codex && (
-        <label className="flex items-center gap-2 text-[12px] text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={modelSupportsTools(model)}
-            onChange={(event) => set({ supportsTools: event.target.checked })}
-          />
-          {t("models.supportsTools")}
-        </label>
-      )}
-
-      {codex && codexHint && (
-        <p
-          className={cn(
-            "text-[11px] leading-snug",
-            codexHint === "ready"
-              ? "text-emerald-600 dark:text-emerald-400"
-              : "text-amber-600 dark:text-amber-400",
-          )}
-        >
-          {t(`models.codexStatus.${codexHint}`)}
-        </p>
-      )}
-
-      {codex && codexError && (
-        <p role="alert" className="text-[11px] leading-snug text-destructive">
-          {codexError}
-        </p>
-      )}
-
-      {codex && codexBusy === "signIn" && (
-        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-          <span>{t("models.codexWaiting")}</span>
-          <button
-            type="button"
-            className="rounded border border-border px-2 py-0.5 text-[11px] hover:bg-accent"
-            onClick={() => void aiCodexLoginCancel()}
-          >
-            {t("models.codexCancel")}
-          </button>
-        </div>
-      )}
-
-      {codex && !codexBusy && codexHint === "signedOut" && (
-        <button
-          type="button"
-          className="self-start rounded border border-border px-2 py-1 text-[12px] hover:bg-accent"
-          onClick={() => void codexAction("signIn")}
-        >
-          {t("models.codexSignIn")}
-        </button>
-      )}
-
-      {codex && !codexBusy && codexHint === "ready" && (
-        <button
-          type="button"
-          className="self-start rounded border border-border px-2 py-1 text-[12px] hover:bg-accent"
-          onClick={() => void codexAction("signOut")}
-        >
-          {t("models.codexSignOut")}
-        </button>
-      )}
-
-      {provider?.needsKey && (
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center justify-between">
-            <label className={label}>{t("models.apiKey")}</label>
-            {credInfo?.exists && (
-              <span className="flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400">
-                <KeyRound className="size-3" />
-                {t("models.keyStoredInKeychain")}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5">
-            <input
-              className={field}
-              type="password"
-              value={inputKey}
-              onChange={(e) => setInputKey(e.target.value)}
-              onBlur={() => {
-                if (inputKey) void handleSaveKey(inputKey)
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && inputKey) {
-                  e.preventDefault()
-                  void handleSaveKey(inputKey)
-                }
-              }}
-              placeholder={credInfo?.masked || t("models.keyPlaceholder")}
-            />
-            {inputKey ? (
-              <button
-                type="button"
-                title={t("models.keySaved")}
-                disabled={savingKey}
-                onClick={() => void handleSaveKey(inputKey)}
-                className="shrink-0 rounded bg-primary/20 px-2 py-1 text-[11px] text-primary hover:bg-primary/30"
-              >
-                <Check className="size-3.5" />
-              </button>
-            ) : credInfo?.exists ? (
-              <button
-                type="button"
-                title={t("models.clearKey")}
-                disabled={savingKey}
-                onClick={() => void handleClearKey()}
-                className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-red-400"
-              >
-                <X className="size-3.5" />
-              </button>
-            ) : null}
-          </div>
-        </div>
-      )}
-      {keyError && (
-        <p role="alert" className="text-[12px] text-destructive">
-          {keyError}
-        </p>
-      )}
-
-      {provider?.azure && (
-        <div className="flex flex-col gap-1">
-          <label className={label}>{t("models.apiVersion")}</label>
-          <input
-            className={field}
-            value={model.apiVersion}
-            onChange={(e) => set({ apiVersion: e.target.value })}
-            placeholder="2024-06-01"
-          />
-        </div>
-      )}
+      {connection}
 
       {provider?.kind === "cloud" && (
-        <p className="text-[10px] leading-snug text-muted-foreground">
+        <p className="text-xs leading-relaxed text-muted-foreground">
           {t(codex ? "models.codexPrivacyNote" : "models.privacyNote")}
         </p>
       )}
+
+      <button
+        type="button"
+        onClick={onDelete}
+        className="self-start rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-destructive"
+      >
+        {t("models.delete")}
+      </button>
     </div>
   )
 }

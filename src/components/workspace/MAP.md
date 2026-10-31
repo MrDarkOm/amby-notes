@@ -29,8 +29,10 @@ hooks and surfaces. Extend the owner below instead of adding parallel state.
 | Optional feature registration/profiles | [module host map](../../lib/modules/MAP.md), [modules/](modules/), feature `*-module.tsx` files                                                                                                                                                                                                                                         |
 
 AI conversations: [ai-panel.tsx](ai-panel.tsx) composes the panel;
-[ai/](ai/) owns the conversation store, context budget, history list and safe
-Markdown. The [storage boundary](../../lib/storage/MAP.md) persists chats and
+[ai/](ai/) owns the conversation store, context budget, history list, safe
+Markdown and the calm-document views ([message-view.tsx](ai/message-view.tsx),
+[composer.tsx](ai/composer.tsx), [model-picker.tsx](ai/model-picker.tsx),
+[provider-icon.tsx](ai/provider-icon.tsx), [empty-chat.tsx](ai/empty-chat.tsx)). The [storage boundary](../../lib/storage/MAP.md) persists chats and
 consent; Rust owns the read-only tool loop and vault authorization.
 
 Archive: [archive-panel.tsx](panels/archive-panel.tsx) owns actions and errors;

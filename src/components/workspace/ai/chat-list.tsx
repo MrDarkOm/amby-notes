@@ -52,7 +52,7 @@ export function ChatList({ onOpen }: { onOpen: () => void }) {
           onChange={(event) => setQuery(event.target.value)}
           placeholder={t("ai.searchChats")}
           aria-label={t("ai.searchChats")}
-          className="w-full rounded border border-border bg-card px-2 py-1 text-sm"
+          className="h-8 w-full rounded-lg border border-border bg-card px-2.5 text-[13px] outline-none placeholder:text-muted-foreground focus:border-ring"
         />
       </div>
       <ScrollArea className="min-h-0 flex-1">
@@ -70,11 +70,14 @@ export function ChatList({ onOpen }: { onOpen: () => void }) {
             if (!rows.length) return null
             return (
               <section key={section}>
-                <h3 className="mb-1 text-[11px] font-medium text-muted-foreground">
+                <h3 className="mb-1 px-1 text-xs font-medium text-muted-foreground">
                   {t(`ai.${section}`)}
                 </h3>
                 {rows.map((entry) => (
-                  <div key={entry.id} className="flex items-center gap-1 rounded hover:bg-accent">
+                  <div
+                    key={entry.id}
+                    className="flex items-center gap-1 rounded-lg px-1 hover:bg-accent"
+                  >
                     {editing === entry.id ? (
                       <>
                         <input

@@ -2,21 +2,13 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
+import { ArrowLeft, History, MoreHorizontal, Settings2, SquarePen } from "lucide-react"
 import {
-  ArrowLeft,
-  Copy,
-  FilePlus2,
-  FileText,
-  Folder,
-  History,
-  Plus,
-  RotateCcw,
-  Send,
-  Settings2,
-  Square,
-  X,
-} from "lucide-react"
-import { AmbySelect } from "@/components/ui/amby-select"
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
@@ -43,15 +35,11 @@ import { useVaultStore } from "./use-vault-store"
 import { ModelsManager } from "./models-manager"
 import type { PanelRenderProps } from "./panel-registry"
 import { PanelHeader } from "./panels/panel-header"
-import { openWebAddressInBrowser } from "./tiptap/external-open"
 import { toRelativeVaultPath } from "./workspace-tree-utils"
-import {
-  allContextItems,
-  buildAttachedContext,
-  currentContext,
-  MAX_ATTACHED_CHARS,
-} from "./ai/context"
-import { renderChatMarkdown } from "./ai/chat-markdown"
+import { allContextItems, buildAttachedContext, currentContext } from "./ai/context"
+import { Composer } from "./ai/composer"
+import { EmptyChat } from "./ai/empty-chat"
+import { AssistantAnswer, LiveAnswer, UserMessage } from "./ai/message-view"
 import { ChatList } from "./ai/chat-list"
 import { useAiChatStore } from "./ai/use-ai-chat-store"
 import {
@@ -62,7 +50,6 @@ import {
   type ChatStep,
   type TreeItem,
 } from "@/lib/storage"
-import { cn } from "@/lib/utils"
 
 interface RunningTurn {
   controller: AbortController
@@ -79,99 +66,6 @@ interface ConsentPrompt {
   chatId: string
   generation: number
   fromInput: boolean
-}
-
-function AiMarkdown({
-  content,
-  items,
-  vault,
-  onSelect,
-}: {
-  content: string
-  items: TreeItem[]
-  vault: string | null
-  onSelect: (id: string) => void
-}) {
-  return (
-    <div
-      className="ai-chat-markdown"
-      onClick={(event) => {
-        const target = event.target
-        if (!(target instanceof Element)) return
-        const link = target.closest("a")
-        if (!link) return
-        event.preventDefault()
-        const href = link.getAttribute("href") ?? ""
-        if (/^https?:\/\//i.test(href)) {
-          void openWebAddressInBrowser(href)
-          return
-        }
-        let address: string
-        try {
-          address = decodeURIComponent(href).split("#")[0]
-        } catch {
-          return
-        }
-        const match = items.find(
-          (item) =>
-            item.type === "file" &&
-            (toRelativeVaultPath(item.path, vault) === address ||
-              item.name === address ||
-              item.name.replace(/\.md$/i, "") === address.replace(/\.md$/i, "")),
-        )
-        if (match) onSelect(match.id)
-      }}
-      dangerouslySetInnerHTML={{ __html: renderChatMarkdown(content) }}
-    />
-  )
-}
-
-function StepView({
-  step,
-  items,
-  onSelect,
-}: {
-  step: ChatStep
-  items: TreeItem[]
-  onSelect: (id: string) => void
-}) {
-  const { t } = useTranslation()
-  const label = items.find((item) => item.id === step.query)?.name ?? step.query
-  const key =
-    step.tool === "search_notes"
-      ? "searching"
-      : step.tool === "read_note"
-        ? "reading"
-        : step.tool === "list_folder"
-          ? "listing"
-          : step.tool === "get_links"
-            ? "linking"
-            : "toolOther"
-  return (
-    <details className="text-[11px] text-muted-foreground">
-      <summary className="cursor-pointer">
-        {step.error
-          ? t(step.error === "indexTooLarge" ? "ai.indexTooLarge" : "ai.toolFailed")
-          : t(`ai.${key}`, { query: label, count: step.noteIds.length, tool: step.tool })}
-      </summary>
-      <div className="flex flex-wrap gap-1 py-1">
-        {step.noteIds.map((id) => {
-          const item = items.find((candidate) => candidate.id === id && candidate.type === "file")
-          return (
-            <button
-              key={id}
-              type="button"
-              disabled={!item}
-              onClick={() => onSelect(id)}
-              className="rounded bg-muted px-1.5 py-0.5 disabled:opacity-50"
-            >
-              {item?.name ?? id}
-            </button>
-          )
-        })}
-      </div>
-    </details>
-  )
 }
 
 export function AiPanel({
@@ -624,20 +518,7 @@ export function AiPanel({
         }
         actions={
           screen === "chat" && (
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                title={t("ai.chatList")}
-                aria-label={t("ai.chatList")}
-                onClick={() => {
-                  stop()
-                  void useAiChatStore.getState().refresh()
-                  setScreen("list")
-                }}
-                className="rounded p-1 text-muted-foreground hover:bg-accent"
-              >
-                <History className="size-4" />
-              </button>
+            <div className="flex items-center gap-0.5">
               <button
                 type="button"
                 title={t("ai.newChat")}
@@ -648,19 +529,38 @@ export function AiPanel({
                   setError(null)
                   setInput("")
                 }}
-                className="rounded p-1 text-muted-foreground hover:bg-accent"
+                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
               >
-                <Plus className="size-4" />
+                <SquarePen className="size-4" />
               </button>
-              <button
-                type="button"
-                title={t("ai.modelsAndProviders")}
-                aria-label={t("ai.modelsAndProviders")}
-                onClick={() => setScreen("models")}
-                className="rounded p-1 text-muted-foreground hover:bg-accent"
-              >
-                <Settings2 className="size-4" />
-              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    title={t("ai.menu")}
+                    aria-label={t("ai.menu")}
+                    className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <MoreHorizontal className="size-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      stop()
+                      void useAiChatStore.getState().refresh()
+                      setScreen("list")
+                    }}
+                  >
+                    <History className="size-4" />
+                    {t("ai.chatList")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setScreen("models")}>
+                    <Settings2 className="size-4" />
+                    {t("ai.modelsAndProviders")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           )
         }
@@ -682,196 +582,63 @@ export function AiPanel({
         </ScrollArea>
       ) : (
         <>
-          <div className="flex shrink-0 flex-wrap items-center gap-1 px-3 py-1.5 text-[11px] text-muted-foreground">
-            <FileText className="size-3" />
-            <span>{t("ai.contextPrefix")}</span>
-            {chat?.context.map((entry) => {
-              const item =
-                entry.kind === "folder"
-                  ? flat.find(
-                      (candidate) =>
-                        candidate.type === "folder" &&
-                        toRelativeVaultPath(candidate.path, vault) === entry.id,
-                    )
-                  : flat.find((candidate) => candidate.id === entry.id)
-              const doc = openDocs[entry.id]
-              const clipped =
-                truncated.includes(entry.id) ||
-                (entry.kind === "current" &&
-                  !!doc &&
-                  Array.from(doc.content).length > MAX_ATTACHED_CHARS)
-              return (
-                <span
-                  key={`${entry.kind}:${entry.id}`}
-                  className="flex max-w-full items-center gap-1 rounded bg-muted px-1.5 py-0.5"
-                >
-                  <span className="truncate">
-                    {doc?.title || item?.name || entry.id}
-                    {clipped ? ` · ${t("ai.contextTruncated")}` : ""}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={loading}
-                    aria-label={t("ai.removeContext")}
-                    title={t("ai.removeContext")}
-                    onClick={() =>
-                      changeChat({
-                        ...chat,
-                        autoCurrent: entry.kind === "current" ? false : chat.autoCurrent,
-                        context: chat.context.filter((candidate) => candidate !== entry),
-                      })
-                    }
-                  >
-                    <X className="size-3" />
-                  </button>
-                </span>
-              )
-            })}
-            {chat && !chat.autoCurrent && currentDoc && (
-              <button
-                type="button"
-                disabled={loading}
-                className="underline"
-                onClick={() =>
-                  changeChat({
-                    ...chat,
-                    autoCurrent: true,
-                    context: currentContext(chat.context, currentDocId ?? null, true),
-                  })
-                }
-              >
-                {t("ai.addContext")}
-              </button>
-            )}
-          </div>
           <ScrollArea className="min-h-0 flex-1">
-            <div className="flex flex-col gap-3 p-3">
+            <div className="flex flex-col gap-4 px-3 py-3">
               {(!chat || chat.messages.length === 0) && !loading && (
-                <p className="px-1 py-6 text-center text-[12px] text-muted-foreground">
-                  {t("ai.askAboutNote")}
-                  <br />
-                  {t("ai.examples")}
-                  {!model && (
-                    <button
-                      type="button"
-                      className="mt-2 block w-full underline"
-                      onClick={() => setScreen("models")}
-                    >
-                      {t("ai.noModelsOpenSettings")}
-                    </button>
-                  )}
-                </p>
+                <EmptyChat
+                  hasModel={!!model}
+                  searchOn={!!chat?.searchEnabled && tools}
+                  onOpenModels={() => setScreen("models")}
+                  onPick={setInput}
+                />
               )}
-              {chat?.messages.map((message, index) => (
-                <div
-                  key={index}
-                  className={cn(
-                    "max-w-[96%] select-text break-words rounded-lg px-3 py-2 text-[13px] leading-relaxed",
-                    message.role === "user"
-                      ? "self-end whitespace-pre-wrap bg-sky-600/20"
-                      : "self-start bg-card",
-                  )}
-                >
-                  {message.role === "assistant" ? (
-                    <>
-                      {message.steps.map((step, stepIndex) => (
-                        <StepView key={stepIndex} step={step} items={flat} onSelect={onSelect} />
-                      ))}
-                      <AiMarkdown
-                        content={message.content}
-                        items={flat}
-                        vault={vault}
-                        onSelect={onSelect}
-                      />
-                      {message.sources.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {message.sources.map((source, sourceIndex) => (
-                            <button
-                              key={source.id}
-                              type="button"
-                              disabled={
-                                !flat.some((item) => item.id === source.id && item.type === "file")
-                              }
-                              onClick={() => onSelect(source.id)}
-                              className="rounded bg-muted px-1.5 py-0.5 text-[11px] disabled:opacity-50"
-                            >
-                              [{sourceIndex + 1}] {source.title}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      <div className="mt-2 flex gap-2 text-muted-foreground">
-                        <button
-                          type="button"
-                          title={copied === index ? t("ai.copied") : t("ai.copy")}
-                          aria-label={t("ai.copy")}
-                          onClick={() => {
-                            void navigator.clipboard
-                              .writeText(message.content)
-                              .then(() => setCopied(index))
-                              .catch(() => setError(t("ai.chatSaveFailed")))
-                          }}
-                        >
-                          <Copy className="size-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          title={t("ai.retry")}
-                          aria-label={t("ai.retry")}
-                          disabled={loading}
-                          onClick={() => {
-                            const question = chat.messages
-                              .slice(0, index)
-                              .reverse()
-                              .find((entry) => entry.role === "user")
-                            if (question) void requestSend(question.content, false)
-                          }}
-                        >
-                          <RotateCcw className="size-3.5" />
-                        </button>
-                        {onCreateNoteFromText && (
-                          <button
-                            type="button"
-                            title={t("ai.saveAsNote")}
-                            aria-label={t("ai.saveAsNote")}
-                            onClick={() => void onCreateNoteFromText(message.content)}
-                          >
-                            <FilePlus2 className="size-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </>
-                  ) : (
-                    message.content
-                  )}
-                </div>
-              ))}
+              {chat?.messages.map((message, index) =>
+                message.role === "user" ? (
+                  <UserMessage key={index} text={message.content} />
+                ) : (
+                  <AssistantAnswer
+                    key={index}
+                    message={message}
+                    items={flat}
+                    vault={vault}
+                    onSelect={onSelect}
+                    copied={copied === index}
+                    busy={loading}
+                    onCopy={() => {
+                      void navigator.clipboard
+                        .writeText(message.content)
+                        .then(() => setCopied(index))
+                        .catch(() => setError(t("ai.chatSaveFailed")))
+                    }}
+                    onRetry={() => {
+                      const question = chat.messages
+                        .slice(0, index)
+                        .reverse()
+                        .find((entry) => entry.role === "user")
+                      if (question) void requestSend(question.content, false)
+                    }}
+                    onSaveAsNote={
+                      onCreateNoteFromText
+                        ? () => void onCreateNoteFromText(message.content)
+                        : undefined
+                    }
+                  />
+                ),
+              )}
               {loading && (
-                <div className="max-w-[96%] self-start rounded-lg bg-card px-3 py-2 text-[13px]">
-                  {liveSteps.map((step, index) => (
-                    <StepView key={index} step={step} items={flat} onSelect={onSelect} />
-                  ))}
-                  {liveStatus && (
-                    <p className="text-xs text-muted-foreground">
-                      {t("ai.toolOther", { tool: liveStatus })}
-                    </p>
-                  )}
-                  {streaming ? (
-                    <AiMarkdown
-                      content={streaming}
-                      items={flat}
-                      vault={vault}
-                      onSelect={onSelect}
-                    />
-                  ) : (
-                    <span className="text-muted-foreground">{t("ai.thinking")}</span>
-                  )}
-                </div>
+                <LiveAnswer
+                  steps={liveSteps}
+                  status={liveStatus}
+                  streaming={streaming}
+                  items={flat}
+                  vault={vault}
+                  onSelect={onSelect}
+                />
               )}
               {(error || storageError) && (
                 <div
                   role="alert"
-                  className="self-start rounded-lg border border-destructive/50 px-3 py-2 text-xs text-destructive"
+                  className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs leading-relaxed text-destructive"
                 >
                   {error || t("ai.chatSaveFailed")}
                 </div>
@@ -879,106 +646,43 @@ export function AiPanel({
               <div ref={scrollEndRef} />
             </div>
           </ScrollArea>
-          <div className="relative flex shrink-0 flex-col gap-2 border-t border-border p-2">
-            {mention && !loading && (
-              <div
-                role="listbox"
-                aria-label={t("ai.addMention")}
-                className="absolute bottom-full left-2 right-2 max-h-48 overflow-auto rounded border border-border bg-popover p-1 shadow-lg"
-              >
-                {choices.length ? (
-                  choices.map((item) => (
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected="false"
-                      key={item.id}
-                      onClick={() => addItem(item)}
-                      className="block w-full truncate rounded px-2 py-1 text-left text-xs hover:bg-accent"
-                    >
-                      {item.type === "folder" ? (
-                        <Folder className="mr-1 inline size-3" />
-                      ) : (
-                        <FileText className="mr-1 inline size-3" />
-                      )}
-                      {item.name}
-                    </button>
-                  ))
-                ) : (
-                  <p className="p-2 text-xs text-muted-foreground">{t("ai.noMentions")}</p>
-                )}
-              </div>
-            )}
-            <label
-              className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
-              title={!tools ? t("ai.toolsDisabled") : undefined}
-            >
-              <input
-                type="checkbox"
-                disabled={!tools || loading || !chat}
-                checked={!!chat?.searchEnabled && tools}
-                onChange={(event) => {
-                  if (chat) changeChat({ ...chat, searchEnabled: event.target.checked })
-                }}
-              />
-              {t("ai.searchVault")}
-              {!tools && <span> · {t("ai.toolsDisabled")}</span>}
-            </label>
-            <div className="flex items-end gap-2">
-              <textarea
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey && !mention) {
-                    event.preventDefault()
-                    void requestSend(input, true)
-                  }
-                }}
-                rows={2}
-                placeholder={t("ai.messagePlaceholder")}
-                className="min-h-[2.25rem] min-w-0 flex-1 resize-none rounded-md border border-border bg-card px-2 py-1.5 text-[13px] outline-none"
-              />
-              {loading ? (
-                <button
-                  type="button"
-                  onClick={stop}
-                  title={t("ai.stop")}
-                  aria-label={t("ai.stop")}
-                  className="flex size-8 items-center justify-center rounded-md bg-red-600 text-white"
-                >
-                  <Square className="size-3.5 fill-current" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => void requestSend(input, true)}
-                  disabled={!input.trim() || switching || !chat}
-                  title={t("ai.send")}
-                  aria-label={t("ai.send")}
-                  className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-40"
-                >
-                  <Send className="size-4" />
-                </button>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <AmbySelect
-                size="sm"
-                className="min-w-0 flex-1 text-[11px] text-muted-foreground"
-                value={model?.id ?? ""}
-                title={t("ai.activeModel")}
-                aria-label={t("ai.activeModel")}
-                placeholder={t("ai.noModelsOpenSettings")}
-                options={ai.models.map((item) => ({ value: item.id, label: item.label }))}
-                onValueChange={(next) => updateAi({ ...ai, activeModelId: next })}
-              />
-              {model && (
-                <span className="text-[10px] text-muted-foreground">
-                  {t(isLocalAiModel(model) ? "ai.localModel" : "ai.cloudModel")}
-                </span>
-              )}
-            </div>
-          </div>
+          <Composer
+            chat={chat}
+            flat={flat}
+            openDocs={openDocs}
+            truncated={truncated}
+            vault={vault}
+            currentDoc={currentDoc}
+            input={input}
+            loading={loading}
+            switching={switching}
+            tools={tools}
+            mentionOpen={!!mention}
+            choices={choices}
+            models={ai.models.map((item) => ({
+              value: item.id,
+              label: item.label,
+              providerId: item.provider,
+              providerLabel: findProvider(item.provider)?.label ?? item.provider,
+              kind: isLocalAiModel(item) ? ("local" as const) : ("cloud" as const),
+            }))}
+            activeModelId={model?.id ?? ""}
+            onChangeChat={changeChat}
+            onAddCurrent={() => {
+              if (!chat) return
+              changeChat({
+                ...chat,
+                autoCurrent: true,
+                context: currentContext(chat.context, currentDocId ?? null, true),
+              })
+            }}
+            onInput={setInput}
+            onSend={() => void requestSend(input, true)}
+            onStop={stop}
+            onPickMention={addItem}
+            onModel={(next) => updateAi({ ...ai, activeModelId: next })}
+            onManage={() => setScreen("models")}
+          />
         </>
       )}
       <Dialog
