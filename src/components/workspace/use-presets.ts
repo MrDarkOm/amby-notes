@@ -312,11 +312,18 @@ export function usePresets(
         console.error("Failed to flush module before deactivation", transition.error)
         return false
       }
+      // A preset made in the settings window keeps only its modules; it must not empty the docks,
+      // so it takes the standard dock (limited to its modules) and the standard open panels.
+      const keepsDock = supportedNext.layout.length > 0
       setActivePresetId(supportedNext.id)
       activeModulesRef.current = supportedNext.activeModules
       setActiveModules(supportedNext.activeModules)
-      setActivityButtons(visibleLayout(supportedNext))
-      setActiveBySide(supportedNext.activeBySide)
+      setActivityButtons(
+        visibleLayout(
+          keepsDock ? supportedNext : { ...supportedNext, layout: STANDARD_PRESET.layout },
+        ),
+      )
+      setActiveBySide(keepsDock ? supportedNext.activeBySide : STANDARD_PRESET.activeBySide)
       if (hasVault) {
         saveWorkspaceConfigPatch({
           enabledModules: supportedNext.activeModules.map(toCanonicalModuleId),
@@ -495,15 +502,7 @@ export function usePresets(
   }, [storeUserPresets])
 
   const resetActivePreset = React.useCallback(
-    (ctx: ModuleContext) => {
-      const preset = resolve(presetIdRef.current)
-      // A preset that stores no dock returns to the standard one.
-      return applyPreset(
-        preset.layout.length > 0 ? preset : { ...preset, layout: STANDARD_PRESET.layout },
-        ctx,
-        true,
-      )
-    },
+    (ctx: ModuleContext) => applyPreset(resolve(presetIdRef.current), ctx, true),
     [applyPreset, resolve],
   )
 

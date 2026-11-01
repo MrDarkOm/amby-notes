@@ -290,7 +290,6 @@ describe("CreativePanel: belonging to stories and universes", () => {
     // them. (A scope with no story shows no empty part to link.)
     act(() => useCreativeNavStore.setState({ universeFilter: null }))
     render(<CreativePanel {...props()} />)
-    await screen.findByRole("button", { name: /Зоя|Анна|Озеро|Борис/ }).catch(() => null)
     // Without the property a page is in a story only through its text.
     const links = await screen.findAllByRole("button", { name: "Связать с историями" })
     expect(links).toHaveLength(2)
