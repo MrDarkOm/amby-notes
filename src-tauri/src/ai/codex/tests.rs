@@ -1088,3 +1088,60 @@ fn the_instructions_name_the_tools_and_treat_note_text_as_data() {
         assert!(text.contains(risky), "should say it has no {risky} access");
     }
 }
+
+#[tokio::test]
+async fn model_catalog_paginates_deduplicates_and_filters_non_text() {
+    let (reader, writer, seen) = spawn_server(|request| match request["method"].as_str() {
+        Some("initialize") => Some(vec![reply(request, json!({}))]),
+        Some("initialized") => Some(vec![]),
+        Some("account/read") => Some(vec![reply(
+            request,
+            json!({"account": {"type": "chatgpt"}}),
+        )]),
+        Some("model/list") if request["params"]["cursor"].is_null() => Some(vec![reply(
+            request,
+            json!({
+                "data": [{"model":"a","displayName":"A"}, {"model":"audio","displayName":"Audio","inputModalities":["audio"]}], "nextCursor":"next"
+            }),
+        )]),
+        Some("model/list") => Some(vec![reply(
+            request,
+            json!({"data": [{"model":"a","displayName":"A"}, {"model":"b","displayName":"B"}], "nextCursor":null}),
+        )]),
+        _ => None,
+    });
+    let (_sender, cancel) = tokio::sync::watch::channel(false);
+    assert_eq!(
+        run_model_catalog(reader, writer, cancel).await.unwrap(),
+        vec![("a".into(), "A".into()), ("b".into(), "B".into())]
+    );
+    let requests = seen.lock().unwrap();
+    let pages: Vec<_> = requests
+        .iter()
+        .filter(|request| request["method"] == "model/list")
+        .collect();
+    assert_eq!(pages.len(), 2);
+    assert_eq!(pages[1]["params"]["cursor"], "next");
+}
+
+#[tokio::test]
+async fn model_catalog_refuses_repeated_cursor() {
+    let (reader, writer, _) = spawn_server(|request| match request["method"].as_str() {
+        Some("initialize") => Some(vec![reply(request, json!({}))]),
+        Some("initialized") => Some(vec![]),
+        Some("account/read") => Some(vec![reply(
+            request,
+            json!({"account": {"type": "chatgpt"}}),
+        )]),
+        Some("model/list") => Some(vec![reply(
+            request,
+            json!({"data": [], "nextCursor":"same"}),
+        )]),
+        _ => None,
+    });
+    let (_sender, cancel) = tokio::sync::watch::channel(false);
+    assert_eq!(
+        run_model_catalog(reader, writer, cancel).await.unwrap_err(),
+        CodexError::Protocol
+    );
+}

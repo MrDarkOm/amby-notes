@@ -170,8 +170,11 @@ export interface StoragePort extends DatabasePort, ProjectPort {
   showErrorMessage(message: string): Promise<void>
 
   // Tiered Settings & App Data
+  migrateAiSettings(): Promise<void>
+  rollbackAiSettings(): Promise<void>
   readGlobalRaw(file: string): Promise<string | null>
   writeGlobalRaw(file: string, contents: string): Promise<void>
+  compareWriteGlobalRaw(file: string, expected: string | null, contents: string): Promise<boolean>
   readVaultRaw(rel: string): Promise<string | null>
   writeVaultRaw(rel: string, contents: string): Promise<void>
   deleteVaultMeta(rel: string): Promise<void>
@@ -179,5 +182,6 @@ export interface StoragePort extends DatabasePort, ProjectPort {
   // AI Credentials
   storeAiCredential(credentialId: string, secret: string): Promise<void>
   deleteAiCredential(credentialId: string): Promise<void>
+  deleteUnreferencedAiCredential(credentialId: string): Promise<boolean>
   inspectAiCredential(credentialId: string): Promise<CredentialInfo>
 }

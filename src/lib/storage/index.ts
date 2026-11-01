@@ -696,12 +696,23 @@ export const loadVaultJSON = <T>(rel: string, fallback: T): Promise<T> =>
   settingsRepository.loadVaultJSON<T>(rel, fallback)
 export const saveVaultJSON = (rel: string, data: unknown): Promise<void> =>
   settingsRepository.saveVaultJSON(rel, data)
+export const readGlobalRaw = (file: string): Promise<string | null> =>
+  settingsRepository.readGlobalRaw(file)
+export const compareWriteGlobalRaw = (
+  file: string,
+  expected: string | null,
+  contents: string,
+): Promise<boolean> => settingsRepository.compareWriteGlobalRaw(file, expected, contents)
+export const migrateAiSettings = (): Promise<void> => settingsRepository.migrateAiSettings()
+export const rollbackAiSettings = (): Promise<void> => settingsRepository.rollbackAiSettings()
 export const globalFileMissing = (file: string): Promise<boolean> =>
   settingsRepository.globalFileMissing(file)
 export const vaultFileMissing = (rel: string): Promise<boolean> =>
   settingsRepository.vaultFileMissing(rel)
 export const storeAiCredential = (credentialId: string, secret: string): Promise<void> =>
   settingsRepository.storeAiCredential(credentialId, secret)
+export const deleteUnreferencedAiCredential = (credentialId: string): Promise<boolean> =>
+  settingsRepository.deleteUnreferencedAiCredential(credentialId)
 export const deleteAiCredential = (credentialId: string): Promise<void> =>
   settingsRepository.deleteAiCredential(credentialId)
 export const inspectAiCredential = (credentialId: string): Promise<CredentialInfo> =>

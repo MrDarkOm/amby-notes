@@ -2,13 +2,7 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowLeft, History, MoreHorizontal, Settings2, SquarePen } from "lucide-react"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { ArrowLeft, History, Settings2, SquarePen } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
@@ -20,9 +14,11 @@ import {
 } from "@/lib/ai"
 import type { AiModel } from "./app-config"
 import {
+  AI_SETTINGS_CHANGED_EVENT,
   DEFAULT_AI,
   findProvider,
-  isCodexModel,
+  isClaudeCodeModel,
+  isCliAgentModel,
   isLocalAiModel,
   loadSettings,
   modelSupportsTools,
@@ -32,7 +28,6 @@ import {
 } from "./app-config"
 import { useDocStore } from "./use-doc-store"
 import { useVaultStore } from "./use-vault-store"
-import { ModelsManager } from "./models-manager"
 import type { PanelRenderProps } from "./panel-registry"
 import { PanelHeader } from "./panels/panel-header"
 import { toRelativeVaultPath } from "./workspace-tree-utils"
@@ -41,7 +36,9 @@ import { Composer } from "./ai/composer"
 import { EmptyChat } from "./ai/empty-chat"
 import { AssistantAnswer, LiveAnswer, UserMessage } from "./ai/message-view"
 import { ChatList } from "./ai/chat-list"
+import { newChatModelId } from "./ai/connections"
 import { useAiChatStore } from "./ai/use-ai-chat-store"
+import { OPEN_SETTINGS_REQUEST_EVENT } from "./settings-navigation"
 import {
   searchNotes,
   type Chat,
@@ -86,7 +83,7 @@ export function AiPanel({
   const storageError = useAiChatStore((state) => state.error)
   const [ai, setAi] = React.useState<AiSettings>(DEFAULT_AI)
   const [settingsLoaded, setSettingsLoaded] = React.useState(false)
-  const [screen, setScreen] = React.useState<"chat" | "list" | "models">("chat")
+  const [screen, setScreen] = React.useState<"chat" | "list">("chat")
   const [input, setInput] = React.useState("")
   const [loading, setLoading] = React.useState(false)
   const [streaming, setStreaming] = React.useState("")
@@ -102,10 +99,9 @@ export function AiPanel({
   const scrollEndRef = React.useRef<HTMLDivElement>(null)
   const checkingRef = React.useRef(false)
   const flat = React.useMemo(() => allContextItems(treeItems), [treeItems])
-  const model =
-    ai.models.find((item) => item.id === chat?.modelId) ??
-    ai.models.find((item) => item.id === ai.activeModelId) ??
-    null
+  const model = chat
+    ? (ai.models.find((item) => item.id === chat.modelId) ?? null)
+    : (ai.models.find((item) => item.id === newChatModelId(ai)) ?? null)
   const tools = model ? modelSupportsTools(model) : false
   const context = chat?.context
 
@@ -116,11 +112,12 @@ export function AiPanel({
       const content = result?.content ?? run.partial
       const steps = result?.steps ?? run.steps
       const sources = result?.sources ?? run.sources
-      const messages = [...run.chat.messages]
-      if (content || steps.length) messages.push({ role: "assistant", content, steps, sources })
-      const snapshot = { ...run.chat, messages, updatedAt: new Date().toISOString() }
       const store = useAiChatStore.getState()
-      if (store.generation === run.generation) {
+      const current = store.chat?.id === run.chat.id ? store.chat : run.chat
+      const messages = [...current.messages]
+      if (content || steps.length) messages.push({ role: "assistant", content, steps, sources })
+      const snapshot = { ...current, messages, updatedAt: new Date().toISOString() }
+      if (store.generation === run.generation && store.chat?.id === run.chat.id) {
         store.replace(snapshot)
         void store.save(snapshot, run.generation).catch(() => {})
       }
@@ -142,14 +139,25 @@ export function AiPanel({
 
   React.useEffect(() => {
     let live = true
-    void loadSettings().then((settings) => {
-      if (live) {
-        setAi(settings.ai)
-        setSettingsLoaded(true)
-      }
-    })
+    const refresh = () => {
+      void loadSettings()
+        .then((settings) => {
+          if (live) {
+            setAi(settings.ai)
+            setSettingsLoaded(true)
+          }
+        })
+        .catch(() => {
+          if (live) setError(t("aiConnections.loadError"))
+        })
+    }
+    refresh()
+    window.addEventListener(AI_SETTINGS_CHANGED_EVENT, refresh)
+    window.addEventListener("focus", refresh)
     return () => {
       live = false
+      window.removeEventListener(AI_SETTINGS_CHANGED_EVENT, refresh)
+      window.removeEventListener("focus", refresh)
       const run = runRef.current
       if (run) {
         run.controller.abort()
@@ -157,7 +165,7 @@ export function AiPanel({
         runRef.current = null
       }
     }
-  }, [finalize])
+  }, [finalize, t])
 
   React.useEffect(() => {
     stop()
@@ -180,17 +188,8 @@ export function AiPanel({
       readOnly
     )
       return
-    useAiChatStore.getState().create(ai.activeModelId ?? "", currentDocId ?? null)
-  }, [
-    ai.activeModelId,
-    backendGeneration,
-    chat,
-    currentDocId,
-    readOnly,
-    screen,
-    settingsLoaded,
-    switching,
-  ])
+    useAiChatStore.getState().create(newChatModelId(ai), currentDocId ?? null)
+  }, [ai, backendGeneration, chat, currentDocId, readOnly, screen, settingsLoaded, switching])
 
   React.useEffect(() => {
     if (!chat || !chat.autoCurrent || loading) return
@@ -369,14 +368,29 @@ export function AiPanel({
         switching
       )
         return
-      const selected =
-        ai.models.find((candidate) => candidate.id === state.chat?.modelId) ??
-        ai.models.find((candidate) => candidate.id === ai.activeModelId)
+      checkingRef.current = true
+      let latest: AiSettings
+      try {
+        latest = (await loadSettings()).ai
+        if (
+          useAiChatStore.getState().generation !== generation ||
+          useAiChatStore.getState().chat?.id !== state.chat.id ||
+          useAiChatStore.getState().chat?.modelId !== state.chat.modelId
+        )
+          return
+        setAi(latest)
+      } catch {
+        setError(t("aiConnections.loadError"))
+        return
+      } finally {
+        checkingRef.current = false
+      }
+      const selected = latest.models.find((candidate) => candidate.id === state.chat?.modelId)
       if (!selected) {
-        setError(t("ai.noModelConfigured"))
+        setError(t(latest.models.length ? "ai.selectModel" : "ai.noModelConfigured"))
         return
       }
-      const codex = isCodexModel(selected)
+      const codex = isCliAgentModel(selected)
       let searchEnabled = state.chat.searchEnabled && modelSupportsTools(selected)
       // Codex gets the whole conversation, so it needs consent whether or not search is on.
       if (searchEnabled || codex) {
@@ -399,7 +413,7 @@ export function AiPanel({
             return
           }
           if (status === "denied" && codex) {
-            setError(t("ai.codexDenied"))
+            setError(t(isClaudeCodeModel(selected) ? "ai.claudeDenied" : "ai.codexDenied"))
             return
           }
           if (status === "denied") searchEnabled = false
@@ -414,7 +428,7 @@ export function AiPanel({
       }
       await perform(value, selected, state.chat.id, generation, searchEnabled, fromInput)
     },
-    [ai, loading, perform, switching, t],
+    [loading, perform, switching, t],
   )
 
   const decideConsent = React.useCallback(
@@ -422,10 +436,26 @@ export function AiPanel({
       if (!consent || consentBusy) return
       setConsentBusy(true)
       try {
+        const latest = (await loadSettings()).ai.models.find(
+          (model) => model.id === consent.model.id,
+        )
+        const chat = useAiChatStore.getState().chat
+        if (
+          !latest ||
+          JSON.stringify(resolveAiConfig(latest)) !==
+            JSON.stringify(resolveAiConfig(consent.model)) ||
+          chat?.id !== consent.chatId ||
+          chat.modelId !== consent.model.id ||
+          useAiChatStore.getState().generation !== consent.generation
+        ) {
+          setConsent(null)
+          setError(t("ai.selectModel"))
+          return
+        }
         await aiSetSearchConsent(consent.generation, resolveAiConfig(consent.model), allowed)
         setConsent(null)
-        if (!allowed && isCodexModel(consent.model)) {
-          setError(t("ai.codexDenied"))
+        if (!allowed && isCliAgentModel(consent.model)) {
+          setError(t(isClaudeCodeModel(consent.model) ? "ai.claudeDenied" : "ai.codexDenied"))
           return
         }
         await perform(
@@ -485,8 +515,15 @@ export function AiPanel({
     )
   }
 
+  /** Providers and models are managed in Settings, in the AI module's section. */
+  const openAiSettings = () =>
+    window.dispatchEvent(
+      new CustomEvent(OPEN_SETTINGS_REQUEST_EVENT, {
+        detail: { section: "modules", moduleId: "ai" },
+      }),
+    )
+
   const updateAi = (next: AiSettings) => {
-    if (next.activeModelId !== ai.activeModelId) stop()
     setAi(next)
     void saveSettingsPatch({ ai: next }).catch(() => setError(t("ai.chatSaveFailed")))
     const current = useAiChatStore.getState().chat
@@ -509,65 +546,52 @@ export function AiPanel({
             </button>
           ) : undefined
         }
-        title={
-          screen === "models"
-            ? t("ai.models")
-            : screen === "list"
-              ? t("ai.chatList")
-              : chat?.title || t("ai.unnamedChat")
-        }
+        title={screen === "list" ? t("ai.chatList") : chat?.title || t("ai.unnamedChat")}
         actions={
-          screen === "chat" && (
-            <div className="flex items-center gap-0.5">
+          <div className="flex items-center gap-0.5">
+            {screen === "chat" && (
               <button
                 type="button"
-                title={t("ai.newChat")}
-                aria-label={t("ai.newChat")}
+                title={t("ai.chatList")}
+                aria-label={t("ai.chatList")}
                 onClick={() => {
                   stop()
-                  useAiChatStore.getState().create(ai.activeModelId ?? "", currentDocId ?? null)
-                  setError(null)
-                  setInput("")
+                  void useAiChatStore.getState().refresh()
+                  setScreen("list")
                 }}
                 className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
               >
-                <SquarePen className="size-4" />
+                <History className="size-4" />
               </button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    title={t("ai.menu")}
-                    aria-label={t("ai.menu")}
-                    className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                  >
-                    <MoreHorizontal className="size-4" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    onSelect={() => {
-                      stop()
-                      void useAiChatStore.getState().refresh()
-                      setScreen("list")
-                    }}
-                  >
-                    <History className="size-4" />
-                    {t("ai.chatList")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => setScreen("models")}>
-                    <Settings2 className="size-4" />
-                    {t("ai.modelsAndProviders")}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          )
+            )}
+            <button
+              type="button"
+              title={t("ai.newChat")}
+              aria-label={t("ai.newChat")}
+              onClick={() => {
+                stop()
+                useAiChatStore.getState().create(newChatModelId(ai), currentDocId ?? null)
+                setError(null)
+                setInput("")
+                setScreen("chat")
+              }}
+              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <SquarePen className="size-4" />
+            </button>
+            <button
+              type="button"
+              title={t("ai.settings")}
+              aria-label={t("ai.settings")}
+              onClick={openAiSettings}
+              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <Settings2 className="size-4" />
+            </button>
+          </div>
         }
       />
-      {screen === "models" ? (
-        <ModelsManager ai={ai} onChange={updateAi} />
-      ) : screen === "list" ? (
+      {screen === "list" ? (
         <ChatList onOpen={() => setScreen("chat")} />
       ) : readOnly ? (
         <ScrollArea className="min-h-0 flex-1 p-3">
@@ -582,13 +606,14 @@ export function AiPanel({
         </ScrollArea>
       ) : (
         <>
-          <ScrollArea className="min-h-0 flex-1">
+          {/* The scroll area sizes its content like a table, so a long line would widen the whole chat past the panel. */}
+          <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block">
             <div className="flex flex-col gap-4 px-3 py-3">
               {(!chat || chat.messages.length === 0) && !loading && (
                 <EmptyChat
                   hasModel={!!model}
                   searchOn={!!chat?.searchEnabled && tools}
-                  onOpenModels={() => setScreen("models")}
+                  onOpenModels={openAiSettings}
                   onPick={setInput}
                 />
               )}
@@ -663,7 +688,10 @@ export function AiPanel({
               value: item.id,
               label: item.label,
               providerId: item.provider,
-              providerLabel: findProvider(item.provider)?.label ?? item.provider,
+              modelId: item.model,
+              groupId: item.connectionId,
+              providerLabel:
+                item.connectionLabel ?? findProvider(item.provider)?.label ?? item.provider,
               kind: isLocalAiModel(item) ? ("local" as const) : ("cloud" as const),
             }))}
             activeModelId={model?.id ?? ""}
@@ -681,7 +709,7 @@ export function AiPanel({
             onStop={stop}
             onPickMention={addItem}
             onModel={(next) => updateAi({ ...ai, activeModelId: next })}
-            onManage={() => setScreen("models")}
+            onManage={openAiSettings}
           />
         </>
       )}
@@ -693,13 +721,13 @@ export function AiPanel({
       >
         <DialogContent>
           <DialogTitle>
-            {consent && isCodexModel(consent.model)
-              ? t("ai.codexConsentTitle")
+            {consent && isCliAgentModel(consent.model)
+              ? t(`ai.${isClaudeCodeModel(consent.model) ? "claude" : "codex"}ConsentTitle`)
               : t("ai.consentTitle")}
           </DialogTitle>
           <DialogDescription>
-            {consent && isCodexModel(consent.model)
-              ? t("ai.codexConsentMessage")
+            {consent && isCliAgentModel(consent.model)
+              ? t(`ai.${isClaudeCodeModel(consent.model) ? "claude" : "codex"}ConsentMessage`)
               : t("ai.consentMessage", {
                   provider: consent
                     ? (findProvider(consent.model.provider)?.label ?? consent.model.provider)
@@ -713,8 +741,8 @@ export function AiPanel({
               onClick={() => void decideConsent(false)}
               className="rounded border border-border px-3 py-1.5 text-sm"
             >
-              {consent && isCodexModel(consent.model)
-                ? t("ai.codexConsentDeny")
+              {consent && isCliAgentModel(consent.model)
+                ? t(`ai.${isClaudeCodeModel(consent.model) ? "claude" : "codex"}ConsentDeny`)
                 : t("ai.consentDeny")}
             </button>
             <button

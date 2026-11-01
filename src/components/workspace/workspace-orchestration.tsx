@@ -130,7 +130,8 @@ import { usePropertyActions } from "./orchestration/use-property-actions"
 import { useVaultActions } from "./orchestration/use-vault-actions"
 import { WorkspaceLayout } from "./workspace-layout"
 import { matchesShortcut } from "./keyboard-shortcuts"
-import { DATABASE_LAYER_CREATION_AVAILABLE } from "./modules"
+import { DATABASE_LAYER_CREATION_AVAILABLE, findModule } from "./modules"
+import { PresetNameDialog } from "./preset-name-dialog"
 
 import { workspaceRelativePath } from "./vault/use-vault-session"
 import { StartScreen } from "./vault/start-screen"
@@ -529,14 +530,25 @@ export function WorkspaceOrchestration() {
     setPanelScope,
     setModuleEnabled,
     switchPreset,
+    adoptPreset,
     importPreset,
     exportPreset,
+    modified: presetModified,
+    canSaveActive: canSaveActivePreset,
+    savePresetAs,
+    saveActivePreset,
+    resetActivePreset,
   } = usePresets(vault, experimental)
   const databasesEnabled =
     activeModules.includes("databases") || activeModules.includes("amby.databases")
   const canvasEnabled = activeModules.includes("canvas") || activeModules.includes("amby.canvas")
   const sketchEnabled =
     activeModules.includes("excalidraw") || activeModules.includes("amby.excalidraw")
+  const favoritesModuleOn =
+    activeModules.includes("favorites") || activeModules.includes("amby.favorites")
+  const favoritesInTreePref = useSettingsStore((s) => s.prefs.favoritesInTree)
+  const favoritesPanelPref = useSettingsStore((s) => s.prefs.favoritesPanel)
+  const favoritesEnabled = favoritesModuleOn && favoritesInTreePref
   const graphEnabled = activeModules.includes("graph") || activeModules.includes("amby.graph")
   const creativeEnabled =
     activeModules.includes("creative") || activeModules.includes("amby.creative")
@@ -558,12 +570,24 @@ export function WorkspaceOrchestration() {
   )
   const presetOptions = React.useMemo(
     () =>
-      presets.map((p) => ({
-        id: p.id,
-        label: p.label ?? t(p.labelKey ?? "presets.standard"),
-      })),
+      presets.map((p) => {
+        const names = p.activeModules
+          .map((id) => findModule(id))
+          .filter((module): module is NonNullable<typeof module> => Boolean(module))
+          .map((module) => t(module.labelKey))
+        return {
+          id: p.id,
+          label: p.label ?? t(p.labelKey ?? "presets.standard"),
+          // What a preset holds is told in a tooltip only.
+          hint:
+            names.length > 0
+              ? t("activityBar.presetModules", { modules: names.join(", ") })
+              : t("activityBar.presetNoModules"),
+        }
+      }),
     [presets, t],
   )
+  const [presetNameOpen, setPresetNameOpen] = React.useState(false)
 
   async function handleExportPreset() {
     const json = exportPreset(activePresetId)
@@ -740,6 +764,11 @@ export function WorkspaceOrchestration() {
     onSwitchPreset: (id: string) => switchPreset(id, { vault }),
     onImportPreset: handleImportPreset,
     onExportPreset: handleExportPreset,
+    presetModified,
+    canSaveActivePreset,
+    onSaveActivePreset: saveActivePreset,
+    onSavePresetAs: () => setPresetNameOpen(true),
+    onResetActivePreset: () => void resetActivePreset({ vault }),
     panelScope,
     onSetPanelScope: setPanelScope,
     onOpenSettings: openSettings,
@@ -802,6 +831,37 @@ export function WorkspaceOrchestration() {
     windowPrefs,
     onWindowPrefsChange: updateWindowPrefs,
   })
+
+  // The Favorites tab is one choice with two places to make it: the module's setting and the
+  // dock's own menu. At start the setting decides; afterwards whichever changed last wins and
+  // the other follows. A person who hid the button by hand while the setting is on keeps it hidden.
+  const favoritesButton = activityButtons.find((button) => button.defId === "favorites")
+  const favoritesShown = favoritesButton ? !favoritesButton.hidden : null
+  const favoritesSynced = React.useRef<{ pref: boolean; shown: boolean } | null>(null)
+  React.useEffect(() => {
+    if (favoritesShown === null) return
+    const synced = favoritesSynced.current
+    if (!synced) {
+      favoritesSynced.current = { pref: favoritesPanelPref, shown: favoritesPanelPref }
+      if (favoritesShown !== favoritesPanelPref) {
+        setDockButtonHidden("favorites", !favoritesPanelPref)
+      }
+      return
+    }
+    if (favoritesPanelPref !== synced.pref) {
+      synced.pref = favoritesPanelPref
+      synced.shown = favoritesPanelPref
+      if (favoritesShown !== favoritesPanelPref) {
+        setDockButtonHidden("favorites", !favoritesPanelPref)
+      }
+    } else if (favoritesShown !== synced.shown) {
+      synced.shown = favoritesShown
+      if (favoritesPanelPref !== favoritesShown) {
+        synced.pref = favoritesShown
+        void setPrefs({ favoritesPanel: favoritesShown })
+      }
+    }
+  }, [favoritesPanelPref, favoritesShown, setDockButtonHidden, setPrefs])
 
   const activityDockProps = (side: "left" | "right") => ({
     pinned: isDockPinned(side),
@@ -1714,6 +1774,7 @@ export function WorkspaceOrchestration() {
       databaseRuntimeEnabled: databasesEnabled,
       canvasEnabled,
       sketchEnabled,
+      favoritesEnabled,
       onOpenDatabase: openDatabaseTab,
       onOpenCreativeProject: openCreativeTab,
       onCreativeChanged: refreshAfterCreativeWrite,
@@ -1811,6 +1872,7 @@ export function WorkspaceOrchestration() {
       databasesEnabled,
       canvasEnabled,
       sketchEnabled,
+      favoritesEnabled,
       openDatabaseTab,
       openCreativeTab,
       refreshAfterCreativeWrite,
@@ -2941,6 +3003,7 @@ export function WorkspaceOrchestration() {
           navigationTarget={settingsTarget}
           activeModules={activeModules}
           onModuleEnabledChange={(id, enabled) => setModuleEnabled(id, enabled, { vault })}
+          onPresetChange={(id) => void adoptPreset(id)}
         />
         <HelpModal
           open={isHelpOpen}
@@ -3308,6 +3371,7 @@ export function WorkspaceOrchestration() {
         navigationTarget={settingsTarget}
         activeModules={activeModules}
         onModuleEnabledChange={(id, enabled) => setModuleEnabled(id, enabled, { vault })}
+        onPresetChange={(id) => void adoptPreset(id)}
       />
       <HelpModal
         open={isHelpOpen}
@@ -3315,6 +3379,12 @@ export function WorkspaceOrchestration() {
         initialContext={currentHelpContext}
       />
       {workspaceProfileDialog}
+      <PresetNameDialog
+        open={presetNameOpen}
+        initialName={t("settings.modules.newPresetDefaultName")}
+        onClose={() => setPresetNameOpen(false)}
+        onConfirm={savePresetAs}
+      />
     </div>
   )
 }

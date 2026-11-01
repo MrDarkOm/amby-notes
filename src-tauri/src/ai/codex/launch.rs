@@ -269,6 +269,7 @@ pub async fn ai_codex_login(
     slot: tauri::State<'_, LoginSlot>,
 ) -> Result<(), crate::ai::AiChatError> {
     let (_guard, cancel) = slot.begin().ok_or_else(|| failure(&CodexError::Rejected))?;
+    let _home_guard = super::CODEX_HOME_LOCK.lock().await;
     let root = crate::app_data::app_root(&app).map_err(|_| failure(&CodexError::Io))?;
     let home = super::home::prepare_home(&root).map_err(|error| failure(&error))?;
     let binary = find_binary().ok_or_else(|| failure(&CodexError::NotInstalled))?;
@@ -288,6 +289,7 @@ pub fn ai_codex_login_cancel(slot: tauri::State<'_, LoginSlot>) -> bool {
 #[tauri::command]
 #[specta::specta]
 pub async fn ai_codex_logout(app: tauri::AppHandle) -> Result<(), crate::ai::AiChatError> {
+    let _home_guard = super::CODEX_HOME_LOCK.lock().await;
     let root = crate::app_data::app_root(&app).map_err(|_| failure(&CodexError::Io))?;
     let home = super::home::prepare_home(&root).map_err(|error| failure(&error))?;
     let binary = find_binary().ok_or_else(|| failure(&CodexError::NotInstalled))?;
@@ -331,6 +333,7 @@ pub async fn status_for(binary: Option<&Path>, home: &CodexHome) -> CodexStatus 
 #[tauri::command]
 #[specta::specta]
 pub async fn ai_codex_status(app: tauri::AppHandle) -> CodexStatus {
+    let _home_guard = super::CODEX_HOME_LOCK.lock().await;
     let none = CodexStatus {
         installed: false,
         supported: false,
@@ -344,6 +347,28 @@ pub async fn ai_codex_status(app: tauri::AppHandle) -> CodexStatus {
     };
     let binary = find_binary();
     status_for(binary.as_deref(), &home).await
+}
+
+/// Fetch a bounded catalogue, always stopping the isolated child afterwards.
+pub async fn codex_model_catalog(
+    binary: &Path,
+    home: &CodexHome,
+    cancel: tokio::sync::watch::Receiver<bool>,
+) -> Result<Vec<(String, String)>, CodexError> {
+    login_status(binary, home).await?;
+    let mut server = spawn_app_server(binary, home).await?;
+    let (Some(stdout), Some(stdin)) = (server.stdout.take(), server.stdin.take()) else {
+        server.finish().await;
+        return Err(CodexError::Io);
+    };
+    let result = tokio::time::timeout(
+        Duration::from_secs(30),
+        super::run_model_catalog(stdout, stdin, cancel),
+    )
+    .await
+    .unwrap_or(Err(CodexError::Io));
+    server.finish().await;
+    result
 }
 
 /// One whole turn: validate the binary, check its version, start `app-server`,

@@ -29,6 +29,12 @@ fn endpoint(config: &AiConfig) -> Result<reqwest::Url, String> {
                     .expect("static URL"),
             )
         }
+        // Claude Code runs isolated with only Amby's read tools; the notes go to Anthropic.
+        "claude-code" => {
+            return Ok(
+                reqwest::Url::parse("https://claude.ai/amby-isolated-agent/1").expect("static URL"),
+            )
+        }
         _ => return Err("Invalid provider".into()),
     };
     if config.provider == "azure" {
@@ -57,18 +63,21 @@ fn key(config: &AiConfig, url: &reqwest::Url) -> String {
     } else {
         url.path().to_owned()
     };
-    format!(
-        "{:x}",
-        Sha256::digest(
-            format!(
-                "{}:{}:{}",
-                config.provider,
-                url.origin().ascii_serialization(),
-                path.trim_end_matches('/')
-            )
-            .as_bytes()
-        )
-    )
+    let identity = (
+        "v2",
+        config.provider.as_str(),
+        url.origin().ascii_serialization(),
+        path.trim_end_matches('/'),
+        config.credential_id.as_deref(),
+        if config.credential_id.is_some() {
+            None
+        } else {
+            config.api_key.as_deref()
+        },
+        config.api_version.as_deref(),
+    );
+    let bytes = serde_json::to_vec(&identity).expect("consent identity is serializable");
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 fn file(root: &Path) -> Result<std::path::PathBuf, String> {
@@ -138,6 +147,7 @@ mod tests {
     fn config(url: &str) -> AiConfig {
         AiConfig {
             provider: "openai".into(),
+            internal_model_id: None,
             model: "x".into(),
             base_url: url.into(),
             credential_id: None,
@@ -200,6 +210,27 @@ mod tests {
     }
 
     #[test]
+    fn claude_code_is_a_cloud_provider_with_its_own_consent_apart_from_the_api() {
+        let root = std::env::temp_dir().join(format!("amby-ai-consent-{}", ulid::Ulid::generate()));
+        fs::create_dir(&root).unwrap();
+        let mut claude = config("");
+        claude.provider = "claude-code".into();
+        assert_eq!(status(&root, &claude).unwrap(), "unknown");
+        claude.base_url = "http://localhost:1".into();
+        assert_eq!(status(&root, &claude).unwrap(), "unknown");
+        decide(&root, &claude, true).unwrap();
+        assert_eq!(status(&root, &claude).unwrap(), "allowed");
+        // Neither the Anthropic API nor Codex shares that decision.
+        let mut api = config("");
+        api.provider = "anthropic".into();
+        assert_eq!(status(&root, &api).unwrap(), "unknown");
+        let mut codex = config("");
+        codex.provider = "codex".into();
+        assert_eq!(status(&root, &codex).unwrap(), "unknown");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn a_consent_given_to_the_old_unisolated_codex_is_not_reused_for_the_isolated_one() {
         let root = std::env::temp_dir().join(format!("amby-ai-consent-{}", ulid::Ulid::generate()));
         fs::create_dir(&root).unwrap();
@@ -217,6 +248,20 @@ mod tests {
         assert_eq!(status(&root, &codex).unwrap(), "unknown");
         decide(&root, &codex, true).unwrap();
         assert_eq!(status(&root, &codex).unwrap(), "allowed");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn credential_and_api_version_changes_require_new_consent() {
+        let root = std::env::temp_dir().join(format!("amby-ai-consent-{}", ulid::Ulid::generate()));
+        fs::create_dir(&root).unwrap();
+        let mut value = config("https://example.com");
+        value.credential_id = Some("first".into());
+        decide(&root, &value, true).unwrap();
+        value.credential_id = Some("second".into());
+        assert_eq!(status(&root, &value).unwrap(), "unknown");
+        value.credential_id = Some("first".into());
+        value.api_version = Some("new".into());
+        assert_eq!(status(&root, &value).unwrap(), "unknown");
         fs::remove_dir_all(root).unwrap();
     }
 }

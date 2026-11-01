@@ -1213,6 +1213,11 @@
   padding-left: 1.25rem;
 }
 
+/* Two-digit numbers ("10.") are wider than the bullet gutter and must not hang past the text edge. */
+.ai-chat-markdown ol {
+  padding-left: 1.75rem;
+}
+
 .ai-chat-markdown ul {
   list-style: disc;
 }

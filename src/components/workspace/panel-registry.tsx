@@ -128,6 +128,8 @@ export interface PanelRenderProps {
   databaseRuntimeEnabled?: boolean
   canvasEnabled?: boolean
   sketchEnabled?: boolean
+  /** Shows the bookmarks block above the file tree. */
+  favoritesEnabled?: boolean
   onOpenDatabase?: (databaseId: string, title: string, inNewTab?: boolean) => void
   /** Opens a creative project's page, optionally on one of its sections. */
   onOpenCreativeProject?: (projectId: string, sectionId?: string) => void

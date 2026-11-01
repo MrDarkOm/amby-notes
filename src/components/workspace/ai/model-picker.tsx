@@ -11,6 +11,9 @@ export interface PickerModel {
   value: string
   label: string
   providerId: string
+  /** The provider's own id of the model, for the mark of its family. */
+  modelId?: string
+  groupId?: string
   providerLabel: string
   kind: "local" | "cloud"
 }
@@ -42,16 +45,26 @@ export function ModelPicker({
    * Given when a parent `Popover` with its own `PopoverAnchor` hosts the list (so it is as wide as
    * that anchor and opens above it); without it the picker is a popover of its own.
    */
-  menu?: { open: boolean; onOpenChange: (open: boolean) => void }
+  menu?: {
+    open: boolean
+    onOpenChange: (open: boolean) => void
+    /** The panel's width and where its left edge is, relative to the anchor, when measured. */
+    width?: number
+    alignOffset?: number
+  }
 }) {
   const { t } = useTranslation()
   const active = models.find((model) => model.value === activeModelId)
   const groups = React.useMemo(() => {
-    const seen = new Map<string, { id: string; label: string; kind: "local" | "cloud" }>()
+    const seen = new Map<
+      string,
+      { id: string; providerId: string; label: string; kind: "local" | "cloud" }
+    >()
     for (const model of models)
-      if (!seen.has(model.providerId))
-        seen.set(model.providerId, {
-          id: model.providerId,
+      if (!seen.has(model.groupId ?? model.providerId))
+        seen.set(model.groupId ?? model.providerId, {
+          id: model.groupId ?? model.providerId,
+          providerId: model.providerId,
           label: model.providerLabel,
           kind: model.kind,
         })
@@ -60,9 +73,11 @@ export function ModelPicker({
   const [ownOpen, setOwnOpen] = React.useState(false)
   const open = menu ? menu.open : ownOpen
   const setOpen = menu ? menu.onOpenChange : setOwnOpen
-  const [groupId, setGroupId] = React.useState(active?.providerId ?? groups[0]?.id ?? "")
+  const [groupId, setGroupId] = React.useState(
+    active?.groupId ?? active?.providerId ?? groups[0]?.id ?? "",
+  )
   const group = groups.find((candidate) => candidate.id === groupId) ?? groups[0]
-  const items = models.filter((model) => model.providerId === group?.id)
+  const items = models.filter((model) => (model.groupId ?? model.providerId) === group?.id)
   const listRef = React.useRef<HTMLDivElement>(null)
 
   const pick = (id: string) => {
@@ -79,7 +94,7 @@ export function ModelPicker({
   }
 
   React.useEffect(() => {
-    if (open) setGroupId(active?.providerId ?? groups[0]?.id ?? "")
+    if (open) setGroupId(active?.groupId ?? active?.providerId ?? groups[0]?.id ?? "")
     // Only on opening: choosing a rail tab must not jump back to the active provider.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -100,24 +115,29 @@ export function ModelPicker({
             {active && (
               <ProviderIcon
                 providerId={active.providerId}
+                modelId={active.modelId}
                 kind={active.kind}
                 label={active.providerLabel}
               />
             )}
-            <span className="truncate">{active?.label ?? t("ai.noModelsOpenSettings")}</span>
+            <span className="truncate">
+              {active?.label ?? t(models.length ? "ai.selectModel" : "ai.noModelsOpenSettings")}
+            </span>
           </span>
           <ChevronDown
             aria-hidden="true"
-            className={cn("size-3.5 shrink-0", open && "rotate-180")}
+            className={cn("size-3.5 shrink-0", !open && "rotate-180")}
           />
         </button>
       </PopoverTrigger>
       <PopoverContent
         align="start"
         side="top"
-        sideOffset={8}
+        sideOffset={6}
+        alignOffset={menu?.alignOffset ?? 0}
+        style={menu?.width && menu.width > 0 ? { width: menu.width } : undefined}
         className={cn(
-          "flex gap-0 rounded-xl p-0 shadow-md",
+          "flex min-h-[15rem] max-h-[min(28rem,var(--radix-popover-content-available-height))] gap-0 rounded-xl p-0 shadow-md",
           menu
             ? "w-[var(--radix-popover-trigger-width)] max-w-none"
             : "w-auto max-w-[min(22rem,90vw)]",
@@ -149,7 +169,7 @@ export function ModelPicker({
                 )}
               >
                 <ProviderIcon
-                  providerId={candidate.id}
+                  providerId={candidate.providerId}
                   kind={candidate.kind}
                   className="size-[18px]"
                 />
@@ -165,7 +185,7 @@ export function ModelPicker({
             ref={listRef}
             role="listbox"
             aria-label={t("ai.activeModel")}
-            className="flex max-h-72 flex-col overflow-y-auto"
+            className="flex min-h-0 flex-1 flex-col overflow-y-auto"
             onKeyDown={(event) => {
               if ((event.metaKey || event.ctrlKey) && /^[1-9]$/.test(event.key)) {
                 const model = items[Number(event.key) - 1]
@@ -193,6 +213,12 @@ export function ModelPicker({
                   model.value === activeModelId && "bg-accent/60",
                 )}
               >
+                <ProviderIcon
+                  providerId={model.providerId}
+                  modelId={model.modelId}
+                  kind={model.kind}
+                  className="text-muted-foreground"
+                />
                 <span className="min-w-0 flex-1 truncate">{model.label}</span>
                 {index < MAX_SHORTCUTS && (
                   <kbd className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-sans text-[11px] text-muted-foreground">
@@ -205,7 +231,7 @@ export function ModelPicker({
               </button>
             ))}
           </div>
-          <div className="mt-1 border-t border-border pt-1">
+          <div className="mt-auto border-t border-border pt-1">
             <button
               type="button"
               onClick={() => {

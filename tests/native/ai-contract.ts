@@ -49,6 +49,7 @@ export const nativeAiCases: Array<{
           generation,
           config: {
             provider: "ollama",
+            internalModelId: null,
             model: "fake",
             baseUrl: url,
             credentialId: null,
@@ -135,6 +136,7 @@ export const nativeAiCases: Array<{
       )
       const config = {
         provider: "openai",
+        internalModelId: null,
         model: "test",
         baseUrl: "https://example.invalid/v1",
         credentialId: null,
@@ -179,6 +181,7 @@ export const nativeAiCases: Array<{
           generation,
           config: {
             provider: "codex",
+            internalModelId: null,
             model: "",
             baseUrl: "",
             credentialId: null,
@@ -211,6 +214,7 @@ export const nativeAiCases: Array<{
       const generation = (await adapter.loadActiveVaultData()).generation
       const config = {
         provider: "codex",
+        internalModelId: null,
         model: "",
         baseUrl: "",
         credentialId: null,
@@ -257,6 +261,185 @@ export const nativeAiCases: Array<{
         unlisten()
         await repo.setConsent(generation, config, false)
       }
+    },
+  },
+  {
+    name: "Claude Code status answers through real IPC",
+    async run() {
+      const status = await commands.aiClaudeStatus()
+      check(
+        typeof status.installed === "boolean" &&
+          typeof status.supported === "boolean" &&
+          typeof status.signedIn === "boolean",
+        "Claude status has the three flags",
+      )
+      check(!status.signedIn || (status.installed && status.supported), "Sign-in implies usable")
+    },
+  },
+  {
+    name: "Claude Code does not start without consent, however search is set",
+    async run({ adapter }) {
+      const generation = (await adapter.loadActiveVaultData()).generation
+      for (const searchEnabled of [false, true]) {
+        const result = await commands.aiRunTurn({
+          generation,
+          config: {
+            provider: "claude-code",
+            internalModelId: null,
+            model: "opus",
+            baseUrl: "",
+            credentialId: null,
+            apiKey: null,
+            maxTokens: null,
+            apiVersion: null,
+          },
+          messages: [{ role: "user", content: "hello" }],
+          system: null,
+          noteIds: [],
+          folders: [],
+          initialSources: [],
+          searchEnabled,
+          supportsTools: false,
+          streamId: `native-claude-gate-${searchEnabled}`,
+        })
+        check(
+          result.status === "error" && result.error.code === "privacyConsentRequired",
+          "Claude Code is refused before consent",
+        )
+      }
+    },
+  },
+  {
+    name: "Claude Code lists models and answers one turn through real IPC when signed in",
+    async run({ adapter }) {
+      const status = await commands.aiClaudeStatus()
+      if (!status.signedIn) return // Not available here (CI, no Claude Code): nothing to verify.
+      const repo = createAiChatRepository(true)
+      const generation = (await adapter.loadActiveVaultData()).generation
+      const config = {
+        provider: "claude-code",
+        internalModelId: null,
+        model: "",
+        baseUrl: "",
+        credentialId: null,
+        apiKey: null,
+        maxTokens: null,
+        apiVersion: null,
+      }
+      const catalog = await commands.aiModelCatalog(config, "native-claude-catalog")
+      check(catalog.status === "ok" && catalog.data.length > 0, "Claude Code catalog is not empty")
+      await repo.setConsent(generation, config, true)
+      try {
+        const result = await commands.aiRunTurn({
+          generation,
+          config,
+          messages: [{ role: "user", content: "Reply with the single word OK." }],
+          system: null,
+          noteIds: [],
+          folders: [],
+          initialSources: [],
+          searchEnabled: false,
+          supportsTools: false,
+          streamId: "native-claude-turn",
+        })
+        check(result.status === "ok", "Claude Code turn succeeded")
+        check(result.data.content.trim().length > 0, "Claude Code returned text")
+      } finally {
+        await repo.setConsent(generation, config, false)
+      }
+    },
+  },
+  {
+    name: "AI catalog and reversible migration use real IPC",
+    async run({ adapter }) {
+      const url = (window as unknown as { __AMBY_NATIVE_AI_URL__: string }).__AMBY_NATIVE_AI_URL__
+      const result = await commands.aiModelCatalog(
+        {
+          provider: "ollama",
+          internalModelId: null,
+          model: "",
+          baseUrl: url,
+          credentialId: null,
+          apiKey: null,
+          maxTokens: null,
+          apiVersion: null,
+        },
+        "native-catalog",
+      )
+      check(result.status === "ok", "Catalog loaded through native IPC")
+      check(
+        result.data.length === 1 && result.data[0].model === "native-chat",
+        "Non-chat model filtered",
+      )
+      const old = JSON.stringify({
+        foreign: { keep: true },
+        ai: {
+          models: [
+            {
+              id: "old-id",
+              label: "Old",
+              provider: "ollama",
+              model: "native-chat",
+              baseUrl: url,
+              credentialId: null,
+              apiVersion: "",
+            },
+          ],
+          activeModelId: "old-id",
+        },
+      })
+      const previous = await adapter.readGlobalRaw("settings.json")
+      await adapter.writeGlobalRaw("settings.json", old)
+      const migrated = await commands.migrateAiSettings()
+      check(migrated.status === "ok", "Migration succeeds")
+      const next = await adapter.readGlobalRaw("settings.json")
+      check(
+        next !== null && JSON.parse(next).ai.models[0].id === "old-id",
+        "Stable chat model ID retained",
+      )
+      check(
+        (await adapter.readGlobalRaw("settings.ai-v1.backup.json")) === old,
+        "Original settings backed up exactly",
+      )
+      check((await commands.migrateAiSettings()).status === "ok", "Migration restart is idempotent")
+      const disabled = JSON.parse(next)
+      disabled.ai.models[0].enabled = false
+      await adapter.writeGlobalRaw("settings.json", JSON.stringify(disabled))
+      const denied = await commands.aiChat(
+        {
+          provider: "ollama",
+          internalModelId: "old-id",
+          model: "native-chat",
+          baseUrl: url,
+          credentialId: null,
+          apiKey: null,
+          maxTokens: null,
+          apiVersion: null,
+        },
+        [{ role: "user", content: "Do not send" }],
+        null,
+        null,
+      )
+      check(
+        denied.status === "error" && denied.error.code === "invalidConfiguration",
+        "Disabled model is refused at native dispatch",
+      )
+      await adapter.writeGlobalRaw("settings.json", next)
+      await adapter.writeGlobalRaw("settings.json", next.replace('"foreign"', '"edited"'))
+      check(
+        (await commands.rollbackAiSettings()).status === "error",
+        "Rollback refuses later changes",
+      )
+      await adapter.writeGlobalRaw("settings.json", next)
+      check(
+        (await commands.rollbackAiSettings()).status === "ok",
+        "Unedited migration can roll back",
+      )
+      check(
+        (await adapter.readGlobalRaw("settings.json")) === old,
+        "Rollback restores original bytes",
+      )
+      await adapter.writeGlobalRaw("settings.json", previous ?? "{}")
     },
   },
 ]

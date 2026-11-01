@@ -55,7 +55,10 @@ export function ModelsManager({
 
   const deleteModel = async (id: string) => {
     const target = ai.models.find((m) => m.id === id)
-    if (target?.credentialId) {
+    if (
+      target?.credentialId &&
+      !ai.models.some((model) => model.id !== id && model.credentialId === target.credentialId)
+    ) {
       try {
         await deleteAiCredential(target.credentialId)
       } catch {
@@ -129,6 +132,7 @@ export function ModelsManager({
                   >
                     <ProviderIcon
                       providerId={m.provider}
+                      modelId={m.model}
                       kind={isLocalAiModel(m) ? "local" : "cloud"}
                       className="size-[18px] text-foreground/80"
                     />
@@ -300,7 +304,7 @@ function ModelEditor({
   }
 
   const locals = AI_PROVIDERS.filter((p) => p.kind === "local")
-  const clouds = AI_PROVIDERS.filter((p) => p.kind === "cloud")
+  const clouds = AI_PROVIDERS.filter((p) => p.kind === "cloud" && p.id !== "claude-code")
 
   const connection = codex ? (
     <div

@@ -1,7 +1,10 @@
 import * as React from "react"
 import { Check, Pencil, Trash2, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { PanelSearch } from "../panels/panel-header"
+import { useClipped } from "@/lib/use-clipped"
 import { useAiChatStore } from "./use-ai-chat-store"
 import type { ChatEntry } from "@/lib/storage"
 
@@ -15,8 +18,33 @@ function group(entry: ChatEntry): "today" | "yesterday" | "earlier" {
   return date.toDateString() === now.toDateString() ? "yesterday" : "earlier"
 }
 
+/** When a chat was last used: the time for today's chats, the date for the rest. */
+function stamp(entry: ChatEntry, language: string): string {
+  if (!entry.updatedAt) return ""
+  const date = new Date(entry.updatedAt)
+  if (Number.isNaN(date.valueOf())) return ""
+  return group(entry) === "today"
+    ? new Intl.DateTimeFormat(language, { hour: "2-digit", minute: "2-digit" }).format(date)
+    : new Intl.DateTimeFormat(language, { day: "numeric", month: "short" }).format(date)
+}
+
+/** A chat's title: truncated to the row, with the whole title as a tooltip only when it is cut. */
+function ChatTitle({ children, title }: { children: React.ReactNode; title: string }) {
+  const [ref, clipped] = useClipped<HTMLSpanElement>(title)
+  return (
+    <span
+      ref={ref}
+      data-amby-tooltip={clipped ? title : undefined}
+      className="min-w-0 flex-1 truncate"
+    >
+      {children}
+    </span>
+  )
+}
+
 export function ChatList({ onOpen }: { onOpen: () => void }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const currentId = useAiChatStore((state) => state.chat?.id)
   const entries = useAiChatStore((state) => state.entries)
   const error = useAiChatStore((state) => state.error)
   const open = useAiChatStore((state) => state.open)
@@ -46,16 +74,13 @@ export function ChatList({ onOpen }: { onOpen: () => void }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="p-3">
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder={t("ai.searchChats")}
-          aria-label={t("ai.searchChats")}
-          className="h-8 w-full rounded-lg border border-border bg-card px-2.5 text-[13px] outline-none placeholder:text-muted-foreground focus:border-ring"
-        />
-      </div>
-      <ScrollArea className="min-h-0 flex-1">
+      <PanelSearch
+        value={query}
+        onChange={setQuery}
+        placeholder={t("ai.searchChats")}
+        ariaLabel={t("ai.searchChats")}
+      />
+      <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block">
         <div className="space-y-3 px-3 pb-3">
           {error && (
             <p role="alert" className="text-xs text-destructive">
@@ -76,7 +101,12 @@ export function ChatList({ onOpen }: { onOpen: () => void }) {
                 {rows.map((entry) => (
                   <div
                     key={entry.id}
-                    className="flex items-center gap-1 rounded-lg px-1 hover:bg-accent"
+                    data-chat-row
+                    aria-current={entry.id === currentId ? "true" : undefined}
+                    className={cn(
+                      "group/row relative flex items-center gap-1 rounded-lg px-1 hover:bg-accent",
+                      entry.id === currentId && "bg-accent/60",
+                    )}
                   >
                     {editing === entry.id ? (
                       <>
@@ -111,46 +141,57 @@ export function ChatList({ onOpen }: { onOpen: () => void }) {
                       <>
                         <button
                           type="button"
-                          className="min-w-0 flex-1 truncate p-1.5 text-left text-sm"
+                          className="flex min-w-0 flex-1 items-center gap-2 p-1.5 text-left text-sm"
                           onClick={() => {
                             void open(entry.id).then(onOpen)
                           }}
                         >
-                          {entry.title ||
-                            t(entry.status === "corrupt" ? "ai.chatUnavailable" : "ai.unnamedChat")}
-                          {entry.status !== "ready" && (
-                            <span className="ml-1 text-[10px] text-muted-foreground">
-                              {t(
+                          <ChatTitle title={entry.title ?? ""}>
+                            {entry.title ||
+                              t(
                                 entry.status === "corrupt"
                                   ? "ai.chatUnavailable"
-                                  : "ai.chatReadOnly",
+                                  : "ai.unnamedChat",
                               )}
-                            </span>
-                          )}
+                            {entry.status !== "ready" && (
+                              <span className="ml-1 text-[10px] text-muted-foreground">
+                                {t(
+                                  entry.status === "corrupt"
+                                    ? "ai.chatUnavailable"
+                                    : "ai.chatReadOnly",
+                                )}
+                              </span>
+                            )}
+                          </ChatTitle>
+                          <span className="shrink-0 text-[11px] text-muted-foreground">
+                            {stamp(entry, i18n.language)}
+                          </span>
                         </button>
-                        {entry.status === "ready" && (
+                        <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center gap-0.5 rounded-r-lg bg-accent pl-1 opacity-0 group-focus-within/row:pointer-events-auto group-focus-within/row:opacity-100 group-hover/row:pointer-events-auto group-hover/row:opacity-100">
+                          {entry.status === "ready" && (
+                            <button
+                              type="button"
+                              title={t("ai.renameChat")}
+                              aria-label={t("ai.renameChat")}
+                              onClick={() => {
+                                setEditing(entry.id)
+                                setTitle(entry.title ?? "")
+                              }}
+                              className="flex size-7 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                            >
+                              <Pencil className="size-3.5" />
+                            </button>
+                          )}
                           <button
                             type="button"
-                            title={t("ai.renameChat")}
-                            aria-label={t("ai.renameChat")}
-                            onClick={() => {
-                              setEditing(entry.id)
-                              setTitle(entry.title ?? "")
-                            }}
-                            className="p-1 text-muted-foreground"
+                            title={t("ai.deleteChat")}
+                            aria-label={t("ai.deleteChat")}
+                            onClick={() => void remove(entry.id)}
+                            className="flex size-7 items-center justify-center rounded text-muted-foreground hover:text-destructive"
                           >
-                            <Pencil className="size-3.5" />
+                            <Trash2 className="size-3.5" />
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          title={t("ai.deleteChat")}
-                          aria-label={t("ai.deleteChat")}
-                          onClick={() => void remove(entry.id)}
-                          className="p-1 text-muted-foreground"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
+                        </div>
                       </>
                     )}
                   </div>

@@ -1148,12 +1148,28 @@ export class DesktopAdapter implements StoragePort {
     })
   }
 
+  async migrateAiSettings(): Promise<void> {
+    await unwrapCommand(commands.migrateAiSettings())
+  }
+
+  async rollbackAiSettings(): Promise<void> {
+    await unwrapCommand(commands.rollbackAiSettings())
+  }
+
   async readGlobalRaw(file: string): Promise<string | null> {
     return unwrapCommand(commands.readAppData(file))
   }
 
   async writeGlobalRaw(file: string, contents: string): Promise<void> {
     return unwrapCommand(commands.writeAppData(file, contents))
+  }
+
+  async compareWriteGlobalRaw(
+    file: string,
+    expected: string | null,
+    contents: string,
+  ): Promise<boolean> {
+    return unwrapCommand(commands.compareWriteAppData(file, expected, contents))
   }
 
   async readVaultRaw(rel: string): Promise<string | null> {
@@ -1170,6 +1186,10 @@ export class DesktopAdapter implements StoragePort {
 
   async storeAiCredential(credentialId: string, secret: string): Promise<void> {
     await unwrapCommand(commands.storeAiCredential(credentialId, secret))
+  }
+
+  async deleteUnreferencedAiCredential(credentialId: string): Promise<boolean> {
+    return unwrapCommand(commands.deleteUnreferencedAiCredential(credentialId))
   }
 
   async deleteAiCredential(credentialId: string): Promise<void> {

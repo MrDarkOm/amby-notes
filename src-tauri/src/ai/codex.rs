@@ -25,6 +25,9 @@ pub const MAX_VERSION_EXCLUSIVE: (u64, u64, u64) = (0, 200, 0);
 /// One protocol line may not exceed this; a longer one is a protocol error.
 pub const MAX_LINE_BYTES: usize = 1024 * 1024;
 
+/// All operations that prepare the shared isolated home must be serialized.
+pub(crate) static CODEX_HOME_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum CodexError {
     NotInstalled,
@@ -201,7 +204,7 @@ fn parse_event(method: &str, params: &Value) -> Result<Event, CodexError> {
     })
 }
 
-fn parse_version(token: &str) -> Option<(u64, u64, u64)> {
+pub(crate) fn parse_version(token: &str) -> Option<(u64, u64, u64)> {
     let mut parts = token.trim_start_matches('v').split('.');
     let leading = |part: &str| -> Option<u64> {
         let digits: String = part.chars().take_while(char::is_ascii_digit).collect();
@@ -410,7 +413,12 @@ impl<R: AsyncRead + Unpin + Send, W: AsyncWrite + Unpin + Send> Connection<R, W>
             match self.next_message().await? {
                 Incoming::Response { id, result } if id == want => return Ok(result),
                 Incoming::Error { id, .. } if id == want => return Err(CodexError::Rejected),
-                Incoming::Notification(event) => self.events.push_back(event),
+                Incoming::Notification(event) => {
+                    if self.events.len() >= 1024 {
+                        return Err(CodexError::Protocol);
+                    }
+                    self.events.push_back(event);
+                }
                 Incoming::ServerRequest { id, method, .. } => self.answer(&id, &method).await?,
                 Incoming::Response { .. } | Incoming::Error { .. } => {}
             }
@@ -562,6 +570,94 @@ where
             Err(error) => return Err(error),
         }
     }
+}
+
+/// Read the app-server model catalogue. Presence in this list does not prove
+/// the signed-in account is entitled to use a model.
+pub async fn run_model_catalog<R, W>(
+    reader: R,
+    writer: W,
+    cancel: tokio::sync::watch::Receiver<bool>,
+) -> Result<Vec<(String, String)>, CodexError>
+where
+    R: AsyncRead + Unpin + Send,
+    W: AsyncWrite + Unpin + Send,
+{
+    let mut connection = Connection {
+        reader,
+        writer,
+        lines: VecDeque::new(),
+        buffer: LineBuffer::default(),
+        events: VecDeque::new(),
+        cancel,
+        watch_cancel: true,
+    };
+    if *connection.cancel.borrow() {
+        return Err(CodexError::Cancelled);
+    }
+    connection.request(initialize_request(1)).await?;
+    connection.send(&initialized_notification()).await?;
+    let account = connection.request(account_read_request(2)).await?;
+    if account.get("account").is_none_or(Value::is_null)
+        && account
+            .get("requiresOpenaiAuth")
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
+    {
+        return Err(CodexError::NotLoggedIn);
+    }
+    let mut cursor: Option<String> = None;
+    let mut cursors = std::collections::HashSet::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut models = Vec::new();
+    for page in 0..100 {
+        let response = connection
+            .request(json!({"id": 3 + page, "method":"model/list", "params": {
+                "cursor": cursor, "limit": 100, "includeHidden": false
+            }}))
+            .await?;
+        let data = response
+            .get("data")
+            .and_then(Value::as_array)
+            .ok_or(CodexError::Protocol)?;
+        for item in data {
+            if item.get("hidden").and_then(Value::as_bool) == Some(true) {
+                continue;
+            }
+            if let Some(modalities) = item.get("inputModalities") {
+                let values = modalities.as_array().ok_or(CodexError::Protocol)?;
+                if !values.iter().any(|value| value.as_str() == Some("text")) {
+                    continue;
+                }
+            }
+            let id = item
+                .get("model")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty() && id.len() <= 1024)
+                .ok_or(CodexError::Protocol)?;
+            let label = item
+                .get("displayName")
+                .and_then(Value::as_str)
+                .filter(|label| label.len() <= 1024)
+                .ok_or(CodexError::Protocol)?;
+            if seen.insert(id.to_owned()) {
+                models.push((id.to_owned(), label.to_owned()));
+            }
+            if models.len() > 10_000 {
+                return Err(CodexError::Protocol);
+            }
+        }
+        match response.get("nextCursor") {
+            None | Some(Value::Null) => return Ok(models),
+            Some(Value::String(next))
+                if !next.is_empty() && next.len() <= 4096 && cursors.insert(next.clone()) =>
+            {
+                cursor = Some(next.clone())
+            }
+            _ => return Err(CodexError::Protocol),
+        }
+    }
+    Err(CodexError::Protocol)
 }
 
 pub async fn run_turn<R, W>(

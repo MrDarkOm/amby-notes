@@ -27,6 +27,8 @@ than silently changing source data to match a plan.
 
 ## Plans and evidence, read only for the task
 
+- [AI provider connections](Road/ai-provider-connections-plan.md): proposed API/CLI
+  connections, model catalogs, settings migration and staged acceptance checks.
 - [Road/](Road/) contains execution plans, orchestration, acceptance lists and
   architecture audits. Their file paths/status/counts can reflect an earlier
   revision; do not bulk-load this directory on startup.

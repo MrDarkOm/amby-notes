@@ -138,4 +138,59 @@ describe("Model picker", () => {
     expect(content.className).not.toContain("w-auto")
     expect(content.getAttribute("data-side")).toBe("top")
   })
+
+  it("is a tall list: a generous minimum height, the footer kept at the bottom", async () => {
+    show()
+    open()
+    const list = await screen.findByRole("listbox")
+    const content = list.closest("[data-popover-content]")!
+    expect(content.className).toContain("min-h-[15rem]")
+    expect(content.className).toMatch(/max-h-\[/)
+    expect(list.className).toContain("flex-1")
+    expect(list.className).not.toMatch(/max-h-64|max-h-72/)
+    const footer = screen.getByRole("button", { name: "Управлять моделями" }).parentElement!
+    expect(footer.className).toContain("mt-auto")
+  })
+
+  it("opens right above its own row and takes the width and left edge it is told", async () => {
+    function Host() {
+      const [menuOpen, setMenuOpen] = React.useState(false)
+      return (
+        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+          <PopoverAnchor asChild>
+            <div>
+              <ModelPicker
+                models={models}
+                activeModelId="c"
+                onModel={vi.fn()}
+                onManage={vi.fn()}
+                menu={{ open: menuOpen, onOpenChange: setMenuOpen, width: 306, alignOffset: -20 }}
+              />
+            </div>
+          </PopoverAnchor>
+        </Popover>
+      )
+    }
+    render(<Host />)
+    open()
+    const content = (await screen.findByRole("listbox")).closest<HTMLElement>(
+      "[data-popover-content]",
+    )!
+    expect(content.style.width).toBe("306px")
+    expect(content.getAttribute("data-side")).toBe("top")
+    expect(content.getAttribute("data-align")).toBe("start")
+  })
+
+  it("points the arrow the way the list opens: up while closed, down while open", async () => {
+    show()
+    const trigger = screen.getByRole("combobox", { name: "Активная модель" })
+    const arrow = () => {
+      const icons = Array.from(trigger.querySelectorAll("svg"))
+      return icons[icons.length - 1]
+    }
+    expect(arrow().getAttribute("class")).toContain("rotate-180")
+    open()
+    await screen.findByRole("listbox")
+    expect(arrow().getAttribute("class")).not.toContain("rotate-180")
+  })
 })

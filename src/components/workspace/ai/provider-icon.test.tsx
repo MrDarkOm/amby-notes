@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import "@/lib/i18n"
 import { AI_PROVIDERS } from "../app-config"
 import { ProviderIcon } from "./provider-icon"
-import { hasProviderMark } from "./provider-marks"
+import { hasProviderMark, markMarkup, modelMark, PROVIDER_MARK } from "./provider-marks"
 
 afterEach(cleanup)
 
@@ -75,5 +75,47 @@ describe("Provider icons", () => {
       expect(html).not.toContain("href")
       unmount()
     }
+  })
+  it("recognizes the family of a model by its id", () => {
+    const cases: Array<[string, string | null]> = [
+      ["gpt-5.6-sol", "openai"],
+      ["o3-mini", "openai"],
+      ["openai/gpt-4o", "openai"],
+      ["claude-opus-5-5", "claude"],
+      ["opus", "claude"],
+      ["anthropic/claude-3.5-sonnet", "claude"],
+      ["gemini-2.5-pro", "gemini"],
+      ["gemma3:4b", "gemma"],
+      ["llama3.2:3b", "meta"],
+      ["meta-llama/llama-3.3-70b", "meta"],
+      ["deepseek-r1", "deepseek"],
+      ["qwen2.5-coder", "qwen"],
+      ["grok-4", "grok"],
+      ["mixtral-8x7b", "mistral"],
+      ["command-r-plus", "cohere"],
+      ["glm-4.6", "zhipu"],
+      ["kimi-k2", "kimi"],
+      ["my-own-model", null],
+      ["promo-1", null],
+      ["", null],
+    ]
+    for (const [id, mark] of cases) expect(modelMark(id), id).toBe(mark)
+  })
+
+  it("draws the Claude mark, not the company mark, for Anthropic", () => {
+    expect(PROVIDER_MARK.anthropic).toBe("claude")
+    const { container } = render(<ProviderIcon providerId="anthropic" kind="cloud" />)
+    expect(container.querySelector("svg")?.innerHTML).toBe(markMarkup("claude"))
+  })
+
+  it("prefers the mark of the model's family over its provider's", () => {
+    const { container } = render(
+      <ProviderIcon providerId="openrouter" modelId="google/gemini-2.5-pro" kind="cloud" />,
+    )
+    expect(container.querySelector("svg")?.innerHTML).toBe(markMarkup("gemini"))
+    const fallback = render(
+      <ProviderIcon providerId="openrouter" modelId="unknown-model" kind="cloud" />,
+    )
+    expect(fallback.container.querySelector("svg")?.innerHTML).toBe(markMarkup("openrouter"))
   })
 })

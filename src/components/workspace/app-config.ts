@@ -10,6 +10,10 @@
 
 import {
   globalFileMissing,
+  isTauri,
+  migrateAiSettings,
+  readGlobalRaw,
+  compareWriteGlobalRaw,
   loadGlobalJSON,
   loadVaultJSON,
   saveGlobalJSON,
@@ -23,6 +27,15 @@ import type { VaultRecord } from "./workspace-picker"
 import type { ActivityButton, PanelId, Side } from "./panel-registry"
 import type { Preset } from "./presets"
 import type { AiConfig, AiFamily } from "@/lib/ai"
+import { findProvider, type AiModel, type AiSettings } from "./ai/providers"
+import { projectAiConnections, readAiConnections, serializeAiSettings } from "./ai/connections"
+export {
+  AI_PROVIDERS,
+  findProvider,
+  type AiModel,
+  type AiSettings,
+  type ProviderInfo,
+} from "./ai/providers"
 import i18n, { SUPPORTED_LANGUAGES, type LanguageCode } from "@/lib/i18n"
 import {
   BUILTIN_THEMES,
@@ -55,12 +68,17 @@ export const SESSION_SCHEMA_VERSION = 1
 export const WORKSPACES_SCHEMA_VERSION = 1
 
 export const SETTINGS_SAVE_ERROR_EVENT = "amby:settings-save-error"
+export const AI_SETTINGS_CHANGED_EVENT = "amby:ai-settings-changed"
 
 export function emitSettingsSaveError(fileName: string, error: unknown): void {
   const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "")
   logger.error("settings.save_failed", {
     file: safeName,
     errorType: errorType(error),
+    // Our own error codes ("settingsChanged", "unsupportedAiVersion"); never free text.
+    code: /^[A-Za-z]{3,40}$/.test((error as Error)?.message ?? "")
+      ? (error as Error).message
+      : undefined,
   })
   if (typeof window !== "undefined") {
     window.dispatchEvent(
@@ -169,150 +187,12 @@ export async function saveWorkspaces(file: WorkspacesFile): Promise<void> {
 
 // ── Global: settings.json ───────────────────────────────────────────────────
 
-/** A selectable provider in the model editor. Maps a friendly name to a wire
- *  `family` (what Rust dispatches on) plus sensible connection defaults. */
-export interface ProviderInfo {
-  id: string
-  label: string
-  family: AiFamily
-  kind: "local" | "cloud"
-  defaultBaseUrl: string
-  defaultModel: string
-  needsKey: boolean
-  /** Azure-only: the field is shown and a default offered. */
-  azure?: boolean
-}
-
-/** Local options first (most popular), then cloud. */
-export const AI_PROVIDERS: ProviderInfo[] = [
-  {
-    id: "ollama",
-    label: "Ollama",
-    family: "ollama",
-    kind: "local",
-    defaultBaseUrl: "http://localhost:11434",
-    defaultModel: "llama3.2",
-    needsKey: false,
-  },
-  {
-    id: "lmstudio",
-    label: "LM Studio",
-    family: "openai",
-    kind: "local",
-    defaultBaseUrl: "http://localhost:1234",
-    defaultModel: "local-model",
-    needsKey: false,
-  },
-  {
-    id: "mlx",
-    label: "MLX",
-    family: "openai",
-    kind: "local",
-    defaultBaseUrl: "http://localhost:8080",
-    defaultModel: "mlx-community/Llama-3.2-3B-Instruct-4bit",
-    needsKey: false,
-  },
-  {
-    id: "llamacpp",
-    label: "llama.cpp",
-    family: "openai",
-    kind: "local",
-    defaultBaseUrl: "http://localhost:8080",
-    defaultModel: "default",
-    needsKey: false,
-  },
-  {
-    // The user's own Codex CLI signed in with ChatGPT; no API key, no endpoint.
-    id: "codex",
-    label: "Codex (ChatGPT)",
-    family: "codex",
-    kind: "cloud",
-    defaultBaseUrl: "",
-    defaultModel: "",
-    needsKey: false,
-  },
-  {
-    id: "openai",
-    label: "OpenAI",
-    family: "openai",
-    kind: "cloud",
-    defaultBaseUrl: "https://api.openai.com",
-    defaultModel: "gpt-4o-mini",
-    needsKey: true,
-  },
-  {
-    id: "anthropic",
-    label: "Anthropic",
-    family: "anthropic",
-    kind: "cloud",
-    defaultBaseUrl: "https://api.anthropic.com",
-    defaultModel: "claude-3-5-haiku-latest",
-    needsKey: true,
-  },
-  {
-    id: "azure",
-    label: "Azure OpenAI",
-    family: "azure",
-    kind: "cloud",
-    defaultBaseUrl: "",
-    defaultModel: "",
-    needsKey: true,
-    azure: true,
-  },
-  {
-    id: "openrouter",
-    label: "OpenRouter",
-    family: "openai",
-    kind: "cloud",
-    defaultBaseUrl: "https://openrouter.ai/api",
-    defaultModel: "openai/gpt-4o-mini",
-    needsKey: true,
-  },
-  {
-    id: "groq",
-    label: "Groq",
-    family: "openai",
-    kind: "cloud",
-    defaultBaseUrl: "https://api.groq.com/openai",
-    defaultModel: "llama-3.3-70b-versatile",
-    needsKey: true,
-  },
-  {
-    id: "mistral",
-    label: "Mistral",
-    family: "openai",
-    kind: "cloud",
-    defaultBaseUrl: "https://api.mistral.ai",
-    defaultModel: "mistral-small-latest",
-    needsKey: true,
-  },
-]
-
-export function findProvider(id: string): ProviderInfo | undefined {
-  return AI_PROVIDERS.find((p) => p.id === id)
-}
-
-/** One configured model in the user's library (the chat picks from these). */
-export interface AiModel {
-  id: string
-  label: string
-  /** ProviderInfo.id */
-  provider: string
-  model: string
-  baseUrl: string
-  credentialId?: string | null
-  /** Azure only. */
-  apiVersion: string
-  /** Undefined uses the default for the configured endpoint. */
-  supportsTools?: boolean
-}
-
 /** Moving a model entry to another provider starts from that provider's own model and
  *  endpoint: a name or URL left over from the previous provider would be rejected there. */
 export function changeProvider(model: AiModel, providerId: string): AiModel {
   const provider = findProvider(providerId)
   if (!provider || model.provider === providerId) return model
-  const codex = providerId === "codex"
+  const codex = providerId === "codex" || providerId === "claude-code"
   return {
     ...model,
     provider: providerId,
@@ -328,6 +208,16 @@ export function isCodexModel(model: AiModel): boolean {
   return model.provider === "codex"
 }
 
+/** Agent mode through Claude Code: same boundary as Codex, a different account and CLI. */
+export function isClaudeCodeModel(model: AiModel): boolean {
+  return model.provider === "claude-code"
+}
+
+/** Either signed-in command-line agent: no endpoint, no key, consent before any turn. */
+export function isCliAgentModel(model: AiModel): boolean {
+  return isCodexModel(model) || isClaudeCodeModel(model)
+}
+
 /** One hint for the settings screen, from what the backend found on this machine. */
 export function codexStatusKey(status: {
   installed: boolean
@@ -341,7 +231,7 @@ export function codexStatusKey(status: {
 
 /** Classify only addresses known to stay on a local network as local. */
 export function isLocalAiModel(model: AiModel): boolean {
-  if (isCodexModel(model)) return false
+  if (isCliAgentModel(model)) return false
   const provider = findProvider(model.provider)
   const address = model.baseUrl.trim() || provider?.defaultBaseUrl || ""
   if (!address) return provider?.kind === "local"
@@ -368,13 +258,6 @@ export function isLocalAiModel(model: AiModel): boolean {
 
 export function modelSupportsTools(model: AiModel): boolean {
   return model.supportsTools ?? !isLocalAiModel(model)
-}
-
-/** AI settings = a library of models + which one is active. Secrets are stored
- *  in the OS Keychain / Credential Manager under credentialId. */
-export interface AiSettings {
-  models: AiModel[]
-  activeModelId: string | null
 }
 
 export const DEFAULT_AI: AiSettings = {
@@ -488,6 +371,10 @@ export interface AppPreferences {
   treeGuides: boolean
   /** The file tree follows the open file: its folders open and it is scrolled to. */
   autoRevealFile: boolean
+  /** Bookmarks are listed in a block above the file tree (needs the favorites module). */
+  favoritesInTree: boolean
+  /** Bookmarks also get a tab of their own on the dock (needs the favorites module). */
+  favoritesPanel: boolean
   density: Density
   tooltipDelayMs: number
   language: Language
@@ -509,6 +396,8 @@ export const DEFAULT_PREFS: AppPreferences = {
   rainbowTree: false,
   treeGuides: true,
   autoRevealFile: false,
+  favoritesInTree: true,
+  favoritesPanel: false,
   density: "comfortable",
   tooltipDelayMs: 1000,
   language: "ru",
@@ -581,6 +470,8 @@ export function normalizeAppPreferences(
     rainbowTree: typeof d.rainbowTree === "boolean" ? d.rainbowTree : false,
     treeGuides: typeof d.treeGuides === "boolean" ? d.treeGuides : true,
     autoRevealFile: typeof d.autoRevealFile === "boolean" ? d.autoRevealFile : false,
+    favoritesInTree: typeof d.favoritesInTree === "boolean" ? d.favoritesInTree : true,
+    favoritesPanel: typeof d.favoritesPanel === "boolean" ? d.favoritesPanel : false,
     density: oneOf<Density>(d.density, ["comfortable", "compact"], DEFAULT_PREFS.density),
     tooltipDelayMs,
     language: oneOf<Language>(
@@ -680,7 +571,9 @@ export async function migrateLegacyAiKeys(
   if (!rawAi || typeof rawAi !== "object") {
     return { ai: DEFAULT_AI, migrated: false }
   }
-  const d = rawAi as { models?: unknown[]; activeModelId?: unknown }
+  const d = rawAi as { version?: unknown; models?: unknown[]; activeModelId?: unknown }
+  // The legacy reader cannot safely rewrite any versioned AI section.
+  if (Object.prototype.hasOwnProperty.call(d, "version")) throw new Error("unsupportedAiVersion")
   if (!Array.isArray(d.models)) {
     return { ai: DEFAULT_AI, migrated: false }
   }
@@ -769,8 +662,13 @@ export async function loadSettings(): Promise<GlobalSettings> {
   ) {
     prefs.theme = "dark"
   }
-  const { ai, migrated } = await migrateLegacyAiKeys(d.ai)
+  const versioned =
+    !!d.ai && typeof d.ai === "object" && Object.prototype.hasOwnProperty.call(d.ai, "version")
+  const { ai, migrated } = versioned
+    ? { ai: projectAiConnections(readAiConnections(d.ai)), migrated: false }
+    : await migrateLegacyAiKeys(d.ai)
   const settings: GlobalSettings = {
+    ...d,
     schemaVersion: typeof d.schemaVersion === "number" ? d.schemaVersion : SETTINGS_SCHEMA_VERSION,
     panelScope: d.panelScope === "workspace" ? "workspace" : "global",
     defaultTheme: legacyTheme,
@@ -788,7 +686,11 @@ export async function loadSettings(): Promise<GlobalSettings> {
 
 /** The currently-active model in the library, or null if none configured. */
 export function activeModel(ai: AiSettings): AiModel | null {
-  return ai.models.find((m) => m.id === ai.activeModelId) ?? ai.models[0] ?? null
+  return (
+    ai.models.find((m) => m.id === ai.activeModelId) ??
+    (ai.connectionSettings ? null : ai.models[0]) ??
+    null
+  )
 }
 
 /** Resolve a model entry to the flat `AiConfig` the `aiChat` command expects,
@@ -798,28 +700,84 @@ export function resolveAiConfig(model: AiModel): AiConfig {
   const family: AiFamily = p?.family ?? "ollama"
   return {
     provider: family,
+    internalModelId: model.id,
     model: model.model || p?.defaultModel || "",
     baseUrl: model.baseUrl || p?.defaultBaseUrl || "",
     credentialId: model.credentialId || null,
-    maxTokens: 1024,
+    // A local model that thinks first spends part of the limit on thinking; at 1024 it can run
+    // out before it writes the answer, which then arrives empty.
+    maxTokens: isLocalAiModel(model) ? 4096 : 1024,
     apiVersion: family === "azure" ? model.apiVersion || "2024-06-01" : null,
   }
 }
 
-export function saveSettingsPatch(patch: Partial<GlobalSettings>): Promise<void> {
+export function saveSettingsPatch(
+  patch: Partial<GlobalSettings>,
+  options?: { expectedAi?: AiSettings["connectionSettings"] },
+): Promise<void> {
   const write = async () => {
-    const cur = await loadSettings()
-    await saveGlobalJSON(SETTINGS_FILE, {
-      ...cur,
-      ...patch,
-      schemaVersion: SETTINGS_SCHEMA_VERSION,
-    })
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const before = await readGlobalRaw(SETTINGS_FILE)
+      const cur = await loadSettings()
+      if ((await readGlobalRaw(SETTINGS_FILE)) !== before) continue
+      if (cur.ai.connectionSettings && patch.ai && !patch.ai.connectionSettings) {
+        throw new Error("unsupportedAiVersion")
+      }
+      if (patch.ai?.connectionSettings) {
+        const expected = options?.expectedAi ?? patch.ai.connectionSettings
+        if (JSON.stringify(cur.ai.connectionSettings) !== JSON.stringify(expected))
+          throw new Error("settingsChanged")
+      }
+      const next = {
+        ...cur,
+        ...patch,
+        ai: serializeAiSettings(patch.ai ?? cur.ai),
+        schemaVersion: SETTINGS_SCHEMA_VERSION,
+      }
+      if (await compareWriteGlobalRaw(SETTINGS_FILE, before, JSON.stringify(next, null, 2))) {
+        if (patch.ai && typeof window !== "undefined")
+          window.dispatchEvent(new Event(AI_SETTINGS_CHANGED_EVENT))
+        return
+      }
+    }
+    throw new Error("settingsChanged")
   }
   const next = settingsWriteChain.then(write, write)
   settingsWriteChain = next.catch((err) => {
+    // A caller that passes the settings it built on handles a conflict itself (it reloads and
+    // repeats the change), so the generic save error would only be noise.
+    if (options?.expectedAi && (err as Error)?.message === "settingsChanged") return
     emitSettingsSaveError(SETTINGS_FILE, err)
   })
   return next
+}
+
+/** Start the durable migration only when the connection screen is opened. */
+export async function loadAiConnectionSettings(): Promise<GlobalSettings> {
+  if (!isTauri()) return loadSettings()
+  let raw = await readGlobalRaw(SETTINGS_FILE)
+  if (raw === null) {
+    await saveSettingsPatch({})
+    raw = await readGlobalRaw(SETTINGS_FILE)
+  }
+  if (raw === null) throw new Error("settingsUnavailable")
+  let value: unknown
+  try {
+    value = JSON.parse(raw.replace(/^\uFEFF/, ""))
+  } catch {
+    throw new Error("corruptSettings")
+  }
+  const ai = value && typeof value === "object" ? (value as { ai?: unknown }).ai : undefined
+  if (
+    !ai ||
+    typeof ai !== "object" ||
+    !Object.prototype.hasOwnProperty.call(ai, "version") ||
+    (ai as { version?: unknown }).version === 1
+  ) {
+    await migrateAiSettings()
+    if (typeof window !== "undefined") window.dispatchEvent(new Event(AI_SETTINGS_CHANGED_EVENT))
+  }
+  return loadSettings()
 }
 
 // ── Per-vault: workspace.json (requires an open vault) ───────────────────────
@@ -912,6 +870,31 @@ export function saveWorkspaceConfigPatch(patch: Partial<WorkspaceConfig>): Promi
     await saveVaultJSON(WORKSPACE_FILE, {
       ...cur,
       ...patch,
+      schemaVersion: WORKSPACE_SCHEMA_VERSION,
+    })
+  }
+  const next = workspaceConfigWriteChain.then(write, write)
+  workspaceConfigWriteChain = next.catch((err) => {
+    emitSettingsSaveError(WORKSPACE_FILE, err)
+  })
+  return next
+}
+
+/**
+ * Records which preset runs and with which modules in the vault's own file, beside its list of
+ * presets. The settings window reads the active preset from there, so what the app runs and what
+ * the settings show cannot drift apart. The rest of the layout is left as it is.
+ */
+export function saveWorkspaceActivePreset(
+  activePresetId: string,
+  activeModules: string[],
+): Promise<void> {
+  const write = async () => {
+    const cur = await loadWorkspaceConfig()
+    await saveVaultJSON(WORKSPACE_FILE, {
+      ...cur,
+      enabledModules: activeModules,
+      layout: { ...cur.layout, activePresetId, activeModules },
       schemaVersion: WORKSPACE_SCHEMA_VERSION,
     })
   }

@@ -150,7 +150,7 @@ fn prepare_with(root: &Path, wanted: &str) -> Result<CodexHome, CodexError> {
 
 /// Names the process needs to run and reach the network, compared in upper case so
 /// Windows spellings (`Path`, `SystemRoot`) match. Everything else is dropped.
-const KEEP: &[&str] = &[
+pub(crate) const KEEP: &[&str] = &[
     "PATH",
     "HOME",
     "USER",

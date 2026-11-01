@@ -57,6 +57,7 @@ while IFS= read -r line; do
   case "$line" in
     *'"method":"initialize"'*) printf '{{"id":%s,"result":{{}}}}\n' "$id";;
     *'"method":"account/read"'*) printf '{{"id":%s,"result":{{"account":{{"type":"chatgpt"}},"requiresOpenaiAuth":true}}}}\n' "$id";;
+    *'"method":"model/list"'*) printf '{{"id":%s,"result":{{"data":[{{"model":"gpt-test","displayName":"Test"}}],"nextCursor":null}}}}\n' "$id";;
     *'"method":"config/read"'*) printf '{{"id":%s,"result":{{"config":{{"features":{{"shell_tool":false,"unified_exec":false,"apps":false,"plugins":false,"hooks":false,"browser_use":false,"browser_use_external":false,"browser_use_full_cdp_access":false,"computer_use":false,"image_generation":false,"view_image":false,"multi_agent":false,"in_app_browser":false,"skill_search":false,"tool_suggest":false,"goals":false,"write_stdin_approval":false}},"mcp_servers":{{}},"web_search":"disabled"}}}}}}\n' "$id";;
     *'"method":"thread/start"'*) printf '{{"id":%s,"result":{{"thread":{{"id":"t1"}}}}}}\n' "$id";;
     *'"method":"turn/start"'*)
@@ -811,4 +812,15 @@ async fn live_codex_does_not_obey_an_injected_note() {
         host.calls.load(Ordering::SeqCst) >= 1,
         "Codex never read the note"
     );
+}
+
+#[tokio::test]
+async fn model_catalog_reaps_the_child() {
+    let dir = scratch();
+    let binary = fake_codex(&dir, "0.164.0", false);
+    let (_keep, cancel) = never_cancelled();
+    let result = codex_model_catalog(&binary, &home(), cancel).await.unwrap();
+    assert_eq!(result, vec![("gpt-test".into(), "Test".into())]);
+    let pid = std::fs::read_to_string(dir.join("pid")).unwrap();
+    assert!(!alive(&pid));
 }

@@ -5,6 +5,7 @@ import { Search } from "lucide-react"
 
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
+import { useClipped } from "@/lib/use-clipped"
 
 interface PanelHeaderProps {
   title: React.ReactNode
@@ -15,6 +16,9 @@ interface PanelHeaderProps {
 
 /** Shared panel chrome: a text-only section title with optional controls. */
 export function PanelHeader({ title, leading, actions, hideTitle = false }: PanelHeaderProps) {
+  const [titleRef, clipped] = useClipped<HTMLHeadingElement>(
+    typeof title === "string" ? title : null,
+  )
   return (
     <header
       className={cn(
@@ -25,7 +29,14 @@ export function PanelHeader({ title, leading, actions, hideTitle = false }: Pane
       {!hideTitle && (
         <div className="flex min-w-0 items-center gap-2">
           {leading}
-          <h2 className="min-w-0 truncate text-sm font-semibold">{title}</h2>
+          <h2
+            ref={titleRef}
+            // The app's tooltip reads this attribute; a plain `title` would be copied over once and kept.
+            data-amby-tooltip={clipped && typeof title === "string" ? title : undefined}
+            className="min-w-0 truncate text-sm font-semibold"
+          >
+            {title}
+          </h2>
         </div>
       )}
       {actions && <div className="flex shrink-0 items-center gap-0.5">{actions}</div>}

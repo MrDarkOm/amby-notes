@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import "@/lib/i18n"
 import { AiPanel } from "../ai-panel"
@@ -7,6 +7,7 @@ import { useAiChatStore } from "./use-ai-chat-store"
 import { useVaultStore } from "../use-vault-store"
 import { useDocStore } from "../use-doc-store"
 import * as ai from "@/lib/ai"
+import * as appConfig from "../app-config"
 
 const mock = vi.hoisted(() => ({ list: vi.fn(), load: vi.fn(), save: vi.fn(), trash: vi.fn() }))
 vi.mock("@/lib/storage", async (original) => ({
@@ -130,5 +131,61 @@ describe("AI panel", () => {
     await waitFor(() => expect(mock.save).toHaveBeenCalled())
     const saved = mock.save.mock.calls[mock.save.mock.calls.length - 1]?.[1]
     expect(saved.messages[saved.messages.length - 1].content).toBe("Partial")
+  })
+  it("does not send an old chat to a different active model when its model is missing", async () => {
+    render(<AiPanel {...props} />)
+    await waitFor(() => expect(useAiChatStore.getState().chat).not.toBeNull())
+    act(() => {
+      const chat = useAiChatStore.getState().chat!
+      useAiChatStore.getState().replace({ ...chat, modelId: "removed-model" })
+    })
+    fireEvent.change(screen.getByPlaceholderText("Сообщение…"), { target: { value: "Question" } })
+    fireEvent.click(screen.getByRole("button", { name: "Отправить" }))
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain("Выберите доступную модель"),
+    )
+    expect(ai.aiRunTurn).not.toHaveBeenCalled()
+    expect(ai.aiSearchConsent).not.toHaveBeenCalled()
+  })
+  it("checks the latest settings before sending after a model is disabled", async () => {
+    render(<AiPanel {...props} />)
+    await waitFor(() => expect(useAiChatStore.getState().chat).not.toBeNull())
+    vi.mocked(appConfig.loadSettings).mockResolvedValueOnce({
+      ai: { models: [], activeModelId: "cloud" },
+    } as unknown as Awaited<ReturnType<typeof appConfig.loadSettings>>)
+    fireEvent.change(screen.getByPlaceholderText("Сообщение…"), { target: { value: "Question" } })
+    fireEvent.click(screen.getByRole("button", { name: "Отправить" }))
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy())
+    expect(ai.aiRunTurn).not.toHaveBeenCalled()
+    expect(ai.aiSearchConsent).not.toHaveBeenCalled()
+  })
+  it("finishes an in-flight reply with its original configuration when another model is chosen", async () => {
+    const original = await appConfig.loadSettings()
+    const alternate = { ...original.ai.models[0], id: "other", label: "Other", model: "second" }
+    vi.mocked(appConfig.loadSettings).mockResolvedValue({
+      ...original,
+      ai: { ...original.ai, models: [...original.ai.models, alternate] },
+    })
+    let finish!: (value: Awaited<ReturnType<typeof ai.aiRunTurn>>) => void
+    vi.mocked(ai.aiRunTurn).mockImplementation(
+      (_config, _messages, _options) =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    render(<AiPanel {...props} />)
+    await waitFor(() => expect(useAiChatStore.getState().chat).not.toBeNull())
+    fireEvent.change(screen.getByPlaceholderText("Сообщение…"), { target: { value: "Question" } })
+    fireEvent.click(screen.getByRole("button", { name: "Отправить" }))
+    await waitFor(() => expect(ai.aiRunTurn).toHaveBeenCalledOnce())
+    const options = vi.mocked(ai.aiRunTurn).mock.calls[0][2]
+    fireEvent.click(screen.getByRole("combobox", { name: "Активная модель" }))
+    fireEvent.click(await screen.findByRole("option", { name: /Other/ }))
+    expect(options.signal?.aborted).toBe(false)
+    act(() => finish({ content: "Finished", steps: [], sources: [] }))
+    await screen.findByText("Finished")
+    expect(useAiChatStore.getState().chat?.modelId).toBe("other")
+    expect(vi.mocked(ai.aiRunTurn).mock.calls[0][0].model).toBe("test")
+    vi.mocked(appConfig.loadSettings).mockResolvedValue(original)
   })
 })

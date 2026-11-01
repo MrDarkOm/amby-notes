@@ -10,18 +10,21 @@ import type {
   AiConfig as GeneratedAiConfig,
   AiMessage as GeneratedAiMessage,
   AiTurnResult,
+  CatalogModel,
   ChatSource,
+  ClaudeStatus,
   CodexStatus,
 } from "./bindings"
 import { listen } from "@tauri-apps/api/event"
 import { unwrapCommand } from "./storage/ipc-result"
 
 /** Wire "family" the Rust backend dispatches on. */
-export type AiFamily = "ollama" | "openai" | "anthropic" | "azure" | "codex"
+export type AiFamily = "ollama" | "openai" | "anthropic" | "azure" | "codex" | "claude-code"
 
 /** Flat wire shape expected by the `ai_chat` Rust command (camelCase). */
 export interface AiConfig {
   provider: AiFamily
+  internalModelId?: string | null
   model: string
   baseUrl: string
   credentialId?: string | null
@@ -39,6 +42,7 @@ export interface AiMessage {
 function toGeneratedConfig(config: AiConfig): GeneratedAiConfig {
   return {
     ...config,
+    internalModelId: config.internalModelId ?? null,
     credentialId: config.credentialId ?? null,
     apiKey: config.apiKey ?? null,
     maxTokens: config.maxTokens ?? null,
@@ -72,7 +76,13 @@ export class AiRequestError extends Error {
         ? i18n.t("ai.errors.codexRejected")
         : provider === "codex" && code === "missingCredential"
           ? i18n.t("ai.errors.codexSignedOut")
-          : i18n.t(`ai.errors.${code}`),
+          : provider === "claude-code" && code === "agentBoundary"
+            ? i18n.t("ai.errors.claudeBoundary")
+            : provider === "claude-code" && code === "providerRejected"
+              ? i18n.t("ai.errors.claudeRejected")
+              : provider === "claude-code" && code === "missingCredential"
+                ? i18n.t("ai.errors.claudeSignedOut")
+                : i18n.t(`ai.errors.${code}`),
     )
     this.name = "AiRequestError"
     this.code = code
@@ -130,6 +140,20 @@ export async function aiSetSearchConsent(
   return resolveAiChatRepository().setConsent(generation, toGeneratedConfig(config), allowed)
 }
 
+/**
+ * Whether the program of a local provider is on this computer; `null` when it cannot be told
+ * (browser development, or a provider the app does not know).
+ */
+export async function aiLocalAppInstalled(provider: string): Promise<boolean | null> {
+  if (!isTauri()) return null
+  try {
+    const result = await commands.aiLocalAppInstalled(provider)
+    return result.status === "ok" ? result.data : null
+  } catch {
+    return null
+  }
+}
+
 /** Whether the user's own Codex can be used; outside the desktop app it is "missing". */
 export async function aiCodexStatus(): Promise<CodexStatus> {
   if (!isTauri()) return { installed: false, supported: false, signedIn: false }
@@ -160,6 +184,39 @@ export async function aiCodexLoginCancel(): Promise<boolean> {
 export async function aiCodexLogout(): Promise<void> {
   if (!isTauri()) throw new AiUnavailableError()
   const result = await commands.aiCodexLogout()
+  if (result.status !== "ok") throw new AiRequestError(result.error)
+}
+
+/** Whether the user's own Claude Code can be used; outside the desktop app it is "missing". */
+export async function aiClaudeStatus(): Promise<ClaudeStatus> {
+  if (!isTauri()) return { installed: false, supported: false, signedIn: false }
+  try {
+    return await commands.aiClaudeStatus()
+  } catch {
+    return { installed: false, supported: false, signedIn: false }
+  }
+}
+
+/** Sign in to Claude inside Amby's own Claude Code: the browser opens, resolves when done. */
+export async function aiClaudeLogin(): Promise<void> {
+  if (!isTauri()) throw new AiUnavailableError()
+  const result = await commands.aiClaudeLogin()
+  if (result.status !== "ok") throw new AiRequestError(result.error)
+}
+
+/** Stops a sign-in that is waiting for the browser. */
+export async function aiClaudeLoginCancel(): Promise<boolean> {
+  if (!isTauri()) return false
+  try {
+    return await commands.aiClaudeLoginCancel()
+  } catch {
+    return false
+  }
+}
+
+export async function aiClaudeLogout(): Promise<void> {
+  if (!isTauri()) throw new AiUnavailableError()
+  const result = await commands.aiClaudeLogout()
   if (result.status !== "ok") throw new AiRequestError(result.error)
 }
 
@@ -206,6 +263,28 @@ export async function aiRunTurn(
   } finally {
     opts.signal?.removeEventListener("abort", onAbort)
     unlisten?.()
+  }
+}
+
+/** Fetch a transport catalogue; a later request may abort this one. */
+export async function aiModelCatalog(
+  config: AiConfig,
+  signal?: AbortSignal,
+): Promise<CatalogModel[]> {
+  if (!isTauri()) throw new AiUnavailableError()
+  if (signal?.aborted) throw new Error("Request cancelled")
+  const streamId = crypto.randomUUID()
+  const onAbort = () => {
+    void cancelAiChat(streamId)
+  }
+  signal?.addEventListener("abort", onAbort, { once: true })
+  try {
+    const result = await commands.aiModelCatalog(toGeneratedConfig(config), streamId)
+    if (signal?.aborted) throw new Error("Request cancelled")
+    if (result.status === "ok") return result.data
+    throw new AiRequestError(result.error)
+  } finally {
+    signal?.removeEventListener("abort", onAbort)
   }
 }
 

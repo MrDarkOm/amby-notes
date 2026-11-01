@@ -194,7 +194,7 @@ function ArchiveContents() {
                   return (
                     <div
                       key={entry.id}
-                      className="group flex items-center gap-1 rounded-md px-2 py-1.5 hover:bg-accent/40"
+                      className="group relative flex items-center gap-1 rounded-md px-2 py-1.5 hover:bg-accent/40"
                     >
                       {icon ? (
                         <TreeIcon
@@ -230,7 +230,7 @@ function ArchiveContents() {
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 disabled:opacity-50"
+                        className="absolute inset-y-0 right-10 my-auto bg-background opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 disabled:opacity-50"
                         disabled={busy !== null}
                         title={t("archivePanel.restoreEntry", { name: title })}
                         aria-label={t("archivePanel.restoreEntry", { name: title })}

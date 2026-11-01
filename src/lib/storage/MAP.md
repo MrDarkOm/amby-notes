@@ -64,3 +64,5 @@ generation-scoped native commands, refuses browser persistence and uses revision
 to prevent stale overwrites. Native storage is [ai/chats.rs](../../../src-tauri/src/ai/chats.rs).
 
 Archive preview: `readTrashPreview(id, relativePath)` goes through `HistoryRepository` and the desktop adapter to Rust. It reads only the selected archived payload, without restoration; the browser adapter refuses filesystem archive access.
+
+Global AI settings use compare-and-write through the settings repository and native app-data lock. Versioned AI migration/guarded rollback enter through the same boundary; the browser adapter refuses filesystem migration.

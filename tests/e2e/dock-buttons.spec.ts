@@ -60,13 +60,13 @@ test("each dock zone switches off only its own buttons, never settings", async (
   ).toBe("none")
 
   // A button's own menu hides it too; settings has no such item.
-  await dockButton(page, "favorites").click({ button: "right" })
+  await dockButton(page, "archive").click({ button: "right" })
   // It also lists the switches of its own zone, and only that zone.
   await expect(page.getByText(ru.activityBar.zoneSections)).toBeVisible()
   await expect(toggle(page, "files")).toBeVisible()
   await expect(toggle(page, "search")).toHaveCount(0)
   await page.getByRole("menuitem", { name: ru.activityBar.hideButton }).click()
-  await expect(dockButton(page, "favorites")).toHaveCount(0)
+  await expect(dockButton(page, "archive")).toHaveCount(0)
   await dockButton(page, "settings").click({ button: "right" })
   await expect(page.getByRole("menuitem", { name: ru.activityBar.hideButton })).toHaveCount(0)
   await page.keyboard.press("Escape")

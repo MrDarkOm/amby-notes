@@ -3,12 +3,17 @@
 import { IS_SITE_DEMO } from "@/lib/site-demo"
 import * as React from "react"
 import {
+  ArrowDownUp,
   ArrowLeft,
   ArrowRight,
   Check,
   Download,
   EyeOff,
+  LayoutTemplate,
   Pin,
+  Plus,
+  RotateCcw,
+  Save,
   Settings2,
   Upload,
 } from "lucide-react"
@@ -33,6 +38,9 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { type ActivityButton, type ButtonDef, type PanelId, type Side } from "./panel-registry"
@@ -59,7 +67,13 @@ interface ActivityBarProps {
   onMoveToOtherSide?: (defId: string) => void
   onPointerDownButton: (defId: string) => (event: React.PointerEvent<HTMLElement>) => void
   draggingId: string | null
-  presets?: { id: string; label: string }[]
+  presets?: { id: string; label: string; hint?: string }[]
+  /** The running modules or dock differ from what the active preset stores. */
+  presetModified?: boolean
+  canSaveActivePreset?: boolean
+  onSaveActivePreset?: () => void
+  onSavePresetAs?: () => void
+  onResetActivePreset?: () => void
   activePresetId?: string
   onSwitchPreset?: (id: string) => void
   onImportPreset?: () => void
@@ -92,6 +106,11 @@ export function ActivityBar({
   onPointerDownButton,
   draggingId,
   presets,
+  presetModified = false,
+  canSaveActivePreset = false,
+  onSaveActivePreset,
+  onSavePresetAs,
+  onResetActivePreset,
   activePresetId,
   onSwitchPreset,
   onImportPreset,
@@ -120,21 +139,24 @@ export function ActivityBar({
   const actionButtons = zoneButtons("action").filter((button) => !button.hidden)
 
   function presetMenu() {
+    const itemClass =
+      "flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
+    const activePreset = (presets ?? []).find((preset) => preset.id === activePresetId)
     return (
       <DropdownMenuContent
         side={side === "left" ? "right" : "left"}
         align="end"
-        className="w-52 border-border bg-popover text-foreground"
+        className="w-60 border-border bg-popover text-foreground"
       >
         <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-muted-foreground">
           {t("activityBar.presetSection")}
         </DropdownMenuLabel>
-        <DropdownMenuSeparator className="bg-border" />
         {(presets ?? []).map((preset) => (
           <DropdownMenuItem
             key={preset.id}
+            title={preset.hint}
             onSelect={() => onSwitchPreset?.(preset.id)}
-            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
+            className={itemClass}
           >
             <Check
               className={cn(
@@ -142,55 +164,97 @@ export function ActivityBar({
                 preset.id === activePresetId ? "text-primary opacity-100" : "opacity-0",
               )}
             />
-            {preset.label}
+            <span className="min-w-0 flex-1 truncate">{preset.label}</span>
+            {preset.id === activePresetId && presetModified && (
+              <span
+                role="img"
+                aria-label={t("activityBar.presetModified")}
+                title={t("activityBar.presetModified")}
+                className="size-1.5 shrink-0 rounded-full bg-primary"
+              />
+            )}
           </DropdownMenuItem>
         ))}
-        {(onExportPreset || onImportPreset) && <DropdownMenuSeparator className="bg-border" />}
-        {onExportPreset && (
-          <DropdownMenuItem
-            onSelect={onExportPreset}
-            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
-          >
-            <Download className="size-3.5 text-muted-foreground" />
-            {t("activityBar.exportCurrent")}
+        <DropdownMenuSeparator className="bg-border" />
+        {presetModified && canSaveActivePreset && (
+          <DropdownMenuItem onSelect={onSaveActivePreset} className={itemClass}>
+            <Save className="size-3.5 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">
+              {t("activityBar.presetSaveChanges", { name: activePreset?.label ?? "" })}
+            </span>
           </DropdownMenuItem>
         )}
-        {onImportPreset && (
-          <DropdownMenuItem
-            onSelect={onImportPreset}
-            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
-          >
-            <Upload className="size-3.5 text-muted-foreground" />
-            {t("activityBar.importPreset")}
+        {onSavePresetAs && (
+          <DropdownMenuItem onSelect={onSavePresetAs} className={itemClass}>
+            <Plus className="size-3.5 text-muted-foreground" />
+            {t("activityBar.presetSaveAs")}
           </DropdownMenuItem>
+        )}
+        {presetModified && onResetActivePreset && (
+          <DropdownMenuItem onSelect={onResetActivePreset} className={itemClass}>
+            <RotateCcw className="size-3.5 text-muted-foreground" />
+            {t("activityBar.presetReset")}
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuSeparator className="bg-border" />
+        <DropdownMenuItem
+          onSelect={() => onOpenSettings({ section: "modules" })}
+          className={itemClass}
+        >
+          <Settings2 className="size-3.5 text-muted-foreground" />
+          {t("activityBar.presetManage")}
+        </DropdownMenuItem>
+        {(onExportPreset || onImportPreset) && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className={itemClass}>
+              <ArrowDownUp className="size-3.5 text-muted-foreground" />
+              {t("activityBar.presetTransfer")}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="border-border bg-popover text-foreground">
+              {onExportPreset && (
+                <DropdownMenuItem onSelect={onExportPreset} className={itemClass}>
+                  <Download className="size-3.5 text-muted-foreground" />
+                  {t("activityBar.exportCurrent")}
+                </DropdownMenuItem>
+              )}
+              {onImportPreset && (
+                <DropdownMenuItem onSelect={onImportPreset} className={itemClass}>
+                  <Upload className="size-3.5 text-muted-foreground" />
+                  {t("activityBar.importPreset")}
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
         )}
         {onSetPanelScope && (
-          <>
-            <DropdownMenuSeparator className="bg-border" />
-            <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-muted-foreground">
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className={itemClass} title={t("activityBar.layoutHint")}>
+              <LayoutTemplate className="size-3.5 text-muted-foreground" />
               {t("activityBar.layoutSection")}
-            </DropdownMenuLabel>
-            {(
-              [
-                { id: "global", labelKey: "activityBar.layoutGlobal" },
-                { id: "workspace", labelKey: "activityBar.layoutWorkspace" },
-              ] as const
-            ).map((option) => (
-              <DropdownMenuItem
-                key={option.id}
-                onSelect={() => onSetPanelScope(option.id)}
-                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
-              >
-                <Check
-                  className={cn(
-                    "size-3.5",
-                    option.id === panelScope ? "text-primary opacity-100" : "opacity-0",
-                  )}
-                />
-                {t(option.labelKey)}
-              </DropdownMenuItem>
-            ))}
-          </>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="border-border bg-popover text-foreground">
+              {(
+                [
+                  { id: "global", labelKey: "activityBar.layoutGlobal" },
+                  { id: "workspace", labelKey: "activityBar.layoutWorkspace" },
+                ] as const
+              ).map((option) => (
+                <DropdownMenuItem
+                  key={option.id}
+                  onSelect={() => onSetPanelScope(option.id)}
+                  className={itemClass}
+                >
+                  <Check
+                    className={cn(
+                      "size-3.5",
+                      option.id === panelScope ? "text-primary opacity-100" : "opacity-0",
+                    )}
+                  />
+                  {t(option.labelKey)}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
         )}
       </DropdownMenuContent>
     )

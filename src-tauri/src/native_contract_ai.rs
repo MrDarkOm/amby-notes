@@ -31,6 +31,11 @@ fn respond(mut stream: TcpStream) -> std::io::Result<()> {
         }
     };
     let headers = String::from_utf8_lossy(&request[..header_end]);
+    if headers.starts_with("GET /api/tags ") {
+        let body = r#"{"models":[{"name":"native-chat"},{"name":"native-embed"}]}"#;
+        write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body)?;
+        return Ok(());
+    }
     let length = headers
         .lines()
         .find_map(|line| {

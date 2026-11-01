@@ -96,6 +96,7 @@ function resolveTooltipDelayStop(ms: number): TooltipDelayStop {
 const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform)
 const SETTINGS_WINDOW_LABEL = "settings"
 const SETTINGS_MODULE_CHANGE_EVENT = "amby:settings-module-change"
+const SETTINGS_PRESET_CHANGE_EVENT = "amby:settings-preset-change"
 const SETTINGS_CONTEXT_CHANGE_EVENT = "amby:settings-context-change"
 const SETTINGS_READY_EVENT = "amby:settings-ready"
 let settingsWindowQueue: Promise<unknown> = Promise.resolve()
@@ -243,6 +244,8 @@ interface SettingsDialogProps {
   navigationTarget?: SettingsNavigationTarget | null
   activeModules: string[]
   onModuleEnabledChange: (id: string, enabled: boolean) => void
+  /** The user picked or edited a preset in the settings: the app should run that one. */
+  onPresetChange?: (id: string) => void
 }
 
 function SettingsWindowFrame({
@@ -301,6 +304,7 @@ export function SettingsDialog({
   navigationTarget = null,
   activeModules,
   onModuleEnabledChange,
+  onPresetChange,
 }: SettingsDialogProps) {
   const { t } = useTranslation()
   const prefs = useSettingsStore((s) => s.prefs)
@@ -419,6 +423,15 @@ export function SettingsDialog({
   }, [onModuleEnabledChange, standalone])
 
   React.useEffect(() => {
+    if (standalone || !isTauri() || !onPresetChange) return
+    return adoptAsyncDisposer(
+      listen<{ id: string }>(SETTINGS_PRESET_CHANGE_EVENT, (event) => {
+        onPresetChange(event.payload.id)
+      }),
+    )
+  }, [onPresetChange, standalone])
+
+  React.useEffect(() => {
     if (standalone || !isTauri()) return
     void emitTo<SettingsContextPayload>(SETTINGS_WINDOW_LABEL, SETTINGS_CONTEXT_CHANGE_EVENT, {
       activeModules,
@@ -524,8 +537,10 @@ export function SettingsDialog({
 
         <div
           className={cn(
-            "m-3 ml-0 min-w-0 flex-1 overflow-y-auto rounded-xl border border-border bg-[var(--panel-bg)] shadow-sm",
-            activeSection === "modules" && !query.trim() ? "p-0" : "px-4 py-5 sm:px-7",
+            "m-3 ml-0 min-w-0 flex-1 rounded-xl border border-border bg-[var(--panel-bg)] shadow-sm",
+            activeSection === "modules" && !query.trim()
+              ? "flex flex-col overflow-hidden p-0"
+              : "overflow-y-auto px-4 py-5 sm:px-7",
           )}
         >
           {query.trim() ? (
@@ -851,10 +866,11 @@ export function SettingsDialog({
                 <SyncSettings vault={vault} />
               </TabsContent>
 
-              <TabsContent value="modules">
+              <TabsContent value="modules" className="flex min-h-0 flex-1 flex-col">
                 <ModulesTab
                   activeModules={activeModules}
                   onModuleEnabledChange={onModuleEnabledChange}
+                  onPresetChange={onPresetChange}
                   selectedId={selectedModuleId}
                   onSelectedChange={setSelectedModuleId}
                 />
@@ -942,6 +958,10 @@ export function StandaloneSettingsWindow() {
     void emitTo<ModuleChangePayload>("main", SETTINGS_MODULE_CHANGE_EVENT, { id, enabled })
   }, [])
 
+  const handlePresetChange = React.useCallback((id: string) => {
+    void emitTo("main", SETTINGS_PRESET_CHANGE_EVENT, { id })
+  }, [])
+
   return (
     <SettingsDialog
       standalone
@@ -953,6 +973,7 @@ export function StandaloneSettingsWindow() {
       }}
       activeModules={activeModules}
       onModuleEnabledChange={handleModuleEnabledChange}
+      onPresetChange={handlePresetChange}
     />
   )
 }

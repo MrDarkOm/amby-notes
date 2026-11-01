@@ -1,4 +1,4 @@
-import { Sparkles } from "lucide-react"
+import { Bot } from "lucide-react"
 import { AiPanel } from "../ai-panel"
 import type { ModuleDefinition } from "@/lib/modules/host"
 
@@ -20,7 +20,7 @@ export const AI_MODULE_DEFINITION: ModuleDefinition = {
     api.panels.register({
       id: "ai",
       labelKey: "panels.ai",
-      icon: Sparkles,
+      icon: Bot,
       kind: "view",
       render: (props) => <AiPanel {...props} />,
     })

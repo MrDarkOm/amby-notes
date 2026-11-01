@@ -124,11 +124,13 @@ fn request_body(
 ) -> Value {
     let anthropic = config.provider == "anthropic";
     let mut body = json!({"model": config.model, "messages": messages, "stream": true});
-    if config.provider != "ollama" {
+    if config.provider == "anthropic" {
         body["max_tokens"] = json!(config
             .max_tokens
             .unwrap_or(1024)
             .min(super::MAX_TOKENS_LIMIT));
+    } else if config.provider != "ollama" {
+        super::set_openai_token_limit(&mut body, config);
     }
     if anthropic {
         if let Some(system) = system.filter(|value| !value.is_empty()) {
@@ -575,22 +577,19 @@ impl super::codex::mcp::ToolHost for VaultToolHost {
     }
 }
 
-/// Only one Codex turn at a time: each writes its own bridge port into the shared
-/// isolated configuration.
-static CODEX_TURN: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
-/// Agent mode: the conversation goes to Amby's isolated Codex, which can reach the vault only
-/// through Amby's own tools (see ai/codex/agent.rs and ai/codex/mcp.rs).
-async fn codex_agent_turn(
+/// Agent mode: the conversation goes to Amby's isolated Codex or Claude Code, which can reach
+/// the vault only through Amby's own tools (see ai/codex/ and ai/claude_code/).
+async fn cli_agent_turn(
     app: tauri::AppHandle,
     context: &VaultContext,
     request: &AiTurnRequest,
     rx: &tokio::sync::watch::Receiver<bool>,
 ) -> Result<AiTurnResult, AiChatError> {
-    use super::codex::{self, agent::run_agent_turn, launch::find_binary, mcp::McpServer};
+    use super::codex::mcp::McpServer;
     let provider = request.config.provider.as_str();
-    let fail = |error: &codex::CodexError| AiChatError {
-        code: codex::error_code(error),
+    let claude = provider == "claude-code";
+    let fail = |code: AiErrorCode| AiChatError {
+        code,
         provider: provider.to_owned(),
     };
     let events = std::sync::Arc::new(SharedEvents {
@@ -599,9 +598,7 @@ async fn codex_agent_turn(
         sequence: std::sync::atomic::AtomicU64::new(0),
     });
     let result = async {
-        let binary = find_binary().ok_or(codex::CodexError::NotInstalled)?;
-        let root = crate::app_data::app_root(&app).map_err(|_| codex::CodexError::Io)?;
-        let _only_one = CODEX_TURN.lock().await;
+        let root = crate::app_data::app_root(&app).map_err(|_| AiErrorCode::Network)?;
         let search = request.search_enabled && request.supports_tools;
         let host = std::sync::Arc::new(VaultToolHost {
             app: app.clone(),
@@ -613,51 +610,85 @@ async fn codex_agent_turn(
                 folders: request.folders.clone(),
             },
             engine: std::sync::Mutex::new(TurnEngine::new(
-                "codex",
+                provider,
                 Vec::new(),
                 request.initial_sources.clone(),
             )),
             events: events.clone(),
             cancel: rx.clone(),
         });
-        let server = McpServer::start(host.clone())
-            .await
-            .map_err(|_| codex::CodexError::Io)?;
-        let outcome = async {
-            let home = codex::home::prepare_home_with_bridge(&root, server.addr.port())?
-                .with_bridge_token(server.token.clone());
-            run_agent_turn(
-                &binary,
-                &home,
-                &request.messages,
-                request.system.as_deref(),
-                Some(request.config.model.as_str()),
-                rx.clone(),
-                |delta| events.emit("token", json!({"delta":delta})),
-            )
-            .await
-        }
-        .await;
-        server.stop().await;
-        // Drop the bridge's port from the configuration again, whatever happened.
-        let _ = codex::home::prepare_home(&root);
-        let output = outcome?;
+        let text = if claude {
+            use super::claude_code::{self as cc, home::prepare_home, launch};
+            let code = |error: cc::ClaudeError| cc::error_code(&error);
+            let binary = launch::find_binary().ok_or(AiErrorCode::InvalidConfiguration)?;
+            let _only_one = cc::CLAUDE_HOME_LOCK.lock().await;
+            let server = McpServer::start(host.clone())
+                .await
+                .map_err(|_| AiErrorCode::Network)?;
+            let outcome = async {
+                let home = prepare_home(&root)?.with_bridge_token(server.token.clone());
+                launch::run_claude_turn(
+                    &binary,
+                    &home,
+                    &launch::TurnRequest {
+                        bridge_port: server.addr.port(),
+                        search,
+                        messages: &request.messages,
+                        system: request.system.as_deref(),
+                        model: Some(request.config.model.as_str()),
+                    },
+                    rx.clone(),
+                    |delta| events.emit("token", json!({"delta":delta})),
+                )
+                .await
+            }
+            .await;
+            server.stop().await;
+            outcome.map_err(code)?
+        } else {
+            use super::codex::{self, agent::run_agent_turn, launch::find_binary};
+            let code = |error: codex::CodexError| codex::error_code(&error);
+            let binary = find_binary().ok_or(AiErrorCode::InvalidConfiguration)?;
+            let _only_one = codex::CODEX_HOME_LOCK.lock().await;
+            let server = McpServer::start(host.clone())
+                .await
+                .map_err(|_| AiErrorCode::Network)?;
+            let outcome = async {
+                let home = codex::home::prepare_home_with_bridge(&root, server.addr.port())?
+                    .with_bridge_token(server.token.clone());
+                run_agent_turn(
+                    &binary,
+                    &home,
+                    &request.messages,
+                    request.system.as_deref(),
+                    Some(request.config.model.as_str()),
+                    rx.clone(),
+                    |delta| events.emit("token", json!({"delta":delta})),
+                )
+                .await
+            }
+            .await;
+            server.stop().await;
+            // Drop the bridge's port from the configuration again, whatever happened.
+            let _ = codex::home::prepare_home(&root);
+            outcome.map_err(code)?.text
+        };
         if !active(context, request.generation) {
-            return Err(codex::CodexError::Cancelled);
+            return Err(AiErrorCode::Cancelled);
         }
         let (steps, sources) = host
             .engine
             .lock()
             .map(|engine| (engine.steps.clone(), engine.sources.clone()))
-            .map_err(|_| codex::CodexError::Io)?;
+            .map_err(|_| AiErrorCode::Network)?;
         Ok(AiTurnResult {
-            content: output.text,
+            content: text,
             steps,
             sources,
         })
     }
     .await
-    .map_err(|error| fail(&error));
+    .map_err(fail);
     match &result {
         Ok(_) => events.emit("done", json!({})),
         Err(payload) => events.emit("error", json!({"error":payload})),
@@ -671,10 +702,24 @@ pub async fn ai_run_turn(
     app: tauri::AppHandle,
     context: tauri::State<'_, VaultContext>,
     state: tauri::State<'_, AiStreamState>,
-    request: AiTurnRequest,
+    mut request: AiTurnRequest,
 ) -> Result<AiTurnResult, AiChatError> {
     let provider = request.config.provider.clone();
     let fail = |code| error(&provider, code);
+    let root = crate::app_data::app_root(&app).map_err(|_| fail(AiErrorCode::RequestFailed))?;
+    let captured_key = super::settings_migration::capture_selected_credential(
+        &root,
+        &request.config,
+        request.supports_tools,
+    )
+    .map_err(|_| fail(AiErrorCode::InvalidConfiguration))?;
+    request.config.api_key = if !super::is_cli_provider(&request.config.provider)
+        && request.config.credential_id.is_some()
+    {
+        Some(captured_key.unwrap_or_default())
+    } else {
+        captured_key
+    };
     if request.stream_id.len() > 128
         || request.stream_id.is_empty()
         || request.messages.len() > super::MAX_MESSAGES_COUNT
@@ -706,7 +751,7 @@ pub async fn ai_run_turn(
         return Err(fail(AiErrorCode::Cancelled));
     }
     // Agent mode sends the whole conversation to ChatGPT, so it always needs consent.
-    let codex = provider == "codex";
+    let codex = super::is_cli_provider(&provider);
     let mut codex_root = None;
     if codex || (request.search_enabled && request.supports_tools) {
         let active = context
@@ -734,7 +779,7 @@ pub async fn ai_run_turn(
         state: state.0.clone(),
     };
     if codex && codex_root.is_some() {
-        return codex_agent_turn(app.clone(), &context, &request, &rx).await;
+        return cli_agent_turn(app.clone(), &context, &request, &rx).await;
     }
     let mut events = Events {
         app: &app,

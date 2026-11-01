@@ -5,6 +5,7 @@ import "@/lib/i18n"
 import { ModelsManager } from "./models-manager"
 import type { AiModel, AiSettings } from "./app-config"
 import * as ai from "@/lib/ai"
+import * as storage from "@/lib/storage"
 
 vi.mock("@/lib/ai", async (original) => ({
   ...(await original<typeof import("@/lib/ai")>()),
@@ -100,6 +101,17 @@ describe("Models screen as a list", () => {
     return vi.waitFor(() =>
       expect(onChange).toHaveBeenCalledWith({ models: [openai], activeModelId: "b" }),
     )
+  })
+
+  it("keeps a credential still used by another model", async () => {
+    const remove = vi.spyOn(storage, "deleteAiCredential").mockResolvedValue()
+    const first = { ...ollama, credentialId: "shared" }
+    const second = { ...openai, credentialId: "shared" }
+    const onChange = show({ models: [first, second], activeModelId: first.id })
+    fireEvent.click(screen.getByRole("button", { name: "Удалить модель" }))
+    await vi.waitFor(() => expect(onChange).toHaveBeenCalled())
+    expect(remove).not.toHaveBeenCalled()
+    remove.mockRestore()
   })
 
   it("switches tools with a switch instead of a checkbox", () => {

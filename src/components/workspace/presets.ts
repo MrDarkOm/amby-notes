@@ -2,6 +2,7 @@ import { type ActivityButton, type PanelId, type Side } from "./panel-registry"
 import { DEFAULT_BUTTONS, findButtonDef, PERSISTENT_ACTION_BUTTONS } from "./panel-definitions"
 import { ALL_MODULE_IDS, READY_MODULE_IDS, contributedDefIds } from "./modules"
 import i18n from "@/lib/i18n"
+import { toShortModuleId } from "@/lib/modules"
 
 /**
  * A preset is a declarative description of which modules are active and how the
@@ -115,6 +116,26 @@ export function visibleLayout(preset: Preset): ActivityButton[] {
     seen.add(button.defId)
     return true
   })
+}
+
+/**
+ * What a preset consists of, in a form that can be compared: the modules and, per dock, the order
+ * of the buttons and which are hidden. Numbers of `order` and the panel that happens to be open
+ * are left out, so renumbering or opening a panel is not a change. The favorites button is
+ * governed by its own setting and never counts.
+ */
+export function presetFingerprint(modules: string[], buttons: ActivityButton[]): string {
+  const shortModules = [...new Set(modules.map(toShortModuleId))].sort()
+  const dock = (["left", "right"] as const).flatMap((side) =>
+    buttons
+      .filter((button) => button.side === side)
+      .sort((a, b) => a.order - b.order)
+      .map(
+        (button) =>
+          `${side}:${button.defId}${button.hidden && button.defId !== "favorites" ? ":hidden" : ""}`,
+      ),
+  )
+  return JSON.stringify([shortModules, dock])
 }
 
 // ── Import / export ─────────────────────────────────────────────────────────
