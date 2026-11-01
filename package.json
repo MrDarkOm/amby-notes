@@ -64,7 +64,8 @@
     "audit": "npm run audit:npm && npm run audit:rust",
     "knip": "knip",
     "prepare": "lefthook install",
-    "test:update-channels": "node --test scripts/update-channels.test.mjs"
+    "test:update-channels": "node --test scripts/update-channels.test.mjs",
+    "build:site": "node scripts/build-site.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.3",

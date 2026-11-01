@@ -1,5 +1,10 @@
 # Live storage contract
 
+The AI contract exercises a read-only tool turn through real IPC against a
+disposable loopback provider, including streamed events, search, reading and
+sources. It also tests chat persistence, archive restore, revision conflicts and
+per-vault consent. It does not certify a real cloud provider or Ollama model.
+
 Run `npm run test:storage:live` on a desktop with Tauri prerequisites and WebView.
 The command builds a frozen test page and launches an opt-in `native-contract`
 binary with Tauri's custom asset protocol. It uses the production generated
@@ -23,7 +28,7 @@ retain their existing dedicated categories.
 
 Four native-only scenarios additionally verify real `note-written` event delivery,
 save persistence across vault reactivation, stale-revision rejection without
-overwrite, history/recycle restoration, and read/write/delete traversal rejection.
+overwrite, history/recycle restoration, read-only archive preview with exact-byte preservation and payload path confinement, and read/write/delete traversal rejection.
 Together with the four shared scenarios, all eight passed on Windows.
 
 Desktop delegation tests remain separate and are explicitly labeled as mocked.

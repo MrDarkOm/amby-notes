@@ -207,6 +207,17 @@ pub fn list_trash(
 
 #[tauri::command]
 #[specta::specta]
+pub fn read_trash_preview(
+    scope: tauri::State<paths::VaultScope>,
+    trash_id: String,
+    relative_path: String,
+) -> Result<recycle_bin::TrashPreview, String> {
+    let _mutation_guard = scope.mutation_gate.lock().unwrap();
+    recycle_bin::read_preview(&scope.get()?, &trash_id, &relative_path)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn restore_trash(
     scope: tauri::State<paths::VaultScope>,
     db: tauri::State<'_, VaultContext>,

@@ -21,6 +21,8 @@ import type { TreeItem } from "@/lib/storage"
 import { Input } from "@/components/ui/input"
 import { IconValue } from "../icon-value"
 import { sortTreeItems, type TreeSortDirection, type TreeSortKey } from "../tree-sort"
+import { SnapshotModeToggle, SnapshotPreview, type SnapshotMode } from "../common/snapshot-preview"
+import { useVaultStore } from "../use-vault-store"
 import { diffHistory } from "./history-model"
 import { useHistory } from "./use-history"
 
@@ -79,6 +81,11 @@ function HistoryPreviewContents({
   onClose: () => void
   onRestored: () => Promise<void>
 }) {
+  const vault = useVaultStore((state) => state.vault)
+  const assets = React.useMemo(
+    () => (vault && path ? { vaultPath: vault, notePath: path } : undefined),
+    [vault, path],
+  )
   const history = useHistory(path, onRestored)
   const opened = React.useRef(false)
   const hadSelection = React.useRef(false)
@@ -99,6 +106,8 @@ function HistoryPreviewContents({
     [history.preview],
   )
   const entry = history.selected
+  const [previewMode, setPreviewMode] = React.useState<SnapshotMode>("read")
+  const markdown = /\.md$/iu.test(path ?? name)
   const [browseOpen, setBrowseOpen] = React.useState(false)
   const [expandedFolders, setExpandedFolders] = React.useState<Set<string>>(new Set())
   const [browseQuery, setBrowseQuery] = React.useState("")
@@ -199,13 +208,13 @@ function HistoryPreviewContents({
       }}
     >
       <DialogContent
-        className="flex h-[min(76vh,720px)] min-h-0 max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden rounded-2xl bg-white p-0 shadow-2xl sm:max-w-4xl"
+        className="flex h-[min(76vh,720px)] min-h-0 max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden rounded-2xl bg-background p-0 shadow-2xl sm:max-w-4xl"
         onEscapeKeyDown={(event) => {
           if (history.busy) event.preventDefault()
         }}
         onPointerDownOutside={(event) => event.preventDefault()}
       >
-        <div className="relative bg-white px-5 pb-4 pt-5 pr-12">
+        <div className="relative bg-background px-5 pb-4 pt-5 pr-12">
           <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
             <History className="size-4" />
             <span>{t("historyPanel.versionHistory")}</span>
@@ -225,6 +234,11 @@ function HistoryPreviewContents({
             <DialogTitle className="truncate text-xl tracking-tight">{name}</DialogTitle>
           </div>
         </div>
+        {history.preview && markdown && (
+          <div className="flex justify-end px-4 pb-2">
+            <SnapshotModeToggle value={previewMode} onChange={setPreviewMode} />
+          </div>
+        )}
         {history.error && (
           <p role="alert" className="border-b px-5 py-3 text-xs text-destructive">
             {history.error}
@@ -242,9 +256,9 @@ function HistoryPreviewContents({
           </div>
         ) : diff && history.preview ? (
           <>
-            <div className="mx-3 mt-2 grid min-h-0 flex-1 grid-cols-[12rem_minmax(0,1fr)] gap-2">
+            <div className="mx-3 mt-2 grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-2 sm:grid-cols-[10rem_minmax(0,1fr)] sm:grid-rows-1">
               <aside
-                className="min-h-0 overflow-auto rounded-lg border bg-white p-2"
+                className="max-h-28 min-h-0 overflow-auto rounded-lg border bg-background p-2 sm:max-h-none"
                 aria-label={t("historyPanel.versionHistory")}
               >
                 <div className="mb-2 flex items-center justify-between px-2 text-xs font-medium text-muted-foreground">
@@ -286,22 +300,32 @@ function HistoryPreviewContents({
                   ))}
                 </div>
               </aside>
-              <div className="grid min-h-0 min-w-0 grid-cols-2 divide-x overflow-hidden rounded-lg border bg-white">
+              <div className="grid min-h-0 min-w-0 grid-cols-1 grid-rows-2 divide-y overflow-hidden rounded-lg border bg-background md:grid-cols-2 md:grid-rows-1 md:divide-x md:divide-y-0">
                 <section className="flex min-h-0 flex-col overflow-hidden">
                   <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2 text-xs font-medium">
                     {t("historyPanel.versionFromHistory")}
                   </div>
-                  <pre className="min-h-0 flex-1 select-text overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs leading-6 [overflow-wrap:anywhere]">
-                    {history.preview.previous}
-                  </pre>
+                  <div className="amby-snapshot-pane min-h-0 flex-1 overflow-auto">
+                    <SnapshotPreview
+                      content={history.preview.previous}
+                      mode={previewMode}
+                      markdown={markdown}
+                      assets={assets}
+                    />
+                  </div>
                 </section>
                 <section className="flex min-h-0 flex-col overflow-hidden">
                   <div className="border-b bg-muted/30 px-4 py-2 text-xs font-medium">
                     {t("historyPanel.currentVersion")}
                   </div>
-                  <pre className="min-h-0 flex-1 select-text overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs leading-6 [overflow-wrap:anywhere]">
-                    {history.preview.current}
-                  </pre>
+                  <div className="amby-snapshot-pane min-h-0 flex-1 overflow-auto">
+                    <SnapshotPreview
+                      content={history.preview.current}
+                      mode={previewMode}
+                      markdown={markdown}
+                      assets={assets}
+                    />
+                  </div>
                 </section>
               </div>
             </div>
@@ -351,7 +375,7 @@ function HistoryPreviewContents({
             )}
           </div>
         )}
-        <div className="flex flex-wrap items-center justify-between gap-3 bg-white px-6 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-background px-6 py-3">
           <p className="flex min-w-0 flex-1 items-start gap-2 text-xs text-muted-foreground">
             <ShieldCheck className="size-4 shrink-0" />
             {t("historyPanel.restoreHint")}
@@ -385,7 +409,7 @@ function HistoryPreviewContents({
       <Dialog open={browseOpen} onOpenChange={setBrowseOpen}>
         <DialogContent
           showCloseButton={false}
-          className="w-[min(30rem,calc(100%-2rem))] overflow-hidden rounded-xl bg-white p-0"
+          className="w-[min(30rem,calc(100%-2rem))] overflow-hidden rounded-xl bg-background p-0"
         >
           <div className="overflow-hidden">
             <div className="flex items-center gap-1 border-b px-4 py-3">

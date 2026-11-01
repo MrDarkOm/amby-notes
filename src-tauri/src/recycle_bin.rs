@@ -9,6 +9,10 @@ use ulid::Ulid;
 
 const TRASH_DIR: &str = "trash";
 
+#[path = "recycle_bin_preview.rs"]
+mod preview;
+pub use preview::{read_preview, TrashPreview};
+
 /// Where `delete_item` sends an item. `System` is the default; `Vault` keeps a
 /// restorable copy under `.amby/trash`; `Permanent` removes the item for good
 /// and must only be requested after an explicit user confirmation.

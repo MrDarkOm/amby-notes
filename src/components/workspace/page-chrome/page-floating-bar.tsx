@@ -1,3 +1,4 @@
+import { IS_SITE_DEMO } from "@/lib/site-demo"
 import * as React from "react"
 import { Lock, LockOpen, Redo2, Settings2, Undo2 } from "lucide-react"
 
@@ -68,6 +69,7 @@ export function PageFloatingBar({
     summary !== undefined || wordCount !== undefined || modified ? (
       <div
         key="stats"
+        data-help-target="page-stats"
         className="flex items-center px-1.5 text-[11px] text-muted-foreground select-none"
       >
         {summary !== undefined ? (
@@ -92,6 +94,7 @@ export function PageFloatingBar({
     !historyDisabled && (onUndo || onRedo) ? (
       <React.Fragment key="history">
         <ToolbarButton
+          data-help-target="undo"
           title={undoLabel ?? ""}
           onMouseDown={(e) => e.preventDefault()}
           onClick={onUndo}
@@ -110,6 +113,7 @@ export function PageFloatingBar({
 
   const lockButton = lock ? (
     <ToolbarButton
+      data-help-target="lock"
       title={lock.title}
       active={lock.locked}
       disabled={lock.disabled}
@@ -127,7 +131,9 @@ export function PageFloatingBar({
         <PopoverTrigger asChild>
           <button
             type="button"
+            data-help-target="page-settings"
             title={settings.title}
+            disabled={IS_SITE_DEMO}
             onMouseDown={(e) => e.preventDefault()}
             className="flex size-7 items-center justify-center rounded-lg text-foreground hover:bg-accent hover:text-accent-foreground select-none"
           >
@@ -146,7 +152,9 @@ export function PageFloatingBar({
       </Popover>
     ) : (
       <ToolbarButton
+        data-help-target="page-settings"
         title={settings.title}
+        disabled={IS_SITE_DEMO}
         active={settings.active}
         aria-pressed={settings.toggle ? settings.active : undefined}
         onClick={settings.onClick}

@@ -303,7 +303,7 @@ export function ModulePackageManager({
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card/40 p-3">
+    <div>
       <input
         ref={fileInputRef}
         type="file"
@@ -370,47 +370,43 @@ export function ModulePackageManager({
           </div>
         </div>
 
-        {/* Rollback button if multiple versions are available */}
-        {installedVersions.length > 1 && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8 text-muted-foreground hover:text-foreground"
-            disabled={isProcessing}
-            title={t("settings.modules.packages.rollback")}
-            onClick={() => void handleRollback()}
-          >
-            <RotateCcw className="size-4" />
-          </Button>
-        )}
-      </div>
-
-      {/* Version and update check row */}
-      <div className="mt-3 flex items-center justify-between border-t border-border/50 pt-2.5">
-        <span className="text-xs text-muted-foreground">
-          {isLoading
-            ? "…"
-            : isInstalled
-              ? t("settings.modules.installedVersion", { version: activeVersion })
-              : t("settings.modules.notInstalled")}
-        </span>
-
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={isProcessing || isCheckingUpdates || isLoading}
-          onClick={() => void handleCheckUpdates()}
-          className="h-7 text-xs"
-        >
-          {isCheckingUpdates ? (
-            <Loader2 className="mr-1.5 size-3" />
-          ) : (
-            <RefreshCw className="mr-1.5 size-3" />
+        <div className="flex items-center gap-2">
+          {installedVersions.length > 1 && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 text-muted-foreground hover:text-foreground"
+              disabled={isProcessing}
+              title={t("settings.modules.packages.rollback")}
+              onClick={() => void handleRollback()}
+            >
+              <RotateCcw className="size-4" />
+            </Button>
           )}
-          {isCheckingUpdates
-            ? t("settings.modules.checkingUpdates")
-            : t("settings.modules.checkUpdates")}
-        </Button>
+          <span className="text-xs text-muted-foreground">
+            {isLoading
+              ? "…"
+              : isInstalled
+                ? t("settings.modules.installedVersion", { version: activeVersion })
+                : t("settings.modules.notInstalled")}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isProcessing || isCheckingUpdates || isLoading}
+            onClick={() => void handleCheckUpdates()}
+            className="h-8 text-xs"
+          >
+            {isCheckingUpdates ? (
+              <Loader2 className="mr-1.5 size-3" />
+            ) : (
+              <RefreshCw className="mr-1.5 size-3" />
+            )}
+            {isCheckingUpdates
+              ? t("settings.modules.checkingUpdates")
+              : t("settings.modules.checkUpdates")}
+          </Button>
+        </div>
       </div>
 
       {/* Status message */}

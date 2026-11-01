@@ -1,4 +1,5 @@
 import { createBackupPort } from "./backup-repository"
+import { createAiChatRepository } from "./ai-chat-repository"
 import { DesktopAdapter } from "./desktop-adapter"
 import { WebAdapter } from "./web-adapter"
 import { NotesRepository } from "./notes-repository"
@@ -83,6 +84,7 @@ import type {
   SnapshotEntry,
   SnapshotText,
   TrashEntry,
+  TrashPreview,
   VaultPreflight,
   VaultTagEntry,
   WriteNoteOutcome,
@@ -102,6 +104,7 @@ export * from "./assets-repository"
 export * from "./history-repository"
 export * from "./settings-repository"
 export * from "./debug-repository"
+export * from "./ai-chat-repository"
 
 export const isTauri = (): boolean =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
@@ -629,6 +632,8 @@ export const deleteSnapshot = (snapshotId: string): Promise<void> =>
   historyRepository.deleteSnapshot(snapshotId)
 export const readSnapshotText = (snapshotId: string): Promise<SnapshotText> =>
   historyRepository.readSnapshotText(snapshotId)
+export const readTrashPreview = (trashId: string, relativePath = ""): Promise<TrashPreview> =>
+  historyRepository.readTrashPreview(trashId, relativePath)
 export const listTrash = (): Promise<TrashEntry[]> => historyRepository.listTrash()
 export const restoreTrash = (trashId: string): Promise<FsMutationResult> =>
   historyRepository.restoreTrash(trashId)
@@ -691,12 +696,23 @@ export const loadVaultJSON = <T>(rel: string, fallback: T): Promise<T> =>
   settingsRepository.loadVaultJSON<T>(rel, fallback)
 export const saveVaultJSON = (rel: string, data: unknown): Promise<void> =>
   settingsRepository.saveVaultJSON(rel, data)
+export const readGlobalRaw = (file: string): Promise<string | null> =>
+  settingsRepository.readGlobalRaw(file)
+export const compareWriteGlobalRaw = (
+  file: string,
+  expected: string | null,
+  contents: string,
+): Promise<boolean> => settingsRepository.compareWriteGlobalRaw(file, expected, contents)
+export const migrateAiSettings = (): Promise<void> => settingsRepository.migrateAiSettings()
+export const rollbackAiSettings = (): Promise<void> => settingsRepository.rollbackAiSettings()
 export const globalFileMissing = (file: string): Promise<boolean> =>
   settingsRepository.globalFileMissing(file)
 export const vaultFileMissing = (rel: string): Promise<boolean> =>
   settingsRepository.vaultFileMissing(rel)
 export const storeAiCredential = (credentialId: string, secret: string): Promise<void> =>
   settingsRepository.storeAiCredential(credentialId, secret)
+export const deleteUnreferencedAiCredential = (credentialId: string): Promise<boolean> =>
+  settingsRepository.deleteUnreferencedAiCredential(credentialId)
 export const deleteAiCredential = (credentialId: string): Promise<void> =>
   settingsRepository.deleteAiCredential(credentialId)
 export const inspectAiCredential = (credentialId: string): Promise<CredentialInfo> =>
@@ -711,3 +727,4 @@ export {
   type BackupInfo,
 } from "./backup-repository"
 export const resolveBackupPort = () => createBackupPort(isTauri())
+export const resolveAiChatRepository = () => createAiChatRepository(isTauri())

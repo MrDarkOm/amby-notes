@@ -65,7 +65,10 @@ import { useSettingsStore } from "../use-settings-store"
 import { useViewStateStore } from "../use-view-state-store"
 import { NewItemModal } from "../new-item-modal"
 import type { PanelRenderProps } from "../panel-registry"
+import { collectFavoriteItems } from "./favorites-items"
+import { FavoritesSection } from "./favorites-section"
 import { PanelHeader, PanelSearch } from "./panel-header"
+import { PanelSectionHeading } from "./panel-section"
 
 const TREE_SORT_OPTIONS: Array<{
   key: TreeSortKey
@@ -188,6 +191,7 @@ export function FilesPanel(props: PanelRenderProps) {
     workspaceSwitcher,
     canvasEnabled = true,
     sketchEnabled = true,
+    favoritesEnabled = false,
   } = props
   // A module may present the tree differently here; the other panels keep the vault's own.
   const treeItems = fileTreeItems ?? vaultTreeItems
@@ -256,6 +260,15 @@ export function FilesPanel(props: PanelRenderProps) {
     () => filterTreeItems(sortedTreeItems, query),
     [query, sortedTreeItems],
   )
+  // Favorites come from the vault's whole tree, so a type filter never hides a bookmark.
+  const favoriteItems = React.useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase()
+    const all = collectFavoriteItems(vaultTreeItems, favorites)
+    return normalized
+      ? all.filter((item) => item.name.toLocaleLowerCase().includes(normalized))
+      : all
+  }, [favorites, query, vaultTreeItems])
+  const showFavorites = favoritesEnabled && favoriteItems.length > 0
 
   function handleNewButtonClick() {
     if (!vault) {
@@ -305,7 +318,7 @@ export function FilesPanel(props: PanelRenderProps) {
   )
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div data-help-scope="files" className="flex h-full min-h-0 flex-col">
       <PanelHeader
         hideTitle
         title={t("panels.files")}
@@ -449,6 +462,17 @@ export function FilesPanel(props: PanelRenderProps) {
         ariaLabel={t("filesPanel.search")}
         placeholder={t("filesPanel.search")}
       />
+      {showFavorites && (
+        <>
+          <FavoritesSection
+            items={favoriteItems}
+            selectedId={selectedId}
+            onSelect={onSelect}
+            onToggleFavorite={onToggleFavorite}
+          />
+          <PanelSectionHeading title={t("filesPanel.sectionFiles")} />
+        </>
+      )}
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div className="flex flex-1 min-h-0 flex-col">
@@ -493,6 +517,7 @@ export function FilesPanel(props: PanelRenderProps) {
 
             <div className="shrink-0 p-2">
               <Button
+                data-help-target="create"
                 className="w-full gap-2 border border-foreground/10 bg-foreground/10 font-medium text-foreground shadow-sm hover:bg-foreground/15 hover:shadow-md active:shadow-sm focus-visible:ring-1 focus-visible:ring-foreground/20"
                 whileTap={{ y: 1, scale: 0.99 }}
                 onClick={handleNewButtonClick}

@@ -1,5 +1,6 @@
 "use client"
 
+import { treeRowInset } from "./tree-metrics"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { motion } from "motion/react"
@@ -102,7 +103,7 @@ export const TreeNode = React.memo(
     // Keep the tree content close to the panel edge while preserving one
     // icon-sized branch step per nested level. Expandable rows do not need a
     // separate chevron reservation because the chevron overlays the icon.
-    const paddingLeft = 14 + level * 22
+    const paddingLeft = treeRowInset(level)
 
     // Sync edit value and focus when entering edit mode. Deferring focus until
     // the browser has completed the row update avoids a transient blur from

@@ -88,6 +88,7 @@ where
 #[tauri::command]
 #[specta::specta]
 pub fn store_ai_credential(credential_id: String, secret: String) -> Result<(), String> {
+    let _guard = crate::app_data::lock_app_data_writes()?;
     store_or_delete_credential(
         &credential_id,
         &secret,
@@ -99,7 +100,53 @@ pub fn store_ai_credential(credential_id: String, secret: String) -> Result<(), 
 #[tauri::command]
 #[specta::specta]
 pub fn delete_ai_credential(credential_id: String) -> Result<(), String> {
+    let _guard = crate::app_data::lock_app_data_writes()?;
     delete_credential_entry(&credential_id)
+}
+
+/// Delete only after rechecking references while settings writes are locked.
+#[tauri::command]
+#[specta::specta]
+pub fn delete_unreferenced_ai_credential(
+    app: tauri::AppHandle,
+    credential_id: String,
+) -> Result<bool, String> {
+    let _guard = crate::app_data::lock_app_data_writes()?;
+    let root = crate::app_data::app_root(&app)?;
+    let path = crate::paths::confine_rel_no_symlinks(&root, "settings.json")?;
+    let raw = std::fs::read_to_string(path).map_err(|_| "settingsUnavailable")?;
+    let settings: serde_json::Value =
+        serde_json::from_str(raw.strip_prefix('\u{feff}').unwrap_or(&raw))
+            .map_err(|_| "corruptSettings")?;
+    let ai = settings
+        .get("ai")
+        .and_then(serde_json::Value::as_object)
+        .ok_or("corruptAiSettings")?;
+    if ai.get("version").is_some_and(|version| version != 1) {
+        return Err("unsupportedAiVersion".into());
+    }
+    let items = if ai.contains_key("version") {
+        ai.get("connections")
+    } else {
+        ai.get("models")
+    }
+    .and_then(serde_json::Value::as_array)
+    .ok_or("corruptAiSettings")?;
+    if items.iter().any(|item| {
+        !item.is_object()
+            || item
+                .get("credentialId")
+                .is_some_and(|id| !id.is_null() && !id.is_string())
+    }) {
+        return Err("corruptAiSettings".into());
+    }
+    if items.iter().any(|item| {
+        item.get("credentialId").and_then(serde_json::Value::as_str) == Some(&credential_id)
+    }) {
+        return Ok(false);
+    }
+    delete_credential_entry(&credential_id)?;
+    Ok(true)
 }
 
 #[tauri::command]

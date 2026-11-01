@@ -1,5 +1,12 @@
 import { expect, type Page } from "@playwright/test"
-import { liveEditor, openInLive, seedVault, test } from "./support"
+import {
+  liveEditor,
+  openInLive,
+  seedVault,
+  storedMarkdown,
+  test,
+  waitForAutosaveWindow,
+} from "./support"
 
 const NOTE = "## Upper line\n\n## Lower line\n\nTail\n"
 
@@ -88,4 +95,73 @@ test("column text lines up with the note and its first letters take a click", as
     return { text: selection.anchorNode?.textContent, offset: selection.anchorOffset }
   })
   expect(caret).toEqual({ text: "Left text", offset: 0 })
+})
+
+test("dragging the last block out removes its column and can be undone", async ({ page }) => {
+  await seedVault(page, { Columns: COLUMNS })
+  await openInLive(page, "Columns")
+  const editor = liveEditor(page)
+  const source = editor.getByText("Right text", { exact: true })
+  await source.hover()
+  const grip = page.locator(".amby-block-handle-grip")
+  await expect(grip).toBeVisible()
+  const outside = editor.getByText("Outside", { exact: true })
+  const box = (await outside.boundingBox())!
+  await grip.dragTo(outside, { targetPosition: { x: 20, y: box.height - 1 } })
+  await expect(editor.locator(".amby-column-set")).toHaveCount(0)
+  await expect(editor.getByText("Left text", { exact: true })).toBeVisible()
+  await expect(editor.getByText("Right text", { exact: true })).toBeVisible()
+  await waitForAutosaveWindow(page)
+  const markdown = await storedMarkdown(page, "Columns")
+  expect(markdown).not.toContain("amby:column")
+  expect(markdown.match(/Right text/gu)).toHaveLength(1)
+  await editor.press("Meta+z")
+  await expect(editor.locator(".amby-column-set")).toHaveCount(1)
+  await expect(editor.locator(".amby-column")).toHaveCount(2)
+})
+
+test("side insertion uses all whitespace and stays at the visible content edge", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1800, height: 1000 })
+  await seedVault(page, { Note: "Before\n\nTarget\n\nSource\n" })
+  await openInLive(page, "Note")
+  const editor = liveEditor(page)
+  await editor.getByText("Source", { exact: true }).hover()
+  const grip = page.locator(".amby-block-handle-grip")
+  await expect(grip).toBeVisible()
+  const start = (await grip.boundingBox())!
+  const target = (await editor.getByText("Target", { exact: true }).boundingBox())!
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(target.x + 24, target.y + target.height / 2, { steps: 5 })
+  await expect(page.locator(".amby-block-drop-indicator")).toBeVisible()
+  await expect(page.locator(".amby-block-drop-indicator--column")).toHaveCount(0)
+  const content = await editor.getByText("Target", { exact: true }).evaluate((element) => {
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    const rect = range.getBoundingClientRect()
+    return { left: rect.left, right: rect.right }
+  })
+  const pane = (await page.locator(".amby-editor-scroll").boundingBox())!
+  expect(content.left - pane.x).toBeGreaterThan(64)
+  const indicator = page.locator(".amby-block-drop-indicator--column")
+  for (const x of [content.right + 12, target.x + target.width - 8, pane.x + pane.width - 12]) {
+    await page.mouse.move(x, target.y + target.height / 2, { steps: 4 })
+    await expect(indicator).toHaveCount(1)
+    await expect
+      .poll(async () => Math.abs((await indicator.boundingBox())!.x - (content.right - 3)))
+      .toBeLessThan(2)
+  }
+  for (const x of [content.left - 12, (pane.x + content.left) / 2, pane.x + 8]) {
+    await page.mouse.move(x, target.y + target.height / 2, { steps: 4 })
+    await expect(indicator).toHaveCount(1)
+    await expect
+      .poll(async () => Math.abs((await indicator.boundingBox())!.x - content.left))
+      .toBeLessThan(2)
+  }
+  await page.mouse.up()
+  await expect(editor.locator(".amby-column-set")).toHaveCount(1)
+  await expect(editor.locator(".amby-column").nth(0)).toHaveText("Source")
+  await expect(editor.locator(".amby-column").nth(1)).toHaveText("Target")
 })

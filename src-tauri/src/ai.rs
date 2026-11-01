@@ -24,6 +24,18 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tauri::Emitter;
 
+pub mod catalog;
+pub mod chats;
+pub mod claude_code;
+pub mod codex;
+pub(crate) mod consent;
+mod index_snapshot;
+pub mod local_apps;
+mod provider_stream;
+pub mod settings_migration;
+mod tools;
+pub mod turn;
+
 pub const MAX_MESSAGES_COUNT: usize = 100;
 pub const MAX_TOTAL_PROMPT_BYTES: usize = 512 * 1024; // 512 KB
 pub const MAX_SYSTEM_PROMPT_BYTES: usize = 128 * 1024; // 128 KB
@@ -33,6 +45,53 @@ pub const MAX_ERROR_PREVIEW_CHARS: usize = 500;
 
 #[derive(Clone, Default)]
 pub struct AiStreamState(pub Arc<Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>>);
+
+impl AiStreamState {
+    fn register(&self, id: &str) -> Result<tokio::sync::watch::Receiver<bool>, &'static str> {
+        if id.is_empty() || id.len() > 128 {
+            return Err("invalidConfiguration");
+        }
+        let mut map = self.0.lock().map_err(|_| "requestFailed")?;
+        if let Some(existing) = map.get(id) {
+            if *existing.borrow() {
+                map.remove(id);
+                return Err("cancelled");
+            }
+            return Err("invalidConfiguration");
+        }
+        if map.len() >= 1024 {
+            return Err("requestFailed");
+        }
+        let (sender, receiver) = tokio::sync::watch::channel(false);
+        map.insert(id.to_owned(), sender);
+        Ok(receiver)
+    }
+
+    fn cancel(&self, id: &str) -> Result<bool, String> {
+        if id.is_empty() || id.len() > 128 {
+            return Ok(false);
+        }
+        let mut map = self.0.lock().map_err(|error| error.to_string())?;
+        if let Some(sender) = map.get(id) {
+            // Repeated cancellation must not remove a pending tombstone.
+            if sender.is_closed() {
+                return Ok(false);
+            }
+            let sender = map.remove(id).expect("sender is present");
+            let _ = sender.send(true);
+            return Ok(true);
+        }
+        if map.len() >= 1024 {
+            map.retain(|_, sender| !sender.is_closed());
+        }
+        if map.len() < 1024 {
+            let (sender, receiver) = tokio::sync::watch::channel(true);
+            drop(receiver);
+            map.insert(id.to_owned(), sender);
+        }
+        Ok(false)
+    }
+}
 
 struct StreamGuard {
     stream_id: String,
@@ -58,8 +117,10 @@ pub struct AiMessage {
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AiConfig {
-    /// Wire family: "ollama" | "openai" | "anthropic" | "azure".
+    /// Wire family: "ollama" | "openai" | "anthropic" | "azure" | "codex" | "claude-code".
     pub provider: String,
+    /// Stable internal ID when settings use connection format v1.
+    pub internal_model_id: Option<String>,
     pub model: String,
     /// Empty string falls back to the family's default endpoint.
     pub base_url: String,
@@ -79,7 +140,11 @@ pub enum AiErrorCode {
     MissingCredential,
     InvalidConfiguration,
     ProviderRejected,
+    ToolsUnsupported,
+    PrivacyConsentRequired,
     InvalidResponse,
+    /// The Codex agent attempted something outside Amby's boundary.
+    AgentBoundary,
     Network,
     RequestFailed,
 }
@@ -89,6 +154,11 @@ pub enum AiErrorCode {
 pub struct AiChatError {
     pub code: AiErrorCode,
     pub provider: String,
+}
+
+/// Providers that are a signed-in command-line tool rather than an endpoint with a key.
+pub(crate) fn is_cli_provider(provider: &str) -> bool {
+    matches!(provider, "codex" | "claude-code")
 }
 
 fn ai_chat_error(provider: &str, detail: &str) -> AiChatError {
@@ -290,7 +360,7 @@ fn provider_base_url(config: &AiConfig, default: &str) -> Result<Url, String> {
     Ok(url)
 }
 
-fn clean_key(config: &AiConfig) -> Option<String> {
+fn credential_key(config: &AiConfig) -> Option<String> {
     if let Some(cred_id) = &config.credential_id {
         if let Ok(secret) = crate::credentials::get_credential(cred_id) {
             let trimmed = secret.trim();
@@ -305,6 +375,15 @@ fn clean_key(config: &AiConfig) -> Option<String> {
         .map(str::trim)
         .filter(|k| !k.is_empty())
         .map(str::to_string)
+}
+
+fn clean_key(config: &AiConfig) -> Option<String> {
+    match config.api_key.as_deref() {
+        Some(key) => Some(key.trim())
+            .filter(|key| !key.is_empty())
+            .map(str::to_owned),
+        None => credential_key(config),
+    }
 }
 
 fn role_messages(messages: &[AiMessage], system: Option<&str>) -> Vec<Value> {
@@ -443,6 +522,21 @@ async fn stream_ollama(
     Ok(acc)
 }
 
+/// Newer OpenAI reasoning models reject the deprecated max_tokens field.
+fn set_openai_token_limit(body: &mut Value, config: &AiConfig) {
+    let limit = config.max_tokens.unwrap_or(1024).min(MAX_TOKENS_LIMIT);
+    let model = config.model.to_ascii_lowercase();
+    let reasoning = config.provider == "openai"
+        && ["gpt-5", "o1", "o3", "o4"]
+            .iter()
+            .any(|prefix| model.starts_with(prefix));
+    body[if reasoning {
+        "max_completion_tokens"
+    } else {
+        "max_tokens"
+    }] = json!(limit);
+}
+
 // ── OpenAI-compatible (OpenAI, Azure, LM Studio, etc.) ─────────────────────────
 
 fn openai_candidate_urls(config: &AiConfig) -> Result<Vec<Url>, String> {
@@ -479,13 +573,12 @@ async fn chat_openai_like(
     system: Option<&str>,
     mut rx: tokio::sync::watch::Receiver<bool>,
 ) -> Result<String, String> {
-    let max_tokens = config.max_tokens.unwrap_or(1024).min(MAX_TOKENS_LIMIT);
-    let body = json!({
+    let mut body = json!({
         "model": config.model,
         "messages": role_messages(messages, system),
         "stream": false,
-        "max_tokens": max_tokens,
     });
+    set_openai_token_limit(&mut body, config);
     let client = get_ai_client();
     let last = urls.len().saturating_sub(1);
     let mut last_err = String::from("Нет адреса для запроса");
@@ -541,13 +634,12 @@ async fn stream_openai_like(
     stream_id: &str,
     mut rx: tokio::sync::watch::Receiver<bool>,
 ) -> Result<String, String> {
-    let max_tokens = config.max_tokens.unwrap_or(1024).min(MAX_TOKENS_LIMIT);
-    let body = json!({
+    let mut body = json!({
         "model": config.model,
         "messages": role_messages(messages, system),
         "stream": true,
-        "max_tokens": max_tokens,
     });
+    set_openai_token_limit(&mut body, config);
     let client = get_ai_client();
     let last = urls.len().saturating_sub(1);
     let mut last_err = String::from("Нет адреса для запроса");
@@ -844,12 +936,89 @@ pub fn cancel_ai_request(
     state: tauri::State<AiStreamState>,
     stream_id: String,
 ) -> Result<bool, String> {
-    let mut map = state.0.lock().map_err(|e| e.to_string())?;
-    if let Some(tx) = map.remove(&stream_id) {
-        let _ = tx.send(true);
-        Ok(true)
-    } else {
-        Ok(false)
+    state.cancel(&stream_id)
+}
+
+/// List models through an explicitly supported transport. Errors contain no
+/// provider response body, endpoint or secret.
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_model_catalog(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AiStreamState>,
+    config: AiConfig,
+    stream_id: String,
+) -> Result<Vec<catalog::CatalogModel>, AiChatError> {
+    let mut rx = state.register(&stream_id).map_err(|_| AiChatError {
+        code: AiErrorCode::InvalidConfiguration,
+        provider: config.provider.clone(),
+    })?;
+    let _guard = StreamGuard {
+        stream_id,
+        state: state.0.clone(),
+    };
+    let error = |code| AiChatError {
+        code,
+        provider: config.provider.clone(),
+    };
+    if config.provider == "codex" {
+        let _home_guard = tokio::select! {
+            guard = codex::CODEX_HOME_LOCK.lock() => guard,
+            _ = rx.changed() => return Err(error(AiErrorCode::Cancelled)),
+        };
+        if *rx.borrow() {
+            return Err(error(AiErrorCode::Cancelled));
+        }
+        let root =
+            crate::app_data::app_root(&app).map_err(|_| error(AiErrorCode::RequestFailed))?;
+        let home = codex::home::prepare_home(&root).map_err(|e| error(codex::error_code(&e)))?;
+        let binary =
+            codex::launch::find_binary().ok_or_else(|| error(AiErrorCode::InvalidConfiguration))?;
+        return codex::launch::codex_model_catalog(&binary, &home, rx)
+            .await
+            .map(|models| {
+                models
+                    .into_iter()
+                    .map(|(model, label)| catalog::CatalogModel {
+                        model,
+                        label,
+                        supports_tools: Some(true),
+                    })
+                    .collect()
+            })
+            .map_err(|e| error(codex::error_code(&e)));
+    }
+    if config.provider == "claude-code" {
+        let _home_guard = tokio::select! {
+            guard = claude_code::CLAUDE_HOME_LOCK.lock() => guard,
+            _ = rx.changed() => return Err(error(AiErrorCode::Cancelled)),
+        };
+        if *rx.borrow() {
+            return Err(error(AiErrorCode::Cancelled));
+        }
+        let root =
+            crate::app_data::app_root(&app).map_err(|_| error(AiErrorCode::RequestFailed))?;
+        let home = claude_code::home::prepare_home(&root)
+            .map_err(|e| error(claude_code::error_code(&e)))?;
+        let binary = claude_code::launch::find_binary()
+            .ok_or_else(|| error(AiErrorCode::InvalidConfiguration))?;
+        return claude_code::launch::claude_model_catalog(&binary, &home, rx)
+            .await
+            .map(|models| {
+                models
+                    .into_iter()
+                    .map(|(model, label)| catalog::CatalogModel {
+                        model,
+                        label,
+                        supports_tools: Some(true),
+                    })
+                    .collect()
+            })
+            .map_err(|e| error(claude_code::error_code(&e)));
+    }
+    tokio::select! {
+        result = catalog::fetch_catalog(&config) => result.map_err(error),
+        _ = rx.changed() => Err(error(AiErrorCode::Cancelled)),
     }
 }
 
@@ -858,11 +1027,23 @@ pub fn cancel_ai_request(
 pub async fn ai_chat(
     app: tauri::AppHandle,
     state: tauri::State<'_, AiStreamState>,
-    config: AiConfig,
+    mut config: AiConfig,
     messages: Vec<AiMessage>,
     system: Option<String>,
     stream_id: Option<String>,
 ) -> Result<String, AiChatError> {
+    let root = crate::app_data::app_root(&app)
+        .map_err(|_| ai_chat_error(&config.provider, "request failed"))?;
+    let captured_key = settings_migration::capture_selected_credential(&root, &config, false)
+        .map_err(|_| AiChatError {
+            code: AiErrorCode::InvalidConfiguration,
+            provider: config.provider.clone(),
+        })?;
+    config.api_key = if !is_cli_provider(&config.provider) && config.credential_id.is_some() {
+        Some(captured_key.unwrap_or_default())
+    } else {
+        captured_key
+    };
     // 1. Validate payload limits
     if messages.len() > MAX_MESSAGES_COUNT {
         return Err(ai_chat_error(
@@ -887,17 +1068,12 @@ pub async fn ai_chat(
     }
 
     // 2. Setup cancellation watch
-    let (tx, rx) = tokio::sync::watch::channel(false);
     let active_id = stream_id
         .clone()
         .unwrap_or_else(|| ulid::Ulid::generate().to_string());
-    {
-        let mut map = state
-            .0
-            .lock()
-            .map_err(|_| ai_chat_error(&config.provider, "stream state unavailable"))?;
-        map.insert(active_id.clone(), tx);
-    }
+    let rx = state
+        .register(&active_id)
+        .map_err(|code| ai_chat_error(&config.provider, code))?;
     let _guard = StreamGuard {
         stream_id: active_id.clone(),
         state: state.0.clone(),
@@ -964,7 +1140,56 @@ pub async fn ai_chat(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn openai_reasoning_models_use_the_supported_token_limit_field() {
+        let mut config = super::AiConfig {
+            provider: "openai".into(),
+            internal_model_id: None,
+            model: "gpt-5-mini".into(),
+            base_url: String::new(),
+            credential_id: None,
+            api_key: None,
+            max_tokens: Some(42),
+            api_version: None,
+        };
+        let mut body = serde_json::json!({});
+        super::set_openai_token_limit(&mut body, &config);
+        assert_eq!(body["max_completion_tokens"], 42);
+        assert!(body.get("max_tokens").is_none());
+        config.model = "gpt-4o".into();
+        let mut body = serde_json::json!({});
+        super::set_openai_token_limit(&mut body, &config);
+        assert_eq!(body["max_tokens"], 42);
+    }
+    #[test]
+    fn captured_key_is_used_without_rereading_keychain() {
+        let mut config = super::AiConfig {
+            provider: "openai".into(),
+            internal_model_id: None,
+            model: "m".into(),
+            base_url: String::new(),
+            credential_id: Some("does-not-exist".into()),
+            api_key: Some("captured".into()),
+            max_tokens: None,
+            api_version: None,
+        };
+        assert_eq!(super::clean_key(&config).as_deref(), Some("captured"));
+        config.api_key = Some(String::new());
+        assert_eq!(super::clean_key(&config), None);
+    }
+
     use super::*;
+
+    #[test]
+    fn ai1_u8_cancellation_before_registration_survives_repeated_stop() {
+        let state = AiStreamState::default();
+        assert!(!state.cancel("stream").unwrap());
+        assert!(!state.cancel("stream").unwrap());
+        assert!(matches!(state.register("stream"), Err("cancelled")));
+        let receiver = state.register("another").unwrap();
+        assert!(state.cancel("another").unwrap());
+        assert!(*receiver.borrow());
+    }
 
     #[test]
     fn test_url_policy_allowed() {

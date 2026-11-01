@@ -234,6 +234,14 @@ async listTrash() : Promise<Result<TrashEntry[], string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async readTrashPreview(trashId: string, relativePath: string) : Promise<Result<TrashPreview, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("read_trash_preview", { trashId, relativePath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async restoreTrash(trashId: string) : Promise<Result<MutationOutcome, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("restore_trash", { trashId }) };
@@ -245,6 +253,141 @@ async restoreTrash(trashId: string) : Promise<Result<MutationOutcome, string>> {
 async purgeTrash(trashId: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("purge_trash", { trashId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async aiListChats(generation: number) : Promise<Result<ChatEntry[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ai_list_chats", { generation }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async aiLoadChat(generation: number, id: string) : Promise<Result<LoadedChat, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ai_load_chat", { generation, id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async aiSaveChat(generation: number, chat: Chat, expectedRevision: string | null) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ai_save_chat", { generation, chat, expectedRevision }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async aiTrashChat(generation: number, id: string, expectedRevision: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ai_trash_chat", { generation, id, expectedRevision }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async aiSearchConsent(generation: number, config: AiConfig) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ai_search_consent", { generation, config }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async aiSetSearchConsent(generation: number, config: AiConfig, allowed: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ai_set_search_consent", { generation, config, allowed }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async aiRunTurn(request: AiTurnRequest) : Promise<Result<AiTurnResult, AiChatError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ai_run_turn", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Whether the program of a local provider (`lmstudio`, `ollama`, `mlx`, `llamacpp`) is installed.
+ */
+async aiLocalAppInstalled(provider: string) : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ai_local_app_installed", { provider }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The renderer asks this to show whether Codex can be used.
+ */
+async aiCodexStatus() : Promise<CodexStatus> {
+    return await TAURI_INVOKE("ai_codex_status");
+},
+/**
+ * The settings screen's "Sign in with ChatGPT": opens the browser and waits.
+ */
+async aiCodexLogin() : Promise<Result<null, AiChatError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ai_codex_login") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Stops a sign-in that is waiting for the browser.
+ */
+async aiCodexLoginCancel() : Promise<boolean> {
+    return await TAURI_INVOKE("ai_codex_login_cancel");
+},
+/**
+ * Removes the sign-in stored in Amby's own Codex home.
+ */
+async aiCodexLogout() : Promise<Result<null, AiChatError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ai_codex_logout") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The renderer asks this to show whether Claude Code can be used.
+ */
+async aiClaudeStatus() : Promise<ClaudeStatus> {
+    return await TAURI_INVOKE("ai_claude_status");
+},
+/**
+ * The settings screen's "Sign in with Claude": the browser opens and Amby waits.
+ */
+async aiClaudeLogin() : Promise<Result<null, AiChatError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ai_claude_login") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Stops a sign-in that is waiting for the browser.
+ */
+async aiClaudeLoginCancel() : Promise<boolean> {
+    return await TAURI_INVOKE("ai_claude_login_cancel");
+},
+/**
+ * Removes the sign-in stored for Amby's own Claude Code directory.
+ */
+async aiClaudeLogout() : Promise<Result<null, AiChatError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ai_claude_logout") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1158,6 +1301,25 @@ async importTextFile() : Promise<Result<string | null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Migrate when the connection settings screen is first opened.
+ */
+async migrateAiSettings() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("migrate_ai_settings") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async rollbackAiSettings() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rollback_ai_settings") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async readAppData(rel: string) : Promise<Result<string | null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("read_app_data", { rel }) };
@@ -1169,6 +1331,17 @@ async readAppData(rel: string) : Promise<Result<string | null, string>> {
 async writeAppData(rel: string, contents: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("write_app_data", { rel, contents }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Compare and publish while holding the same lock as all app-data writers.
+ */
+async compareWriteAppData(rel: string, expected: string | null, contents: string) : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("compare_write_app_data", { rel, expected, contents }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1209,6 +1382,17 @@ async storeAiCredential(credentialId: string, secret: string) : Promise<Result<n
 async deleteAiCredential(credentialId: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("delete_ai_credential", { credentialId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Delete only after rechecking references while settings writes are locked.
+ */
+async deleteUnreferencedAiCredential(credentialId: string) : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_unreferenced_ai_credential", { credentialId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1484,6 +1668,18 @@ async cancelAiRequest(streamId: string) : Promise<Result<boolean, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * List models through an explicitly supported transport. Errors contain no
+ * provider response body, endpoint or secret.
+ */
+async aiModelCatalog(config: AiConfig, streamId: string) : Promise<Result<CatalogModel[], AiChatError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ai_model_catalog", { config, streamId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async aiChat(config: AiConfig, messages: AiMessage[], system: string | null, streamId: string | null) : Promise<Result<string, AiChatError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("ai_chat", { config, messages, system, streamId }) };
@@ -1752,9 +1948,13 @@ export type AddedTextStatus = { operationId: string; storyId: string; propertyId
 export type AiChatError = { code: AiErrorCode; provider: string }
 export type AiConfig = { 
 /**
- * Wire family: "ollama" | "openai" | "anthropic" | "azure".
+ * Wire family: "ollama" | "openai" | "anthropic" | "azure" | "codex" | "claude-code".
  */
-provider: string; model: string; 
+provider: string; 
+/**
+ * Stable internal ID when settings use connection format v1.
+ */
+internalModelId: string | null; model: string; 
 /**
  * Empty string falls back to the family's default endpoint.
  */
@@ -1767,12 +1967,18 @@ apiVersion: string | null }
  * Safe error shape exposed to the renderer. Provider responses and request
  * details may contain endpoints or credentials, so they never cross IPC.
  */
-export type AiErrorCode = "cancelled" | "missingCredential" | "invalidConfiguration" | "providerRejected" | "invalidResponse" | "network" | "requestFailed"
+export type AiErrorCode = "cancelled" | "missingCredential" | "invalidConfiguration" | "providerRejected" | "toolsUnsupported" | "privacyConsentRequired" | "invalidResponse" | 
+/**
+ * The Codex agent attempted something outside Amby's boundary.
+ */
+"agentBoundary" | "network" | "requestFailed"
 export type AiMessage = { 
 /**
  * "user" | "assistant"
  */
 role: string; content: string }
+export type AiTurnRequest = { generation: number; config: AiConfig; messages: AiMessage[]; system: string | null; noteIds: string[]; folders: string[]; initialSources: ChatSource[]; searchEnabled: boolean; supportsTools: boolean; streamId: string }
+export type AiTurnResult = { content: string; steps: ChatStep[]; sources: ChatSource[] }
 /**
  * Webview-owned Tauri updater resource; signed download details stay on the native side.
  */
@@ -1796,8 +2002,23 @@ export type ApprovalKind =
 export type BackupCatalog = { vault: string; generation: number; backups: BackupInfo[] }
 export type BackupCondition = "unchecked" | "verified" | "damaged" | "incomplete" | "missing"
 export type BackupInfo = { id: string; createdMs: number; bytes: number; files: number; status: BackupCondition }
+export type CatalogModel = { model: string; label: string; supportsTools: boolean | null }
 export type ChangeDatabasePropertyTypeRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; propertyType: string; relationTargetDatabaseId?: string | null; relationMaxItems?: number | null; relationTwoWay?: boolean | null; relationInversePropertyName?: string | null; operationId?: string | null; expectedRelatedManifestRevisions?: DatabaseManifestRevision[] }
 export type ChangedDatabasePropertyType = { databaseId: string; propertyId: string; propertyType: string; manifestRevision: string; operationId: string | null; inversePropertyId: string | null; manifestRevisions: DatabaseManifestRevision[]; warnings: string[] }
+export type Chat = { version: number; id: string; title: string; createdAt: string; updatedAt: string; modelId: string; searchEnabled: boolean; autoCurrent: boolean; context: ChatContext[]; messages: ChatMessage[] }
+export type ChatContext = { kind: string; id: string }
+export type ChatEntry = { id: string; title: string | null; updatedAt: string | null; status: string }
+export type ChatMessage = { role: string; content: string; steps: ChatStep[]; sources: ChatSource[] }
+export type ChatSource = { id: string; title: string }
+export type ChatStep = { tool: string; query: string; noteIds: string[]; error: string | null }
+/**
+ * What the settings screen shows about the user's Claude Code.
+ */
+export type ClaudeStatus = { installed: boolean; supported: boolean; signedIn: boolean }
+/**
+ * What the settings screen shows about the user's Codex.
+ */
+export type CodexStatus = { installed: boolean; supported: boolean; signedIn: boolean }
 /**
  * Adds what a workshop made before is missing: bases of the seven roles and their links.
  */
@@ -2146,6 +2367,7 @@ export type LinkGraph = { nodes: LinkGraphNode[]; edges: LinkGraphEdge[] }
 export type LinkGraphEdge = { source: string; target: string; label: string; unresolved?: boolean | null }
 export type LinkGraphNode = { id: string; label: string; unresolved?: boolean | null }
 export type LoadVaultResult = { generation: number; vaultPath: string; tree: TreeItem[]; notes: IndexedNote[]; sync: SyncReport }
+export type LoadedChat = { chat: Chat | null; raw: JsonValue | null; status: string; revision: string }
 export type LogLevel = "debug" | "info" | "warn" | "error"
 export type LogSource = "frontend" | "backend"
 export type MigrationConflict = { kind: string; noteId: string | null; filePath: string; description: string; suggestedAction: string }
@@ -2709,6 +2931,8 @@ export type TextStatusOptionSummary = { id: string; name: string; color: string;
  */
 group: string }
 export type TrashEntry = { id: string; originalPath: string; deletedAtMs: number; name: string }
+export type TrashPreview = { path: string; directory: boolean; text: string | null; children: TrashPreviewItem[]; truncated: boolean }
+export type TrashPreviewItem = { name: string; path: string; directory: boolean }
 export type TreeItem = { id: string; path: string; name: string; type: string; icon: string; created?: number | null; modified?: number | null; children?: TreeItem[] | null }
 /**
  * A file that is not synchronised on this computer (Р4, Р9).

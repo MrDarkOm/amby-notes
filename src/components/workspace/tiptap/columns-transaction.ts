@@ -187,7 +187,7 @@ export function moveBlockAcrossColumns(
   targetPos: number,
   before: boolean,
 ): Transaction | null {
-  const { doc, schema } = state
+  const { doc } = state
   const source = doc.nodeAt(srcPos)
   const target = doc.nodeAt(targetPos)
   if (!source || !target || srcPos === targetPos) return null
@@ -201,13 +201,23 @@ export function moveBlockAcrossColumns(
   const rawInsert = before ? targetPos : targetPos + target.nodeSize
   let tr = state.tr
   if (sourceIsColumn && $source.parent.childCount === 1) {
-    const paragraph = schema.nodes.paragraph
-    if (!paragraph) return null
-    tr = tr.replaceWith(srcPos, srcPos + source.nodeSize, paragraph.create())
+    // Moving the last block removes its column; a two-column set dissolves.
+    const cleanup = removeSoleBlockColumn(state, srcPos)
+    if (!cleanup) return null
+    tr = cleanup
   } else {
     tr = tr.delete(srcPos, srcPos + source.nodeSize)
   }
-  const insertPos = tr.mapping.map(rawInsert, -1)
+  // Removing a column can replace the whole set, so its surviving target
+  // cannot be recovered by a step map alone. Locate the original node first.
+  let survivingTarget: number | null = null
+  tr.doc.descendants((node, pos) => {
+    if (node === target && survivingTarget === null) survivingTarget = pos
+  })
+  const insertPos =
+    survivingTarget === null
+      ? tr.mapping.map(rawInsert, -1)
+      : survivingTarget + (before ? 0 : target.nodeSize)
   try {
     tr.insert(insertPos, source)
     return tr.docChanged ? tr : null

@@ -349,7 +349,12 @@ export function TooltipProvider() {
             )}
             style={tooltip.arrowStyle}
           />
-          {tooltip.content}
+          {tooltip.content.split("\n")[0]}
+          {tooltip.content.includes("\n") && (
+            <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">
+              {tooltip.content.slice(tooltip.content.indexOf("\n") + 1)}
+            </span>
+          )}
         </motion.div>
       )}
     </AnimatePresence>

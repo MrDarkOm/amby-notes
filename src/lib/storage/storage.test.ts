@@ -30,6 +30,10 @@ describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
 
     runStorageContract("browser", () => ({ adapter, vaultPath: "web-vault" }))
 
+    it("refuses filesystem archive previews in the browser adapter", async () => {
+      await expect(adapter.readTrashPreview("trash-id", "")).rejects.toThrow()
+    })
+
     it("returns the authoritative active vault identity with refresh data", async () => {
       await expect(adapter.loadActiveVaultData()).resolves.toMatchObject({
         vaultPath: "web-vault",
@@ -218,6 +222,23 @@ describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
       })
       adapter = new DesktopAdapter()
       setStorageAdapter(adapter)
+    })
+
+    it("delegates archive previews by trash ID and payload-relative path", async () => {
+      const preview = {
+        path: "Nested/Note.md",
+        directory: false,
+        text: "archived",
+        children: [],
+        truncated: false,
+      }
+      const command = vi
+        .spyOn(commands, "readTrashPreview")
+        .mockResolvedValue({ status: "ok", data: preview })
+      await expect(adapter.readTrashPreview("trash-id", "Nested/Note.md")).resolves.toEqual(preview)
+      expect(command).toHaveBeenCalledExactlyOnceWith("trash-id", "Nested/Note.md")
+      command.mockResolvedValue({ status: "error", error: "entry missing" })
+      await expect(adapter.readTrashPreview("trash-id", "")).rejects.toThrow("entry missing")
     })
 
     it("asks the backend to keep the replaced file when a save rewrites source", async () => {

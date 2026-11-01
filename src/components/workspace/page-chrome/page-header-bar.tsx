@@ -132,6 +132,7 @@ export function PageHeaderBar({
   const focusToggle = hideFocusToggle ? null : floating ? (
     <button
       type="button"
+      data-help-target="focus"
       title={isFocusMode ? t("docEditor.focusModeExit") : t("docEditor.focusModeEnter")}
       aria-label={isFocusMode ? t("docEditor.focusModeExit") : t("docEditor.focusModeEnter")}
       onClick={onToggleFocusMode}
@@ -141,6 +142,7 @@ export function PageHeaderBar({
     </button>
   ) : size.isTiny ? null : (
     <motion.button
+      data-help-target="focus"
       type="button"
       className={cn(
         "flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground",
@@ -165,7 +167,7 @@ export function PageHeaderBar({
     return (
       <div ref={headerRef} className={FLOATING_ROOT}>
         {showHistory ? (
-          <div className={FLOATING_PILL}>
+          <div className={FLOATING_PILL} data-help-target="page-history">
             <FloatingHistoryButton
               label={backLabel}
               onClick={onBack}
@@ -214,7 +216,7 @@ export function PageHeaderBar({
       }`}
     >
       {/* Left: back/forward and, in focus mode, the path. */}
-      <div className="flex min-w-0 shrink-0 items-center gap-0.5">
+      <div data-help-target="page-history" className="flex min-w-0 shrink-0 items-center gap-0.5">
         {isFocusMode && <div className="h-10 w-6 cursor-default" onMouseDown={handleDragStart} />}
         {showHistory && (
           <>
@@ -255,6 +257,7 @@ export function PageHeaderBar({
 
       {/* Center: the tab menu in focus mode; the breadcrumb otherwise. */}
       <motion.div
+        data-help-target="breadcrumbs"
         data-path-expanded={pathHovered || undefined}
         className={`flex min-w-0 flex-1 items-center justify-center gap-1 px-2 text-xs [&[data-path-expanded=true]_[data-breadcrumb-segment]]:max-w-none ${pathHovered ? "absolute inset-x-4 top-2 z-20 min-h-10 justify-start overflow-visible rounded-lg bg-white px-5 text-sm text-slate-900 shadow-lg ring-1 ring-slate-200" : size.isNarrow ? "hidden" : "overflow-hidden"}`}
         layout

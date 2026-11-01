@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils"
 export interface AmbySelectOption {
   value: string
   label: string
+  /** A small icon before the label. It adds no text of its own. */
+  icon?: React.ReactNode
   /** A second, muted line under the label. */
   hint?: string
   disabled?: boolean
@@ -120,6 +122,11 @@ export function AmbySelect({
         isActive && "bg-primary/10 font-medium",
       )}
     >
+      {option.icon && (
+        <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+          {option.icon}
+        </span>
+      )}
       <span className="min-w-0 flex-1">
         <span className="block truncate">{option.label}</span>
         {option.hint && (

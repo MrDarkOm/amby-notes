@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   loadSettings,
+  resolveAiConfig,
   saveSettingsPatch,
   loadWorkspaceConfig,
   saveWorkspaceConfigPatch,
@@ -19,6 +20,7 @@ import {
   normalizeAppPreferences,
 } from "./app-config"
 import { readGlobalSettingsResult } from "@/lib/storage"
+import { projectAiConnections } from "./ai/connections"
 
 describe("app-config & settings storage resilience (WP-19)", () => {
   const store = new Map<string, string>()
@@ -87,6 +89,76 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     const session = await loadSession("/test/vault")
     expect(session.schemaVersion).toBe(SESSION_SCHEMA_VERSION)
     expect(session.tabs).toEqual([])
+  })
+
+  it("reads settings with a UTF-8 BOM without treating them as corrupt", async () => {
+    const raw = "\uFEFF" + JSON.stringify({ defaultTheme: "dark" })
+    store.set("amby:g:" + SETTINGS_FILE, raw)
+    await expect(loadSettings()).resolves.toMatchObject({ defaultTheme: "dark" })
+    expect(store.get("amby:g:" + SETTINGS_FILE)).toBe(raw)
+  })
+
+  it("round-trips versioned AI connections and unrelated unknown settings", async () => {
+    const ai = {
+      version: 1,
+      activeModelId: "old",
+      extra: "keep",
+      connections: [
+        {
+          id: "c",
+          provider: "openai",
+          method: "api",
+          label: "Account",
+          baseUrl: "",
+          credentialId: "key",
+          apiVersion: "",
+        },
+      ],
+      models: [
+        {
+          id: "old",
+          connectionId: "c",
+          model: "gpt",
+          label: "GPT",
+          enabled: true,
+          available: true,
+          origin: "legacy",
+        },
+      ],
+    }
+    store.set("amby:g:" + SETTINGS_FILE, JSON.stringify({ ai, foreign: { keep: true } }))
+    const settings = await loadSettings()
+    expect(settings.ai.models[0]).toMatchObject({ id: "old", credentialId: "key" })
+    await saveSettingsPatch({ defaultTheme: "dark" })
+    const saved = JSON.parse(store.get("amby:g:" + SETTINGS_FILE)!)
+    expect(saved.ai).toEqual(ai)
+    expect(saved.foreign).toEqual({ keep: true })
+    await expect(saveSettingsPatch({ ai: { ...settings.ai, models: [] } })).rejects.toThrow(
+      "invalidAiMutation",
+    )
+    const changed = {
+      ...settings.ai.connectionSettings!,
+      models: settings.ai.connectionSettings!.models.map((model) => ({ ...model, enabled: false })),
+    }
+    await saveSettingsPatch(
+      { ai: projectAiConnections(changed) },
+      { expectedAi: settings.ai.connectionSettings },
+    )
+    await expect(saveSettingsPatch({ ai: settings.ai })).rejects.toThrow("settingsChanged")
+    expect(JSON.parse(store.get("amby:g:" + SETTINGS_FILE)!).ai.models[0].enabled).toBe(false)
+  })
+
+  it("refuses to overwrite a future AI settings version", async () => {
+    const raw = JSON.stringify({
+      ai: { version: 99, connections: [], models: [], activeModelId: null },
+      extra: true,
+    })
+    store.set("amby:g:" + SETTINGS_FILE, raw)
+    await expect(loadSettings()).rejects.toThrow("unsupportedAiVersion")
+    await expect(saveSettingsPatch({ defaultTheme: "dark" })).rejects.toThrow(
+      "unsupportedAiVersion",
+    )
+    expect(store.get("amby:g:" + SETTINGS_FILE)).toBe(raw)
   })
 
   it("handles corrupt JSON by creating a recoverable copy before restoring defaults", async () => {
@@ -406,5 +478,20 @@ describe("app-config & settings storage resilience (WP-19)", () => {
       normalizeAppPreferences({ docks: { rightEnabled: "no" as unknown as boolean } }).docks
         .rightEnabled,
     ).toBe(true)
+  })
+})
+
+describe("answer length limit", () => {
+  const base = {
+    id: "m",
+    label: "M",
+    model: "x",
+    baseUrl: "",
+    credentialId: null,
+    apiVersion: "",
+  }
+  it("gives a local model room to think before it answers, and keeps a cloud one at the short limit", () => {
+    expect(resolveAiConfig({ ...base, provider: "lmstudio" }).maxTokens).toBe(4096)
+    expect(resolveAiConfig({ ...base, provider: "openai" }).maxTokens).toBe(1024)
   })
 })

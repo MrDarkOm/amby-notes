@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next"
 import {
   Blocks,
   Bot,
-  Check,
+  Feather,
   Clock3,
   Cloud,
   Database,
@@ -38,7 +38,7 @@ import {
   type ProfileId,
 } from "@/lib/modules"
 import {
-  DEFAULT_AI,
+  loadAiConnectionSettings,
   loadSettings,
   loadWorkspaceConfig,
   saveSettingsPatch,
@@ -46,10 +46,13 @@ import {
   type AiSettings,
 } from "../app-config"
 import { ModelsManager } from "../models-manager"
+import { ConnectionsManager } from "../ai/connections-manager"
+import { projectAiConnections, type AiConnectionsSettings } from "../ai/connections"
 import { isModuleAvailable, MODULE_REGISTRY, type ModuleDef } from "../modules"
 import { useSettingsStore } from "../use-settings-store"
 import { CreativeSettings } from "../creative/creative-settings"
 import { Row } from "./settings-common"
+import { AmbySelect } from "@/components/ui/amby-select"
 import { ModulePackageManager } from "./settings-package-manager"
 import type { Preset } from "../presets"
 import { loadGlobalModulesRegistry } from "@/lib/modules/global-registry"
@@ -67,6 +70,7 @@ const MODULE_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
   ai: Bot,
   excalidraw: PenTool,
   canvas: Layout,
+  creative: Feather,
 }
 
 export function ModuleMessage({ title, description }: { title: string; description: string }) {
@@ -257,11 +261,38 @@ export function HistorySettings() {
   )
 }
 
+export function FavoritesSettings() {
+  const { t } = useTranslation()
+  const inTree = useSettingsStore((s) => s.prefs.favoritesInTree)
+  const panel = useSettingsStore((s) => s.prefs.favoritesPanel)
+  const setPrefs = useSettingsStore((s) => s.setPrefs)
+  return (
+    <div className="divide-y divide-border rounded-lg border border-border">
+      <Row label={t("favoritesPlacement.inTree")} hint={t("favoritesPlacement.inTreeHint")}>
+        <Switch
+          checked={inTree}
+          onCheckedChange={(value) => void setPrefs({ favoritesInTree: value })}
+        />
+      </Row>
+      <Row label={t("favoritesPlacement.panel")} hint={t("favoritesPlacement.panelHint")}>
+        <Switch
+          checked={panel}
+          onCheckedChange={(value) => void setPrefs({ favoritesPanel: value })}
+        />
+      </Row>
+    </div>
+  )
+}
+
 export function AiTab() {
-  const [ai, setAi] = React.useState<AiSettings>(DEFAULT_AI)
+  const { t } = useTranslation()
+  const [loadError, setLoadError] = React.useState(false)
+  const [ai, setAi] = React.useState<AiSettings | null>(null)
 
   React.useEffect(() => {
-    loadSettings().then((s) => setAi(s.ai))
+    void loadAiConnectionSettings()
+      .then((s) => setAi(s.ai))
+      .catch(() => setLoadError(true))
   }, [])
 
   const update = (next: AiSettings) => {
@@ -269,9 +300,31 @@ export function AiTab() {
     void saveSettingsPatch({ ai: next }).catch(() => {})
   }
 
+  const commitConnections = async (
+    next: AiConnectionsSettings,
+    expected: AiConnectionsSettings,
+  ) => {
+    const projected = projectAiConnections(next)
+    await saveSettingsPatch({ ai: projected }, { expectedAi: expected })
+    setAi(projected)
+  }
+
   return (
     <div className="flex min-h-[240px] flex-col">
-      <ModelsManager ai={ai} onChange={update} />
+      {loadError && <p role="alert">{t("aiConnections.loadError")}</p>}
+      {ai?.connectionSettings ? (
+        <ConnectionsManager
+          settings={ai.connectionSettings}
+          onCommit={commitConnections}
+          onConflict={async () => {
+            const saved = (await loadSettings()).ai
+            setAi(saved)
+            return saved.connectionSettings ?? null
+          }}
+        />
+      ) : ai ? (
+        <ModelsManager ai={ai} onChange={update} />
+      ) : null}
     </div>
   )
 }
@@ -279,19 +332,53 @@ export function AiTab() {
 export interface ModulesTabProps {
   activeModules: string[]
   onModuleEnabledChange: (id: string, enabled: boolean) => void
+  /** Called once a chosen or edited preset is saved, so the app runs the same one. */
+  onPresetChange?: (id: string) => void
   selectedId: string
   onSelectedChange: (id: string) => void
+}
+
+/** A preset without module ids the app no longer knows (e.g. removed or renamed modules). */
+function dropUnknownPresetModules(preset: Preset): Preset {
+  const known = preset.activeModules.filter((id) =>
+    MODULE_REGISTRY.some((module) => module.id === toShortModuleId(id)),
+  )
+  return known.length === preset.activeModules.length ? preset : { ...preset, activeModules: known }
+}
+
+/**
+ * Modules of a preset that a person can see and switch in the catalogue: installed and
+ * available, without the Graph switch that lives under Links. This matches what applying
+ * the preset actually turns on, so the count never promises more than the list shows.
+ */
+function countCataloguePresetModules(
+  ids: string[],
+  installed: Set<string>,
+  experimental: Parameters<typeof isModuleAvailable>[1],
+): number {
+  const shown = new Set(
+    ids
+      .filter((id) => installed.has(toCanonicalModuleId(id)) && isModuleAvailable(id, experimental))
+      .map(toShortModuleId)
+      .filter((id) => id !== "graph"),
+  )
+  return shown.size
 }
 
 export function ModulesTab({
   activeModules,
   onModuleEnabledChange,
+  onPresetChange,
   selectedId,
   onSelectedChange,
 }: ModulesTabProps) {
   const { t } = useTranslation()
   const experimental = useSettingsStore((state) => state.experimental)
-  const selected = MODULE_REGISTRY.find((module) => module.id === selectedId) ?? MODULE_REGISTRY[0]
+  const selected =
+    MODULE_REGISTRY.find(
+      (module) => module.id === (selectedId === "graph" ? "links" : selectedId),
+    ) ?? MODULE_REGISTRY[0]
+  const graphModule = MODULE_REGISTRY.find((module) => module.id === "graph")
 
   const [activePresetId, setActivePresetId] = React.useState<string>("standard")
   const [customPresets, setCustomPresets] = React.useState<Preset[]>([])
@@ -346,7 +433,12 @@ export function ModulesTab({
         if (!mounted) return
         const presetsList =
           cfg?.customPresets && Array.isArray(cfg.customPresets) ? cfg.customPresets : []
-        setCustomPresets(presetsList)
+        const tidy = presetsList.map(dropUnknownPresetModules)
+        setCustomPresets(tidy)
+        // Persist the cleaned lists so a preset stops promising modules that no longer exist.
+        if (tidy.some((preset, index) => preset !== presetsList[index])) {
+          void saveWorkspaceConfigPatch({ customPresets: tidy })
+        }
 
         const savedId = cfg?.layout?.activePresetId
         if (savedId === "minimal" || savedId === "simple") {
@@ -458,6 +550,7 @@ export function ModulesTab({
         }
       }
     }
+    onPresetChange?.(presetId)
   }
 
   const handleSelectPreset = async (presetId: string) => {
@@ -572,6 +665,7 @@ export function ModulesTab({
         customPresets: updated,
         enabledModules: nextModules.map(toCanonicalModuleId),
       })
+      onPresetChange?.(activePresetId)
     }
   }
 
@@ -642,6 +736,7 @@ export function ModulesTab({
     })
 
     onModuleEnabledChange(shortModId, pendingToggle.targetEnabled)
+    onPresetChange?.(newPreset.id)
     setPendingToggle(null)
   }
 
@@ -681,6 +776,7 @@ export function ModulesTab({
         activeBySide: null,
       },
     })
+    onPresetChange?.(newPreset.id)
   }
 
   const handleDownloadAndEnablePending = async () => {
@@ -740,6 +836,7 @@ export function ModulesTab({
         activeBySide: null,
       },
     })
+    onPresetChange?.(newPreset.id)
   }
 
   const handleSaveRenamePreset = async () => {
@@ -753,6 +850,7 @@ export function ModulesTab({
     setPresetToRename(null)
 
     await saveWorkspaceConfigPatch({ customPresets: updated })
+    onPresetChange?.(activePresetId)
   }
 
   const handleDeletePreset = async () => {
@@ -765,147 +863,100 @@ export function ModulesTab({
       await applyPreset("standard")
     } else {
       await saveWorkspaceConfigPatch({ customPresets: updated })
+      onPresetChange?.(activePresetId)
     }
 
     setPresetToDelete(null)
   }
 
+  const activeCustomPreset = customPresets.find((preset) => preset.id === activePresetId) ?? null
+
   return (
-    <div className="flex min-h-full flex-col">
-      {/* Module Presets bar */}
-      <div className="border-b border-border bg-card/30 p-4">
-        <div className="mb-2.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          {t("settings.modules.presetsTitle")}
-        </div>
-
-        <div className="flex flex-wrap items-stretch gap-2.5">
-          {/* Minimal preset */}
-          <button
-            type="button"
-            onClick={() => void handleSelectPreset("minimal")}
-            className={cn(
-              "flex min-w-[150px] max-w-[220px] flex-1 flex-col justify-between rounded-lg border p-3 text-left",
-              activePresetId === "minimal"
-                ? "border-primary bg-primary/5 text-foreground ring-1 ring-primary"
-                : "border-border bg-card text-muted-foreground hover:border-border/80 hover:bg-accent/40",
-            )}
-          >
-            <div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-foreground">
-                  {t("profiles.minimal")}
-                </span>
-                {activePresetId === "minimal" && <Check className="size-3.5 text-primary" />}
-              </div>
-              <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
-                {t("profiles.descriptions.minimal")}
-              </p>
-            </div>
-          </button>
-
-          {/* Standard preset */}
-          <button
-            type="button"
-            onClick={() => void handleSelectPreset("standard")}
-            className={cn(
-              "flex min-w-[150px] max-w-[220px] flex-1 flex-col justify-between rounded-lg border p-3 text-left",
-              activePresetId === "standard"
-                ? "border-primary bg-primary/5 text-foreground ring-1 ring-primary"
-                : "border-border bg-card text-muted-foreground hover:border-border/80 hover:bg-accent/40",
-            )}
-          >
-            <div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-foreground">
-                  {t("profiles.standard")}
-                </span>
-                {activePresetId === "standard" && <Check className="size-3.5 text-primary" />}
-              </div>
-              <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
-                {t("profiles.descriptions.standard")}
-              </p>
-            </div>
-          </button>
-
-          {/* User custom presets */}
-          {customPresets.map((preset) => {
-            const isSelected = activePresetId === preset.id
-            return (
-              <div
-                key={preset.id}
-                onClick={() => void handleSelectPreset(preset.id)}
-                className={cn(
-                  "group relative flex min-w-[150px] max-w-[220px] flex-1 cursor-pointer flex-col justify-between rounded-lg border p-3 text-left",
-                  isSelected
-                    ? "border-primary bg-primary/5 text-foreground ring-1 ring-primary"
-                    : "border-border bg-card text-muted-foreground hover:border-border/80 hover:bg-accent/40",
-                )}
-              >
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="truncate text-xs font-semibold text-foreground">
-                      {preset.label || preset.id}
-                    </span>
-                    <div className="flex items-center gap-1">
-                      {isSelected && <Check className="size-3.5 text-primary shrink-0" />}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setPresetToRename(preset)
-                          setRenamePresetName(preset.label || "")
-                          setRenameModalOpen(true)
-                        }}
-                        className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                        title={t("settings.modules.renamePreset")}
-                      >
-                        <Pencil className="size-3" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setPresetToDelete(preset)
-                          setDeleteModalOpen(true)
-                        }}
-                        className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                        title={t("settings.modules.deletePreset")}
-                      >
-                        <Trash2 className="size-3" />
-                      </button>
-                    </div>
-                  </div>
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    {t("settings.modules.modulesCount", { count: preset.activeModules.length })}
-                  </p>
-                </div>
-              </div>
-            )
-          })}
-
-          {/* Create Preset + Button */}
-          <button
-            type="button"
-            onClick={() => {
-              setNewPresetName("")
-              setCreatePresetModalOpen(true)
-            }}
-            className="flex min-w-[120px] items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-3.5 py-3 text-xs font-medium text-muted-foreground hover:border-primary/60 hover:text-foreground"
-          >
-            <Plus className="size-3.5" />
-            <span>{t("settings.modules.createPreset")}</span>
-          </button>
-        </div>
-      </div>
-
+    <div className="flex min-h-0 flex-1 flex-col">
       {/* Main body: Catalogue on left, Details on right */}
-      <div className="grid flex-1 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <aside className="border-b border-border p-2 lg:border-b-0 lg:border-r">
+      <div className="grid min-h-0 flex-1 lg:grid-cols-[220px_minmax(0,1fr)]">
+        <aside className="overflow-y-auto border-b border-border p-2 lg:border-b-0 lg:border-r">
+          <div className="mb-1 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            {t("settings.modules.presetsTitle")}
+          </div>
+          <div className="mb-3 flex items-center gap-1 px-1">
+            <AmbySelect
+              className="min-w-0 flex-1"
+              // The whole catalogue column, edge to edge: its width, shifted back over the
+              // column's 8px padding and the select's own 4px inset.
+              listWidth={220}
+              listClassName="-ml-3 max-w-none"
+              aria-label={t("settings.modules.presetsTitle")}
+              value={activePresetId}
+              options={[
+                {
+                  value: "minimal",
+                  label: t("profiles.minimal"),
+                  hint: t("profiles.descriptions.minimal"),
+                },
+                {
+                  value: "standard",
+                  label: t("profiles.standard"),
+                  hint: t("profiles.descriptions.standard"),
+                },
+                ...customPresets.map((preset) => ({
+                  value: preset.id,
+                  label: preset.label || preset.id,
+                  hint: t("settings.modules.modulesCount", {
+                    count: countCataloguePresetModules(
+                      // The open preset is shown as it is switched right now, like the list.
+                      preset.id === activePresetId ? activeModules : preset.activeModules,
+                      installedModuleIds,
+                      experimental,
+                    ),
+                  }),
+                })),
+              ]}
+              onValueChange={(id) => void handleSelectPreset(id)}
+              action={{
+                label: t("settings.modules.createPreset"),
+                icon: <Plus className="size-3.5" />,
+                onSelect: () => {
+                  setNewPresetName("")
+                  setCreatePresetModalOpen(true)
+                },
+              }}
+            />
+            {activeCustomPreset && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPresetToRename(activeCustomPreset)
+                    setRenamePresetName(activeCustomPreset.label || "")
+                    setRenameModalOpen(true)
+                  }}
+                  className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  title={t("settings.modules.renamePreset")}
+                  aria-label={t("settings.modules.renamePreset")}
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPresetToDelete(activeCustomPreset)
+                    setDeleteModalOpen(true)
+                  }}
+                  className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  title={t("settings.modules.deletePreset")}
+                  aria-label={t("settings.modules.deletePreset")}
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </>
+            )}
+          </div>
           <div className="mb-1 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             {t("settings.modules.catalogue")}
           </div>
           <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-1">
-            {MODULE_REGISTRY.map((module) => {
+            {MODULE_REGISTRY.filter((module) => module.id !== "graph").map((module) => {
               const Icon = MODULE_ICONS[module.id] ?? Blocks
               const isEnabled = activeModules.some(
                 (id) => toShortModuleId(id) === toShortModuleId(module.id),
@@ -947,8 +998,8 @@ export function ModulesTab({
           </div>
         </aside>
 
-        <section className="flex min-w-0 flex-col px-5 py-5 sm:px-7">
-          <div className="min-h-[260px] flex-1 pb-6">
+        <section className="flex min-h-0 min-w-0 flex-col px-5 pt-4 sm:px-7">
+          <div className="min-h-0 flex-1 overflow-y-auto pb-6">
             {selected.status === "preview" && !isModuleAvailable(selected.id, experimental) ? (
               <ModuleMessage
                 title={t("settings.modules.previewTitle")}
@@ -964,10 +1015,22 @@ export function ModulesTab({
                 title={t("settings.modules.disabledTitle")}
                 description={t("settings.modules.disabledDescription")}
               />
+            ) : selected.id === "links" && graphModule ? (
+              <div className="divide-y divide-border rounded-lg border border-border">
+                <Row label={t(graphModule.labelKey)} hint={t(graphModule.descriptionKey)}>
+                  <Switch
+                    checked={activeModules.some((id) => toShortModuleId(id) === "graph")}
+                    onCheckedChange={(next) => handleAttemptToggle(graphModule, next)}
+                    aria-label={t(graphModule.labelKey)}
+                  />
+                </Row>
+              </div>
             ) : selected.id === "ai" ? (
               <AiTab />
             ) : selected.id === "history" ? (
               <HistorySettings />
+            ) : selected.id === "favorites" ? (
+              <FavoritesSettings />
             ) : selected.id === "creative" ? (
               <CreativeSettings />
             ) : (
@@ -978,7 +1041,7 @@ export function ModulesTab({
             )}
           </div>
 
-          <div className="mb-4">
+          <div className="shrink-0 border-t border-border/60 pb-2 pt-2">
             <ModulePackageManager
               moduleId={selected.id}
               moduleName={t(selected.labelKey)}

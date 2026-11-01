@@ -1,3 +1,4 @@
+pub mod ai_chats;
 pub mod assets;
 pub mod backups;
 pub mod database;

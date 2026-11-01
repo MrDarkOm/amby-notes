@@ -131,6 +131,22 @@ export const nativeNoteCases: Array<{
       await adapter.deleteItem(vaultPath, note.primaryPath!, "vault")
       const trash = await adapter.listTrash()
       check(trash.length === 1, "Delete entered vault-local recycle bin")
+      const rootPreview = await adapter.readTrashPreview(trash[0].id, "")
+      const preview = rootPreview.directory
+        ? await adapter.readTrashPreview(
+            trash[0].id,
+            rootPreview.children.find((child) => child.name.endsWith(".md"))!.path,
+          )
+        : rootPreview
+      check(preview.text === original, "Archive preview reads the exact archived bytes")
+      check((await adapter.listTrash()).length === 1, "Preview leaves the item in the archive")
+      let escaped = false
+      try {
+        await adapter.readTrashPreview(trash[0].id, "../outside.md")
+      } catch {
+        escaped = true
+      }
+      check(escaped, "Archive preview rejects paths outside its payload")
       const restored = await adapter.restoreTrash(trash[0].id)
       check(
         (await adapter.readFile(restored.primaryPath!)) === original,

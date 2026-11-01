@@ -45,6 +45,7 @@ import type {
   SnapshotEntry,
   SnapshotText,
   TrashEntry,
+  TrashPreview,
   TreeItem,
   VaultPreflight,
   VaultTagEntry,
@@ -1477,6 +1478,10 @@ export class WebAdapterCore implements StoragePort {
     return webHistoryUnavailable()
   }
 
+  async readTrashPreview(_trashId: string, _relativePath: string): Promise<TrashPreview> {
+    return webTrashUnavailable()
+  }
+
   async listTrash(): Promise<TrashEntry[]> {
     return []
   }
@@ -1585,12 +1590,32 @@ export class WebAdapterCore implements StoragePort {
     if (typeof window !== "undefined") window.alert(message)
   }
 
+  async migrateAiSettings(): Promise<void> {
+    throw new Error("AI settings migration requires the desktop app")
+  }
+
+  async rollbackAiSettings(): Promise<void> {
+    throw new Error("AI settings rollback requires the desktop app")
+  }
+
   async readGlobalRaw(file: string): Promise<string | null> {
     return withWebStorage(() => metadataStorage.readGlobal(file))
   }
 
   async writeGlobalRaw(file: string, contents: string): Promise<void> {
     withWebStorage(() => metadataStorage.writeGlobal(file, contents))
+  }
+
+  async compareWriteGlobalRaw(
+    file: string,
+    expected: string | null,
+    contents: string,
+  ): Promise<boolean> {
+    return withWebStorage(() => {
+      if (metadataStorage.readGlobal(file) !== expected) return false
+      metadataStorage.writeGlobal(file, contents)
+      return true
+    })
   }
 
   async readVaultRaw(rel: string): Promise<string | null> {
@@ -1607,6 +1632,10 @@ export class WebAdapterCore implements StoragePort {
 
   async storeAiCredential(credentialId: string, secret: string): Promise<void> {
     withWebStorage(() => metadataStorage.storeCredential(credentialId, secret))
+  }
+
+  async deleteUnreferencedAiCredential(_credentialId: string): Promise<boolean> {
+    return false
   }
 
   async deleteAiCredential(credentialId: string): Promise<void> {

@@ -10,6 +10,9 @@ use std::{
 };
 use tauri::Manager;
 
+#[path = "native_contract_ai.rs"]
+mod fake_ai;
+
 pub(crate) struct NativeAppDataRoot(pub std::path::PathBuf);
 
 /// The key store of the harness: in memory, so that a check never writes to the key store of the
@@ -146,6 +149,11 @@ pub fn run_native_contract() {
         crate::sync::backup::ensure(&fixture).expect("verified native backup fixture");
     }
     let setup_root = root.clone();
+    let fake_ai_url = if contract_page() == "tests/native/index.html" {
+        fake_ai::start().expect("start disposable AI provider")
+    } else {
+        String::new()
+    };
     let app_data_root = root.join(".app-data");
     let exit_code = Arc::new(AtomicI32::new(1));
     let result_code = exit_code.clone();
@@ -174,8 +182,9 @@ pub fn run_native_contract() {
                 )
                 .map_err(std::io::Error::other)?;
             let initialization = format!(
-                "window.__AMBY_NATIVE_TEST_ROOT__ = {}; window.__AMBY_NATIVE_SYNC__ = {};",
+                "window.__AMBY_NATIVE_TEST_ROOT__ = {}; window.__AMBY_NATIVE_AI_URL__ = {}; window.__AMBY_NATIVE_SYNC__ = {};",
                 serde_json::to_string(&setup_root.to_string_lossy()).unwrap(),
+                serde_json::to_string(&fake_ai_url).unwrap(),
                 // Where the sync check finds its server and the one-time codes (env, never a file).
                 serde_json::json!({
                     "url": std::env::var("AMBY_NATIVE_SYNC_URL").ok(),

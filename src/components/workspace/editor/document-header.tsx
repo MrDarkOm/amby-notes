@@ -295,6 +295,7 @@ export function DocumentHeader({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
+            data-help-target="layers"
             title={t("docEditor.layers")}
             aria-label={t("docEditor.layers")}
             className="mr-1 flex size-7 items-center justify-center rounded-full bg-accent text-foreground shadow-sm hover:bg-accent/80"
@@ -366,7 +367,10 @@ export function DocumentHeader({
         </DropdownMenuContent>
       </DropdownMenu>
     ) : (
-      <div className="mr-1 flex items-center gap-0.5 rounded-lg border border-border/60 bg-muted/40 p-0.5 shadow-2xs">
+      <div
+        data-help-target="layers"
+        className="mr-1 flex items-center gap-0.5 rounded-lg border border-border/60 bg-muted/40 p-0.5 shadow-2xs"
+      >
         {showNoteButton && (
           <motion.button
             type="button"

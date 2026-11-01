@@ -75,8 +75,42 @@ describe("Markdown columns", () => {
     const state = EditorState.create({ schema: editorSchema, doc })
     const tr = moveBlockAcrossColumns(state, firstBlockPos, secondBlockPos, false)
     expect(tr).not.toBeNull()
-    expect(tr!.doc.firstChild?.child(0).textContent).toBe("")
-    expect(tr!.doc.firstChild?.child(1).textContent).toBe("SecondFirst")
+    expect(tr!.doc.firstChild?.type.name).toBe("paragraph")
+    expect(tr!.doc.childCount).toBe(2)
+    expect(tr!.doc.textContent).toBe("SecondFirst")
+    expect(docToMarkdown(tr!.doc)).not.toContain("amby:columns")
+  })
+
+  it.each([true, false])(
+    "removes the emptied column when moving its last block outside (before=%s)",
+    (before) => {
+      const markdown =
+        "<!-- amby:columns -->\n\n<!-- amby:column -->\n\nKeep\n\n<!-- amby:column -->\n\nMove\n\n<!-- /amby:columns -->\n\nOutside"
+      const doc = editorSchema.nodeFromJSON(markdownToDoc(markdown))
+      const set = doc.firstChild!
+      const state = EditorState.create({ schema: editorSchema, doc })
+      const tr = moveBlockAcrossColumns(state, set.child(0).nodeSize + 2, set.nodeSize, before)!
+      expect(tr.doc.childCount).toBe(3)
+      expect(
+        Array.from({ length: tr.doc.childCount }, (_, index) => tr.doc.child(index).textContent),
+      ).toEqual(before ? ["Keep", "Move", "Outside"] : ["Keep", "Outside", "Move"])
+      expect(docToMarkdown(tr.doc)).not.toContain("amby:columns")
+      expect(roundTripCheck(docToMarkdown(tr.doc)).ok).toBe(true)
+    },
+  )
+
+  it("keeps the other columns and their width proportions when moving out of three columns", () => {
+    const markdown =
+      '<!-- amby:columns widths="0.2000,0.3000,0.5000" -->\n\n<!-- amby:column -->\n\nFirst\n\n<!-- amby:column -->\n\nSecond\n\n<!-- amby:column -->\n\nThird\n\n<!-- /amby:columns -->\n\nOutside'
+    const doc = editorSchema.nodeFromJSON(markdownToDoc(markdown))
+    const set = doc.firstChild!
+    const state = EditorState.create({ schema: editorSchema, doc })
+    const tr = moveBlockAcrossColumns(state, set.child(0).nodeSize + 2, set.nodeSize, false)!
+    expect(tr.doc.firstChild?.childCount).toBe(2)
+    expect(tr.doc.firstChild?.attrs.widths).toBe("0.2857,0.7143")
+    expect(tr.doc.firstChild?.textContent).toBe("FirstThird")
+    expect(tr.doc.lastChild?.textContent).toBe("Second")
+    expect(roundTripCheck(docToMarkdown(tr.doc)).ok).toBe(true)
   })
 
   it("does not move an entire multi-block column through a block side-drop", () => {

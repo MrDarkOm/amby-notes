@@ -11,6 +11,15 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
+
+static APP_DATA_WRITE_LOCK: Mutex<()> = Mutex::new(());
+
+pub(crate) fn lock_app_data_writes() -> Result<MutexGuard<'static, ()>, String> {
+    APP_DATA_WRITE_LOCK
+        .lock()
+        .map_err(|_| "appDataLockFailed".into())
+}
 
 use tauri::Manager;
 
@@ -75,8 +84,55 @@ pub fn read_app_data(app: tauri::AppHandle, rel: String) -> Result<Option<String
 #[tauri::command]
 #[specta::specta]
 pub fn write_app_data(app: tauri::AppHandle, rel: String, contents: String) -> Result<(), String> {
-    let path = paths::confine_rel(&app_root(&app)?, &rel)?;
+    let _guard = lock_app_data_writes()?;
+    let root = app_root(&app)?;
+    let path = paths::confine_rel(&root, &rel)?;
+    if path == paths::confine_rel(&root, "settings.json")? {
+        guard_ai_version(&path, &contents)?;
+    }
     write_all(&path, &contents)
+}
+
+/// Compare and publish while holding the same lock as all app-data writers.
+#[tauri::command]
+#[specta::specta]
+pub fn compare_write_app_data(
+    app: tauri::AppHandle,
+    rel: String,
+    expected: Option<String>,
+    contents: String,
+) -> Result<bool, String> {
+    let _guard = lock_app_data_writes()?;
+    let root = app_root(&app)?;
+    let path = paths::confine_rel(&root, &rel)?;
+    if read_opt(&path)? != expected {
+        return Ok(false);
+    }
+    if path == paths::confine_rel(&root, "settings.json")? {
+        guard_ai_version(&path, &contents)?;
+    }
+    write_all(&path, &contents)?;
+    Ok(true)
+}
+
+/// Do not let an older renderer overwrite a migrated or future AI section.
+fn guard_ai_version(path: &Path, next: &str) -> Result<(), String> {
+    fn version(raw: &str) -> Option<serde_json::Value> {
+        let root: serde_json::Value =
+            serde_json::from_str(raw.strip_prefix('\u{feff}').unwrap_or(raw)).ok()?;
+        root.get("ai")?.get("version").cloned()
+    }
+    let existing = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err("settingsUnavailable".into()),
+    };
+    if let Some(current) = version(&existing) {
+        if current != 1 || version(next) != Some(current) {
+            return Err("unsupportedAiVersion".into());
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -150,5 +206,16 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(dir);
+    }
+    #[test]
+    fn refuses_old_or_future_ai_writes() {
+        let dir = temp_test_dir("ai-version");
+        let path = dir.join("settings.json");
+        fs::write(&path, r#"{"ai":{"version":1}}"#).unwrap();
+        assert!(guard_ai_version(&path, r#"{"ai":{"models":[]}}"#).is_err());
+        assert!(guard_ai_version(&path, r#"{"ai":{"version":1}}"#).is_ok());
+        fs::write(&path, r#"{"ai":{"version":2}}"#).unwrap();
+        assert!(guard_ai_version(&path, r#"{"ai":{"version":2}}"#).is_err());
+        fs::remove_dir_all(dir).unwrap();
     }
 }

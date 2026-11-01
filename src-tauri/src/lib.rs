@@ -73,8 +73,25 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::history::delete_recovery,
         commands::history::list_recovery,
         commands::history::list_trash,
+        commands::history::read_trash_preview,
         commands::history::restore_trash,
         commands::history::purge_trash,
+        commands::ai_chats::ai_list_chats,
+        commands::ai_chats::ai_load_chat,
+        commands::ai_chats::ai_save_chat,
+        commands::ai_chats::ai_trash_chat,
+        commands::ai_chats::ai_search_consent,
+        commands::ai_chats::ai_set_search_consent,
+        ai::turn::ai_run_turn,
+        ai::local_apps::ai_local_app_installed,
+        ai::codex::launch::ai_codex_status,
+        ai::codex::launch::ai_codex_login,
+        ai::codex::launch::ai_codex_login_cancel,
+        ai::codex::launch::ai_codex_logout,
+        ai::claude_code::launch::ai_claude_status,
+        ai::claude_code::launch::ai_claude_login,
+        ai::claude_code::launch::ai_claude_login_cancel,
+        ai::claude_code::launch::ai_claude_logout,
         commands::notes::read_note,
         commands::notes::write_note,
         commands::notes::restore_deleted_note,
@@ -182,13 +199,17 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::assets::pick_asset_file,
         commands::assets::export_text_file,
         commands::assets::import_text_file,
+        ai::settings_migration::migrate_ai_settings,
+        ai::settings_migration::rollback_ai_settings,
         app_data::read_app_data,
         app_data::write_app_data,
+        app_data::compare_write_app_data,
         app_data::read_vault_meta,
         app_data::write_vault_meta,
         app_data::delete_vault_meta,
         credentials::store_ai_credential,
         credentials::delete_ai_credential,
+        credentials::delete_unreferenced_ai_credential,
         credentials::inspect_ai_credential,
         commands::backups::list_vault_backups,
         commands::backups::verify_vault_backup,
@@ -216,6 +237,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::sync::sync_read_conflict_versions,
         commands::sync::sync_resolve_conflict_with_text,
         ai::cancel_ai_request,
+        ai::ai_model_catalog,
         ai::ai_chat,
         commands::modules::stage_module_package,
         commands::modules::download_and_stage_module_package,
@@ -273,6 +295,8 @@ pub fn run() {
         .manage(vault_context::VaultContext::new())
         .manage(WatcherState::new())
         .manage(ai::AiStreamState::default())
+        .manage(ai::codex::launch::LoginSlot::default())
+        .manage(ai::claude_code::launch::ClaudeLoginSlot::default())
         .manage(database::runtime_state::DatabaseRuntimeState::default())
         .manage(database::mutation_state::DatabaseMutationState::default())
         .manage(database::history::DatabaseHistoryState::default())

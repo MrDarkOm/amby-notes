@@ -80,6 +80,23 @@ describe("TooltipProvider", () => {
     expect(named.getAttribute("aria-label")).toBe("Own name")
   })
 
+  it("shows the lines after the first one smaller and muted", () => {
+    vi.useFakeTimers()
+    const { container } = render(
+      <>
+        <button title={"Обновить\nОбновлено: вчера"}>x</button>
+        <TooltipProvider />
+      </>,
+    )
+    fireEvent.pointerOver(container.querySelector("button") as HTMLButtonElement)
+    act(() => vi.advanceTimersByTime(1000))
+    const tooltip = screen.getByRole("tooltip")
+    const second = tooltip.querySelector("span.block") as HTMLElement
+    expect(second.textContent).toBe("Обновлено: вчера")
+    expect(second.className).toContain("text-[11px]")
+    expect(tooltip.textContent).toContain("Обновить")
+  })
+
   it("dismisses a tooltip when its trigger starts an interaction", () => {
     vi.useFakeTimers()
     const { container } = render(

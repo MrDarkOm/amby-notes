@@ -1,158 +1,347 @@
 "use client"
 
 import * as React from "react"
+import * as DialogPrimitive from "@radix-ui/react-dialog"
+import { motion } from "motion/react"
 import { useTranslation } from "react-i18next"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  ArrowUpRight,
+  BookOpen,
+  Files,
+  FolderOpen,
+  Keyboard,
+  Map as MapIcon,
+  MousePointer2,
+  PanelRight,
+  PanelsTopLeft,
+  Settings2,
+  Sparkles,
+  X,
+} from "lucide-react"
+import {
+  Dialog,
+  DialogDescription,
+  DialogOverlay,
+  DialogPortal,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { motionTransitions } from "@/lib/motion-config"
 import { cn } from "@/lib/utils"
+import { formatShortcut, matchesShortcut } from "./keyboard-shortcuts"
+import { useSettingsStore } from "./use-settings-store"
+import { HELP_GROUPS } from "./help-targets"
+import { helpConnector, helpOverlayLayout, type HelpRect } from "./help-overlay-layout"
+import { useHelpTargets } from "./use-help-targets"
+import { HelpShortcuts } from "./help-shortcuts"
 
 export type HelpContext = "note" | "canvas" | "sketch" | "database" | "workspace"
-
 export interface HelpModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   initialContext?: HelpContext
 }
 
-interface ShortcutItem {
-  key: string
-  label: string
+const GROUP_ICONS = {
+  tabs: PanelsTopLeft,
+  panels: MapIcon,
+  files: Files,
+  workspace: FolderOpen,
+  page: ArrowUpRight,
+  editor: BookOpen,
+  context: PanelRight,
+  tools: Settings2,
 }
+const MotionContent = motion.create(DialogPrimitive.Content)
 
 export function HelpModal({ open, onOpenChange, initialContext = "workspace" }: HelpModalProps) {
   const { t } = useTranslation()
-  const [activeTab, setActiveTab] = React.useState<HelpContext>(initialContext)
+  const { width, height, targets } = useHelpTargets(open)
+  const bindings = useSettingsStore((state) => state.prefs.shortcuts)
+  const [activeId, setActiveId] = React.useState<string | null>(null)
+  const [cardRects, setCardRects] = React.useState<Record<string, HelpRect>>({})
+  const cardRefs = React.useRef(new Map<string, HTMLElement>())
+  const markerId = React.useId().replace(/:/g, "")
+  const maskId = `${markerId}-mask`
+  const mode = helpOverlayLayout(width, height)
+  const detailId = React.useId()
+  const closeRef = React.useRef<HTMLButtonElement>(null)
+  const returnFocusRef = React.useRef<HTMLElement | null>(null)
+  const active = targets.find((target) => target.id === activeId)
+  const groups = HELP_GROUPS.map((definition, index) => ({
+    ...definition,
+    number: String(index + 1).padStart(2, "0"),
+    targets: targets.filter((target) => target.group === definition.id),
+  }))
+    .filter((group) => group.targets.length)
+    .map((group) => {
+      const target = group.targets[0].rect
+      const x = target.left + target.width / 2
+      return { ...group, side: x < width * 0.3 ? "left" : x > width * 0.7 ? "right" : group.side }
+    })
+  const targetDescription = (id: string) =>
+    t(
+      id === "content"
+        ? `help.guide.content.${initialContext}`
+        : `help.guide.tips.${id}.description`,
+    )
 
   React.useEffect(() => {
-    if (open) {
-      setActiveTab(initialContext)
+    if (!open) setActiveId(null)
+  }, [open])
+  React.useLayoutEffect(() => {
+    if (!open) return
+    const measure = () => {
+      const next: Record<string, HelpRect> = {}
+      for (const [id, element] of cardRefs.current) {
+        const rect = element.getBoundingClientRect()
+        // Skip cards clipped by their scroll rail.
+        const rail = element.closest("[data-help-rail]")?.getBoundingClientRect()
+        if (rail && (rect.top < rail.top || rect.bottom > rail.bottom)) continue
+        next[id] = { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
+      }
+      setCardRects(next)
     }
-  }, [open, initialContext])
-
-  const tabs: { id: HelpContext; label: string }[] = React.useMemo(
-    () => [
-      { id: "note", label: t("help.tabs.note") },
-      { id: "canvas", label: t("help.tabs.canvas") },
-      { id: "sketch", label: t("help.tabs.sketch") },
-      { id: "database", label: t("help.tabs.database") },
-      { id: "workspace", label: t("help.tabs.general") },
-    ],
-    [t],
-  )
-
-  const items: ShortcutItem[] = React.useMemo(() => {
-    switch (activeTab) {
-      case "note":
-        return [
-          { key: "⌘B / Ctrl+B", label: t("help.note.bold") },
-          { key: "⌘I / Ctrl+I", label: t("help.note.italic") },
-          { key: "⌘U / Ctrl+U", label: t("help.note.underline") },
-          { key: "⇧⌘X / Ctrl+Shift+X", label: t("help.note.strikethrough") },
-          { key: "⌘E / Ctrl+E", label: t("help.note.code") },
-          { key: "⌘K / [[", label: t("help.note.link") },
-          { key: "# .. ######", label: t("help.note.headings") },
-          { key: "- / * + Space", label: t("help.note.bulletList") },
-          { key: "1. + Space", label: t("help.note.numberedList") },
-          { key: "[ ] + Space", label: t("help.note.taskList") },
-          { key: "> + Space", label: t("help.note.quote") },
-          { key: "``` + Space", label: t("help.note.codeBlock") },
-          { key: "---", label: t("help.note.divider") },
-          { key: "⌘Z / ⇧⌘Z", label: t("help.note.undoRedo") },
-        ]
-      case "canvas":
-        return [
-          { key: "V", label: t("canvas.hotkeySelect") },
-          { key: "H", label: t("canvas.hotkeyHand") },
-          { key: "Space", label: t("canvas.hotkeySpace") },
-          { key: "⌘Z / Ctrl+Z", label: t("canvas.hotkeyUndo") },
-          { key: "⇧⌘Z / Ctrl+Y", label: t("canvas.hotkeyRedo") },
-          { key: "⌘D / Ctrl+D", label: t("canvas.hotkeyDuplicate") },
-          { key: "⌘C / ⌘V", label: t("canvas.hotkeyCopyPaste") },
-          { key: "Delete / ⌫", label: t("canvas.hotkeyDelete") },
-          { key: "Double click", label: t("canvas.hotkeyEditLabel") },
-          { key: "Double click", label: t("canvas.hotkeyOpenNote") },
-        ]
-      case "sketch":
-        return [
-          { key: "V / 1", label: t("help.sketch.select") },
-          { key: "H", label: t("help.sketch.hand") },
-          { key: "Space", label: t("help.sketch.space") },
-          { key: "R / 2", label: t("help.sketch.rectangle") },
-          { key: "D / 3", label: t("help.sketch.diamond") },
-          { key: "E / 4", label: t("help.sketch.ellipse") },
-          { key: "A / 5", label: t("help.sketch.arrow") },
-          { key: "L / 6", label: t("help.sketch.line") },
-          { key: "P / 7", label: t("help.sketch.pen") },
-          { key: "T / 8", label: t("help.sketch.text") },
-          { key: "0 / 9", label: t("help.sketch.eraser") },
-          { key: "⌘Z / ⇧⌘Z", label: t("help.sketch.undoRedo") },
-          { key: "⌘D / Ctrl+D", label: t("help.sketch.duplicate") },
-          { key: "Delete / ⌫", label: t("help.sketch.delete") },
-        ]
-      case "database":
-        return [
-          { key: "Space / Enter", label: t("help.database.openRow") },
-          { key: "Enter", label: t("help.database.editCell") },
-          { key: "Tab / ⇧Tab", label: t("help.database.navigate") },
-          { key: "Esc", label: t("help.database.cancel") },
-          { key: "⌘F / Ctrl+F", label: t("help.database.search") },
-        ]
-      case "workspace":
-      default:
-        return [
-          { key: "⌘P / Ctrl+P", label: t("help.general.quickOpen") },
-          { key: "⇧⌘F / Ctrl+Shift+F", label: t("help.general.search") },
-          { key: "⌘N / Ctrl+N", label: t("help.general.newNote") },
-          { key: "⌘B / Ctrl+B", label: t("help.general.toggleLeftSidebar") },
-          { key: "⇧⌘B / Ctrl+Shift+B", label: t("help.general.toggleRightSidebar") },
-          { key: "⌘, / Ctrl+,", label: t("help.general.settings") },
-          { key: "⌘[ / Ctrl+[", label: t("help.general.back") },
-          { key: "⌘] / Ctrl+]", label: t("help.general.forward") },
-        ]
+    const observer = new ResizeObserver(measure)
+    for (const element of cardRefs.current.values()) observer.observe(element)
+    measure()
+    const rails = document.querySelectorAll("[data-help-rail]")
+    rails.forEach((rail) => rail.addEventListener("scroll", measure))
+    return () => {
+      observer.disconnect()
+      rails.forEach((rail) => rail.removeEventListener("scroll", measure))
     }
-  }, [activeTab, t])
+  }, [open, width, height, targets, mode])
+
+  const renderGroups = (side: "left" | "right") =>
+    groups
+      .filter((group) => group.side === side)
+      .map((group) => {
+        const Icon = GROUP_ICONS[group.icon]
+        return (
+          <section
+            key={group.id}
+            ref={(element) => {
+              if (element) cardRefs.current.set(group.id, element)
+              else cardRefs.current.delete(group.id)
+            }}
+            className={cn(
+              "amby-help-group",
+              active?.group === group.id && "amby-help-group-active",
+            )}
+            data-help-group={group.id}
+            aria-label={t(`help.guide.groups.${group.id}`)}
+          >
+            <div className="amby-help-group-heading">
+              <span className="amby-help-group-number">{group.number}</span>
+              <Icon size={15} aria-hidden="true" />
+              <h2>{t(`help.guide.groups.${group.id}`)}</h2>
+            </div>
+            <div className="amby-help-group-actions">
+              {group.targets.map((target) => (
+                <div key={target.id}>
+                  <button
+                    type="button"
+                    data-help-tip={target.id}
+                    className="amby-help-tip"
+                    aria-pressed={activeId === target.id}
+                    onPointerEnter={(event) => {
+                      if (event.pointerType !== "touch") setActiveId(target.id)
+                    }}
+                    onFocus={() => setActiveId(target.id)}
+                    onClick={() => setActiveId(target.id)}
+                    aria-describedby={`${detailId}-${target.id}`}
+                  >
+                    <span>{t(`help.guide.tips.${target.id}.title`)}</span>
+                    <ArrowUpRight size={12} aria-hidden="true" />
+                  </button>
+                  <div
+                    id={`${detailId}-${target.id}`}
+                    className="amby-help-inline-detail"
+                    data-active={activeId === target.id}
+                  >
+                    <p>{targetDescription(target.id)}</p>
+                    {target.shortcut && <kbd>{formatShortcut(bindings[target.shortcut])}</kbd>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )
+      })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg border-border bg-popover text-foreground">
-        <DialogHeader>
-          <DialogTitle className="text-base font-semibold">{t("help.title")}</DialogTitle>
-          <p className="text-xs text-muted-foreground">{t("help.desc")}</p>
-        </DialogHeader>
-
-        {/* Category Tabs */}
-        <div className="mt-1 flex items-center gap-1 rounded-xl border border-border/80 bg-muted/40 p-1">
-          {tabs.map((tab) => {
-            const isActive = activeTab === tab.id
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={cn(
-                  "flex-1 rounded-lg px-2 py-1.5 text-xs font-medium",
-                  isActive
-                    ? "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
-                )}
+      <DialogPortal>
+        <DialogOverlay className="amby-help-backdrop bg-transparent" />
+        <MotionContent
+          data-help-screen
+          onOpenAutoFocus={(event) => {
+            event.preventDefault()
+            const previous = document.activeElement
+            returnFocusRef.current =
+              previous instanceof HTMLElement && previous !== document.body
+                ? previous
+                : document.querySelector<HTMLElement>('[data-activity-button="help"]')
+            closeRef.current?.focus()
+          }}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            if (returnFocusRef.current?.isConnected)
+              returnFocusRef.current.focus({ preventScroll: true })
+            document
+              .querySelector<HTMLElement>('[data-activity-button="help"]')
+              ?.focus({ preventScroll: true })
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") return
+            event.stopPropagation()
+            if (Object.values(bindings).some((binding) => matchesShortcut(event, binding)))
+              event.preventDefault()
+          }}
+          data-layout={mode}
+          className="amby-help-screen"
+          style={{ pointerEvents: "none" }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={motionTransitions.enter}
+        >
+          <svg className="amby-help-canvas" width={width} height={height} aria-hidden="true">
+            <defs>
+              <marker
+                id={markerId}
+                markerWidth="7"
+                markerHeight="7"
+                refX="6"
+                refY="3.5"
+                orient="auto"
+                markerUnits="userSpaceOnUse"
               >
-                {tab.label}
-              </button>
-            )
-          })}
-        </div>
-
-        {/* Shortcuts List */}
-        <div className="mt-2 max-h-[50vh] divide-y divide-border/60 overflow-y-auto rounded-xl border border-border/80 bg-card/60">
-          {items.map((it, idx) => (
-            <div key={idx} className="flex items-center justify-between px-3.5 py-2 text-xs">
-              <span className="text-foreground/90">{it.label}</span>
-              <kbd className="rounded border border-border bg-muted/80 px-1.5 py-0.5 font-mono text-[11px] text-foreground">
-                {it.key}
-              </kbd>
-            </div>
-          ))}
-        </div>
-      </DialogContent>
+                <path d="M1 1 L6 3.5 L1 6" className="amby-help-arrowhead" />
+              </marker>
+              <mask id={maskId}>
+                <rect width="100%" height="100%" className="amby-help-mask-base" />
+                {active && (
+                  <rect
+                    x={active.rect.left - 4}
+                    y={active.rect.top - 4}
+                    width={active.rect.width + 8}
+                    height={active.rect.height + 8}
+                    rx={9}
+                    className="amby-help-mask-hole"
+                  />
+                )}
+              </mask>
+            </defs>
+            <rect width="100%" height="100%" className="amby-help-scrim" mask={`url(#${maskId})`} />
+            {mode === "spacious" &&
+              groups.map((group) => {
+                const target = active?.group === group.id ? active : group.targets[0]
+                const card = cardRects[group.id]
+                if (!card) return null
+                const path = helpConnector(card, target.rect)
+                const selected = active?.id === target.id
+                return (
+                  <g
+                    key={group.id}
+                    className={cn(
+                      "amby-help-connector",
+                      active && !selected && "amby-help-connector-muted",
+                      selected && "amby-help-connector-active",
+                    )}
+                  >
+                    {path && <path d={path} markerEnd={`url(#${markerId})`} />}
+                    {path && (
+                      <rect
+                        x={target.rect.left - 3}
+                        y={target.rect.top - 3}
+                        width={target.rect.width + 6}
+                        height={target.rect.height + 6}
+                        rx={8}
+                        className="amby-help-target-outline"
+                      />
+                    )}
+                  </g>
+                )
+              })}
+            {active && (
+              <rect
+                data-help-highlight={active.id}
+                x={active.rect.left - 4}
+                y={active.rect.top - 4}
+                width={active.rect.width + 8}
+                height={active.rect.height + 8}
+                rx={9}
+                className="amby-help-highlight"
+              />
+            )}
+          </svg>
+          <div className="amby-help-composition">
+            <aside
+              className="amby-help-rail amby-help-rail-left"
+              data-help-rail
+              aria-label={t("help.guide.navigation")}
+            >
+              {renderGroups("left")}
+            </aside>
+            <section className="amby-help-center">
+              <header className="amby-help-header">
+                <div className="amby-help-eyebrow">
+                  <Sparkles size={13} aria-hidden="true" />
+                  {t("help.guide.eyebrow")}
+                </div>
+                <DialogTitle className="amby-help-title">{t("help.guide.title")}</DialogTitle>
+                <DialogDescription className="sr-only">
+                  {t("help.guide.description")}
+                </DialogDescription>
+                <DialogPrimitive.Close
+                  ref={closeRef}
+                  className="amby-help-close"
+                  aria-label={t("common.close")}
+                >
+                  <X size={17} />
+                </DialogPrimitive.Close>
+              </header>
+              <HelpShortcuts key={initialContext} context={initialContext} />
+              <div
+                className={cn("amby-help-detail", active && "amby-help-detail-active")}
+                data-help-detail
+              >
+                <div className="amby-help-detail-icon">
+                  {active ? <MousePointer2 size={17} /> : <MapIcon size={17} />}
+                </div>
+                <div>
+                  <h2>
+                    {active
+                      ? t(`help.guide.tips.${active.id}.title`)
+                      : t("help.guide.exploreTitle")}
+                  </h2>
+                  <p>
+                    {active ? targetDescription(active.id) : t("help.guide.exploreDescription")}
+                  </p>
+                  {active?.shortcut && <kbd>{formatShortcut(bindings[active.shortcut])}</kbd>}
+                </div>
+              </div>
+              <footer className="amby-help-footer">
+                <span>
+                  <Keyboard size={13} aria-hidden="true" />
+                  {t("help.guide.customShortcuts")}
+                </span>
+                <DialogPrimitive.Close className="amby-help-dismiss">
+                  <kbd>{t("help.guide.escapeKey")}</kbd>
+                  {t("help.guide.close")}
+                </DialogPrimitive.Close>
+              </footer>
+            </section>
+            <aside
+              className="amby-help-rail amby-help-rail-right"
+              data-help-rail
+              aria-label={t("help.guide.pageTools")}
+            >
+              {renderGroups("right")}
+            </aside>
+          </div>
+        </MotionContent>
+      </DialogPortal>
     </Dialog>
   )
 }

@@ -1,21 +1,46 @@
 "use client"
 
 import * as React from "react"
-import { ChevronRight, FileText, Hash, Loader2 } from "lucide-react"
+import { ArrowDownUp, Check, ChevronRight, Hash, Loader2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { motion } from "motion/react"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { MotionSpinner } from "@/lib/motion"
-import { motionTransitions } from "@/lib/motion-config"
 import type { TreeItem } from "./sidebar-tree"
 import { extractObsidianTags } from "./markdown-tags"
 import { isTauri, listTags } from "@/lib/storage"
 import { PanelHeader, PanelSearch } from "./panels/panel-header"
 import { useTagFocusStore } from "./tags/tag-focus-store"
+import { buildTagTree, sortTagTree, type TagNode, type TagSort } from "./tags/tag-tree"
+import { TreeItemIcon } from "./tree/tree-icons"
+import { treeRowInsetStyle } from "./tree/tree-metrics"
+
+type TagFileEntry = { item: TreeItem; path: string }
 
 interface TagEntry {
   tag: string
-  files: Array<{ item: TreeItem; path: string }>
+  files: TagFileEntry[]
+  /** The notes carrying exactly this tag, not one of its nested tags. */
+  direct: TagFileEntry[]
 }
+
+const TAG_SORT_STORAGE_KEY = "amby:tags-sort"
+
+function readTagSort(): TagSort {
+  try {
+    return localStorage.getItem(TAG_SORT_STORAGE_KEY) === "count" ? "count" : "name"
+  } catch {
+    return "name"
+  }
+}
+
+const rowClassName =
+  "amby-density-inline-padding-left amby-tree-row flex w-full items-center gap-1.5 rounded py-1 pr-[23px] text-left text-[13px] hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
 
 interface SidebarTagsProps {
   items: TreeItem[]
@@ -78,6 +103,8 @@ export function SidebarTags({ items, onSelect, readFile, vault }: SidebarTagsPro
         )
       }
 
+      const directByTag = new Map([...tagMap.entries()].map(([tag, files]) => [tag, [...files]]))
+
       // Parent tag queries include every descendant (`inbox` includes `inbox/to-read`).
       for (const [tag, files] of [...tagMap.entries()]) {
         const parts = tag.split("/")
@@ -96,7 +123,7 @@ export function SidebarTags({ items, onSelect, readFile, vault }: SidebarTagsPro
       if (cancelled) return
       const sorted = [...tagMap.entries()]
         .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([tag, files]) => ({ tag, files }))
+        .map(([tag, files]) => ({ tag, files, direct: directByTag.get(tag) ?? [] }))
       setTags(sorted)
       setLoading(false)
     }
@@ -127,15 +154,108 @@ export function SidebarTags({ items, onSelect, readFile, vault }: SidebarTagsPro
       return next
     })
   }
-  const visibleTags = React.useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase()
-    if (!normalized) return tags
-    return tags.filter((entry) => entry.tag.toLocaleLowerCase().includes(normalized))
-  }, [query, tags])
+  const [sort, setSort] = React.useState<TagSort>(readTagSort)
+  function chooseSort(next: TagSort) {
+    setSort(next)
+    try {
+      localStorage.setItem(TAG_SORT_STORAGE_KEY, next)
+    } catch {
+      // The order is a convenience; the list works without remembering it.
+    }
+  }
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const roots = React.useMemo(() => sortTagTree(buildTagTree(tags), sort), [sort, tags])
+  // A search lists the matching tags flat, each under its full name; otherwise tags nest.
+  const searchResults = React.useMemo(() => {
+    if (!normalizedQuery) return null
+    const matches = tags.filter((entry) => entry.tag.toLocaleLowerCase().includes(normalizedQuery))
+    return sortTagTree(
+      matches.map((entry) => ({ ...entry, label: entry.tag, children: [] })),
+      sort,
+    )
+  }, [normalizedQuery, sort, tags])
+  const visibleRoots = searchResults ?? roots
+
+  function renderNode(node: TagNode<TreeItem>, level: number): React.ReactNode {
+    const isOpen = openTags.has(node.tag)
+    return (
+      <div key={node.tag}>
+        <button
+          type="button"
+          aria-expanded={isOpen}
+          onClick={() => toggleTag(node.tag)}
+          className={rowClassName}
+          style={treeRowInsetStyle(level)}
+          title={`#${node.tag}`}
+        >
+          <span className="amby-tree-folder-icon relative inline-flex size-4 shrink-0 items-center justify-center">
+            <Hash className="amby-tree-main-icon size-4 text-muted-foreground" />
+            <span className="amby-tree-folder-toggle absolute inset-0 flex items-center justify-center text-muted-foreground">
+              <ChevronRight className={`size-3 transition ${isOpen ? "rotate-90" : ""}`} />
+            </span>
+          </span>
+          <span className="min-w-0 flex-1 truncate text-foreground">{node.label}</span>
+          <span className="shrink-0 text-[11px] text-muted-foreground">{node.files.length}</span>
+        </button>
+        {isOpen && (
+          <>
+            {node.children.map((child) => renderNode(child, level + 1))}
+            {node.direct.map(({ item, path }) => (
+              <button
+                type="button"
+                key={item.id}
+                onClick={() => onSelect(item.id)}
+                className={rowClassName}
+                style={treeRowInsetStyle(level + 1)}
+                title={path ? `${path} › ${item.name}` : item.name}
+              >
+                <TreeItemIcon item={item} className="text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate text-foreground">{item.name}</span>
+              </button>
+            ))}
+          </>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PanelHeader title={t("panels.tags")} />
+      <PanelHeader
+        title={t("panels.tags")}
+        actions={
+          tags.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
+                  title={t("tagsPanel.sortOrder")}
+                  aria-label={t("tagsPanel.sortOrder")}
+                >
+                  <ArrowDownUp className="size-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="w-56 border-border bg-popover text-foreground"
+              >
+                {(["name", "count"] as const).map((key) => (
+                  <DropdownMenuItem
+                    key={key}
+                    className="relative pr-8 text-[13px] focus:bg-accent focus:text-white"
+                    onSelect={() => chooseSort(key)}
+                  >
+                    {t(key === "name" ? "tagsPanel.sortName" : "tagsPanel.sortCount")}
+                    {sort === key && <Check className="absolute right-2 size-3.5 text-primary" />}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )
+        }
+      />
       {tags.length > 0 && (
         <PanelSearch
           value={query}
@@ -161,75 +281,14 @@ export function SidebarTags({ items, onSelect, readFile, vault }: SidebarTagsPro
           <p className="text-[12px] text-muted-foreground">{t("tagsPanel.empty")}</p>
           <p className="text-[11px] text-muted-foreground">{t("tagsPanel.emptyHint")}</p>
         </div>
-      ) : visibleTags.length === 0 ? (
+      ) : visibleRoots.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
           <p className="text-[12px] text-muted-foreground">{t("tagsPanel.noResults")}</p>
           <p className="text-[11px] text-muted-foreground">{t("tagsPanel.noResultsHint")}</p>
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto">
-          <div className="flex flex-col gap-px px-4 pb-4">
-            {visibleTags.map(({ tag, files }) => {
-              const isOpen = openTags.has(tag)
-              const parts = tag.split("/")
-              const depth = parts.length - 1
-              const label = parts[parts.length - 1]
-              return (
-                <div key={tag}>
-                  <button
-                    onClick={() => toggleTag(tag)}
-                    className="amby-density-inline-padding-left flex w-full items-start gap-1.5 rounded px-2 py-1.5 text-left hover:bg-accent"
-                    style={
-                      {
-                        paddingLeft: `${0.5 + depth * 0.75}rem`,
-                        "--amby-density-padding-left": `${0.5 + depth * 0.75}rem`,
-                      } as React.CSSProperties
-                    }
-                    title={`#${tag}`}
-                  >
-                    <motion.span
-                      className="flex shrink-0 text-muted-foreground"
-                      initial={false}
-                      animate={{ rotate: isOpen ? 90 : 0 }}
-                      transition={motionTransitions.default}
-                    >
-                      <ChevronRight className="size-3" />
-                    </motion.span>
-                    <Hash className="size-3.5 shrink-0 text-primary" />
-                    <span className="min-w-0 flex-1 whitespace-normal break-words text-[13px] leading-4 text-foreground [overflow-wrap:anywhere]">
-                      {label}
-                    </span>
-                    <span className="mt-0.5 shrink-0 text-[11px] text-muted-foreground">
-                      {files.length}
-                    </span>
-                  </button>
-                  {isOpen && (
-                    <div className="ml-4 flex flex-col gap-px">
-                      {files.map(({ item, path }) => (
-                        <button
-                          key={item.id}
-                          onClick={() => onSelect(item.id)}
-                          className="flex w-full items-start gap-1.5 rounded px-2 py-1 text-left hover:bg-accent"
-                        >
-                          <FileText className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-                          <div className="min-w-0">
-                            <p className="whitespace-normal break-words text-[12px] leading-4 text-foreground [overflow-wrap:anywhere]">
-                              {item.name}
-                            </p>
-                            {path && (
-                              <p className="whitespace-normal break-words text-[10px] leading-4 text-muted-foreground [overflow-wrap:anywhere]">
-                                {path}
-                              </p>
-                            )}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
+        <div className="flex-1 overflow-y-auto pb-4">
+          {visibleRoots.map((node) => renderNode(node, 0))}
         </div>
       )}
     </div>

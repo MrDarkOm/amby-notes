@@ -4,12 +4,28 @@ import type { CredentialInfo, SettingsReadResult } from "./types"
 export class SettingsRepository {
   constructor(private readonly port: () => StoragePort) {}
 
+  async migrateAiSettings(): Promise<void> {
+    await this.port().migrateAiSettings()
+  }
+
+  async rollbackAiSettings(): Promise<void> {
+    await this.port().rollbackAiSettings()
+  }
+
   async readGlobalRaw(file: string): Promise<string | null> {
     return this.port().readGlobalRaw(file)
   }
 
   async writeGlobalRaw(file: string, contents: string): Promise<void> {
     return this.port().writeGlobalRaw(file, contents)
+  }
+
+  async compareWriteGlobalRaw(
+    file: string,
+    expected: string | null,
+    contents: string,
+  ): Promise<boolean> {
+    return this.port().compareWriteGlobalRaw(file, expected, contents)
   }
 
   async readVaultRaw(rel: string): Promise<string | null> {
@@ -33,7 +49,7 @@ export class SettingsRepository {
     }
     if (raw === null) return { status: "missing" }
     try {
-      const data = JSON.parse(raw) as T
+      const data = JSON.parse(raw.replace(/^\uFEFF/, "")) as T
       return { status: "found", data }
     } catch (err) {
       return { status: "corrupt", raw, error: String(err) }
@@ -110,6 +126,10 @@ export class SettingsRepository {
 
   async storeAiCredential(credentialId: string, secret: string): Promise<void> {
     return this.port().storeAiCredential(credentialId, secret)
+  }
+
+  async deleteUnreferencedAiCredential(credentialId: string): Promise<boolean> {
+    return this.port().deleteUnreferencedAiCredential(credentialId)
   }
 
   async deleteAiCredential(credentialId: string): Promise<void> {

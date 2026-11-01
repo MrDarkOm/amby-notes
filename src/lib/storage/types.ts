@@ -270,3 +270,5 @@ export interface CredentialInfo {
   exists: boolean
   masked: string | null
 }
+
+export type { TrashPreview } from "../bindings"

@@ -1,5 +1,6 @@
 "use client"
 
+import { IS_SITE_DEMO } from "@/lib/site-demo"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { Check, FolderOpen, Settings2 } from "lucide-react"
@@ -38,11 +39,19 @@ export function WorkspacePicker({
 }: WorkspacePickerProps) {
   const { t } = useTranslation()
   const [open, setOpen] = React.useState(false)
+  if (IS_SITE_DEMO) {
+    return React.cloneElement(
+      children as React.ReactElement<React.ButtonHTMLAttributes<HTMLButtonElement>>,
+      { disabled: true, "aria-disabled": true },
+    )
+  }
   const attachedVaults = vaults.filter((vault) => !vault.detached)
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverTrigger asChild data-help-target="workspace">
+        {children}
+      </PopoverTrigger>
       <PopoverContent
         align="start"
         sideOffset={4}

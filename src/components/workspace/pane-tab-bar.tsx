@@ -138,7 +138,6 @@ export function PaneTabBar({
                 key={tab.key}
                 tab={tab}
                 paneId={paneId}
-                layoutGroupId={`activePaneTabPill-${paneId}`}
                 isSelected={isSelected}
                 isPaneFocused={isPaneFocused}
                 isUnsaved={unsavedFileIds?.has(tab.fileId)}

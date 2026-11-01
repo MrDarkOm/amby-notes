@@ -380,9 +380,9 @@ const ru = {
       moduleNotInstalledDescription:
         "Модуль «{{name}}» не установлен в системе. Хотите загрузить и установить актуальную версию?",
       downloadAndEnableAction: "Загрузить и включить",
-      installedVersion: "Установленная версия: {{version}}",
+      installedVersion: "Версия: {{version}}",
       notInstalled: "Не установлен",
-      checkUpdates: "Проверить обновление",
+      checkUpdates: "Проверить",
       checkingUpdates: "Проверка обновлений…",
       upToDate: "Установлена актуальная версия",
       updateAvailableTitle: "Доступно обновление",
@@ -545,7 +545,7 @@ const ru = {
       autosaveHint: "Задержка перед записью на диск, мс",
     },
     ai: {
-      desc: "Библиотека моделей и провайдеров. Те же настройки доступны в панели ИИ.",
+      desc: "Библиотека моделей и провайдеров, вход в Codex. Открывается и кнопкой настроек в панели ИИ.",
     },
     startup: {
       reopenLastVault: "Открывать последнее хранилище при запуске",
@@ -704,6 +704,37 @@ const ru = {
     ai: "AI",
     creative: "Мастерская",
   },
+  snapshotPreview: {
+    mode: "Режим предпросмотра",
+    read: "Просмотр",
+    source: "Исходный текст",
+    loading: "Загрузка предпросмотра",
+    readFailed: "Не удалось открыть режим просмотра. Показан исходный текст.",
+    image: "Изображение: {{name}}",
+  },
+  archivePanel: {
+    preview: "Предпросмотр",
+    previewEntry: "Предпросмотр «{{name}}»",
+    previewReadOnly: "Только чтение · запись остаётся в архиве",
+    previewBack: "Назад к содержимому папки",
+    previewFailed: "Не удалось открыть предпросмотр. Запись могла быть восстановлена или удалена.",
+    previewLoading: "Загрузка предпросмотра",
+    previewFolderEmpty: "Папка пуста",
+    previewFileEmpty: "Файл пуст",
+    previewUnsupported: "Для этого формата предпросмотр пока недоступен.",
+    previewTruncated: "Показана только часть содержимого.",
+    today: "Сегодня",
+    yesterday: "Вчера",
+    earlier: "Ранее",
+    vaultRoot: "Корень хранилища",
+    unknownDate: "Дата неизвестна",
+    archivedAt: "В архиве с {{date}}",
+    restoreEntry: "Восстановить «{{name}}»",
+    entryActions: "Действия с «{{name}}»",
+    loadFailed: "Не удалось загрузить архив.",
+    restoreFailed: "Не удалось восстановить запись.",
+    deleteFailed: "Не удалось удалить запись из архива.",
+  },
   databasePanel: {
     status: {
       idle: "Ожидание",
@@ -719,7 +750,14 @@ const ru = {
     loadFailed: "Не удалось загрузить базы данных",
     empty: "Баз данных пока нет",
     emptyHint: "Создайте базу через меню новой базы в панели файлов.",
-    diagnostics: "Диагностик: {{count}}",
+    diagnostics: "Проблем: {{count}}",
+    locationUnavailable: "Расположение недоступно",
+    chooseView: "Выбрать представление",
+    actions: "Действия с базой",
+    openNewTab: "Открыть в новой вкладке",
+    openNote: "Открыть связанную заметку",
+    duplicateTitle:
+      "Есть другая база с таким же названием. Их можно различить по пути под названием.",
     views: "Представлений: {{count}}",
     open: "Открыть базу",
   },
@@ -1237,11 +1275,20 @@ const ru = {
     creativeSettings: "Настройки мастерской",
     generalSettings: "Общие настройки",
     presetSection: "Пресет",
+    presetModified: "Изменён",
+    presetSaveChanges: "Сохранить в «{{name}}»",
+    presetSaveAs: "Сохранить как пресет…",
+    presetReset: "Сбросить изменения",
+    presetManage: "Управление пресетами…",
+    presetTransfer: "Экспорт и импорт",
+    layoutHint: "Где запоминать раскладку панелей: одна для всех хранилищ или своя у каждого.",
+    layoutGlobal: "Общая для всех хранилищ",
+    layoutWorkspace: "Отдельная для этого хранилища",
+    presetNoModules: "Только заметки, архив и поиск, без дополнительных модулей.",
+    presetModules: "Модули: {{modules}}.",
     exportCurrent: "Экспорт текущего",
     importPreset: "Импорт пресета…",
     layoutSection: "Раскладка панелей",
-    layoutGlobal: "Общая для всех",
-    layoutWorkspace: "Для этого воркспейса",
     zoneSections: "Кнопки разделов",
     zoneActions: "Кнопки действий",
     hideButton: "Скрыть с панели",
@@ -1618,6 +1665,9 @@ const ru = {
   },
   tagsPanel: {
     search: "Поиск тегов",
+    sortOrder: "Порядок тегов",
+    sortName: "По названию",
+    sortCount: "По числу заметок",
     scanning: "Сканирование тегов…",
     noAccess: "Нет доступа к файлам",
     empty: "Нет тегов",
@@ -1631,12 +1681,77 @@ const ru = {
     modelsAndProviders: "Модели и провайдеры",
     noModelConfigured: "Не настроена ни одна модель — откройте настройки (шестерёнка).",
     noModelShort: "Не настроена модель",
+    selectModel: "Выберите доступную модель для этой беседы.",
     contextPrefix: "Контекст:",
+    contextTruncated: "обрезано",
+    removeContext: "Убрать заметку из контекста",
+    attachedNotes: "Прикреплённые заметки",
+    addContext: "Добавить текущую заметку",
+    chatList: "Беседы",
+    newChat: "Новая беседа",
+    unnamedChat: "Новая беседа",
+    searchChats: "Поиск бесед…",
+    noChats: "Сохранённых бесед пока нет.",
+    today: "Сегодня",
+    yesterday: "Вчера",
+    earlier: "Ранее",
+    renameChat: "Переименовать беседу",
+    deleteChat: "В архив",
+    chatUnavailable: "Беседа недоступна",
+    chatReadOnly: "Только чтение: другой формат или неизвестные поля",
+    chatSaveFailed:
+      "Не удалось сохранить или загрузить беседу. Проверьте хранилище и повторите попытку.",
+    saveName: "Сохранить название",
+    cancelRename: "Отменить переименование",
+    addMention: "Добавить заметку или папку",
+    noMentions: "Ничего не найдено",
+    searchVault: "Поиск по хранилищу",
+    toolsDisabled:
+      "Модель не поддерживает инструменты. Включите их у модели в Настройки → Модули → AI (значок гаечного ключа).",
+    localModel: "локально",
+    cloudModel: "облако",
+    consentTitle: "Разрешить облачный поиск?",
+    consentMessage:
+      "ИИ сможет искать и читать заметки этого хранилища и отправлять найденный текст провайдеру {{provider}}.",
+    consentAllow: "Разрешить",
+    consentDeny: "Без поиска",
+    codexConsentTitle: "Разрешить Codex читать ваши заметки?",
+    codexConsentMessage:
+      "Codex — отдельный агент ChatGPT, запущенный Amby в изоляции: у него нет доступа к файлам вашего компьютера, только инструменты чтения Amby для заметок, которые вы выбрали. Текст разговора и прочитанные им заметки уходят в ChatGPT. Любая попытка выйти за эти рамки останавливает ответ.",
+    codexConsentDeny: "Отмена",
+    codexDenied: "Без вашего разрешения Codex не запускается.",
+    claudeConsentTitle: "Разрешить Claude Code читать ваши заметки?",
+    claudeConsentMessage:
+      "Claude Code — отдельный агент Anthropic, запущенный Amby в изоляции: у него нет оболочки, файлов вашего компьютера и сети, только инструменты чтения Amby для заметок, которые вы выбрали. Текст разговора и прочитанные им заметки уходят в Anthropic. Любая попытка выйти за эти рамки останавливает ответ.",
+    claudeConsentDeny: "Отмена",
+    claudeDenied: "Без вашего разрешения Claude Code не запускается.",
+    source: "Источник",
+    copied: "Скопировано",
+    copy: "Копировать",
+    retry: "Повторить",
+    saveAsNote: "Сохранить как заметку",
+    searching: "Искал «{{query}}» · {{count}} заметок",
+    reading: "Прочитал «{{query}}»",
+    listing: "Просмотрел папку «{{query}}» · {{count}} заметок",
+    linking: "Проверил связи «{{query}}»",
+    toolOther: "Шаг ИИ: {{tool}}",
+    toolFailed: "Не удалось выполнить шаг",
+    indexTooLarge: "Индекс слишком велик для безопасного чтения ИИ (более 512 МБ).",
+    examples: "Например: выдели главные мысли или найди связанные заметки.",
     untitled: "без названия",
     noNote: "нет открытой заметки",
     askAboutNote: "Спросите что-нибудь о текущей заметке.",
     thinking: "Думаю…",
     messagePlaceholder: "Сообщение…",
+    settings: "Настройки ИИ",
+    manageModels: "Управлять моделями",
+    emptyTitle: "Спросите про ваши заметки",
+    emptyHint:
+      "ИИ видит только выбранный контекст. Включите поиск, чтобы он искал по всему хранилищу.",
+    emptyHintSearch: "Поиск включён: ИИ может искать и читать заметки всего хранилища.",
+    suggestSummarize: "Кратко перескажи эту заметку",
+    suggestLinks: "Найди связанные заметки",
+    suggestTasks: "Какие задачи здесь упомянуты?",
     send: "Отправить",
     stop: "Остановить",
     cancelled: "Запрос отменён",
@@ -1650,6 +1765,21 @@ const ru = {
       missingCredential: "Не задан API-ключ для выбранного провайдера.",
       invalidConfiguration: "Проверьте настройки подключения к AI-провайдеру.",
       providerRejected: "AI-провайдер отклонил запрос. Проверьте ключ и лимиты аккаунта.",
+      agentBoundary:
+        "Codex попытался выйти за рамки, которые разрешает Amby, и был остановлен. Ничего не выполнено, ответ не показан.",
+      claudeBoundary:
+        "Claude Code попытался выйти за рамки, которые разрешает Amby, и был остановлен. Ничего не выполнено, ответ не показан.",
+      claudeSignedOut:
+        "Вы не вошли в Claude Code. Откройте настройки ИИ и нажмите «Войти через Claude».",
+      claudeRejected:
+        "Claude Code отклонил запрос. Проверьте выбранную модель и лимиты аккаунта Claude.",
+      codexSignedOut:
+        "Вы не вошли в Codex. Откройте настройки модели и нажмите «Войти через ChatGPT».",
+      codexRejected:
+        "Codex отклонил запрос. Проверьте название модели в настройках (пустое поле — модель Codex по умолчанию) и лимиты аккаунта ChatGPT.",
+      toolsUnsupported: "Модель не поддерживает инструменты. Выключите их в настройках модели.",
+      privacyConsentRequired:
+        "Для поиска через облачную модель необходимо согласие на отправку найденного текста провайдеру.",
       invalidResponse: "AI-провайдер вернул некорректный ответ.",
       network: "Не удалось подключиться к AI-провайдеру. Проверьте сеть и адрес сервера.",
       requestFailed: "Не удалось выполнить AI-запрос. Повторите попытку.",
@@ -1661,11 +1791,87 @@ const ru = {
       explain: "Объяснить",
     },
   },
+  aiConnections: {
+    add: "Добавить провайдера",
+    provider: "Провайдер",
+    method: "Способ подключения",
+    api: "API",
+    cli: "Codex CLI",
+    claudeCli: "Claude Code CLI",
+    name: "Название подключения",
+    endpoint: "Адрес сервера",
+    key: "API-ключ",
+    keyHint: "Оставьте пустым, чтобы не менять ключ",
+    addConnection: "Добавить подключение",
+    save: "Сохранить",
+    refresh: "Обновить модели",
+    loading: "Загрузка…",
+    search: "Поиск моделей",
+    empty: "Модели ещё не загружены",
+    enabled: "Включить модель {{model}}",
+    unavailable: "Недоступна",
+    catalogUpdated: "Обновлено: {{time}}",
+    catalogHint:
+      "Каталог ограничен подходящими текстовыми моделями и не подтверждает доступ аккаунта. Первые модели включаются при первой загрузке, модели, появившиеся позже, выключены; инструменты при неизвестной поддержке недоступны.",
+    addLocal: "Добавить локальную модель",
+    modelId: "ID модели",
+    remove: "Удалить подключение",
+    removeConfirm:
+      "Удалить подключение и его ключ, если он не используется другими подключениями? История бесед сохранится.",
+    saveError: "Не удалось сохранить настройки. Повторите попытку.",
+    loadError: "Не удалось загрузить настройки ИИ.",
+    keyError: "Не удалось сохранить ключ.",
+    catalogError: "Не удалось получить список моделей. Прежний список сохранён.",
+    azureHint:
+      "Список развёртываний Azure требует доступа к управлению подпиской. Существующие модели сохранены.",
+    codexMissing: "Codex CLI не установлен.",
+    codexUnsupported: "Установлена неподдерживаемая версия Codex CLI.",
+    codexSignedOut: "Codex установлен, но вход не выполнен.",
+    codexReady: "Codex подключён к ChatGPT.",
+    claudeMissing: "Claude Code CLI не установлен.",
+    claudeUnsupported: "Установлена неподдерживаемая версия Claude Code CLI.",
+    claudeSignedOut: "Claude Code установлен, но вход не выполнен.",
+    claudeReady: "Claude Code подключён к аккаунту Claude.",
+    claudeSignIn: "Войти через Claude",
+    claudeIsolation:
+      "Amby использует отдельный вход Claude Code в собственной папке настроек; вход в вашем терминале не переносится. Оболочка, MCP и другие инструменты отключены: доступны только инструменты чтения Amby.",
+    install: "Инструкция по установке",
+    copyCommand: "Скопировать команду установки",
+    check: "Проверить снова",
+    signIn: "Войти через ChatGPT",
+    signOut: "Выйти",
+    cancel: "Отменить вход",
+    codexIsolation:
+      "Amby использует отдельный вход Codex; вход в вашем терминале не переносится автоматически.",
+    noConnection: "Добавьте подключение, чтобы выбрать модели.",
+    copied: "Скопировано",
+    keySaved: "Ключ сохранён",
+    invalid: "Проверьте заполненные поля.",
+    parameters: "Параметры подключения",
+    baseModel: "Базовая модель для новых бесед: {{model}}",
+    baseModelHint: "Базовая модель — с неё начинаются новые беседы",
+    cliShort: "CLI",
+    tools: "Инструменты модели {{model}}",
+    toolsHint:
+      "Модель умеет вызывать инструменты. Нужно для поиска по приложению в чате; включайте, если модель это поддерживает.",
+    notInstalled: "{{name}} не найден на этом компьютере.",
+    downloadApp: "Скачать {{name}}",
+    enabledCount: "включено {{on}} / {{all}}",
+    state_ready: "подключено",
+    state_signedOut: "вход не выполнен",
+    state_missing: "не установлен",
+    collapse: "Свернуть {{name}}",
+    expand: "Развернуть {{name}}",
+    moveUp: "Поднять модель {{model}}",
+    moveDown: "Опустить модель {{model}}",
+  },
   models: {
     empty: "Пока нет моделей. Добавьте первую ниже.",
     add: "Добавить модель",
     namePlaceholder: "Название",
     delete: "Удалить модель",
+    makeActive: "Сделать активной",
+    active: "Используется",
     provider: "Провайдер",
     local: "Локальные",
     cloud: "Облачные",
@@ -1673,6 +1879,7 @@ const ru = {
     model: "Модель",
     modelPlaceholder: "модель",
     optional: "необязательно",
+    supportsTools: "Модель поддерживает инструменты",
     apiKey: "API-ключ",
     apiVersion: "Версия API",
     keyPlaceholder: "ключ",
@@ -1681,6 +1888,19 @@ const ru = {
     keySaved: "Ключ сохранён",
     keychainError: "Не удалось выполнить операцию с ключом в хранилище ОС",
     privacyNote: "Текст текущей заметки уйдёт на сервер провайдера. Ключ хранится локально.",
+    codexModelPlaceholder: "По умолчанию в Codex",
+    codexPrivacyNote:
+      "Codex работает в изоляции: видит только инструменты чтения Amby и отправляет разговор и прочитанные заметки в ChatGPT. Вход выполняется отдельно для Amby, в браузере.",
+    codexStatus: {
+      missing: "Codex не найден. Установите Codex CLI и войдите командой codex login.",
+      unsupported: "Эта версия Codex не поддерживается. Обновите Codex CLI.",
+      signedOut: "Вы не вошли в Codex. Нажмите «Войти через ChatGPT».",
+      ready: "Codex готов к работе.",
+    },
+    codexSignIn: "Войти через ChatGPT",
+    codexSignOut: "Выйти",
+    codexWaiting: "Ждём подтверждения входа в браузере…",
+    codexCancel: "Отмена",
   },
   editor: {
     untitled: "Без названия",
@@ -2286,6 +2506,7 @@ const ru = {
     clearBg: "Очистить фон",
   },
   filesPanel: {
+    sectionFiles: "Файлы",
     createNote: "Создать заметку",
     createFolder: "Создать папку",
     createCanvas: "Создать Canvas",
@@ -2326,6 +2547,13 @@ const ru = {
     emptyHint: "Нажмите правой кнопкой на заметку и выберите «Добавить в избранное»",
     removeBookmark: "Убрать из избранного",
     noResults: "В избранном ничего не найдено",
+  },
+  favoritesPlacement: {
+    inTree: "Показывать в дереве файлов",
+    inTreeHint:
+      "Закладки выводятся сворачиваемым блоком над деревом. Блок скрыт, пока закладок нет.",
+    panel: "Отдельный раздел",
+    panelHint: "Добавляет в док отдельную вкладку «Избранное».",
   },
   workspace: {
     name: "Workspace",
@@ -2376,6 +2604,174 @@ const ru = {
       "Восстановить заметки из резервных копий незавершённой миграции ID? Несохранённые внешние изменения не будут перезаписаны.",
   },
   help: {
+    guide: {
+      eyebrow: "Под рукой",
+      title: "Ваше рабочее пространство",
+      description: "Карта интерфейса и быстрые действия для текущей страницы.",
+      currentPage: "Сейчас открыто:",
+      collapse: "Свернуть",
+      expand: "Развернуть",
+      collapseShortcuts: "Свернуть сочетания",
+      expandShortcuts: "Развернуть сочетания",
+      tipCount: "Подсказок: {{count}}",
+      shortcuts: "Сочетания клавиш",
+      shortcutCategory: "Категория сочетаний клавиш",
+      searchShortcuts: "Найти команду или сочетание…",
+      noShortcuts: "Ничего не найдено. Попробуйте другое название.",
+      exploreTitle: "Исследуйте интерфейс",
+      exploreDescription:
+        "Наведите на подсказку или выберите её с клавиатуры: нужный элемент подсветится, а здесь появятся подробности.",
+      customShortcuts: "Общие сочетания учитывают ваши настройки",
+      escapeKey: "Esc",
+      close: "Закрыть",
+      navigation: "Навигация и рабочее пространство",
+      pageTools: "Страница и дополнительные инструменты",
+      doubleClick: "Двойной щелчок",
+      groups: {
+        navigation: "Вкладки и открытие",
+        application: "Инструменты приложения",
+        files: "Файлы и порядок",
+        workspace: "Создание и пространства",
+        page: "Навигация по странице",
+        editor: "Работа с содержимым",
+        context: "Контекст страницы",
+        tools: "Управление страницей",
+      },
+      content: {
+        workspace:
+          "Содержимое текущей вкладки: заметка, папка, граф или другая страница. Справка подстраивается под видимые элементы.",
+        note: "Редактируйте заметку прямо на странице. В Live Preview выделение текста открывает панель форматирования; символ / в новой строке — меню блоков. В режиме исходника редактируется Markdown.",
+        canvas:
+          "Размещайте карточки и соединяйте их на холсте. Пробел временно включает перемещение, двойной щелчок позволяет редактировать карточку.",
+        sketch:
+          "Рисуйте с помощью инструментов зарисовки. Выбирайте фигуры, добавляйте текст и перемещайтесь по сцене инструментом «Рука».",
+        database:
+          "Работайте с записями и свойствами базы данных. Щёлкните ячейку для редактирования, а заметку строки откройте клавишей Enter или пробелом.",
+      },
+      tips: {
+        tabs: {
+          title: "Открытые вкладки",
+          description:
+            "Переключайтесь между страницами. Правый щелчок по вкладке открывает команды закрытия и разделения рабочей области.",
+        },
+        newTab: {
+          title: "Открыть или создать",
+          description:
+            "Кнопка «+» открывает окно выбора: найдите страницу или создайте новый элемент.",
+        },
+        sections: {
+          title: "Переключить раздел",
+          description:
+            "Кнопки на доке открывают разделы боковой панели. Их можно перетаскивать; правый щелчок открывает настройки дока.",
+        },
+        search: {
+          title: "Поиск по хранилищу",
+          description:
+            "Находите заметки по содержимому во всём хранилище. Это отдельный поиск от фильтра имён файлов.",
+        },
+        settings: {
+          title: "Настроить Amby",
+          description:
+            "Оформление, редактор, сочетания клавиш и встроенные модули настраиваются здесь.",
+        },
+        fileSearch: {
+          title: "Отфильтровать файлы",
+          description:
+            "Введите часть имени: дерево покажет подходящие файлы и папки. Для поиска по тексту используйте поиск по хранилищу.",
+        },
+        fileTools: {
+          title: "Сортировка и фильтры",
+          description:
+            "Выберите порядок файлов, фильтр по типу или сворачивание папок. Кнопка прицела включает показ текущего файла в дереве.",
+        },
+        tree: {
+          title: "Открыть и организовать",
+          description:
+            "Щёлкните файл, чтобы открыть его. Перетаскивайте элементы для перемещения; правый щелчок открывает действия с файлом или папкой.",
+        },
+        create: {
+          title: "Создать новый элемент",
+          description:
+            "Откройте меню создания заметки, папки или другого доступного типа документа. Сочетание клавиш создаёт заметку напрямую.",
+        },
+        workspace: {
+          title: "Сменить пространство",
+          description:
+            "Переключайтесь между подключёнными хранилищами, выбирайте папку или открывайте управление пространствами.",
+        },
+        pageHistory: {
+          title: "Назад и вперёд",
+          description:
+            "Перемещайтесь по истории открытых страниц в текущей вкладке. Неактивная стрелка означает, что в этом направлении ещё нет истории.",
+        },
+        breadcrumbs: {
+          title: "Путь к странице",
+          description:
+            "Цепочка показывает расположение страницы. Нажмите на родительскую папку, чтобы перейти к ней.",
+        },
+        focus: {
+          title: "Режим фокусировки",
+          description:
+            "Разверните страницу, скрыв обычное окружение. Повторное нажатие возвращает привычный вид; боковые панели доступны у краёв окна.",
+        },
+        pageMenu: {
+          title: "Все действия страницы",
+          description:
+            "Меню «⋯» собирает доступные действия: например, переименование, экспорт, режим просмотра и ширину содержимого. Набор зависит от страницы.",
+        },
+        layers: {
+          title: "Набросок и база данных",
+          description:
+            "К странице можно подключить набросок или базу данных. Кнопки в шапке страницы переключают между заметкой, наброском и базой данных. Тот же выбор есть в меню «⋯» → «Переключить слой».",
+        },
+        content: {
+          title: "Редактировать содержимое",
+          description: "",
+        },
+        info: {
+          title: "Свойства и сведения",
+          description: "Откройте сведения и свойства текущей страницы в боковой панели.",
+        },
+        attachments: {
+          title: "Вложения страницы",
+          description: "Просматривайте прикреплённые к странице файлы и управляйте ими.",
+        },
+        history: {
+          title: "Версии и восстановление",
+          description:
+            "Откройте историю сохранённых версий страницы. Просмотрите нужную версию перед восстановлением.",
+        },
+        links: {
+          title: "Связи между заметками",
+          description: "Посмотрите связи текущей заметки с другими страницами и переходите по ним.",
+        },
+        ai: {
+          title: "AI-помощник",
+          description:
+            "Откройте помощника для работы с текущей заметкой. Доступность зависит от настроенного провайдера.",
+        },
+        stats: {
+          title: "Сведения о странице",
+          description:
+            "Здесь отображаются доступные показатели страницы: например, число слов и время изменения.",
+        },
+        undo: {
+          title: "Отменить и повторить",
+          description:
+            "Кнопки возвращают предыдущее действие или повторяют отменённое в текущем содержимом.",
+        },
+        lock: {
+          title: "Защитить от правок",
+          description:
+            "Замок включает или выключает блокировку редактирования страницы. Состояние видно по значку.",
+        },
+        pageSettings: {
+          title: "Вид текущей страницы",
+          description:
+            "Откройте доступные настройки отображения страницы. Они зависят от типа открытого документа.",
+        },
+      },
+    },
     title: "Горячие клавиши и справка",
     desc: "Быстрые клавиши и жесты для эффективной работы в Amby",
     tabs: {
@@ -2436,6 +2832,9 @@ const ru = {
     },
   },
   presets: {
+    nameTitle: "Название пресета",
+    nameDescription: "Текущие модули и раскладка панелей сохранятся под этим названием.",
+    nameConfirm: "Сохранить",
     simple: "Простой",
     standard: "Стандартный",
     parseError: "Не удалось разобрать файл пресета",
@@ -2445,8 +2844,8 @@ const ru = {
     standard: "Стандарт",
     custom: "Кастомный",
     descriptions: {
-      minimal: "Заметки Markdown без дополнительных модулей.",
-      standard: "Заметки, базы, история и другие инструменты.",
+      minimal: "Без модулей",
+      standard: "Рекомендованный набор",
       custom: "Выберите нужные модули в настройках.",
     },
     details: {
@@ -2826,7 +3225,12 @@ const ru = {
         done: "Готово",
       },
       // Ready schemas of a story's text, offered when the story is created.
-      presets: { novel: "Роман", story: "Рассказ", comic: "Комикс", custom: "Своя" },
+      presets: {
+        novel: "Роман",
+        story: "Рассказ",
+        comic: "Комикс",
+        custom: "Своя",
+      },
       formats: {
         manuscript: "Рукопись",
         screenplay: "Сценарий",
@@ -3989,9 +4393,9 @@ const en: typeof ru = {
       moduleNotInstalledDescription:
         'Module "{{name}}" is not installed. Would you like to download and install the latest version?',
       downloadAndEnableAction: "Download and Enable",
-      installedVersion: "Installed version: {{version}}",
+      installedVersion: "Version: {{version}}",
       notInstalled: "Not installed",
-      checkUpdates: "Check for updates",
+      checkUpdates: "Check",
       checkingUpdates: "Checking for updates…",
       upToDate: "Up to date",
       updateAvailableTitle: "Update Available",
@@ -4151,7 +4555,7 @@ const en: typeof ru = {
       autosaveHint: "Delay before writing to disk, ms",
     },
     ai: {
-      desc: "Library of models and providers. The same settings are available in the AI panel.",
+      desc: "Library of models and providers, Codex sign-in. Also opened by the settings button in the AI panel.",
     },
     startup: {
       reopenLastVault: "Reopen last vault on startup",
@@ -4309,6 +4713,37 @@ const en: typeof ru = {
     ai: "AI",
     creative: "Creative Studio",
   },
+  snapshotPreview: {
+    mode: "Preview mode",
+    read: "Read",
+    source: "Source text",
+    loading: "Loading preview",
+    readFailed: "Could not open Read view. Showing source text.",
+    image: "Image: {{name}}",
+  },
+  archivePanel: {
+    preview: "Preview",
+    previewEntry: "Preview “{{name}}”",
+    previewReadOnly: "Read only · the item remains in the archive",
+    previewBack: "Back to folder contents",
+    previewFailed: "Could not open the preview. The item may have been restored or deleted.",
+    previewLoading: "Loading preview",
+    previewFolderEmpty: "Folder is empty",
+    previewFileEmpty: "File is empty",
+    previewUnsupported: "Preview is not available for this format yet.",
+    previewTruncated: "Only part of the content is shown.",
+    today: "Today",
+    yesterday: "Yesterday",
+    earlier: "Earlier",
+    vaultRoot: "Vault root",
+    unknownDate: "Unknown date",
+    archivedAt: "Archived on {{date}}",
+    restoreEntry: "Restore “{{name}}”",
+    entryActions: "Actions for “{{name}}”",
+    loadFailed: "Could not load the archive.",
+    restoreFailed: "Could not restore the item.",
+    deleteFailed: "Could not delete the archived item.",
+  },
   databasePanel: {
     status: {
       idle: "Idle",
@@ -4324,7 +4759,14 @@ const en: typeof ru = {
     loadFailed: "Could not load databases",
     empty: "No databases yet",
     emptyHint: "Create a database from the new database menu in the Files panel.",
-    diagnostics: "Diagnostics: {{count}}",
+    diagnostics: "Issues: {{count}}",
+    locationUnavailable: "Location unavailable",
+    chooseView: "Choose view",
+    actions: "Database actions",
+    openNewTab: "Open in new tab",
+    openNote: "Open linked note",
+    duplicateTitle:
+      "Another database has the same name. Use the path below the name to tell them apart.",
     views: "Views: {{count}}",
     open: "Open database",
   },
@@ -4841,11 +5283,20 @@ const en: typeof ru = {
     creativeSettings: "Creative Studio settings",
     generalSettings: "General settings",
     presetSection: "Preset",
+    presetModified: "Modified",
+    presetSaveChanges: 'Save to "{{name}}"',
+    presetSaveAs: "Save as preset…",
+    presetReset: "Discard changes",
+    presetManage: "Manage presets…",
+    presetTransfer: "Export and import",
+    layoutHint: "Where the panel layout is remembered: one for every vault, or one per vault.",
+    layoutGlobal: "Shared by all vaults",
+    layoutWorkspace: "Separate for this vault",
+    presetNoModules: "Notes, archive and search only, with no extra modules.",
+    presetModules: "Modules: {{modules}}.",
     exportCurrent: "Export current",
     importPreset: "Import preset…",
     layoutSection: "Panel layout",
-    layoutGlobal: "Shared across vaults",
-    layoutWorkspace: "This workspace only",
     zoneSections: "Section buttons",
     zoneActions: "Action buttons",
     hideButton: "Hide from dock",
@@ -5218,6 +5669,9 @@ const en: typeof ru = {
   },
   tagsPanel: {
     search: "Search tags",
+    sortOrder: "Tag order",
+    sortName: "By name",
+    sortCount: "By number of notes",
     scanning: "Scanning tags…",
     noAccess: "No file access",
     empty: "No tags",
@@ -5231,12 +5685,77 @@ const en: typeof ru = {
     modelsAndProviders: "Models and providers",
     noModelConfigured: "No model configured — open settings (gear icon).",
     noModelShort: "No model configured",
+    selectModel: "Choose an available model for this conversation.",
     contextPrefix: "Context:",
+    contextTruncated: "truncated",
+    removeContext: "Remove note from context",
+    attachedNotes: "Attached notes",
+    addContext: "Add current note",
+    chatList: "Conversations",
+    newChat: "New conversation",
+    unnamedChat: "New conversation",
+    searchChats: "Search conversations…",
+    noChats: "No saved conversations yet.",
+    today: "Today",
+    yesterday: "Yesterday",
+    earlier: "Earlier",
+    renameChat: "Rename conversation",
+    deleteChat: "Move to archive",
+    chatUnavailable: "Conversation unavailable",
+    chatReadOnly: "Read-only: different format or unknown fields",
+    chatSaveFailed: "Could not save or load the conversation. Check the vault and try again.",
+    saveName: "Save name",
+    cancelRename: "Cancel rename",
+    addMention: "Add a note or folder",
+    noMentions: "No matches",
+    searchVault: "Search the vault",
+    toolsDisabled:
+      "This model does not support tools. Turn them on for the model in Settings → Modules → AI (wrench icon).",
+    localModel: "local",
+    cloudModel: "cloud",
+    consentTitle: "Allow cloud search?",
+    consentMessage:
+      "AI can search and read notes in this vault and send the text it finds to {{provider}}.",
+    consentAllow: "Allow",
+    consentDeny: "Continue without search",
+    codexConsentTitle: "Allow Codex to read your notes?",
+    codexConsentMessage:
+      "Codex is a separate ChatGPT agent that Amby runs in isolation: it has no access to the files on your computer, only Amby’s read tools for the notes you chose. The conversation and the notes it reads are sent to ChatGPT. Any attempt to step outside these limits stops the answer.",
+    codexConsentDeny: "Cancel",
+    codexDenied: "Codex does not start without your permission.",
+    claudeConsentTitle: "Allow Claude Code to read your notes?",
+    claudeConsentMessage:
+      "Claude Code is a separate Anthropic agent that Amby runs in isolation: it has no shell, no access to the files on your computer and no network tools, only Amby’s read tools for the notes you chose. The conversation and the notes it reads are sent to Anthropic. Any attempt to step outside these limits stops the answer.",
+    claudeConsentDeny: "Cancel",
+    claudeDenied: "Claude Code does not start without your permission.",
+    source: "Source",
+    copied: "Copied",
+    copy: "Copy",
+    retry: "Retry",
+    saveAsNote: "Save as note",
+    searching: "Searched for “{{query}}” · {{count}} notes",
+    reading: "Read “{{query}}”",
+    listing: "Listed folder “{{query}}” · {{count}} notes",
+    linking: "Checked links for “{{query}}”",
+    toolOther: "AI step: {{tool}}",
+    toolFailed: "The step could not be completed",
+    indexTooLarge: "The index is too large for safe AI access (over 512 MB).",
+    examples: "For example: summarize the main ideas or find related notes.",
     untitled: "untitled",
     noNote: "no note open",
     askAboutNote: "Ask something about the current note.",
     thinking: "Thinking…",
     messagePlaceholder: "Message…",
+    settings: "AI settings",
+    manageModels: "Manage models",
+    emptyTitle: "Ask about your notes",
+    emptyHint:
+      "The assistant sees only the context you chose. Turn on search to let it look through the whole vault.",
+    emptyHintSearch:
+      "Search is on: the assistant can search and read notes across the whole vault.",
+    suggestSummarize: "Summarize this note briefly",
+    suggestLinks: "Find related notes",
+    suggestTasks: "Which tasks are mentioned here?",
     send: "Send",
     stop: "Stop",
     cancelled: "Request cancelled",
@@ -5250,6 +5769,21 @@ const en: typeof ru = {
       missingCredential: "No API key is configured for the selected provider.",
       invalidConfiguration: "Check the AI provider connection settings.",
       providerRejected: "The AI provider rejected the request. Check your key and account limits.",
+      agentBoundary:
+        "Codex tried to step outside what Amby allows and was stopped. Nothing was run and no answer is shown.",
+      claudeBoundary:
+        "Claude Code tried to step outside what Amby allows and was stopped. Nothing was run and no answer is shown.",
+      claudeSignedOut:
+        "You are not signed in to Claude Code. Open the AI settings and click “Sign in with Claude”.",
+      claudeRejected:
+        "Claude Code rejected the request. Check the selected model and your Claude account limits.",
+      codexSignedOut:
+        "You are not signed in to Codex. Open the model settings and click “Sign in with ChatGPT”.",
+      codexRejected:
+        "Codex rejected the request. Check the model name in settings (leave it empty for the Codex default) and your ChatGPT account limits.",
+      toolsUnsupported: "This model does not support tools. Turn them off in the model settings.",
+      privacyConsentRequired:
+        "Cloud search requires permission to send the found text to the provider.",
       invalidResponse: "The AI provider returned an invalid response.",
       network: "Could not connect to the AI provider. Check the network and server address.",
       requestFailed: "Could not complete the AI request. Try again.",
@@ -5261,11 +5795,87 @@ const en: typeof ru = {
       explain: "Explain",
     },
   },
+  aiConnections: {
+    add: "Add provider",
+    provider: "Provider",
+    method: "Connection method",
+    api: "API",
+    cli: "Codex CLI",
+    claudeCli: "Claude Code CLI",
+    name: "Connection name",
+    endpoint: "Server address",
+    key: "API key",
+    keyHint: "Leave blank to keep the current key",
+    addConnection: "Add connection",
+    save: "Save",
+    refresh: "Refresh models",
+    loading: "Loading…",
+    search: "Search models",
+    empty: "No models loaded yet",
+    enabled: "Enable model {{model}}",
+    unavailable: "Unavailable",
+    catalogUpdated: "Updated: {{time}}",
+    catalogHint:
+      "The catalog is limited to compatible text models and does not confirm account access. The first models are enabled on the first load, models that appear later are disabled; tools are unavailable when support is unknown.",
+    addLocal: "Add local model",
+    modelId: "Model ID",
+    remove: "Remove connection",
+    removeConfirm:
+      "Remove this connection and its key if no other connection uses it? Conversation history is kept.",
+    saveError: "Could not save settings. Try again.",
+    loadError: "Could not load AI settings.",
+    keyError: "Could not save the key.",
+    catalogError: "Could not load models. The previous list was kept.",
+    azureHint:
+      "Listing Azure deployments requires subscription management access. Existing models are preserved.",
+    codexMissing: "Codex CLI is not installed.",
+    codexUnsupported: "This Codex CLI version is not supported.",
+    codexSignedOut: "Codex is installed but not signed in.",
+    codexReady: "Codex is connected to ChatGPT.",
+    claudeMissing: "Claude Code CLI is not installed.",
+    claudeUnsupported: "This Claude Code CLI version is not supported.",
+    claudeSignedOut: "Claude Code is installed but not signed in.",
+    claudeReady: "Claude Code is connected to your Claude account.",
+    claudeSignIn: "Sign in with Claude",
+    claudeIsolation:
+      "Amby uses a separate Claude Code sign-in in its own settings folder; your terminal sign-in is not imported. The shell, MCP and other tools are switched off: only Amby’s read tools are available.",
+    install: "Installation instructions",
+    copyCommand: "Copy install command",
+    check: "Check again",
+    signIn: "Sign in with ChatGPT",
+    signOut: "Sign out",
+    cancel: "Cancel sign-in",
+    codexIsolation:
+      "Amby uses a separate Codex sign-in; your terminal sign-in is not imported automatically.",
+    noConnection: "Add a connection to choose models.",
+    copied: "Copied",
+    keySaved: "Key saved",
+    invalid: "Check the fields.",
+    parameters: "Connection settings",
+    baseModel: "Base model for new chats: {{model}}",
+    baseModelHint: "The base model is the one new chats start with",
+    cliShort: "CLI",
+    tools: "Tools of {{model}}",
+    toolsHint:
+      "The model can call tools. Needed for searching the app in a chat; turn it on if the model supports it.",
+    notInstalled: "{{name}} was not found on this computer.",
+    downloadApp: "Download {{name}}",
+    enabledCount: "enabled {{on}} / {{all}}",
+    state_ready: "connected",
+    state_signedOut: "not signed in",
+    state_missing: "not installed",
+    collapse: "Collapse {{name}}",
+    expand: "Expand {{name}}",
+    moveUp: "Move {{model}} up",
+    moveDown: "Move {{model}} down",
+  },
   models: {
     empty: "No models yet. Add your first below.",
     add: "Add model",
     namePlaceholder: "Name",
     delete: "Delete model",
+    makeActive: "Make active",
+    active: "In use",
     provider: "Provider",
     local: "Local",
     cloud: "Cloud",
@@ -5273,6 +5883,7 @@ const en: typeof ru = {
     model: "Model",
     modelPlaceholder: "model",
     optional: "optional",
+    supportsTools: "Model supports tools",
     apiKey: "API key",
     apiVersion: "API version",
     keyPlaceholder: "key",
@@ -5282,6 +5893,19 @@ const en: typeof ru = {
     keychainError: "Could not complete the operation in OS credential storage",
     privacyNote:
       "The current note's text will be sent to the provider's server. The key is stored locally.",
+    codexModelPlaceholder: "Codex default",
+    codexPrivacyNote:
+      "Codex runs in isolation: it sees only Amby’s read tools and sends the conversation and the notes it reads to ChatGPT. You sign in separately for Amby, in the browser.",
+    codexStatus: {
+      missing: "Codex was not found. Install the Codex CLI and sign in with codex login.",
+      unsupported: "This version of Codex is not supported. Update the Codex CLI.",
+      signedOut: "You are not signed in to Codex. Click “Sign in with ChatGPT”.",
+      ready: "Codex is ready.",
+    },
+    codexSignIn: "Sign in with ChatGPT",
+    codexSignOut: "Sign out",
+    codexWaiting: "Waiting for you to confirm the sign-in in the browser…",
+    codexCancel: "Cancel",
   },
   editor: {
     untitled: "Untitled",
@@ -5886,6 +6510,7 @@ const en: typeof ru = {
     clearBg: "Clear background",
   },
   filesPanel: {
+    sectionFiles: "Files",
     createNote: "Create note",
     createFolder: "Create folder",
     createCanvas: "Create Canvas",
@@ -5926,6 +6551,13 @@ const en: typeof ru = {
     emptyHint: 'Right-click a note and choose "Add to bookmarks"',
     removeBookmark: "Remove bookmark",
     noResults: "No bookmarks found",
+  },
+  favoritesPlacement: {
+    inTree: "Show in the file tree",
+    inTreeHint:
+      "Bookmarks appear as a collapsible block above the tree. It stays hidden while there are none.",
+    panel: "Separate section",
+    panelHint: "Adds a Favorites tab to the dock.",
   },
   workspace: {
     name: "Workspace",
@@ -5974,6 +6606,171 @@ const en: typeof ru = {
       "Restore notes from the unfinished ID migration backups? Later external edits will not be overwritten.",
   },
   help: {
+    guide: {
+      eyebrow: "At your fingertips",
+      title: "Your workspace, explained",
+      description: "An interface map and quick actions for your current page.",
+      currentPage: "Open now:",
+      collapse: "Collapse",
+      expand: "Expand",
+      collapseShortcuts: "Collapse shortcuts",
+      expandShortcuts: "Expand shortcuts",
+      tipCount: "{{count}} tips",
+      shortcuts: "Keyboard shortcuts",
+      shortcutCategory: "Shortcut category",
+      searchShortcuts: "Find a command or shortcut…",
+      noShortcuts: "No matches. Try another command name.",
+      exploreTitle: "Explore the interface",
+      exploreDescription:
+        "Hover over a tip or focus it with your keyboard to highlight its control and see the details here.",
+      customShortcuts: "General shortcuts reflect your settings",
+      escapeKey: "Esc",
+      close: "Close",
+      navigation: "Navigation and workspace",
+      pageTools: "Page and additional tools",
+      doubleClick: "Double click",
+      groups: {
+        navigation: "Tabs and opening pages",
+        application: "Application tools",
+        files: "Files and organization",
+        workspace: "Create and switch spaces",
+        page: "Page navigation",
+        editor: "Working with content",
+        context: "Page context",
+        tools: "Page controls",
+      },
+      content: {
+        workspace:
+          "The current tab holds a note, folder, graph or another page. Help adapts to the controls that are visible.",
+        note: "Edit your note directly on the page. In Live Preview, selecting text opens formatting tools; typing / on a new line opens the block menu. Source mode edits Markdown.",
+        canvas:
+          "Arrange and connect cards on the canvas. Hold Space to pan temporarily, or double-click a card to edit it.",
+        sketch:
+          "Draw with the sketch tools. Choose shapes, add text and move around the scene with the Hand tool.",
+        database:
+          "Work with database records and properties. Click a cell to edit it; use Enter or Space to open its row note.",
+      },
+      tips: {
+        tabs: {
+          title: "Open tabs",
+          description:
+            "Switch between pages. Right-click a tab for closing commands and split-pane options.",
+        },
+        newTab: {
+          title: "Open or create",
+          description: "The + button opens the picker: find a page or create a new item.",
+        },
+        sections: {
+          title: "Switch sections",
+          description:
+            "Dock buttons open sidebar sections. Drag them to reorder; right-click to customize the dock.",
+        },
+        search: {
+          title: "Search the vault",
+          description:
+            "Find notes by their contents across the vault. This is separate from the file-name filter.",
+        },
+        settings: {
+          title: "Customize Amby",
+          description:
+            "Adjust appearance, the editor, keyboard shortcuts and built-in modules here.",
+        },
+        fileSearch: {
+          title: "Filter files",
+          description:
+            "Type part of a name to filter the file tree. Use vault search to search inside notes.",
+        },
+        fileTools: {
+          title: "Sorting and filters",
+          description:
+            "Choose file order, filter by type or fold folders. The target button reveals the current file in the tree.",
+        },
+        tree: {
+          title: "Open and organize",
+          description:
+            "Click a file to open it. Drag items to move them; right-click for file and folder actions.",
+        },
+        create: {
+          title: "Create a new item",
+          description:
+            "Open the menu to create a note, folder or another available document type. The shortcut creates a note directly.",
+        },
+        workspace: {
+          title: "Switch workspace",
+          description:
+            "Switch between attached vaults, choose a folder or open workspace management.",
+        },
+        pageHistory: {
+          title: "Back and forward",
+          description:
+            "Navigate the current tab’s page history. A disabled arrow means there is no history in that direction yet.",
+        },
+        breadcrumbs: {
+          title: "Page location",
+          description:
+            "The breadcrumb trail shows where the page lives. Click a parent folder to open it.",
+        },
+        focus: {
+          title: "Focus mode",
+          description:
+            "Expand the page and hide the surrounding interface. Click again to return; sidebars remain available at the window edges.",
+        },
+        pageMenu: {
+          title: "All page actions",
+          description:
+            "The ⋯ menu collects available actions such as rename, export, view mode and content width. Options depend on the page.",
+        },
+        layers: {
+          title: "Sketch and database",
+          description:
+            "A page can have a sketch or a database attached. The buttons in the page header switch between the note, sketch and database. The same choice is in the ⋯ menu → “Switch layer”.",
+        },
+        content: {
+          title: "Edit content",
+          description: "",
+        },
+        info: {
+          title: "Properties and information",
+          description: "Open the current page’s information and properties in the sidebar.",
+        },
+        attachments: {
+          title: "Page attachments",
+          description: "View and manage files attached to the current page.",
+        },
+        history: {
+          title: "Versions and recovery",
+          description:
+            "Open the page’s saved version history. Inspect a version before restoring it.",
+        },
+        links: {
+          title: "Connections between notes",
+          description: "See how the current note connects to other pages and follow those links.",
+        },
+        ai: {
+          title: "AI assistant",
+          description:
+            "Open the assistant for the current note. Availability depends on your configured provider.",
+        },
+        stats: {
+          title: "Page information",
+          description:
+            "Available page statistics appear here, such as the word count and modification time.",
+        },
+        undo: {
+          title: "Undo and redo",
+          description: "Undo the previous edit or redo an undone edit in the current content.",
+        },
+        lock: {
+          title: "Protect against edits",
+          description: "Toggle the page’s editing lock. The icon indicates its current state.",
+        },
+        pageSettings: {
+          title: "Current page appearance",
+          description:
+            "Open display settings available for this page. They depend on the document type.",
+        },
+      },
+    },
     title: "Keyboard Shortcuts & Help",
     desc: "Quick shortcuts and gestures for fast workflow in Amby",
     tabs: {
@@ -6034,6 +6831,9 @@ const en: typeof ru = {
     },
   },
   presets: {
+    nameTitle: "Preset name",
+    nameDescription: "The current modules and panel layout are saved under this name.",
+    nameConfirm: "Save",
     simple: "Simple",
     standard: "Standard",
     parseError: "Failed to parse preset file",
@@ -6043,8 +6843,8 @@ const en: typeof ru = {
     standard: "Standard",
     custom: "Custom",
     descriptions: {
-      minimal: "Markdown notes without extra modules.",
-      standard: "Notes, databases, history and more.",
+      minimal: "No modules",
+      standard: "Recommended set",
       custom: "Choose your modules in settings.",
     },
     details: {
