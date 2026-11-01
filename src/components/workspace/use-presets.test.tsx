@@ -96,4 +96,23 @@ describe("usePresets", () => {
     expect(result.current.activePresetId).toBe("custom-1")
     expect(result.current.presets.some((preset) => preset.id === "custom-1")).toBe(true)
   })
+
+  it("keeps the docks when switching to a preset that stores no dock", async () => {
+    vi.mocked(config.loadLayout).mockResolvedValue({ activePresetId: "standard" } as never)
+    vi.mocked(config.loadWorkspaceConfig).mockResolvedValue({
+      customPresets: [custom],
+      layout: { activePresetId: "standard" },
+      enabledModules: undefined,
+    } as never)
+    const { result } = renderHook(() => usePresets("/vault"))
+    await waitFor(() => expect(result.current.activePresetId).toBe("standard"))
+    await act(async () => {
+      await result.current.switchPreset("custom-1", { vault: "/vault" })
+    })
+    expect(result.current.activePresetId).toBe("custom-1")
+    const ids = result.current.activityButtons.map((button) => button.defId)
+    expect(ids).toEqual(expect.arrayContaining(["files", "tags", "settings"]))
+    expect(ids).not.toContain("databases")
+    expect(result.current.activeBySide.left).toBe("files")
+  })
 })
