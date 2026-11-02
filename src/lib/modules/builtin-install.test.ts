@@ -7,6 +7,9 @@ import {
   uninstallModule,
 } from "./index"
 
+// The controls are on here: this is the install path they use.
+vi.mock("./package-manager/controls", () => ({ MODULE_PACKAGE_CONTROLS_ENABLED: true }))
+
 describe("installing a module that ships with the application", () => {
   const store = new Map<string, string>()
 

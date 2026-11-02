@@ -54,6 +54,7 @@ import { CreativeSettings } from "../creative/creative-settings"
 import { Row } from "./settings-common"
 import { AmbySelect } from "@/components/ui/amby-select"
 import { ModulePackageManager } from "./settings-package-manager"
+import { MODULE_PACKAGE_CONTROLS_ENABLED } from "@/lib/modules/package-manager/controls"
 import type { Preset } from "../presets"
 import { loadGlobalModulesRegistry } from "@/lib/modules/global-registry"
 import { getCatalogModule } from "@/lib/modules/package-manager/catalog"
@@ -1041,57 +1042,59 @@ export function ModulesTab({
             )}
           </div>
 
-          <div className="shrink-0 border-t border-border/60 pb-2 pt-2">
-            <ModulePackageManager
-              moduleId={selected.id}
-              moduleName={t(selected.labelKey)}
-              canDelete={activePresetId !== "minimal" && activePresetId !== "standard"}
-              onAttemptDeleteLocked={() => setDeleteLockedModalOpen(true)}
-              onModuleChange={() => {
-                void loadGlobalModulesRegistry().then((reg) => {
-                  setInstalledModuleIds(new Set(Object.keys(reg.installed)))
-                })
-              }}
-              onModuleUninstall={(uninstalledId) => {
-                const shortId = toShortModuleId(uninstalledId)
-                const canonicalId = toCanonicalModuleId(uninstalledId)
-
-                // 1. Immediately disable module in workspace and activeModules
-                onModuleEnabledChange(shortId, false)
-
-                // 2. Remove from installedModuleIds
-                setInstalledModuleIds((prev) => {
-                  const next = new Set(prev)
-                  next.delete(canonicalId)
-                  return next
-                })
-
-                // 3. If in a custom preset, also remove this module from preset's activeModules
-                if (activePresetId !== "minimal" && activePresetId !== "standard") {
-                  setCustomPresets((prev) => {
-                    const updated = prev.map((p) =>
-                      p.id === activePresetId
-                        ? {
-                            ...p,
-                            activeModules: p.activeModules.filter(
-                              (id) => toShortModuleId(id) !== shortId,
-                            ),
-                          }
-                        : p,
-                    )
-                    const nextActive = activeModules
-                      .filter((id) => toShortModuleId(id) !== shortId)
-                      .map(toCanonicalModuleId)
-                    void saveWorkspaceConfigPatch({
-                      customPresets: updated,
-                      enabledModules: nextActive,
-                    })
-                    return updated
+          {MODULE_PACKAGE_CONTROLS_ENABLED && (
+            <div className="shrink-0 border-t border-border/60 pb-2 pt-2">
+              <ModulePackageManager
+                moduleId={selected.id}
+                moduleName={t(selected.labelKey)}
+                canDelete={activePresetId !== "minimal" && activePresetId !== "standard"}
+                onAttemptDeleteLocked={() => setDeleteLockedModalOpen(true)}
+                onModuleChange={() => {
+                  void loadGlobalModulesRegistry().then((reg) => {
+                    setInstalledModuleIds(new Set(Object.keys(reg.installed)))
                   })
-                }
-              }}
-            />
-          </div>
+                }}
+                onModuleUninstall={(uninstalledId) => {
+                  const shortId = toShortModuleId(uninstalledId)
+                  const canonicalId = toCanonicalModuleId(uninstalledId)
+
+                  // 1. Immediately disable module in workspace and activeModules
+                  onModuleEnabledChange(shortId, false)
+
+                  // 2. Remove from installedModuleIds
+                  setInstalledModuleIds((prev) => {
+                    const next = new Set(prev)
+                    next.delete(canonicalId)
+                    return next
+                  })
+
+                  // 3. If in a custom preset, also remove this module from preset's activeModules
+                  if (activePresetId !== "minimal" && activePresetId !== "standard") {
+                    setCustomPresets((prev) => {
+                      const updated = prev.map((p) =>
+                        p.id === activePresetId
+                          ? {
+                              ...p,
+                              activeModules: p.activeModules.filter(
+                                (id) => toShortModuleId(id) !== shortId,
+                              ),
+                            }
+                          : p,
+                      )
+                      const nextActive = activeModules
+                        .filter((id) => toShortModuleId(id) !== shortId)
+                        .map(toCanonicalModuleId)
+                      void saveWorkspaceConfigPatch({
+                        customPresets: updated,
+                        enabledModules: nextActive,
+                      })
+                      return updated
+                    })
+                  }
+                }}
+              />
+            </div>
+          )}
         </section>
       </div>
 

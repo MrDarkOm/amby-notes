@@ -1,4 +1,5 @@
 import { globalFileMissing, loadGlobalJSON, saveGlobalJSON } from "@/lib/storage"
+import { MODULE_PACKAGE_CONTROLS_ENABLED } from "./package-manager/controls"
 import {
   MODULES_REGISTRY_FILE,
   MODULES_REGISTRY_VERSION,
@@ -144,10 +145,11 @@ export async function loadGlobalModulesRegistry(): Promise<GlobalModulesRegistry
     : []
   const uninstalledSet = new Set(uninstalled)
 
-  // Ensure built-in modules are registered unless explicitly uninstalled
+  // Ensure built-in modules are registered unless explicitly uninstalled (when that is possible)
   let missingBuiltinAdded = false
   for (const builtin of BUILTIN_MODULES) {
-    if (!installed[builtin.id] && !uninstalledSet.has(builtin.id)) {
+    const keptOut = MODULE_PACKAGE_CONTROLS_ENABLED && uninstalledSet.has(builtin.id)
+    if (!installed[builtin.id] && !keptOut) {
       installed[builtin.id] = { ...builtin, installedAt: Date.now() }
       missingBuiltinAdded = true
     }
