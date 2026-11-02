@@ -167,3 +167,43 @@ compiler settings. Frontend for reference (`npm run build`): 240 JS files, 13.2 
 `dist/assets`; the largest chunk is 1.78 MB, the entry `index-*.js` 540 KB with 38
 `modulepreload` links. Startup time is not measured: frontend events reach the log file only
 in debug mode.
+
+## Single-file actions — 2026-11-02 (incremental tree and index)
+
+Apple M5, macOS 26.6.2, `cargo test --release` of `desktop_e2e_large_vault_smoke_reports_scan_reopen_update_and_search`
+(release profile with LTO off and 16 codegen units to shorten the build; the section above shows the profile does not
+change speed), three runs per size, medians, other work idle. Each action runs through the same function the IPC command
+runs (`*_inner`), with the database runtime enabled as in the app. "Refresh after" is what the renderer used to do
+after an action: `load_active_vault` (a full scan, the whole tree and every note over IPC). It no longer runs after an
+action; the column is kept to show what was saved. The last column is an edit made outside the app: before, the whole
+vault was refreshed (`one_file_update`); now the watcher's path is refreshed by path.
+
+| Notes  | Build  | Create  | Rename  | Move    | Trash   | Refresh after | External edit |
+| ------ | ------ | ------- | ------- | ------- | ------- | ------------- | ------------- |
+| 1,000  | before | 13.0 ms | 32.2 ms | 31.8 ms | 10.8 ms | 20.5 ms       | 26.5 ms       |
+| 1,000  | after  | 10.4 ms | 9.6 ms  | 9.6 ms  | 8.2 ms  | not run       | 0.78 ms       |
+| 10,000 | before | 51.5 ms | 357 ms  | 356 ms  | 11.5 ms | 278 ms        | 330 ms        |
+| 10,000 | after  | 15.2 ms | 90.4 ms | 89.5 ms | 11.8 ms | not run       | 4.05 ms       |
+
+Cost at 10,000 notes divided by cost at 1,000 notes: create 1.5x, trash 1.4x (target: at most 2x); rename 9.4x and move
+9.3x (was 11x); external edit 5.2x (was 12x). In absolute terms the renderer waits 15 ms for a create and 4 ms for an
+external edit at 10,000 notes, where it waited about 330 ms. The 10,000-note create "before" was noisy (35 to 165 ms);
+the earlier run without the database runtime gave 15 to 30 ms.
+
+What changed: a rename or a move rebuilt the whole database projection even when nothing in a database moved
+(about 175 ms at 10,000 notes); it is now rebuilt only when a path is inside a database folder or is one. The link
+rewrite read and parsed every Markdown, canvas and sketch file; it now reads them in parallel and parses only those
+that contain the old path as text. The follow-up full refresh is replaced by a tree patch built from the disk for the
+touched paths (`vault/tree_patch.rs`) and by `refresh_vault_paths` for watcher events and notes without a mutation result.
+
+What still grows with the vault, and why:
+
+- **Rename and move (about 85 ms at 10,000 notes).** Rewriting literal references (`](Old.md)`, `"Old.md"` in any
+  note, in YAML or in a canvas) needs the text of every file; the index holds only note bodies and no canvas files, and
+  trusting it could miss a reference the watcher has not reported yet. Removing the read needs a persisted reference
+  index (a new rebuildable SQLite table and indexing of canvas and sketch files): a decision for the owner.
+- **Link resolution (3.5 ms at 10,000 notes).** `resolve_links_for_note` builds a lookup of all titles and paths on
+  every save and every point refresh, because link keys are compared in Unicode lower case, which SQLite cannot do.
+- **Identity snapshot (2 ms).** `collect_note_index_identities` reads every id and path before a mutation.
+- **Full reload still used** after a property migration that follows a move, after a creative-workshop write, after
+  a restore with no path, for watcher bursts above 200 events or a rescan request, and on opening or re-indexing.

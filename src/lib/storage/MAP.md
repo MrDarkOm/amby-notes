@@ -66,3 +66,5 @@ to prevent stale overwrites. Native storage is [ai/chats.rs](../../../src-tauri/
 Archive preview: `readTrashPreview(id, relativePath)` goes through `HistoryRepository` and the desktop adapter to Rust. It reads only the selected archived payload, without restoration; the browser adapter refuses filesystem archive access.
 
 Global AI settings use compare-and-write through the settings repository and native app-data lock. Versioned AI migration/guarded rollback enter through the same boundary; the browser adapter refuses filesystem migration.
+
+Point refresh: `refreshVaultPaths(paths)` returns the tree patch and sync report for those paths only, or `null` when only a full `loadActiveVaultData` can decide (the browser adapter always returns `null`). Mutation results may carry `treePatch`; both are applied by [tree-patch.ts](../../components/workspace/tree-patch.ts).
