@@ -1228,7 +1228,7 @@ describe("CreativePanel", () => {
     expect(screen.queryByRole("button", { name: "Раздел" })).toBeNull()
   })
 
-  it("counts the diagnostics that need a look and leaves old-format folders to a quiet row", () => {
+  it("counts the diagnostics that need a look", () => {
     const diagnostic = (code: string, path: string) => ({
       code,
       severity: "warning",
@@ -1240,52 +1240,16 @@ describe("CreativePanel", () => {
     act(() =>
       useProjectStore.getState().setCatalog(
         catalog([project("a")], {
-          diagnostics: [
-            diagnostic("duplicateWorkshopId", "B/amby-workshop.json"),
-            diagnostic("legacyProjectFormat", "C/amby-project.json"),
-            diagnostic("legacyProjectFormat", "C/D/amby-project.json"),
-            diagnostic("legacyProjectFormat", "E/amby-project.json"),
-          ],
+          diagnostics: [diagnostic("duplicateWorkshopId", "B/amby-workshop.json")],
         }),
       ),
     )
     render(<CreativePanel {...props()} />)
-    // One banner entry: the damaged file. The three old folders are not in it, and the word
-    // "projects" is not in the title.
     const banner = screen.getByText("1 замечание")
     expect(banner).toBeTruthy()
     expect(screen.queryByText(/к проектам/u)).toBeNull()
     fireEvent.click(banner)
     expect(screen.getByText("B/amby-workshop.json")).toBeTruthy()
-    expect(screen.queryByText("C/amby-project.json")).toBeNull()
-
-    // The old folders: a folded line with the count, the paths on request.
-    const legacy = screen.getByRole("button", { name: /Папки старого формата: 3/u })
-    expect(legacy.getAttribute("aria-expanded")).toBe("false")
-    fireEvent.click(legacy)
-    expect(screen.getByText("C/D/amby-project.json")).toBeTruthy()
-  })
-
-  it("shows no banner at all when the only notes are old-format folders", () => {
-    act(() =>
-      useProjectStore.getState().setCatalog(
-        catalog([project("a")], {
-          diagnostics: [
-            {
-              code: "legacyProjectFormat",
-              severity: "warning",
-              path: "C/amby-project.json",
-              workshopId: null,
-              storyId: null,
-              detail: null,
-            },
-          ],
-        }),
-      ),
-    )
-    render(<CreativePanel {...props()} />)
-    expect(screen.queryByText(/замечани/u)).toBeNull()
-    expect(screen.getByRole("button", { name: /Папки старого формата: 1/u })).toBeTruthy()
   })
 
   it("remembers the chosen story per vault", async () => {

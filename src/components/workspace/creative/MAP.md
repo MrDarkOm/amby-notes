@@ -40,7 +40,6 @@ only the active one plus an `otherWorkshop` diagnostic per marker left out; the 
 none active the panel is `WorkshopInitScreen` ("Initialize"; Rust refuses a folder with other content before writing). A
 workshop of an earlier stage that lacks bases or links gets the notice "Create the missing sections" (`workshopGaps`,
 `completeWorkshop`); opening writes nothing. No workshop switch, no "New workshop", no per-part "Create the section".
-Folders of the former format: one folded line at the foot (`LegacyFoldersRow`).
 
 **Data flow.** `useProjectController` (mounted in `workspace-orchestration.tsx`) reads the
 catalog once the database catalog is ready, re-reads it when the databases change, and calls

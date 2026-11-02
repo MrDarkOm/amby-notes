@@ -963,38 +963,6 @@ async setDefaultDatabaseView(request: DatabaseViewRequest) : Promise<Result<Data
     else return { status: "error", error: e  as any };
 }
 },
-async detectDatabaseMigrations() : Promise<Result<DatabaseMigrationStatus[], DatabaseError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("detect_database_migrations") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async preflightDatabaseMigration(databaseId: string) : Promise<Result<MigrationPreflightReport, DatabaseError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("preflight_database_migration", { databaseId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async executeDatabaseMigration(databaseId: string) : Promise<Result<MigrationResult, DatabaseError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("execute_database_migration", { databaseId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async rollbackDatabaseMigration(databaseId: string, migrationId: string) : Promise<Result<null, DatabaseError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("rollback_database_migration", { databaseId, migrationId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async undoDatabaseMutation(databaseId: string) : Promise<Result<DatabaseUndoRedoResult, DatabaseError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("undo_database_mutation", { databaseId }) };
@@ -2177,7 +2145,6 @@ export type DatabaseFieldRef = { kind: "system"; field: string } | { kind: "prop
 export type DatabaseFilterNode = { kind: "group"; operator: string; children: DatabaseFilterNode[] } | { kind: "condition"; field: DatabaseFieldRef; operator: string; value: string | null }
 export type DatabaseHistoryStatus = { databaseId: string; canUndo: boolean; canRedo: boolean }
 export type DatabaseManifestRevision = { databaseId: string; revision: string }
-export type DatabaseMigrationStatus = { databaseId: string; databaseName: string; containerPath: string; needsMigration: boolean; hasLegacyManifest: boolean; hasRecordShards: boolean; hasViewShards: boolean; recordShardsCount: number; viewShardsCount: number }
 export type DatabaseModuleState = { enabled: boolean; vaultGeneration: number | null; projection: ProjectionVersion | null }
 export type DatabaseNoteContext = { vaultGeneration: number; databaseId: string; databaseTitle: string; databaseIcon: string | null; manifestRevision: string; locked: boolean; properties: DatabasePropertySummary[]; row: DatabaseRow }
 export type DatabaseNoteRevision = { noteId: string; revision: string }
@@ -2370,9 +2337,6 @@ export type LoadVaultResult = { generation: number; vaultPath: string; tree: Tre
 export type LoadedChat = { chat: Chat | null; raw: JsonValue | null; status: string; revision: string }
 export type LogLevel = "debug" | "info" | "warn" | "error"
 export type LogSource = "frontend" | "backend"
-export type MigrationConflict = { kind: string; noteId: string | null; filePath: string; description: string; suggestedAction: string }
-export type MigrationPreflightReport = { databaseId: string; databaseName: string; containerPath: string; affectedFiles: string[]; recordShardsCount: number; viewShardsCount: number; conflicts: MigrationConflict[]; canAutoMigrate: boolean; formatVersion: number }
-export type MigrationResult = { migrationId: string; databaseId: string; backupDir: string; migratedRecords: number; migratedViews: number; warnings: string[] }
 export type ModuleManifest = { formatVersion: number; id: string; name: string; version: string; publisher: string; kind: string; minAppVersion: string; maxAppVersion: string | null; entry: string; permissions: string[]; checksums: Partial<{ [key in string]: string }>; signature: ModuleSignature; dependencies: Partial<{ [key in string]: string }> | null }
 export type ModuleSignature = { keyId: string; sig: string }
 export type MoveTextPageRequest = { expectedGeneration: number; operationId: string; storyId: string; noteId: string; newParentNoteId?: string | null; orderKey: string; expectedRevision: string }

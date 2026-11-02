@@ -17,8 +17,7 @@ are in [commands/database.rs](../commands/database.rs); frontend contracts are i
 | Formula evaluation                            | [formula.rs](formula.rs)                                                                                 |
 | Rollup aggregation registry / config | [rollup.rs](rollup.rs), [rollup_config.rs](rollup_config.rs) |
 | YAML synchronization                          | [yaml_sync.rs](yaml_sync.rs)                                                                             |
-| Migration / mutation history                  | [migration.rs](migration.rs), [history.rs](history.rs)                                                   |
-| Legacy record-shard → frontmatter transfer    | [legacy_records.rs](legacy_records.rs)                                                                   |
+| Mutation history                               | [history.rs](history.rs)                                                                                 |
 | Value-batch journal / startup rollback        | [value_batch_recovery.rs](value_batch_recovery.rs)                                                       |
 | Relation journals / activation recovery       | [relation_recovery.rs](relation_recovery.rs), [relation_schema_recovery.rs](relation_schema_recovery.rs) |
 | Relation picker search / reference lookup | [relation_lookup.rs](relation_lookup.rs) |
@@ -97,9 +96,9 @@ non-images, oversized files and anything outside `.ambd/assets/<note-id>/`. If t
 completed journal cannot be written, the journal and backups move to
 `quarantine/` so activation never rolls back a confirmed write.
 
-Legacy `.ambd/records` shards are transferred by `legacy_records.rs`: frontmatter
-wins, the note is snapshotted first, and a handled shard is moved to
-`.ambd/legacy-records/`, never deleted. Unmatched or unreadable shards stay put.
+`.ambd/records` shards are no longer moved into frontmatter (the transfer and the explicit
+database migration were removed after 0.1.9; shards are never deleted). They are still read for
+YAML sync (`yamlSyncBases`, and values as a fallback).
 
 Relation value mutations require the source raw-byte `expectedRevision`, recheck
 planned note/manifest bytes before publication, and return post-write `revisions`
@@ -128,8 +127,8 @@ sides; disconnect preserves the inverse property as a one-way relation. Keep
 owned-note discovery and fail-closed YAML/record/template checks in preflight.
 
 Tests: `format_test.rs`, `discovery_test.rs`, `mutations_test.rs`,
-`projection_test.rs`, `query_test.rs`, `formula_test.rs`, `migration_test.rs`,
+`projection_test.rs`, `query_test.rs`, `formula_test.rs`,
 `relation_recovery_test.rs`, `relation_schema_recovery_test.rs`,
-`value_batch_recovery_test.rs`, `legacy_records_test.rs`, `relation_lookup_test.rs`, `filter_operators_test.rs`, `rollup_test.rs`, `rollup_config_test.rs`.
+`value_batch_recovery_test.rs`, `relation_lookup_test.rs`, `filter_operators_test.rs`, `rollup_test.rs`, `rollup_config_test.rs`.
 Use `npm run rust:test -- database::` for focused iteration, then the full gates.
 When modifying IPC types, regenerate bindings; never edit the generated TS file.

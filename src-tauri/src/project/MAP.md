@@ -30,8 +30,8 @@ index, and the journaled creation of workshops, sections, and stories. The contr
 **Discovery.** Any `amby-workshop.json` outside hidden/service folders is a workshop. Peer
 databases (`stories`, `characters`, `locations`, `universes`, `arcs`, `anchors`, `notes`) live
 under the workshop folder; a story is a folder `<Workshop>/Истории/<Name>/` holding `<Name>.md` (card),
-`<Name>.json` (text manifest) and `amby-story.json`. Legacy v2 `amby-project.json` is only reported
-(`legacyProjectFormat`), never read or changed. Every diagnostic code and its effect: [format §9](../../../docs/creative-format.md).
+`<Name>.json` (text manifest) and `amby-story.json`. The former v2 `amby-project.json` is no longer
+recognised (ignored, never changed). Every diagnostic code and its effect: [format §9](../../../docs/creative-format.md).
 Section `path` is a hint: the catalog matches a section to its database by `databaseId` through
 `db_databases`, so a moved database works (`moved`) and a missing one is shown `missing`.
 
