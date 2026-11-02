@@ -80,6 +80,7 @@ Workspace icons may be native emoji, encoded Lucide values, or cropped raster da
 - Treat external edits as conflicts when local changes are unsaved. Never silently close or overwrite an externally changed/deleted open document.
 - Snapshot existing text before replacement or link refactors. Deletes go to vault-local `.amby/trash/` and must remain restorable.
 - Persistent-data migrations require a version, read-only preflight, backup/recovery point, idempotence or completion detection, outcome recording, and documented rollback. Never silently rewrite user-managed frontmatter IDs.
+- Never change the shape of an existing key or file in place. Several Amby builds share one app-data folder, and an older build that finds a known key in an unknown shape treats it as damaged and writes its defaults back. An incompatible format goes under a new key or into a new file, and the old one is left as it was for the builds that still read it (the AI connections moved this way into `ai-connections.json`). Split other settings into their own files only for a concrete reason, such as user content that is costly to lose or frequent writes that conflict, because every split is a migration with all of the requirements above.
 
 Consult `docs/vault-format.md` and `docs/markdown-compatibility.md` before changing persistence, indexing, frontmatter, editor serialization, rename/move behavior, history, or trash semantics.
 
