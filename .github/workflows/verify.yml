@@ -9,14 +9,58 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same branch or pull request makes the older run pointless. The
+# promotion branches keep every run: each commit on main and beta needs its own result.
 concurrency:
   group: verify-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/beta' }}
 
 jobs:
-  frontend:
-    name: Frontend quality gate
+  # Decides whether the change touches anything but documentation. Documentation (docs/,
+  # updates/, any *.md including the code maps) cannot break Rust or the editor, so the heavy
+  # jobs below are skipped for it; the documentation job always runs. Any doubt (a manual run,
+  # a new branch, a rewritten history, a failed diff) counts as code.
+  changes:
+    name: What changed
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        shell: bash
+        run: |
+          code=true
+          base=""
+          case "$EVENT" in
+            pull_request) base="$PR_BASE" ;;
+            push) base="$PUSH_BEFORE" ;;
+          esac
+          if [[ -n "$base" && "$base" != 0000000000000000000000000000000000000000 ]] \
+            && git cat-file -e "$base^{commit}" 2>/dev/null \
+            && files="$(git diff --name-only "$base" HEAD)"; then
+            echo "Changed files:"
+            echo "$files"
+            if [[ -z "$files" ]] || [[ -z "$(grep -vE '^(docs/|updates/)|\.md$' <<<"$files" || true)" ]]; then
+              code=false
+            fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "Code changed: $code"
+
+  # Always runs, also for documentation-only changes: the maps and entry points are checked,
+  # and every file (documentation included) must be formatted.
+  docs:
+    name: Documentation and formatting
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
@@ -25,16 +69,47 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run docs:check
+      - run: npm run format:check
+
+  frontend:
+    name: Frontend quality gate
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
-      - run: npm run test
-      - run: npm run format:check
       - run: npm run knip
+
+  # The unit tests are the longest frontend step, so they run beside the static checks.
+  unit:
+    name: Frontend tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test
 
   # The editor in a real browser engine: WebKit, the engine of the desktop webview. Runs on
   # macOS because the suite types with macOS keys (Cmd+arrows) the way the owner does.
   browser:
     name: Editor in WebKit
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
@@ -65,10 +140,44 @@ jobs:
 
   # Every system Amby ships for: the backend has code of its own for Windows, macOS and Linux
   # (paths, trash, credentials, durable writes). The processor (x64/arm64) makes no difference
-  # to the code, so the arm64 builds are checked by the release, not here.
-  rust:
-    name: Rust check and test (${{ matrix.os }})
+  # to the code, so the arm64 builds are checked by the release, not here. Lints and tests are
+  # separate jobs: they compile different things, so they run side by side instead of in turn.
+  rust-lint:
+    name: Rust format and Clippy (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Set up Rust stable
+        run: rustup toolchain install stable --profile minimal --component rustfmt clippy
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
+      - run: npm ci
+      - run: npm run rust:fmt
+      - run: npm run rust:clippy
+
+  rust-test:
+    name: Rust test and bindings (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -90,8 +199,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
       - run: npm ci
-      - run: npm run rust:fmt
-      - run: npm run rust:clippy
       - run: npm run rust:test
       - name: Verify generated IPC bindings are current
         run: npm run bindings:check

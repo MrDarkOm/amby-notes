@@ -37,7 +37,7 @@
     "test:watch": "vitest",
     "rust:check": "cargo check --manifest-path src-tauri/Cargo.toml",
     "rust:fmt": "cargo fmt --manifest-path src-tauri/Cargo.toml --check",
-    "rust:clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings",
+    "rust:clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
     "rust:test": "cargo test --manifest-path src-tauri/Cargo.toml",
     "sync:test": "cargo test --manifest-path sync/Cargo.toml --workspace",
     "sync:lint": "cargo fmt --manifest-path sync/Cargo.toml --all --check && cargo clippy --manifest-path sync/Cargo.toml --workspace --all-targets -- -D warnings && cargo deny --manifest-path sync/Cargo.toml check",
