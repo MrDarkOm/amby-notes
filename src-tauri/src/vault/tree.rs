@@ -38,6 +38,20 @@ pub fn filesystem_timestamps(path: &Path) -> (Option<u64>, Option<u64>) {
     )
 }
 
+/// What the tree needs to know about an indexed note. A full build reads every note from a map;
+/// a patch asks the index for the few notes it touches.
+pub trait NoteLookup {
+    /// The id and the index modification time of the note at `rel_path`, if it is indexed.
+    fn find(&self, rel_path: &str) -> Option<(String, Option<u64>)>;
+}
+
+impl NoteLookup for HashMap<String, IndexedNote> {
+    fn find(&self, rel_path: &str) -> Option<(String, Option<u64>)> {
+        self.get(rel_path)
+            .map(|note| (note.id.clone(), note.modified))
+    }
+}
+
 fn note_map(notes: &[IndexedNote], vault: &Path) -> HashMap<String, IndexedNote> {
     notes
         .iter()
@@ -48,14 +62,16 @@ fn note_map(notes: &[IndexedNote], vault: &Path) -> HashMap<String, IndexedNote>
         .collect()
 }
 
+/// A name the tree never lists: hidden entries and the attachments folder.
+pub fn is_hidden_tree_name(name: &str) -> bool {
+    name.starts_with('.') || name == "assets"
+}
+
 fn read_visible_entries(dir: &Path) -> Result<Vec<fs::DirEntry>, String> {
     let mut entries: Vec<_> = fs::read_dir(dir)
         .map_err(|e| e.to_string())?
         .filter_map(Result::ok)
-        .filter(|e| {
-            let name = e.file_name().to_string_lossy().to_string();
-            !name.starts_with('.') && name != "assets"
-        })
+        .filter(|e| !is_hidden_tree_name(&e.file_name().to_string_lossy()))
         .collect();
     entries.sort_by_key(|e| {
         let path = e.path();
@@ -66,16 +82,20 @@ fn read_visible_entries(dir: &Path) -> Result<Vec<fs::DirEntry>, String> {
     Ok(entries)
 }
 
-fn tree_item_for_note(path: &Path, note: &IndexedNote, children: Vec<TreeItem>) -> TreeItem {
+fn tree_item_for_note(
+    path: &Path,
+    note: (String, Option<u64>),
+    children: Vec<TreeItem>,
+) -> TreeItem {
     let (created, filesystem_modified) = filesystem_timestamps(path);
     TreeItem {
-        id: note.id.clone(),
+        id: note.0,
         path: path_string(path),
         name: file_stem(path),
         item_type: "file".to_string(),
         icon: "file".to_string(),
         created,
-        modified: note.modified.or(filesystem_modified),
+        modified: note.1.or(filesystem_modified),
         children: if children.is_empty() {
             None
         } else {
@@ -130,20 +150,49 @@ pub fn is_standalone_database_dir(path: &Path) -> bool {
 fn scan_tree_dir(
     vault: &Path,
     dir: &Path,
-    notes: &HashMap<String, IndexedNote>,
+    notes: &dyn NoteLookup,
     in_bundle: bool,
 ) -> Result<Vec<TreeItem>, String> {
     let mut items = Vec::new();
     for entry in read_visible_entries(dir)? {
-        let path = entry.path();
-        let raw_name = entry.file_name().to_string_lossy().to_string();
+        if let Some(item) = tree_item_for_entry(vault, dir, &entry.path(), notes, in_bundle, true)?
+        {
+            items.push(item);
+        }
+    }
+    Ok(items)
+}
+
+/// The tree item of one directory entry, or `None` when the tree does not list it. With
+/// `with_children` off a folder, bundle or database comes back without its subtree (a patch that
+/// only needs the item's own fields and its place in the tree).
+pub fn tree_item_for_entry(
+    vault: &Path,
+    dir: &Path,
+    path: &Path,
+    notes: &dyn NoteLookup,
+    in_bundle: bool,
+    with_children: bool,
+) -> Result<Option<TreeItem>, String> {
+    let scan_children =
+        |child_dir: &Path, child_in_bundle: bool| -> Result<Vec<TreeItem>, String> {
+            if with_children {
+                scan_tree_dir(vault, child_dir, notes, child_in_bundle)
+            } else {
+                Ok(Vec::new())
+            }
+        };
+    let path = path.to_path_buf();
+    let raw_name = file_name(&path);
+    let mut items = Vec::new();
+    {
         if in_bundle
             && (file_stem(&path) == file_name(dir)
                 || raw_name == "Metadata.md"
                 || raw_name == "ambd.json"
                 || raw_name == ".ambd")
         {
-            continue;
+            return Ok(None);
         }
         if path.is_dir() {
             if is_standalone_database_dir(&path) {
@@ -181,7 +230,7 @@ fn scan_tree_dir(
                             None,
                         )
                     };
-                let children = scan_tree_dir(vault, &path, notes, true)?;
+                let children = scan_children(&path, true)?;
                 let (created, modified) = filesystem_timestamps(&manifest_path);
                 let (folder_created, folder_modified) = filesystem_timestamps(&path);
                 let stem = file_name(&path);
@@ -219,12 +268,12 @@ fn scan_tree_dir(
                         .strip_prefix(vault)
                         .map(normalize_rel_path)
                         .map_err(|e| e.to_string())?;
-                    if let Some(note) = notes.get(&rel) {
-                        let children = scan_tree_dir(vault, &path, notes, true)?;
+                    if let Some(note) = notes.find(&rel) {
+                        let children = scan_children(&path, true)?;
                         items.push(tree_item_for_note(&main_md, note, children));
                     }
                 } else if main_canvas.is_file() {
-                    let children = scan_tree_dir(vault, &path, notes, true)?;
+                    let children = scan_children(&path, true)?;
                     let (created, modified) = filesystem_timestamps(&main_canvas);
                     items.push(TreeItem {
                         id: format!("canvas:{}", path_string(&main_canvas)),
@@ -241,7 +290,7 @@ fn scan_tree_dir(
                         },
                     });
                 } else if main_sketch.is_file() {
-                    let children = scan_tree_dir(vault, &path, notes, true)?;
+                    let children = scan_children(&path, true)?;
                     let (created, modified) = filesystem_timestamps(&main_sketch);
                     items.push(TreeItem {
                         id: format!("sketch:{}", path_string(&main_sketch)),
@@ -293,7 +342,7 @@ fn scan_tree_dir(
                             None,
                         )
                     };
-                let children = scan_tree_dir(vault, &path, notes, true)?;
+                let children = scan_children(&path, true)?;
                 let (created, modified) = filesystem_timestamps(&manifest_path);
                 let (folder_created, folder_modified) = filesystem_timestamps(&path);
                 items.push(TreeItem {
@@ -311,7 +360,7 @@ fn scan_tree_dir(
                     },
                 });
             } else {
-                let children = scan_tree_dir(vault, &path, notes, false)?;
+                let children = scan_children(&path, false)?;
                 let (created, modified) = filesystem_timestamps(&path);
                 items.push(TreeItem {
                     id: format!("folder:{}", path_string(&path)),
@@ -329,7 +378,7 @@ fn scan_tree_dir(
                 .strip_prefix(vault)
                 .map(normalize_rel_path)
                 .map_err(|e| e.to_string())?;
-            if let Some(note) = notes.get(&rel) {
+            if let Some(note) = notes.find(&rel) {
                 items.push(tree_item_for_note(&path, note, Vec::new()));
             }
         } else if is_canvas(&path) {
@@ -364,7 +413,7 @@ fn scan_tree_dir(
             }
         }
     }
-    Ok(items)
+    Ok(items.pop())
 }
 
 pub fn build_tree(vault: &Path, notes: &[IndexedNote]) -> Result<Vec<TreeItem>, String> {
