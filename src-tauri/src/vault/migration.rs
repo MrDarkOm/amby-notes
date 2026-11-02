@@ -78,25 +78,6 @@ pub struct IdMigrationJournal {
     pub files: Vec<IdMigrationFile>,
 }
 
-#[derive(Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct LegacyCompletedIdMigrationJournal {
-    pub version: u8,
-    pub kind: String,
-    #[serde(rename = "createdAtMs")]
-    pub _created_at_ms: u128,
-    #[serde(rename = "backupPath")]
-    pub _backup_path: String,
-    #[serde(rename = "modifiedPaths")]
-    pub _modified_paths: Vec<String>,
-}
-
-#[derive(Debug)]
-pub enum StoredIdMigrationJournal {
-    Recoverable(IdMigrationJournal),
-    LegacyCompleted(LegacyCompletedIdMigrationJournal),
-}
-
 #[derive(Serialize, Clone, Debug, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct IdMigrationRecovery {
@@ -149,29 +130,26 @@ pub fn write_migration_journal(path: &Path, journal: &IdMigrationJournal) -> Res
     frontmatter::atomic_write_bytes(path, &encoded)
 }
 
-pub fn read_migration_journal(path: &Path) -> Result<StoredIdMigrationJournal, String> {
+/// `None` for the oldest journals (version 1, a list of modified paths): they were only written
+/// once the migration had finished, so there is nothing to recover and they are skipped.
+pub fn read_migration_journal(path: &Path) -> Result<Option<IdMigrationJournal>, String> {
     let encoded = fs::read(path).map_err(|error| error.to_string())?;
     let value: serde_json::Value = serde_json::from_slice(&encoded)
         .map_err(|error| format!("Invalid migration journal: {error}"))?;
-    let journal = if value.get("status").is_some() || value.get("files").is_some() {
-        StoredIdMigrationJournal::Recoverable(
-            serde_json::from_value(value)
-                .map_err(|error| format!("Invalid migration journal: {error}"))?,
-        )
-    } else {
-        StoredIdMigrationJournal::LegacyCompleted(
-            serde_json::from_value(value)
-                .map_err(|error| format!("Invalid migration journal: {error}"))?,
-        )
-    };
-    let (version, kind) = match &journal {
-        StoredIdMigrationJournal::Recoverable(journal) => (journal.version, &journal.kind),
-        StoredIdMigrationJournal::LegacyCompleted(journal) => (journal.version, &journal.kind),
-    };
-    if !matches!(version, 1 | ID_MIGRATION_VERSION) || kind != ID_MIGRATION_KIND {
+    let supported = value
+        .get("version")
+        .and_then(serde_json::Value::as_u64)
+        .is_some_and(|version| matches!(version, 1 | 2))
+        && value.get("kind").and_then(serde_json::Value::as_str) == Some(ID_MIGRATION_KIND);
+    if !supported {
         return Err(format!("Unsupported migration journal: {}", path.display()));
     }
-    Ok(journal)
+    if value.get("status").is_none() && value.get("files").is_none() {
+        return Ok(None);
+    }
+    serde_json::from_value(value)
+        .map(Some)
+        .map_err(|error| format!("Invalid migration journal: {error}"))
 }
 
 pub fn recovery_from_journal(path: &Path, journal: &IdMigrationJournal) -> IdMigrationRecovery {
@@ -215,7 +193,7 @@ pub fn unfinished_id_migrations(vault: &Path) -> Result<Vec<IdMigrationRecovery>
         }
         let path = checked_journal_path(vault, &path_string(&path))?;
         let unfinished = match read_migration_journal(&path)? {
-            StoredIdMigrationJournal::Recoverable(journal)
+            Some(journal)
                 if matches!(
                     journal.status,
                     IdMigrationStatus::Planned | IdMigrationStatus::InProgress
@@ -261,7 +239,7 @@ pub fn checked_journal_path(vault: &Path, journal_path: &str) -> Result<PathBuf,
 /// Validate every path carried by a migration journal before the journal is
 /// persisted or any source/backup file is touched.  The journal format is
 /// intentionally unchanged; this is a read-only safety gate for both current
-/// and legacy recoverable journals.
+/// and older recoverable journals.
 fn validate_migration_paths(
     vault: &Path,
     journal_path: &Path,
@@ -610,11 +588,8 @@ pub fn recover_id_migration(
     action: IdMigrationRecoveryAction,
 ) -> Result<IdMigrationRecovery, String> {
     let journal_path = checked_journal_path(vault, journal_path)?;
-    let StoredIdMigrationJournal::Recoverable(mut journal) = read_migration_journal(&journal_path)?
-    else {
-        return Err(
-            "This legacy migration was already completed and needs no recovery".to_string(),
-        );
+    let Some(mut journal) = read_migration_journal(&journal_path)? else {
+        return Err("This migration was already completed and needs no recovery".to_string());
     };
     validate_migration_paths(vault, &journal_path, &journal)?;
     match action {
