@@ -12,6 +12,15 @@ use crate::{
     property_store, vault_index,
 };
 
+/// The answer to a refresh of a few paths: the tree patch and the sync report for them.
+#[derive(serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PathsRefresh {
+    pub generation: u64,
+    pub patch: crate::vault::tree_patch::TreePatch,
+    pub sync: vault_index::SyncReport,
+}
+
 pub struct PreparedMoveRefactor {
     pub source_path: PathBuf,
     pub target_path: PathBuf,
@@ -46,6 +55,16 @@ impl ActiveVault {
             loaded.generation = self.generation;
             loaded
         })
+    }
+
+    /// Bring the index and the tree up to date for `changed` only. `None` means the change is
+    /// not one a point refresh can cover (the vault root, too many paths, an identity clash that
+    /// needs the whole picture) and the caller has to run `refresh`.
+    pub fn refresh_paths(
+        &self,
+        _changed: HashSet<PathBuf>,
+    ) -> Result<Option<PathsRefresh>, String> {
+        Ok(None)
     }
 
     pub fn reindex(&self) -> Result<vault_index::LoadVaultResult, String> {

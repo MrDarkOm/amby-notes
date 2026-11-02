@@ -178,6 +178,7 @@ impl CreateNotePlan {
         });
 
         Ok(FsMutationResult {
+            tree_patch: None,
             primary_id: None,
             primary_path: Some(path_string(&new_note)),
             path_changes,

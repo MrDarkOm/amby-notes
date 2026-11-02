@@ -423,6 +423,7 @@ pub fn ensure_bundle(
     let path = paths::guard(&db, &path)?;
     let (primary, path_changes) = ensure_bundle_path(&path)?;
     let result = FsMutationResult {
+        tree_patch: None,
         primary_id: None,
         primary_path: Some(path_string(&primary)),
         path_changes,

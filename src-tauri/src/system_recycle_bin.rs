@@ -15,6 +15,7 @@ pub fn move_to_system_trash(vault: &Path, path: &Path) -> Result<FsMutationResul
         .collect();
     move_path(&preview.original_path)?;
     Ok(FsMutationResult {
+        tree_patch: None,
         primary_id: None,
         primary_path: None,
         path_changes: Vec::new(),

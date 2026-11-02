@@ -129,6 +129,7 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
         }
 
         Ok(FsMutationResult {
+            tree_patch: None,
             primary_id: None,
             primary_path: Some(path_string(&new_main)),
             path_changes,
@@ -147,6 +148,7 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
         ensure_rename_target_available(path, &new_path)?;
         rename_path_case_safe(path, &new_path)?;
         Ok(FsMutationResult {
+            tree_patch: None,
             primary_id: None,
             primary_path: Some(path_string(&new_path)),
             path_changes: vec![PathChange {
@@ -189,6 +191,7 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
             tracing::warn!(event = "database_manifest_name_update_failed", error = %error);
         }
         Ok(FsMutationResult {
+            tree_patch: None,
             primary_id: None,
             primary_path: Some(path_string(&new_path)),
             path_changes,
@@ -275,6 +278,7 @@ fn move_item_to_dir(source_path: &Path, target_dir: &Path) -> Result<FsMutationR
     };
 
     Ok(FsMutationResult {
+        tree_patch: None,
         primary_id: None,
         primary_path,
         path_changes,
