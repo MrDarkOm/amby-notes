@@ -103,6 +103,30 @@ fn transform(raw: &str) -> Result<String, String> {
     String::from_utf8(bytes).map_err(|_| "invalidSettings".into())
 }
 
+/// Moves the markers of a finished migration aside under a timestamped name. The completion
+/// marker goes last, so a crash in between is finished by the next run.
+fn supersede_markers(root: &Path) -> Result<(), String> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or(0);
+    for name in [BACKUP, PREPARED, COMPLETED] {
+        let from = crate::paths::confine_rel_no_symlinks(root, name)?;
+        if !from.exists() {
+            continue;
+        }
+        let mut target = format!("{name}.superseded-{stamp}");
+        let mut counter = 1;
+        while crate::paths::confine_rel_no_symlinks(root, &target)?.exists() {
+            target = format!("{name}.superseded-{stamp}-{counter}");
+            counter += 1;
+        }
+        let to = crate::paths::confine_rel_no_symlinks(root, &target)?;
+        fs::rename(&from, &to).map_err(|_| "markerFailed")?;
+    }
+    Ok(())
+}
+
 /// Backup and publication are no-replace/atomic. A published snapshot acts as
 /// the completion marker and guards rollback against later user edits.
 fn migrate(root: &Path) -> Result<(), String> {
@@ -127,6 +151,12 @@ fn migrate(root: &Path) -> Result<(), String> {
         return Ok(());
     }
     let next = transform(&raw)?;
+    if completed.exists() {
+        // The migration finished once, yet `ai` has no version again: another build wrote the file
+        // afterwards. The earlier backup and markers belong to that finished migration, so they
+        // are set aside (kept, never deleted) and this file is migrated afresh.
+        supersede_markers(root)?;
+    }
     let backup = crate::paths::confine_rel_no_symlinks(root, BACKUP)?;
     if backup.exists() {
         if fs::read_to_string(&backup).map_err(|_| "backupUnavailable")? != raw {
@@ -249,6 +279,38 @@ mod tests {
         assert!(root.join(COMPLETED).exists());
         rollback(&root).unwrap();
         assert_eq!(fs::read_to_string(root.join("settings.json")).unwrap(), old);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn migrates_again_when_an_older_build_rewrote_the_settings() {
+        let root =
+            std::env::temp_dir().join(format!("amby-ai-migration-{}", ulid::Ulid::generate()));
+        fs::create_dir_all(&root).unwrap();
+        let first = r#"{"ai":{"models":[{"id":"a","provider":"openai","model":"x","label":"A"}],"activeModelId":"a"}}"#;
+        fs::write(root.join("settings.json"), first).unwrap();
+        migrate(&root).unwrap();
+        // An older build writes the legacy shape back.
+        let again = r#"{"ai":{"models":[{"id":"b","provider":"ollama","model":"y","label":"B"}],"activeModelId":"b"}}"#;
+        fs::write(root.join("settings.json"), again).unwrap();
+        migrate(&root).unwrap();
+        let migrated: Value =
+            serde_json::from_str(&fs::read_to_string(root.join("settings.json")).unwrap()).unwrap();
+        assert_eq!(migrated["ai"]["version"], 1);
+        assert_eq!(migrated["ai"]["models"][0]["id"], "b");
+        assert_eq!(fs::read_to_string(root.join(BACKUP)).unwrap(), again);
+        assert!(root.join(COMPLETED).exists());
+        // The first migration's backup is kept, not deleted.
+        let kept = fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("settings.ai-v1.backup.json.superseded-")
+            })
+            .count();
+        assert_eq!(kept, 1);
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
