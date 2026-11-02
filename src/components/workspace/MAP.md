@@ -2,7 +2,7 @@
 
 Owns workspace UI and state. [workspace.tsx](workspace.tsx) is the public facade;
 [workspace-orchestration.tsx](workspace-orchestration.tsx) composes the focused
-hooks and surfaces. Extend the owner below instead of adding parallel state.
+hooks and surfaces (pane renderers, layouts, dock, splits: [orchestration/](orchestration/)). Extend the owner below instead of adding parallel state.
 
 | Concern                                | Owners / next route                                                                                                                                                                                                                                                                                                                     |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

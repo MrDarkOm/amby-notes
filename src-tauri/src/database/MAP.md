@@ -8,7 +8,7 @@ are in [commands/database.rs](../commands/database.rs); frontend contracts are i
 | --------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | Domain/IPC types                              | [model.rs](model.rs)                                                                                     |
 | Durable parse/validation/discovery            | [format.rs](format.rs), [validation.rs](validation.rs), [discovery.rs](discovery.rs)                     |
-| Schema/value mutations and write coordination | [mutations.rs](mutations.rs), [mutation_state.rs](mutation_state.rs)                                     |
+| Schema/value mutations and write coordination | [mutations/](mutations/) (one module per kind, see below), [mutation_state.rs](mutation_state.rs)                                     |
 | Rows (create, duplicate) and attachments      | [rows.rs](rows.rs), [assets.rs](assets.rs)                                                               |
 | Saved view operations                         | [views.rs](views.rs)                                                                                     |
 | SQLite projection / incremental publication   | [projection.rs](projection.rs)                                                                           |
@@ -23,6 +23,15 @@ are in [commands/database.rs](../commands/database.rs); frontend contracts are i
 | Relation picker search / reference lookup | [relation_lookup.rs](relation_lookup.rs) |
 | Runtime/module state and events               | [runtime_state.rs](runtime_state.rs), [events.rs](events.rs)                                             |
 
+`mutations/` keeps a flat public surface (`database::mutations::*`, re-exported from `mod.rs`):
+`types.rs` request/result types; `create.rs` create/rename database; `property_create.rs`,
+`property_type.rs`, `property_edit.rs` (rename, delete, reorder), `property_config.rs`,
+`property_options.rs` property schema edits; `relation_schema.rs` relation config helpers;
+`relation_value.rs` + `relation_write.rs` relation value updates and their rollback;
+`value_batch.rs` value batches; `durable_values.rs` the "no stored values" guard;
+`support.rs` JSON/path helpers. Tests under `mutations/tests/` follow the same names;
+`common.rs` holds fixtures shared by several of them.
+
 Read [database format](../../../docs/database-format.md),
 [vault format](../../../docs/vault-format.md), and relevant sections of
 [database runtime](../../../docs/database-runtime.md). Design documents contain
@@ -35,20 +44,20 @@ mutations; see the formula failure contract in
 [engineering.md](../../../docs/engineering.md). Keep vault generation, operation
 IDs, mutation locking and transaction boundaries coordinated across the command.
 
-`update_database_property_config` in `mutations.rs` edits the settings of a Number, Date or
+`update_database_property_config` in `mutations/property_config.rs` edits the settings of a Number, Date or
 Formula property (display formats are free; a date's time and range wait for its values to be
-clear). `update_database_property_options` in `mutations.rs` replaces a Select, Multi-select
+clear). `update_database_property_options` in `mutations/property_options.rs` replaces a Select, Multi-select
 or Status option list in the manifest only (IDs kept, snapshot before the write);
 a renamed option keeps its old name as an alias (records store names). It never
 rewrites records, so a removed option stays in values as a diagnostic name.
 
-`create_database` in `mutations.rs` is `create_database_with_ids` with generated IDs. A caller that must
+`create_database` in `mutations/create.rs` is `create_database_with_ids` with generated IDs. A caller that must
 repeat or undo a multi-step operation (creative projects) passes `PlannedDatabaseIds` and recognises its own
 untouched manifest by recomputing `new_database_manifest_bytes`; do not copy the manifest literal elsewhere. `build_new_property` is the pure core of
 `create_database_property` (with `PlannedPropertyIds`), and `rows::create_database_row_with_values`
 creates a row that already carries values.
 
-Property rename in `mutations.rs` changes only the manifest. Existing YAML
+Property rename in `mutations/property_edit.rs` changes only the manifest. Existing YAML
 bindings stay intact; a legacy stored property's previous name is pinned as its
 storage key before renaming. Do not recursively rename YAML keys in notes or
 nested databases. Formula/rollup names remain computed metadata without bindings.
@@ -126,7 +135,7 @@ require related raw revisions. Topology changes reject durable values on both
 sides; disconnect preserves the inverse property as a one-way relation. Keep
 owned-note discovery and fail-closed YAML/record/template checks in preflight.
 
-Tests: `format_test.rs`, `discovery_test.rs`, `mutations_test.rs`,
+Tests: `format_test.rs`, `discovery_test.rs`, `mutations/tests/`,
 `projection_test.rs`, `query_test.rs`, `formula_test.rs`,
 `relation_recovery_test.rs`, `relation_schema_recovery_test.rs`,
 `value_batch_recovery_test.rs`, `relation_lookup_test.rs`, `filter_operators_test.rs`, `rollup_test.rs`, `rollup_config_test.rs`.
