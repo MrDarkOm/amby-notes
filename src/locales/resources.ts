@@ -4024,6 +4024,11 @@ const ru = {
     },
   },
   panelHost: { noPanel: "Нет активной панели" },
+  surfaceError: {
+    title: "Эта область не открылась",
+    desc: "Остальное окно работает, ваши файлы не затронуты. Попробуйте открыть область снова.",
+    retry: "Попробовать снова",
+  },
 }
 
 const en: typeof ru = {
@@ -8012,6 +8017,11 @@ const en: typeof ru = {
     },
   },
   panelHost: { noPanel: "No active panel" },
+  surfaceError: {
+    title: "This area failed to open",
+    desc: "The rest of the window still works and your files are untouched. Try opening the area again.",
+    retry: "Try again",
+  },
 }
 
 export const localeResources = { ru: { translation: ru }, en: { translation: en } }

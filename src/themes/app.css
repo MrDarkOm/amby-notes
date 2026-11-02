@@ -6721,3 +6721,38 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   cursor: grabbing !important;
   user-select: none !important;
 }
+
+/* Fallback shown by SurfaceErrorBoundary in place of a tab or panel that crashed. */
+.amby-surface-error {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 0%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1.5rem;
+  text-align: center;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.amby-surface-error__icon {
+  display: flex;
+  width: 3rem;
+  height: 3rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+  color: var(--destructive);
+}
+
+.amby-surface-error__desc {
+  max-width: 24rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+}
