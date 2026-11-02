@@ -36,7 +36,7 @@ import { beginLocalTreeMutation, recordLocalTreePaths } from "../watcher-tree-re
 import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
 
 type DeleteResolution = "confirm" | "archive" | "keep_recovery" | "discard" | "cancel"
-type DeleteMode = "delete" | "archive"
+export type DeleteMode = "delete" | "archive"
 
 function normalizeFsPath(path: string): string {
   return path.replace(/\\/gu, "/").replace(/\/+$/u, "")
