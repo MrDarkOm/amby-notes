@@ -9,10 +9,11 @@ permissions:
   contents: write
 
 jobs:
-  # The exact tagged commit must pass the full gate and the dependency audits
-  # before any installer is built or published.
+  # The exact tagged commit must pass the full gate and the dependency audits before any
+  # installer is built or published. The gate is the same checks as `npm run verify:full`
+  # (keep the lists in sync with package.json), split into jobs that run side by side.
   gate:
-    name: Release gate (exact tagged commit)
+    name: Release gate (tag, version, notes)
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
@@ -31,6 +32,44 @@ jobs:
             echo "::error::$GITHUB_REF_NAME must be tagged on a commit of $branch"
             exit 1
           fi
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run version:check
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+
+      - name: Release notes exist (updates/upd_<version>.md)
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          test -s "updates/upd_${version%%-beta.*}.md"
+
+  gate-frontend:
+    name: Release gate (frontend)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run docs:check
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run test:update-channels
+      - run: npm run format:check
+      - run: npm run knip
+
+  gate-rust:
+    name: Release gate (Rust, Linux)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
@@ -45,19 +84,34 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
+      - run: npm ci
+      - run: npm run rust:fmt
+      - run: npm run rust:clippy
+      - run: npm run rust:test
+      - run: npm run bindings:check
+
+  gate-audit:
+    name: Release gate (dependency audits)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      # Building cargo-audit takes minutes; the binary is cached (the advisory database is
+      # fetched fresh on every run).
+      - name: Cache cargo-audit
+        id: cargo-audit
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: cargo-audit-${{ runner.os }}-v1
       - name: Install cargo-audit
+        if: steps.cargo-audit.outputs.cache-hit != 'true'
         run: cargo install cargo-audit --locked
       - run: npm ci
-      - run: npm run version:check
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-
-      - name: Release notes exist (updates/upd_<version>.md)
-        shell: bash
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          test -s "updates/upd_${version%%-beta.*}.md"
-      - run: npm run verify:full
       - run: npm run audit
 
   # The full gate above runs on Linux; the backend's Windows and macOS code (paths, trash,
@@ -94,7 +148,7 @@ jobs:
 
   publish:
     name: Build ${{ matrix.name }}
-    needs: [gate, gate-platforms]
+    needs: [gate, gate-frontend, gate-rust, gate-audit, gate-platforms]
     strategy:
       fail-fast: false
       matrix:

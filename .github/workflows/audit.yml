@@ -27,6 +27,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Cache cargo-audit
+        id: cargo-audit
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: cargo-audit-${{ runner.os }}-v1
       - name: Install cargo-audit
+        if: steps.cargo-audit.outputs.cache-hit != 'true'
         run: cargo install cargo-audit --locked
       - run: npm run audit:rust
