@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { loadNoteLayerContent, useLayers } from "./use-layers"
 import * as storage from "@/lib/storage"
 import { useViewStateStore } from "./use-view-state-store"
+import { useDocStore } from "./use-doc-store"
 import type { Document } from "./use-doc-store"
 import { registerEditorSerialization } from "./tiptap/editor-serialization-lifecycle"
 
@@ -131,5 +132,59 @@ describe("layer switching", () => {
     expect(useViewStateStore.getState().activeLayers[doc.id]).toBe("editor")
     expect(refreshTree).not.toHaveBeenCalled()
     expect(applyMutationResult).not.toHaveBeenCalled()
+  })
+})
+
+describe("note layer loading", () => {
+  it("retries a note layer load that a dependency change dropped", async () => {
+    const container: Document = {
+      id: "db-id",
+      title: "Tasks",
+      path: "/vault/Tasks/Tasks.db",
+      content: "",
+      source: "",
+      created: "",
+      modified: "",
+      wordCount: 0,
+    }
+    useDocStore.getState().setDoc(container.id, container)
+    useViewStateStore.setState({
+      activeLayers: { [container.id]: "editor" },
+      linkedLayersByDoc: {
+        [container.id]: { note: true, sketch: false, canvas: false, database: true },
+      },
+    })
+    const calls: Array<(raw: string) => void> = []
+    vi.spyOn(storage, "readFile").mockImplementation(
+      () => new Promise<string>((resolve) => calls.push(resolve)),
+    )
+    renderHook(() =>
+      useLayers({
+        vault: null,
+        databasesEnabled: true,
+        backendGeneration: 1,
+        currentDoc: container,
+        treeItems: [],
+        refreshTree: vi.fn().mockResolvedValue([]),
+        applyMutationResult: vi.fn(),
+      }),
+    )
+    expect(calls).toHaveLength(1)
+
+    // Another presence update arrives while the first read is still pending.
+    act(() => {
+      useViewStateStore.getState().setLinkedLayers("other", {
+        note: false,
+        sketch: false,
+        canvas: false,
+        database: false,
+      })
+    })
+    expect(calls).toHaveLength(2)
+
+    await act(async () => {
+      calls[1]("# Attached note")
+    })
+    expect(useDocStore.getState().openDocs[container.id]?.content).toBe("# Attached note")
   })
 })

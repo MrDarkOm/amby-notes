@@ -240,6 +240,7 @@ export function SidebarTree({
       : []
     if (closedAround.length > 0) expandTreeItems(closedAround)
     pendingRevealRef.current = { id: selectedId, waitForRows: closedAround.length > 0 }
+    // Runs only when the selection or the auto-reveal switch changes; `items` and `closedIds` are read fresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, autoReveal])
   React.useEffect(() => {

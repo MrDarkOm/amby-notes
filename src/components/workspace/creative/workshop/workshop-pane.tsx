@@ -642,6 +642,7 @@ export function WorkshopPane({
       scope.stories[0]?.storyId ??
       null
     if (storyId) startPage(storyId, null)
+    // One-shot per request id (guarded by `handledPage`); the render's current state is what it reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageRequest])
   const handledEntity = React.useRef(entityRequest?.id ?? 0)
@@ -649,6 +650,7 @@ export function WorkshopPane({
     if (!entityRequest || entityRequest.id === handledEntity.current) return
     handledEntity.current = entityRequest.id
     startEntity(entityRequest.categoryKey)
+    // One-shot per request id (guarded by `handledEntity`).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entityRequest])
 

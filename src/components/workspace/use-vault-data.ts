@@ -771,7 +771,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
       pending.clear()
       cleanupListener()
     }
-    // refreshTree closes over vault but vault is in the dep array (effect re-runs on change).
+    // refreshTree is recreated every render but only reads `vault`, which is in the deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [desktop, vault])
 
@@ -864,6 +864,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     return () => {
       cancelled = true
     }
+    // Startup hydration runs once per window; loadVault and the setters are not triggers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [desktop, windowLabel])
 

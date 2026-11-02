@@ -108,7 +108,7 @@ export function GalleryLanesView({
             }
           : undefined,
       },
-    // The groups reload on any change; `board.reload` is rebuilt with the hook's state.
+    // `board.reload` only calls a state setter, so a captured copy never goes stale.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [cardEdit],
   )

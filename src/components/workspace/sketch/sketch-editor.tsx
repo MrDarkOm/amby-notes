@@ -209,7 +209,7 @@ export function SketchEditor({
       files: parsed.files,
       scrollToContent: parsed.elements.length > 0,
     }
-    // Only compute initial data once on mount / key change
+    // Initial data is computed once per mount or retry; later edits flow through the editor, not this memo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [retryKey])
 

@@ -422,6 +422,7 @@ export function useLayers({
     if (linkedLayersByDoc[currentDoc.id] || requestedLayersRef.current.has(currentDoc.id)) return
     requestedLayersRef.current.add(currentDoc.id)
     void refreshLinkedLayers(currentDoc.id, currentDoc.path)
+    // refreshLinkedLayers is recreated every render; the ref above makes this a once-per-document request.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentDoc?.id, currentDoc?.path, linkedLayersByDoc])
 
@@ -441,11 +442,15 @@ export function useLayers({
     if (loadedNoteLayersRef.current.has(currentDoc.id)) return
     loadedNoteLayersRef.current.add(currentDoc.id)
     let cancelled = false
+    let settled = false
+    const docId = currentDoc.id
+    const loadedLayers = loadedNoteLayersRef.current
     void (async () => {
       try {
         const notePath = noteLayerPath(currentDoc.path)
         const loaded = await loadNoteLayerContent(notePath, vault ?? undefined)
         if (cancelled) return
+        settled = true
         patchDocBuffer(currentDoc.id, currentDoc.path, {
           content: loaded.content,
           source: loaded.source,
@@ -453,12 +458,16 @@ export function useLayers({
           ...(loaded.revision ? { revision: loaded.revision } : {}),
         })
       } catch (err) {
+        settled = true
         console.error("Failed to load active note layer:", err)
       }
     })()
     return () => {
       cancelled = true
+      // A load dropped by a dependency change never delivered its content; let the rerun retry it.
+      if (!settled) loadedLayers.delete(docId)
     }
+    // patchDocBuffer is module-level; the doc is read through its id and path above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeLayers, currentDoc?.id, currentDoc?.path, linkedLayersByDoc, vault])
 
