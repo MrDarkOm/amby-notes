@@ -177,6 +177,8 @@ const EVENT_CODES = new Set([
   "tree.activate_tab",
   "tree.open_file",
   "tree.select",
+  "tree_patch.shadow_mismatch",
+  "tree_patch.shadow_ok",
   "unhandled_promise_rejection",
   "unhandled_window_error",
   "updater.automatic_update_failed",

@@ -70,6 +70,11 @@ pub fn load_vault(
     if let Some(history) = app.try_state::<crate::database::history::DatabaseHistoryState>() {
         history.clear(None);
     }
+    crate::shadow_check::note_full_tree(
+        Path::new(&loaded.vault_path),
+        loaded.generation,
+        &loaded.tree,
+    );
     Ok(loaded)
 }
 
@@ -93,6 +98,7 @@ pub fn load_active_vault(
     } else {
         runtime.reset_for_generation(Some(loaded.generation));
     }
+    crate::shadow_check::note_full_tree(&active.root, loaded.generation, &loaded.tree);
     Ok(loaded)
 }
 
@@ -119,7 +125,17 @@ pub fn refresh_vault_paths(
     let _mutation_guard = context.mutation_gate.lock_or_recover();
     let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or("No vault open")?;
-    active.refresh_paths(changed)
+    let refreshed = active.refresh_paths(changed)?;
+    if let Some(refresh) = &refreshed {
+        crate::shadow_check::note_patch(
+            &active.root,
+            active.generation,
+            "refresh_paths",
+            refresh.sync.path_to_id.len(),
+            &refresh.patch,
+        );
+    }
+    Ok(refreshed)
 }
 
 #[tauri::command]
@@ -140,6 +156,7 @@ pub fn reindex_vault(
     } else {
         runtime.reset_for_generation(Some(loaded.generation));
     }
+    crate::shadow_check::note_full_tree(&active.root, loaded.generation, &loaded.tree);
     Ok(loaded)
 }
 
@@ -201,7 +218,10 @@ pub fn list_files(
 ) -> Result<Vec<vault_index::TreeItem>, String> {
     let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    conn.refresh().map(|loaded| loaded.tree)
+    conn.refresh().map(|loaded| {
+        crate::shadow_check::note_full_tree(&conn.root, loaded.generation, &loaded.tree);
+        loaded.tree
+    })
 }
 
 #[tauri::command]
