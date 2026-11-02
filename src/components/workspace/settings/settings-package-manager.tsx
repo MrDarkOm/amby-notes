@@ -30,7 +30,11 @@ import {
   uninstallModule,
 } from "@/lib/modules/package-manager/installer"
 import { getCatalogModule } from "@/lib/modules/package-manager/catalog"
-import { loadGlobalModulesRegistry } from "@/lib/modules/global-registry"
+import {
+  installBuiltinModule,
+  isBuiltinModuleId,
+  loadGlobalModulesRegistry,
+} from "@/lib/modules/global-registry"
 import { toCanonicalModuleId } from "@/lib/modules/types"
 
 function formatBytes(bytes: number): string {
@@ -108,6 +112,20 @@ export function ModulePackageManager({
     setIsProcessing(true)
     setStatusMessage(null)
     try {
+      // A module that ships with the application is installed from the registry alone.
+      if (isBuiltinModuleId(canonicalId)) {
+        await installBuiltinModule(canonicalId)
+        setStatusMessage({
+          type: "success",
+          text: t("settings.modules.packages.installSuccess", {
+            name: moduleName,
+            version: "1.0.0",
+          }),
+        })
+        await refreshModuleInfo()
+        onModuleChange?.()
+        return
+      }
       const catalogEntry = await getCatalogModule(canonicalId)
       const targetVersion = catalogEntry?.latestVersion ?? "1.0.0"
       const url =

@@ -182,6 +182,28 @@ export function saveGlobalModulesRegistry(registry: GlobalModulesRegistry): Prom
   return next
 }
 
+/** Whether the module ships inside the application, so it needs no download to be installed. */
+export function isBuiltinModuleId(id: string): boolean {
+  const canonicalId = toCanonicalModuleId(id)
+  return BUILTIN_MODULES.some((builtin) => builtin.id === canonicalId)
+}
+
+/**
+ * Installs a module that ships with the application: its code is already bundled, so only the
+ * registry changes and nothing is downloaded. Returns false for any other module.
+ */
+export async function installBuiltinModule(id: string): Promise<boolean> {
+  const canonicalId = toCanonicalModuleId(id)
+  const builtin = BUILTIN_MODULES.find((module) => module.id === canonicalId)
+  if (!builtin) return false
+  const registry = await loadGlobalModulesRegistry()
+  if (registry.installed[canonicalId]) return true
+  registry.installed[canonicalId] = { ...builtin, installedAt: Date.now() }
+  registry.uninstalled = (registry.uninstalled ?? []).filter((entry) => entry !== canonicalId)
+  await saveGlobalModulesRegistry(registry)
+  return true
+}
+
 export async function isModuleInstalled(id: string): Promise<boolean> {
   const registry = await loadGlobalModulesRegistry()
   const canonicalId = toCanonicalModuleId(id)
