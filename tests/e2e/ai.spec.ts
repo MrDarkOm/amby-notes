@@ -65,54 +65,52 @@ test("connection cards retain model choices in a narrow browser window", async (
     if (localStorage.getItem("amby:e2e-ai-seeded")) return
     localStorage.setItem("amby:e2e-ai-seeded", "1")
     localStorage.setItem(
-      "amby:g:settings.json",
+      "amby:g:ai-connections.json",
       JSON.stringify({
-        ai: {
-          version: 1,
-          activeModelId: "one",
-          connections: [
-            {
-              id: "c1",
-              provider: "openai",
-              method: "api",
-              label: "Account one",
-              baseUrl: "",
-              credentialId: "k1",
-              apiVersion: "",
-              catalogUpdatedAt: "2026-10-31T00:00:00Z",
-            },
-            {
-              id: "c2",
-              provider: "openai",
-              method: "api",
-              label: "Account two",
-              baseUrl: "",
-              credentialId: "k2",
-              apiVersion: "",
-              catalogUpdatedAt: "2026-10-31T00:00:00Z",
-            },
-          ],
-          models: [
-            {
-              id: "one",
-              connectionId: "c1",
-              model: "gpt-a",
-              label: "Model A",
-              enabled: true,
-              available: true,
-              origin: "catalog",
-            },
-            {
-              id: "two",
-              connectionId: "c2",
-              model: "gpt-b",
-              label: "Model B",
-              enabled: false,
-              available: true,
-              origin: "catalog",
-            },
-          ],
-        },
+        version: 1,
+        activeModelId: "one",
+        connections: [
+          {
+            id: "c1",
+            provider: "openai",
+            method: "api",
+            label: "Account one",
+            baseUrl: "",
+            credentialId: "k1",
+            apiVersion: "",
+            catalogUpdatedAt: "2026-10-31T00:00:00Z",
+          },
+          {
+            id: "c2",
+            provider: "openai",
+            method: "api",
+            label: "Account two",
+            baseUrl: "",
+            credentialId: "k2",
+            apiVersion: "",
+            catalogUpdatedAt: "2026-10-31T00:00:00Z",
+          },
+        ],
+        models: [
+          {
+            id: "one",
+            connectionId: "c1",
+            model: "gpt-a",
+            label: "Model A",
+            enabled: true,
+            available: true,
+            origin: "catalog",
+          },
+          {
+            id: "two",
+            connectionId: "c2",
+            model: "gpt-b",
+            label: "Model B",
+            enabled: false,
+            available: true,
+            origin: "catalog",
+          },
+        ],
       }),
     )
   })
