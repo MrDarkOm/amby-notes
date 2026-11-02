@@ -1,3 +1,4 @@
+use crate::lock_util::LockExt;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -34,6 +35,7 @@ pub fn mutation_paths(result: &FsMutationResult) -> Vec<PathBuf> {
     for deleted in &result.deleted_paths {
         paths.push(PathBuf::from(deleted));
     }
+    paths.extend(result.also_touched.iter().cloned());
     paths
 }
 
@@ -201,7 +203,7 @@ pub fn sync_mutation_result(
 ) -> MutationOutcome {
     let index_result = (|| -> Result<(), String> {
         let (identities, deleted_ids) = {
-            let conn_guard = context.conn.lock().unwrap();
+            let conn_guard = context.conn.lock_or_recover();
             let conn = conn_guard.as_ref().ok_or("No vault open")?;
             vault_index::collect_index_mutation_inputs(
                 conn,
@@ -216,9 +218,18 @@ pub fn sync_mutation_result(
             &identities,
             deleted_ids,
         )?;
-        let conn_guard = context.conn.lock().unwrap();
+        let conn_guard = context.conn.lock_or_recover();
         let conn = conn_guard.as_ref().ok_or("No vault open")?;
-        vault_index::apply_prepared_index_updates(conn, &prepared.notes, &prepared.deleted_ids)?;
+        // A renamed note whose key was made from its path (a broken header, a duplicate id)
+        // gets a new key: the row under the old one must go, without being reported as a delete.
+        let mut removed = prepared.deleted_ids.clone();
+        removed.extend(vault_index::stale_path_identities(
+            vault_path,
+            &identities,
+            &result.path_changes,
+            &prepared.notes,
+        ));
+        vault_index::apply_prepared_index_updates(conn, &prepared.notes, &removed)?;
         result.deleted_ids = prepared.deleted_ids;
         result.primary_id = result
             .primary_path
@@ -230,11 +241,16 @@ pub fn sync_mutation_result(
     })();
 
     match index_result {
-        Ok(()) => MutationOutcome {
-            mutation: result,
-            index_state: IndexState::Healthy,
-            warnings: Vec::new(),
-        },
+        Ok(()) => {
+            let action = action_of(&result);
+            result.tree_patch =
+                tree_patch_for(context, vault_path, action, &mutation_paths(&result), &[]);
+            MutationOutcome {
+                mutation: result,
+                index_state: IndexState::Healthy,
+                warnings: Vec::new(),
+            }
+        }
         Err(error) => {
             tracing::warn!(event = "index_update_failed", error = %error);
             if let Ok(active) = context.conn.lock() {
@@ -251,19 +267,97 @@ pub fn sync_mutation_result(
     }
 }
 
+/// A short name for what a mutation did, for the shadow check's report.
+fn action_of(result: &FsMutationResult) -> &'static str {
+    if !result.deleted_paths.is_empty() {
+        "delete"
+    } else if result
+        .path_changes
+        .iter()
+        .any(|change| !change.old_path.is_empty() && !change.new_path.is_empty())
+    {
+        "rename_move_or_layer"
+    } else if result
+        .path_changes
+        .iter()
+        .any(|change| change.old_path.is_empty())
+    {
+        "create"
+    } else {
+        "mutation"
+    }
+}
+
+/// The tree patch for `paths` (and `extra`, files rewritten along the way), or `None` when the
+/// renderer has to reload the whole tree. A failure here never fails the mutation.
+fn tree_patch_for(
+    context: &VaultContext,
+    vault: &Path,
+    action: &str,
+    paths: &[PathBuf],
+    extra: &[PathBuf],
+) -> Option<crate::vault::tree_patch::TreePatch> {
+    let conn_guard = context.conn.lock_or_recover();
+    let active = conn_guard.as_ref()?;
+    let all = paths.iter().chain(extra).cloned().collect::<Vec<_>>();
+    match crate::vault::tree_patch::patch_for_paths(&active.connection, vault, &all) {
+        Ok(patch) => {
+            if let Some(patch) = &patch {
+                crate::shadow_check::note_patch(
+                    &active.root,
+                    active.generation,
+                    action,
+                    all.len(),
+                    patch,
+                );
+            }
+            patch
+        }
+        Err(error) => {
+            tracing::warn!(event = "tree_patch_failed", %error);
+            None
+        }
+    }
+}
+
+/// Does any of `paths` lie inside a database folder (one with a manifest), or is it one?
+fn touches_database(vault: &Path, paths: &[PathBuf]) -> bool {
+    let mut checked = HashSet::new();
+    for path in paths {
+        for ancestor in path.ancestors() {
+            if ancestor == vault || !ancestor.starts_with(vault) {
+                break;
+            }
+            // Already examined, with everything above it.
+            if !checked.insert(ancestor.to_path_buf()) {
+                break;
+            }
+            if crate::vault::scan::is_database_dir(ancestor) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+pub(crate) fn touches_database_for_tests(vault: &Path, paths: &[PathBuf]) -> bool {
+    touches_database(vault, paths)
+}
+
 pub fn sync_path_changes(
     context: &VaultContext,
     vault_path: &Path,
     changes: &[PathChange],
 ) -> Result<(), String> {
     let identities = {
-        let conn_guard = context.conn.lock().unwrap();
+        let conn_guard = context.conn.lock_or_recover();
         let conn = conn_guard.as_ref().ok_or("No vault open")?;
         vault_index::collect_note_index_identities(conn)?
     };
     let prepared =
         vault_index::prepare_path_changes_with_identities(vault_path, changes, &identities)?;
-    let conn_guard = context.conn.lock().unwrap();
+    let conn_guard = context.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     vault_index::apply_prepared_index_updates(conn, &prepared, &[])
 }
@@ -418,10 +512,12 @@ pub fn ensure_bundle(
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(&db, &path)?;
     let (primary, path_changes) = ensure_bundle_path(&path)?;
     let result = FsMutationResult {
+        tree_patch: None,
+        also_touched: Vec::new(),
         primary_id: None,
         primary_path: Some(path_string(&primary)),
         path_changes,
@@ -441,10 +537,20 @@ pub fn create_note(
     parent_path: String,
     name: String,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
-    let parent_path = paths::guard(&db, &parent_path)?;
+    create_note_inner(&db, &watcher_state, parent_path, name)
+}
+
+/// The body of `create_note` without the Tauri state wrappers (see `rename_item_inner`).
+pub(crate) fn create_note_inner(
+    db: &VaultContext,
+    watcher_state: &WatcherState,
+    parent_path: String,
+    name: String,
+) -> Result<MutationOutcome, String> {
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
+    let parent_path = paths::guard(db, &parent_path)?;
     let plan = crate::bundle::prepare_create_note_impl(&parent_path, &name)?;
-    let prepared = prepare_note_creation(&watcher_state, &plan);
+    let prepared = prepare_note_creation(watcher_state, &plan);
     let result = match plan.commit() {
         Ok(result) => {
             watcher_state.confirm_prepared_write(&prepared);
@@ -456,7 +562,7 @@ pub fn create_note(
         }
     };
     let vault = db.root()?;
-    let outcome = sync_mutation_result(&db, &vault, result);
+    let outcome = sync_mutation_result(db, &vault, result);
     tracing::info!(
         event = "create_note",
         parent = %parent_path.display(),
@@ -475,7 +581,7 @@ pub fn create_layer(
     note_path: String,
     kind: String,
 ) -> Result<LayerResult, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let note_path = paths::guard(&scope, &note_path)?;
     let result = create_layer_impl(&note_path, &kind)?;
     let mut paths = vec![PathBuf::from(&result.layer_path)];
@@ -508,7 +614,7 @@ pub fn create_canvas(
     parent_path: String,
     name: String,
 ) -> Result<String, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let parent_path = paths::guard(&db, &parent_path)?;
     let path = create_canvas_impl(&parent_path, &name)?;
     watcher_state.mark_write([path.as_path()]);
@@ -522,7 +628,7 @@ pub fn attach_canvas_to_note(
     watcher_state: tauri::State<'_, WatcherState>,
     canvas_path: String,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let canvas_path = paths::guard(&db, &canvas_path)?;
     let result = attach_canvas_impl(&canvas_path)?;
     watcher_state.mark_write(mutation_paths(&result));
@@ -538,7 +644,7 @@ pub fn create_sketch(
     parent_path: String,
     name: String,
 ) -> Result<String, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let parent_path = paths::guard(&db, &parent_path)?;
     let path = create_sketch_impl(&parent_path, &name)?;
     watcher_state.mark_write([path.as_path()]);
@@ -552,7 +658,7 @@ pub fn attach_sketch_to_note(
     watcher_state: tauri::State<'_, WatcherState>,
     sketch_path: String,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let sketch_path = paths::guard(&db, &sketch_path)?;
     let result = attach_sketch_impl(&sketch_path)?;
     watcher_state.mark_write(mutation_paths(&result));
@@ -568,7 +674,7 @@ pub fn unlink_layer(
     note_path: String,
     kind: String,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let note_path = paths::guard(&db, &note_path)?;
     let result = unlink_layer_impl(&note_path, &kind)?;
     watcher_state.mark_write(mutation_paths(&result));
@@ -584,7 +690,7 @@ pub fn delete_layer(
     note_path: String,
     kind: String,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let note_path = paths::guard(&db, &note_path)?;
     let vault = db.root()?;
     let result = delete_layer_impl(&vault, &note_path, &kind)?;
@@ -658,16 +764,35 @@ pub fn move_item(
     source_path: String,
     target_path: String,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
-    let source_path = paths::guard(&db, &source_path)?;
-    let target_path = paths::guard(&db, &target_path)?;
+    move_item_inner(
+        &db,
+        &runtime,
+        &watcher_state,
+        &|root, changes| sync_runtime.note_renames(root, changes),
+        source_path,
+        target_path,
+    )
+}
+
+/// The body of `move_item` without the Tauri state wrappers (see `rename_item_inner`).
+pub(crate) fn move_item_inner(
+    db: &VaultContext,
+    runtime: &DatabaseRuntimeState,
+    watcher_state: &WatcherState,
+    note_renames: &dyn Fn(&Path, &[PathChange]),
+    source_path: String,
+    target_path: String,
+) -> Result<MutationOutcome, String> {
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
+    let source_path = paths::guard(db, &source_path)?;
+    let target_path = paths::guard(db, &target_path)?;
     let preview = preview_move_item(&source_path, &target_path)?;
     // Synchronisation learns that this is a move, before the change reaches the disk (Д70).
     if let Ok(root) = db.root() {
-        sync_runtime.note_renames(&root, &preview.path_changes);
+        note_renames(&root, &preview.path_changes);
     }
     let (vault_root, generation, prepared_plan) = {
-        let conn_guard = db.conn.lock().unwrap();
+        let conn_guard = db.conn.lock_or_recover();
         let conn = conn_guard.as_ref().ok_or("No vault open")?;
         let prepared_plan = conn
             .pending_move_refactor
@@ -707,7 +832,7 @@ pub fn move_item(
         return Err("Vault changed before move".to_string());
     }
     let prepared_move = prepare_move_paths(
-        &watcher_state,
+        watcher_state,
         &source_path,
         &target_path,
         &preview.path_changes,
@@ -740,6 +865,7 @@ pub fn move_item(
     // currently produced by the rewrite plan after the move and retain their
     // narrow per-file post-write records.
     watcher_state.mark_write(rewritten.iter());
+    let rewritten_paths = rewritten.clone();
     let rewritten_changes = rewritten
         .into_iter()
         .map(|path| PathChange {
@@ -747,8 +873,8 @@ pub fn move_item(
             new_path: path_string(&path),
         })
         .collect::<Vec<_>>();
-    let mut outcome = sync_mutation_result(&db, &vault_root, result);
-    if let Err(error) = sync_path_changes(&db, &vault_root, &rewritten_changes) {
+    let mut outcome = sync_mutation_result(db, &vault_root, result);
+    if let Err(error) = sync_path_changes(db, &vault_root, &rewritten_changes) {
         tracing::warn!(event = "index_update_failed", error = %error);
         if let Ok(conn_guard) = db.conn.lock() {
             if let Some(active) = conn_guard.as_ref() {
@@ -759,25 +885,48 @@ pub fn move_item(
         outcome
             .warnings
             .push(OperationWarning::IndexRebuildRequired);
+        outcome.mutation.tree_patch = None;
+    } else if !rewritten_changes.is_empty() {
+        // The notes whose links were rewritten have new times in the tree.
+        let rewritten = rewritten_changes
+            .iter()
+            .map(|change| PathBuf::from(&change.new_path))
+            .collect::<Vec<_>>();
+        outcome.mutation.tree_patch = tree_patch_for(
+            db,
+            &vault_root,
+            "rename_or_move",
+            &mutation_paths(&outcome.mutation),
+            &rewritten,
+        );
     }
-    let conn_guard = db.conn.lock().unwrap();
+    let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     if conn.generation != generation {
         return Err("Vault changed while applying move".to_string());
     }
-    refresh_database_projection(&runtime, conn, &mut outcome);
+    refresh_database_projection(runtime, conn, &mut outcome, &rewritten_paths);
     Ok(outcome)
 }
 
 /// A move or a rename changes the title or the place of pages that databases list, and the
 /// projection they read is not rebuilt by the filesystem watcher for writes the app made itself.
 /// Without this the lists would keep showing the old name until the next full refresh.
+///
+/// A page outside every database, whether it moves, is renamed or has its links rewritten, is in no
+/// projection, so the projection is rebuilt only when `paths` reach into a database or are one.
 fn refresh_database_projection(
     runtime: &DatabaseRuntimeState,
     conn: &crate::vault_context::ActiveVault,
     outcome: &mut MutationOutcome,
+    rewritten: &[PathBuf],
 ) {
     if !runtime.state(Some(conn.generation)).enabled {
+        return;
+    }
+    let mut paths = mutation_paths(&outcome.mutation);
+    paths.extend(rewritten.iter().cloned());
+    if !touches_database(&conn.root, &paths) {
         return;
     }
     match crate::database::projection::rebuild_database_projection(&conn.connection, &conn.root) {
@@ -807,7 +956,7 @@ pub fn create_file(
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
 ) -> Result<(), String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(&scope, &path)?;
     if path.exists() {
         return Err(format!("File already exists: {}", path.display()));
@@ -835,7 +984,7 @@ pub fn create_folder(
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
 ) -> Result<(), String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(&scope, &path)?;
     if path.exists() {
         return Err(format!("Folder already exists: {}", path.display()));
@@ -900,15 +1049,35 @@ pub fn rename_item(
     path: String,
     new_name: String,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
-    let path = paths::guard(&db, &path)?;
+    rename_item_inner(
+        &db,
+        &runtime,
+        &watcher_state,
+        &|root, changes| sync_runtime.note_renames(root, changes),
+        path,
+        new_name,
+    )
+}
+
+/// The body of `rename_item` without the Tauri state wrappers, so the large-vault
+/// benchmark and the equivalence tests run the same code as the command.
+pub(crate) fn rename_item_inner(
+    db: &VaultContext,
+    runtime: &DatabaseRuntimeState,
+    watcher_state: &WatcherState,
+    note_renames: &dyn Fn(&Path, &[PathChange]),
+    path: String,
+    new_name: String,
+) -> Result<MutationOutcome, String> {
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
+    let path = paths::guard(db, &path)?;
     let preview = preview_rename_item(&path, &new_name)?;
     // Synchronisation learns that this is a rename, before the change reaches the disk (Д70).
     if let Ok(root) = db.root() {
-        sync_runtime.note_renames(&root, &preview.path_changes);
+        note_renames(&root, &preview.path_changes);
     }
     let (vault_root, generation, inputs) = {
-        let conn_guard = db.conn.lock().unwrap();
+        let conn_guard = db.conn.lock_or_recover();
         let conn = conn_guard.as_ref().ok_or("No vault open")?;
         let inputs = vault_index::collect_inbound_wiki_rewrite_inputs(
             conn,
@@ -922,7 +1091,7 @@ pub fn rename_item(
     if db.generation()? != generation {
         return Err("Vault changed before rename".to_string());
     }
-    let prepared_rename = prepare_path_changes(&watcher_state, &preview.path_changes);
+    let prepared_rename = prepare_path_changes(watcher_state, &preview.path_changes);
     let result = match rename_item_impl(&path, &new_name) {
         Ok(result) => {
             watcher_state.confirm_prepared_write(&prepared_rename);
@@ -957,6 +1126,7 @@ pub fn rename_item(
         }
     }
     watcher_state.mark_write(rewritten.iter());
+    let rewritten_paths = rewritten.clone();
     let rewritten_changes = rewritten
         .into_iter()
         .map(|path| PathChange {
@@ -964,8 +1134,8 @@ pub fn rename_item(
             new_path: path_string(&path),
         })
         .collect::<Vec<_>>();
-    let mut outcome = sync_mutation_result(&db, &vault_root, result);
-    if let Err(error) = sync_path_changes(&db, &vault_root, &rewritten_changes) {
+    let mut outcome = sync_mutation_result(db, &vault_root, result);
+    if let Err(error) = sync_path_changes(db, &vault_root, &rewritten_changes) {
         tracing::warn!(event = "index_update_failed", error = %error);
         if let Ok(conn_guard) = db.conn.lock() {
             if let Some(active) = conn_guard.as_ref() {
@@ -976,13 +1146,27 @@ pub fn rename_item(
         outcome
             .warnings
             .push(OperationWarning::IndexRebuildRequired);
+        outcome.mutation.tree_patch = None;
+    } else if !rewritten_changes.is_empty() {
+        // The notes whose links were rewritten have new times in the tree.
+        let rewritten = rewritten_changes
+            .iter()
+            .map(|change| PathBuf::from(&change.new_path))
+            .collect::<Vec<_>>();
+        outcome.mutation.tree_patch = tree_patch_for(
+            db,
+            &vault_root,
+            "rename_or_move",
+            &mutation_paths(&outcome.mutation),
+            &rewritten,
+        );
     }
-    let conn_guard = db.conn.lock().unwrap();
+    let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     if conn.generation != generation {
         return Err("Vault changed while applying rename".to_string());
     }
-    refresh_database_projection(&runtime, conn, &mut outcome);
+    refresh_database_projection(runtime, conn, &mut outcome, &rewritten_paths);
     tracing::info!(
         event = "rename_item",
         path = %path.display(),
@@ -999,11 +1183,21 @@ pub fn delete_item(
     path: String,
     mode: recycle_bin::DeleteMode,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    delete_item_inner(&db, &watcher_state, path, mode)
+}
+
+/// The body of `delete_item` without the Tauri state wrappers (see `rename_item_inner`).
+pub(crate) fn delete_item_inner(
+    db: &VaultContext,
+    watcher_state: &WatcherState,
+    path: String,
+    mode: recycle_bin::DeleteMode,
+) -> Result<MutationOutcome, String> {
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     if mode == recycle_bin::DeleteMode::Permanent {
         recycle_bin::reject_symlink_for_permanent_delete(Path::new(&path))?;
     }
-    let path = paths::guard(&db, &path)?;
+    let path = paths::guard(db, &path)?;
     let vault = db.root()?;
     let preview = recycle_bin::preview_move_to_trash(&vault, &path)?;
     let mut writes = vec![(preview.original_path.clone(), PathFingerprint::Missing)];
@@ -1031,7 +1225,7 @@ pub fn delete_item(
         }
     };
     let vault = db.root()?;
-    Ok(sync_mutation_result(&db, &vault, result))
+    Ok(sync_mutation_result(db, &vault, result))
 }
 
 #[tauri::command]
@@ -1041,7 +1235,7 @@ pub fn archive_item(
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(&db, &path)?;
     let vault = db.root()?;
     let preview = recycle_bin::preview_move_to_trash(&vault, &path)?;

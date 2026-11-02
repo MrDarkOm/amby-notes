@@ -530,7 +530,7 @@ pub(crate) fn restore_prepared_relations(
     Ok(count)
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 pub fn recover_pending_relations(vault: &Path) -> Result<usize, String> {
     let pending = prepare_pending_relations(vault)?;
     restore_prepared_relations(pending)

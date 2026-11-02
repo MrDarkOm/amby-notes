@@ -400,6 +400,21 @@ function insertCreatedNote(items: TreeItem[], note: TreeItem): TreeItem[] {
 }
 
 /**
+ * Every path a mutation touched, for asking the backend to refresh exactly those (the same set
+ * the backend collects as `mutation_paths`).
+ */
+export function mutationPaths(result: FsMutationResult): string[] {
+  const paths = new Set<string>()
+  if (result.primaryPath) paths.add(result.primaryPath)
+  for (const change of result.pathChanges) {
+    if (change.oldPath) paths.add(change.oldPath)
+    if (change.newPath) paths.add(change.newPath)
+  }
+  for (const deleted of result.deletedPaths) paths.add(deleted)
+  return [...paths]
+}
+
+/**
  * Apply a filesystem mutation to the already-loaded tree. The operation never
  * reads disk: it only moves/removes existing nodes and inserts a newly indexed
  * markdown note. Complex operations without enough metadata (such as a raw

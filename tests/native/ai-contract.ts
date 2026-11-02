@@ -371,40 +371,43 @@ export const nativeAiCases: Array<{
         result.data.length === 1 && result.data[0].model === "native-chat",
         "Non-chat model filtered",
       )
-      const old = JSON.stringify({
-        foreign: { keep: true },
-        ai: {
-          models: [
-            {
-              id: "old-id",
-              label: "Old",
-              provider: "ollama",
-              model: "native-chat",
-              baseUrl: url,
-              credentialId: null,
-              apiVersion: "",
-            },
-          ],
-          activeModelId: "old-id",
-        },
-      })
       const previous = await adapter.readGlobalRaw("settings.json")
-      await adapter.writeGlobalRaw("settings.json", old)
-      const migrated = await commands.migrateAiSettings()
-      check(migrated.status === "ok", "Migration succeeds")
-      const next = await adapter.readGlobalRaw("settings.json")
+      const previousConnections = await adapter.readGlobalRaw("ai-connections.json")
+      const connections = JSON.stringify({
+        version: 1,
+        connections: [
+          {
+            id: "c-old",
+            provider: "ollama",
+            method: "api",
+            label: "Old",
+            baseUrl: url,
+            credentialId: null,
+            apiVersion: "",
+          },
+        ],
+        models: [
+          {
+            id: "old-id",
+            connectionId: "c-old",
+            model: "native-chat",
+            label: "Old",
+            enabled: true,
+            available: true,
+            origin: "local",
+          },
+        ],
+        activeModelId: "old-id",
+      })
+      await adapter.writeGlobalRaw("ai-connections.json", connections)
+      const next = await adapter.readGlobalRaw("ai-connections.json")
       check(
-        next !== null && JSON.parse(next).ai.models[0].id === "old-id",
+        next !== null && JSON.parse(next).models[0].id === "old-id",
         "Stable chat model ID retained",
       )
-      check(
-        (await adapter.readGlobalRaw("settings.ai-v1.backup.json")) === old,
-        "Original settings backed up exactly",
-      )
-      check((await commands.migrateAiSettings()).status === "ok", "Migration restart is idempotent")
-      const disabled = JSON.parse(next)
-      disabled.ai.models[0].enabled = false
-      await adapter.writeGlobalRaw("settings.json", JSON.stringify(disabled))
+      const disabled = JSON.parse(next as string)
+      disabled.models[0].enabled = false
+      await adapter.writeGlobalRaw("ai-connections.json", JSON.stringify(disabled))
       const denied = await commands.aiChat(
         {
           provider: "ollama",
@@ -424,22 +427,29 @@ export const nativeAiCases: Array<{
         denied.status === "error" && denied.error.code === "invalidConfiguration",
         "Disabled model is refused at native dispatch",
       )
-      await adapter.writeGlobalRaw("settings.json", next)
-      await adapter.writeGlobalRaw("settings.json", next.replace('"foreign"', '"edited"'))
-      check(
-        (await commands.rollbackAiSettings()).status === "error",
-        "Rollback refuses later changes",
-      )
-      await adapter.writeGlobalRaw("settings.json", next)
+      let refusedOlderShape = false
+      try {
+        await adapter.writeGlobalRaw("ai-connections.json", JSON.stringify({ models: [] }))
+      } catch {
+        refusedOlderShape = true
+      }
+      check(refusedOlderShape, "The connections file refuses a section of the older shape")
       check(
         (await commands.rollbackAiSettings()).status === "ok",
-        "Unedited migration can roll back",
+        "Rollback sets the connections file aside",
+      )
+      check(
+        (await adapter.readGlobalRaw("ai-connections.json")) === null,
+        "No connections file remains after rollback",
       )
       check(
         (await adapter.readGlobalRaw("settings.json")) === old,
-        "Rollback restores original bytes",
+        "Rollback leaves settings.json as it was",
       )
       await adapter.writeGlobalRaw("settings.json", previous ?? "{}")
+      if (previousConnections !== null) {
+        await adapter.writeGlobalRaw("ai-connections.json", previousConnections)
+      }
     },
   },
 ]

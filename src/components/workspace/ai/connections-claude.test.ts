@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest"
-import type { AiSettings } from "../app-config"
 import { findProvider, resolveAiConfig, isClaudeCodeModel, isCliAgentModel } from "../app-config"
 import {
   AI_CONNECTION_PROVIDERS,
   cliProviderId,
   projectAiConnections,
   readAiConnections,
-  readLegacyAiConnections,
   resolveConnectedAiModel,
   selectableAiModels,
   type AiConnectionsSettings,
@@ -103,25 +101,5 @@ describe("Claude Code CLI connection", () => {
     expect(isCliAgentModel(model)).toBe(true)
     expect(isCliAgentModel(projectAiConnections(claude).models[1])).toBe(false)
     expect(findProvider("claude-code")?.family).toBe("claude-code")
-  })
-
-  it("reads a legacy claude-code model as an Anthropic CLI connection", () => {
-    const legacy: AiSettings = {
-      activeModelId: "x",
-      models: [
-        {
-          id: "x",
-          label: "Claude",
-          provider: "claude-code",
-          model: "opus",
-          baseUrl: "",
-          apiVersion: "",
-        },
-      ],
-    }
-    expect(readLegacyAiConnections(legacy).connections[0]).toMatchObject({
-      provider: "anthropic",
-      method: "claude-cli",
-    })
   })
 })

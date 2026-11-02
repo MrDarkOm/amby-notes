@@ -7,6 +7,7 @@ import type {
   IdMigrationRecoveryAction,
   LinkGraph,
   LoadVaultResult,
+  PathsRefresh,
   NoteReadOutcome,
   NoteProperties,
   SearchResult,
@@ -37,6 +38,10 @@ export class NotesRepository {
 
   async loadActiveVaultData(): Promise<LoadVaultResult> {
     return this.port().loadActiveVaultData()
+  }
+
+  async refreshVaultPaths(paths: string[]): Promise<PathsRefresh | null> {
+    return this.port().refreshVaultPaths(paths)
   }
 
   async reindexActiveVaultData(): Promise<LoadVaultResult> {

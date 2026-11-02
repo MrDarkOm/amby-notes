@@ -9,6 +9,7 @@ mod frontmatter;
 mod history;
 pub mod index;
 mod keychain_access;
+mod lock_util;
 pub mod logging;
 mod model;
 pub mod package_manager;
@@ -18,6 +19,7 @@ mod project;
 mod property_store;
 mod recovery;
 mod recycle_bin;
+mod shadow_check;
 mod state;
 pub mod sync;
 mod system_recycle_bin;
@@ -51,6 +53,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         updater::check_app_update,
         commands::vault::load_vault,
         commands::vault::load_active_vault,
+        commands::vault::refresh_vault_paths,
         commands::vault::reindex_vault,
         commands::vault::preflight_vault,
         commands::vault::apply_id_migration,
@@ -162,10 +165,6 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::database::delete_database_view,
         commands::database::reorder_database_views,
         commands::database::set_default_database_view,
-        commands::database::detect_database_migrations,
-        commands::database::preflight_database_migration,
-        commands::database::execute_database_migration,
-        commands::database::rollback_database_migration,
         commands::database::undo_database_mutation,
         commands::database::redo_database_mutation,
         commands::database::get_database_history_status,
@@ -199,8 +198,6 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::assets::pick_asset_file,
         commands::assets::export_text_file,
         commands::assets::import_text_file,
-        ai::settings_migration::migrate_ai_settings,
-        ai::settings_migration::rollback_ai_settings,
         app_data::read_app_data,
         app_data::write_app_data,
         app_data::compare_write_app_data,
@@ -309,6 +306,10 @@ pub fn run() {
             // after the user enables persistent diagnostics.
             match commands::debug::log_file_path(app.handle()) {
                 Ok(log_path) => {
+                    // Development builds compare every point update with a full read of the
+                    // vault and write the differences beside the debug log.
+                    #[cfg(debug_assertions)]
+                    shadow_check::enable(log_path.with_file_name("shadow-mismatch.log"));
                     if let Err(error) = debug.configure_path(log_path) {
                         debug.set_file_error(error);
                     }

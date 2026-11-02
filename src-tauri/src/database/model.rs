@@ -319,7 +319,6 @@ pub struct DatabaseAggregateResult {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-#[allow(dead_code)]
 pub enum DatabaseError {
     ModuleDisabled,
     VaultNotOpen,

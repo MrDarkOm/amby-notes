@@ -119,6 +119,7 @@ import type {
   LayerResult,
   LinkGraph,
   LoadVaultResult,
+  PathsRefresh,
   MutationOutcome,
   NoteReadOutcome,
   NoteLayers,
@@ -751,6 +752,10 @@ export class DesktopAdapter implements StoragePort {
     return unwrapCommand(commands.reindexVault())
   }
 
+  async refreshVaultPaths(paths: string[]): Promise<PathsRefresh | null> {
+    return unwrapCommand(commands.refreshVaultPaths(paths)) as Promise<PathsRefresh | null>
+  }
+
   async preflightVault(vaultPath: string): Promise<VaultPreflight> {
     return unwrapCommand(commands.preflightVault(vaultPath))
   }
@@ -1146,14 +1151,6 @@ export class DesktopAdapter implements StoragePort {
       kind: "error",
       buttons: "Ok",
     })
-  }
-
-  async migrateAiSettings(): Promise<void> {
-    await unwrapCommand(commands.migrateAiSettings())
-  }
-
-  async rollbackAiSettings(): Promise<void> {
-    await unwrapCommand(commands.rollbackAiSettings())
   }
 
   async readGlobalRaw(file: string): Promise<string | null> {

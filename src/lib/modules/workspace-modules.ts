@@ -71,3 +71,34 @@ export function applyProfileToWorkspace(
     moduleSettings: existingConfig?.moduleSettings ?? {},
   }
 }
+
+/**
+ * Reads the module part of workspace.json. A file without a profile and a module list (the
+ * format before profiles, no longer read) gets the standard profile; the file is not rewritten.
+ */
+export function readWorkspaceModuleConfig(raw: {
+  profile?: unknown
+  enabledModules?: unknown
+  moduleSettings?: unknown
+}): WorkspaceModuleConfig {
+  const moduleSettings =
+    raw.moduleSettings && typeof raw.moduleSettings === "object"
+      ? (raw.moduleSettings as Record<string, unknown>)
+      : {}
+  const profile = raw.profile as { id?: unknown; catalogRevision?: unknown } | null | undefined
+  if (profile && typeof profile.id === "string" && Array.isArray(raw.enabledModules)) {
+    const profileId = profile.id as ProfileId
+    return {
+      profile: {
+        id: PROFILES[profileId] ? profileId : "custom",
+        catalogRevision:
+          typeof profile.catalogRevision === "string"
+            ? profile.catalogRevision
+            : STANDARD_CATALOG_REVISION,
+      },
+      enabledModules: (raw.enabledModules as string[]).map(toCanonicalModuleId),
+      moduleSettings,
+    }
+  }
+  return applyProfileToWorkspace("standard", { moduleSettings })
+}

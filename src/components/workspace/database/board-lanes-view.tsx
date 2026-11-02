@@ -99,7 +99,7 @@ export function BoardLanesView({
             }
           : undefined,
       },
-    // `board.reload` is stable per render of the hook's state; the lanes reload on any change.
+    // `board.reload` only calls a state setter, so a captured copy never goes stale.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [cardEdit],
   )

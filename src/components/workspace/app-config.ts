@@ -10,8 +10,6 @@
 
 import {
   globalFileMissing,
-  isTauri,
-  migrateAiSettings,
   readGlobalRaw,
   compareWriteGlobalRaw,
   loadGlobalJSON,
@@ -19,8 +17,6 @@ import {
   saveGlobalJSON,
   saveVaultJSON,
   vaultFileMissing,
-  storeAiCredential,
-  inspectAiCredential,
 } from "@/lib/storage"
 import { errorType, logger } from "@/lib/logger"
 import type { VaultRecord } from "./workspace-picker"
@@ -51,7 +47,7 @@ import {
 } from "./keyboard-shortcuts"
 import {
   applyProfileToWorkspace,
-  migrateWorkspaceModules,
+  readWorkspaceModuleConfig,
   type ProfileId,
   type WorkspaceProfileState,
 } from "@/lib/modules"
@@ -59,6 +55,11 @@ import type { DebugConfig } from "@/lib/debug/types"
 
 export const WORKSPACES_FILE = "workspaces.json"
 export const SETTINGS_FILE = "settings.json"
+/**
+ * The AI connections live in a file of their own. A build that predates it keeps reading and
+ * rewriting the `ai` section of settings.json in its older shape; this file is out of its reach.
+ */
+export const AI_CONNECTIONS_FILE = "ai-connections.json"
 export const WORKSPACE_FILE = "workspace.json"
 export const SESSION_FILE = "session.json"
 
@@ -260,20 +261,8 @@ export function modelSupportsTools(model: AiModel): boolean {
   return model.supportsTools ?? !isLocalAiModel(model)
 }
 
-export const DEFAULT_AI: AiSettings = {
-  models: [
-    {
-      id: "default-ollama",
-      label: "Ollama · llama3.2",
-      provider: "ollama",
-      model: "llama3.2",
-      baseUrl: "",
-      credentialId: null,
-      apiVersion: "",
-    },
-  ],
-  activeModelId: "default-ollama",
-}
+/** No connections until the connections file exists. */
+export const DEFAULT_AI: AiSettings = { models: [], activeModelId: null }
 
 /** A fresh blank model entry (used by the "add model" button). */
 export function blankModel(): AiModel {
@@ -565,63 +554,15 @@ function normalizeExperimental(raw: unknown): ExperimentalSettings {
   }
 }
 
-export async function migrateLegacyAiKeys(
-  rawAi: unknown,
-): Promise<{ ai: AiSettings; migrated: boolean }> {
-  if (!rawAi || typeof rawAi !== "object") {
-    return { ai: DEFAULT_AI, migrated: false }
+/** The connections file, or null before it exists. A damaged file is an error, never defaults. */
+async function readConnectionsFile(): Promise<unknown | null> {
+  const raw = await readGlobalRaw(AI_CONNECTIONS_FILE)
+  if (raw === null) return null
+  try {
+    return JSON.parse(raw.replace(/^\uFEFF/, ""))
+  } catch {
+    throw new Error("corruptAiConnections")
   }
-  const d = rawAi as { version?: unknown; models?: unknown[]; activeModelId?: unknown }
-  // The legacy reader cannot safely rewrite any versioned AI section.
-  if (Object.prototype.hasOwnProperty.call(d, "version")) throw new Error("unsupportedAiVersion")
-  if (!Array.isArray(d.models)) {
-    return { ai: DEFAULT_AI, migrated: false }
-  }
-  let migrated = false
-  const models: AiModel[] = []
-  for (const raw of d.models) {
-    if (!raw || typeof raw !== "object") continue
-    const m = raw as Partial<AiModel> & { apiKey?: string }
-    if (typeof m.id !== "string" || typeof m.provider !== "string") continue
-    let credId = typeof m.credentialId === "string" ? m.credentialId : null
-    const legacyKey = typeof m.apiKey === "string" ? m.apiKey.trim() : ""
-    if (legacyKey && !credId) {
-      const newCredId = crypto.randomUUID()
-      try {
-        await storeAiCredential(newCredId, legacyKey)
-        const info = await inspectAiCredential(newCredId)
-        if (info.exists) {
-          credId = newCredId
-          migrated = true
-        }
-      } catch (err) {
-        logger.error("settings.credential_migration_failed", {
-          modelId: m.id,
-          errorType: errorType(err),
-        })
-      }
-    } else if (legacyKey && credId) {
-      migrated = true
-    }
-    models.push({
-      id: m.id,
-      label: typeof m.label === "string" && m.label ? m.label : i18n.t("workspace.modelFallback"),
-      provider: m.provider,
-      model: typeof m.model === "string" ? m.model : "",
-      baseUrl: typeof m.baseUrl === "string" ? m.baseUrl : "",
-      credentialId: credId,
-      apiVersion: typeof m.apiVersion === "string" ? m.apiVersion : "",
-      supportsTools: typeof m.supportsTools === "boolean" ? m.supportsTools : undefined,
-    })
-  }
-  if (models.length === 0) {
-    return { ai: { models: [], activeModelId: null }, migrated }
-  }
-  const activeModelId =
-    typeof d.activeModelId === "string" && models.some((m) => m.id === d.activeModelId)
-      ? d.activeModelId
-      : models[0].id
-  return { ai: { models, activeModelId }, migrated }
 }
 
 export async function loadSettings(): Promise<GlobalSettings> {
@@ -645,8 +586,12 @@ export async function loadSettings(): Promise<GlobalSettings> {
       prefs: DEFAULT_PREFS,
       themes: [],
     }
+    const stored = await readConnectionsFile()
+    if (stored) settings.ai = projectAiConnections(readAiConnections(stored))
     if (layout.activePresetId || layout.buttons || layout.activeBySide) {
-      await saveGlobalJSON(SETTINGS_FILE, settings)
+      const { ai: _ai, ...toSave } = settings
+      void _ai
+      await saveGlobalJSON(SETTINGS_FILE, toSave)
     }
     return settings
   }
@@ -662,11 +607,11 @@ export async function loadSettings(): Promise<GlobalSettings> {
   ) {
     prefs.theme = "dark"
   }
-  const versioned =
-    !!d.ai && typeof d.ai === "object" && Object.prototype.hasOwnProperty.call(d.ai, "version")
-  const { ai, migrated } = versioned
-    ? { ai: projectAiConnections(readAiConnections(d.ai)), migrated: false }
-    : await migrateLegacyAiKeys(d.ai)
+  // The connections live only in their own file; the `ai` section of settings.json is not read.
+  const storedConnections = await readConnectionsFile()
+  const ai = storedConnections
+    ? projectAiConnections(readAiConnections(storedConnections))
+    : DEFAULT_AI
   const settings: GlobalSettings = {
     ...d,
     schemaVersion: typeof d.schemaVersion === "number" ? d.schemaVersion : SETTINGS_SCHEMA_VERSION,
@@ -677,9 +622,6 @@ export async function loadSettings(): Promise<GlobalSettings> {
     ai,
     prefs,
     themes,
-  }
-  if (migrated) {
-    await saveGlobalJSON(SETTINGS_FILE, settings)
   }
   return settings
 }
@@ -717,9 +659,14 @@ export function saveSettingsPatch(
 ): Promise<void> {
   const write = async () => {
     for (let attempt = 0; attempt < 5; attempt++) {
-      const before = await readGlobalRaw(SETTINGS_FILE)
+      const beforeSettings = await readGlobalRaw(SETTINGS_FILE)
+      const beforeConnections = await readGlobalRaw(AI_CONNECTIONS_FILE)
       const cur = await loadSettings()
-      if ((await readGlobalRaw(SETTINGS_FILE)) !== before) continue
+      if (
+        (await readGlobalRaw(SETTINGS_FILE)) !== beforeSettings ||
+        (await readGlobalRaw(AI_CONNECTIONS_FILE)) !== beforeConnections
+      )
+        continue
       if (cur.ai.connectionSettings && patch.ai && !patch.ai.connectionSettings) {
         throw new Error("unsupportedAiVersion")
       }
@@ -728,17 +675,46 @@ export function saveSettingsPatch(
         if (JSON.stringify(cur.ai.connectionSettings) !== JSON.stringify(expected))
           throw new Error("settingsChanged")
       }
-      const next = {
-        ...cur,
-        ...patch,
-        ai: serializeAiSettings(patch.ai ?? cur.ai),
-        schemaVersion: SETTINGS_SCHEMA_VERSION,
+      const nextAi = patch.ai ?? cur.ai
+      const connectionsChange = Boolean(patch.ai?.connectionSettings)
+      // 1. Connections go to their own file.
+      if (connectionsChange) {
+        const base = await readGlobalRaw(AI_CONNECTIONS_FILE)
+        const text = JSON.stringify(serializeAiSettings(nextAi), null, 2)
+        if (!(await compareWriteGlobalRaw(AI_CONNECTIONS_FILE, base, text))) continue
       }
-      if (await compareWriteGlobalRaw(SETTINGS_FILE, before, JSON.stringify(next, null, 2))) {
-        if (patch.ai && typeof window !== "undefined")
-          window.dispatchEvent(new Event(AI_SETTINGS_CHANGED_EVENT))
-        return
+      // 2. Everything else goes to settings.json, whose `ai` section is left as it was whenever
+      //    as it was: an older build may still read it.
+      const { ai: _ai, ...rest } = patch
+      void _ai
+      if (!connectionsChange || Object.keys(rest).length > 0 || beforeSettings === null) {
+        let rawSection: unknown
+        if (beforeSettings !== null) {
+          try {
+            rawSection = (JSON.parse(beforeSettings.replace(/^\uFEFF/, "")) as { ai?: unknown }).ai
+          } catch {
+            rawSection = undefined
+          }
+        }
+        const next: Record<string, unknown> = {
+          ...cur,
+          ...rest,
+          schemaVersion: SETTINGS_SCHEMA_VERSION,
+        }
+        if (rawSection === undefined) delete next.ai
+        else next.ai = rawSection
+        if (
+          !(await compareWriteGlobalRaw(
+            SETTINGS_FILE,
+            beforeSettings,
+            JSON.stringify(next, null, 2),
+          ))
+        )
+          continue
       }
+      if (patch.ai && typeof window !== "undefined")
+        window.dispatchEvent(new Event(AI_SETTINGS_CHANGED_EVENT))
+      return
     }
     throw new Error("settingsChanged")
   }
@@ -750,34 +726,6 @@ export function saveSettingsPatch(
     emitSettingsSaveError(SETTINGS_FILE, err)
   })
   return next
-}
-
-/** Start the durable migration only when the connection screen is opened. */
-export async function loadAiConnectionSettings(): Promise<GlobalSettings> {
-  if (!isTauri()) return loadSettings()
-  let raw = await readGlobalRaw(SETTINGS_FILE)
-  if (raw === null) {
-    await saveSettingsPatch({})
-    raw = await readGlobalRaw(SETTINGS_FILE)
-  }
-  if (raw === null) throw new Error("settingsUnavailable")
-  let value: unknown
-  try {
-    value = JSON.parse(raw.replace(/^\uFEFF/, ""))
-  } catch {
-    throw new Error("corruptSettings")
-  }
-  const ai = value && typeof value === "object" ? (value as { ai?: unknown }).ai : undefined
-  if (
-    !ai ||
-    typeof ai !== "object" ||
-    !Object.prototype.hasOwnProperty.call(ai, "version") ||
-    (ai as { version?: unknown }).version === 1
-  ) {
-    await migrateAiSettings()
-    if (typeof window !== "undefined") window.dispatchEvent(new Event(AI_SETTINGS_CHANGED_EVENT))
-  }
-  return loadSettings()
 }
 
 // ── Per-vault: workspace.json (requires an open vault) ───────────────────────
@@ -816,7 +764,7 @@ export async function loadWorkspaceConfig(): Promise<WorkspaceConfig> {
 
     const baseConfig = requestedProfile
       ? applyProfileToWorkspace(requestedProfile)
-      : (await migrateWorkspaceModules({ layout: EMPTY_LAYOUT })).config
+      : applyProfileToWorkspace("standard")
 
     const layout: LayoutConfig = {
       ...EMPTY_LAYOUT,
@@ -838,7 +786,7 @@ export async function loadWorkspaceConfig(): Promise<WorkspaceConfig> {
     return cfg
   }
   const d = await loadVaultJSON<Partial<WorkspaceConfig>>(WORKSPACE_FILE, {})
-  const { config, migrated } = await migrateWorkspaceModules(d as Record<string, unknown>)
+  const config = readWorkspaceModuleConfig(d)
   const result: WorkspaceConfig = {
     schemaVersion: typeof d.schemaVersion === "number" ? d.schemaVersion : WORKSPACE_SCHEMA_VERSION,
     theme: typeof d.theme === "string" ? d.theme : null,
@@ -853,13 +801,6 @@ export async function loadWorkspaceConfig(): Promise<WorkspaceConfig> {
     profile: config.profile,
     enabledModules: config.enabledModules,
     moduleSettings: config.moduleSettings,
-  }
-  if (migrated) {
-    try {
-      await saveVaultJSON(WORKSPACE_FILE, result)
-    } catch (err) {
-      console.warn("Failed to persist migrated workspace config:", err)
-    }
   }
   return result
 }

@@ -1,7 +1,6 @@
 export * from "./types"
 export * from "./global-registry"
 export * from "./workspace-modules"
-export * from "./module-migration"
 export * from "./profiles"
 export * from "./host"
 export * from "./package-manager"

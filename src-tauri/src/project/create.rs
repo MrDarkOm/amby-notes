@@ -14,11 +14,12 @@ use serde_json::{json, Value};
 
 use super::discovery::discover_projects;
 use super::format::{document_bytes, with_section_appended, workshop_section_entry, SectionLinks};
+#[cfg(test)]
+use super::journal::OP_CREATE_WORKSHOP;
 use super::journal::{
     create_journal, read_journal, remove_journal, replace_journal, Journal, Plan,
     PlannedManifestWrite, PlannedSection, PlannedStory, JOURNAL_FORMAT, JOURNAL_VERSION,
-    OP_CREATE_SECTION, OP_CREATE_STORY, OP_CREATE_WORKSHOP, OP_INIT_WORKSHOP, STATUS_COMPLETED,
-    STATUS_IN_PROGRESS,
+    OP_CREATE_SECTION, OP_CREATE_STORY, OP_INIT_WORKSHOP, STATUS_COMPLETED, STATUS_IN_PROGRESS,
 };
 use super::model::{
     CreateStoryRequest, CreateWorkshopRequest, CreateWorkshopSectionRequest, CreatedStory,
@@ -96,7 +97,7 @@ pub(crate) fn clear_step_hook() {
 pub(super) enum Interrupt {
     Error(String),
     Conflict(String),
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     Crash,
 }
 
@@ -326,6 +327,7 @@ pub(super) fn settle<T>(
         }
         Err(interrupt) => {
             let (message, conflict) = match interrupt {
+                #[cfg(test)]
                 Interrupt::Crash => {
                     return Err(ProjectError::failed("interrupted", "operation interrupted"))
                 }
@@ -453,8 +455,8 @@ fn workshop_plan_from_journal(journal: &Journal) -> Option<WorkshopPlan> {
 /// every link between them. `Partial` is the three bases of the earlier stages, kept so tests can
 /// build a workshop as it was made then and check what `complete_workshop` adds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(not(test), allow(dead_code))]
 enum WorkshopKind {
+    #[cfg(test)]
     Partial,
     Whole,
 }
@@ -462,6 +464,7 @@ enum WorkshopKind {
 impl WorkshopKind {
     fn operation(self) -> &'static str {
         match self {
+            #[cfg(test)]
             Self::Partial => OP_CREATE_WORKSHOP,
             Self::Whole => OP_INIT_WORKSHOP,
         }
@@ -470,6 +473,7 @@ impl WorkshopKind {
     /// The bases in the order they are made, with the names used when no label is sent.
     fn roles(self) -> &'static [(&'static str, &'static str)] {
         match self {
+            #[cfg(test)]
             Self::Partial => &[
                 (ROLE_STORIES, "Истории"),
                 (ROLE_CHARACTERS, "Персонажи"),
@@ -1190,6 +1194,7 @@ pub fn create_story(env: &Env, request: &CreateStoryRequest) -> Result<CreatedSt
         }
         Err(interrupt) => {
             let message = match interrupt {
+                #[cfg(test)]
                 Interrupt::Crash => {
                     return Err(ProjectError::failed("interrupted", "operation interrupted"))
                 }

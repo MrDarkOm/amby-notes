@@ -3,7 +3,7 @@ import i18n from "@/lib/i18n"
 import { useViewStateStore, type EditorLayer } from "./use-view-state-store"
 import { useDocStore, type Document } from "./use-doc-store"
 import type { TreeItem } from "./sidebar-tree"
-import type { FsMutationResult, LayerKind } from "@/lib/storage"
+import type { FsMutationResult, LayerKind, LayerResult } from "@/lib/storage"
 import {
   confirmAction,
   createDatabase,
@@ -18,7 +18,21 @@ import { splitWebFrontmatter, webRevision } from "@/lib/storage/web-frontmatter"
 import { useDatabaseStore } from "./database/database-store"
 import { noteLayerPath, wsPathDir } from "./workspace-tree-utils"
 import { recordLocalTreePaths } from "./watcher-tree-reconciliation"
+import { mutationPaths } from "./workspace-mutations"
 import { flushEditorSerializations } from "./tiptap/editor-serialization-lifecycle"
+
+/** The files a layer command changed, for asking the backend to refresh exactly those. */
+function layerTouchedPaths(result: LayerResult): string[] {
+  return [
+    ...new Set(
+      [
+        result.notePath,
+        result.layerPath,
+        ...result.pathChanges.flatMap((change) => [change.oldPath, change.newPath]),
+      ].filter(Boolean),
+    ),
+  ]
+}
 
 function patchDocBuffer(fileId: string, path: string | undefined, patch: Partial<Document>) {
   useDocStore.getState().patchDoc(fileId, patch)
@@ -67,10 +81,10 @@ interface UseLayersParams {
   backendGeneration: number | null
   currentDoc: Document | null
   treeItems: TreeItem[]
-  refreshTree: (path?: string | null) => Promise<TreeItem[]>
+  refreshTreePaths: (paths: string[]) => Promise<TreeItem[]>
   refreshDatabaseCatalog?: () => Promise<void>
   onOpenDatabase?: (databaseId: string, title: string, inNewTab?: boolean) => void
-  applyMutationResult: (result: FsMutationResult) => void
+  applyMutationResult: (result: FsMutationResult) => boolean
 }
 
 /**
@@ -86,7 +100,7 @@ export function useLayers({
   backendGeneration,
   currentDoc,
   treeItems,
-  refreshTree,
+  refreshTreePaths,
   refreshDatabaseCatalog,
   onOpenDatabase,
   applyMutationResult,
@@ -137,7 +151,7 @@ export function useLayers({
       })
       const nextNotePath = created.notePath ?? notePath
       applyDatabasePathChange(notePath, nextNotePath)
-      await refreshTree()
+      await refreshTreePaths([notePath, nextNotePath, created.manifestPath])
       await refreshDatabaseCatalog?.()
       await refreshLinkedLayers(noteId, nextNotePath)
       setActiveLayer(noteId, "database")
@@ -148,7 +162,7 @@ export function useLayers({
       databasesEnabled,
       refreshDatabaseCatalog,
       refreshLinkedLayers,
-      refreshTree,
+      refreshTreePaths,
       setActiveLayer,
       vault,
     ],
@@ -197,7 +211,7 @@ export function useLayers({
             pathChanges: result.pathChanges,
             deletedPaths: [],
           })
-          await refreshTree()
+          await refreshTreePaths(layerTouchedPaths(result))
           setActiveLayer(doc.id, "editor")
           await refreshLinkedLayers(doc.id, result.notePath ?? doc.path)
           if (result.layerPath) {
@@ -265,7 +279,7 @@ export function useLayers({
         pathChanges: result.pathChanges,
         deletedPaths: [],
       })
-      await refreshTree()
+      await refreshTreePaths(layerTouchedPaths(result))
       setActiveLayer(doc.id, layer)
       await refreshLinkedLayers(doc.id, result.notePath ?? doc.path)
     } catch (err) {
@@ -304,7 +318,7 @@ export function useLayers({
           pathChanges: result.pathChanges,
           deletedPaths: [],
         })
-        await refreshTree()
+        await refreshTreePaths(layerTouchedPaths(result))
         await refreshLinkedLayers(fileId, result.notePath ?? filePath)
         if (layer === "note" && result.layerPath) {
           try {
@@ -327,7 +341,7 @@ export function useLayers({
       applyMutationResult,
       createAttachedDatabase,
       refreshLinkedLayers,
-      refreshTree,
+      refreshTreePaths,
       treeItems,
       vault,
     ],
@@ -351,7 +365,7 @@ export function useLayers({
         parentPath,
         name,
       })
-      await refreshTree()
+      await refreshTreePaths([created.manifestPath])
       await refreshDatabaseCatalog?.()
       onOpenDatabase?.(created.databaseId, created.title)
     },
@@ -360,7 +374,7 @@ export function useLayers({
       databasesEnabled,
       onOpenDatabase,
       refreshDatabaseCatalog,
-      refreshTree,
+      refreshTreePaths,
       treeItems,
       vault,
     ],
@@ -371,8 +385,7 @@ export function useLayers({
     if (layer === "database") return
     try {
       const result = await unlinkLayer(vault, currentDoc.path, layer)
-      applyMutationResult(result)
-      await refreshTree()
+      if (!applyMutationResult(result)) await refreshTreePaths(mutationPaths(result))
       await refreshLinkedLayers(currentDoc.id, result.primaryPath ?? currentDoc.path)
       // If the unlinked layer was active, fall back to a remaining layer.
       if (activeLayers[currentDoc.id] === layer) {
@@ -399,8 +412,7 @@ export function useLayers({
       return
     try {
       const result = await deleteLayer(vault, currentDoc.path, layer)
-      applyMutationResult(result)
-      await refreshTree()
+      if (!applyMutationResult(result)) await refreshTreePaths(mutationPaths(result))
       await refreshLinkedLayers(currentDoc.id, result.primaryPath ?? currentDoc.path)
       if (activeLayers[currentDoc.id] === layer) {
         const remaining = await noteLayers(result.primaryPath ?? currentDoc.path)
@@ -422,6 +434,7 @@ export function useLayers({
     if (linkedLayersByDoc[currentDoc.id] || requestedLayersRef.current.has(currentDoc.id)) return
     requestedLayersRef.current.add(currentDoc.id)
     void refreshLinkedLayers(currentDoc.id, currentDoc.path)
+    // refreshLinkedLayers is recreated every render; the ref above makes this a once-per-document request.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentDoc?.id, currentDoc?.path, linkedLayersByDoc])
 
@@ -441,11 +454,15 @@ export function useLayers({
     if (loadedNoteLayersRef.current.has(currentDoc.id)) return
     loadedNoteLayersRef.current.add(currentDoc.id)
     let cancelled = false
+    let settled = false
+    const docId = currentDoc.id
+    const loadedLayers = loadedNoteLayersRef.current
     void (async () => {
       try {
         const notePath = noteLayerPath(currentDoc.path)
         const loaded = await loadNoteLayerContent(notePath, vault ?? undefined)
         if (cancelled) return
+        settled = true
         patchDocBuffer(currentDoc.id, currentDoc.path, {
           content: loaded.content,
           source: loaded.source,
@@ -453,12 +470,16 @@ export function useLayers({
           ...(loaded.revision ? { revision: loaded.revision } : {}),
         })
       } catch (err) {
+        settled = true
         console.error("Failed to load active note layer:", err)
       }
     })()
     return () => {
       cancelled = true
+      // A load dropped by a dependency change never delivered its content; let the rerun retry it.
+      if (!settled) loadedLayers.delete(docId)
     }
+    // patchDocBuffer is module-level; the doc is read through its id and path above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeLayers, currentDoc?.id, currentDoc?.path, linkedLayersByDoc, vault])
 

@@ -3258,15 +3258,12 @@ const ru = {
       disabledHint: "Разделы работают на модуле «Базы данных». Включите его.",
       loadFailed: "Не удалось загрузить мастерскую",
       retry: "Повторить",
-      legacyFolders: "Папки старого формата: {{count}}",
       diagnostics_one: "{{count}} замечание",
       diagnostics_few: "{{count}} замечания",
       diagnostics_many: "{{count}} замечаний",
       diagnostics_other: "{{count}} замечаний",
     },
     diagnostic: {
-      legacyProjectFormat:
-        "Папка старого формата: открыта как обычные папки и базы, модуль её не меняет",
       invalidWorkshopFile: "Файл мастерской amby-workshop.json повреждён",
       unreadableWorkshopFile: "Файл мастерской не читается",
       duplicateWorkshopId:
@@ -4024,6 +4021,11 @@ const ru = {
     },
   },
   panelHost: { noPanel: "Нет активной панели" },
+  surfaceError: {
+    title: "Эта область не открылась",
+    desc: "Остальное окно работает, ваши файлы не затронуты. Попробуйте открыть область снова.",
+    retry: "Попробовать снова",
+  },
 }
 
 const en: typeof ru = {
@@ -7245,15 +7247,12 @@ const en: typeof ru = {
       disabledHint: "Sections run on the Databases module. Turn it on.",
       loadFailed: "Could not load the workshop",
       retry: "Retry",
-      legacyFolders: "Folders of the former format: {{count}}",
       diagnostics_one: "{{count}} warning",
       diagnostics_few: "{{count}} warnings",
       diagnostics_many: "{{count}} warnings",
       diagnostics_other: "{{count}} warnings",
     },
     diagnostic: {
-      legacyProjectFormat:
-        "A folder of the former format: opened as ordinary folders and databases, the module leaves it alone",
       invalidWorkshopFile: "The workshop file amby-workshop.json is damaged",
       unreadableWorkshopFile: "The workshop file cannot be read",
       duplicateWorkshopId: "Duplicate workshop ID: a copied folder is not a second workshop",
@@ -8012,6 +8011,11 @@ const en: typeof ru = {
     },
   },
   panelHost: { noPanel: "No active panel" },
+  surfaceError: {
+    title: "This area failed to open",
+    desc: "The rest of the window still works and your files are untouched. Try opening the area again.",
+    retry: "Try again",
+  },
 }
 
 export const localeResources = { ru: { translation: ru }, en: { translation: en } }

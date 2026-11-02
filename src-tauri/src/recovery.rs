@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use crate::frontmatter;
+use crate::lock_util::LockExt;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -137,7 +138,7 @@ pub fn save_recovery(
     path_hint: &str,
     content: &str,
 ) -> Result<RecoveryEntry, String> {
-    let _lock = recovery_io_lock().lock().unwrap();
+    let _lock = recovery_io_lock().lock_or_recover();
     if content.len() as u64 > MAX_ENTRY_SIZE_BYTES {
         return Err(format!(
             "Recovery draft exceeds maximum allowed size of {MAX_ENTRY_SIZE_BYTES} bytes"
@@ -173,7 +174,7 @@ pub fn save_recovery(
 /// Read a recovery entry for the given stable ID or path hint.
 /// Returns `Ok(None)` if no valid, non-expired entry exists.
 pub fn read_recovery(vault: &Path, id: &str) -> Result<Option<RecoveryEntry>, String> {
-    let _lock = recovery_io_lock().lock().unwrap();
+    let _lock = recovery_io_lock().lock_or_recover();
     let root = recovery_root(vault);
     if !root.exists() {
         return Ok(None);
@@ -212,7 +213,7 @@ pub fn delete_recovery(
     id: &str,
     expected_content_hash: Option<&str>,
 ) -> Result<(), String> {
-    let _lock = recovery_io_lock().lock().unwrap();
+    let _lock = recovery_io_lock().lock_or_recover();
     let root = recovery_root(vault);
     if !root.exists() {
         return Ok(());
@@ -245,7 +246,7 @@ pub fn delete_recovery(
 
 /// List all valid, non-expired recovery drafts sorted by saved timestamp descending.
 pub fn list_recovery(vault: &Path) -> Result<Vec<RecoveryEntry>, String> {
-    let _lock = recovery_io_lock().lock().unwrap();
+    let _lock = recovery_io_lock().lock_or_recover();
     let root = recovery_root(vault);
     if !root.exists() {
         return Ok(Vec::new());
@@ -265,7 +266,7 @@ pub fn list_recovery(vault: &Path) -> Result<Vec<RecoveryEntry>, String> {
 /// Clean expired and corrupt entries and enforce storage limits.
 /// Returns the number of removed files.
 pub fn sweep_expired_recovery(vault: &Path) -> Result<usize, String> {
-    let _lock = recovery_io_lock().lock().unwrap();
+    let _lock = recovery_io_lock().lock_or_recover();
     let root = recovery_root(vault);
     if !root.exists() {
         return Ok(0);

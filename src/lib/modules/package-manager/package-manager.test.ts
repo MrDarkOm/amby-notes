@@ -18,6 +18,9 @@ import {
   type PackageManifest,
 } from "../index"
 
+// The package controls are on in these tests: they exercise uninstalling a module.
+vi.mock("./controls", () => ({ MODULE_PACKAGE_CONTROLS_ENABLED: true }))
+
 describe("MOD-04: Package Manager", () => {
   const store = new Map<string, string>()
 

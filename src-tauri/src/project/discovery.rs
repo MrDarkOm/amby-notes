@@ -2,8 +2,8 @@
 //! inside the stories section.
 //!
 //! Workshops are flat peer environments. Discovery never writes and never trusts a damaged
-//! file; it reports a diagnostic and leaves the data alone. Legacy v2 projects are reported
-//! with `legacyProjectFormat` and never modified.
+//! file; it reports a diagnostic and leaves the data alone. Projects of the former `amby-project.json`
+//! format (v2) are no longer recognised and are not touched.
 
 use std::collections::HashSet;
 use std::fs;
@@ -12,9 +12,7 @@ use std::path::Path;
 use walkdir::{DirEntry, WalkDir};
 
 use super::format::{parse_story_file, parse_workshop_file, WorkshopDoc};
-use super::model::{
-    ProjectDiagnostic, LEGACY_PROJECT_FILE_NAME, ROLE_STORIES, STORY_FILE_NAME, WORKSHOP_FILE_NAME,
-};
+use super::model::{ProjectDiagnostic, ROLE_STORIES, STORY_FILE_NAME, WORKSHOP_FILE_NAME};
 use crate::database::format::parse_manifest;
 use crate::frontmatter::parse_markdown;
 
@@ -93,18 +91,6 @@ pub fn discover_projects(vault: &Path) -> Result<WorkshopDiscovery, String> {
     {
         let entry = entry.map_err(|error| format!("Cannot scan vault: {error}"))?;
         let file_name = entry.file_name().to_string_lossy();
-        if file_name == LEGACY_PROJECT_FILE_NAME {
-            let file = relative(&vault, entry.path());
-            diagnostics.push(diagnostic(
-                "legacyProjectFormat",
-                "warning",
-                &file,
-                None,
-                None,
-                Some("Legacy format v2 project; open as regular folders and databases".to_owned()),
-            ));
-            continue;
-        }
         if file_name != WORKSHOP_FILE_NAME {
             continue;
         }

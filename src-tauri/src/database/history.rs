@@ -1,5 +1,6 @@
 use crate::database::format::raw_revision;
 use crate::frontmatter;
+use crate::lock_util::LockExt;
 use crate::watcher::{self, WatcherState};
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -51,8 +52,8 @@ pub struct DatabaseHistoryState {
 
 impl DatabaseHistoryState {
     pub fn push(&self, entry: DatabaseHistoryEntry) {
-        let mut undo = self.undo_stacks.lock().expect("history poisoned");
-        let mut redo = self.redo_stacks.lock().expect("history poisoned");
+        let mut undo = self.undo_stacks.lock_or_recover();
+        let mut redo = self.redo_stacks.lock_or_recover();
         redo.remove(&entry.database_id); // New mutation clears redo stack
         let stack = undo.entry(entry.database_id.clone()).or_default();
         stack.push(entry);
@@ -63,8 +64,7 @@ impl DatabaseHistoryState {
 
     pub fn can_undo(&self, database_id: &str) -> bool {
         self.undo_stacks
-            .lock()
-            .expect("history poisoned")
+            .lock_or_recover()
             .get(database_id)
             .map(|s| !s.is_empty())
             .unwrap_or(false)
@@ -72,8 +72,7 @@ impl DatabaseHistoryState {
 
     pub fn can_redo(&self, database_id: &str) -> bool {
         self.redo_stacks
-            .lock()
-            .expect("history poisoned")
+            .lock_or_recover()
             .get(database_id)
             .map(|s| !s.is_empty())
             .unwrap_or(false)
@@ -89,8 +88,8 @@ impl DatabaseHistoryState {
 
     #[allow(dead_code)]
     pub fn clear(&self, database_id: Option<&str>) {
-        let mut undo = self.undo_stacks.lock().expect("history poisoned");
-        let mut redo = self.redo_stacks.lock().expect("history poisoned");
+        let mut undo = self.undo_stacks.lock_or_recover();
+        let mut redo = self.redo_stacks.lock_or_recover();
         if let Some(db_id) = database_id {
             undo.remove(db_id);
             redo.remove(db_id);
@@ -107,7 +106,7 @@ impl DatabaseHistoryState {
         database_id: &str,
     ) -> Result<DatabaseUndoRedoResult, String> {
         let entry = {
-            let mut undo = self.undo_stacks.lock().expect("history poisoned");
+            let mut undo = self.undo_stacks.lock_or_recover();
             let stack = undo
                 .get_mut(database_id)
                 .ok_or_else(|| "No undo history for database".to_owned())?;
@@ -133,7 +132,7 @@ impl DatabaseHistoryState {
                     file.path.display(),
                     file.post_revision
                 );
-                let mut undo = self.undo_stacks.lock().expect("history poisoned");
+                let mut undo = self.undo_stacks.lock_or_recover();
                 undo.entry(database_id.to_owned()).or_default().push(entry);
                 return Err(err);
             }
@@ -163,7 +162,7 @@ impl DatabaseHistoryState {
             for file in written {
                 let _ = frontmatter::atomic_write_bytes(&file.path, &file.post_bytes);
             }
-            let mut undo = self.undo_stacks.lock().expect("history poisoned");
+            let mut undo = self.undo_stacks.lock_or_recover();
             undo.entry(database_id.to_owned()).or_default().push(entry);
             return Err(format!("Undo failed during atomic write; rolled back: {e}"));
         }
@@ -177,7 +176,7 @@ impl DatabaseHistoryState {
 
         // 4. Push to redo stack
         {
-            let mut redo = self.redo_stacks.lock().expect("history poisoned");
+            let mut redo = self.redo_stacks.lock_or_recover();
             redo.entry(database_id.to_owned()).or_default().push(entry);
         }
 
@@ -196,7 +195,7 @@ impl DatabaseHistoryState {
         database_id: &str,
     ) -> Result<DatabaseUndoRedoResult, String> {
         let entry = {
-            let mut redo = self.redo_stacks.lock().expect("history poisoned");
+            let mut redo = self.redo_stacks.lock_or_recover();
             let stack = redo
                 .get_mut(database_id)
                 .ok_or_else(|| "No redo history for database".to_owned())?;
@@ -222,7 +221,7 @@ impl DatabaseHistoryState {
                     file.path.display(),
                     file.pre_revision
                 );
-                let mut redo = self.redo_stacks.lock().expect("history poisoned");
+                let mut redo = self.redo_stacks.lock_or_recover();
                 redo.entry(database_id.to_owned()).or_default().push(entry);
                 return Err(err);
             }
@@ -252,7 +251,7 @@ impl DatabaseHistoryState {
             for file in written {
                 let _ = frontmatter::atomic_write_bytes(&file.path, &file.pre_bytes);
             }
-            let mut redo = self.redo_stacks.lock().expect("history poisoned");
+            let mut redo = self.redo_stacks.lock_or_recover();
             redo.entry(database_id.to_owned()).or_default().push(entry);
             return Err(format!("Redo failed during atomic write; rolled back: {e}"));
         }
@@ -266,7 +265,7 @@ impl DatabaseHistoryState {
 
         // 4. Push to undo stack
         {
-            let mut undo = self.undo_stacks.lock().expect("history poisoned");
+            let mut undo = self.undo_stacks.lock_or_recover();
             undo.entry(database_id.to_owned()).or_default().push(entry);
         }
 

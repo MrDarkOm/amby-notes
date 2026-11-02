@@ -72,6 +72,14 @@ windows-sys = { version = "0.61.2", features = ["Win32_UI_Shell"] }
 # The server of the sync workspace, started inside a test (stage Э4: the link against a real server).
 amby-sync-conformance = { path = "../sync/conformance" }
 
+# The shipped build: whole-program optimisation and no symbol table (smaller, slightly faster
+# binary; slower release builds). Panics must keep unwinding: `lock_util` recovers a mutex left
+# poisoned by a panicking command, which `panic = "abort"` would turn into a crash.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+
 # Argon2id uses 64 MiB per derivation: optimised even in debug and test builds, otherwise every
 # test that signs in would take seconds (the same rule as in sync/Cargo.toml).
 [profile.dev.package.argon2]

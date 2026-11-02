@@ -93,6 +93,42 @@ pub fn db_path_stamps(conn: &Connection) -> Result<HashMap<String, (String, i64,
     Ok(map)
 }
 
+/// Read one changed or new note from disk for the index. Malformed YAML is recoverable text;
+/// an I/O or encoding failure is not an absent note, so it aborts before SQLite is touched and
+/// no cached note disappears.
+pub(super) fn read_scanned_note(
+    path: &Path,
+    rel_path: String,
+    mtime: i64,
+    mtime_ns: Option<i64>,
+    size: i64,
+    warnings: &mut Vec<String>,
+) -> Result<ScannedNote, String> {
+    let parsed = frontmatter::read_markdown(path)
+        .map_err(|error| format!("Failed to read {}: {error}", path_string(path)))?;
+    if let Some(error) = &parsed.parse_error {
+        warnings.push(format!(
+            "Invalid frontmatter in {}: {error}; text remains indexed",
+            path_string(path)
+        ));
+    }
+    let parsed_id = parsed.note_id().map(str::to_string);
+    Ok(ScannedNote {
+        frontmatter_status: parsed.frontmatter_status,
+        path: path.to_path_buf(),
+        rel_path,
+        parsed_id,
+        display_title: parsed.display_title.clone(),
+        identity_error: parsed.indexing_identity_error(),
+        body: parsed.body,
+        frontmatter_tags: parsed.frontmatter_tags,
+        mtime,
+        mtime_ns,
+        size,
+        unchanged: false,
+    })
+}
+
 pub fn scan_disk(
     vault: &Path,
     prev: &HashMap<String, (String, i64, i64)>,
@@ -135,34 +171,154 @@ pub fn scan_disk(
             }
         }
 
-        // Malformed YAML is recoverable text; I/O/encoding failure is not an
-        // absent note. Abort before mutating SQLite so no cached note disappears.
-        let parsed = frontmatter::read_markdown(path)
-            .map_err(|error| format!("Failed to read {}: {error}", path_string(path)))?;
-        if let Some(error) = &parsed.parse_error {
-            warnings.push(format!(
-                "Invalid frontmatter in {}: {error}; text remains indexed",
-                path_string(path)
-            ));
-        }
-        let parsed_id = parsed.note_id().map(str::to_string);
-        notes.push(ScannedNote {
-            frontmatter_status: parsed.frontmatter_status,
-            path: path.to_path_buf(),
-            rel_path,
-            parsed_id,
-            display_title: parsed.display_title.clone(),
-            identity_error: parsed.indexing_identity_error(),
-            body: parsed.body,
-            frontmatter_tags: parsed.frontmatter_tags,
-            mtime,
-            mtime_ns,
-            size,
-            unchanged: false,
-        });
+        notes.push(read_scanned_note(
+            path, rel_path, mtime, mtime_ns, size, warnings,
+        )?);
     }
     notes.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
     Ok(notes)
+}
+
+/// Give a note without an `amby-id` one, in its file (the only write the index makes to a note).
+/// A note that cannot take one (broken header, unusable id) is indexed under a path key instead.
+pub(super) fn assign_missing_identities(
+    vault: &Path,
+    notes: &mut [ScannedNote],
+) -> Result<(), String> {
+    for note in notes.iter_mut() {
+        if !needs_identity(note) {
+            continue;
+        }
+        let id = Ulid::generate().to_string();
+        let content = fs::read_to_string(&note.path).map_err(|e| e.to_string())?;
+        let next = match frontmatter::body_with_id(&content, &id) {
+            Ok(next) => next,
+            Err(error) => {
+                note.identity_error = Some(error);
+                continue;
+            }
+        };
+        history::snapshot_before_write(vault, &note.path, next.as_bytes(), "id-assignment")?;
+        frontmatter::atomic_write_bytes(&note.path, next.as_bytes())?;
+        let parsed = frontmatter::parse_markdown(&next);
+        let FileStamp {
+            mtime,
+            mtime_ns,
+            size,
+        } = metadata_stamp(&note.path)?;
+        note.parsed_id = Some(id);
+        note.body = parsed.body;
+        note.frontmatter_tags = parsed.frontmatter_tags;
+        note.mtime = mtime;
+        note.mtime_ns = mtime_ns;
+        note.size = size;
+    }
+    Ok(())
+}
+
+/// The key a scanned note is stored under, and whether it lost its `amby-id` to another note.
+pub(super) fn resolve_scanned_id(
+    vault: &Path,
+    note: &ScannedNote,
+    seen_ids: &HashSet<String>,
+    warnings: &mut Vec<String>,
+) -> (String, bool) {
+    let claimed_id = note.parsed_id.as_deref();
+    let duplicate = claimed_id.is_some_and(|id| seen_ids.contains(id));
+    let id = if note.frontmatter_status.is_malformed() {
+        opaque_id(&note.rel_path, note.frontmatter_status)
+    } else if let Some(error) = &note.identity_error {
+        warnings.push(format!(
+            "{}: {error}; indexed with a path-scoped conflict key",
+            note.rel_path
+        ));
+        conflict_id(None, &note.rel_path)
+    } else if claimed_id.is_some_and(|id| conflict_copy_is_duplicate(vault, &note.rel_path, id)) {
+        // A copy of a conflict never holds the identity, alone or not (Р7): it keeps its key.
+        conflict_id(claimed_id, &note.rel_path)
+    } else if duplicate {
+        warnings.push(format!(
+            "{}: duplicate Amby id {}; source left unchanged",
+            note.rel_path,
+            claimed_id.unwrap()
+        ));
+        conflict_id(claimed_id, &note.rel_path)
+    } else {
+        note.parsed_id
+            .clone()
+            .expect("identity assigned before transaction")
+    };
+    (id, duplicate)
+}
+
+/// Write one scanned note, its tags and its links into the index. Returns whether the row existed.
+pub(super) fn upsert_scanned_note(
+    tx: &rusqlite::Transaction<'_>,
+    id: &str,
+    note: &ScannedNote,
+) -> Result<bool, String> {
+    let existed: Option<String> = tx
+        .query_row("SELECT id FROM notes WHERE id = ?1", [id], |row| row.get(0))
+        .optional()
+        .map_err(|e| e.to_string())?;
+    let title = note
+        .display_title
+        .clone()
+        .unwrap_or_else(|| title_for(&note.path, &note.body));
+    // Identity may have been repaired externally at this same path. The
+    // old row is disposable; durable custom properties remain in sidecars.
+    tx.execute(
+        "DELETE FROM notes WHERE path = ?1 AND id <> ?2",
+        params![note.rel_path, id],
+    )
+    .map_err(|error| error.to_string())?;
+    tx.execute(
+            r#"
+            INSERT INTO notes (id, path, title, mtime, size, content, word_count, mtime_ns, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, strftime('%s','now'), strftime('%s','now'))
+            ON CONFLICT(id) DO UPDATE SET
+                path = excluded.path,
+                title = excluded.title,
+                mtime = excluded.mtime,
+                mtime_ns = excluded.mtime_ns,
+                size = excluded.size,
+                content = excluded.content,
+                word_count = excluded.word_count,
+                updated_at = strftime('%s','now')
+            "#,
+            params![
+                id,
+                note.rel_path,
+                title,
+                note.mtime,
+                note.size,
+                note.body,
+                word_count(&note.body) as i64,
+                note.mtime_ns
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+
+    tx.execute("DELETE FROM tags WHERE note_id = ?1", [id])
+        .map_err(|e| e.to_string())?;
+    for tag in extract_tags(&note.body, &note.frontmatter_tags) {
+        tx.execute(
+            "INSERT OR IGNORE INTO tags (note_id, tag) VALUES (?1, ?2)",
+            params![id, tag],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    tx.execute("DELETE FROM links WHERE note_id = ?1", [id])
+        .map_err(|e| e.to_string())?;
+    for (raw, target, label) in extract_links(&note.body) {
+        tx.execute(
+                "INSERT INTO links (note_id, raw, target, label, target_note_id) VALUES (?1, ?2, ?3, ?4, NULL)",
+                params![id, raw, target, label],
+            )
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(existed.is_some())
 }
 
 pub fn sync_vault(conn: &Connection, vault: &Path) -> Result<SyncReport, String> {
@@ -173,6 +329,25 @@ pub fn sync_vault_with_changes(
     conn: &Connection,
     vault: &Path,
     changed_paths: &HashSet<PathBuf>,
+) -> Result<SyncReport, String> {
+    sync_vault_inner(conn, vault, changed_paths, true)
+}
+
+/// The error of a read-only load that would have had to write an `amby-id` into a note.
+pub const NEEDS_IDENTITY: &str = "a note needs an identity written";
+
+fn needs_identity(note: &ScannedNote) -> bool {
+    !(note.unchanged
+        || note.parsed_id.is_some()
+        || note.identity_error.is_some()
+        || note.frontmatter_status.is_malformed())
+}
+
+fn sync_vault_inner(
+    conn: &Connection,
+    vault: &Path,
+    changed_paths: &HashSet<PathBuf>,
+    allow_writes: bool,
 ) -> Result<SyncReport, String> {
     if !vault.is_dir() {
         return Err(format!("Not a directory: {}", path_string(vault)));
@@ -219,38 +394,10 @@ pub fn sync_vault_with_changes(
         )
     });
 
-    for note in &mut notes {
-        if note.unchanged
-            || note.parsed_id.is_some()
-            || note.identity_error.is_some()
-            || note.frontmatter_status.is_malformed()
-        {
-            continue;
-        }
-        let id = Ulid::generate().to_string();
-        let content = fs::read_to_string(&note.path).map_err(|e| e.to_string())?;
-        let next = match frontmatter::body_with_id(&content, &id) {
-            Ok(next) => next,
-            Err(error) => {
-                note.identity_error = Some(error);
-                continue;
-            }
-        };
-        history::snapshot_before_write(vault, &note.path, next.as_bytes(), "id-assignment")?;
-        frontmatter::atomic_write_bytes(&note.path, next.as_bytes())?;
-        let parsed = frontmatter::parse_markdown(&next);
-        let FileStamp {
-            mtime,
-            mtime_ns,
-            size,
-        } = metadata_stamp(&note.path)?;
-        note.parsed_id = Some(id);
-        note.body = parsed.body;
-        note.frontmatter_tags = parsed.frontmatter_tags;
-        note.mtime = mtime;
-        note.mtime_ns = mtime_ns;
-        note.size = size;
+    if !allow_writes && notes.iter().any(needs_identity) {
+        return Err(NEEDS_IDENTITY.to_string());
     }
+    assign_missing_identities(vault, &mut notes)?;
 
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     let mut seen_ids = HashSet::new();
@@ -260,32 +407,7 @@ pub fn sync_vault_with_changes(
     let mut path_to_id = HashMap::new();
 
     for note in notes {
-        let claimed_id = note.parsed_id.as_deref();
-        let duplicate = claimed_id.is_some_and(|id| seen_ids.contains(id));
-        let id = if note.frontmatter_status.is_malformed() {
-            opaque_id(&note.rel_path, note.frontmatter_status)
-        } else if let Some(error) = &note.identity_error {
-            warnings.push(format!(
-                "{}: {error}; indexed with a path-scoped conflict key",
-                note.rel_path
-            ));
-            conflict_id(None, &note.rel_path)
-        } else if claimed_id.is_some_and(|id| conflict_copy_is_duplicate(vault, &note.rel_path, id))
-        {
-            // A copy of a conflict never holds the identity, alone or not (Р7): it keeps its key.
-            conflict_id(claimed_id, &note.rel_path)
-        } else if duplicate {
-            warnings.push(format!(
-                "{}: duplicate Amby id {}; source left unchanged",
-                note.rel_path,
-                claimed_id.unwrap()
-            ));
-            conflict_id(claimed_id, &note.rel_path)
-        } else {
-            note.parsed_id
-                .clone()
-                .expect("identity assigned before transaction")
-        };
+        let (id, duplicate) = resolve_scanned_id(vault, &note, &seen_ids, &mut warnings);
         if note.unchanged && !duplicate {
             seen_paths.insert(note.rel_path.clone());
             seen_ids.insert(id.clone());
@@ -293,74 +415,10 @@ pub fn sync_vault_with_changes(
             continue;
         }
 
-        let existed: Option<String> = tx
-            .query_row("SELECT id FROM notes WHERE id = ?1", [&id], |row| {
-                row.get(0)
-            })
-            .optional()
-            .map_err(|e| e.to_string())?;
-        if existed.is_some() {
+        if upsert_scanned_note(&tx, &id, &note)? {
             updated += 1;
         } else {
             inserted += 1;
-        }
-
-        let title = note
-            .display_title
-            .clone()
-            .unwrap_or_else(|| title_for(&note.path, &note.body));
-        // Identity may have been repaired externally at this same path. The
-        // old row is disposable; durable custom properties remain in sidecars.
-        tx.execute(
-            "DELETE FROM notes WHERE path = ?1 AND id <> ?2",
-            params![note.rel_path, id],
-        )
-        .map_err(|error| error.to_string())?;
-        tx.execute(
-            r#"
-            INSERT INTO notes (id, path, title, mtime, size, content, word_count, mtime_ns, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, strftime('%s','now'), strftime('%s','now'))
-            ON CONFLICT(id) DO UPDATE SET
-                path = excluded.path,
-                title = excluded.title,
-                mtime = excluded.mtime,
-                mtime_ns = excluded.mtime_ns,
-                size = excluded.size,
-                content = excluded.content,
-                word_count = excluded.word_count,
-                updated_at = strftime('%s','now')
-            "#,
-            params![
-                id,
-                note.rel_path,
-                title,
-                note.mtime,
-                note.size,
-                note.body,
-                word_count(&note.body) as i64,
-                note.mtime_ns
-            ],
-        )
-        .map_err(|e| e.to_string())?;
-
-        tx.execute("DELETE FROM tags WHERE note_id = ?1", [&id])
-            .map_err(|e| e.to_string())?;
-        for tag in extract_tags(&note.body, &note.frontmatter_tags) {
-            tx.execute(
-                "INSERT OR IGNORE INTO tags (note_id, tag) VALUES (?1, ?2)",
-                params![id, tag],
-            )
-            .map_err(|e| e.to_string())?;
-        }
-
-        tx.execute("DELETE FROM links WHERE note_id = ?1", [&id])
-            .map_err(|e| e.to_string())?;
-        for (raw, target, label) in extract_links(&note.body) {
-            tx.execute(
-                "INSERT INTO links (note_id, raw, target, label, target_note_id) VALUES (?1, ?2, ?3, ?4, NULL)",
-                params![id, raw, target, label],
-            )
-            .map_err(|e| e.to_string())?;
         }
 
         seen_paths.insert(note.rel_path.clone());
@@ -415,6 +473,22 @@ pub fn load_vault_with_changes(
     changed_paths: &HashSet<PathBuf>,
 ) -> Result<LoadVaultResult, String> {
     let sync = sync_vault_with_changes(conn, vault, changed_paths)?;
+    let notes = list_notes(conn, vault)?;
+    let tree = build_tree(vault, &notes)?;
+    Ok(LoadVaultResult {
+        generation: 0,
+        vault_path: path_string(vault),
+        tree,
+        notes,
+        sync,
+    })
+}
+
+/// A full load of `vault` into `conn` that writes nothing to the vault: where [`load_vault`]
+/// would give a note an `amby-id` it fails with [`NEEDS_IDENTITY`] instead. For comparing the
+/// index against a fresh read of the disk.
+pub fn load_vault_read_only(conn: &Connection, vault: &Path) -> Result<LoadVaultResult, String> {
+    let sync = sync_vault_inner(conn, vault, &HashSet::new(), false)?;
     let notes = list_notes(conn, vault)?;
     let tree = build_tree(vault, &notes)?;
     Ok(LoadVaultResult {

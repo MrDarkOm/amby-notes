@@ -268,7 +268,7 @@ export function useMarkdownAutosave({
           void remapRecoveryDraft(doc.path, path, "markdown", path, recoveryScope)
         }
       }
-      applyMutationResult(result)
+      return applyMutationResult(result)
     },
     [applyMutationResult, autosave, autosaveKey, recoveryScope],
   )

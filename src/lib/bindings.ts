@@ -48,6 +48,19 @@ async loadActiveVault() : Promise<Result<LoadVaultResult, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Bring the index and the sidebar tree up to date for the paths the watcher reported, without
+ * reading the rest of the vault. `null` means a point refresh cannot cover them (the vault
+ * root, a bulk change, an identity clash): the renderer then runs `load_active_vault`.
+ */
+async refreshVaultPaths(paths: string[]) : Promise<Result<PathsRefresh | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("refresh_vault_paths", { paths }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async reindexVault() : Promise<Result<LoadVaultResult, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("reindex_vault") };
@@ -963,38 +976,6 @@ async setDefaultDatabaseView(request: DatabaseViewRequest) : Promise<Result<Data
     else return { status: "error", error: e  as any };
 }
 },
-async detectDatabaseMigrations() : Promise<Result<DatabaseMigrationStatus[], DatabaseError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("detect_database_migrations") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async preflightDatabaseMigration(databaseId: string) : Promise<Result<MigrationPreflightReport, DatabaseError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("preflight_database_migration", { databaseId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async executeDatabaseMigration(databaseId: string) : Promise<Result<MigrationResult, DatabaseError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("execute_database_migration", { databaseId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async rollbackDatabaseMigration(databaseId: string, migrationId: string) : Promise<Result<null, DatabaseError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("rollback_database_migration", { databaseId, migrationId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async undoDatabaseMutation(databaseId: string) : Promise<Result<DatabaseUndoRedoResult, DatabaseError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("undo_database_mutation", { databaseId }) };
@@ -1296,25 +1277,6 @@ async exportTextFile(contents: string, defaultName: string) : Promise<Result<str
 async importTextFile() : Promise<Result<string | null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("import_text_file") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * Migrate when the connection settings screen is first opened.
- */
-async migrateAiSettings() : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("migrate_ai_settings") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async rollbackAiSettings() : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("rollback_ai_settings") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1952,7 +1914,7 @@ export type AiConfig = {
  */
 provider: string; 
 /**
- * Stable internal ID when settings use connection format v1.
+ * Stable ID of the model in `ai-connections.json`; the native check matches it.
  */
 internalModelId: string | null; model: string; 
 /**
@@ -2177,7 +2139,6 @@ export type DatabaseFieldRef = { kind: "system"; field: string } | { kind: "prop
 export type DatabaseFilterNode = { kind: "group"; operator: string; children: DatabaseFilterNode[] } | { kind: "condition"; field: DatabaseFieldRef; operator: string; value: string | null }
 export type DatabaseHistoryStatus = { databaseId: string; canUndo: boolean; canRedo: boolean }
 export type DatabaseManifestRevision = { databaseId: string; revision: string }
-export type DatabaseMigrationStatus = { databaseId: string; databaseName: string; containerPath: string; needsMigration: boolean; hasLegacyManifest: boolean; hasRecordShards: boolean; hasViewShards: boolean; recordShardsCount: number; viewShardsCount: number }
 export type DatabaseModuleState = { enabled: boolean; vaultGeneration: number | null; projection: ProjectionVersion | null }
 export type DatabaseNoteContext = { vaultGeneration: number; databaseId: string; databaseTitle: string; databaseIcon: string | null; manifestRevision: string; locked: boolean; properties: DatabasePropertySummary[]; row: DatabaseRow }
 export type DatabaseNoteRevision = { noteId: string; revision: string }
@@ -2310,7 +2271,14 @@ export type FileMetadata = { created: number | null; modified: number | null; wo
  */
 export type FrontmatterProperty = { key: string; value: string; valueKind: string }
 export type FrontmatterStatus = "none" | "valid" | "invalid" | "unterminated"
-export type FsMutationResult = { primaryId: string | null; primaryPath: string | null; pathChanges: PathChange[]; deletedPaths: string[]; deletedIds: string[] }
+export type FsMutationResult = { primaryId: string | null; primaryPath: string | null; pathChanges: PathChange[]; deletedPaths: string[]; deletedIds: string[]; 
+/**
+ * Exactly what the sidebar tree has to change after this mutation, built from the disk
+ * after the change (see `vault/tree_patch.rs`). `None` while the index could not follow
+ * the mutation or the change is not expressible as a patch: the renderer then reloads
+ * the whole tree.
+ */
+treePatch?: TreePatch | null }
 export type HistoryCleanupPreview = { removedCount: number; freedBytes: number; remaining: HistoryStats }
 export type HistoryCleanupResult = { removedCount: number; freedBytes: number; remaining: HistoryStats }
 export type HistoryRetention = { maxSnapshotsPerNote: number; maxAgeDays: number | null }
@@ -2370,9 +2338,6 @@ export type LoadVaultResult = { generation: number; vaultPath: string; tree: Tre
 export type LoadedChat = { chat: Chat | null; raw: JsonValue | null; status: string; revision: string }
 export type LogLevel = "debug" | "info" | "warn" | "error"
 export type LogSource = "frontend" | "backend"
-export type MigrationConflict = { kind: string; noteId: string | null; filePath: string; description: string; suggestedAction: string }
-export type MigrationPreflightReport = { databaseId: string; databaseName: string; containerPath: string; affectedFiles: string[]; recordShardsCount: number; viewShardsCount: number; conflicts: MigrationConflict[]; canAutoMigrate: boolean; formatVersion: number }
-export type MigrationResult = { migrationId: string; databaseId: string; backupDir: string; migratedRecords: number; migratedViews: number; warnings: string[] }
 export type ModuleManifest = { formatVersion: number; id: string; name: string; version: string; publisher: string; kind: string; minAppVersion: string; maxAppVersion: string | null; entry: string; permissions: string[]; checksums: Partial<{ [key in string]: string }>; signature: ModuleSignature; dependencies: Partial<{ [key in string]: string }> | null }
 export type ModuleSignature = { keyId: string; sig: string }
 export type MoveTextPageRequest = { expectedGeneration: number; operationId: string; storyId: string; noteId: string; newParentNoteId?: string | null; orderKey: string; expectedRevision: string }
@@ -2496,6 +2461,10 @@ warning: string | null;
  */
 suggestions: string[] }
 export type PathChange = { oldPath: string; newPath: string }
+/**
+ * The answer to a refresh of a few paths: the tree patch and the sync report for them.
+ */
+export type PathsRefresh = { generation: number; patch: TreePatch; sync: SyncReport }
 /**
  * The plan of the user. `None` in [`AccountOverview::plan`] means "no plan" (an own server
  * without plans, or a server that does not know the account request).
@@ -2934,6 +2903,23 @@ export type TrashEntry = { id: string; originalPath: string; deletedAtMs: number
 export type TrashPreview = { path: string; directory: boolean; text: string | null; children: TrashPreviewItem[]; truncated: boolean }
 export type TrashPreviewItem = { name: string; path: string; directory: boolean }
 export type TreeItem = { id: string; path: string; name: string; type: string; icon: string; created?: number | null; modified?: number | null; children?: TreeItem[] | null }
+export type TreePatch = { ops: TreePatchOp[] }
+/**
+ * One change of the tree. Operations are applied in order: removals first, then insertions of
+ * parents before their children.
+ */
+export type TreePatchOp = 
+/**
+ * Remove every child of the item at `parentPath` whose `path` is one of `paths`
+ * (`parentPath` is `null` for the vault root). The paths are alternatives for one entry
+ * that may have been listed under either: the entry itself or its main layer file.
+ */
+{ kind: "remove"; parentPath: string | null; paths: string[] } | 
+/**
+ * Put `item` among the children of the item at `parentPath`, in its sorted place. An item
+ * with the same path is replaced; with `replaceChildren` off it keeps the children it has.
+ */
+{ kind: "upsert"; parentPath: string | null; item: TreeItem; replaceChildren: boolean }
 /**
  * A file that is not synchronised on this computer (Р4, Р9).
  */

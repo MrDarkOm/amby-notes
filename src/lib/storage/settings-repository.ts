@@ -4,14 +4,6 @@ import type { CredentialInfo, SettingsReadResult } from "./types"
 export class SettingsRepository {
   constructor(private readonly port: () => StoragePort) {}
 
-  async migrateAiSettings(): Promise<void> {
-    await this.port().migrateAiSettings()
-  }
-
-  async rollbackAiSettings(): Promise<void> {
-    await this.port().rollbackAiSettings()
-  }
-
   async readGlobalRaw(file: string): Promise<string | null> {
     return this.port().readGlobalRaw(file)
   }

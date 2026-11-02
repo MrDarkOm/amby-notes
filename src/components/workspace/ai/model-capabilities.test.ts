@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest"
-import {
-  isLocalAiModel,
-  modelSupportsTools,
-  migrateLegacyAiKeys,
-  type AiModel,
-} from "../app-config"
+import { isLocalAiModel, modelSupportsTools, type AiModel } from "../app-config"
 
 const model = (baseUrl: string): AiModel => ({
   id: "test",
@@ -28,11 +23,5 @@ describe("AI model tool defaults", () => {
     expect(modelSupportsTools({ ...model("https://api.example.com"), supportsTools: false })).toBe(
       false,
     )
-  })
-
-  it("retains an explicitly configured tool capability when settings load", async () => {
-    const original = { ...model("https://api.example.com"), supportsTools: false }
-    const result = await migrateLegacyAiKeys({ models: [original], activeModelId: original.id })
-    expect(result.ai.models[0].supportsTools).toBe(false)
   })
 })

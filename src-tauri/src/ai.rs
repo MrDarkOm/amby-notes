@@ -28,11 +28,11 @@ pub mod catalog;
 pub mod chats;
 pub mod claude_code;
 pub mod codex;
+pub mod connections;
 pub(crate) mod consent;
 mod index_snapshot;
 pub mod local_apps;
 mod provider_stream;
-pub mod settings_migration;
 mod tools;
 pub mod turn;
 
@@ -119,7 +119,7 @@ pub struct AiMessage {
 pub struct AiConfig {
     /// Wire family: "ollama" | "openai" | "anthropic" | "azure" | "codex" | "claude-code".
     pub provider: String,
-    /// Stable internal ID when settings use connection format v1.
+    /// Stable ID of the model in `ai-connections.json`; the native check matches it.
     pub internal_model_id: Option<String>,
     pub model: String,
     /// Empty string falls back to the family's default endpoint.
@@ -1034,10 +1034,12 @@ pub async fn ai_chat(
 ) -> Result<String, AiChatError> {
     let root = crate::app_data::app_root(&app)
         .map_err(|_| ai_chat_error(&config.provider, "request failed"))?;
-    let captured_key = settings_migration::capture_selected_credential(&root, &config, false)
-        .map_err(|_| AiChatError {
-            code: AiErrorCode::InvalidConfiguration,
-            provider: config.provider.clone(),
+    let captured_key =
+        connections::capture_selected_credential(&root, &config, false).map_err(|_| {
+            AiChatError {
+                code: AiErrorCode::InvalidConfiguration,
+                provider: config.provider.clone(),
+            }
         })?;
     config.api_key = if !is_cli_provider(&config.provider) && config.credential_id.is_some() {
         Some(captured_key.unwrap_or_default())

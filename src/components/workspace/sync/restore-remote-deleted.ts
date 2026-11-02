@@ -1,4 +1,6 @@
-import { listTrash, readNote, restoreTrash } from "@/lib/storage"
+import { listTrash, readNote, restoreTrash, type FsMutationResult } from "@/lib/storage"
+import { dispatchArchiveChanged } from "../use-archive-tree-refresh"
+import { mutationPaths } from "../workspace-mutations"
 import { relativeToVault } from "../editor/document-breadcrumbs-utils"
 import { useDocStore } from "../use-doc-store"
 import { useSyncNoticesStore } from "./use-sync-notices-store"
@@ -12,20 +14,21 @@ import { useSyncNoticesStore } from "./use-sync-notices-store"
  */
 export async function restoreRemoteDeleted(vaultPath: string, relative: string): Promise<void> {
   const notices = useSyncNoticesStore.getState()
+  let restored: FsMutationResult | undefined
   try {
     const entries = await listTrash()
     const entry = entries
       .filter((item) => relativeToVault(item.originalPath, vaultPath).normalize("NFC") === relative)
       .sort((a, b) => b.deletedAtMs - a.deletedAtMs)[0]
     if (!entry) throw new Error("not_in_archive")
-    await restoreTrash(entry.id)
+    restored = await restoreTrash(entry.id)
   } catch (error) {
     notices.setRestoreFailed(relative, true)
     throw error
   }
   await reconcileOpenDocument(vaultPath, relative)
   useSyncNoticesStore.getState().clearRemoteDeleted(relative)
-  window.dispatchEvent(new CustomEvent("amby:archive-changed"))
+  dispatchArchiveChanged(restored ? { paths: mutationPaths(restored) } : {})
 }
 
 async function reconcileOpenDocument(vaultPath: string, relative: string): Promise<void> {

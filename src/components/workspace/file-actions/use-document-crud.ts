@@ -31,12 +31,13 @@ import {
   updateInTree,
   wsPathStem,
 } from "../workspace-tree-utils"
-import { insertTreeItemOptimistically, removeTreeItem } from "../workspace-mutations"
+import { insertTreeItemOptimistically, mutationPaths, removeTreeItem } from "../workspace-mutations"
 import { beginLocalTreeMutation, recordLocalTreePaths } from "../watcher-tree-reconciliation"
+import { dispatchArchiveChanged } from "../use-archive-tree-refresh"
 import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
 
 type DeleteResolution = "confirm" | "archive" | "keep_recovery" | "discard" | "cancel"
-type DeleteMode = "delete" | "archive"
+export type DeleteMode = "delete" | "archive"
 
 function normalizeFsPath(path: string): string {
   return path.replace(/\\/gu, "/").replace(/\/+$/u, "")
@@ -116,7 +117,7 @@ type Params = Pick<
   | "vault"
   | "treeItems"
   | "setTreeItems"
-  | "refreshTree"
+  | "refreshTreePaths"
   | "setOpenCanvases"
   | "setOpenSketches"
   | "setPendingRenameId"
@@ -128,7 +129,7 @@ export function useDocumentCrud({
   vault,
   treeItems,
   setTreeItems,
-  refreshTree,
+  refreshTreePaths,
   setOpenCanvases,
   setOpenSketches,
   setPendingRenameId,
@@ -260,9 +261,9 @@ export function useDocumentCrud({
               resolution === "archive"
                 ? await archiveItem(vault ?? "", target.path)
                 : await deleteItem(vault ?? "", target.path, deleteMode)
-            handleApplyMutation(result)
+            const treeUpdated = handleApplyMutation(result)
             if (resolution === "archive") {
-              window.dispatchEvent(new Event("amby:archive-changed"))
+              dispatchArchiveChanged({ paths: mutationPaths(result), treeUpdated })
             }
             for (const document of targetDocuments) {
               autosave.discard(autosaveKey(document.id))
@@ -531,7 +532,7 @@ export function useDocumentCrud({
           t("defaults.untitled"),
         )
         logger.info("file.create_canvas", { path })
-        await refreshTree()
+        await refreshTreePaths([path])
         setOpenCanvases((previous) => ({ ...previous, [path]: "{}\n" }))
         const title = wsPathStem(path)
         useDocStore.getState().setDoc(path, {
@@ -552,7 +553,15 @@ export function useDocumentCrud({
         console.error("Failed to create canvas:", error)
       }
     },
-    [refreshTree, openItem, releaseUnusedDocumentBuffers, setOpenCanvases, t, treeItems, vault],
+    [
+      refreshTreePaths,
+      openItem,
+      releaseUnusedDocumentBuffers,
+      setOpenCanvases,
+      t,
+      treeItems,
+      vault,
+    ],
   )
   const handleAttachCanvasToNote = React.useCallback(
     async (canvasId: string) => {
@@ -562,8 +571,7 @@ export function useDocumentCrud({
       try {
         const result = await attachCanvasToNote(vault, canvasPath)
         logger.info("file.attach_canvas", { canvasPath, primaryPath: result.primaryPath })
-        handleApplyMutation(result)
-        await refreshTree()
+        if (!handleApplyMutation(result)) await refreshTreePaths(mutationPaths(result))
         setTabs((previous) =>
           previous.filter((tab) => !(tab.kind === "canvas" && tab.fileId === canvasPath)),
         )
@@ -587,7 +595,7 @@ export function useDocumentCrud({
     [
       handleApplyMutation,
       loadDoc,
-      refreshTree,
+      refreshTreePaths,
       setActiveLayer,
       openItem,
       releaseUnusedDocumentBuffers,
@@ -606,7 +614,7 @@ export function useDocumentCrud({
           t("defaults.untitled"),
         )
         logger.info("file.create_sketch", { path })
-        await refreshTree()
+        await refreshTreePaths([path])
         setOpenSketches((previous) => ({
           ...previous,
           [path]: serializeSketch(createDefaultSketch()),
@@ -630,7 +638,15 @@ export function useDocumentCrud({
         console.error("Failed to create sketch:", error)
       }
     },
-    [refreshTree, openItem, releaseUnusedDocumentBuffers, setOpenSketches, t, treeItems, vault],
+    [
+      refreshTreePaths,
+      openItem,
+      releaseUnusedDocumentBuffers,
+      setOpenSketches,
+      t,
+      treeItems,
+      vault,
+    ],
   )
   const handleAttachSketchToNote = React.useCallback(
     async (sketchId: string) => {
@@ -640,8 +656,7 @@ export function useDocumentCrud({
       try {
         const result = await attachSketchToNote(vault, sketchPath)
         logger.info("file.attach_sketch", { sketchPath, primaryPath: result.primaryPath })
-        handleApplyMutation(result)
-        await refreshTree()
+        if (!handleApplyMutation(result)) await refreshTreePaths(mutationPaths(result))
         setTabs((previous) =>
           previous.filter((tab) => !(tab.kind === "sketch" && tab.fileId === sketchPath)),
         )
@@ -665,7 +680,7 @@ export function useDocumentCrud({
     [
       handleApplyMutation,
       loadDoc,
-      refreshTree,
+      refreshTreePaths,
       setActiveLayer,
       openItem,
       releaseUnusedDocumentBuffers,

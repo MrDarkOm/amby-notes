@@ -3,9 +3,7 @@
 
 use std::path::Path;
 
-use super::model::{
-    ProjectChangedPayload, LEGACY_PROJECT_FILE_NAME, STORY_FILE_NAME, WORKSHOP_FILE_NAME,
-};
+use super::model::{ProjectChangedPayload, STORY_FILE_NAME, WORKSHOP_FILE_NAME};
 
 /// A path can change which workshops exist when it is a structure file, or a
 /// folder that was created, removed or renamed (a whole workshop or story may have moved
@@ -29,10 +27,7 @@ pub fn classify_path(
         return None;
     }
     let name = *components.last()?;
-    let kind = if name == WORKSHOP_FILE_NAME
-        || name == STORY_FILE_NAME
-        || name == LEGACY_PROJECT_FILE_NAME
-    {
+    let kind = if name == WORKSHOP_FILE_NAME || name == STORY_FILE_NAME {
         "file"
     } else if matches!(kind, "create" | "remove" | "rename") && !name.contains('.') {
         "folder"
@@ -68,9 +63,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(story_file.kind, "file");
-        let legacy_file =
-            classify_path(&vault, &vault.join("Old/amby-project.json"), "modify", 3).unwrap();
-        assert_eq!(legacy_file.kind, "file");
+        assert!(classify_path(&vault, &vault.join("Old/amby-project.json"), "modify", 3).is_none());
         let folder = classify_path(&vault, &vault.join("Pal"), "rename", 3).unwrap();
         assert_eq!(folder.kind, "folder");
         for (path, kind) in [

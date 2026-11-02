@@ -12,6 +12,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { confirmAction, listTrash, purgeTrash, restoreTrash, type TrashEntry } from "@/lib/storage"
+import { dispatchArchiveChanged } from "../use-archive-tree-refresh"
+import { mutationPaths } from "../workspace-mutations"
 import type { PanelRenderProps } from "../panel-registry"
 import { TreeIcon } from "../tree/tree-icons"
 import { ArchivePreview } from "./archive-preview"
@@ -111,8 +113,11 @@ function ArchiveContents() {
         !(await confirmAction(t("historyPanel.deleteForeverConfirm", { name: entry.name })))
       )
         return
-      if (action === "restore") await restoreTrash(entry.id)
-      else await purgeTrash(entry.id)
+      if (action === "restore") {
+        const restored = await restoreTrash(entry.id)
+        // The note is back: the tree shows it without reloading the vault.
+        dispatchArchiveChanged({ paths: mutationPaths(restored) })
+      } else await purgeTrash(entry.id)
       closePreview()
       await refresh()
     } catch {

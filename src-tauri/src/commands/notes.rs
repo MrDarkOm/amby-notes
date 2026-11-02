@@ -1,3 +1,4 @@
+use crate::lock_util::LockExt;
 use std::fs;
 use std::time::UNIX_EPOCH;
 
@@ -58,7 +59,7 @@ pub fn write_file(
     expected_revision: Option<String>,
 ) -> Result<String, crate::model::WriteFileError> {
     use crate::model::WriteFileError;
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(&scope, &path).map_err(WriteFileError::failed)?;
     let vault = scope.get().map_err(WriteFileError::failed)?;
     if let Some(expected) = &expected_revision {
@@ -98,7 +99,7 @@ pub fn save_conflict_copy(
     path: String,
     content: String,
 ) -> Result<String, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let original = paths::guard(&scope, &path)?;
     let parent = original
         .parent()
@@ -151,7 +152,7 @@ pub fn read_note(
         operation_span.record("operation_id", operation_id);
     }
     let _operation_span = operation_span.enter();
-    let conn_guard = db.conn.lock().unwrap();
+    let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     tracing::debug!(event = "read_note", note_id = %note_id);
     let result = vault_index::read_note(conn, &conn.root, &note_id);
@@ -183,7 +184,7 @@ pub fn write_note(
     // vault. Bind this write to the caller's active generation so it fails
     // safely instead of resolving the same note ID in the new backend context.
     let (vault_root, generation, destination) = {
-        let conn_guard = db.conn.lock().unwrap();
+        let conn_guard = db.conn.lock_or_recover();
         let conn = conn_guard
             .as_ref()
             .ok_or_else(|| WriteNoteError::failed("No vault open"))?;
@@ -217,7 +218,7 @@ pub fn write_note(
 
     // Commit file write and history snapshot under mutation_gate, dropping it immediately after
     let (path, body, revision) = {
-        let _mutation_guard = db.mutation_gate.lock().unwrap();
+        let _mutation_guard = db.mutation_gate.lock_or_recover();
         let history_reason = if request.rewrites_source {
             history::SOURCE_REWRITE_REASON
         } else {
@@ -235,7 +236,7 @@ pub fn write_note(
         }
     };
     let index_result = {
-        let conn_guard = db.conn.lock().unwrap();
+        let conn_guard = db.conn.lock_or_recover();
         let conn = conn_guard
             .as_ref()
             .ok_or_else(|| WriteNoteError::failed("No vault open"))?;
@@ -301,8 +302,8 @@ pub fn restore_deleted_note(
 ) -> Result<WriteNoteOutcome, WriteNoteError> {
     use tauri::Emitter;
 
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
-    let conn_guard = db.conn.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
+    let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard
         .as_ref()
         .ok_or_else(|| WriteNoteError::failed("No vault open"))?;
@@ -425,7 +426,7 @@ pub fn get_note_metadata(
     db: tauri::State<'_, VaultContext>,
     note_id: String,
 ) -> Result<NoteMetadata, String> {
-    let conn_guard = db.conn.lock().unwrap();
+    let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     let note = vault_index::note_metadata(conn, &conn.root, &note_id)?;
     Ok(NoteMetadata {
@@ -470,7 +471,7 @@ pub fn get_note_properties(
     db: tauri::State<'_, VaultContext>,
     note_id: String,
 ) -> Result<NoteProperties, String> {
-    let conn_guard = db.conn.lock().unwrap();
+    let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     vault_index::note_properties(conn, &conn.root, &note_id)
 }
@@ -482,8 +483,8 @@ pub fn upsert_custom_property(
     note_id: String,
     property: CustomProperty,
 ) -> Result<CustomProperty, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
-    let conn_guard = db.conn.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
+    let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     let name = property.name.clone();
     let prop_type = property.property_type.clone();
@@ -508,8 +509,8 @@ pub fn delete_custom_property(
     note_id: String,
     property_id: String,
 ) -> Result<(), String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
-    let conn_guard = db.conn.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
+    let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     let res = property_store::delete(conn, &conn.root, &note_id, &property_id);
     if res.is_ok() {
@@ -529,8 +530,8 @@ pub fn reorder_custom_properties(
     note_id: String,
     property_ids: Vec<String>,
 ) -> Result<(), String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
-    let conn_guard = db.conn.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
+    let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     let count = property_ids.len();
     let res = property_store::reorder(conn, &conn.root, &note_id, &property_ids);
@@ -550,8 +551,8 @@ pub fn backup_custom_properties(
     db: tauri::State<'_, VaultContext>,
     note_id: String,
 ) -> Result<String, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
-    let conn_guard = db.conn.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
+    let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     property_store::backup_and_clear(conn, &conn.root, &note_id)
 }
@@ -559,7 +560,7 @@ pub fn backup_custom_properties(
 #[tauri::command]
 #[specta::specta]
 pub fn list_tags(db: tauri::State<'_, VaultContext>) -> Result<Vec<vault_index::TagEntry>, String> {
-    let conn_guard = db.conn.lock().unwrap();
+    let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     vault_index::list_tags(conn, &conn.root)
 }
@@ -570,7 +571,7 @@ pub fn search_notes(
     db: tauri::State<'_, VaultContext>,
     query: String,
 ) -> Result<Vec<vault_index::SearchResult>, String> {
-    let conn_guard = db.conn.lock().unwrap();
+    let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     vault_index::search_notes(conn, &conn.root, &query)
 }
@@ -580,7 +581,7 @@ pub fn search_notes(
 pub fn get_link_graph(
     db: tauri::State<'_, VaultContext>,
 ) -> Result<vault_index::LinkGraph, String> {
-    let conn_guard = db.conn.lock().unwrap();
+    let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     vault_index::link_graph(conn, &conn.root)
 }

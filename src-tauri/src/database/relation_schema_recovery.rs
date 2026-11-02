@@ -1322,7 +1322,7 @@ pub(crate) fn restore_prepared_relation_schemas(
     Ok(count)
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn recover_pending_relation_schemas(vault: &Path) -> Result<usize, String> {
     let pending = prepare_pending_relation_schemas(vault)?;
     restore_prepared_relation_schemas(pending)
