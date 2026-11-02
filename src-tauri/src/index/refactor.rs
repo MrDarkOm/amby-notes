@@ -169,19 +169,18 @@ pub fn build_inbound_wiki_rewrites(
     }
 
     let mut literal_by_source = HashMap::<PathBuf, Vec<(String, String)>>::new();
-    for entry in WalkDir::new(vault).into_iter().filter_map(Result::ok) {
-        let source = entry.path();
-        if !source.is_file()
-            || !matches!(
-                source.extension().and_then(|ext| ext.to_str()),
-                Some("md" | "canvas" | "excalidraw")
-            )
-        {
-            continue;
-        }
-        let Ok(content) = fs::read_to_string(source) else {
-            continue;
-        };
+    // Every literal form names the old path in full, so a file that does not contain it as text
+    // cannot change. The files are read in parallel and only those that do are looked at.
+    let candidates = files_mentioning_any(
+        vault,
+        inputs
+            .literal_changes
+            .iter()
+            .map(|(old_rel, _)| old_rel.as_str())
+            .collect(),
+    );
+    for (source, content) in candidates {
+        let source = source.as_path();
         let editable = if is_markdown(source)
             && frontmatter::parse_markdown(&content)
                 .frontmatter_status
@@ -239,6 +238,54 @@ pub fn build_inbound_wiki_rewrites(
             }
         })
         .collect())
+}
+
+/// The Markdown, canvas and sketch files of the vault (the same walk as ever, hidden folders
+/// included) whose text contains one of `needles`, with that text. Unreadable files are skipped.
+fn files_mentioning_any(vault: &Path, needles: Vec<&str>) -> Vec<(PathBuf, String)> {
+    if needles.is_empty() {
+        return Vec::new();
+    }
+    let files = WalkDir::new(vault)
+        .into_iter()
+        .filter_map(Result::ok)
+        .map(walkdir::DirEntry::into_path)
+        .filter(|source| {
+            matches!(
+                source.extension().and_then(|ext| ext.to_str()),
+                Some("md" | "canvas" | "excalidraw")
+            ) && source.is_file()
+        })
+        .collect::<Vec<_>>();
+    let workers = std::thread::available_parallelism()
+        .map_or(1, std::num::NonZeroUsize::get)
+        .min(8);
+    let chunk = files.len().div_ceil(workers).max(1);
+    let mut found = std::thread::scope(|scope| {
+        let handles = files
+            .chunks(chunk)
+            .map(|part| {
+                let needles = &needles;
+                scope.spawn(move || {
+                    part.iter()
+                        .filter_map(|source| {
+                            let content = fs::read_to_string(source).ok()?;
+                            needles
+                                .iter()
+                                .any(|needle| content.contains(needle))
+                                .then(|| (source.clone(), content))
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect::<Vec<_>>();
+        handles
+            .into_iter()
+            .flat_map(|handle| handle.join().unwrap_or_default())
+            .collect::<Vec<_>>()
+    });
+    found.sort_by(|left, right| left.0.cmp(&right.0));
+    found
 }
 
 pub fn apply_planned_wiki_rewrites(

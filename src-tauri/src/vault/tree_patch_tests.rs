@@ -840,3 +840,58 @@ fn a_path_outside_the_vault_or_in_a_hidden_folder_changes_nothing() {
     apply(&mut tree, &vault.0, &refresh.patch);
     assert_eq!(tree, loaded_tree(&context));
 }
+
+// ── what a rename or a move must still do to the rest of the vault ─────────────────────────
+
+#[test]
+fn a_rename_still_rewrites_literal_references_in_notes_and_canvases() {
+    let vault = fixture();
+    vault.write(
+        "Standalone.canvas",
+        "{\"nodes\":[{\"type\":\"file\",\"file\":\"Projects/Alpha.md\"}]}\n",
+    );
+    vault.write(
+        "Folder/Other.md",
+        "unrelated [text](Elsewhere.md) and \"Projects/Alpha.md.bak\"",
+    );
+    let context = activate(&vault.0);
+    rename(&context, &vault, "Projects/Alpha.md", "Renamed alpha");
+    let beta = fs::read_to_string(vault.path("Projects/Beta.md")).unwrap();
+    assert!(beta.contains("](Projects/Renamed alpha.md)"), "{beta}");
+    assert!(
+        beta.contains("[[Renamed alpha]]") || beta.contains("[[Alpha]]") == false,
+        "{beta}"
+    );
+    assert!(fs::read_to_string(vault.path("Standalone.canvas"))
+        .unwrap()
+        .contains("\"file\":\"Projects/Renamed alpha.md\""));
+    assert!(
+        fs::read_to_string(vault.path("Folder/Other.md"))
+            .unwrap()
+            .ends_with("unrelated [text](Elsewhere.md) and \"Projects/Alpha.md.bak\""),
+        "a file that only looks similar is left alone"
+    );
+}
+
+#[test]
+fn a_database_is_involved_only_when_a_path_is_in_one_or_is_one() {
+    use crate::commands::mutations::touches_database_for_tests as touches;
+    let vault = fixture();
+    let paths = |relative: &[&str]| {
+        relative
+            .iter()
+            .map(|path| vault.path(path))
+            .collect::<Vec<_>>()
+    };
+    assert!(touches(&vault.0, &paths(&["Db/Row One.md"])));
+    assert!(touches(&vault.0, &paths(&["Db"])));
+    assert!(touches(
+        &vault.0,
+        &paths(&["Projects/Alpha.md", "Db/Gone.md"])
+    ));
+    assert!(!touches(
+        &vault.0,
+        &paths(&["Projects/Alpha.md", "Folder/Sub/Deep.md"])
+    ));
+    assert!(!touches(&vault.0, &paths(&["Root note.md"])));
+}

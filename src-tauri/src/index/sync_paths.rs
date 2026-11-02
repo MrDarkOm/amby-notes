@@ -57,6 +57,17 @@ pub fn sync_paths(
         if is_skipped(relative) {
             continue;
         }
+        // The full scan never follows a symbolic link into a folder: only it decides about those.
+        if path
+            .ancestors()
+            .take_while(|ancestor| *ancestor != vault)
+            .any(|ancestor| {
+                std::fs::symlink_metadata(ancestor)
+                    .is_ok_and(|meta| meta.file_type().is_symlink() && ancestor.is_dir())
+            })
+        {
+            return Ok(None);
+        }
         let relative_path = normalize_rel_path(relative);
         if path.is_dir() {
             for entry in WalkDir::new(path).into_iter().filter_entry(should_descend) {

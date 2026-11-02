@@ -285,6 +285,31 @@ fn tree_patch_for(
     }
 }
 
+/// Does any of `paths` lie inside a database folder (one with a manifest), or is it one?
+fn touches_database(vault: &Path, paths: &[PathBuf]) -> bool {
+    let mut checked = HashSet::new();
+    for path in paths {
+        for ancestor in path.ancestors() {
+            if ancestor == vault || !ancestor.starts_with(vault) {
+                break;
+            }
+            // Already examined, with everything above it.
+            if !checked.insert(ancestor.to_path_buf()) {
+                break;
+            }
+            if crate::vault::scan::is_database_dir(ancestor) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+pub(crate) fn touches_database_for_tests(vault: &Path, paths: &[PathBuf]) -> bool {
+    touches_database(vault, paths)
+}
+
 pub fn sync_path_changes(
     context: &VaultContext,
     vault_path: &Path,
@@ -805,6 +830,7 @@ pub(crate) fn move_item_inner(
     // currently produced by the rewrite plan after the move and retain their
     // narrow per-file post-write records.
     watcher_state.mark_write(rewritten.iter());
+    let rewritten_paths = rewritten.clone();
     let rewritten_changes = rewritten
         .into_iter()
         .map(|path| PathChange {
@@ -843,19 +869,28 @@ pub(crate) fn move_item_inner(
     if conn.generation != generation {
         return Err("Vault changed while applying move".to_string());
     }
-    refresh_database_projection(&runtime, conn, &mut outcome);
+    refresh_database_projection(runtime, conn, &mut outcome, &rewritten_paths);
     Ok(outcome)
 }
 
 /// A move or a rename changes the title or the place of pages that databases list, and the
 /// projection they read is not rebuilt by the filesystem watcher for writes the app made itself.
 /// Without this the lists would keep showing the old name until the next full refresh.
+///
+/// A page outside every database, whether it moves, is renamed or has its links rewritten, is in no
+/// projection, so the projection is rebuilt only when `paths` reach into a database or are one.
 fn refresh_database_projection(
     runtime: &DatabaseRuntimeState,
     conn: &crate::vault_context::ActiveVault,
     outcome: &mut MutationOutcome,
+    rewritten: &[PathBuf],
 ) {
     if !runtime.state(Some(conn.generation)).enabled {
+        return;
+    }
+    let mut paths = mutation_paths(&outcome.mutation);
+    paths.extend(rewritten.iter().cloned());
+    if !touches_database(&conn.root, &paths) {
         return;
     }
     match crate::database::projection::rebuild_database_projection(&conn.connection, &conn.root) {
@@ -1055,6 +1090,7 @@ pub(crate) fn rename_item_inner(
         }
     }
     watcher_state.mark_write(rewritten.iter());
+    let rewritten_paths = rewritten.clone();
     let rewritten_changes = rewritten
         .into_iter()
         .map(|path| PathChange {
@@ -1093,7 +1129,7 @@ pub(crate) fn rename_item_inner(
     if conn.generation != generation {
         return Err("Vault changed while applying rename".to_string());
     }
-    refresh_database_projection(&runtime, conn, &mut outcome);
+    refresh_database_projection(runtime, conn, &mut outcome, &rewritten_paths);
     tracing::info!(
         event = "rename_item",
         path = %path.display(),
