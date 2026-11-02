@@ -1,6 +1,5 @@
 import * as React from "react"
 import type { DatabaseViewSummary } from "@/lib/storage"
-import { useLegacyHiddenPropertiesMigration } from "./legacy-hidden-properties"
 import { useSavedView, type SavedView } from "./use-saved-view"
 import {
   fieldKey,
@@ -149,11 +148,5 @@ export function useViewQueryState({
     onSaved: () => onCatalogChanged?.(),
   })
   const derived = useViewSettingsDerived({ savedView, viewId: activeView?.viewId ?? null })
-  useLegacyHiddenPropertiesMigration({
-    databaseId,
-    viewId: activeView?.viewId ?? null,
-    savedView,
-    persisted: !isDatabaseLocked,
-  })
   return { savedView, ...derived }
 }

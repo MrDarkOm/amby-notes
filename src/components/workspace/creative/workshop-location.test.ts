@@ -85,9 +85,9 @@ describe("activeCatalog", () => {
     const raw = catalog([at("a", "Одна"), at("b", "Две"), at("c", "Три/Глубже")], {
       diagnostics: [
         {
-          code: "legacyProjectFormat",
+          code: "invalidWorkshopFile",
           severity: "warning",
-          path: "Old/amby-project.json",
+          path: "Old/amby-workshop.json",
           workshopId: null,
           storyId: null,
           detail: null,
@@ -98,7 +98,7 @@ describe("activeCatalog", () => {
     expect(shown.workshops.map((w) => w.workshopId)).toEqual(["b"])
     expect(shown.workshops[0]).toBe(raw.workshops[1])
     expect(shown.diagnostics.map((d) => [d.code, d.path])).toEqual([
-      ["legacyProjectFormat", "Old/amby-project.json"],
+      ["invalidWorkshopFile", "Old/amby-workshop.json"],
       [OTHER_WORKSHOP_CODE, "Одна/amby-workshop.json"],
       [OTHER_WORKSHOP_CODE, "Три/Глубже/amby-workshop.json"],
     ])

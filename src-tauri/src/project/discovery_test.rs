@@ -128,23 +128,6 @@ fn a_workshop_at_vault_root_is_found() {
 }
 
 #[test]
-fn legacy_project_file_is_detected_as_diagnostic() {
-    let vault = Vault::new();
-    let legacy_dir = vault.root.join("OldProject");
-    fs::create_dir_all(&legacy_dir).unwrap();
-    fs::write(
-        legacy_dir.join("amby-project.json"),
-        json!({"formatVersion": 2, "kind": "story", "projectId": "p1", "name": "Old"}).to_string(),
-    )
-    .unwrap();
-
-    let found = discover_projects(&vault.root).unwrap();
-    assert!(found.workshops.is_empty());
-    assert_eq!(found.diagnostics.len(), 1);
-    assert_eq!(found.diagnostics[0].code, "legacyProjectFormat");
-}
-
-#[test]
 fn damaged_and_duplicate_workshop_files_are_reported() {
     let vault = Vault::new();
     vault.write_workshop("A", minimal_ws("dup", "Original"));

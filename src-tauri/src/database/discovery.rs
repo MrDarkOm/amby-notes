@@ -13,15 +13,12 @@ use walkdir::{DirEntry, WalkDir};
 
 use super::format::{
     parse_manifest, parse_record, parse_template, parse_view, DatabaseManifest, FormatError,
-    PropertyDefinition,
 };
 use super::validation::{validate_manifest, validate_record};
 use crate::frontmatter;
 use crate::paths;
 
-pub const LEGACY_DATABASE_MANIFEST: &str = "ambd.json";
-#[allow(dead_code)]
-pub const DATABASE_MANIFEST: &str = LEGACY_DATABASE_MANIFEST;
+pub const DATABASE_MANIFEST: &str = "ambd.json";
 
 /// Returns true if a path is a candidate for a database manifest:
 /// either `ambd.json`, or `<container_name>.json`, or `<container_name>.database`.
@@ -29,7 +26,7 @@ pub fn is_manifest_file_candidate(path: &Path) -> bool {
     let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;
     };
-    if file_name == LEGACY_DATABASE_MANIFEST {
+    if file_name == DATABASE_MANIFEST {
         return true;
     }
     let Some(parent) = path.parent() else {
@@ -51,7 +48,7 @@ pub fn is_manifest_file_candidate(path: &Path) -> bool {
 /// Find existing manifest path for a container:
 /// 1. `<container_name>.json`
 /// 2. `<container_name>.database`
-/// 3. `ambd.json` (legacy)
+/// 3. `ambd.json`
 pub fn find_manifest_path(container: &Path) -> Option<PathBuf> {
     let name = container.file_name()?.to_string_lossy();
     let named_json = container.join(format!("{name}.json"));
@@ -62,9 +59,9 @@ pub fn find_manifest_path(container: &Path) -> Option<PathBuf> {
     if named_database.is_file() {
         return Some(named_database);
     }
-    let legacy = container.join(LEGACY_DATABASE_MANIFEST);
-    if legacy.is_file() {
-        return Some(legacy);
+    let ambd_json = container.join(DATABASE_MANIFEST);
+    if ambd_json.is_file() {
+        return Some(ambd_json);
     }
     None
 }
@@ -82,503 +79,6 @@ pub fn manifest_path_for_container(container: &Path) -> PathBuf {
             .unwrap_or_else(|| "database".to_string());
         container.join(format!("{name}.json"))
     }
-}
-
-fn create_default_view_value(database_id: &str, view_id: &str) -> serde_json::Value {
-    serde_json::json!({
-        "format": "amby-database-view",
-        "formatVersion": 1,
-        "databaseId": database_id,
-        "viewId": view_id,
-        "name": "Table",
-        "layout": "table",
-        "openMode": "sidePeek",
-        "subitemsMode": "nested",
-        "density": "default",
-        "fields": [{"field": {"kind": "system", "field": "title"}, "visible": true, "width": null, "frozen": true}],
-        "filter": null,
-        "sorts": [{"field": {"kind": "system", "field": "title"}, "direction": "asc", "nulls": "last"}],
-        "group": null,
-        "aggregates": []
-    })
-}
-
-fn normalize_view_value(
-    mut val: serde_json::Value,
-    database_id: &str,
-    view_id: &str,
-) -> (serde_json::Value, bool) {
-    let mut changed = false;
-    if val.get("format").and_then(|v| v.as_str()) != Some("amby-database-view") {
-        val["format"] = serde_json::Value::String("amby-database-view".to_string());
-        changed = true;
-    }
-    if val.get("formatVersion").and_then(|v| v.as_u64()) != Some(1) {
-        val["formatVersion"] = serde_json::json!(1);
-        changed = true;
-    }
-    if val.get("databaseId").and_then(|v| v.as_str()) != Some(database_id) {
-        val["databaseId"] = serde_json::Value::String(database_id.to_string());
-        changed = true;
-    }
-    if val.get("viewId").and_then(|v| v.as_str()) != Some(view_id) {
-        val["viewId"] = serde_json::Value::String(view_id.to_string());
-        changed = true;
-    }
-    if val
-        .get("name")
-        .and_then(|v| v.as_str())
-        .map(|s| s.trim())
-        .unwrap_or("")
-        .is_empty()
-    {
-        val["name"] = serde_json::Value::String("Table".to_string());
-        changed = true;
-    }
-    if val.get("layout").and_then(|v| v.as_str()).is_none() {
-        val["layout"] = serde_json::Value::String("table".to_string());
-        changed = true;
-    }
-    if val.get("openMode").and_then(|v| v.as_str()).is_none() {
-        val["openMode"] = serde_json::Value::String("sidePeek".to_string());
-        changed = true;
-    }
-    if val.get("subitemsMode").and_then(|v| v.as_str()).is_none() {
-        val["subitemsMode"] = serde_json::Value::String("nested".to_string());
-        changed = true;
-    }
-    if val.get("density").and_then(|v| v.as_str()).is_none() {
-        val["density"] = serde_json::Value::String("default".to_string());
-        changed = true;
-    }
-    let fields_empty = val
-        .get("fields")
-        .and_then(|v| v.as_array())
-        .is_none_or(|arr| arr.is_empty());
-    if fields_empty {
-        val["fields"] = serde_json::json!([{
-            "field": {"kind": "system", "field": "title"},
-            "visible": true,
-            "width": null,
-            "frozen": true
-        }]);
-        changed = true;
-    }
-    if val.get("sorts").and_then(|v| v.as_array()).is_none() {
-        val["sorts"] = serde_json::json!([]);
-        changed = true;
-    }
-    (val, changed)
-}
-
-fn repair_container_shards(
-    vault: &Path,
-    dir: &Path,
-    database_id: &str,
-    manifest_val: &mut serde_json::Value,
-    view_order_ids: &mut Vec<String>,
-) -> bool {
-    let mut changed = false;
-
-    // 1. Repair and reconcile existing views into manifest_val["views"]
-    let views_dir = dir.join(".ambd").join("views");
-    let mut views_list: Vec<serde_json::Value> = manifest_val
-        .get("views")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
-
-    if let Ok(entries) = fs::read_dir(&views_dir) {
-        for entry in entries.filter_map(Result::ok) {
-            let path = entry.path();
-            if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("json") {
-                continue;
-            }
-            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
-                continue;
-            };
-            if ulid::Ulid::from_string(stem).is_err() {
-                continue;
-            }
-            if let Ok(bytes) = fs::read(&path) {
-                if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                    let (normalized, _) = normalize_view_value(val, database_id, stem);
-                    if let Some(pos) = views_list
-                        .iter()
-                        .position(|v| v.get("viewId").and_then(|id| id.as_str()) == Some(stem))
-                    {
-                        views_list[pos] = normalized;
-                    } else {
-                        views_list.push(normalized);
-                    }
-                    if !view_order_ids.iter().any(|id| id == stem) {
-                        view_order_ids.push(stem.to_string());
-                    }
-                    changed = true;
-                }
-            }
-            let _ = fs::remove_file(&path);
-        }
-        let _ = fs::remove_dir(&views_dir);
-    }
-
-    for v in &mut views_list {
-        let view_id = v
-            .get("viewId")
-            .and_then(|id| id.as_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| ulid::Ulid::generate().to_string());
-        let (norm, v_changed) = normalize_view_value(v.clone(), database_id, &view_id);
-        if v_changed {
-            *v = norm;
-            changed = true;
-        }
-    }
-
-    for view_id in view_order_ids.iter() {
-        if !views_list
-            .iter()
-            .any(|v| v.get("viewId").and_then(|id| id.as_str()) == Some(view_id))
-        {
-            views_list.push(create_default_view_value(database_id, view_id));
-            changed = true;
-        }
-    }
-
-    if views_list.is_empty() {
-        let default_view_id = view_order_ids
-            .first()
-            .cloned()
-            .unwrap_or_else(|| ulid::Ulid::generate().to_string());
-        if !view_order_ids.contains(&default_view_id) {
-            view_order_ids.push(default_view_id.clone());
-        }
-        views_list.push(create_default_view_value(database_id, &default_view_id));
-        changed = true;
-    }
-
-    for view in &views_list {
-        if let Some(vid) = view.get("viewId").and_then(|v| v.as_str()) {
-            if !view_order_ids.iter().any(|id| id == vid) {
-                view_order_ids.push(vid.to_string());
-                changed = true;
-            }
-        }
-    }
-
-    let views_json = serde_json::json!(views_list);
-    if manifest_val.get("views") != Some(&views_json) {
-        manifest_val["views"] = views_json;
-        changed = true;
-    }
-
-    // 2. Move legacy records from .ambd/records into note frontmatter
-    let properties: Vec<PropertyDefinition> = manifest_val
-        .get("properties")
-        .and_then(|p| serde_json::from_value(p.clone()).ok())
-        .unwrap_or_default();
-    if super::legacy_records::migrate_container_records(vault, dir, &properties) {
-        changed = true;
-    }
-
-    // 3. Repair all templates in .ambd/templates
-    let templates_dir = dir.join(".ambd").join("templates");
-    if let Ok(entries) = fs::read_dir(&templates_dir) {
-        for entry in entries.filter_map(Result::ok) {
-            let path = entry.path();
-            if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("json") {
-                continue;
-            }
-            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
-                continue;
-            };
-            if let Ok(bytes) = fs::read(&path) {
-                if let Ok(mut val) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                    let mut template_changed = false;
-                    if val.get("format").and_then(|v| v.as_str()) != Some("amby-database-template")
-                    {
-                        val["format"] =
-                            serde_json::Value::String("amby-database-template".to_string());
-                        template_changed = true;
-                    }
-                    if val.get("formatVersion").and_then(|v| v.as_u64()) != Some(1) {
-                        val["formatVersion"] = serde_json::json!(1);
-                        template_changed = true;
-                    }
-                    if val.get("databaseId").and_then(|v| v.as_str()) != Some(database_id) {
-                        val["databaseId"] = serde_json::Value::String(database_id.to_string());
-                        template_changed = true;
-                    }
-                    if val.get("templateId").and_then(|v| v.as_str()) != Some(stem) {
-                        val["templateId"] = serde_json::Value::String(stem.to_string());
-                        template_changed = true;
-                    }
-                    if template_changed {
-                        if let Ok(new_bytes) = serde_json::to_vec_pretty(&val) {
-                            let _ = frontmatter::atomic_write_bytes(&path, &new_bytes);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // 4. Do not remove .ambd/recovery: recovery data must be preserved.
-    let ambd_dir = dir.join(".ambd");
-    if ambd_dir.is_dir() {
-        let _ = fs::remove_dir(&ambd_dir); // Only succeeds if .ambd is truly empty
-    }
-
-    changed
-}
-
-/// Migrates and repairs any legacy database manifests in a vault:
-/// 1. Finds directories with `ambd.json`, `<container_name>.json`, or `.ambd`.
-/// 2. Ensures `format: "amby-database"`, `formatVersion: 1`, and valid ULID `databaseId`.
-/// 3. Normalizes `membership: {"kind": "filesystem-descendants", "recursive": true}`.
-/// 4. Sets `containerKind` to `"attached"` if `<container_name>.md` exists, else `"standalone"`.
-/// 5. Ensures `.ambd/views/` exists and has at least one valid view file matching `viewOrder`.
-/// 6. Migrates to `<container_name>.json` atomically and deletes stale `ambd.json`.
-#[allow(dead_code)]
-pub fn migrate_legacy_database_manifests(vault: &Path) -> Result<usize, String> {
-    let mut count = 0;
-    for entry in WalkDir::new(vault)
-        .min_depth(1)
-        .into_iter()
-        .filter_entry(|e| {
-            if !e.file_type().is_dir() {
-                return true;
-            }
-            let name = e.file_name().to_string_lossy();
-            !crate::vault::scan::is_service_directory(name.as_ref())
-        })
-        .filter_map(Result::ok)
-    {
-        if !entry.file_type().is_dir() {
-            continue;
-        }
-        let dir = entry.path();
-        let Some(name) = dir.file_name().and_then(|n| n.to_str()) else {
-            continue;
-        };
-        let named_json = dir.join(format!("{name}.json"));
-        let named_database = dir.join(format!("{name}.database"));
-        let legacy_json = dir.join(LEGACY_DATABASE_MANIFEST);
-        let ambd_dir = dir.join(".ambd");
-
-        let has_database = legacy_json.is_file()
-            || named_json.is_file()
-            || named_database.is_file()
-            || ambd_dir.is_dir();
-
-        if !has_database {
-            continue;
-        }
-
-        let mut raw_manifest_bytes: Option<Vec<u8>> = None;
-        let mut existing_manifest_path: Option<PathBuf> = None;
-        if named_json.is_file() {
-            if let Ok(bytes) = fs::read(&named_json) {
-                raw_manifest_bytes = Some(bytes);
-                existing_manifest_path = Some(named_json.clone());
-            }
-        } else if named_database.is_file() {
-            if let Ok(bytes) = fs::read(&named_database) {
-                raw_manifest_bytes = Some(bytes);
-                existing_manifest_path = Some(named_database.clone());
-            }
-        } else if legacy_json.is_file() {
-            if let Ok(bytes) = fs::read(&legacy_json) {
-                raw_manifest_bytes = Some(bytes);
-                existing_manifest_path = Some(legacy_json.clone());
-            }
-        }
-
-        let is_canonical_json = existing_manifest_path.as_ref() == Some(&named_json);
-        let has_legacy_shards =
-            ambd_dir.join("records").is_dir() || ambd_dir.join("views").is_dir();
-        if is_canonical_json
-            && !has_legacy_shards
-            && !named_database.is_file()
-            && !legacy_json.is_file()
-        {
-            if let Some(ref bytes) = raw_manifest_bytes {
-                if let Ok(parsed) = parse_manifest(bytes) {
-                    if validate_manifest(&parsed.value).errors.is_empty()
-                        && !parsed.value.views.is_empty()
-                    {
-                        continue;
-                    }
-                }
-            }
-        }
-
-        let mut value = match raw_manifest_bytes
-            .as_deref()
-            .and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok())
-        {
-            Some(v) => v,
-            None => {
-                if raw_manifest_bytes.is_some() || !ambd_dir.is_dir() {
-                    continue;
-                }
-                serde_json::json!({})
-            }
-        };
-
-        // Determine if this is a database
-        let is_db = legacy_json.is_file()
-            || ambd_dir.is_dir()
-            || value.get("format").and_then(|v| v.as_str()) == Some("amby-database")
-            || value.get("databaseId").is_some()
-            || value.get("properties").is_some();
-
-        if !is_db {
-            continue;
-        }
-
-        let mut manifest_changed = false;
-
-        // Ensure "format": "amby-database"
-        if value.get("format").and_then(|v| v.as_str()) != Some("amby-database") {
-            value["format"] = serde_json::Value::String("amby-database".to_string());
-            manifest_changed = true;
-        }
-
-        // Ensure "formatVersion": 1
-        if value.get("formatVersion").and_then(|v| v.as_u64()) != Some(1) {
-            value["formatVersion"] = serde_json::json!(1);
-            manifest_changed = true;
-        }
-
-        // Ensure "databaseId" is valid ULID
-        let valid_db_id = value
-            .get("databaseId")
-            .and_then(|v| v.as_str())
-            .filter(|s| ulid::Ulid::from_string(s).is_ok())
-            .map(|s| s.to_string());
-        let database_id = match valid_db_id {
-            Some(id) => id,
-            None => {
-                let new_id = ulid::Ulid::generate().to_string();
-                value["databaseId"] = serde_json::Value::String(new_id.clone());
-                manifest_changed = true;
-                new_id
-            }
-        };
-
-        // Ensure "name"
-        let current_name = value
-            .get("name")
-            .and_then(|v| v.as_str())
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty());
-        if current_name.is_none() {
-            value["name"] = serde_json::Value::String(name.to_string());
-            manifest_changed = true;
-        }
-
-        // Ensure "containerKind"
-        let has_attached_note = dir.join(format!("{name}.md")).is_file();
-        let expected_kind = if has_attached_note {
-            "attached"
-        } else {
-            "standalone"
-        };
-        if value.get("containerKind").and_then(|v| v.as_str()) != Some(expected_kind) {
-            value["containerKind"] = serde_json::Value::String(expected_kind.to_string());
-            manifest_changed = true;
-        }
-
-        // Ensure "locked"
-        if !value.get("locked").is_some_and(|v| v.is_boolean()) {
-            value["locked"] = serde_json::Value::Bool(false);
-            manifest_changed = true;
-        }
-
-        // Ensure "membership"
-        let valid_membership = value
-            .get("membership")
-            .and_then(|v| v.as_object())
-            .is_some_and(|obj| {
-                obj.get("kind").and_then(|k| k.as_str()) == Some("filesystem-descendants")
-                    && obj.get("recursive").and_then(|r| r.as_bool()) == Some(true)
-            });
-        if !valid_membership {
-            value["membership"] = serde_json::json!({
-                "kind": "filesystem-descendants",
-                "recursive": true,
-            });
-            manifest_changed = true;
-        }
-
-        // Ensure "properties"
-        if !value.get("properties").is_some_and(|v| v.is_array()) {
-            value["properties"] = serde_json::json!([]);
-            manifest_changed = true;
-        }
-
-        // Ensure "templateOrder"
-        if !value.get("templateOrder").is_some_and(|v| v.is_array()) {
-            value["templateOrder"] = serde_json::json!([]);
-            manifest_changed = true;
-        }
-
-        // Normalize viewOrder and defaultViewId
-        let mut view_order_ids: Vec<String> = value
-            .get("viewOrder")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str())
-                    .filter(|s| ulid::Ulid::from_string(s).is_ok())
-                    .map(|s| s.to_string())
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let shards_changed =
-            repair_container_shards(vault, dir, &database_id, &mut value, &mut view_order_ids);
-        if shards_changed {
-            manifest_changed = true;
-        }
-
-        if !view_order_ids.is_empty() {
-            let new_view_order_json = serde_json::json!(view_order_ids);
-            if value.get("viewOrder") != Some(&new_view_order_json) {
-                value["viewOrder"] = new_view_order_json;
-                manifest_changed = true;
-            }
-
-            let default_view_id = value
-                .get("defaultViewId")
-                .and_then(|v| v.as_str())
-                .filter(|id| view_order_ids.contains(&id.to_string()))
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| view_order_ids[0].clone());
-            if value.get("defaultViewId").and_then(|v| v.as_str()) != Some(&default_view_id) {
-                value["defaultViewId"] = serde_json::Value::String(default_view_id);
-                manifest_changed = true;
-            }
-        }
-
-        let target_manifest_path = named_json.clone();
-        let needs_write = manifest_changed || !target_manifest_path.is_file();
-        if needs_write {
-            if let Ok(new_bytes) = serde_json::to_vec_pretty(&value) {
-                if frontmatter::atomic_write_bytes(&target_manifest_path, &new_bytes).is_ok() {
-                    count += 1;
-                }
-            }
-        }
-        if named_database.is_file() {
-            let _ = fs::remove_file(&named_database);
-        }
-        if legacy_json.is_file() {
-            let _ = fs::remove_file(&legacy_json);
-        }
-    }
-    Ok(count)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -747,8 +247,8 @@ fn discover_boundaries(
             continue;
         }
 
-        let is_legacy =
-            path.file_name().and_then(|name| name.to_str()) == Some(LEGACY_DATABASE_MANIFEST);
+        let is_ambd_json =
+            path.file_name().and_then(|name| name.to_str()) == Some(DATABASE_MANIFEST);
 
         let root = path
             .parent()
@@ -777,7 +277,7 @@ fn discover_boundaries(
         let bytes = match fs::read(path) {
             Ok(bytes) => bytes,
             Err(error) => {
-                if is_legacy {
+                if is_ambd_json {
                     push_diagnostic(
                         diagnostics,
                         DiagnosticCode::BrokenManifest,
@@ -799,7 +299,7 @@ fn discover_boundaries(
             }
         };
 
-        if !is_legacy && !bytes.windows(15).any(|w| w == b"\"amby-database\"") {
+        if !is_ambd_json && !bytes.windows(15).any(|w| w == b"\"amby-database\"") {
             continue;
         }
 
@@ -882,7 +382,7 @@ fn discover_boundaries(
         }
         inspect_container_links(vault, &root, diagnostics);
         if let Some(pos) = boundaries.iter().position(|b| b.root == root) {
-            if !is_legacy {
+            if !is_ambd_json {
                 boundaries.remove(pos);
             } else {
                 continue;

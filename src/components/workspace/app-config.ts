@@ -51,7 +51,7 @@ import {
 } from "./keyboard-shortcuts"
 import {
   applyProfileToWorkspace,
-  migrateWorkspaceModules,
+  readWorkspaceModuleConfig,
   type ProfileId,
   type WorkspaceProfileState,
 } from "@/lib/modules"
@@ -891,7 +891,7 @@ export async function loadWorkspaceConfig(): Promise<WorkspaceConfig> {
 
     const baseConfig = requestedProfile
       ? applyProfileToWorkspace(requestedProfile)
-      : (await migrateWorkspaceModules({ layout: EMPTY_LAYOUT })).config
+      : applyProfileToWorkspace("standard")
 
     const layout: LayoutConfig = {
       ...EMPTY_LAYOUT,
@@ -913,7 +913,7 @@ export async function loadWorkspaceConfig(): Promise<WorkspaceConfig> {
     return cfg
   }
   const d = await loadVaultJSON<Partial<WorkspaceConfig>>(WORKSPACE_FILE, {})
-  const { config, migrated } = await migrateWorkspaceModules(d as Record<string, unknown>)
+  const config = readWorkspaceModuleConfig(d)
   const result: WorkspaceConfig = {
     schemaVersion: typeof d.schemaVersion === "number" ? d.schemaVersion : WORKSPACE_SCHEMA_VERSION,
     theme: typeof d.theme === "string" ? d.theme : null,
@@ -928,13 +928,6 @@ export async function loadWorkspaceConfig(): Promise<WorkspaceConfig> {
     profile: config.profile,
     enabledModules: config.enabledModules,
     moduleSettings: config.moduleSettings,
-  }
-  if (migrated) {
-    try {
-      await saveVaultJSON(WORKSPACE_FILE, result)
-    } catch (err) {
-      console.warn("Failed to persist migrated workspace config:", err)
-    }
   }
   return result
 }

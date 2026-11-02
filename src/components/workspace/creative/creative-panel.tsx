@@ -1,13 +1,5 @@
 import * as React from "react"
-import {
-  AlertTriangle,
-  ChevronDown,
-  ChevronRight,
-  ExternalLink,
-  Feather,
-  Loader2,
-  Settings,
-} from "lucide-react"
+import { AlertTriangle, ExternalLink, Feather, Loader2, Settings } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { MotionSpinner } from "@/lib/motion"
@@ -72,44 +64,6 @@ function DiagnosticsNotice({ diagnostics }: { diagnostics: ProjectDiagnostic[] }
             <li key={`${entry.code}:${entry.path}:${index}`} className="break-words">
               {t(`creative.diagnostic.${entry.code}`, { defaultValue: entry.code })}
               <span className="block break-all text-muted-foreground">{entry.path}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  )
-}
-
-/**
- * Folders of the former format (`amby-project.json`) are not damage: they open as ordinary folders.
- * One quiet, folded line at the foot of the panel lists them; the banner is for what needs a look.
- */
-function LegacyFoldersRow({ diagnostics }: { diagnostics: ProjectDiagnostic[] }) {
-  const { t } = useTranslation()
-  const [open, setOpen] = React.useState(false)
-  if (diagnostics.length === 0) return null
-  return (
-    <div className="shrink-0 border-t border-border/60 px-3 py-1 text-[10px] text-muted-foreground">
-      <button
-        type="button"
-        className="flex w-full min-w-0 items-center gap-1 text-left hover:text-foreground"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        {open ? (
-          <ChevronDown className="size-3 shrink-0" />
-        ) : (
-          <ChevronRight className="size-3 shrink-0" />
-        )}
-        <span className="min-w-0 break-words">
-          {t("creative.panel.legacyFolders", { count: diagnostics.length })}
-        </span>
-      </button>
-      {open && (
-        <ul className="mt-1 max-h-32 space-y-0.5 overflow-y-auto overflow-x-hidden pl-4">
-          {diagnostics.map((entry, index) => (
-            <li key={`${entry.path}:${index}`} className="break-all">
-              {entry.path}
             </li>
           ))}
         </ul>
@@ -417,8 +371,7 @@ export function CreativePanel({
     />
   )
 
-  const legacyFolders = catalog?.diagnostics.filter((d) => d.code === "legacyProjectFormat") ?? []
-  const attention = catalog?.diagnostics.filter((d) => d.code !== "legacyProjectFormat") ?? []
+  const attention = catalog?.diagnostics ?? []
   const gaps = workshop ? workshopGaps(workshop) : null
   let body: React.ReactNode
   if (!databaseRuntimeEnabled || status === "disabled") {
@@ -467,7 +420,6 @@ export function CreativePanel({
               : undefined
           }
         />
-        <LegacyFoldersRow diagnostics={legacyFolders} />
       </div>
     )
   } else {
@@ -521,7 +473,6 @@ export function CreativePanel({
               : () => setNewProject({ workshop, kind: "universe", kinds: ["universe"] }),
           }}
         />
-        <LegacyFoldersRow diagnostics={legacyFolders} />
       </div>
     )
   }
