@@ -96,7 +96,7 @@ fn word(bytes: &[u8]) -> u32 {
     u32::from_be_bytes(bytes.try_into().expect("four-byte WAL word"))
 }
 fn checksum(bytes: &[u8], big_endian: bool, mut value: (u32, u32)) -> (u32, u32) {
-    for pair in bytes.chunks_exact(8) {
+    for pair in bytes.as_chunks::<8>().0 {
         let number = |input: &[u8]| {
             if big_endian {
                 word(input)
