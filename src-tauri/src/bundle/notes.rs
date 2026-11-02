@@ -179,6 +179,7 @@ impl CreateNotePlan {
 
         Ok(FsMutationResult {
             tree_patch: None,
+            also_touched: Vec::new(),
             primary_id: None,
             primary_path: Some(path_string(&new_note)),
             path_changes,

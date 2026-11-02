@@ -100,6 +100,7 @@ pub(crate) fn preview_rename_item(path: &Path, new_name: &str) -> Result<FsMutat
             bundle_rename_path_changes(&old_paths, bundle_dir, &new_dir, &old_stem, trimmed);
         Ok(FsMutationResult {
             tree_patch: None,
+            also_touched: Vec::new(),
             primary_id: None,
             primary_path: Some(path_string(&new_main)),
             path_changes,
@@ -118,6 +119,7 @@ pub(crate) fn preview_rename_item(path: &Path, new_name: &str) -> Result<FsMutat
         ensure_rename_target_available(path, &new_path)?;
         Ok(FsMutationResult {
             tree_patch: None,
+            also_touched: Vec::new(),
             primary_id: None,
             primary_path: Some(path_string(&new_path)),
             path_changes: vec![PathChange {
@@ -136,6 +138,7 @@ pub(crate) fn preview_rename_item(path: &Path, new_name: &str) -> Result<FsMutat
         let old_markdown_paths = collect_refactor_paths(path)?;
         Ok(FsMutationResult {
             tree_patch: None,
+            also_touched: Vec::new(),
             primary_id: None,
             primary_path: Some(path_string(&new_path)),
             path_changes: path_changes_for_prefix(&old_markdown_paths, path, &new_path),
@@ -231,6 +234,7 @@ pub(crate) fn preview_move_item(
     };
     Ok(FsMutationResult {
         tree_patch: None,
+        also_touched: Vec::new(),
         primary_id: None,
         primary_path,
         path_changes: target_changes,

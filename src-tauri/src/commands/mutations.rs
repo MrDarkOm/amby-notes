@@ -35,6 +35,7 @@ pub fn mutation_paths(result: &FsMutationResult) -> Vec<PathBuf> {
     for deleted in &result.deleted_paths {
         paths.push(PathBuf::from(deleted));
     }
+    paths.extend(result.also_touched.iter().cloned());
     paths
 }
 
@@ -219,7 +220,16 @@ pub fn sync_mutation_result(
         )?;
         let conn_guard = context.conn.lock_or_recover();
         let conn = conn_guard.as_ref().ok_or("No vault open")?;
-        vault_index::apply_prepared_index_updates(conn, &prepared.notes, &prepared.deleted_ids)?;
+        // A renamed note whose key was made from its path (a broken header, a duplicate id)
+        // gets a new key: the row under the old one must go, without being reported as a delete.
+        let mut removed = prepared.deleted_ids.clone();
+        removed.extend(vault_index::stale_path_identities(
+            vault_path,
+            &identities,
+            &result.path_changes,
+            &prepared.notes,
+        ));
+        vault_index::apply_prepared_index_updates(conn, &prepared.notes, &removed)?;
         result.deleted_ids = prepared.deleted_ids;
         result.primary_id = result
             .primary_path
@@ -231,11 +241,14 @@ pub fn sync_mutation_result(
     })();
 
     match index_result {
-        Ok(()) => MutationOutcome {
-            mutation: result,
-            index_state: IndexState::Healthy,
-            warnings: Vec::new(),
-        },
+        Ok(()) => {
+            result.tree_patch = tree_patch_for(context, vault_path, &mutation_paths(&result), &[]);
+            MutationOutcome {
+                mutation: result,
+                index_state: IndexState::Healthy,
+                warnings: Vec::new(),
+            }
+        }
         Err(error) => {
             tracing::warn!(event = "index_update_failed", error = %error);
             if let Ok(active) = context.conn.lock() {
@@ -248,6 +261,26 @@ pub fn sync_mutation_result(
                 index_state: IndexState::RebuildRequired,
                 warnings: vec![OperationWarning::IndexRebuildRequired],
             }
+        }
+    }
+}
+
+/// The tree patch for `paths` (and `extra`, files rewritten along the way), or `None` when the
+/// renderer has to reload the whole tree. A failure here never fails the mutation.
+fn tree_patch_for(
+    context: &VaultContext,
+    vault: &Path,
+    paths: &[PathBuf],
+    extra: &[PathBuf],
+) -> Option<crate::vault::tree_patch::TreePatch> {
+    let conn_guard = context.conn.lock_or_recover();
+    let active = conn_guard.as_ref()?;
+    let all = paths.iter().chain(extra).cloned().collect::<Vec<_>>();
+    match crate::vault::tree_patch::patch_for_paths(&active.connection, vault, &all) {
+        Ok(patch) => patch,
+        Err(error) => {
+            tracing::warn!(event = "tree_patch_failed", %error);
+            None
         }
     }
 }
@@ -424,6 +457,7 @@ pub fn ensure_bundle(
     let (primary, path_changes) = ensure_bundle_path(&path)?;
     let result = FsMutationResult {
         tree_patch: None,
+        also_touched: Vec::new(),
         primary_id: None,
         primary_path: Some(path_string(&primary)),
         path_changes,
@@ -790,6 +824,19 @@ pub(crate) fn move_item_inner(
         outcome
             .warnings
             .push(OperationWarning::IndexRebuildRequired);
+        outcome.mutation.tree_patch = None;
+    } else if !rewritten_changes.is_empty() {
+        // The notes whose links were rewritten have new times in the tree.
+        let rewritten = rewritten_changes
+            .iter()
+            .map(|change| PathBuf::from(&change.new_path))
+            .collect::<Vec<_>>();
+        outcome.mutation.tree_patch = tree_patch_for(
+            db,
+            &vault_root,
+            &mutation_paths(&outcome.mutation),
+            &rewritten,
+        );
     }
     let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
@@ -1027,6 +1074,19 @@ pub(crate) fn rename_item_inner(
         outcome
             .warnings
             .push(OperationWarning::IndexRebuildRequired);
+        outcome.mutation.tree_patch = None;
+    } else if !rewritten_changes.is_empty() {
+        // The notes whose links were rewritten have new times in the tree.
+        let rewritten = rewritten_changes
+            .iter()
+            .map(|change| PathBuf::from(&change.new_path))
+            .collect::<Vec<_>>();
+        outcome.mutation.tree_patch = tree_patch_for(
+            db,
+            &vault_root,
+            &mutation_paths(&outcome.mutation),
+            &rewritten,
+        );
     }
     let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;

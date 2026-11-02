@@ -292,6 +292,62 @@ fn sort_key(vault: &Path, item: &TreeItem) -> (u8, String) {
     (u8::from(!is_directory), name.to_lowercase())
 }
 
+/// One line per item, so a mismatch reads as a diff.
+fn outline(vault: &Path, items: &[TreeItem], depth: usize, out: &mut Vec<String>) {
+    for item in items {
+        out.push(format!(
+            "{}{} [{}] {} id={} created={:?} modified={:?}",
+            "  ".repeat(depth),
+            item.path
+                .strip_prefix(&*vault.to_string_lossy())
+                .unwrap_or(&item.path),
+            item.item_type,
+            item.icon,
+            item.id
+                .strip_prefix(&*vault.to_string_lossy())
+                .unwrap_or(&item.id),
+            item.created,
+            item.modified
+        ));
+        if let Some(children) = &item.children {
+            outline(vault, children, depth + 1, out);
+        }
+    }
+}
+
+/// Panic with only the lines the two sides do not share.
+fn assert_lines_equal(what: &str, patched: &[String], full: &[String]) {
+    if patched == full {
+        return;
+    }
+    let only = |from: &[String], other: &[String]| {
+        from.iter()
+            .filter(|line| !other.contains(line))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    panic!(
+        "{what} differ\n only in the point update:\n  {}\n only in the full load:\n  {}",
+        only(patched, full).join("\n  "),
+        only(full, patched).join("\n  "),
+    );
+}
+
+fn assert_trees_equal(vault: &Path, patched: &[TreeItem], full: &[TreeItem]) {
+    let (mut left, mut right) = (Vec::new(), Vec::new());
+    outline(vault, patched, 0, &mut left);
+    outline(vault, full, 0, &mut right);
+    assert_lines_equal("tree outlines", &left, &right);
+    assert_eq!(patched, full);
+}
+
+fn assert_index_equal(patched: &IndexDump, full: &IndexDump) {
+    assert_lines_equal("notes", &patched.notes, &full.notes);
+    assert_lines_equal("tags", &patched.tags, &full.tags);
+    assert_lines_equal("links", &patched.links, &full.links);
+    assert_eq!(patched.search, full.search, "search");
+}
+
 /// Run `mutate`, apply the tree patch it reports, and compare tree and index with a full load.
 fn assert_point_equals_full(
     vault: &Vault,
@@ -307,12 +363,8 @@ fn assert_point_equals_full(
     apply(&mut tree, &vault.0, patch);
 
     let (full_index, full_tree) = full_load(&vault.0);
-    assert_eq!(tree, full_tree, "patched tree differs from a full build");
-    assert_eq!(
-        active_dump(&context, &vault.0),
-        full_index,
-        "incrementally updated index differs from a full load"
-    );
+    assert_trees_equal(&vault.0, &tree, &full_tree);
+    assert_index_equal(&active_dump(&context, &vault.0), &full_index);
 }
 
 fn outcome(outcome: MutationOutcome) -> FsMutationResult {
@@ -583,6 +635,7 @@ fn creating_a_canvas_layer_for_a_note() {
                 deleted_paths: Vec::new(),
                 deleted_ids: Vec::new(),
                 tree_patch: None,
+                also_touched: Vec::new(),
             },
         )
     });
@@ -621,8 +674,8 @@ fn assert_external_change_equals_full(vault: &Vault, change: impl FnOnce(&Vault)
     apply(&mut tree, &vault.0, &refresh.patch);
 
     let (full_index, full_tree) = full_load(&vault.0);
-    assert_eq!(tree, full_tree, "patched tree differs from a full build");
-    assert_eq!(active_dump(&context, &vault.0), full_index);
+    assert_trees_equal(&vault.0, &tree, &full_tree);
+    assert_index_equal(&active_dump(&context, &vault.0), &full_index);
 }
 
 #[test]

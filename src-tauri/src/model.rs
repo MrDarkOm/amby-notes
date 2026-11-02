@@ -139,6 +139,12 @@ pub struct FsMutationResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub tree_patch: Option<crate::vault::tree_patch::TreePatch>,
+    /// Paths the operation changed that `path_changes` does not list (it names only the notes
+    /// the index follows): a canvas that left its bundle, for instance. Never sent to the
+    /// renderer; the tree patch needs them.
+    #[serde(skip)]
+    #[specta(skip)]
+    pub also_touched: Vec<std::path::PathBuf>,
 }
 
 #[derive(Serialize, specta::Type)]
