@@ -48,6 +48,19 @@ async loadActiveVault() : Promise<Result<LoadVaultResult, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Bring the index and the sidebar tree up to date for the paths the watcher reported, without
+ * reading the rest of the vault. `null` means a point refresh cannot cover them (the vault
+ * root, a bulk change, an identity clash): the renderer then runs `load_active_vault`.
+ */
+async refreshVaultPaths(paths: string[]) : Promise<Result<PathsRefresh | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("refresh_vault_paths", { paths }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async reindexVault() : Promise<Result<LoadVaultResult, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("reindex_vault") };
@@ -2448,6 +2461,10 @@ warning: string | null;
  */
 suggestions: string[] }
 export type PathChange = { oldPath: string; newPath: string }
+/**
+ * The answer to a refresh of a few paths: the tree patch and the sync report for them.
+ */
+export type PathsRefresh = { generation: number; patch: TreePatch; sync: SyncReport }
 /**
  * The plan of the user. `None` in [`AccountOverview::plan`] means "no plan" (an own server
  * without plans, or a server that does not know the account request).
