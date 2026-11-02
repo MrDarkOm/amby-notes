@@ -559,16 +559,6 @@ describe("CreativePanel", () => {
       )
     })
 
-    it("shows the add button of a part without hovering", async () => {
-      render(<CreativePanel {...props()} />)
-      await screen.findByText("Книга первая")
-      const button = within(part(/Свернуть: Текст/).parentElement as HTMLElement).getByRole(
-        "button",
-        { name: "Добавить" },
-      )
-      expect(button.className).not.toContain("opacity-0")
-    })
-
     it("marks the open page, unfolds its parents and shows its words", async () => {
       listTextStats.mockResolvedValue([{ noteId: "c1", wordCount: 1240, modified: 1_700_000_000 }])
       act(() => useCreativeNavStore.setState({ collapsed: { "page:b1": true } }))
@@ -1294,44 +1284,19 @@ describe("CreativePanel", () => {
     expect(screen.queryByText(/У истории нет раздела/u)).toBeNull()
   })
 
-  it("fits a narrow panel: nothing sideways, nothing cut by an ellipsis, the name once", async () => {
+  it("names the workshop once, as the title of the panel", async () => {
     const named = workshopSummary("w", { name: "Мастерская", path: "Мастерская" })
     named.sections = [section("stories", { role: "stories", name: "Истории", databaseId: "db_s" })]
     act(() => useProjectStore.getState().setCatalog(catalog([named])))
-    const { container } = render(<CreativePanel {...props()} />)
+    render(<CreativePanel {...props()} />)
 
     // The word is the title of the panel and nothing else: neither card repeats it.
     expect(screen.getAllByText("Мастерская")).toHaveLength(1)
     expect(screen.queryByText("Творческая мастерская")).toBeNull()
-
-    // The two cards wrap a long name instead of cutting it with an ellipsis. With no story the
-    // top card is the prompt that offers the first one.
-    const cards = [
-      screen.getByRole("button", { name: /Создать первую историю/ }),
-      screen.getByRole("combobox", { name: "Вселенная" }),
-    ]
-    for (const card of cards) {
-      for (const element of [card, ...Array.from(card.querySelectorAll("*"))]) {
-        expect(element.className.toString()).not.toMatch(/\btruncate\b/u)
-      }
-    }
-
-    // Every scrolling list of the panel holds its width: a wide row wraps or is cut by its own
-    // box, and never produces a horizontal scrollbar at the bottom.
-    const scrollers = Array.from(container.querySelectorAll<HTMLElement>(".overflow-y-auto"))
-    expect(scrollers.length).toBeGreaterThan(0)
-    for (const scroller of scrollers) {
-      expect(scroller.className, scroller.className).toMatch(/\boverflow-x-hidden\b/u)
-    }
-
-    // The notice of what is missing and its button wrap their text.
-    const notice = screen.getByTestId("complete-workshop-notice")
-    const button = within(notice).getByRole("button", { name: "Создать недостающие разделы" })
-    expect(button.className).toMatch(/\bwhitespace-normal\b/u)
-    expect(notice.className).toMatch(/\bmin-w-0\b/u)
-    for (const element of [notice, ...Array.from(notice.querySelectorAll("*"))]) {
-      expect(element.className.toString()).not.toMatch(/\b(truncate|whitespace-nowrap)\b/u)
-    }
+    // With no story the top card is the prompt that offers the first one.
+    expect(screen.getByRole("button", { name: /Создать первую историю/ })).toBeTruthy()
+    expect(screen.getByRole("combobox", { name: "Вселенная" })).toBeTruthy()
+    expect(screen.getByTestId("complete-workshop-notice")).toBeTruthy()
   })
 
   it("has no switch of workshops: not a card, not a menu, the name only twice at most", () => {

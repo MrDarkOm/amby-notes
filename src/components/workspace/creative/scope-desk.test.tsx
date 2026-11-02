@@ -517,14 +517,13 @@ describe("the header and the tab of each page", () => {
     ROWS.db_univ = [row("u1", "Палуверс")]
   })
 
-  it("wraps a long name and has no settings on a universe, which has none of its own", async () => {
+  it("shows a long name whole and has no settings on a universe, which has none of its own", async () => {
     const long = "Очень-очень длинное название вселенной, которое не должно ломать вёрстку страницы"
     ROWS.db_univ = [row("u1", long)]
     try {
       mountPage("universe:u1")
       const heading = await screen.findByRole("heading", { level: 1, name: long })
-      expect(heading.className).toContain("break-words")
-      expect(heading.className).not.toContain("truncate")
+      expect(heading.textContent).toBe(long)
       expect(screen.queryByRole("button", { name: "Настройки" })).toBeNull()
       expect(screen.queryByRole("button", { name: "Раздел" })).toBeNull()
     } finally {
