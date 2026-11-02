@@ -143,3 +143,27 @@ reopen of a 300-story vault is about 2.2 s in release, above the ~1.5 s that fee
 vault scan and database projection that grow with the note count (compare the 10,000-note rows above), not
 the workshop layer. Nothing was changed to improve the numbers. WebView first paint, input latency and
 resident memory with this vault remain unmeasured.
+
+## Release profile — 2026-11-02
+
+Apple M5, macOS 26.6.2, `cargo test --release` (the large-vault smoke), three samples per
+size, other work idle. Before: default release profile; after: `lto = "fat"`,
+`codegen-units = 1`, `strip = "symbols"` in `src-tauri/Cargo.toml`. Medians:
+
+| Notes  | Build  | Initial scan | Warm reopen | One-file update + refresh | Search  |
+| ------ | ------ | ------------ | ----------- | ------------------------- | ------- |
+| 1,000  | before | 128 ms       | 51 ms       | 26.4 ms                   | 0.18 ms |
+| 1,000  | after  | 129 ms       | 50 ms       | 26.2 ms                   | 0.17 ms |
+| 10,000 | before | 1.484 s      | 610 ms      | 318 ms                    | 0.56 ms |
+| 10,000 | after  | 1.475 s      | 607 ms      | 317 ms                    | 0.54 ms |
+
+Binary (`target/release/amby-notes`): 32.2 MB → 22.3 MB. Build time on this machine: release
+binary 50 s → 207 s, release test binary 98 s → 260 s.
+
+Reading: the profile changes size, not speed — scan, reopen and update are bound by file
+reads and SQLite, not by compiled code. A one-file update still costs ~12x more at 10x notes
+in a release build, so the next speed win is the incremental tree/index update (S7.3), not
+compiler settings. Frontend for reference (`npm run build`): 240 JS files, 13.2 MB of JS in
+`dist/assets`; the largest chunk is 1.78 MB, the entry `index-*.js` 540 KB with 38
+`modulepreload` links. Startup time is not measured: frontend events reach the log file only
+in debug mode.
