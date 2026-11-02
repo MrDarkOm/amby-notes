@@ -59,6 +59,11 @@ import type { DebugConfig } from "@/lib/debug/types"
 
 export const WORKSPACES_FILE = "workspaces.json"
 export const SETTINGS_FILE = "settings.json"
+/**
+ * The AI connections live in a file of their own. A build that predates it keeps reading and
+ * rewriting the `ai` section of settings.json in its older shape; this file is out of its reach.
+ */
+export const AI_CONNECTIONS_FILE = "ai-connections.json"
 export const WORKSPACE_FILE = "workspace.json"
 export const SESSION_FILE = "session.json"
 
@@ -624,6 +629,44 @@ export async function migrateLegacyAiKeys(
   return { ai: { models, activeModelId }, migrated }
 }
 
+/** The connections file, or null before it exists. A damaged file is an error, never defaults. */
+async function readConnectionsFile(): Promise<unknown | null> {
+  const raw = await readGlobalRaw(AI_CONNECTIONS_FILE)
+  if (raw === null) return null
+  try {
+    return JSON.parse(raw.replace(/^\uFEFF/, ""))
+  } catch {
+    throw new Error("corruptAiConnections")
+  }
+}
+
+/**
+ * Makes sure the connections file exists. The desktop app builds it natively, with a copy of
+ * settings.json kept first; in a browser a versioned section of settings.json is copied over.
+ */
+async function ensureConnectionsFile(): Promise<void> {
+  if (isTauri()) {
+    await migrateAiSettings()
+    return
+  }
+  if ((await readGlobalRaw(AI_CONNECTIONS_FILE)) !== null) return
+  const raw = await readGlobalRaw(SETTINGS_FILE)
+  if (raw === null) return
+  let section: unknown
+  try {
+    section = (JSON.parse(raw.replace(/^\uFEFF/, "")) as { ai?: unknown }).ai
+  } catch {
+    return
+  }
+  if (
+    section &&
+    typeof section === "object" &&
+    Object.prototype.hasOwnProperty.call(section, "version")
+  ) {
+    await compareWriteGlobalRaw(AI_CONNECTIONS_FILE, null, JSON.stringify(section, null, 2))
+  }
+}
+
 export async function loadSettings(): Promise<GlobalSettings> {
   if (await globalFileMissing(SETTINGS_FILE)) {
     const layout: LayoutConfig = {
@@ -645,6 +688,8 @@ export async function loadSettings(): Promise<GlobalSettings> {
       prefs: DEFAULT_PREFS,
       themes: [],
     }
+    const stored = await readConnectionsFile()
+    if (stored) settings.ai = projectAiConnections(readAiConnections(stored))
     if (layout.activePresetId || layout.buttons || layout.activeBySide) {
       await saveGlobalJSON(SETTINGS_FILE, settings)
     }
@@ -662,10 +707,14 @@ export async function loadSettings(): Promise<GlobalSettings> {
   ) {
     prefs.theme = "dark"
   }
-  const versioned =
+  // The connections file wins; a versioned section still in settings.json counts only until it
+  // exists. Anything else is the older shape, which stays in settings.json.
+  const storedConnections = await readConnectionsFile()
+  const versionedInSettings =
     !!d.ai && typeof d.ai === "object" && Object.prototype.hasOwnProperty.call(d.ai, "version")
-  const { ai, migrated } = versioned
-    ? { ai: projectAiConnections(readAiConnections(d.ai)), migrated: false }
+  const connectionsSource = storedConnections ?? (versionedInSettings ? d.ai : null)
+  const { ai, migrated } = connectionsSource
+    ? { ai: projectAiConnections(readAiConnections(connectionsSource)), migrated: false }
     : await migrateLegacyAiKeys(d.ai)
   const settings: GlobalSettings = {
     ...d,
@@ -717,9 +766,14 @@ export function saveSettingsPatch(
 ): Promise<void> {
   const write = async () => {
     for (let attempt = 0; attempt < 5; attempt++) {
-      const before = await readGlobalRaw(SETTINGS_FILE)
+      const beforeSettings = await readGlobalRaw(SETTINGS_FILE)
+      const beforeConnections = await readGlobalRaw(AI_CONNECTIONS_FILE)
       const cur = await loadSettings()
-      if ((await readGlobalRaw(SETTINGS_FILE)) !== before) continue
+      if (
+        (await readGlobalRaw(SETTINGS_FILE)) !== beforeSettings ||
+        (await readGlobalRaw(AI_CONNECTIONS_FILE)) !== beforeConnections
+      )
+        continue
       if (cur.ai.connectionSettings && patch.ai && !patch.ai.connectionSettings) {
         throw new Error("unsupportedAiVersion")
       }
@@ -728,17 +782,52 @@ export function saveSettingsPatch(
         if (JSON.stringify(cur.ai.connectionSettings) !== JSON.stringify(expected))
           throw new Error("settingsChanged")
       }
-      const next = {
-        ...cur,
-        ...patch,
-        ai: serializeAiSettings(patch.ai ?? cur.ai),
-        schemaVersion: SETTINGS_SCHEMA_VERSION,
+      const nextAi = patch.ai ?? cur.ai
+      const connectionsChange = Boolean(patch.ai?.connectionSettings)
+      // 1. Connections go to their own file, created first if only settings.json held them.
+      if (connectionsChange) {
+        if (beforeConnections === null && cur.ai.connectionSettings) await ensureConnectionsFile()
+        const base = await readGlobalRaw(AI_CONNECTIONS_FILE)
+        const text = JSON.stringify(serializeAiSettings(nextAi), null, 2)
+        if (!(await compareWriteGlobalRaw(AI_CONNECTIONS_FILE, base, text))) continue
       }
-      if (await compareWriteGlobalRaw(SETTINGS_FILE, before, JSON.stringify(next, null, 2))) {
-        if (patch.ai && typeof window !== "undefined")
-          window.dispatchEvent(new Event(AI_SETTINGS_CHANGED_EVENT))
-        return
+      // 2. Everything else goes to settings.json, whose `ai` section is left as it was whenever
+      //    the connections live in their own file: an older build may still read it.
+      const { ai: _ai, ...rest } = patch
+      void _ai
+      const connectionsAreSeparate = Boolean(nextAi.connectionSettings)
+      if (!connectionsChange || Object.keys(rest).length > 0 || beforeSettings === null) {
+        let rawSection: unknown
+        if (connectionsAreSeparate && beforeSettings !== null) {
+          try {
+            rawSection = (JSON.parse(beforeSettings.replace(/^\uFEFF/, "")) as { ai?: unknown }).ai
+          } catch {
+            rawSection = undefined
+          }
+        }
+        const next: Record<string, unknown> = {
+          ...cur,
+          ...rest,
+          schemaVersion: SETTINGS_SCHEMA_VERSION,
+        }
+        if (connectionsAreSeparate) {
+          if (rawSection === undefined) delete next.ai
+          else next.ai = rawSection
+        } else {
+          next.ai = serializeAiSettings(nextAi)
+        }
+        if (
+          !(await compareWriteGlobalRaw(
+            SETTINGS_FILE,
+            beforeSettings,
+            JSON.stringify(next, null, 2),
+          ))
+        )
+          continue
       }
+      if (patch.ai && typeof window !== "undefined")
+        window.dispatchEvent(new Event(AI_SETTINGS_CHANGED_EVENT))
+      return
     }
     throw new Error("settingsChanged")
   }
@@ -754,29 +843,15 @@ export function saveSettingsPatch(
 
 /** Start the durable migration only when the connection screen is opened. */
 export async function loadAiConnectionSettings(): Promise<GlobalSettings> {
-  if (!isTauri()) return loadSettings()
-  let raw = await readGlobalRaw(SETTINGS_FILE)
-  if (raw === null) {
-    await saveSettingsPatch({})
-    raw = await readGlobalRaw(SETTINGS_FILE)
+  if (!isTauri()) {
+    await ensureConnectionsFile()
+    return loadSettings()
   }
-  if (raw === null) throw new Error("settingsUnavailable")
-  let value: unknown
-  try {
-    value = JSON.parse(raw.replace(/^\uFEFF/, ""))
-  } catch {
-    throw new Error("corruptSettings")
-  }
-  const ai = value && typeof value === "object" ? (value as { ai?: unknown }).ai : undefined
-  if (
-    !ai ||
-    typeof ai !== "object" ||
-    !Object.prototype.hasOwnProperty.call(ai, "version") ||
-    (ai as { version?: unknown }).version === 1
-  ) {
-    await migrateAiSettings()
-    if (typeof window !== "undefined") window.dispatchEvent(new Event(AI_SETTINGS_CHANGED_EVENT))
-  }
+  // A key still in plain text moves to the credential store while the older section is read, so
+  // the native step finds nothing to refuse.
+  await loadSettings()
+  await migrateAiSettings()
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(AI_SETTINGS_CHANGED_EVENT))
   return loadSettings()
 }
 

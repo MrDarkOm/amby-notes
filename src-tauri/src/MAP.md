@@ -59,3 +59,5 @@ Backend-heavy changes also need `npm run rust:clippy`; see
 System key store UI policy: [keychain_access.rs](keychain_access.rs) serializes macOS access, suppresses dialogs for background sync, and permits them only in synchronous explicit account actions. AI credential access shares the lock.
 
 Backup catalog and verified separate-folder restore: [sync/backup_restore.rs](sync/backup_restore.rs), called by [commands/backups.rs](commands/backups.rs). Restore journals, generation scoping and preserved sync state: [vault format](../../docs/vault-format.md#backup-and-git-policy).
+
+AI connections live in the app-data file `ai-connections.json` (an `ai` section of version 1). It is created once from `settings.json`, after a copy `settings.pre-ai-connections.backup.json`, and published without replacing anything. `settings.json` keeps its own older `ai` section untouched, so a build that predates the file cannot damage the connections. Rollback sets the file aside (`ai-connections.json.rolledback-<time>`) and never deletes it. The contract is in [ai/settings_migration.rs](ai/settings_migration.rs).

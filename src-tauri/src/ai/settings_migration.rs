@@ -6,7 +6,14 @@ use serde_json::{json, Value};
 
 use crate::frontmatter;
 
-const BACKUP: &str = "settings.ai-v1.backup.json";
+/// The connections live in a file of their own. Older builds keep reading and rewriting the `ai`
+/// section of settings.json in their own shape; a build that does not know this file can then
+/// never damage what is stored here.
+pub(crate) const CONNECTIONS: &str = "ai-connections.json";
+/// Copy of settings.json taken before the first migration, kept as history.
+const SETTINGS_BACKUP: &str = "settings.pre-ai-connections.backup.json";
+/// Left by the earlier migration that rewrote settings.json in place; they are history and the
+/// source of a recovery, never written again.
 const PREPARED: &str = "settings.ai-v1.prepared.json";
 const COMPLETED: &str = "settings.ai-v1.completed";
 
@@ -103,111 +110,190 @@ fn transform(raw: &str) -> Result<String, String> {
     String::from_utf8(bytes).map_err(|_| "invalidSettings".into())
 }
 
-/// Moves the markers of a finished migration aside under a timestamped name. The completion
-/// marker goes last, so a crash in between is finished by the next run.
-fn supersede_markers(root: &Path) -> Result<(), String> {
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Outcome {
+    /// The file existed already and was left alone.
+    AlreadyPresent,
+    /// settings.json held a versioned section, copied as it is.
+    FromVersioned,
+    /// settings.json held the older shape, converted.
+    FromLegacy,
+    /// settings.json held only the stock default, so the section saved by the earlier
+    /// migration was brought back.
+    Recovered,
+    /// There was no settings.json at all.
+    Fresh,
+}
+
+fn parse_json(raw: &str, error: &str) -> Result<Value, String> {
+    serde_json::from_str(raw.strip_prefix('\u{feff}').unwrap_or(raw)).map_err(|_| error.to_owned())
+}
+
+/// The connections file, or `None` when it has not been created yet. It is an `ai` section of
+/// version 1 on its own; any other version is refused rather than guessed at.
+pub(crate) fn read_connections(root: &Path) -> Result<Option<Value>, String> {
+    let path = crate::paths::confine_rel_no_symlinks(root, CONNECTIONS)?;
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err("connectionsUnavailable".into()),
+    };
+    let value = parse_json(&raw, "corruptAiConnections")?;
+    match value.get("version") {
+        Some(version) if *version == 1 => Ok(Some(value)),
+        _ => Err("unknownVersion".into()),
+    }
+}
+
+/// The section a build before the file kept in settings.json, when there is one.
+fn settings_section(root: &Path) -> Result<Option<Value>, String> {
+    let path = crate::paths::confine_rel_no_symlinks(root, "settings.json")?;
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err("settingsUnavailable".into()),
+    };
+    Ok(parse_json(&raw, "corruptSettings")?.get("ai").cloned())
+}
+
+/// Every section that may name a credential, newest first: the connections file, then what
+/// settings.json still holds for builds that read it. A key is in use if any of them says so.
+pub(crate) fn credential_sections(root: &Path) -> Result<Vec<Value>, String> {
+    let mut sections = Vec::new();
+    if let Some(file) = read_connections(root)? {
+        sections.push(file);
+    }
+    if let Some(section) = settings_section(root)? {
+        sections.push(section);
+    }
+    Ok(sections)
+}
+
+/// The settings every new install starts with.
+fn default_section() -> Result<Value, String> {
+    let next = transform("{}")?;
+    parse_json(&next, "invalidSettings")?
+        .get("ai")
+        .cloned()
+        .ok_or_else(|| "invalidSettings".to_owned())
+}
+
+/// What the older builds put back when they cannot read the section they find.
+fn is_stock_default(section: &Value) -> bool {
+    let Some(models) = section.get("models").and_then(Value::as_array) else {
+        return false;
+    };
+    models.len() == 1
+        && models[0].get("id").and_then(Value::as_str) == Some("default-ollama")
+        && models[0].get("provider").and_then(Value::as_str) == Some("ollama")
+        && models[0].get("model").and_then(Value::as_str) == Some("llama3.2")
+        && section.get("activeModelId").and_then(Value::as_str) == Some("default-ollama")
+        && section.get("version").is_none()
+}
+
+/// The section the earlier in-place migration saved, if it finished and left it behind.
+fn earlier_snapshot(root: &Path) -> Result<Option<Value>, String> {
+    let completed = crate::paths::confine_rel_no_symlinks(root, COMPLETED)?;
+    let prepared = crate::paths::confine_rel_no_symlinks(root, PREPARED)?;
+    if !completed.exists() {
+        return Ok(None);
+    }
+    let Ok(raw) = fs::read_to_string(prepared) else {
+        return Ok(None);
+    };
+    let Ok(settings) = parse_json(&raw, "corruptSettings") else {
+        return Ok(None);
+    };
+    Ok(settings
+        .get("ai")
+        .filter(|section| section.get("version").is_some_and(|version| *version == 1))
+        .cloned())
+}
+
+fn section_from_settings(root: &Path, raw: &str) -> Result<(Value, Outcome), String> {
+    let settings = parse_json(raw, "corruptSettings")?;
+    let section = settings.get("ai").filter(|section| !section.is_null());
+    if let Some(section) = section {
+        if let Some(version) = section.get("version") {
+            if *version != 1 {
+                return Err("unknownVersion".into());
+            }
+            return Ok((section.clone(), Outcome::FromVersioned));
+        }
+        if is_stock_default(section) {
+            if let Some(earlier) = earlier_snapshot(root)? {
+                return Ok((earlier, Outcome::Recovered));
+            }
+        }
+    }
+    let next = parse_json(&transform(raw)?, "invalidSettings")?;
+    let converted = next
+        .get("ai")
+        .cloned()
+        .ok_or_else(|| "invalidSettings".to_owned())?;
+    Ok((converted, Outcome::FromLegacy))
+}
+
+/// Creates the connections file from whatever the settings hold, once. The copy of settings.json
+/// is made first and never replaced; the file is then published without replacing anything, so its
+/// existence is the completion marker and a second start finds the work done.
+pub(crate) fn ensure(root: &Path) -> Result<Outcome, String> {
+    let _guard = crate::app_data::lock_app_data_writes()?;
+    if read_connections(root)?.is_some() {
+        return Ok(Outcome::AlreadyPresent);
+    }
+    let settings_path = crate::paths::confine_rel_no_symlinks(root, "settings.json")?;
+    let raw = match fs::read_to_string(&settings_path) {
+        Ok(raw) => Some(raw),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => return Err("settingsUnavailable".into()),
+    };
+    let (section, outcome) = match &raw {
+        None => (default_section()?, Outcome::Fresh),
+        Some(raw) => section_from_settings(root, raw)?,
+    };
+    if let Some(raw) = &raw {
+        let backup = crate::paths::confine_rel_no_symlinks(root, SETTINGS_BACKUP)?;
+        if !backup.exists() {
+            frontmatter::atomic_write_new(&backup, raw).map_err(|_| "backupFailed")?;
+        }
+    }
+    let text = serde_json::to_string_pretty(&section).map_err(|_| "invalidSettings")?;
+    let target = crate::paths::confine_rel_no_symlinks(root, CONNECTIONS)?;
+    match frontmatter::atomic_write_new(&target, &text) {
+        Ok(()) => Ok(outcome),
+        Err(_) if read_connections(root)?.is_some() => Ok(Outcome::AlreadyPresent),
+        Err(_) => Err("publishFailed".into()),
+    }
+}
+
+/// Sets the connections file aside under a timestamped name, never deleting it; the next start
+/// migrates again from settings.json. This is the way back to the earlier behavior.
+pub(crate) fn rollback(root: &Path) -> Result<(), String> {
+    let _guard = crate::app_data::lock_app_data_writes()?;
+    let from = crate::paths::confine_rel_no_symlinks(root, CONNECTIONS)?;
+    if !from.exists() {
+        return Err("nothingToRollBack".into());
+    }
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_secs())
         .unwrap_or(0);
-    for name in [BACKUP, PREPARED, COMPLETED] {
-        let from = crate::paths::confine_rel_no_symlinks(root, name)?;
-        if !from.exists() {
-            continue;
-        }
-        let mut target = format!("{name}.superseded-{stamp}");
-        let mut counter = 1;
-        while crate::paths::confine_rel_no_symlinks(root, &target)?.exists() {
-            target = format!("{name}.superseded-{stamp}-{counter}");
-            counter += 1;
-        }
-        let to = crate::paths::confine_rel_no_symlinks(root, &target)?;
-        fs::rename(&from, &to).map_err(|_| "markerFailed")?;
+    let mut name = format!("{CONNECTIONS}.rolledback-{stamp}");
+    let mut counter = 1;
+    while crate::paths::confine_rel_no_symlinks(root, &name)?.exists() {
+        name = format!("{CONNECTIONS}.rolledback-{stamp}-{counter}");
+        counter += 1;
     }
-    Ok(())
-}
-
-/// Backup and publication are no-replace/atomic. A published snapshot acts as
-/// the completion marker and guards rollback against later user edits.
-fn migrate(root: &Path) -> Result<(), String> {
-    let _guard = crate::app_data::lock_app_data_writes()?;
-    let path = crate::paths::confine_rel_no_symlinks(root, "settings.json")?;
-    let raw = fs::read_to_string(&path).map_err(|_| "settingsUnavailable")?;
-    let prepared = crate::paths::confine_rel_no_symlinks(root, PREPARED)?;
-    let completed = crate::paths::confine_rel_no_symlinks(root, COMPLETED)?;
-    let parsed: Value = serde_json::from_str(raw.strip_prefix('\u{feff}').unwrap_or(&raw))
-        .map_err(|_| "corruptSettings")?;
-    if let Some(version) = parsed.get("ai").and_then(|ai| ai.get("version")) {
-        if version != 1 {
-            return Err("unknownVersion".into());
-        }
-        if completed.exists() {
-            return Ok(());
-        }
-        if fs::read_to_string(&prepared).map_err(|_| "markerUnavailable")? != raw {
-            return Err("markerConflict".into());
-        }
-        frontmatter::atomic_write(&completed, "1")?;
-        return Ok(());
-    }
-    let next = transform(&raw)?;
-    if completed.exists() {
-        // The migration finished once, yet `ai` has no version again: another build wrote the file
-        // afterwards. The earlier backup and markers belong to that finished migration, so they
-        // are set aside (kept, never deleted) and this file is migrated afresh.
-        supersede_markers(root)?;
-    }
-    let backup = crate::paths::confine_rel_no_symlinks(root, BACKUP)?;
-    if backup.exists() {
-        if fs::read_to_string(&backup).map_err(|_| "backupUnavailable")? != raw {
-            return Err("backupConflict".into());
-        }
-    } else {
-        frontmatter::atomic_write_new(&backup, &raw).map_err(|_| "backupFailed")?;
-    }
-    if prepared.exists() {
-        if fs::read_to_string(&prepared).map_err(|_| "markerUnavailable")? != next {
-            return Err("markerConflict".into());
-        }
-    } else {
-        frontmatter::atomic_write_new(&prepared, &next).map_err(|_| "markerFailed")?;
-    }
-    if fs::read_to_string(&path).map_err(|_| "settingsUnavailable")? != raw {
-        return Err("settingsChanged".into());
-    }
-    frontmatter::atomic_write_bytes(&path, next.as_bytes())?;
-    if fs::read_to_string(&path).map_err(|_| "settingsUnavailable")? != next {
-        return Err("verificationFailed".into());
-    }
-    frontmatter::atomic_write(&completed, "1")?;
-    Ok(())
-}
-
-fn rollback(root: &Path) -> Result<(), String> {
-    let _guard = crate::app_data::lock_app_data_writes()?;
-    let path = crate::paths::confine_rel_no_symlinks(root, "settings.json")?;
-    let current = fs::read_to_string(&path).map_err(|_| "settingsUnavailable")?;
-    let published = fs::read_to_string(crate::paths::confine_rel_no_symlinks(root, PREPARED)?)
-        .map_err(|_| "markerUnavailable")?;
-    if current != published {
-        return Err("settingsChanged".into());
-    }
-    let backup = fs::read_to_string(crate::paths::confine_rel_no_symlinks(root, BACKUP)?)
-        .map_err(|_| "backupUnavailable")?;
-    frontmatter::atomic_write_bytes(&path, backup.as_bytes())?;
-    match fs::remove_file(crate::paths::confine_rel_no_symlinks(root, COMPLETED)?) {
-        Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(_) => return Err("markerFailed".into()),
-    };
-    Ok(())
+    let to = crate::paths::confine_rel_no_symlinks(root, &name)?;
+    fs::rename(from, to).map_err(|_| "markerFailed".to_owned())
 }
 
 /// Migrate when the connection settings screen is first opened.
 #[tauri::command]
 #[specta::specta]
 pub fn migrate_ai_settings(app: tauri::AppHandle) -> Result<(), String> {
-    migrate(&crate::app_data::app_root(&app)?)
+    ensure(&crate::app_data::app_root(&app)?).map(|_| ())
 }
 
 #[tauri::command]
@@ -219,35 +305,174 @@ pub fn rollback_ai_settings(app: tauri::AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn preserves_ids_and_unknown_fields_and_guards_rollback() {
+    fn temp_root() -> std::path::PathBuf {
         let root =
-            std::env::temp_dir().join(format!("amby-ai-migration-{}", ulid::Ulid::generate()));
+            std::env::temp_dir().join(format!("amby-ai-connections-{}", ulid::Ulid::generate()));
         fs::create_dir_all(&root).unwrap();
-        let old = r#"{"unknown":42,"ai":{"models":[{"id":"m","provider":"openai","model":"x","label":"X","credentialId":"key","extra":7}],"activeModelId":"m"}}"#;
-        fs::write(&root.join("settings.json"), old).unwrap();
-        migrate(&root).unwrap();
-        migrate(&root).unwrap();
-        let migrated: Value =
-            serde_json::from_str(&fs::read_to_string(&root.join("settings.json")).unwrap())
-                .unwrap();
-        assert_eq!(migrated["unknown"], 42);
-        assert_eq!(migrated["ai"]["models"][0]["id"], "m");
-        assert_eq!(migrated["ai"]["models"][0]["extra"], 7);
-        assert_eq!(migrated["ai"]["connections"][0]["credentialId"], "key");
-        fs::write(&root.join("settings.json"), "changed").unwrap();
-        assert_eq!(rollback(&root).unwrap_err(), "settingsChanged");
+        root
+    }
+    fn read_json(root: &Path, name: &str) -> Value {
+        serde_json::from_str(&fs::read_to_string(root.join(name)).unwrap()).unwrap()
+    }
+    const LEGACY: &str = r#"{"unknown":42,"ai":{"models":[{"id":"m","provider":"openai","model":"x","label":"X","credentialId":"key","extra":7}],"activeModelId":"m"}}"#;
+    const STOCK: &str = r#"{"layout":{},"ai":{"models":[{"id":"default-ollama","label":"Ollama · llama3.2","provider":"ollama","model":"llama3.2","baseUrl":"","credentialId":null,"apiVersion":""}],"activeModelId":"default-ollama"}}"#;
+
+    #[test]
+    fn a_legacy_section_becomes_the_connections_file_and_settings_stay_untouched() {
+        let root = temp_root();
+        fs::write(root.join("settings.json"), LEGACY).unwrap();
+        assert_eq!(ensure(&root).unwrap(), Outcome::FromLegacy);
+        let file = read_json(&root, CONNECTIONS);
+        assert_eq!(file["version"], 1);
+        assert_eq!(file["models"][0]["id"], "m");
+        assert_eq!(file["models"][0]["extra"], 7);
+        assert_eq!(file["connections"][0]["credentialId"], "key");
+        // The old section stays exactly as it was, for builds that still read it.
+        assert_eq!(
+            fs::read_to_string(root.join("settings.json")).unwrap(),
+            LEGACY
+        );
+        assert_eq!(
+            fs::read_to_string(root.join(SETTINGS_BACKUP)).unwrap(),
+            LEGACY
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_versioned_section_in_settings_is_copied_whole() {
+        let root = temp_root();
+        let versioned = r#"{"ai":{"version":1,"connections":[{"id":"c","provider":"openai","method":"api","label":"A","credentialId":null}],"models":[{"id":"m","connectionId":"c","enabled":true,"available":true,"model":"x","label":"X","origin":"catalog"}],"activeModelId":"m","note":"kept"}}"#;
+        fs::write(root.join("settings.json"), versioned).unwrap();
+        assert_eq!(ensure(&root).unwrap(), Outcome::FromVersioned);
+        let file = read_json(&root, CONNECTIONS);
+        assert_eq!(file["note"], "kept");
+        assert_eq!(file["connections"][0]["id"], "c");
+        assert_eq!(
+            fs::read_to_string(root.join("settings.json")).unwrap(),
+            versioned
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn connections_overwritten_with_the_stock_default_are_recovered_from_the_earlier_snapshot() {
+        let root = temp_root();
+        let earlier = r#"{"ai":{"version":1,"connections":[{"id":"legacy:t","provider":"openai","method":"codex-cli","label":"Terra","credentialId":null}],"models":[{"id":"t","connectionId":"legacy:t","enabled":true,"available":true,"model":"gpt","label":"Terra","origin":"legacy"}],"activeModelId":"t"}}"#;
+        fs::write(root.join(PREPARED), earlier).unwrap();
+        fs::write(root.join(COMPLETED), "1").unwrap();
+        fs::write(root.join("settings.json"), STOCK).unwrap();
+        assert_eq!(ensure(&root).unwrap(), Outcome::Recovered);
+        assert_eq!(
+            read_json(&root, CONNECTIONS)["connections"][0]["label"],
+            "Terra"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn real_legacy_models_are_never_replaced_by_an_earlier_snapshot() {
+        let root = temp_root();
         fs::write(
-            &root.join("settings.json"),
-            fs::read(&root.join(PREPARED)).unwrap(),
+            root.join(PREPARED),
+            r#"{"ai":{"version":1,"connections":[],"models":[],"activeModelId":null}}"#,
         )
         .unwrap();
-        rollback(&root).unwrap();
+        fs::write(root.join(COMPLETED), "1").unwrap();
+        fs::write(root.join("settings.json"), LEGACY).unwrap();
+        assert_eq!(ensure(&root).unwrap(), Outcome::FromLegacy);
+        assert_eq!(read_json(&root, CONNECTIONS)["models"][0]["id"], "m");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_new_install_gets_the_default_without_a_settings_file() {
+        let root = temp_root();
+        assert_eq!(ensure(&root).unwrap(), Outcome::Fresh);
         assert_eq!(
-            fs::read_to_string(&root.join("settings.json")).unwrap(),
-            old
+            read_json(&root, CONNECTIONS)["models"][0]["id"],
+            "default-ollama"
         );
-        fs::remove_dir_all(&root).unwrap();
+        assert!(!root.join("settings.json").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn an_existing_file_is_never_overwritten_and_a_bad_one_is_refused() {
+        let root = temp_root();
+        fs::write(root.join("settings.json"), LEGACY).unwrap();
+        ensure(&root).unwrap();
+        let written = fs::read_to_string(root.join(CONNECTIONS)).unwrap();
+        fs::write(root.join("settings.json"), STOCK).unwrap();
+        assert_eq!(ensure(&root).unwrap(), Outcome::AlreadyPresent);
+        assert_eq!(fs::read_to_string(root.join(CONNECTIONS)).unwrap(), written);
+        fs::write(root.join(CONNECTIONS), "{").unwrap();
+        assert_eq!(ensure(&root).unwrap_err(), "corruptAiConnections");
+        fs::write(root.join(CONNECTIONS), r#"{"version":2}"#).unwrap();
+        assert_eq!(read_connections(&root).unwrap_err(), "unknownVersion");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_legacy_key_in_plain_text_stops_the_migration_before_anything_is_written() {
+        let root = temp_root();
+        fs::write(
+            root.join("settings.json"),
+            r#"{"ai":{"models":[{"id":"x","provider":"openai","apiKey":"secret"}]}}"#,
+        )
+        .unwrap();
+        assert_eq!(ensure(&root).unwrap_err(), "legacyCredential");
+        assert!(!root.join(CONNECTIONS).exists());
+        assert!(!root.join(SETTINGS_BACKUP).exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rollback_sets_the_file_aside_and_the_next_start_migrates_again() {
+        let root = temp_root();
+        fs::write(root.join("settings.json"), LEGACY).unwrap();
+        ensure(&root).unwrap();
+        rollback(&root).unwrap();
+        assert!(!root.join(CONNECTIONS).exists());
+        let kept = fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("ai-connections.json.rolledback-")
+            })
+            .count();
+        assert_eq!(kept, 1);
+        assert_eq!(rollback(&root).unwrap_err(), "nothingToRollBack");
+        assert_eq!(ensure(&root).unwrap(), Outcome::FromLegacy);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn the_native_check_reads_the_connections_file_before_settings() {
+        let root = temp_root();
+        fs::write(root.join("settings.json"), LEGACY).unwrap();
+        fs::write(
+            root.join(CONNECTIONS),
+            r#"{"version":1,"connections":[{"id":"c","provider":"openai","method":"api","baseUrl":"https://api.openai.com","credentialId":"key"}],"models":[{"id":"m","connectionId":"c","enabled":false,"available":true,"model":"gpt"}],"activeModelId":"m"}"#,
+        )
+        .unwrap();
+        let config = super::super::AiConfig {
+            provider: "openai".into(),
+            internal_model_id: Some("m".into()),
+            model: "gpt".into(),
+            base_url: "https://api.openai.com".into(),
+            credential_id: Some("key".into()),
+            api_key: None,
+            max_tokens: None,
+            api_version: None,
+        };
+        assert_eq!(
+            validate_selected_model(&root, &config, false).unwrap_err(),
+            "unavailableModel"
+        );
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn refuses_corrupt_or_plaintext_credentials_before_writing() {
@@ -261,57 +486,6 @@ mod tests {
             transform(r#"{"ai":{"version":2,"models":[]}}"#).unwrap_err(),
             "alreadyVersioned"
         );
-    }
-    #[test]
-    fn recovers_prepared_publication_and_preserves_bom_backup() {
-        let root =
-            std::env::temp_dir().join(format!("amby-ai-migration-{}", ulid::Ulid::generate()));
-        fs::create_dir_all(&root).unwrap();
-        let old = "\u{feff}{\"ai\":{\"models\":[],\"activeModelId\":null}}";
-        fs::write(root.join("settings.json"), old).unwrap();
-        fs::write(root.join(BACKUP), old).unwrap();
-        let next = transform(old).unwrap();
-        fs::write(root.join(PREPARED), &next).unwrap();
-        migrate(&root).unwrap();
-        assert_eq!(fs::read_to_string(root.join(BACKUP)).unwrap(), old);
-        fs::remove_file(root.join(COMPLETED)).unwrap();
-        migrate(&root).unwrap();
-        assert!(root.join(COMPLETED).exists());
-        rollback(&root).unwrap();
-        assert_eq!(fs::read_to_string(root.join("settings.json")).unwrap(), old);
-        fs::remove_dir_all(root).unwrap();
-    }
-    #[test]
-    fn migrates_again_when_an_older_build_rewrote_the_settings() {
-        let root =
-            std::env::temp_dir().join(format!("amby-ai-migration-{}", ulid::Ulid::generate()));
-        fs::create_dir_all(&root).unwrap();
-        let first = r#"{"ai":{"models":[{"id":"a","provider":"openai","model":"x","label":"A"}],"activeModelId":"a"}}"#;
-        fs::write(root.join("settings.json"), first).unwrap();
-        migrate(&root).unwrap();
-        // An older build writes the legacy shape back.
-        let again = r#"{"ai":{"models":[{"id":"b","provider":"ollama","model":"y","label":"B"}],"activeModelId":"b"}}"#;
-        fs::write(root.join("settings.json"), again).unwrap();
-        migrate(&root).unwrap();
-        let migrated: Value =
-            serde_json::from_str(&fs::read_to_string(root.join("settings.json")).unwrap()).unwrap();
-        assert_eq!(migrated["ai"]["version"], 1);
-        assert_eq!(migrated["ai"]["models"][0]["id"], "b");
-        assert_eq!(fs::read_to_string(root.join(BACKUP)).unwrap(), again);
-        assert!(root.join(COMPLETED).exists());
-        // The first migration's backup is kept, not deleted.
-        let kept = fs::read_dir(&root)
-            .unwrap()
-            .filter_map(Result::ok)
-            .filter(|entry| {
-                entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with("settings.ai-v1.backup.json.superseded-")
-            })
-            .count();
-        assert_eq!(kept, 1);
-        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn refuses_duplicate_ids_and_wrong_types() {
@@ -367,21 +541,23 @@ fn validate_selected_model_locked(
     config: &super::AiConfig,
     wants_tools: bool,
 ) -> Result<(), String> {
-    let path = crate::paths::confine_rel_no_symlinks(root, "settings.json")?;
-    let raw = match fs::read_to_string(path) {
-        Ok(raw) => raw,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(_) => return Err("settingsUnavailable".into()),
+    // The connections file is authoritative; a versioned section still in settings.json counts
+    // only while the file has not been created.
+    let section = match read_connections(root)? {
+        Some(section) => section,
+        None => {
+            let Some(section) = settings_section(root)? else {
+                return Ok(());
+            };
+            if section.get("version").is_none() {
+                return Ok(());
+            }
+            section
+        }
     };
-    let settings: Value = serde_json::from_str(raw.strip_prefix('\u{feff}').unwrap_or(&raw))
-        .map_err(|_| "corruptSettings")?;
-    let Some(ai) = settings.get("ai") else {
-        return Ok(());
-    };
-    let Some(version) = ai.get("version") else {
-        return Ok(());
-    };
-    if version != 1 {
+    let ai = &section;
+    let version = ai.get("version").ok_or("corruptAiSettings")?;
+    if *version != 1 {
         return Err("unknownVersion".into());
     }
     let id = config

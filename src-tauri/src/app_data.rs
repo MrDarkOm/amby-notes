@@ -87,8 +87,8 @@ pub fn write_app_data(app: tauri::AppHandle, rel: String, contents: String) -> R
     let _guard = lock_app_data_writes()?;
     let root = app_root(&app)?;
     let path = paths::confine_rel(&root, &rel)?;
-    if path == paths::confine_rel(&root, "settings.json")? {
-        guard_ai_version(&path, &contents)?;
+    if let Some(file) = ai_file(&root, &path)? {
+        guard_ai_version(&path, &contents, file)?;
     }
     write_all(&path, &contents)
 }
@@ -108,27 +108,53 @@ pub fn compare_write_app_data(
     if read_opt(&path)? != expected {
         return Ok(false);
     }
-    if path == paths::confine_rel(&root, "settings.json")? {
-        guard_ai_version(&path, &contents)?;
+    if let Some(file) = ai_file(&root, &path)? {
+        guard_ai_version(&path, &contents, file)?;
     }
     write_all(&path, &contents)?;
     Ok(true)
 }
 
+/// Which file the version guard is looking at.
+#[derive(Clone, Copy)]
+enum AiFile {
+    /// settings.json, whose `ai` section may still hold a migrated version.
+    Settings,
+    /// ai-connections.json, which is an AI section of its own.
+    Connections,
+}
+
+fn ai_file(root: &Path, path: &Path) -> Result<Option<AiFile>, String> {
+    if path == paths::confine_rel(root, "settings.json")? {
+        Ok(Some(AiFile::Settings))
+    } else if path == paths::confine_rel(root, crate::ai::settings_migration::CONNECTIONS)? {
+        Ok(Some(AiFile::Connections))
+    } else {
+        Ok(None)
+    }
+}
+
 /// Do not let an older renderer overwrite a migrated or future AI section.
-fn guard_ai_version(path: &Path, next: &str) -> Result<(), String> {
-    fn version(raw: &str) -> Option<serde_json::Value> {
+fn guard_ai_version(path: &Path, next: &str, file: AiFile) -> Result<(), String> {
+    fn version(raw: &str, file: AiFile) -> Option<serde_json::Value> {
         let root: serde_json::Value =
             serde_json::from_str(raw.strip_prefix('\u{feff}').unwrap_or(raw)).ok()?;
-        root.get("ai")?.get("version").cloned()
+        match file {
+            AiFile::Settings => root.get("ai")?.get("version").cloned(),
+            AiFile::Connections => root.get("version").cloned(),
+        }
     }
     let existing = match fs::read_to_string(path) {
-        Ok(raw) => raw,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Ok(raw) => Some(raw),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(_) => return Err("settingsUnavailable".into()),
     };
-    if let Some(current) = version(&existing) {
-        if current != 1 || version(next) != Some(current) {
+    if matches!(file, AiFile::Connections) && version(next, file) != Some(1.into()) {
+        // The file is only ever a version 1 section, whether or not it exists yet.
+        return Err("unsupportedAiVersion".into());
+    }
+    if let Some(current) = existing.as_deref().and_then(|raw| version(raw, file)) {
+        if current != 1 || version(next, file) != Some(current) {
             return Err("unsupportedAiVersion".into());
         }
     }
@@ -212,10 +238,25 @@ mod tests {
         let dir = temp_test_dir("ai-version");
         let path = dir.join("settings.json");
         fs::write(&path, r#"{"ai":{"version":1}}"#).unwrap();
-        assert!(guard_ai_version(&path, r#"{"ai":{"models":[]}}"#).is_err());
-        assert!(guard_ai_version(&path, r#"{"ai":{"version":1}}"#).is_ok());
+        assert!(guard_ai_version(&path, r#"{"ai":{"models":[]}}"#, AiFile::Settings).is_err());
+        assert!(guard_ai_version(&path, r#"{"ai":{"version":1}}"#, AiFile::Settings).is_ok());
         fs::write(&path, r#"{"ai":{"version":2}}"#).unwrap();
-        assert!(guard_ai_version(&path, r#"{"ai":{"version":2}}"#).is_err());
+        assert!(guard_ai_version(&path, r#"{"ai":{"version":2}}"#, AiFile::Settings).is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn the_connections_file_only_ever_holds_version_one() {
+        let dir = temp_test_dir("ai-connections-version");
+        let path = dir.join("ai-connections.json");
+        // Even before it exists, an older shape or another version is refused.
+        assert!(guard_ai_version(&path, r#"{"models":[]}"#, AiFile::Connections).is_err());
+        assert!(guard_ai_version(&path, r#"{"version":2}"#, AiFile::Connections).is_err());
+        assert!(
+            guard_ai_version(&path, r#"{"version":1,"models":[]}"#, AiFile::Connections).is_ok()
+        );
+        fs::write(&path, r#"{"version":1}"#).unwrap();
+        assert!(guard_ai_version(&path, r#"{"models":[]}"#, AiFile::Connections).is_err());
+        assert!(guard_ai_version(&path, r#"{"version":1,"x":1}"#, AiFile::Connections).is_ok());
         fs::remove_dir_all(dir).unwrap();
     }
 }

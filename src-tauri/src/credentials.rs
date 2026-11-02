@@ -104,6 +104,43 @@ pub fn delete_ai_credential(credential_id: String) -> Result<(), String> {
     delete_credential_entry(&credential_id)
 }
 
+/// Whether any section of AI settings still names the credential. A section that cannot be read
+/// with certainty makes the answer an error: a key is never deleted on a guess.
+fn credential_referenced(
+    sections: &[serde_json::Value],
+    credential_id: &str,
+) -> Result<bool, String> {
+    if sections.is_empty() {
+        return Err("corruptAiSettings".into());
+    }
+    let mut referenced = false;
+    for section in sections {
+        let ai = section.as_object().ok_or("corruptAiSettings")?;
+        if ai.get("version").is_some_and(|version| version != 1) {
+            return Err("unsupportedAiVersion".into());
+        }
+        let items = if ai.contains_key("version") {
+            ai.get("connections")
+        } else {
+            ai.get("models")
+        }
+        .and_then(serde_json::Value::as_array)
+        .ok_or("corruptAiSettings")?;
+        if items.iter().any(|item| {
+            !item.is_object()
+                || item
+                    .get("credentialId")
+                    .is_some_and(|id| !id.is_null() && !id.is_string())
+        }) {
+            return Err("corruptAiSettings".into());
+        }
+        referenced |= items.iter().any(|item| {
+            item.get("credentialId").and_then(serde_json::Value::as_str) == Some(credential_id)
+        });
+    }
+    Ok(referenced)
+}
+
 /// Delete only after rechecking references while settings writes are locked.
 #[tauri::command]
 #[specta::specta]
@@ -113,36 +150,8 @@ pub fn delete_unreferenced_ai_credential(
 ) -> Result<bool, String> {
     let _guard = crate::app_data::lock_app_data_writes()?;
     let root = crate::app_data::app_root(&app)?;
-    let path = crate::paths::confine_rel_no_symlinks(&root, "settings.json")?;
-    let raw = std::fs::read_to_string(path).map_err(|_| "settingsUnavailable")?;
-    let settings: serde_json::Value =
-        serde_json::from_str(raw.strip_prefix('\u{feff}').unwrap_or(&raw))
-            .map_err(|_| "corruptSettings")?;
-    let ai = settings
-        .get("ai")
-        .and_then(serde_json::Value::as_object)
-        .ok_or("corruptAiSettings")?;
-    if ai.get("version").is_some_and(|version| version != 1) {
-        return Err("unsupportedAiVersion".into());
-    }
-    let items = if ai.contains_key("version") {
-        ai.get("connections")
-    } else {
-        ai.get("models")
-    }
-    .and_then(serde_json::Value::as_array)
-    .ok_or("corruptAiSettings")?;
-    if items.iter().any(|item| {
-        !item.is_object()
-            || item
-                .get("credentialId")
-                .is_some_and(|id| !id.is_null() && !id.is_string())
-    }) {
-        return Err("corruptAiSettings".into());
-    }
-    if items.iter().any(|item| {
-        item.get("credentialId").and_then(serde_json::Value::as_str) == Some(&credential_id)
-    }) {
+    let sections = crate::ai::settings_migration::credential_sections(&root)?;
+    if credential_referenced(&sections, &credential_id)? {
         return Ok(false);
     }
     delete_credential_entry(&credential_id)?;
@@ -268,5 +277,25 @@ mod tests {
         assert!(!info.exists);
         assert!(info.masked.is_none());
         std::mem::forget(cleanup);
+    }
+
+    #[test]
+    fn a_credential_is_referenced_by_the_connections_file_or_the_older_section() {
+        use serde_json::json;
+        let file = json!({"version":1,"connections":[{"id":"c","credentialId":"k1"}],"models":[]});
+        let older = json!({"models":[{"id":"m","provider":"openai","credentialId":"k2"}]});
+        let both = [file.clone(), older.clone()];
+        assert!(credential_referenced(&both, "k1").unwrap());
+        assert!(credential_referenced(&both, "k2").unwrap());
+        assert!(!credential_referenced(&both, "k3").unwrap());
+        assert_eq!(
+            credential_referenced(&[], "k1").unwrap_err(),
+            "corruptAiSettings"
+        );
+        let broken = json!({"models":[{"credentialId":7}]});
+        assert_eq!(
+            credential_referenced(&[file, broken], "k3").unwrap_err(),
+            "corruptAiSettings"
+        );
     }
 }

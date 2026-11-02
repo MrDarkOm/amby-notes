@@ -129,7 +129,7 @@ test("connection cards retain model choices in a narrow browser window", async (
   await expect
     .poll(() =>
       page.evaluate(
-        () => JSON.parse(localStorage.getItem("amby:g:settings.json")!).ai.models[1].enabled,
+        () => JSON.parse(localStorage.getItem("amby:g:ai-connections.json")!).models[1].enabled,
       ),
     )
     .toBe(true)

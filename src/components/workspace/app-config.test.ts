@@ -9,6 +9,7 @@ import {
   saveSession,
   loadWorkspaces,
   saveWorkspaces,
+  AI_CONNECTIONS_FILE,
   SETTINGS_FILE,
   WORKSPACE_FILE,
   SESSION_FILE,
@@ -145,7 +146,117 @@ describe("app-config & settings storage resilience (WP-19)", () => {
       { expectedAi: settings.ai.connectionSettings },
     )
     await expect(saveSettingsPatch({ ai: settings.ai })).rejects.toThrow("settingsChanged")
-    expect(JSON.parse(store.get("amby:g:" + SETTINGS_FILE)!).ai.models[0].enabled).toBe(false)
+    // The change lives in the connections file; the section in settings.json is as it was.
+    expect(JSON.parse(store.get("amby:g:" + AI_CONNECTIONS_FILE)!).models[0].enabled).toBe(false)
+    expect(JSON.parse(store.get("amby:g:" + SETTINGS_FILE)!).ai).toEqual(ai)
+  })
+
+  const connectionsOf = (id: string, enabled = true) => ({
+    version: 1,
+    activeModelId: id,
+    connections: [
+      {
+        id: `c-${id}`,
+        provider: "openai",
+        method: "api",
+        label: id,
+        baseUrl: "",
+        credentialId: null,
+        apiVersion: "",
+      },
+    ],
+    models: [
+      {
+        id,
+        connectionId: `c-${id}`,
+        model: "gpt",
+        label: id,
+        enabled,
+        available: true,
+        origin: "catalog",
+      },
+    ],
+  })
+  const stockLegacy = {
+    models: [
+      {
+        id: "default-ollama",
+        label: "Ollama",
+        provider: "ollama",
+        model: "llama3.2",
+        baseUrl: "",
+        credentialId: null,
+        apiVersion: "",
+      },
+    ],
+    activeModelId: "default-ollama",
+  }
+
+  it("reads the connections from their own file, ahead of whatever settings.json holds", async () => {
+    store.set("amby:g:" + SETTINGS_FILE, JSON.stringify({ ai: stockLegacy }))
+    store.set("amby:g:" + AI_CONNECTIONS_FILE, JSON.stringify(connectionsOf("mine")))
+    const settings = await loadSettings()
+    expect(settings.ai.models.map((model) => model.id)).toEqual(["mine"])
+  })
+
+  it("reads the file even when settings.json does not exist", async () => {
+    store.set("amby:g:" + AI_CONNECTIONS_FILE, JSON.stringify(connectionsOf("alone")))
+    expect((await loadSettings()).ai.models[0]?.id).toBe("alone")
+  })
+
+  it("saves connections to their file and leaves the settings.json section as an older build keeps it", async () => {
+    const legacy = JSON.stringify({ unknown: 1, ai: stockLegacy })
+    store.set("amby:g:" + SETTINGS_FILE, legacy)
+    store.set("amby:g:" + AI_CONNECTIONS_FILE, JSON.stringify(connectionsOf("mine")))
+    const settings = await loadSettings()
+    const changed = {
+      ...settings.ai.connectionSettings!,
+      models: settings.ai.connectionSettings!.models.map((model) => ({ ...model, enabled: false })),
+    }
+    await saveSettingsPatch(
+      { ai: projectAiConnections(changed) },
+      { expectedAi: settings.ai.connectionSettings },
+    )
+    expect(JSON.parse(store.get("amby:g:" + AI_CONNECTIONS_FILE)!).models[0].enabled).toBe(false)
+    expect(store.get("amby:g:" + SETTINGS_FILE)).toBe(legacy)
+  })
+
+  it("keeps the section of settings.json as it is when only other settings are saved", async () => {
+    store.set("amby:g:" + SETTINGS_FILE, JSON.stringify({ ai: stockLegacy }))
+    store.set("amby:g:" + AI_CONNECTIONS_FILE, JSON.stringify(connectionsOf("mine")))
+    await saveSettingsPatch({ defaultTheme: "dark" })
+    const saved = JSON.parse(store.get("amby:g:" + SETTINGS_FILE)!)
+    expect(saved.defaultTheme).toBe("dark")
+    expect(saved.ai).toEqual(stockLegacy)
+    expect(JSON.parse(store.get("amby:g:" + AI_CONNECTIONS_FILE)!).models[0].id).toBe("mine")
+  })
+
+  it("never writes the connections into settings.json", async () => {
+    store.set("amby:g:" + AI_CONNECTIONS_FILE, JSON.stringify(connectionsOf("mine")))
+    await saveSettingsPatch({ defaultTheme: "dark" })
+    expect(JSON.parse(store.get("amby:g:" + SETTINGS_FILE)!).ai?.version).toBeUndefined()
+  })
+
+  it("creates the file from a versioned section left in settings.json before its first save", async () => {
+    store.set("amby:g:" + SETTINGS_FILE, JSON.stringify({ ai: connectionsOf("old") }))
+    const settings = await loadSettings()
+    await saveSettingsPatch(
+      {
+        ai: projectAiConnections({
+          ...settings.ai.connectionSettings!,
+          activeModelId: "old",
+        }),
+      },
+      { expectedAi: settings.ai.connectionSettings },
+    )
+    expect(JSON.parse(store.get("amby:g:" + AI_CONNECTIONS_FILE)!).models[0].id).toBe("old")
+  })
+
+  it("refuses a connections file of a future version and a damaged one", async () => {
+    store.set("amby:g:" + AI_CONNECTIONS_FILE, JSON.stringify({ version: 99, models: [] }))
+    await expect(loadSettings()).rejects.toThrow("unsupportedAiVersion")
+    store.set("amby:g:" + AI_CONNECTIONS_FILE, "{")
+    await expect(loadSettings()).rejects.toThrow("corruptAiConnections")
   })
 
   it("refuses to overwrite a future AI settings version", async () => {
