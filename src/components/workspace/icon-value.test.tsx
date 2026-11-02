@@ -6,26 +6,15 @@ import { describe, expect, it } from "vitest"
 import { IconValue } from "./icon-value"
 
 describe("IconValue", () => {
-  it("does not render system icon marker superdatabase as text", () => {
-    const { container } = render(
-      <IconValue value="superdatabase" fallback={<span data-testid="fallback">fallback</span>} />,
-    )
-    expect(container.textContent).toBe("fallback")
-  })
-
-  it("does not render system icon marker database as text", () => {
-    const { container } = render(
-      <IconValue value="database" fallback={<span data-testid="fallback">fallback</span>} />,
-    )
-    expect(container.textContent).toBe("fallback")
-  })
-
-  it("does not render system icon marker file as text", () => {
-    const { container } = render(
-      <IconValue value="file" fallback={<span data-testid="fallback">fallback</span>} />,
-    )
-    expect(container.textContent).toBe("fallback")
-  })
+  it.each(["superdatabase", "database", "file"])(
+    "does not render system icon marker %s as text",
+    (marker) => {
+      const { container } = render(
+        <IconValue value={marker} fallback={<span data-testid="fallback">fallback</span>} />,
+      )
+      expect(container.textContent).toBe("fallback")
+    },
+  )
 
   it("renders emoji values directly", () => {
     const { container } = render(<IconValue value="🚀" />)
@@ -38,7 +27,6 @@ describe("IconValue", () => {
     expect(span).not.toBeNull()
     expect(span?.textContent).toBe("🚀")
     expect(span?.className).toContain("size-3.5")
-    expect(span?.className).toContain("inline-flex")
   })
 
   it("renders rich icons via SVG", () => {

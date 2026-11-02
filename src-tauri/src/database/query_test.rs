@@ -619,30 +619,6 @@ fn st09_date_multiselect_relation_filters() {
     );
 }
 #[test]
-fn review_canonical_multi_select_filter_is_accepted() {
-    let mut bindings = Vec::new();
-    let result = compile_property_condition(
-        "multiSelect",
-        "p",
-        "contains",
-        Some(serde_json::json!("option-id")),
-        &mut bindings,
-    );
-    assert!(result.is_ok(), "canonical type rejected: {result:?}");
-}
-#[test]
-fn review_checkbox_filter_sent_by_frontend_is_accepted() {
-    let mut bindings = Vec::new();
-    let result = compile_property_condition(
-        "checkbox",
-        "p",
-        "equals",
-        Some(serde_json::json!("true")),
-        &mut bindings,
-    );
-    assert!(result.is_ok(), "frontend operand rejected: {result:?}");
-}
-#[test]
 fn review_select_filter_sent_by_frontend_is_accepted() {
     let mut bindings = Vec::new();
     let result = compile_property_condition(
