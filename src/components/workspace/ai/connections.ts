@@ -54,46 +54,6 @@ export const AI_CONNECTION_PROVIDERS = AI_PROVIDERS.filter(
       : ["api"]) as AiConnectionMethod[],
 }))
 
-/** Preserve each legacy model as a separate connection. This avoids conflating
- * credentials or connection options, including options added by older versions. */
-export function readLegacyAiConnections(ai: AiSettings): AiConnectionsSettings {
-  const connections: AiConnection[] = []
-  const models: ConnectedAiModel[] = []
-  for (const model of ai.models) {
-    const connectionId = `legacy:${model.id}`
-    connections.push({
-      id: connectionId,
-      provider:
-        model.provider === "codex"
-          ? "openai"
-          : model.provider === "claude-code"
-            ? "anthropic"
-            : model.provider,
-      method:
-        model.provider === "codex"
-          ? "codex-cli"
-          : model.provider === "claude-code"
-            ? "claude-cli"
-            : "api",
-      label: model.label,
-      baseUrl: model.baseUrl,
-      credentialId: model.credentialId ?? null,
-      apiVersion: model.apiVersion,
-    })
-    models.push({
-      id: model.id,
-      connectionId,
-      model: model.model,
-      label: model.label,
-      enabled: true,
-      available: true,
-      origin: "legacy",
-      supportsTools: model.supportsTools,
-    })
-  }
-  return { version: AI_CONNECTIONS_VERSION, connections, models, activeModelId: ai.activeModelId }
-}
-
 export function selectableAiModels(settings: AiConnectionsSettings): ConnectedAiModel[] {
   const ids = new Set(
     settings.connections

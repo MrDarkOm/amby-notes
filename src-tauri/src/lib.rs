@@ -196,8 +196,6 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::assets::pick_asset_file,
         commands::assets::export_text_file,
         commands::assets::import_text_file,
-        ai::settings_migration::migrate_ai_settings,
-        ai::settings_migration::rollback_ai_settings,
         app_data::read_app_data,
         app_data::write_app_data,
         app_data::compare_write_app_data,

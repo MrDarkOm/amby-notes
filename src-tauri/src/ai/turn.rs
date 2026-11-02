@@ -707,7 +707,7 @@ pub async fn ai_run_turn(
     let provider = request.config.provider.clone();
     let fail = |code| error(&provider, code);
     let root = crate::app_data::app_root(&app).map_err(|_| fail(AiErrorCode::RequestFailed))?;
-    let captured_key = super::settings_migration::capture_selected_credential(
+    let captured_key = super::connections::capture_selected_credential(
         &root,
         &request.config,
         request.supports_tools,

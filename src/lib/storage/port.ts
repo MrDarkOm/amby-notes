@@ -170,8 +170,6 @@ export interface StoragePort extends DatabasePort, ProjectPort {
   showErrorMessage(message: string): Promise<void>
 
   // Tiered Settings & App Data
-  migrateAiSettings(): Promise<void>
-  rollbackAiSettings(): Promise<void>
   readGlobalRaw(file: string): Promise<string | null>
   writeGlobalRaw(file: string, contents: string): Promise<void>
   compareWriteGlobalRaw(file: string, expected: string | null, contents: string): Promise<boolean>

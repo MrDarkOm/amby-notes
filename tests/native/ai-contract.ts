@@ -371,45 +371,39 @@ export const nativeAiCases: Array<{
         result.data.length === 1 && result.data[0].model === "native-chat",
         "Non-chat model filtered",
       )
-      const old = JSON.stringify({
-        foreign: { keep: true },
-        ai: {
-          models: [
-            {
-              id: "old-id",
-              label: "Old",
-              provider: "ollama",
-              model: "native-chat",
-              baseUrl: url,
-              credentialId: null,
-              apiVersion: "",
-            },
-          ],
-          activeModelId: "old-id",
-        },
-      })
       const previous = await adapter.readGlobalRaw("settings.json")
       const previousConnections = await adapter.readGlobalRaw("ai-connections.json")
-      await adapter.writeGlobalRaw("settings.json", old)
-      const migrated = await commands.migrateAiSettings()
-      check(migrated.status === "ok", "Migration succeeds")
+      const connections = JSON.stringify({
+        version: 1,
+        connections: [
+          {
+            id: "c-old",
+            provider: "ollama",
+            method: "api",
+            label: "Old",
+            baseUrl: url,
+            credentialId: null,
+            apiVersion: "",
+          },
+        ],
+        models: [
+          {
+            id: "old-id",
+            connectionId: "c-old",
+            model: "native-chat",
+            label: "Old",
+            enabled: true,
+            available: true,
+            origin: "local",
+          },
+        ],
+        activeModelId: "old-id",
+      })
+      await adapter.writeGlobalRaw("ai-connections.json", connections)
       const next = await adapter.readGlobalRaw("ai-connections.json")
       check(
         next !== null && JSON.parse(next).models[0].id === "old-id",
         "Stable chat model ID retained",
-      )
-      check(
-        (await adapter.readGlobalRaw("settings.json")) === old,
-        "The older section in settings.json is left as it was",
-      )
-      check(
-        (await adapter.readGlobalRaw("settings.pre-ai-connections.backup.json")) === old,
-        "Original settings backed up exactly",
-      )
-      check((await commands.migrateAiSettings()).status === "ok", "Migration restart is idempotent")
-      check(
-        (await adapter.readGlobalRaw("ai-connections.json")) === next,
-        "A second run leaves the file as it was",
       )
       const disabled = JSON.parse(next as string)
       disabled.models[0].enabled = false
