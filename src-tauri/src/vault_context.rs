@@ -60,11 +60,29 @@ impl ActiveVault {
     /// Bring the index and the tree up to date for `changed` only. `None` means the change is
     /// not one a point refresh can cover (the vault root, too many paths, an identity clash that
     /// needs the whole picture) and the caller has to run `refresh`.
-    pub fn refresh_paths(
-        &self,
-        _changed: HashSet<PathBuf>,
-    ) -> Result<Option<PathsRefresh>, String> {
-        Ok(None)
+    pub fn refresh_paths(&self, changed: HashSet<PathBuf>) -> Result<Option<PathsRefresh>, String> {
+        let Some(sync) = vault_index::sync_paths(self, &self.root, &changed)? else {
+            return Ok(None);
+        };
+        let touched = changed
+            .iter()
+            .cloned()
+            .chain(sync.path_to_id.keys().map(PathBuf::from))
+            .collect::<Vec<_>>();
+        let Some(patch) =
+            crate::vault::tree_patch::patch_for_paths(&self.connection, &self.root, &touched)?
+        else {
+            return Ok(None);
+        };
+        // These events are answered; the next full refresh need not re-read their files.
+        self.index_changes
+            .lock_or_recover()
+            .retain(|path| !changed.contains(path));
+        Ok(Some(PathsRefresh {
+            generation: self.generation,
+            patch,
+            sync,
+        }))
     }
 
     pub fn reindex(&self) -> Result<vault_index::LoadVaultResult, String> {

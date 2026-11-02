@@ -662,20 +662,35 @@ fn deleting_a_layer_of_a_bundle() {
 
 // ── external changes ───────────────────────────────────────────────────────────────────────
 
-/// A watcher batch: change the disk behind the app's back, then refresh just those paths.
+/// A watcher batch: change the disk behind the app's back, then refresh just those paths. The
+/// reference is a full synchronisation of a copy of the index as it was before the change (a
+/// note that already owns an id keeps it against a newer copy, which a database built from
+/// nothing would not know).
 fn assert_external_change_equals_full(vault: &Vault, change: impl FnOnce(&Vault) -> Vec<PathBuf>) {
     let context = activate(&vault.0);
     let mut tree = loaded_tree(&context);
-    let changed = change(vault);
+    let before =
+        std::env::temp_dir().join(format!("amby-tree-patch-oracle-{}.db", Ulid::generate()));
+    context
+        .with_active(|active| {
+            active
+                .execute("VACUUM INTO ?1", [before.to_string_lossy().to_string()])
+                .map_err(|error| error.to_string())
+        })
+        .unwrap();
+    let oracle = Connection::open(&before).unwrap();
+
+    let changed = change(vault).into_iter().collect::<HashSet<_>>();
     let refresh = context
-        .with_active(|active| active.refresh_paths(changed.into_iter().collect::<HashSet<_>>()))
+        .with_active(|active| active.refresh_paths(changed.clone()))
         .unwrap()
         .expect("a few changed paths must be refreshed by path");
     apply(&mut tree, &vault.0, &refresh.patch);
 
-    let (full_index, full_tree) = full_load(&vault.0);
-    assert_trees_equal(&vault.0, &tree, &full_tree);
-    assert_index_equal(&active_dump(&context, &vault.0), &full_index);
+    let full = index::load_vault_with_changes(&oracle, &vault.0, &changed).unwrap();
+    assert_trees_equal(&vault.0, &tree, &full.tree);
+    assert_index_equal(&active_dump(&context, &vault.0), &dump(&oracle, &vault.0));
+    let _ = fs::remove_file(&before);
 }
 
 #[test]
@@ -776,6 +791,22 @@ fn an_external_manifest_turns_a_folder_into_a_database() {
         vault.write("Folder/Sub/Sub.json", &database_manifest("Sub"));
         vec![vault.path("Folder/Sub/Sub.json")]
     });
+}
+
+#[test]
+fn deleting_a_note_whose_id_duplicates_wait_for_needs_the_full_scan() {
+    let vault = fixture();
+    let context = activate(&vault.0);
+    fs::remove_file(vault.path("Projects/Conflicted.md")).unwrap();
+    let refresh = context
+        .with_active(|active| {
+            active.refresh_paths(HashSet::from([vault.path("Projects/Conflicted.md")]))
+        })
+        .unwrap();
+    assert!(
+        refresh.is_none(),
+        "the conflict copy would be promoted to the identity: only the full scan decides that"
+    );
 }
 
 #[test]

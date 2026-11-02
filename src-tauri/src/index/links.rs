@@ -228,6 +228,16 @@ pub fn resolve_links(conn: &Connection) -> Result<(), String> {
 }
 
 pub fn resolve_links_for_note(conn: &Connection, note_id: &str) -> Result<(), String> {
+    let lookup = build_note_lookup(conn)?;
+    resolve_links_for_note_with(conn, note_id, &lookup)
+}
+
+/// [`resolve_links_for_note`] with a lookup the caller built once for several notes.
+pub fn resolve_links_for_note_with(
+    conn: &Connection,
+    note_id: &str,
+    lookup: &HashMap<String, String>,
+) -> Result<(), String> {
     let row: Option<(String, String)> = conn
         .query_row(
             "SELECT path, title FROM notes WHERE id = ?1",
@@ -250,7 +260,6 @@ pub fn resolve_links_for_note(conn: &Connection, note_id: &str) -> Result<(), St
     keys.sort();
     keys.dedup();
 
-    let lookup = build_note_lookup(conn)?;
     let mut stmt = conn
         .prepare("SELECT rowid, target FROM links WHERE note_id = ?1")
         .map_err(|e| e.to_string())?;
