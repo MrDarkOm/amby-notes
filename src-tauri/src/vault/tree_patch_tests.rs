@@ -858,10 +858,7 @@ fn a_rename_still_rewrites_literal_references_in_notes_and_canvases() {
     rename(&context, &vault, "Projects/Alpha.md", "Renamed alpha");
     let beta = fs::read_to_string(vault.path("Projects/Beta.md")).unwrap();
     assert!(beta.contains("](Projects/Renamed alpha.md)"), "{beta}");
-    assert!(
-        beta.contains("[[Renamed alpha]]") || beta.contains("[[Alpha]]") == false,
-        "{beta}"
-    );
+    assert!(!beta.contains("[[Alpha]]"), "{beta}");
     assert!(fs::read_to_string(vault.path("Standalone.canvas"))
         .unwrap()
         .contains("\"file\":\"Projects/Renamed alpha.md\""));

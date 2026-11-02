@@ -513,9 +513,9 @@ pub(crate) fn create_note_inner(
     name: String,
 ) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
-    let parent_path = paths::guard(&db, &parent_path)?;
+    let parent_path = paths::guard(db, &parent_path)?;
     let plan = crate::bundle::prepare_create_note_impl(&parent_path, &name)?;
-    let prepared = prepare_note_creation(&watcher_state, &plan);
+    let prepared = prepare_note_creation(watcher_state, &plan);
     let result = match plan.commit() {
         Ok(result) => {
             watcher_state.confirm_prepared_write(&prepared);
@@ -527,7 +527,7 @@ pub(crate) fn create_note_inner(
         }
     };
     let vault = db.root()?;
-    let outcome = sync_mutation_result(&db, &vault, result);
+    let outcome = sync_mutation_result(db, &vault, result);
     tracing::info!(
         event = "create_note",
         parent = %parent_path.display(),
@@ -749,8 +749,8 @@ pub(crate) fn move_item_inner(
     target_path: String,
 ) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
-    let source_path = paths::guard(&db, &source_path)?;
-    let target_path = paths::guard(&db, &target_path)?;
+    let source_path = paths::guard(db, &source_path)?;
+    let target_path = paths::guard(db, &target_path)?;
     let preview = preview_move_item(&source_path, &target_path)?;
     // Synchronisation learns that this is a move, before the change reaches the disk (Д70).
     if let Ok(root) = db.root() {
@@ -797,7 +797,7 @@ pub(crate) fn move_item_inner(
         return Err("Vault changed before move".to_string());
     }
     let prepared_move = prepare_move_paths(
-        &watcher_state,
+        watcher_state,
         &source_path,
         &target_path,
         &preview.path_changes,
@@ -838,8 +838,8 @@ pub(crate) fn move_item_inner(
             new_path: path_string(&path),
         })
         .collect::<Vec<_>>();
-    let mut outcome = sync_mutation_result(&db, &vault_root, result);
-    if let Err(error) = sync_path_changes(&db, &vault_root, &rewritten_changes) {
+    let mut outcome = sync_mutation_result(db, &vault_root, result);
+    if let Err(error) = sync_path_changes(db, &vault_root, &rewritten_changes) {
         tracing::warn!(event = "index_update_failed", error = %error);
         if let Ok(conn_guard) = db.conn.lock() {
             if let Some(active) = conn_guard.as_ref() {
@@ -1034,7 +1034,7 @@ pub(crate) fn rename_item_inner(
     new_name: String,
 ) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
-    let path = paths::guard(&db, &path)?;
+    let path = paths::guard(db, &path)?;
     let preview = preview_rename_item(&path, &new_name)?;
     // Synchronisation learns that this is a rename, before the change reaches the disk (Д70).
     if let Ok(root) = db.root() {
@@ -1055,7 +1055,7 @@ pub(crate) fn rename_item_inner(
     if db.generation()? != generation {
         return Err("Vault changed before rename".to_string());
     }
-    let prepared_rename = prepare_path_changes(&watcher_state, &preview.path_changes);
+    let prepared_rename = prepare_path_changes(watcher_state, &preview.path_changes);
     let result = match rename_item_impl(&path, &new_name) {
         Ok(result) => {
             watcher_state.confirm_prepared_write(&prepared_rename);
@@ -1098,8 +1098,8 @@ pub(crate) fn rename_item_inner(
             new_path: path_string(&path),
         })
         .collect::<Vec<_>>();
-    let mut outcome = sync_mutation_result(&db, &vault_root, result);
-    if let Err(error) = sync_path_changes(&db, &vault_root, &rewritten_changes) {
+    let mut outcome = sync_mutation_result(db, &vault_root, result);
+    if let Err(error) = sync_path_changes(db, &vault_root, &rewritten_changes) {
         tracing::warn!(event = "index_update_failed", error = %error);
         if let Ok(conn_guard) = db.conn.lock() {
             if let Some(active) = conn_guard.as_ref() {
@@ -1160,7 +1160,7 @@ pub(crate) fn delete_item_inner(
     if mode == recycle_bin::DeleteMode::Permanent {
         recycle_bin::reject_symlink_for_permanent_delete(Path::new(&path))?;
     }
-    let path = paths::guard(&db, &path)?;
+    let path = paths::guard(db, &path)?;
     let vault = db.root()?;
     let preview = recycle_bin::preview_move_to_trash(&vault, &path)?;
     let mut writes = vec![(preview.original_path.clone(), PathFingerprint::Missing)];
@@ -1188,7 +1188,7 @@ pub(crate) fn delete_item_inner(
         }
     };
     let vault = db.root()?;
-    Ok(sync_mutation_result(&db, &vault, result))
+    Ok(sync_mutation_result(db, &vault, result))
 }
 
 #[tauri::command]
