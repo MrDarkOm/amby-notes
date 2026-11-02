@@ -703,8 +703,6 @@ export const compareWriteGlobalRaw = (
   expected: string | null,
   contents: string,
 ): Promise<boolean> => settingsRepository.compareWriteGlobalRaw(file, expected, contents)
-export const migrateAiSettings = (): Promise<void> => settingsRepository.migrateAiSettings()
-export const rollbackAiSettings = (): Promise<void> => settingsRepository.rollbackAiSettings()
 export const globalFileMissing = (file: string): Promise<boolean> =>
   settingsRepository.globalFileMissing(file)
 export const vaultFileMissing = (rel: string): Promise<boolean> =>

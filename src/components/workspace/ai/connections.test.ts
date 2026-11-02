@@ -8,7 +8,10 @@ import {
   newChatModelId,
   projectAiConnections,
   setBaseAiModel,
-  readLegacyAiConnections,
+  AI_CONNECTIONS_VERSION,
+  type AiConnection,
+  type AiConnectionsSettings,
+  type ConnectedAiModel,
   readAiConnections,
   resolveConnectedAiModel,
   reconcileAiCatalog,
@@ -16,6 +19,45 @@ import {
   setAiModelEnabled,
   setAiModelTools,
 } from "./connections"
+
+/** Test fixture: one connection per model of the flat settings shape. */
+function readLegacyAiConnections(ai: AiSettings): AiConnectionsSettings {
+  const connections: AiConnection[] = []
+  const models: ConnectedAiModel[] = []
+  for (const model of ai.models) {
+    const connectionId = `legacy:${model.id}`
+    connections.push({
+      id: connectionId,
+      provider:
+        model.provider === "codex"
+          ? "openai"
+          : model.provider === "claude-code"
+            ? "anthropic"
+            : model.provider,
+      method:
+        model.provider === "codex"
+          ? "codex-cli"
+          : model.provider === "claude-code"
+            ? "claude-cli"
+            : "api",
+      label: model.label,
+      baseUrl: model.baseUrl,
+      credentialId: model.credentialId ?? null,
+      apiVersion: model.apiVersion,
+    })
+    models.push({
+      id: model.id,
+      connectionId,
+      model: model.model,
+      label: model.label,
+      enabled: true,
+      available: true,
+      origin: "legacy",
+      supportsTools: model.supportsTools,
+    })
+  }
+  return { version: AI_CONNECTIONS_VERSION, connections, models, activeModelId: ai.activeModelId }
+}
 
 const legacy: AiSettings = {
   activeModelId: "old-2",

@@ -1148,14 +1148,6 @@ export class DesktopAdapter implements StoragePort {
     })
   }
 
-  async migrateAiSettings(): Promise<void> {
-    await unwrapCommand(commands.migrateAiSettings())
-  }
-
-  async rollbackAiSettings(): Promise<void> {
-    await unwrapCommand(commands.rollbackAiSettings())
-  }
-
   async readGlobalRaw(file: string): Promise<string | null> {
     return unwrapCommand(commands.readAppData(file))
   }

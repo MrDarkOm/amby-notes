@@ -1590,14 +1590,6 @@ export class WebAdapterCore implements StoragePort {
     if (typeof window !== "undefined") window.alert(message)
   }
 
-  async migrateAiSettings(): Promise<void> {
-    throw new Error("AI settings migration requires the desktop app")
-  }
-
-  async rollbackAiSettings(): Promise<void> {
-    throw new Error("AI settings rollback requires the desktop app")
-  }
-
   async readGlobalRaw(file: string): Promise<string | null> {
     return withWebStorage(() => metadataStorage.readGlobal(file))
   }

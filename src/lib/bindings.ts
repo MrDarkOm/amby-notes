@@ -1269,25 +1269,6 @@ async importTextFile() : Promise<Result<string | null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * Migrate when the connection settings screen is first opened.
- */
-async migrateAiSettings() : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("migrate_ai_settings") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async rollbackAiSettings() : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("rollback_ai_settings") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async readAppData(rel: string) : Promise<Result<string | null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("read_app_data", { rel }) };
@@ -1920,7 +1901,7 @@ export type AiConfig = {
  */
 provider: string; 
 /**
- * Stable internal ID when settings use connection format v1.
+ * Stable ID of the model in `ai-connections.json`; the native check matches it.
  */
 internalModelId: string | null; model: string; 
 /**

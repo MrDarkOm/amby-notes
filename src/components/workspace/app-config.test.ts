@@ -127,12 +127,16 @@ describe("app-config & settings storage resilience (WP-19)", () => {
         },
       ],
     }
-    store.set("amby:g:" + SETTINGS_FILE, JSON.stringify({ ai, foreign: { keep: true } }))
+    store.set("amby:g:" + AI_CONNECTIONS_FILE, JSON.stringify(ai))
+    store.set(
+      "amby:g:" + SETTINGS_FILE,
+      JSON.stringify({ ai: stockLegacy, foreign: { keep: true } }),
+    )
     const settings = await loadSettings()
     expect(settings.ai.models[0]).toMatchObject({ id: "old", credentialId: "key" })
     await saveSettingsPatch({ defaultTheme: "dark" })
     const saved = JSON.parse(store.get("amby:g:" + SETTINGS_FILE)!)
-    expect(saved.ai).toEqual(ai)
+    expect(saved.ai).toEqual(stockLegacy)
     expect(saved.foreign).toEqual({ keep: true })
     await expect(saveSettingsPatch({ ai: { ...settings.ai, models: [] } })).rejects.toThrow(
       "invalidAiMutation",
@@ -148,7 +152,7 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     await expect(saveSettingsPatch({ ai: settings.ai })).rejects.toThrow("settingsChanged")
     // The change lives in the connections file; the section in settings.json is as it was.
     expect(JSON.parse(store.get("amby:g:" + AI_CONNECTIONS_FILE)!).models[0].enabled).toBe(false)
-    expect(JSON.parse(store.get("amby:g:" + SETTINGS_FILE)!).ai).toEqual(ai)
+    expect(JSON.parse(store.get("amby:g:" + SETTINGS_FILE)!).ai).toEqual(stockLegacy)
   })
 
   const connectionsOf = (id: string, enabled = true) => ({
@@ -237,39 +241,11 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     expect(JSON.parse(store.get("amby:g:" + SETTINGS_FILE)!).ai?.version).toBeUndefined()
   })
 
-  it("creates the file from a versioned section left in settings.json before its first save", async () => {
-    store.set("amby:g:" + SETTINGS_FILE, JSON.stringify({ ai: connectionsOf("old") }))
-    const settings = await loadSettings()
-    await saveSettingsPatch(
-      {
-        ai: projectAiConnections({
-          ...settings.ai.connectionSettings!,
-          activeModelId: "old",
-        }),
-      },
-      { expectedAi: settings.ai.connectionSettings },
-    )
-    expect(JSON.parse(store.get("amby:g:" + AI_CONNECTIONS_FILE)!).models[0].id).toBe("old")
-  })
-
   it("refuses a connections file of a future version and a damaged one", async () => {
     store.set("amby:g:" + AI_CONNECTIONS_FILE, JSON.stringify({ version: 99, models: [] }))
     await expect(loadSettings()).rejects.toThrow("unsupportedAiVersion")
     store.set("amby:g:" + AI_CONNECTIONS_FILE, "{")
     await expect(loadSettings()).rejects.toThrow("corruptAiConnections")
-  })
-
-  it("refuses to overwrite a future AI settings version", async () => {
-    const raw = JSON.stringify({
-      ai: { version: 99, connections: [], models: [], activeModelId: null },
-      extra: true,
-    })
-    store.set("amby:g:" + SETTINGS_FILE, raw)
-    await expect(loadSettings()).rejects.toThrow("unsupportedAiVersion")
-    await expect(saveSettingsPatch({ defaultTheme: "dark" })).rejects.toThrow(
-      "unsupportedAiVersion",
-    )
-    expect(store.get("amby:g:" + SETTINGS_FILE)).toBe(raw)
   })
 
   it("handles corrupt JSON by creating a recoverable copy before restoring defaults", async () => {
@@ -497,48 +473,6 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     expect(errorListener).toHaveBeenCalled()
 
     window.removeEventListener(SETTINGS_SAVE_ERROR_EVENT, errorListener)
-  })
-
-  it("migrates legacy plaintext apiKey to secure credential store and rewrites settings.json without secret", async () => {
-    // Write legacy settings with a plaintext API key in AI model
-    store.set(
-      "amby:g:" + SETTINGS_FILE,
-      JSON.stringify({
-        schemaVersion: 1,
-        panelScope: "global",
-        ai: {
-          models: [
-            {
-              id: "openai-model-1",
-              label: "OpenAI GPT-4",
-              provider: "openai",
-              model: "gpt-4o",
-              baseUrl: "",
-              apiKey: "sk-proj-super-secret-key-12345678",
-              apiVersion: "",
-            },
-          ],
-          activeModelId: "openai-model-1",
-        },
-      }),
-    )
-
-    const loaded = await loadSettings()
-    const model = loaded.ai.models[0]
-    expect(model.id).toBe("openai-model-1")
-    expect(model.credentialId).toBeDefined()
-    expect(typeof model.credentialId).toBe("string")
-    expect((model as { apiKey?: string }).apiKey).toBeUndefined()
-
-    // Check credential store
-    const storedSecret = store.get("amby:cred:" + model.credentialId!)
-    expect(storedSecret).toBe("sk-proj-super-secret-key-12345678")
-
-    // Check rewritten settings.json in storage: MUST NOT contain apiKey
-    const savedRaw = store.get("amby:g:" + SETTINGS_FILE)!
-    expect(savedRaw).not.toContain("sk-proj-super-secret-key-12345678")
-    expect(savedRaw).not.toContain('"apiKey"')
-    expect(savedRaw).toContain(model.credentialId)
   })
 
   it("normalizes and round-trips debug preferences", async () => {

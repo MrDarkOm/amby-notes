@@ -150,7 +150,7 @@ pub fn delete_unreferenced_ai_credential(
 ) -> Result<bool, String> {
     let _guard = crate::app_data::lock_app_data_writes()?;
     let root = crate::app_data::app_root(&app)?;
-    let sections = crate::ai::settings_migration::credential_sections(&root)?;
+    let sections = crate::ai::connections::credential_sections(&root)?;
     if credential_referenced(&sections, &credential_id)? {
         return Ok(false);
     }

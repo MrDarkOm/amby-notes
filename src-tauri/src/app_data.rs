@@ -127,7 +127,7 @@ enum AiFile {
 fn ai_file(root: &Path, path: &Path) -> Result<Option<AiFile>, String> {
     if path == paths::confine_rel(root, "settings.json")? {
         Ok(Some(AiFile::Settings))
-    } else if path == paths::confine_rel(root, crate::ai::settings_migration::CONNECTIONS)? {
+    } else if path == paths::confine_rel(root, crate::ai::connections::CONNECTIONS)? {
         Ok(Some(AiFile::Connections))
     } else {
         Ok(None)

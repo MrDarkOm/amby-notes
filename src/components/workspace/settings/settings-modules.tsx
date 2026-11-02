@@ -38,7 +38,6 @@ import {
   type ProfileId,
 } from "@/lib/modules"
 import {
-  loadAiConnectionSettings,
   loadSettings,
   loadWorkspaceConfig,
   saveSettingsPatch,
@@ -291,7 +290,7 @@ export function AiTab() {
   const [ai, setAi] = React.useState<AiSettings | null>(null)
 
   React.useEffect(() => {
-    void loadAiConnectionSettings()
+    void loadSettings()
       .then((s) => setAi(s.ai))
       .catch(() => setLoadError(true))
   }, [])
