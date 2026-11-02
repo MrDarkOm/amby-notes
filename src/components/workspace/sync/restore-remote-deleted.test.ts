@@ -33,7 +33,7 @@ beforeEach(() => {
   vi.mocked(listTrash).mockResolvedValue([
     { id: "t1", originalPath: REL, deletedAtMs: 1, name: "идея" },
   ])
-  vi.mocked(restoreTrash).mockResolvedValue({ changed: [] } as never)
+  vi.mocked(restoreTrash).mockResolvedValue({ pathChanges: [], deletedPaths: [] })
 })
 
 describe("restoreRemoteDeleted", () => {

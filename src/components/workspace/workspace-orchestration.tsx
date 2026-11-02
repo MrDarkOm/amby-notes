@@ -145,11 +145,13 @@ export function WorkspaceOrchestration() {
     refreshLinkGraph,
     loadVault,
     refreshTree,
+    refreshTreePaths,
+    patchTree,
     reloadVaultData,
     windowLabel,
   } = useVaultData({ onExternalChange })
   useLinkSuggestionSources(vault, treeItems)
-  useRefreshTreeOnArchiveChange(refreshTree)
+  useRefreshTreeOnArchiveChange(refreshTree, refreshTreePaths)
 
   // Action is stable in zustand, so read it once without subscribing.
   const { applyMutation, patchDoc, markSaved, clearExternalConflict } = useDocStore.getState()
@@ -587,11 +589,22 @@ export function WorkspaceOrchestration() {
     [setTabs],
   )
 
-  function applyMutationResult(result: FsMutationResult) {
+  /**
+   * Apply a mutation to the stores and the tree. `true` when the tree was brought up to date by
+   * the patch the backend built from the disk; `false` when it only got the optimistic
+   * approximation, and the caller should ask the backend to refresh the touched paths.
+   */
+  function applyMutationResult(result: FsMutationResult): boolean {
     recordLocalTreeMutation(result)
     const { deletedIds, remapFn, hasChanges } = planMutation(result)
-    setTreeItems((prev) => applyTreePatch(prev, result))
-    if (!hasChanges) return
+    const patched = result.treePatch
+      ? patchTree(result.treePatch, [
+          ...result.pathChanges.map((change) => change.oldPath).filter(Boolean),
+          ...result.deletedPaths,
+        ])
+      : false
+    if (!patched) setTreeItems((prev) => applyTreePatch(prev, result))
+    if (!hasChanges) return patched
 
     const deleted = new Set(deletedIds)
     // Fan out to each store with the same deletedIds.
@@ -656,6 +669,7 @@ export function WorkspaceOrchestration() {
       }
       return next
     })
+    return patched
   }
 
   const currentDoc = React.useMemo(() => {
@@ -764,7 +778,7 @@ export function WorkspaceOrchestration() {
         })
         markSaved(fileId)
         clearExternalConflict(fileId)
-        await refreshTree(vault)
+        await refreshTreePaths([document.path], vault)
       } catch (error) {
         logger.warn("document.restore_deleted_failed", { errorType: errorType(error) })
         throw error
@@ -775,7 +789,7 @@ export function WorkspaceOrchestration() {
       clearExternalConflict,
       markSaved,
       patchDoc,
-      refreshTree,
+      refreshTreePaths,
       vault,
       windowLabel,
     ],
@@ -791,7 +805,7 @@ export function WorkspaceOrchestration() {
     vault,
     currentDoc,
     treeItems,
-    refreshTree,
+    refreshTreePaths,
     applyMutationResult,
     databasesEnabled,
     backendGeneration,
@@ -827,6 +841,7 @@ export function WorkspaceOrchestration() {
     treeItems: displayTreeItems,
     setTreeItems,
     refreshTree,
+    refreshTreePaths,
     applyMutationResult,
     loadCanvas,
     setOpenCanvases,
@@ -1076,7 +1091,9 @@ export function WorkspaceOrchestration() {
   const handleHistoryRestored = React.useCallback(
     async (path?: string) => {
       if (!vault) return
-      await refreshTree(vault)
+      // A restore of one note changes that note; with no path (a restore of the whole vault state)
+      // anything may have changed.
+      await (path ? refreshTreePaths([path], vault) : refreshTree(vault))
       if (useVaultStore.getState().vault !== vault) return
       const openDocs = useDocStore.getState().openDocs
       const targetId = path
@@ -1101,7 +1118,7 @@ export function WorkspaceOrchestration() {
       })
       markSaved(targetId)
     },
-    [vault, currentDocId, patchDoc, markSaved, refreshTree],
+    [vault, currentDocId, patchDoc, markSaved, refreshTree, refreshTreePaths],
   )
 
   const { handleOpenCanvasNote } = useLayerLoadEffects({
@@ -1386,7 +1403,7 @@ export function WorkspaceOrchestration() {
       handleRenameDatabaseRow,
       handleLoadRowDocument,
       refreshDatabaseCatalog,
-      refreshTree,
+      refreshTreePaths,
       loadDoc,
       activeTab,
       secondaryTabKey,

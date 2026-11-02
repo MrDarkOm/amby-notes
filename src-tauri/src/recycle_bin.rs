@@ -132,6 +132,8 @@ pub fn delete_permanently(vault: &Path, path: &Path) -> Result<FsMutationResult,
         fs::remove_file(&preview.original_path).map_err(|error| error.to_string())?;
     }
     Ok(FsMutationResult {
+        tree_patch: None,
+        also_touched: Vec::new(),
         primary_id: None,
         primary_path: None,
         path_changes: Vec::new(),
@@ -234,6 +236,8 @@ pub fn move_to_trash(vault: &Path, path: &Path) -> Result<FsMutationResult, Stri
         return Err(error);
     }
     Ok(FsMutationResult {
+        tree_patch: None,
+        also_touched: Vec::new(),
         primary_id: None,
         primary_path: None,
         path_changes: Vec::new(),
@@ -378,6 +382,8 @@ pub fn restore(vault: &Path, id: &str) -> Result<FsMutationResult, String> {
     fs::remove_file(preview.manifest).map_err(|error| error.to_string())?;
     fs::remove_dir(trash_root.join(id)).map_err(|error| error.to_string())?;
     Ok(FsMutationResult {
+        tree_patch: None,
+        also_touched: Vec::new(),
         primary_id: None,
         primary_path: Some(path_string(&primary_path)),
         path_changes,
@@ -422,6 +428,8 @@ fn finish_interrupted_restore(vault: &Path, id: &str) -> Result<Option<FsMutatio
         .map_err(|error| error.to_string())?;
     let _ = fs::remove_dir(&payload_dir);
     Ok(Some(FsMutationResult {
+        tree_patch: None,
+        also_touched: Vec::new(),
         primary_id: None,
         primary_path: Some(path_string(&destination)),
         path_changes: Vec::new(),

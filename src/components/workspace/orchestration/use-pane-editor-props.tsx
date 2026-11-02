@@ -121,7 +121,7 @@ interface UsePaneEditorPropsParams {
   handleRenameDatabaseRow: (rowId: string, name: string) => Promise<void>
   handleLoadRowDocument: (row: DatabaseRow) => Promise<Document>
   refreshDatabaseCatalog: (signal?: { cancelled: boolean }) => Promise<void>
-  refreshTree: (path?: string | null) => Promise<TreeItem[]>
+  refreshTreePaths: (paths: string[]) => Promise<TreeItem[]>
   loadDoc: (fileId: string, itemName: string) => Promise<Document>
 }
 
@@ -204,7 +204,7 @@ export function usePaneEditorProps({
   handleRenameDatabaseRow,
   handleLoadRowDocument,
   refreshDatabaseCatalog,
-  refreshTree,
+  refreshTreePaths,
   loadDoc,
 }: UsePaneEditorPropsParams) {
   const { t } = useTranslation()
@@ -546,7 +546,7 @@ export function usePaneEditorProps({
                 vault={vault ?? undefined}
                 onCatalogChanged={refreshDatabaseCatalog}
                 onRowCreated={async (row) => {
-                  await refreshTree()
+                  await refreshTreePaths([row.notePath])
                   await loadDoc(row.noteId, row.title)
                 }}
               />

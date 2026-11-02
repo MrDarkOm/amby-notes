@@ -96,6 +96,32 @@ pub fn load_active_vault(
     Ok(loaded)
 }
 
+/// Bring the index and the sidebar tree up to date for the paths the watcher reported, without
+/// reading the rest of the vault. `null` means a point refresh cannot cover them (the vault
+/// root, a bulk change, an identity clash): the renderer then runs `load_active_vault`.
+#[tauri::command]
+#[specta::specta]
+pub fn refresh_vault_paths(
+    context: tauri::State<'_, vault_context::VaultContext>,
+    paths: Vec<String>,
+) -> Result<Option<vault_context::PathsRefresh>, String> {
+    let mut changed = std::collections::HashSet::new();
+    for path in paths {
+        let path = std::path::PathBuf::from(path);
+        if path
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+        {
+            return Err("A path may not leave the vault".to_string());
+        }
+        changed.insert(path);
+    }
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
+    let active = context.conn.lock_or_recover();
+    let active = active.as_ref().ok_or("No vault open")?;
+    active.refresh_paths(changed)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn reindex_vault(

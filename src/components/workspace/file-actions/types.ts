@@ -10,7 +10,8 @@ export interface UseFileActionsParams {
   treeItems: TreeItem[]
   setTreeItems: React.Dispatch<React.SetStateAction<TreeItem[]>>
   refreshTree: (path?: string | null) => Promise<TreeItem[]>
-  applyMutationResult: (result: FsMutationResult) => void
+  refreshTreePaths: (paths: string[]) => Promise<TreeItem[]>
+  applyMutationResult: (result: FsMutationResult) => boolean
   loadCanvas: (path: string) => Promise<void>
   setOpenCanvases: React.Dispatch<React.SetStateAction<Record<string, string>>>
   loadSketch: (path: string) => Promise<void>
@@ -33,7 +34,7 @@ export interface MarkdownAutosavePayload {
 export interface MarkdownAutosaveActions {
   autosave: AutosaveCoordinator<MarkdownAutosavePayload>
   autosaveKey: (fileId: string) => AutosaveKey
-  handleApplyMutation: (result: FsMutationResult) => void
+  handleApplyMutation: (result: FsMutationResult) => boolean
   handleContentChange: (fileId: string, content: string) => void
   handleContentDirty: (fileId: string) => void
   recoveryScope: RecoveryScope

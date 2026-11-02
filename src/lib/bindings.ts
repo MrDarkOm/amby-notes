@@ -48,6 +48,19 @@ async loadActiveVault() : Promise<Result<LoadVaultResult, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Bring the index and the sidebar tree up to date for the paths the watcher reported, without
+ * reading the rest of the vault. `null` means a point refresh cannot cover them (the vault
+ * root, a bulk change, an identity clash): the renderer then runs `load_active_vault`.
+ */
+async refreshVaultPaths(paths: string[]) : Promise<Result<PathsRefresh | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("refresh_vault_paths", { paths }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async reindexVault() : Promise<Result<LoadVaultResult, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("reindex_vault") };
@@ -2258,7 +2271,14 @@ export type FileMetadata = { created: number | null; modified: number | null; wo
  */
 export type FrontmatterProperty = { key: string; value: string; valueKind: string }
 export type FrontmatterStatus = "none" | "valid" | "invalid" | "unterminated"
-export type FsMutationResult = { primaryId: string | null; primaryPath: string | null; pathChanges: PathChange[]; deletedPaths: string[]; deletedIds: string[] }
+export type FsMutationResult = { primaryId: string | null; primaryPath: string | null; pathChanges: PathChange[]; deletedPaths: string[]; deletedIds: string[]; 
+/**
+ * Exactly what the sidebar tree has to change after this mutation, built from the disk
+ * after the change (see `vault/tree_patch.rs`). `None` while the index could not follow
+ * the mutation or the change is not expressible as a patch: the renderer then reloads
+ * the whole tree.
+ */
+treePatch?: TreePatch | null }
 export type HistoryCleanupPreview = { removedCount: number; freedBytes: number; remaining: HistoryStats }
 export type HistoryCleanupResult = { removedCount: number; freedBytes: number; remaining: HistoryStats }
 export type HistoryRetention = { maxSnapshotsPerNote: number; maxAgeDays: number | null }
@@ -2441,6 +2461,10 @@ warning: string | null;
  */
 suggestions: string[] }
 export type PathChange = { oldPath: string; newPath: string }
+/**
+ * The answer to a refresh of a few paths: the tree patch and the sync report for them.
+ */
+export type PathsRefresh = { generation: number; patch: TreePatch; sync: SyncReport }
 /**
  * The plan of the user. `None` in [`AccountOverview::plan`] means "no plan" (an own server
  * without plans, or a server that does not know the account request).
@@ -2879,6 +2903,23 @@ export type TrashEntry = { id: string; originalPath: string; deletedAtMs: number
 export type TrashPreview = { path: string; directory: boolean; text: string | null; children: TrashPreviewItem[]; truncated: boolean }
 export type TrashPreviewItem = { name: string; path: string; directory: boolean }
 export type TreeItem = { id: string; path: string; name: string; type: string; icon: string; created?: number | null; modified?: number | null; children?: TreeItem[] | null }
+export type TreePatch = { ops: TreePatchOp[] }
+/**
+ * One change of the tree. Operations are applied in order: removals first, then insertions of
+ * parents before their children.
+ */
+export type TreePatchOp = 
+/**
+ * Remove every child of the item at `parentPath` whose `path` is one of `paths`
+ * (`parentPath` is `null` for the vault root). The paths are alternatives for one entry
+ * that may have been listed under either: the entry itself or its main layer file.
+ */
+{ kind: "remove"; parentPath: string | null; paths: string[] } | 
+/**
+ * Put `item` among the children of the item at `parentPath`, in its sorted place. An item
+ * with the same path is replaced; with `replaceChildren` off it keeps the children it has.
+ */
+{ kind: "upsert"; parentPath: string | null; item: TreeItem; replaceChildren: boolean }
 /**
  * A file that is not synchronised on this computer (Р4, Р9).
  */

@@ -120,7 +120,7 @@ interface UsePaneRenderersParams {
   handleRenameDatabaseRow: (rowId: string, name: string) => Promise<void>
   handleLoadRowDocument: (row: DatabaseRow) => Promise<Document>
   refreshDatabaseCatalog: (signal?: { cancelled: boolean }) => Promise<void>
-  refreshTree: (path?: string | null) => Promise<TreeItem[]>
+  refreshTreePaths: (paths: string[]) => Promise<TreeItem[]>
   loadDoc: (fileId: string, itemName: string) => Promise<Document>
   activeTab: Tab | null
   secondaryTabKey: string | null
@@ -229,7 +229,7 @@ export function usePaneRenderers({
   handleRenameDatabaseRow,
   handleLoadRowDocument,
   refreshDatabaseCatalog,
-  refreshTree,
+  refreshTreePaths,
   loadDoc,
   activeTab,
   secondaryTabKey,
@@ -338,7 +338,7 @@ export function usePaneRenderers({
     handleRenameDatabaseRow,
     handleLoadRowDocument,
     refreshDatabaseCatalog,
-    refreshTree,
+    refreshTreePaths,
     loadDoc,
   })
   const activeFolder =

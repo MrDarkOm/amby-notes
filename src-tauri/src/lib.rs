@@ -52,6 +52,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         updater::check_app_update,
         commands::vault::load_vault,
         commands::vault::load_active_vault,
+        commands::vault::refresh_vault_paths,
         commands::vault::reindex_vault,
         commands::vault::preflight_vault,
         commands::vault::apply_id_migration,

@@ -635,6 +635,19 @@ pub fn prepare_path_changes_with_identities(
             )?);
         }
     }
+    // One note reported twice (a bundle promotion lists the note as moved and as created) is one
+    // note: the last read is the current one.
+    let last_read: std::collections::HashMap<String, usize> = prepared
+        .iter()
+        .enumerate()
+        .map(|(position, note)| (note.rel_path.clone(), position))
+        .collect();
+    let mut position = 0;
+    prepared.retain(|note| {
+        let keep = last_read.get(&note.rel_path) == Some(&position);
+        position += 1;
+        keep
+    });
     let mut identities = std::collections::HashSet::new();
     for note in &mut prepared {
         if !identities.insert(note.note_id.clone()) {
@@ -666,6 +679,39 @@ pub fn prepare_index_mutation(
         notes: prepare_path_changes_with_identities(vault, changes, identities)?,
         deleted_ids,
     })
+}
+
+/// The keys of renamed notes that were made from the old path (`amby-opaque:`, `amby-conflict:`) and
+/// are not carried over by the new rows: their old rows are stale once the rename is done.
+pub fn stale_path_identities(
+    vault: &Path,
+    identities: &NoteIndexIdentitySnapshot,
+    changes: &[crate::model::PathChange],
+    prepared: &[PreparedNoteIndex],
+) -> Vec<String> {
+    let mut stale = Vec::new();
+    for change in changes {
+        if change.old_path.is_empty()
+            || change.new_path.is_empty()
+            || change.old_path == change.new_path
+            || !is_markdown(Path::new(&change.old_path))
+        {
+            continue;
+        }
+        let Ok(old_rel) = relative_path(vault, Path::new(&change.old_path)) else {
+            continue;
+        };
+        if let Some(id) = identities
+            .by_path
+            .get(&old_rel)
+            .filter(|id| is_path_identity(id))
+        {
+            if !prepared.iter().any(|note| &note.note_id == id) {
+                stale.push(id.clone());
+            }
+        }
+    }
+    stale
 }
 
 pub fn prepare_deleted_ids(

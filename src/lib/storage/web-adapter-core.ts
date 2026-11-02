@@ -36,6 +36,7 @@ import type {
   LayerResult,
   LinkGraph,
   LoadVaultResult,
+  PathsRefresh,
   NoteReadOutcome,
   NoteLayers,
   NoteProperties,
@@ -771,6 +772,11 @@ export class WebAdapterCore implements StoragePort {
 
   async reindexActiveVaultData(): Promise<LoadVaultResult> {
     return this.loadVaultData(WEB_VAULT)
+  }
+
+  // The browser fallback has no watcher and no index to update by path: the caller reloads.
+  async refreshVaultPaths(_paths: string[]): Promise<PathsRefresh | null> {
+    return null
   }
 
   async preflightVault(_vaultPath: string): Promise<VaultPreflight> {

@@ -132,6 +132,19 @@ pub struct FsMutationResult {
     pub path_changes: Vec<PathChange>,
     pub deleted_paths: Vec<String>,
     pub deleted_ids: Vec<String>,
+    /// Exactly what the sidebar tree has to change after this mutation, built from the disk
+    /// after the change (see `vault/tree_patch.rs`). `None` while the index could not follow
+    /// the mutation or the change is not expressible as a patch: the renderer then reloads
+    /// the whole tree.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub tree_patch: Option<crate::vault::tree_patch::TreePatch>,
+    /// Paths the operation changed that `path_changes` does not list (it names only the notes
+    /// the index follows): a canvas that left its bundle, for instance. Never sent to the
+    /// renderer; the tree patch needs them.
+    #[serde(skip)]
+    #[specta(skip)]
+    pub also_touched: Vec<std::path::PathBuf>,
 }
 
 #[derive(Serialize, specta::Type)]

@@ -25,6 +25,7 @@ import {
   newTabKey,
 } from "./workspace-tree-utils"
 import { buildLinkGraph } from "./wiki-links"
+import { applyTreePatchOps, patchedItems, removePaths } from "./tree-patch"
 import type { TreeItem } from "./sidebar-tree"
 import {
   isTauri,
@@ -32,6 +33,7 @@ import {
   readNote,
   loadVaultData,
   loadActiveVaultData,
+  refreshVaultPaths,
   reindexActiveVaultData,
   preflightVault,
   applyIdMigration,
@@ -42,6 +44,7 @@ import {
   confirmAction,
   showErrorMessage,
   type LinkGraph,
+  type TreePatch,
 } from "@/lib/storage"
 
 import { emit, listen } from "@tauri-apps/api/event"
@@ -83,6 +86,9 @@ export interface UseVaultDataOptions {
   onExternalChange?: (changes: Array<{ kind: string; path: string }>) => Promise<void>
 }
 
+/** More watcher events than this in one batch are handled by a full refresh. */
+const WATCHER_PATH_REFRESH_LIMIT = 200
+
 export function useVaultData(options: UseVaultDataOptions = {}) {
   const { t } = useTranslation()
   const onExternalChangeRef = React.useRef(options.onExternalChange)
@@ -122,7 +128,18 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
   const closedTreeIds = useViewStateStore((s) => s.closedTreeIds)
   const { hydrateFromSession } = useViewStateStore.getState()
 
-  const [treeItems, setTreeItems] = React.useState<TreeItem[]>([])
+  const [treeItems, setTreeItemsState] = React.useState<TreeItem[]>([])
+  // The tree as the last update left it: patches are applied to this, not to a render's snapshot,
+  // so two results arriving before a render do not undo each other.
+  const treeRef = React.useRef<TreeItem[]>([])
+  const setTreeItems = React.useCallback<React.Dispatch<React.SetStateAction<TreeItem[]>>>(
+    (action) => {
+      const next = typeof action === "function" ? action(treeRef.current) : action
+      treeRef.current = next
+      setTreeItemsState(next)
+    },
+    [],
+  )
   const [linkGraph, setLinkGraph] = React.useState<LinkGraph>({ nodes: [], edges: [] })
   // Bumped by the graph's Refresh button to read the links again without a tree change.
   const [linkGraphRequest, setLinkGraphRequest] = React.useState(0)
@@ -158,6 +175,52 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     setTreeItems(loaded.tree)
     setTabs((previous) => reconcileTreeBackedTabTitles(previous, loaded.tree))
     return loaded.tree
+  }
+
+  /**
+   * Apply a tree patch the backend built (from a mutation result or a refresh by path), after
+   * dropping `vanishedPaths` (entries the mutation moved away or deleted). `false` when it does
+   * not fit the tree, which is then left as it was: the caller reloads it.
+   */
+  function patchTree(patch: TreePatch, vanishedPaths: string[] = []): boolean {
+    const root = useVaultStore.getState().vault
+    if (!root) return false
+    // Paths that are gone from the disk may still stand where an optimistic move left them.
+    const base = removePaths(treeRef.current, new Set(vanishedPaths))
+    const next = applyTreePatchOps(base, patch, root)
+    if (next === null) return false
+    if (next !== treeRef.current) {
+      setTreeItems(next)
+      const touched = patchedItems(patch)
+      if (touched.length) setTabs((previous) => reconcileTreeBackedTabTitles(previous, touched))
+    }
+    return true
+  }
+
+  /**
+   * Bring the tree up to date for the given paths (the files a mutation changed or the watcher
+   * reported) without reading the rest of the vault. Falls back to the full refresh when the
+   * backend cannot cover the paths or its patch does not fit.
+   */
+  async function refreshTreePaths(
+    paths: string[],
+    path: string | null = vault,
+  ): Promise<TreeItem[]> {
+    if (!path) return []
+    if (!paths.length) return treeRef.current
+    const requestId = switchRef.current.requestId
+    const refreshed = await refreshVaultPaths(paths)
+    if (requestId !== switchRef.current.requestId || useVaultStore.getState().vault !== path) {
+      return []
+    }
+    if (
+      refreshed &&
+      refreshed.generation === useVaultStore.getState().backendGeneration &&
+      patchTree(refreshed.patch)
+    ) {
+      return treeRef.current
+    }
+    return refreshTree(path)
   }
 
   async function reindexTree(path: string | null = vault): Promise<TreeItem[]> {
@@ -586,7 +649,15 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
           { count: changes.length },
           { subsystem: "watcher" },
         )
-        const tree = await refreshTree(vault)
+        // The watcher names what changed: update the index and the tree for those paths only.
+        // A burst of events (an import, a sync batch) is cheaper to read as a whole.
+        const tree =
+          changes.length <= WATCHER_PATH_REFRESH_LIMIT
+            ? await refreshTreePaths(
+                changes.map((change) => change.path),
+                vault,
+              )
+            : await refreshTree(vault)
         if (!isCurrent()) return
         const openDocs = useDocStore.getState().openDocs
 
@@ -894,6 +965,8 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     refreshLinkGraph,
     loadVault,
     refreshTree,
+    refreshTreePaths,
+    patchTree,
     reloadVaultData,
     windowLabel,
   }

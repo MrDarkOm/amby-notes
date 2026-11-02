@@ -162,6 +162,39 @@ export interface FsMutationResult {
   pathChanges: PathChange[]
   deletedPaths: string[]
   deletedIds?: string[]
+  /**
+   * What the sidebar tree has to change after this mutation, built by the backend from the disk.
+   * Absent when the change cannot be expressed as a patch: the caller reloads the tree.
+   */
+  treePatch?: TreePatch | null
+}
+
+/** One change of the tree; applied in order (see `applyTreePatchOps`). */
+export type TreePatchOp =
+  | {
+      kind: "remove"
+      /** The item holding the entry, `null` for the vault root. */
+      parentPath: string | null
+      /** Alternative paths of one entry: itself, or its main layer file. */
+      paths: string[]
+    }
+  | {
+      kind: "upsert"
+      parentPath: string | null
+      item: TreeItem
+      /** Off: the item keeps the children it already has (only its own fields change). */
+      replaceChildren: boolean
+    }
+
+export interface TreePatch {
+  ops: TreePatchOp[]
+}
+
+/** The answer to a refresh of a few paths. */
+export interface PathsRefresh {
+  generation: number
+  patch: TreePatch
+  sync: SyncReport
 }
 
 type IndexState = "healthy" | "degraded" | "rebuildRequired"

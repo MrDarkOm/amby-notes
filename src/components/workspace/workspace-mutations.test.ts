@@ -7,6 +7,7 @@ import {
   isPathInside,
   isTargetDeleted,
   moveTreeItemsOptimistically,
+  mutationPaths,
   planMutation,
   reconcileTreeBackedTabTitles,
   removeTreeItem,
@@ -895,5 +896,20 @@ describe("isPathInside and isTargetDeleted", () => {
     expect(isTargetDeleted("PaLooVerse", ["PaLooVerse"])).toBe(true)
     expect(isTargetDeleted("database:PaLooVerse/Sub", ["PaLooVerse"])).toBe(true)
     expect(isTargetDeleted("database:Other", ["PaLooVerse"])).toBe(false)
+  })
+})
+
+describe("mutationPaths", () => {
+  it("lists every path a mutation touched once, for a refresh by path", () => {
+    expect(
+      mutationPaths({
+        primaryPath: "/v/New/New.md",
+        pathChanges: [
+          { oldPath: "/v/New.md", newPath: "/v/New/New.md" },
+          { oldPath: "", newPath: "/v/New/Child.md" },
+        ],
+        deletedPaths: ["/v/Gone.md"],
+      }),
+    ).toEqual(["/v/New/New.md", "/v/New.md", "/v/New/Child.md", "/v/Gone.md"])
   })
 })
