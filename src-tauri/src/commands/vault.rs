@@ -1,3 +1,4 @@
+use crate::lock_util::LockExt;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -55,7 +56,7 @@ pub fn load_vault(
             loaded
         },
     )?;
-    let active = context.conn.lock().unwrap();
+    let active = context.conn.lock_or_recover();
     if let Some(active) = active.as_ref() {
         if let Ok(Some(projection)) =
             crate::database::projection::cached_projection_version(&active.connection, &active.root)
@@ -80,8 +81,8 @@ pub fn load_active_vault(
     context: tauri::State<'_, vault_context::VaultContext>,
     runtime: tauri::State<'_, crate::database::runtime_state::DatabaseRuntimeState>,
 ) -> Result<vault_index::LoadVaultResult, String> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
-    let active = context.conn.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or("No vault open")?;
     let loaded = active.refresh()?;
     if let Ok(Some(projection)) =
@@ -101,8 +102,8 @@ pub fn reindex_vault(
     context: tauri::State<'_, vault_context::VaultContext>,
     runtime: tauri::State<'_, crate::database::runtime_state::DatabaseRuntimeState>,
 ) -> Result<vault_index::LoadVaultResult, String> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
-    let active = context.conn.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or("No vault open")?;
     let loaded = active.reindex()?;
     if let Ok(Some(projection)) =
@@ -131,7 +132,7 @@ pub fn apply_id_migration(
     context: tauri::State<'_, vault_context::VaultContext>,
     vault_path: String,
 ) -> Result<vault_index::IdMigrationResult, String> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let canonical = Path::new(&vault_path)
         .canonicalize()
         .map_err(|error| format!("Vault not accessible: {error}"))?;
@@ -160,7 +161,7 @@ pub fn recover_id_migration(
     journal_path: String,
     action: vault_index::IdMigrationRecoveryAction,
 ) -> Result<vault_index::IdMigrationRecovery, String> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let canonical = Path::new(&vault_path)
         .canonicalize()
         .map_err(|error| format!("Vault not accessible: {error}"))?;
@@ -172,7 +173,7 @@ pub fn recover_id_migration(
 pub fn list_files(
     db: tauri::State<'_, vault_context::VaultContext>,
 ) -> Result<Vec<vault_index::TreeItem>, String> {
-    let conn_guard = db.conn.lock().unwrap();
+    let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     conn.refresh().map(|loaded| loaded.tree)
 }
@@ -188,7 +189,7 @@ pub fn start_vault_watcher(
     use tauri::Emitter;
 
     let (vault, generation, index_changes) = {
-        let active = context.conn.lock().unwrap();
+        let active = context.conn.lock_or_recover();
         let active = active.as_ref().ok_or("No vault open")?;
         (
             active.root.clone(),
@@ -265,7 +266,7 @@ pub fn start_vault_watcher(
             error.to_string()
         })?;
 
-    *state.watcher.lock().unwrap() = Some(watcher);
+    *state.watcher.lock_or_recover() = Some(watcher);
     context.set_watcher_identity(Some(generation))?;
     crate::sync::activate_for_open_vault(&app, vault);
     Ok(())
@@ -279,7 +280,7 @@ pub fn stop_vault_watcher(
     context: tauri::State<'_, vault_context::VaultContext>,
 ) -> Result<(), String> {
     crate::sync::deactivate_for_closed_vault(&app);
-    *state.watcher.lock().unwrap() = None;
+    *state.watcher.lock_or_recover() = None;
     state.active_generation.store(0, Ordering::Release);
     context.set_watcher_identity(None)?;
     Ok(())

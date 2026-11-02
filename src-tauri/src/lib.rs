@@ -9,6 +9,7 @@ mod frontmatter;
 mod history;
 pub mod index;
 mod keychain_access;
+mod lock_util;
 pub mod logging;
 mod model;
 pub mod package_manager;

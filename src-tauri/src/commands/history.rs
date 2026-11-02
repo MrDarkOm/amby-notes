@@ -1,4 +1,5 @@
 use crate::history;
+use crate::lock_util::LockExt;
 use crate::model::*;
 use crate::paths;
 use crate::recovery::RecoveryEntry;
@@ -15,7 +16,7 @@ fn scoped_recovery_root(
     expected_generation: Option<u64>,
     expected_vault: Option<&str>,
 ) -> Result<(std::path::PathBuf, u64), String> {
-    let active = context.conn.lock().unwrap();
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or("No vault is open")?;
     if let Some(expected) = expected_generation {
         if active.generation != expected {
@@ -58,7 +59,7 @@ pub fn cleanup_history(
     retention: history::HistoryRetention,
     source_path: Option<String>,
 ) -> Result<history::HistoryCleanupResult, String> {
-    let _mutation_guard = scope.mutation_gate.lock().unwrap();
+    let _mutation_guard = scope.mutation_gate.lock_or_recover();
     let source_path = source_path
         .as_deref()
         .map(|path| paths::guard(&scope, path))
@@ -88,7 +89,7 @@ pub fn restore_snapshot(
     watcher_state: tauri::State<'_, WatcherState>,
     snapshot_id: String,
 ) -> Result<String, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let vault = scope.get()?;
     let prepared_restore = history::prepare_snapshot_restore(&vault, &snapshot_id)?;
     let prepared_write = watcher_state.prepare_write([(
@@ -105,7 +106,7 @@ pub fn restore_snapshot(
             return Err(error);
         }
     };
-    let conn_guard = db.conn.lock().unwrap();
+    let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     vault_index::sync_vault(conn, &vault)?;
     Ok(crate::bundle::path_string(&path))
@@ -118,7 +119,7 @@ pub fn delete_snapshot(
     db: tauri::State<'_, VaultContext>,
     snapshot_id: String,
 ) -> Result<(), String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     history::delete_snapshot(&scope.get()?, &snapshot_id)
 }
 
@@ -142,7 +143,7 @@ pub fn save_recovery(
     expected_generation: Option<u64>,
     expected_vault: Option<String>,
 ) -> Result<RecoveryEntry, String> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let (vault, generation) =
         scoped_recovery_root(&context, expected_generation, expected_vault.as_deref())?;
     crate::recovery::save_recovery(
@@ -163,7 +164,7 @@ pub fn read_recovery(
     expected_generation: Option<u64>,
     expected_vault: Option<String>,
 ) -> Result<Option<RecoveryEntry>, String> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let (vault, _) =
         scoped_recovery_root(&context, expected_generation, expected_vault.as_deref())?;
     crate::recovery::read_recovery(&vault, &id)
@@ -178,7 +179,7 @@ pub fn delete_recovery(
     expected_generation: Option<u64>,
     expected_vault: Option<String>,
 ) -> Result<(), String> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let (vault, _) =
         scoped_recovery_root(&context, expected_generation, expected_vault.as_deref())?;
     crate::recovery::delete_recovery(&vault, &id, expected_content_hash.as_deref())
@@ -191,7 +192,7 @@ pub fn list_recovery(
     expected_generation: Option<u64>,
     expected_vault: Option<String>,
 ) -> Result<Vec<RecoveryEntry>, String> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let (vault, _) =
         scoped_recovery_root(&context, expected_generation, expected_vault.as_deref())?;
     crate::recovery::list_recovery(&vault)
@@ -212,7 +213,7 @@ pub fn read_trash_preview(
     trash_id: String,
     relative_path: String,
 ) -> Result<recycle_bin::TrashPreview, String> {
-    let _mutation_guard = scope.mutation_gate.lock().unwrap();
+    let _mutation_guard = scope.mutation_gate.lock_or_recover();
     recycle_bin::read_preview(&scope.get()?, &trash_id, &relative_path)
 }
 
@@ -224,7 +225,7 @@ pub fn restore_trash(
     watcher_state: tauri::State<'_, WatcherState>,
     trash_id: String,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let vault = scope.get()?;
     let preview = recycle_bin::preview_restore(&vault, &trash_id)?;
     let mut writes = vec![(
@@ -259,7 +260,7 @@ pub fn purge_trash(
     db: tauri::State<'_, VaultContext>,
     trash_id: String,
 ) -> Result<(), String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     recycle_bin::purge(&scope.get()?, &trash_id)
 }
 
@@ -270,11 +271,11 @@ pub fn preview_rename_refactor(
     path: String,
     new_name: String,
 ) -> Result<vault_index::RefactorPreview, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(&db, &path)?;
     let preview = crate::bundle::preview_rename_item(&path, &new_name)?;
     let (vault, inputs) = {
-        let conn_guard = db.conn.lock().unwrap();
+        let conn_guard = db.conn.lock_or_recover();
         let conn = conn_guard.as_ref().ok_or("No vault open")?;
         let inputs = vault_index::collect_inbound_wiki_rewrite_inputs(
             conn,
@@ -294,12 +295,12 @@ pub fn preview_move_refactor(
     source_path: String,
     target_path: String,
 ) -> Result<vault_index::RefactorPreview, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let source_path = paths::guard(&db, &source_path)?;
     let target_path = paths::guard(&db, &target_path)?;
     let preview = crate::bundle::preview_move_item(&source_path, &target_path)?;
     let (vault, generation, inputs) = {
-        let conn_guard = db.conn.lock().unwrap();
+        let conn_guard = db.conn.lock_or_recover();
         let conn = conn_guard.as_ref().ok_or("No vault open")?;
         let inputs = vault_index::collect_inbound_wiki_rewrite_inputs(
             conn,
@@ -310,7 +311,7 @@ pub fn preview_move_refactor(
     };
     let plan = vault_index::build_inbound_wiki_rewrites(&vault, &preview.path_changes, inputs)?;
     let summary = vault_index::refactor_preview(&plan);
-    let conn_guard = db.conn.lock().unwrap();
+    let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     if conn.generation != generation {
         return Err("Vault changed while preparing move preview".to_string());

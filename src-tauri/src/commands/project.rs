@@ -5,6 +5,7 @@
 use crate::database::history::DatabaseHistoryState;
 use crate::database::model::ProjectionVersion;
 use crate::database::runtime_state::DatabaseRuntimeState;
+use crate::lock_util::LockExt;
 use crate::project::complete;
 use crate::project::create::{self, Env};
 use crate::project::index;
@@ -79,7 +80,7 @@ pub fn refresh_projects(
     runtime: tauri::State<'_, DatabaseRuntimeState>,
     expected_generation: u64,
 ) -> Result<ProjectCatalog, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, expected_generation)?;
     require_enabled(&runtime, generation)?;
     let active = context.conn.lock().expect("vault context poisoned");
@@ -129,7 +130,7 @@ pub fn init_workshop(
     watcher: tauri::State<'_, WatcherState>,
     request: InitWorkshopRequest,
 ) -> Result<CreatedWorkshop, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
     let active = context.conn.lock().expect("vault context poisoned");
@@ -154,7 +155,7 @@ pub fn complete_workshop(
     watcher: tauri::State<'_, WatcherState>,
     request: CompleteWorkshopRequest,
 ) -> Result<CompletedWorkshop, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
     let active = context.conn.lock().expect("vault context poisoned");
@@ -194,7 +195,7 @@ pub fn create_story(
     watcher: tauri::State<'_, WatcherState>,
     request: CreateStoryRequest,
 ) -> Result<CreatedStory, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
     let active = context.conn.lock().expect("vault context poisoned");
@@ -228,7 +229,7 @@ pub fn create_workshop_section(
     watcher: tauri::State<'_, WatcherState>,
     request: CreateWorkshopSectionRequest,
 ) -> Result<CreatedWorkshopSectionResult, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
     let active = context.conn.lock().expect("vault context poisoned");
@@ -252,7 +253,7 @@ pub fn create_text_page(
     watcher: tauri::State<'_, WatcherState>,
     request: CreateTextPageRequest,
 ) -> Result<CreatedTextPage, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
     let active = context.conn.lock().expect("vault context poisoned");
@@ -312,7 +313,7 @@ pub fn move_text_page(
     history: tauri::State<'_, DatabaseHistoryState>,
     request: MoveTextPageRequest,
 ) -> Result<MovedTextPage, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
     let active = context.conn.lock().expect("vault context poisoned");
@@ -418,7 +419,7 @@ pub fn update_workshop(
     watcher: tauri::State<'_, WatcherState>,
     request: UpdateWorkshopRequest,
 ) -> Result<UpdatedWorkshop, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
     let active = context.conn.lock().expect("vault context poisoned");
@@ -447,7 +448,7 @@ pub fn remove_workshop_section(
     watcher: tauri::State<'_, WatcherState>,
     request: RemoveWorkshopSectionRequest,
 ) -> Result<RemovedWorkshopSection, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
     let active = context.conn.lock().expect("vault context poisoned");
@@ -476,7 +477,7 @@ pub fn reorder_workshop_sections(
     watcher: tauri::State<'_, WatcherState>,
     request: ReorderWorkshopSectionsRequest,
 ) -> Result<ReorderedWorkshopSections, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
     let active = context.conn.lock().expect("vault context poisoned");
@@ -505,7 +506,7 @@ pub fn update_text_levels(
     watcher: tauri::State<'_, WatcherState>,
     request: UpdateTextLevelsRequest,
 ) -> Result<UpdatedTextLevels, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
     let active = context.conn.lock().expect("vault context poisoned");
@@ -529,7 +530,7 @@ pub fn add_text_status(
     watcher: tauri::State<'_, WatcherState>,
     request: AddTextStatusRequest,
 ) -> Result<AddedTextStatus, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
     let active = context.conn.lock().expect("vault context poisoned");
@@ -553,7 +554,7 @@ pub fn add_story_links(
     watcher: tauri::State<'_, WatcherState>,
     request: AddStoryLinksRequest,
 ) -> Result<AddedStoryLinks, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
     let active = context.conn.lock().expect("vault context poisoned");
@@ -577,7 +578,7 @@ pub fn ensure_plot_links(
     watcher: tauri::State<'_, WatcherState>,
     request: EnsurePlotLinksRequest,
 ) -> Result<EnsuredPlotLinks, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
     let active = context.conn.lock().expect("vault context poisoned");
@@ -602,7 +603,7 @@ pub fn create_workshop_entity(
     watcher: tauri::State<'_, WatcherState>,
     request: CreateWorkshopEntityRequest,
 ) -> Result<CreatedWorkshopEntity, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
     let active = context.conn.lock().expect("vault context poisoned");

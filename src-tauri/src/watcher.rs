@@ -1,3 +1,4 @@
+use crate::lock_util::LockExt;
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -278,7 +279,7 @@ impl WatcherState {
         I: IntoIterator<Item = (P, PathFingerprint)>,
         P: AsRef<Path>,
     {
-        let mut guard = self.own_writes.lock().unwrap();
+        let mut guard = self.own_writes.lock_or_recover();
         let now = Instant::now();
         let generation = self.active_generation.load(Ordering::Acquire);
         let mut records = Vec::new();
@@ -306,7 +307,7 @@ impl WatcherState {
     /// fingerprint. If an external writer won the race, remove the record so
     /// its watcher event cannot be mistaken for an Amby write.
     pub fn confirm_prepared_write(&self, prepared: &PreparedSelfWrite) {
-        let mut guard = self.own_writes.lock().unwrap();
+        let mut guard = self.own_writes.lock_or_recover();
         for (path, token) in &prepared.records {
             let should_remove = guard.get(path).is_some_and(|record| {
                 record.operation_token == *token && path_fingerprint(path) != record.expected
@@ -320,7 +321,7 @@ impl WatcherState {
     /// Remove only this operation's speculative records. This preserves a
     /// newer operation that registered the same path after us.
     pub fn cancel_prepared_write(&self, prepared: &PreparedSelfWrite) {
-        let mut guard = self.own_writes.lock().unwrap();
+        let mut guard = self.own_writes.lock_or_recover();
         for (path, token) in &prepared.records {
             if guard
                 .get(path)
@@ -359,7 +360,7 @@ pub fn reconcile_self_write(
     generation: u64,
 ) -> bool {
     let now = Instant::now();
-    let mut guard = own_writes.lock().unwrap();
+    let mut guard = own_writes.lock_or_recover();
     let Some(record) = guard.get(path).cloned() else {
         return false;
     };

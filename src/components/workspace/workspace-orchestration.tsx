@@ -9,6 +9,7 @@ import { motion } from "motion/react"
 import { ActivityBar } from "./activity-bar"
 import { useRefreshSync } from "./sync/use-refresh-sync"
 import { PanelHost } from "./panel-host"
+import { SurfaceErrorBoundary } from "./surface-error-boundary"
 import { ResizeHandle } from "./resize-handle"
 // Lazy-loaded so @xyflow/react and d3-force are excluded from the initial bundle.
 // They are fetched from their own chunks the first time the user opens a Canvas
@@ -149,6 +150,23 @@ const EMPTY_LAYERS = { canvas: false, sketch: false, database: false }
 const NOOP = () => {}
 
 /** Spinner shown while a lazy chunk (Canvas / Graph) is being fetched. */
+/** Lazy surface whose crash stays inside its own tab instead of replacing the window. */
+function SurfaceSuspense({
+  scope,
+  resetKey,
+  children,
+}: {
+  scope: string
+  resetKey?: string | number
+  children: React.ReactNode
+}) {
+  return (
+    <SurfaceErrorBoundary scope={scope} resetKey={resetKey}>
+      <React.Suspense fallback={<LazyEditorFallback />}>{children}</React.Suspense>
+    </SurfaceErrorBoundary>
+  )
+}
+
 function LazyEditorFallback() {
   return (
     <div className="flex h-full flex-1 items-center justify-center">
@@ -2306,13 +2324,13 @@ export function WorkspaceOrchestration() {
 
     if (paneDocTabs.length === 0) {
       return (
-        <React.Suspense fallback={<LazyEditorFallback />}>
+        <SurfaceSuspense scope="document">
           <DocumentEditor
             {...paneEditorProps(null, false, leaf?.id)}
             isFocusMode={isFocusMode}
             onToggleFocusMode={isFocusMode ? handleExitFocusMode : handleEnterFocusMode}
           />
-        </React.Suspense>
+        </SurfaceSuspense>
       )
     }
 
@@ -2488,7 +2506,7 @@ export function WorkspaceOrchestration() {
                   : "invisible pointer-events-none absolute inset-0 flex min-h-0 min-w-0 overflow-hidden"
               }
             >
-              <React.Suspense fallback={<LazyEditorFallback />}>
+              <SurfaceSuspense scope="document">
                 <ConnectedCachedDocumentEditor
                   key={cacheKey}
                   editorProps={props}
@@ -2509,7 +2527,7 @@ export function WorkspaceOrchestration() {
                       : NOOP
                   }
                 />
-              </React.Suspense>
+              </SurfaceSuspense>
             </div>
           )
         })}
@@ -2686,7 +2704,7 @@ export function WorkspaceOrchestration() {
                 !leafGraphActive && "invisible pointer-events-none",
               )}
             >
-              <React.Suspense fallback={<LazyEditorFallback />}>
+              <SurfaceSuspense scope="graph">
                 <div
                   className="amby-workspace-surface relative mb-2 mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
                   style={{ boxShadow: "var(--note-surface-shadow)" }}
@@ -2708,7 +2726,7 @@ export function WorkspaceOrchestration() {
                     canGoForward={leafCanGoForward}
                   />
                 </div>
-              </React.Suspense>
+              </SurfaceSuspense>
             </div>
           ) : null}
           {leafActiveTab?.kind === "graph" && !graphEnabled ? (
@@ -2721,14 +2739,14 @@ export function WorkspaceOrchestration() {
             />
           ) : leafActiveTab?.kind === "creative" ? (
             creativeEnabled ? (
-              <React.Suspense fallback={<LazyEditorFallback />}>
+              <SurfaceSuspense scope="creative" resetKey={leafActiveTab?.fileId}>
                 <div
                   className="amby-workspace-surface relative mb-2 mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
                   style={{ boxShadow: "var(--note-surface-shadow)" }}
                 >
                   {renderCreativeProject(leafActiveTab, leaf.id)}
                 </div>
-              </React.Suspense>
+              </SurfaceSuspense>
             ) : (
               <ModuleRequiredFallback
                 moduleId="amby.creative"
@@ -2821,7 +2839,7 @@ export function WorkspaceOrchestration() {
       >
         {activeTab?.kind === "graph" ? (
           graphEnabled ? (
-            <React.Suspense fallback={<LazyEditorFallback />}>
+            <SurfaceSuspense scope="graph">
               <div
                 className="amby-workspace-surface relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
                 style={{ boxShadow: "var(--note-surface-shadow)" }}
@@ -2843,7 +2861,7 @@ export function WorkspaceOrchestration() {
                   canGoForward={canGoForward}
                 />
               </div>
-            </React.Suspense>
+            </SurfaceSuspense>
           ) : (
             <ModuleRequiredFallback
               moduleId="amby.graph"
@@ -2855,14 +2873,14 @@ export function WorkspaceOrchestration() {
           )
         ) : activeTab?.kind === "creative" ? (
           creativeEnabled ? (
-            <React.Suspense fallback={<LazyEditorFallback />}>
+            <SurfaceSuspense scope="creative" resetKey={activeTab?.fileId}>
               <div
                 className="amby-workspace-surface relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
                 style={{ boxShadow: "var(--note-surface-shadow)" }}
               >
                 {renderCreativeProject()}
               </div>
-            </React.Suspense>
+            </SurfaceSuspense>
           ) : (
             <ModuleRequiredFallback
               moduleId="amby.creative"

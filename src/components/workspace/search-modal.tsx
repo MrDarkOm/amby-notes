@@ -43,6 +43,7 @@ export function SearchModal({
   // Read once per opening: the places and the origin belong to the moment it was opened.
   const scopes = React.useMemo(
     () => (open ? searchScopesFor(items, contextItemId) : []),
+    // Deliberately a snapshot taken when the modal opens; later tree edits must not reshuffle it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [open],
   )
@@ -51,6 +52,7 @@ export function SearchModal({
     if (!open) return []
     const nearby = new Set(scopes.map((scope) => scope.id))
     return topLevelSearchScopes(items).filter((scope) => !nearby.has(scope.id))
+    // `items` is left out on purpose: the list is fixed for one opening, like `scopes`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, scopes])
   const vaultName =
@@ -60,6 +62,7 @@ export function SearchModal({
       .pop() || undefined
   const origin = React.useMemo(
     () => (open ? spotlightOriginFrom(originSelector) : null),
+    // The origin element is measured once when the modal opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [open],
   )

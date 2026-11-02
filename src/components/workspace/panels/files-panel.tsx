@@ -233,17 +233,20 @@ export function FilesPanel(props: PanelRenderProps) {
     }
   }, [typeFilter])
   // Only the kinds of file whose module is on can be chosen, and only those narrow the tree.
-  const availableKinds = TREE_TYPE_KINDS.filter(
-    (kind) =>
-      kind === "file" ||
-      (kind === "database" && canCreateDatabase) ||
-      (kind === "canvas" && canvasEnabled) ||
-      (kind === "sketch" && sketchEnabled),
+  const availableKinds = React.useMemo(
+    () =>
+      TREE_TYPE_KINDS.filter(
+        (kind) =>
+          kind === "file" ||
+          (kind === "database" && canCreateDatabase) ||
+          (kind === "canvas" && canvasEnabled) ||
+          (kind === "sketch" && sketchEnabled),
+      ),
+    [canCreateDatabase, canvasEnabled, sketchEnabled],
   )
   const activeKinds = React.useMemo(
     () => new Set(typeFilter.filter((kind) => availableKinds.includes(kind))),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [typeFilter, canCreateDatabase, canvasEnabled, sketchEnabled],
+    [typeFilter, availableKinds],
   )
   const typeFilteredItems = React.useMemo(
     () => filterTreeByType(treeItems, activeKinds),

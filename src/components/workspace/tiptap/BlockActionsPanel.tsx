@@ -1246,6 +1246,7 @@ function CodeBlockContext({
 
   React.useEffect(() => {
     setLang(initial)
+    // Reset only when another block is shown; typing in the editor must not overwrite the choice.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodePos])
 
