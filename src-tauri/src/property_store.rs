@@ -98,88 +98,6 @@ pub fn restore_cache(conn: &Connection, vault: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Syncs all properties stored in `.amby/properties.json` into their respective
-/// markdown files' YAML frontmatter if missing.
-#[allow(dead_code)]
-pub fn sync_all_properties_to_markdown(conn: &Connection, vault: &Path) -> Result<usize, String> {
-    let file = read(vault)?;
-    let mut updated_count = 0;
-
-    for (note_id, properties) in &file.notes {
-        if properties.is_empty() {
-            continue;
-        }
-
-        let note_rel_path: Option<String> = conn
-            .query_row("SELECT path FROM notes WHERE id = ?1", [note_id], |row| {
-                row.get(0)
-            })
-            .optional()
-            .map_err(|error| error.to_string())?;
-
-        let Some(rel_path) = note_rel_path else {
-            continue;
-        };
-
-        let note_path = vault.join(&rel_path);
-        if !note_path.is_file() {
-            continue;
-        }
-
-        let Ok(content) = fs::read_to_string(&note_path) else {
-            continue;
-        };
-
-        let note_props = frontmatter::note_properties(&content);
-        if note_props.frontmatter_status.is_malformed() {
-            continue;
-        }
-
-        let existing_keys: std::collections::HashSet<String> = note_props
-            .properties
-            .into_iter()
-            .map(|p| p.key.trim().to_ascii_lowercase())
-            .collect();
-
-        let mut current_content = content.clone();
-        let mut modified = false;
-
-        for prop in properties {
-            if prop.name.trim().is_empty() {
-                continue;
-            }
-            let key_lower = prop.name.trim().to_ascii_lowercase();
-            if !existing_keys.contains(&key_lower) {
-                if let Ok(updated) = frontmatter::upsert_frontmatter_property(
-                    &current_content,
-                    note_id,
-                    &prop.name,
-                    &prop.value,
-                    &prop.property_type,
-                ) {
-                    current_content = updated;
-                    modified = true;
-                }
-            }
-        }
-
-        if modified && current_content != content {
-            if let Ok(bytes) = frontmatter::text_bytes_for_write(&note_path, &current_content) {
-                let _ = crate::history::snapshot_before_write(
-                    vault,
-                    &note_path,
-                    &bytes,
-                    "property-frontmatter-sync",
-                );
-                let _ = frontmatter::atomic_write_bytes(&note_path, &bytes);
-                updated_count += 1;
-            }
-        }
-    }
-
-    Ok(updated_count)
-}
-
 pub fn list(conn: &Connection, note_id: &str) -> Result<Vec<CustomProperty>, String> {
     let mut statement = conn
         .prepare(
@@ -605,33 +523,6 @@ mod tests {
         assert!(after_rename.contains("Priority: Done"));
         assert!(after_rename.contains("amby-id: 01TEST"));
         assert!(after_rename.ends_with("# Note"));
-
-        fs::remove_dir_all(vault).unwrap();
-    }
-
-    #[test]
-    fn sync_all_properties_to_markdown_writes_missing_properties() {
-        let (vault, conn) = fixture();
-        let prop = property();
-        let mut file = PropertyFile {
-            version: FORMAT_VERSION,
-            notes: HashMap::new(),
-        };
-        file.notes.insert("01TEST".to_string(), vec![prop]);
-        write(&vault, &file).unwrap();
-
-        assert_eq!(fs::read_to_string(vault.join("Note.md")).unwrap(), "# Note");
-
-        let updated = sync_all_properties_to_markdown(&conn, &vault).unwrap();
-        assert_eq!(updated, 1);
-
-        let note_content = fs::read_to_string(vault.join("Note.md")).unwrap();
-        assert!(note_content.contains("amby-id: 01TEST"));
-        assert!(note_content.contains("Status: Done"));
-        assert!(note_content.ends_with("# Note"));
-
-        let updated_again = sync_all_properties_to_markdown(&conn, &vault).unwrap();
-        assert_eq!(updated_again, 0);
 
         fs::remove_dir_all(vault).unwrap();
     }

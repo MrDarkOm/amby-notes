@@ -32,14 +32,11 @@ pub const KNOWN_ROLES: [&str; 8] = [
     ROLE_CUSTOM,
 ];
 
-#[allow(dead_code)]
-pub const BASE_ROLES: [&str; 3] = [ROLE_STORIES, ROLE_CHARACTERS, ROLE_LOCATIONS];
-#[allow(dead_code)]
-pub const LAZY_ROLES: [&str; 4] = [ROLE_UNIVERSES, ROLE_ARCS, ROLE_ANCHORS, ROLE_NOTES];
-
 /// Typed failures of every project / workshop command.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "camelCase")]
+// Variants the interface already translates (bindings.ts, project-types.ts) but no command
+// raises yet; they are part of the IPC contract, so they stay.
 #[allow(dead_code)]
 pub enum ProjectError {
     ModuleDisabled,

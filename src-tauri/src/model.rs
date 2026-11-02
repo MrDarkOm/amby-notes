@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 /// regardless of this state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
-#[allow(dead_code)] // Degraded is reserved for recoverable index work in WP-10.
+// `Degraded` is part of the IPC type (the interface knows "degraded"); nothing sets it yet.
+#[allow(dead_code)]
 pub enum IndexState {
     Healthy,
     Degraded,
