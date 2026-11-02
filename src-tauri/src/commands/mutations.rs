@@ -242,7 +242,9 @@ pub fn sync_mutation_result(
 
     match index_result {
         Ok(()) => {
-            result.tree_patch = tree_patch_for(context, vault_path, &mutation_paths(&result), &[]);
+            let action = action_of(&result);
+            result.tree_patch =
+                tree_patch_for(context, vault_path, action, &mutation_paths(&result), &[]);
             MutationOutcome {
                 mutation: result,
                 index_state: IndexState::Healthy,
@@ -265,11 +267,33 @@ pub fn sync_mutation_result(
     }
 }
 
+/// A short name for what a mutation did, for the shadow check's report.
+fn action_of(result: &FsMutationResult) -> &'static str {
+    if !result.deleted_paths.is_empty() {
+        "delete"
+    } else if result
+        .path_changes
+        .iter()
+        .any(|change| !change.old_path.is_empty() && !change.new_path.is_empty())
+    {
+        "rename_move_or_layer"
+    } else if result
+        .path_changes
+        .iter()
+        .any(|change| change.old_path.is_empty())
+    {
+        "create"
+    } else {
+        "mutation"
+    }
+}
+
 /// The tree patch for `paths` (and `extra`, files rewritten along the way), or `None` when the
 /// renderer has to reload the whole tree. A failure here never fails the mutation.
 fn tree_patch_for(
     context: &VaultContext,
     vault: &Path,
+    action: &str,
     paths: &[PathBuf],
     extra: &[PathBuf],
 ) -> Option<crate::vault::tree_patch::TreePatch> {
@@ -277,7 +301,18 @@ fn tree_patch_for(
     let active = conn_guard.as_ref()?;
     let all = paths.iter().chain(extra).cloned().collect::<Vec<_>>();
     match crate::vault::tree_patch::patch_for_paths(&active.connection, vault, &all) {
-        Ok(patch) => patch,
+        Ok(patch) => {
+            if let Some(patch) = &patch {
+                crate::shadow_check::note_patch(
+                    &active.root,
+                    active.generation,
+                    action,
+                    all.len(),
+                    patch,
+                );
+            }
+            patch
+        }
         Err(error) => {
             tracing::warn!(event = "tree_patch_failed", %error);
             None
@@ -860,6 +895,7 @@ pub(crate) fn move_item_inner(
         outcome.mutation.tree_patch = tree_patch_for(
             db,
             &vault_root,
+            "rename_or_move",
             &mutation_paths(&outcome.mutation),
             &rewritten,
         );
@@ -1120,6 +1156,7 @@ pub(crate) fn rename_item_inner(
         outcome.mutation.tree_patch = tree_patch_for(
             db,
             &vault_root,
+            "rename_or_move",
             &mutation_paths(&outcome.mutation),
             &rewritten,
         );

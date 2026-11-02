@@ -186,11 +186,7 @@ pub(super) fn assign_missing_identities(
     notes: &mut [ScannedNote],
 ) -> Result<(), String> {
     for note in notes.iter_mut() {
-        if note.unchanged
-            || note.parsed_id.is_some()
-            || note.identity_error.is_some()
-            || note.frontmatter_status.is_malformed()
-        {
+        if !needs_identity(note) {
             continue;
         }
         let id = Ulid::generate().to_string();
@@ -334,6 +330,25 @@ pub fn sync_vault_with_changes(
     vault: &Path,
     changed_paths: &HashSet<PathBuf>,
 ) -> Result<SyncReport, String> {
+    sync_vault_inner(conn, vault, changed_paths, true)
+}
+
+/// The error of a read-only load that would have had to write an `amby-id` into a note.
+pub const NEEDS_IDENTITY: &str = "a note needs an identity written";
+
+fn needs_identity(note: &ScannedNote) -> bool {
+    !(note.unchanged
+        || note.parsed_id.is_some()
+        || note.identity_error.is_some()
+        || note.frontmatter_status.is_malformed())
+}
+
+fn sync_vault_inner(
+    conn: &Connection,
+    vault: &Path,
+    changed_paths: &HashSet<PathBuf>,
+    allow_writes: bool,
+) -> Result<SyncReport, String> {
     if !vault.is_dir() {
         return Err(format!("Not a directory: {}", path_string(vault)));
     }
@@ -379,6 +394,9 @@ pub fn sync_vault_with_changes(
         )
     });
 
+    if !allow_writes && notes.iter().any(needs_identity) {
+        return Err(NEEDS_IDENTITY.to_string());
+    }
     assign_missing_identities(vault, &mut notes)?;
 
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
@@ -455,6 +473,22 @@ pub fn load_vault_with_changes(
     changed_paths: &HashSet<PathBuf>,
 ) -> Result<LoadVaultResult, String> {
     let sync = sync_vault_with_changes(conn, vault, changed_paths)?;
+    let notes = list_notes(conn, vault)?;
+    let tree = build_tree(vault, &notes)?;
+    Ok(LoadVaultResult {
+        generation: 0,
+        vault_path: path_string(vault),
+        tree,
+        notes,
+        sync,
+    })
+}
+
+/// A full load of `vault` into `conn` that writes nothing to the vault: where [`load_vault`]
+/// would give a note an `amby-id` it fails with [`NEEDS_IDENTITY`] instead. For comparing the
+/// index against a fresh read of the disk.
+pub fn load_vault_read_only(conn: &Connection, vault: &Path) -> Result<LoadVaultResult, String> {
+    let sync = sync_vault_inner(conn, vault, &HashSet::new(), false)?;
     let notes = list_notes(conn, vault)?;
     let tree = build_tree(vault, &notes)?;
     Ok(LoadVaultResult {

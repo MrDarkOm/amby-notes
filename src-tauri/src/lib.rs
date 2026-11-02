@@ -19,6 +19,7 @@ mod project;
 mod property_store;
 mod recovery;
 mod recycle_bin;
+mod shadow_check;
 mod state;
 pub mod sync;
 mod system_recycle_bin;
@@ -305,6 +306,10 @@ pub fn run() {
             // after the user enables persistent diagnostics.
             match commands::debug::log_file_path(app.handle()) {
                 Ok(log_path) => {
+                    // Development builds compare every point update with a full read of the
+                    // vault and write the differences beside the debug log.
+                    #[cfg(debug_assertions)]
+                    shadow_check::enable(log_path.with_file_name("shadow-mismatch.log"));
                     if let Err(error) = debug.configure_path(log_path) {
                         debug.set_file_error(error);
                     }
