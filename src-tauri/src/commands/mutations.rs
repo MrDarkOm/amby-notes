@@ -1,3 +1,4 @@
+use crate::lock_util::LockExt;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -201,7 +202,7 @@ pub fn sync_mutation_result(
 ) -> MutationOutcome {
     let index_result = (|| -> Result<(), String> {
         let (identities, deleted_ids) = {
-            let conn_guard = context.conn.lock().unwrap();
+            let conn_guard = context.conn.lock_or_recover();
             let conn = conn_guard.as_ref().ok_or("No vault open")?;
             vault_index::collect_index_mutation_inputs(
                 conn,
@@ -216,7 +217,7 @@ pub fn sync_mutation_result(
             &identities,
             deleted_ids,
         )?;
-        let conn_guard = context.conn.lock().unwrap();
+        let conn_guard = context.conn.lock_or_recover();
         let conn = conn_guard.as_ref().ok_or("No vault open")?;
         vault_index::apply_prepared_index_updates(conn, &prepared.notes, &prepared.deleted_ids)?;
         result.deleted_ids = prepared.deleted_ids;
@@ -257,13 +258,13 @@ pub fn sync_path_changes(
     changes: &[PathChange],
 ) -> Result<(), String> {
     let identities = {
-        let conn_guard = context.conn.lock().unwrap();
+        let conn_guard = context.conn.lock_or_recover();
         let conn = conn_guard.as_ref().ok_or("No vault open")?;
         vault_index::collect_note_index_identities(conn)?
     };
     let prepared =
         vault_index::prepare_path_changes_with_identities(vault_path, changes, &identities)?;
-    let conn_guard = context.conn.lock().unwrap();
+    let conn_guard = context.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     vault_index::apply_prepared_index_updates(conn, &prepared, &[])
 }
@@ -418,7 +419,7 @@ pub fn ensure_bundle(
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(&db, &path)?;
     let (primary, path_changes) = ensure_bundle_path(&path)?;
     let result = FsMutationResult {
@@ -441,7 +442,7 @@ pub fn create_note(
     parent_path: String,
     name: String,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let parent_path = paths::guard(&db, &parent_path)?;
     let plan = crate::bundle::prepare_create_note_impl(&parent_path, &name)?;
     let prepared = prepare_note_creation(&watcher_state, &plan);
@@ -475,7 +476,7 @@ pub fn create_layer(
     note_path: String,
     kind: String,
 ) -> Result<LayerResult, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let note_path = paths::guard(&scope, &note_path)?;
     let result = create_layer_impl(&note_path, &kind)?;
     let mut paths = vec![PathBuf::from(&result.layer_path)];
@@ -508,7 +509,7 @@ pub fn create_canvas(
     parent_path: String,
     name: String,
 ) -> Result<String, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let parent_path = paths::guard(&db, &parent_path)?;
     let path = create_canvas_impl(&parent_path, &name)?;
     watcher_state.mark_write([path.as_path()]);
@@ -522,7 +523,7 @@ pub fn attach_canvas_to_note(
     watcher_state: tauri::State<'_, WatcherState>,
     canvas_path: String,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let canvas_path = paths::guard(&db, &canvas_path)?;
     let result = attach_canvas_impl(&canvas_path)?;
     watcher_state.mark_write(mutation_paths(&result));
@@ -538,7 +539,7 @@ pub fn create_sketch(
     parent_path: String,
     name: String,
 ) -> Result<String, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let parent_path = paths::guard(&db, &parent_path)?;
     let path = create_sketch_impl(&parent_path, &name)?;
     watcher_state.mark_write([path.as_path()]);
@@ -552,7 +553,7 @@ pub fn attach_sketch_to_note(
     watcher_state: tauri::State<'_, WatcherState>,
     sketch_path: String,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let sketch_path = paths::guard(&db, &sketch_path)?;
     let result = attach_sketch_impl(&sketch_path)?;
     watcher_state.mark_write(mutation_paths(&result));
@@ -568,7 +569,7 @@ pub fn unlink_layer(
     note_path: String,
     kind: String,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let note_path = paths::guard(&db, &note_path)?;
     let result = unlink_layer_impl(&note_path, &kind)?;
     watcher_state.mark_write(mutation_paths(&result));
@@ -584,7 +585,7 @@ pub fn delete_layer(
     note_path: String,
     kind: String,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let note_path = paths::guard(&db, &note_path)?;
     let vault = db.root()?;
     let result = delete_layer_impl(&vault, &note_path, &kind)?;
@@ -658,7 +659,7 @@ pub fn move_item(
     source_path: String,
     target_path: String,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let source_path = paths::guard(&db, &source_path)?;
     let target_path = paths::guard(&db, &target_path)?;
     let preview = preview_move_item(&source_path, &target_path)?;
@@ -667,7 +668,7 @@ pub fn move_item(
         sync_runtime.note_renames(&root, &preview.path_changes);
     }
     let (vault_root, generation, prepared_plan) = {
-        let conn_guard = db.conn.lock().unwrap();
+        let conn_guard = db.conn.lock_or_recover();
         let conn = conn_guard.as_ref().ok_or("No vault open")?;
         let prepared_plan = conn
             .pending_move_refactor
@@ -760,7 +761,7 @@ pub fn move_item(
             .warnings
             .push(OperationWarning::IndexRebuildRequired);
     }
-    let conn_guard = db.conn.lock().unwrap();
+    let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     if conn.generation != generation {
         return Err("Vault changed while applying move".to_string());
@@ -807,7 +808,7 @@ pub fn create_file(
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
 ) -> Result<(), String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(&scope, &path)?;
     if path.exists() {
         return Err(format!("File already exists: {}", path.display()));
@@ -835,7 +836,7 @@ pub fn create_folder(
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
 ) -> Result<(), String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(&scope, &path)?;
     if path.exists() {
         return Err(format!("Folder already exists: {}", path.display()));
@@ -900,7 +901,7 @@ pub fn rename_item(
     path: String,
     new_name: String,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(&db, &path)?;
     let preview = preview_rename_item(&path, &new_name)?;
     // Synchronisation learns that this is a rename, before the change reaches the disk (Д70).
@@ -908,7 +909,7 @@ pub fn rename_item(
         sync_runtime.note_renames(&root, &preview.path_changes);
     }
     let (vault_root, generation, inputs) = {
-        let conn_guard = db.conn.lock().unwrap();
+        let conn_guard = db.conn.lock_or_recover();
         let conn = conn_guard.as_ref().ok_or("No vault open")?;
         let inputs = vault_index::collect_inbound_wiki_rewrite_inputs(
             conn,
@@ -977,7 +978,7 @@ pub fn rename_item(
             .warnings
             .push(OperationWarning::IndexRebuildRequired);
     }
-    let conn_guard = db.conn.lock().unwrap();
+    let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     if conn.generation != generation {
         return Err("Vault changed while applying rename".to_string());
@@ -999,7 +1000,7 @@ pub fn delete_item(
     path: String,
     mode: recycle_bin::DeleteMode,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     if mode == recycle_bin::DeleteMode::Permanent {
         recycle_bin::reject_symlink_for_permanent_delete(Path::new(&path))?;
     }
@@ -1041,7 +1042,7 @@ pub fn archive_item(
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
 ) -> Result<MutationOutcome, String> {
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(&db, &path)?;
     let vault = db.root()?;
     let preview = recycle_bin::preview_move_to_trash(&vault, &path)?;

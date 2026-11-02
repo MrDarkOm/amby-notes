@@ -1,3 +1,4 @@
+use crate::lock_util::LockExt;
 use std::cell::Cell;
 use std::collections::HashSet;
 use std::ops::Deref;
@@ -36,10 +37,10 @@ impl ActiveVault {
     pub fn refresh(&self) -> Result<vault_index::LoadVaultResult, String> {
         // Do not hold the event queue lock during I/O. New events remain queued
         // for the next refresh, even when they refer to a path in this batch.
-        let changed = std::mem::take(&mut *self.index_changes.lock().unwrap());
+        let changed = std::mem::take(&mut *self.index_changes.lock_or_recover());
         let result = vault_index::load_vault_with_changes(self, &self.root, &changed);
         if result.is_err() {
-            self.index_changes.lock().unwrap().extend(changed);
+            self.index_changes.lock_or_recover().extend(changed);
         }
         result.map(|mut loaded| {
             loaded.generation = self.generation;
@@ -51,7 +52,7 @@ impl ActiveVault {
         let _ = property_store::restore_cache(&self.connection, &self.root);
         let mut changed = HashSet::new();
         changed.insert(self.root.clone());
-        self.index_changes.lock().unwrap().clear();
+        self.index_changes.lock_or_recover().clear();
         let result = vault_index::load_vault_with_changes(self, &self.root, &changed);
         let _ =
             crate::database::projection::rebuild_database_projection(&self.connection, &self.root);
@@ -108,7 +109,7 @@ impl VaultContext {
     }
 
     pub fn root(&self) -> Result<PathBuf, String> {
-        let active = self.conn.lock().unwrap();
+        let active = self.conn.lock_or_recover();
         let active = active
             .as_ref()
             .ok_or_else(|| "No vault is open".to_string())?;
@@ -120,7 +121,7 @@ impl VaultContext {
         &self,
         operation: impl FnOnce(&ActiveVault) -> Result<T, String>,
     ) -> Result<T, String> {
-        let active = self.conn.lock().unwrap();
+        let active = self.conn.lock_or_recover();
         operation(active.as_ref().ok_or("No vault is open")?)
     }
 
@@ -223,7 +224,7 @@ impl VaultContext {
         prepared: PreparedVault,
         after_commit: impl FnOnce(&ActiveVault) -> Result<(), String>,
     ) -> Result<(vault_index::LoadVaultResult, u64), String> {
-        let mut active = self.conn.lock().unwrap();
+        let mut active = self.conn.lock_or_recover();
         let generation = active
             .as_ref()
             .map(|current| current.generation.saturating_add(1))
@@ -251,7 +252,7 @@ impl VaultContext {
         update_scopes: impl FnOnce(&Path) -> Result<(), String>,
         result: impl FnOnce(vault_index::LoadVaultResult, u64) -> T,
     ) -> Result<T, String> {
-        let _mutation_guard = self.mutation_gate.lock().unwrap();
+        let _mutation_guard = self.mutation_gate.lock_or_recover();
         let prepared = Self::prepare_activation(candidate)?;
         let (loaded, generation) =
             self.commit_activation_locked(prepared, |active| update_scopes(&active.root))?;
@@ -259,7 +260,7 @@ impl VaultContext {
     }
 
     pub fn set_watcher_identity(&self, watcher_identity: Option<u64>) -> Result<(), String> {
-        let mut active = self.conn.lock().unwrap();
+        let mut active = self.conn.lock_or_recover();
         let active = active.as_mut().ok_or("No vault is open")?;
         if active.watcher_identity == watcher_identity {
             return Ok(());
@@ -269,7 +270,7 @@ impl VaultContext {
     }
 
     pub fn mark_index_rebuild_required(&self) -> Result<(), String> {
-        let mut active = self.conn.lock().unwrap();
+        let mut active = self.conn.lock_or_recover();
         let active = active.as_mut().ok_or("No vault is open")?;
         active.index_health.set(IndexState::RebuildRequired);
         Ok(())
