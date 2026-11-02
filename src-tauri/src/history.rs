@@ -756,7 +756,7 @@ fn cleanup_preview(
     }
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 pub fn preview_history_cleanup(
     vault: &Path,
     retention: HistoryRetention,
@@ -785,7 +785,7 @@ pub fn preview_history_cleanup_for_source(
     Ok(cleanup_preview(&manifest, &remove))
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 pub fn cleanup_history(
     vault: &Path,
     retention: HistoryRetention,

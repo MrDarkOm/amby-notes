@@ -4,8 +4,6 @@
 //! JavaScript or SQLite. The evaluator has bounded input and recursion, exact
 //! decimal arithmetic, and no access to files, the network, or the clock.
 
-#![allow(dead_code)]
-
 use crate::database::format;
 use rusqlite::{params, OptionalExtension, Transaction};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
