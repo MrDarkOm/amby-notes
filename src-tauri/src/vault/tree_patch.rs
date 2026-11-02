@@ -143,7 +143,7 @@ pub fn patch_for_paths(
     let mut entries = BTreeSet::<PathBuf>::new();
     for path in touched {
         let Ok(relative) = path.strip_prefix(vault) else {
-            continue;
+            return Ok(None);
         };
         if relative.as_os_str().is_empty() {
             return Ok(None);

@@ -48,8 +48,10 @@ pub fn sync_paths(
     let mut files = BTreeSet::<String>::new();
     let mut prefixes = BTreeSet::<String>::new();
     for path in changed {
+        // A path that is not under the vault (another spelling of it, say) cannot be trusted to
+        // mean nothing: the full scan decides.
         let Ok(relative) = path.strip_prefix(vault) else {
-            continue;
+            return Ok(None);
         };
         if relative.as_os_str().is_empty() {
             return Ok(None);

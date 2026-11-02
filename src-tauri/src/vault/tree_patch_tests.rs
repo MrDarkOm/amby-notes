@@ -823,9 +823,15 @@ fn the_vault_root_event_cannot_be_refreshed_by_path() {
 }
 
 #[test]
-fn a_path_outside_the_vault_or_in_a_hidden_folder_changes_nothing() {
+fn a_path_in_a_hidden_folder_changes_nothing_and_one_outside_the_vault_needs_the_full_scan() {
     let vault = fixture();
     let context = activate(&vault.0);
+    let outside = context
+        .with_active(|active| {
+            active.refresh_paths(HashSet::from([PathBuf::from("/elsewhere/x.md")]))
+        })
+        .unwrap();
+    assert!(outside.is_none());
     let mut tree = loaded_tree(&context);
     let refresh = context
         .with_active(|active| {
