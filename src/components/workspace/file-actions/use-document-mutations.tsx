@@ -34,6 +34,7 @@ import { useDocStore } from "../use-doc-store"
 import { useTabsStore } from "../use-tabs-store"
 import { findTreeItem } from "../workspace-tree-utils"
 import { moveTreeItemsOptimistically } from "../workspace-mutations"
+import { concatTreePatches } from "../tree-patch"
 import { beginLocalTreeMutation, recordLocalTreePaths } from "../watcher-tree-reconciliation"
 import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
 
@@ -398,6 +399,8 @@ export function useDocumentMutations({
           pathChanges,
           deletedPaths: results.flatMap((result) => result.deletedPaths),
           deletedIds: results.flatMap((result) => result.deletedIds ?? []),
+          // The moves ran one after another, so their patches apply in the same order.
+          treePatch: concatTreePatches(results.map((result) => result.treePatch)),
         })
         recordLocalTreePaths(sourceEntries.map((entry) => entry.sourceRoot))
         finishLocalMutation()

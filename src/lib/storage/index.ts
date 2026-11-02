@@ -75,6 +75,7 @@ import type {
   LayerResult,
   LinkGraph,
   LoadVaultResult,
+  PathsRefresh,
   NoteReadOutcome,
   NoteLayers,
   NoteProperties,
@@ -144,6 +145,10 @@ export const loadVaultData = (vaultPath: string): Promise<LoadVaultResult> =>
   traceOperation("index.load", {}, () => notesRepository.loadVaultData(vaultPath))
 export const loadActiveVaultData = (): Promise<LoadVaultResult> =>
   traceOperation("index.refresh", {}, () => notesRepository.loadActiveVaultData())
+export const refreshVaultPaths = (paths: string[]): Promise<PathsRefresh | null> =>
+  traceOperation("index.refreshPaths", { count: paths.length }, () =>
+    notesRepository.refreshVaultPaths(paths),
+  )
 export const reindexActiveVaultData = (): Promise<LoadVaultResult> =>
   traceOperation("index.rebuild", {}, () => notesRepository.reindexActiveVaultData())
 export const preflightVault = (vaultPath: string): Promise<VaultPreflight> =>

@@ -119,6 +119,7 @@ import type {
   LayerResult,
   LinkGraph,
   LoadVaultResult,
+  PathsRefresh,
   MutationOutcome,
   NoteReadOutcome,
   NoteLayers,
@@ -749,6 +750,10 @@ export class DesktopAdapter implements StoragePort {
 
   async reindexActiveVaultData(): Promise<LoadVaultResult> {
     return unwrapCommand(commands.reindexVault())
+  }
+
+  async refreshVaultPaths(paths: string[]): Promise<PathsRefresh | null> {
+    return unwrapCommand(commands.refreshVaultPaths(paths)) as Promise<PathsRefresh | null>
   }
 
   async preflightVault(vaultPath: string): Promise<VaultPreflight> {

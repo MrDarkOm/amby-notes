@@ -64,7 +64,7 @@ describe("layer switching", () => {
   })
 
   function setup() {
-    const refreshTree = vi.fn().mockResolvedValue([])
+    const refreshTreePaths = vi.fn().mockResolvedValue([])
     const applyMutationResult = vi.fn()
     const hook = renderHook(() =>
       useLayers({
@@ -73,16 +73,16 @@ describe("layer switching", () => {
         backendGeneration: 1,
         currentDoc: doc,
         treeItems: [],
-        refreshTree,
+        refreshTreePaths,
         applyMutationResult,
       }),
     )
-    return { ...hook, refreshTree, applyMutationResult }
+    return { ...hook, refreshTreePaths, applyMutationResult }
   }
 
   it("switches repeatedly to cached sketch and canvas layers without rebuilding the tree", async () => {
     useViewStateStore.getState().setLinkedLayers(doc.id, layers)
-    const { result, refreshTree, applyMutationResult } = setup()
+    const { result, refreshTreePaths, applyMutationResult } = setup()
     const flush = vi.fn()
     const unregister = registerEditorSerialization({ flush })
     try {
@@ -93,7 +93,7 @@ describe("layer switching", () => {
       expect(flush).toHaveBeenCalledTimes(3)
       expect(storage.createLayer).not.toHaveBeenCalled()
       expect(storage.noteLayers).not.toHaveBeenCalled()
-      expect(refreshTree).not.toHaveBeenCalled()
+      expect(refreshTreePaths).not.toHaveBeenCalled()
       expect(applyMutationResult).not.toHaveBeenCalled()
     } finally {
       unregister()
@@ -103,20 +103,21 @@ describe("layer switching", () => {
   it("reads unknown layer presence and opens an existing sketch without a mutation", async () => {
     // The initial layer lookup is still pending when the user switches.
     vi.mocked(storage.noteLayers).mockImplementationOnce(() => new Promise(() => {}))
-    const { result, refreshTree } = setup()
+    const { result, refreshTreePaths } = setup()
     await act(() => result.current.handleLayerChange("sketch"))
     expect(useViewStateStore.getState().activeLayers[doc.id]).toBe("sketch")
     expect(useViewStateStore.getState().linkedLayersByDoc[doc.id]).toEqual(layers)
     expect(storage.createLayer).not.toHaveBeenCalled()
-    expect(refreshTree).not.toHaveBeenCalled()
+    expect(refreshTreePaths).not.toHaveBeenCalled()
   })
 
   it("creates a missing sketch and refreshes the tree before activating it", async () => {
     useViewStateStore.getState().setLinkedLayers(doc.id, { ...layers, sketch: false })
-    const { result, refreshTree, applyMutationResult } = setup()
+    const { result, refreshTreePaths, applyMutationResult } = setup()
     await act(() => result.current.handleLayerChange("sketch"))
     expect(storage.createLayer).toHaveBeenCalledWith(doc.path, "sketch")
-    expect(refreshTree).toHaveBeenCalledTimes(1)
+    expect(refreshTreePaths).toHaveBeenCalledTimes(1)
+    expect(refreshTreePaths).toHaveBeenCalledWith([doc.path, "/vault/Note/Note.excalidraw"])
     expect(applyMutationResult).toHaveBeenCalledTimes(1)
     expect(useViewStateStore.getState().activeLayers[doc.id]).toBe("sketch")
     expect(useViewStateStore.getState().linkedLayersByDoc[doc.id]?.sketch).toBe(true)
@@ -127,10 +128,10 @@ describe("layer switching", () => {
     useViewStateStore.getState().setActiveLayer(doc.id, "editor")
     vi.mocked(storage.createLayer).mockRejectedValue(new Error("write failed"))
     vi.spyOn(console, "error").mockImplementation(() => {})
-    const { result, refreshTree, applyMutationResult } = setup()
+    const { result, refreshTreePaths, applyMutationResult } = setup()
     await act(() => result.current.handleLayerChange("sketch"))
     expect(useViewStateStore.getState().activeLayers[doc.id]).toBe("editor")
-    expect(refreshTree).not.toHaveBeenCalled()
+    expect(refreshTreePaths).not.toHaveBeenCalled()
     expect(applyMutationResult).not.toHaveBeenCalled()
   })
 })
@@ -165,7 +166,7 @@ describe("note layer loading", () => {
         backendGeneration: 1,
         currentDoc: container,
         treeItems: [],
-        refreshTree: vi.fn().mockResolvedValue([]),
+        refreshTreePaths: vi.fn().mockResolvedValue([]),
         applyMutationResult: vi.fn(),
       }),
     )

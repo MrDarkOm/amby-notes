@@ -108,7 +108,12 @@ pub fn restore_snapshot(
     };
     let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    vault_index::sync_vault(conn, &vault)?;
+    // One note was restored: re-read it and nothing else. Only a case the point update cannot
+    // judge (see `sync_paths`) takes the full scan.
+    let changed = std::collections::HashSet::from([path.clone()]);
+    if vault_index::sync_paths(conn, &vault, &changed)?.is_none() {
+        vault_index::sync_vault(conn, &vault)?;
+    }
     Ok(crate::bundle::path_string(&path))
 }
 

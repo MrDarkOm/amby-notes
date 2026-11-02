@@ -37,6 +37,11 @@ beforeEach(async () => {
   vi.resetAllMocks()
   await i18n.changeLanguage("ru")
   vi.mocked(listTrash).mockResolvedValue([entry])
+  vi.mocked(restoreTrash).mockResolvedValue({
+    primaryPath: "/vault/Мир/Черновик.md",
+    pathChanges: [],
+    deletedPaths: [],
+  })
 })
 afterEach(cleanup)
 const openActions = () =>
@@ -125,6 +130,21 @@ describe("archive panel", () => {
     expect(await screen.findByText("Preview from menu")).toBeTruthy()
     expect(screen.getByRole("dialog")).toBeTruthy()
     expect(screen.queryByRole("menu")).toBeNull()
+  })
+
+  it("tells the tree which file came back, so it refreshes that file only", async () => {
+    vi.mocked(listTrash).mockResolvedValueOnce([entry]).mockResolvedValue([])
+    const changed = vi.fn()
+    window.addEventListener("amby:archive-changed", changed)
+    try {
+      render(<ArchivePanel {...props} />)
+      fireEvent.click(await screen.findByRole("button", { name: "Восстановить «Черновик»" }))
+      await waitFor(() => expect(changed).toHaveBeenCalled())
+      const event = changed.mock.calls[0]![0] as CustomEvent<{ paths?: string[] }>
+      expect(event.detail.paths).toEqual(["/vault/Мир/Черновик.md"])
+    } finally {
+      window.removeEventListener("amby:archive-changed", changed)
+    }
   })
 
   it("restores the selected entry once and refreshes the catalog", async () => {

@@ -15,6 +15,7 @@ import type {
   LayerResult,
   LinkGraph,
   LoadVaultResult,
+  PathsRefresh,
   NoteReadOutcome,
   NoteLayers,
   NoteProperties,
@@ -49,6 +50,11 @@ export interface StoragePort extends DatabasePort, ProjectPort {
   loadVaultData(vaultPath: string): Promise<LoadVaultResult>
   loadActiveVaultData(): Promise<LoadVaultResult>
   reindexActiveVaultData(): Promise<LoadVaultResult>
+  /**
+   * Index and tree update for the given paths only. `null`: not expressible as a point update,
+   * so the caller has to run `loadActiveVaultData`.
+   */
+  refreshVaultPaths(paths: string[]): Promise<PathsRefresh | null>
   preflightVault(vaultPath: string): Promise<VaultPreflight>
   applyIdMigration(vaultPath: string): Promise<void>
   inspectIdMigrations(vaultPath: string): Promise<IdMigrationRecovery[]>
