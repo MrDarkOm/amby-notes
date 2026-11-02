@@ -524,6 +524,21 @@ fn report_single_file_actions(context: &VaultContext, root: &Path, count: usize)
         started.elapsed(),
         timed_refresh()
     );
+    // An edit made outside the app: the watcher names the path, and only that path is refreshed.
+    let edited = root.join("Projects/Note-00006.md");
+    fs::write(
+        &edited,
+        fs::read_to_string(&edited)
+            .unwrap()
+            .replace("token-6", "externally-edited-token"),
+    )
+    .unwrap();
+    let started = Instant::now();
+    let refreshed = context
+        .with_active(|active| active.refresh_paths(std::collections::HashSet::from([edited])))
+        .unwrap();
+    line += &format!(" external_edit_by_path={:?}", started.elapsed());
+    assert!(refreshed.is_some(), "one edited path is refreshed by path");
     eprintln!("{line}");
 }
 
