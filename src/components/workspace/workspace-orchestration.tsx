@@ -149,7 +149,6 @@ const EMPTY_DATABASE_TITLE_LABELS: Record<string, string> = {}
 const EMPTY_LAYERS = { canvas: false, sketch: false, database: false }
 const NOOP = () => {}
 
-/** Spinner shown while a lazy chunk (Canvas / Graph) is being fetched. */
 /** Lazy surface whose crash stays inside its own tab instead of replacing the window. */
 function SurfaceSuspense({
   scope,
@@ -167,6 +166,7 @@ function SurfaceSuspense({
   )
 }
 
+/** Spinner shown while a lazy chunk (Canvas / Graph) is being fetched. */
 function LazyEditorFallback() {
   return (
     <div className="flex h-full flex-1 items-center justify-center">

@@ -31,8 +31,7 @@ use crate::watcher::WatcherState;
 fn active_generation(context: &VaultContext) -> Option<u64> {
     context
         .conn
-        .lock()
-        .expect("vault context poisoned")
+        .lock_or_recover()
         .as_ref()
         .map(|active| active.generation)
 }
@@ -65,7 +64,7 @@ pub fn list_projects(
 ) -> Result<ProjectCatalog, ProjectError> {
     let generation = active_generation(&context).ok_or(ProjectError::VaultNotOpen)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     index::load_catalog(&active.connection, &active.root, active.generation)
         .map_err(|message| ProjectError::failed("projectIndexFailed", message))
@@ -83,7 +82,7 @@ pub fn refresh_projects(
     let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     index::rebuild_project_index(&active.connection, &active.root)
         .and_then(|_| index::load_catalog(&active.connection, &active.root, generation))
@@ -133,7 +132,7 @@ pub fn init_workshop(
     let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
@@ -158,7 +157,7 @@ pub fn complete_workshop(
     let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
@@ -182,7 +181,7 @@ pub fn resolve_workshop_folder(
     context: tauri::State<'_, VaultContext>,
     picked_path: String,
 ) -> Result<String, ProjectError> {
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     create::workshop_folder_of(&active.root, &picked_path)
 }
@@ -198,7 +197,7 @@ pub fn create_story(
     let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
@@ -232,7 +231,7 @@ pub fn create_workshop_section(
     let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
@@ -256,7 +255,7 @@ pub fn create_text_page(
     let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
@@ -316,7 +315,7 @@ pub fn move_text_page(
     let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
@@ -364,7 +363,7 @@ pub fn list_note_references(
             "noteId must be a canonical ULID",
         ));
     }
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     references::list_references(&active.connection, &note_id)
 }
@@ -385,7 +384,7 @@ pub fn list_text_stats(
             "databaseId must be a database ID",
         ));
     }
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     text_stats::list_text_stats(&active.connection, &database_id)
 }
@@ -406,7 +405,7 @@ pub fn list_notebooks(
             "databaseId must be a database ID",
         ));
     }
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     notebooks::list_notebooks_of(&active.connection, &active.root, &database_id)
 }
@@ -422,7 +421,7 @@ pub fn update_workshop(
     let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
@@ -451,7 +450,7 @@ pub fn remove_workshop_section(
     let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
@@ -480,7 +479,7 @@ pub fn reorder_workshop_sections(
     let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
@@ -509,7 +508,7 @@ pub fn update_text_levels(
     let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
@@ -533,7 +532,7 @@ pub fn add_text_status(
     let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
@@ -557,7 +556,7 @@ pub fn add_story_links(
     let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
@@ -581,7 +580,7 @@ pub fn ensure_plot_links(
     let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
@@ -606,7 +605,7 @@ pub fn create_workshop_entity(
     let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
