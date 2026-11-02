@@ -431,10 +431,100 @@ fn desktop_e2e_large_vault_smoke_reports_scan_reopen_update_and_search() {
     reopened
         .with_active(|active| index::search_notes(active, &active.root, "updated-token"))
         .unwrap();
+    let search = search_started.elapsed();
     eprintln!(
-        "desktop-e2e large-vault notes={count} initial_scan={initial_scan:?} reopen={reopen:?} one_file_update={one_file_update:?} search={:?}",
-        search_started.elapsed()
+        "desktop-e2e large-vault notes={count} initial_scan={initial_scan:?} reopen={reopen:?} one_file_update={one_file_update:?} search={search:?}",
     );
+    report_single_file_actions(&reopened, &vault.0, count);
+}
+
+/// Times one create, rename, move and delete through the same functions the IPC commands run
+/// (`*_inner`), each followed by the full refresh the renderer did after every action
+/// (`active.refresh()`), so the cost of the action and of the refresh are visible apart.
+fn report_single_file_actions(context: &VaultContext, root: &Path, count: usize) {
+    use crate::commands::mutations::{
+        create_note_inner, delete_item_inner, move_item_inner, rename_item_inner,
+    };
+    use crate::database::runtime_state::DatabaseRuntimeState;
+    use crate::recycle_bin::DeleteMode;
+
+    let watcher_state = WatcherState::new();
+    // The app enables the database runtime as soon as a vault is open, so a rename or a move also
+    // pays for refreshing the database projection.
+    let runtime = DatabaseRuntimeState::default();
+    runtime.set_enabled(context.generation().unwrap(), true);
+    let no_hints = |_: &Path, _: &[crate::model::PathChange]| {};
+    let path_of = |relative: &str| root.join(relative).to_string_lossy().to_string();
+    let timed_refresh = || {
+        let started = Instant::now();
+        context
+            .with_active(|active| active.refresh().map(|_| ()))
+            .unwrap();
+        started.elapsed()
+    };
+    let mut line = format!("desktop-e2e large-vault-actions notes={count}");
+
+    let started = Instant::now();
+    let created = create_note_inner(
+        context,
+        &watcher_state,
+        path_of("Projects"),
+        "Bench created".to_string(),
+    )
+    .unwrap();
+    line += &format!(
+        " create={:?} create_refresh={:?}",
+        started.elapsed(),
+        timed_refresh()
+    );
+    assert!(created.mutation.primary_path.is_some());
+
+    let started = Instant::now();
+    rename_item_inner(
+        context,
+        &runtime,
+        &watcher_state,
+        &no_hints,
+        path_of("Заметки/Note-00001.md"),
+        "Bench renamed".to_string(),
+    )
+    .unwrap();
+    line += &format!(
+        " rename={:?} rename_refresh={:?}",
+        started.elapsed(),
+        timed_refresh()
+    );
+
+    let started = Instant::now();
+    move_item_inner(
+        context,
+        &runtime,
+        &watcher_state,
+        &no_hints,
+        path_of("日本語 🔥/Note-00002.md"),
+        path_of("Projects"),
+    )
+    .unwrap();
+    line += &format!(
+        " move={:?} move_refresh={:?}",
+        started.elapsed(),
+        timed_refresh()
+    );
+
+    let started = Instant::now();
+    delete_item_inner(
+        context,
+        &watcher_state,
+        path_of("日本語 🔥/Note-00005.md"),
+        DeleteMode::Vault,
+    )
+    .unwrap();
+    line += &format!(
+        " delete={:?} delete_refresh={:?}",
+        started.elapsed(),
+        timed_refresh()
+    );
+    eprintln!("{line}");
 }
 
 #[test]

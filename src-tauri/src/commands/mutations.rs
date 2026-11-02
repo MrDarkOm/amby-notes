@@ -442,6 +442,16 @@ pub fn create_note(
     parent_path: String,
     name: String,
 ) -> Result<MutationOutcome, String> {
+    create_note_inner(&db, &watcher_state, parent_path, name)
+}
+
+/// The body of `create_note` without the Tauri state wrappers (see `rename_item_inner`).
+pub(crate) fn create_note_inner(
+    db: &VaultContext,
+    watcher_state: &WatcherState,
+    parent_path: String,
+    name: String,
+) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let parent_path = paths::guard(&db, &parent_path)?;
     let plan = crate::bundle::prepare_create_note_impl(&parent_path, &name)?;
@@ -659,13 +669,32 @@ pub fn move_item(
     source_path: String,
     target_path: String,
 ) -> Result<MutationOutcome, String> {
+    move_item_inner(
+        &db,
+        &runtime,
+        &watcher_state,
+        &|root, changes| sync_runtime.note_renames(root, changes),
+        source_path,
+        target_path,
+    )
+}
+
+/// The body of `move_item` without the Tauri state wrappers (see `rename_item_inner`).
+pub(crate) fn move_item_inner(
+    db: &VaultContext,
+    runtime: &DatabaseRuntimeState,
+    watcher_state: &WatcherState,
+    note_renames: &dyn Fn(&Path, &[PathChange]),
+    source_path: String,
+    target_path: String,
+) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let source_path = paths::guard(&db, &source_path)?;
     let target_path = paths::guard(&db, &target_path)?;
     let preview = preview_move_item(&source_path, &target_path)?;
     // Synchronisation learns that this is a move, before the change reaches the disk (Д70).
     if let Ok(root) = db.root() {
-        sync_runtime.note_renames(&root, &preview.path_changes);
+        note_renames(&root, &preview.path_changes);
     }
     let (vault_root, generation, prepared_plan) = {
         let conn_guard = db.conn.lock_or_recover();
@@ -901,12 +930,32 @@ pub fn rename_item(
     path: String,
     new_name: String,
 ) -> Result<MutationOutcome, String> {
+    rename_item_inner(
+        &db,
+        &runtime,
+        &watcher_state,
+        &|root, changes| sync_runtime.note_renames(root, changes),
+        path,
+        new_name,
+    )
+}
+
+/// The body of `rename_item` without the Tauri state wrappers, so the large-vault
+/// benchmark and the equivalence tests run the same code as the command.
+pub(crate) fn rename_item_inner(
+    db: &VaultContext,
+    runtime: &DatabaseRuntimeState,
+    watcher_state: &WatcherState,
+    note_renames: &dyn Fn(&Path, &[PathChange]),
+    path: String,
+    new_name: String,
+) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(&db, &path)?;
     let preview = preview_rename_item(&path, &new_name)?;
     // Synchronisation learns that this is a rename, before the change reaches the disk (Д70).
     if let Ok(root) = db.root() {
-        sync_runtime.note_renames(&root, &preview.path_changes);
+        note_renames(&root, &preview.path_changes);
     }
     let (vault_root, generation, inputs) = {
         let conn_guard = db.conn.lock_or_recover();
@@ -997,6 +1046,16 @@ pub fn rename_item(
 pub fn delete_item(
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
+    path: String,
+    mode: recycle_bin::DeleteMode,
+) -> Result<MutationOutcome, String> {
+    delete_item_inner(&db, &watcher_state, path, mode)
+}
+
+/// The body of `delete_item` without the Tauri state wrappers (see `rename_item_inner`).
+pub(crate) fn delete_item_inner(
+    db: &VaultContext,
+    watcher_state: &WatcherState,
     path: String,
     mode: recycle_bin::DeleteMode,
 ) -> Result<MutationOutcome, String> {
