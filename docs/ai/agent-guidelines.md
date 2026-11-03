@@ -1,7 +1,7 @@
 # Detailed repository guidelines
 
 Read only the sections relevant to the current change. The compact entry point is
-[AGENTS.md](../AGENTS.md); file ownership and navigation live in [MAP.md](../MAP.md).
+[AGENTS.md](../../AGENTS.md); file ownership and navigation live in [MAP.md](MAP.md).
 These rules were moved from the original root guide, not replaced by the maps.
 
 ## Product and Architecture
@@ -9,7 +9,7 @@ These rules were moved from the original root guide, not replaced by the maps.
 Amby Notes is a local-first Tauri 2 desktop knowledge workspace with a React 19, TypeScript, and Vite frontend and a Rust backend. Markdown files and attachments in the selected vault are user-owned source data; SQLite is rebuildable; `.amby/` also contains durable property sidecars and recovery data, so never treat the entire directory as disposable.
 
 - The frontend must not access the desktop filesystem directly. Route I/O through `src/lib/storage.ts`, which uses Tauri IPC in the desktop app and a `localStorage` fallback in browser development.
-- The rich editor is Tiptap 3/ProseMirror; the source editor is CodeMirror 6. A note enters Live Preview when saving it without an edit gives the same bytes and rewriting any of its blocks in the editor's own form would change only the spelling; every top-level block keeps its source text until it is edited. A block the editor would change by rewriting it (a code fence with more than a language, emphasis it spells differently) is kept as its source text and never rebuilt; a link definition or mixed line endings keep the note in Source mode. The contract is [Markdown compatibility](markdown-compatibility.md).
+- The rich editor is Tiptap 3/ProseMirror; the source editor is CodeMirror 6. A note enters Live Preview when saving it without an edit gives the same bytes and rewriting any of its blocks in the editor's own form would change only the spelling; every top-level block keeps its source text until it is edited. A block the editor would change by rewriting it (a code fence with more than a language, emphasis it spells differently) is kept as its source text and never rebuilt; a link definition or mixed line endings keep the note in Source mode. The contract is [Markdown compatibility](../markdown-compatibility.md).
 - Zustand stores and focused hooks own workspace state. Extend the relevant store or hook instead of reintroducing parallel state in `workspace.tsx`.
 - The Rust backend owns vault scoping, atomic writes, history/trash, filesystem watching, bundle/layer operations, frontmatter handling, and the rebuildable SQLite index.
 
@@ -21,7 +21,7 @@ Amby Notes is a local-first Tauri 2 desktop knowledge workspace with a React 19,
 - `src/lib/` contains IPC/storage boundaries, generated bindings, i18n bootstrap, diagnostics, queues, recovery drafts, AI helpers, and shared utilities.
 - `src/locales/resources.ts` is the single registry for all visible interface strings.
 - `src/themes/` owns application CSS, built-in themes, palettes, portable theme validation, and appearance preferences.
-- `src-tauri/src/` is split by backend responsibility: `lib.rs` registers Tauri commands; `commands/` holds IPC boundaries; `bundle/`, `vault/`, `index/`, `database/`, and focused Rust files implement domain behavior. `vault_index.rs` is a compatibility facade. See [the backend map](../src-tauri/src/MAP.md).
+- `src-tauri/src/` is split by backend responsibility: `lib.rs` registers Tauri commands; `commands/` holds IPC boundaries; `bundle/`, `vault/`, `index/`, `database/`, and focused Rust files implement domain behavior. `vault_index.rs` is a compatibility facade. See [the backend map](../../src-tauri/src/MAP.md).
 - `docs/` records executable product contracts, especially `vault-format.md`, `markdown-compatibility.md`, `themes-and-localization.md`, and `engineering.md`.
 - `updates/` is the public, cumulative change log directory containing per-version release notes (e.g. `updates/upd_<version>.md`) and unreleased changes (`updates/upd_next.md`). Keep release-engineering instructions in `docs/update-system.md`; do not mix operational secrets or internal release steps into the public change log.
 - `public/` stores static web assets. `dist/` and `src-tauri/target/` are generated output and must not be committed.

@@ -5,9 +5,9 @@
 Дата: 2026-09-04
 
 Документ продолжает
-[архитектуру системы](./database-system.md),
-[пользовательские сценарии](./database-user-flows.md) и
-[durable-формат](./database-format.md). Он определяет перестраиваемую
+[архитектуру системы](database-system.md),
+[пользовательские сценарии](database-user-flows.md) и
+[durable-формат](database-format.md). Он определяет перестраиваемую
 SQLite-проекцию, границу Tauri IPC, порядок mutations и состояние frontend.
 
 ## 1. Граница ответственности
@@ -755,7 +755,7 @@ web adapter: CRUD values, query, conflicts, pagination, module toggle и recover
 
 ## 20. Следующий контракт
 
-[Frontend-контракт](./database-frontend.md) определяет state machines и component
+[Frontend-контракт](database-frontend.md) определяет state machines и component
 boundaries для Table, Board, List, Gallery, side peek, editing queue и linked
 views. Следующий шаг — разложить общий план на независимые implementation PR с
 явными acceptance criteria.

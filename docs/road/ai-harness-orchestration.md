@@ -4,8 +4,8 @@
 
 Статус: все пакеты запланированы. Дата: 2026-09-30. Версия: 2.
 
-Контракт: [архитектурный план](./ai-harness-plan.md).  
-Проверки: [приёмка](./ai-harness-acceptance.md).
+Контракт: [архитектурный план](ai-harness-plan.md).  
+Проверки: [приёмка](ai-harness-acceptance.md).
 
 Подготовлены проекты [контракта](../ai-harness.md),
 [формата состояния](../ai-state-format.md) и [каталога действий](../ai-action-catalog.md).
@@ -58,7 +58,7 @@ integration patch или отдельно согласованное владе�
 зависимость, доказательство и следующий возможный шаг. Gate имеет состояние
 `notRun`, `failed`, `passed`; «код написан» не равен `passed`.
 
-При запуске реализации создать `docs/Road/ai-harness-progress.md` с таблицей:
+При запуске реализации создать `docs/road/ai-harness-progress.md` с таблицей:
 
 ```text
 package | owner | status | baseline | touched files | checks | evidence | blockers
@@ -512,7 +512,7 @@ store/adapter, интегратор сериализует изменения н
 ## Шаблон задания исполнителю
 
 ```text
-Выполни пакет H-XX из docs/Road/ai-harness-orchestration.md.
+Выполни пакет H-XX из docs/road/ai-harness-orchestration.md.
 Прочитай AGENTS.md, архитектурный контракт, пакет и связанные Q-сценарии.
 Baseline: <HEAD + сведения о рабочем дереве>.
 Зависимости уже приняты: <ID и evidence>.
@@ -546,9 +546,9 @@ lifecycle, headless execution и сохранность исходных дан�
 
 ```text
 Реализуй полный план ИИ-агента Amby из:
-- docs/Road/ai-harness-plan.md;
-- docs/Road/ai-harness-orchestration.md;
-- docs/Road/ai-harness-acceptance.md.
+- docs/road/ai-harness-plan.md;
+- docs/road/ai-harness-orchestration.md;
+- docs/road/ai-harness-acceptance.md.
 
 Используй оркестрацию агентов для независимых пакетов. Начни с H-00 и H-01,
 сохрани текущее пользовательское рабочее дерево и создай progress ledger.

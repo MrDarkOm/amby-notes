@@ -3,7 +3,7 @@
 Статус: проект каталога; агентные adapters ещё не реализованы. Версия: 1.
 Дата инвентаризации: 2026-09-30, рабочее дерево с незакоммиченными изменениями.
 
-Связанные документы: [контракт](./ai-harness.md), [журнал](./ai-state-format.md),
+Связанные документы: [контракт](ai-harness.md), [журнал](ai-state-format.md),
 план, оркестрация,
 приёмка.
 
@@ -88,8 +88,8 @@ locks и snapshots определяются adapter, согласно контр
 
 ### 4.1 Расхождение текущих контрактов удаления
 
-Правила проекта и [data-safety-contract](./data-safety-contract.md) задают vault-local
-restorable deletion. [Актуальный vault-format](./vault-format.md) и проверенные
+Правила проекта и [data-safety-contract](data-safety-contract.md) задают vault-local
+restorable deletion. [Актуальный vault-format](vault-format.md) и проверенные
 `delete_item`/`archive_item` в рабочем дереве различают system trash и internal
 archive. H-00 обязан зафиксировать это расхождение перед реализацией. Настоящий
 проект использует разные action IDs и не объявляет нынешнее OS удаление
@@ -100,7 +100,7 @@ archive. H-00 обязан зафиксировать это расхожден�
 
 Авторитетные значения строк находятся в Markdown frontmatter; schema и views —
 в durable manifest/`.ambd/`; SQLite — rebuildable projection. Legacy shards
-и fallback чтения описаны в [database format](./database-format.md); нельзя
+и fallback чтения описаны в [database format](database-format.md); нельзя
 самостоятельно мигрировать их «для удобства» агента.
 
 | Предлагаемые действия                                                                 | Методы DatabasePort / gap                                           | Scope, проверка и undo                                              | Пакет; статус |

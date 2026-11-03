@@ -7,12 +7,12 @@
 контракт. H-00 проверяет его относительно будущего baseline, H-01 закрепляет
 schemas и fixtures. Наличие этой документации не закрывает H-00/H-01 или G0.
 
-Связанные документы: [каталог действий](./ai-action-catalog.md),
-[формат состояния](./ai-state-format.md),
+Связанные документы: [каталог действий](ai-action-catalog.md),
+[формат состояния](ai-state-format.md),
 пакеты реализации,
 приёмка,
-[сохранность данных](./data-safety-contract.md),
-[файлы](./vault-format.md), [Markdown](./markdown-compatibility.md).
+[сохранность данных](data-safety-contract.md),
+[файлы](vault-format.md), [Markdown](markdown-compatibility.md).
 
 ## 1. Что представляет собой harness
 

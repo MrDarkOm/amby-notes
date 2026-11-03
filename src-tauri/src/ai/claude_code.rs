@@ -2,7 +2,7 @@
 //! for one turn, in an isolated `CLAUDE_CONFIG_DIR`, with every built-in tool switched
 //! off and no MCP server but Amby's own read-only bridge. Sign-in and tokens stay inside
 //! Claude Code; Amby never reads or stores them. The protocol facts below were taken from
-//! Claude Code 2.1.312; see "Claude Code 2.1.312" in docs/Road/ai-provider-connections-plan.md.
+//! Claude Code 2.1.312; see "Claude Code 2.1.312" in docs/road/ai-provider-connections-plan.md.
 
 pub mod home;
 pub mod launch;

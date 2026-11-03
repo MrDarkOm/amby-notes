@@ -2,13 +2,13 @@
 
 Read only the relevant contract/section. Documentation status matters: an old
 audit, proposal or handoff does not establish present behavior. Verify against
-the [code map](../MAP.md), implementation and tests; report contradictions rather
+the [code map](ai/MAP.md), implementation and tests; report contradictions rather
 than silently changing source data to match a plan.
 
 | Topic                                                                                                                                                                       | Read when                                                                                                                                                                                                     |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Agent guidelines](agent-guidelines.md)                                                                                                                                     | Applicable engineering, formatting, safety or release rules before editing                                                                                                                                    |
-| [Agent context design](agent-context.md)                                                                                                                                    | Maintaining instructions/maps or onboarding a different tool                                                                                                                                                  |
+| [Agent guidelines](ai/agent-guidelines.md)                                                                                                                                  | Applicable engineering, formatting, safety or release rules before editing                                                                                                                                    |
+| [Agent context design](ai/agent-context.md)                                                                                                                                 | Maintaining instructions/maps or onboarding a different tool                                                                                                                                                  |
 | [Engineering](engineering.md)                                                                                                                                               | Quality gates, migration practices, package versions, formula failure contracts                                                                                                                               |
 | [Vault format](vault-format.md)                                                                                                                                             | Persistence, IDs, YAML, source ownership, conflict/recovery behavior                                                                                                                                          |
 | [Markdown compatibility](markdown-compatibility.md)                                                                                                                         | Parsing, serialization, Live Preview admission and fixtures                                                                                                                                                   |
@@ -24,25 +24,29 @@ than silently changing source data to match a plan.
 | [Update system](update-system.md), [Windows release checklist](windows-release-checklist.md), [macOS signing and Keychain prompts](dev-signing.md)                          | Packaging, updater and release operations                                                                                                                                                                     |
 | [Security advisories](security-advisories.md)                                                                                                                               | Dependency/security findings and recorded verification                                                                                                                                                        |
 
+## Folder layout
+
+- `docs/` holds contracts and audits that describe the present behavior.
+- [ai/](ai/MAP.md) holds the agent instructions: the root code map (`ai/MAP.md`, entry point from `AGENTS.md`),
+  [agent guidelines](ai/agent-guidelines.md) and [agent context design](ai/agent-context.md).
+- [road/](road/) holds everything planned: plans, orchestration, acceptance lists, stage reports and
+  [mobile plan](road/mobile-plan.md). Its file paths/status/counts can reflect an earlier revision; do not
+  bulk-load this directory on startup.
+- [road/target/](road/target/README.md) lists what was deferred on purpose (sync, AI, editor, safety,
+  platforms) and the product [ideas](road/target/IDEAS.md). Read it before proposing "next" work.
+- `docs/archive/` is local only and is not in git (ignored): full texts of old plans, audits, handoffs and
+  reports kept on the owner's machine. It may be absent in a checkout; never link to it from tracked files.
+- [../updates/](../updates/README.md) is public cumulative release data. Keep internal operational steps in
+  docs, not in user-facing release notes.
+
 ## Plans and evidence, read only for the task
 
-- [AI provider connections](Road/ai-provider-connections-plan.md): proposed API/CLI
-  connections, model catalogs, settings migration and staged acceptance checks.
-- [Road/](Road/) contains execution plans, orchestration, acceptance lists and
-  architecture audits. Their file paths/status/counts can reflect an earlier
-  revision; do not bulk-load this directory on startup.
-- `*-plan.md`, `*-audit-*.md`, `*-handoff.md` and dated platform audits capture
-  proposed work or handoff evidence. Locate them with `rg --files docs` when the
-  task names that initiative. A checkbox is not a substitute for verifying code.
-- [archive/](archive/README.md) is one file: short records of finished plans, audits and
-  reports (what was decided, where the contract lives). Full texts are in git history
-  (commit `7b838c8`). Open it only for a regression's history or an explicit request.
-- Plans keep a "Status" line at the top (checked 2026-11-02); read it first. [Claude handoff](claude-handoff.md),
-  [Windows audit](windows-audit-2026-09-28.md), [storage audit](storage-issues-audit.md) and the
-  [editor audit](editor-audit-2026-10/) are evidence, not contracts.
-- [IDEAS.md](IDEAS.md) is product exploration, not implementation instructions.
-- [updates/](../updates/README.md) is public cumulative release data. Keep internal
-  operational steps in docs, not in user-facing release notes.
+- [AI provider connections](road/ai-provider-connections-plan.md): API/CLI connections, model catalogs,
+  settings migration and staged acceptance checks.
+- `*-plan.md`, `*-audit-*.md` and dated platform audits capture proposed work or evidence. Locate them with
+  `rg --files docs` when the task names that initiative. A checkbox is not a substitute for verifying code.
+- Plans keep a "Status" line at the top (checked 2026-11-03); read it first. [Windows audit](windows-audit-2026-09-28.md),
+  [storage audit](storage-issues-audit.md) and the [editor audit](editor-audit-2026-10/) are evidence, not contracts.
 
 When a contract changes, update its owning document and the map only if routing
 changes. Keep detailed facts in one owner rather than copying whole contracts.

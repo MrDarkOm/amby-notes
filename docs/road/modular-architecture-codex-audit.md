@@ -165,7 +165,7 @@ Safe mode и quarantine хранятся только в памяти. Нет с
 
 `format:check` указал следующие файлы:
 
-- `docs/Road/modular-architecture-inventory.md`;
+- `docs/road/modular-architecture-inventory.md`;
 - `src/components/workspace/app-config.ts`;
 - `src/components/workspace/canvas/canvas-note-picker-modal.tsx`;
 - `src/components/workspace/settings-dialog.tsx`;

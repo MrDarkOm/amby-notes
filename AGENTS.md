@@ -6,12 +6,12 @@ and attachments. SQLite is rebuildable; durable sidecars and recovery data are n
 
 ## Read progressively
 
-1. Read this file, then choose the relevant route in [MAP.md](MAP.md).
+1. Read this file, then choose the relevant route in [MAP.md](docs/ai/MAP.md).
 2. Read only that area's `MAP.md`, the implementation, and nearby tests. For a
    cross-layer task, follow the linked boundary maps. Paths in maps are relative
    to the map containing the link.
 3. Before editing, read the applicable sections of
-   [detailed guidelines](docs/agent-guidelines.md). Before persistence, indexing,
+   [detailed guidelines](docs/ai/agent-guidelines.md). Before persistence, indexing,
    frontmatter, serialization, rename/move, history or trash changes, also read
    [vault format](docs/vault-format.md) and
    [Markdown compatibility](docs/markdown-compatibility.md).
@@ -62,7 +62,7 @@ and attachments. SQLite is rebuildable; durable sidecars and recovery data are n
   changes also need a native build, or an explicit reason it could not run.
 - An explicit request to **commit and push accumulated changes** triggers the
   cumulative patch release workflow in
-  [the release rules](docs/agent-guidelines.md#public-change-log-and-cumulative-releases).
+  [the release rules](docs/ai/agent-guidelines.md#public-change-log-and-cumulative-releases).
   Read it before versioning or committing. Tags, GitHub Releases and branch
   promotion need separate explicit authorization.
 - When ownership, entry points or contracts change, update the nearest map in

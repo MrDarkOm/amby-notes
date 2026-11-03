@@ -7,14 +7,9 @@ GEMINI.md
 .aiignore
 .vscode
 :(glob)**/MAP.md
-docs/agent-guidelines.md
-docs/agent-context.md
-docs/claude-handoff.md
-docs/Road
-docs/archive
+docs/ai
+docs/road
 docs/editor-audit-2026-10
-docs/excalidraw-canvas-claude-plan.md
 docs/sync-plan.md
 docs/windows-audit-2026-09-28.md
 docs/storage-issues-audit.md
-docs/IDEAS.md

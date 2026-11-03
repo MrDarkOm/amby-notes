@@ -25,7 +25,7 @@ command lists in historical plans. Use Node.js 20.19+ or 22.12+, npm 10+, and Ru
 tests and binding drift. `verify:fast` is for iteration. Every completed batch
 still requires `npm run build`; do not weaken checks to make a batch pass.
 
-For releases read [the cumulative release rules](../docs/agent-guidelines.md#public-change-log-and-cumulative-releases)
+For releases read [the cumulative release rules](../docs/ai/agent-guidelines.md#public-change-log-and-cumulative-releases)
 and [update-system.md](../docs/update-system.md). Every change updates
 [upd_next.md](../updates/upd_next.md), but ordinary changes do not bump a version.
 Build outputs and machine-specific benchmark evidence must not be committed.

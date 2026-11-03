@@ -125,7 +125,7 @@
 Первый файл `database-stabilization-regressions.patch` уже применён Gemini к исходникам; повторно применять его не нужно. Новый [database-stabilization-followup-regressions.patch](database-stabilization-followup-regressions.patch) содержит только дополнительные тесты. Для воспроизведения использовать отдельную копию текущей рабочей версии с установленными зависимостями:
 
 ```sh
-git apply docs/Road/database-stabilization-followup-regressions.patch
+git apply docs/road/database-stabilization-followup-regressions.patch
 cargo test --manifest-path src-tauri/Cargo.toml --lib ::tests::review2_ -- --nocapture --test-threads=1
 npx vitest run src/components/workspace/database/use-database-query.test.ts -t 'review2:'
 ```
@@ -298,7 +298,7 @@ npx vitest run src/components/workspace/database/use-database-query.test.ts -t '
 Для воспроизведения применить патч **в отдельной копии текущей рабочей версии** и выполнить из корня этой копии:
 
 ```sh
-git apply docs/Road/database-stabilization-regressions.patch
+git apply docs/road/database-stabilization-regressions.patch
 cargo test --manifest-path src-tauri/Cargo.toml --lib ::tests::review_ -- --nocapture
 ```
 
@@ -323,4 +323,4 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib ::tests::review_ -- --noca
 
 Предыдущий независимый аудит первоначально находился во временном каталоге и не был доступен поиском только внутри репозитория. Этот документ делает результаты аудита доступными в проекте. Передать Gemini следует именно этот аудит и диагностический патч, а не только отчёт о завершении.
 
-Проверки при добавлении аудита: `npm run build` — PASS; `git apply --check docs/Road/database-stabilization-regressions.patch` — PASS; форматирование этого аудита — PASS. Повторный `npm run verify` снова прошёл 654 frontend-теста и остановился на Prettier: замечания теперь есть и в исходном плане, и в новом отчёте Gemini. Производственный код не менялся; Rust-тесты, Clippy и диагностические сценарии повторно не запускались, их результаты выше относятся к первоначальному аудиту.
+Проверки при добавлении аудита: `npm run build` — PASS; `git apply --check docs/road/database-stabilization-regressions.patch` — PASS; форматирование этого аудита — PASS. Повторный `npm run verify` снова прошёл 654 frontend-теста и остановился на Prettier: замечания теперь есть и в исходном плане, и в новом отчёте Gemini. Производственный код не менялся; Rust-тесты, Clippy и диагностические сценарии повторно не запускались, их результаты выше относятся к первоначальному аудиту.

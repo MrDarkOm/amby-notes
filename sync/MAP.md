@@ -33,13 +33,13 @@ in a test), `sync:mutants`, `sync:fuzz -- <target>`, `sync:reference:setup`,
 testing and the long simulation) run from [sync-gates.yml](../.github/workflows/sync-gates.yml) on a push to
 `gates/run`, merged by [sync-gates-summary.mjs](../scripts/sync-gates-summary.mjs).
 The second gate run and the regression of seed 23390 are tracked in
-[sync-gates-second-report.md](../docs/Road/sync-gates-second-report.md); its frozen scenario tests
+[sync-gates-second-report.md](../docs/road/sync-gates-second-report.md); its frozen scenario tests
 are [gates_regressions.rs](sim/tests/gates_regressions.rs).
 
 The exact byte format is appendix "Точный формат v1" of the plan; the Python reference and the Rust
 code must agree with it byte for byte.
 
-Stage report with the red run and open questions for review: [sync-e1-report.md](../docs/Road/sync-e1-report.md).
+Stage report with the red run and open questions for review: `sync-e1-report.md` (local archive).
 
 Names of a device and of a space (Ф34): [core/src/crypto/name.rs](core/src/crypto/name.rs); the vectors are the `names`
 section of `vectors/format-v1.json`, made by the Python reference like the rest.
@@ -48,7 +48,7 @@ The protocol is appendix Б of the plan (decisions П1–П41). The suite starts
 (`AMBY_SYNC_URL` unset) or goes to the address in `AMBY_SYNC_URL`, creating users through
 `AMBY_SYNC_ADMIN_CMD`; tests that move the clock, restart the server or read its data directory
 always use their own server in the process. Stage report with the red run, the implementation and the
-mutation run: [sync-e2-report.md](../docs/Road/sync-e2-report.md).
+mutation run: `sync-e2-report.md` (local archive).
 
 Inside [server/src/](server/src/lib.rs):
 
@@ -75,7 +75,7 @@ Inside [server/src/](server/src/lib.rs):
 
 Appendix Е (tariffs and limits; decisions П50–П62, Д73–Д78, У1–У5). Written **tests first**: the stubs below answer
 `not_implemented` / `501`, the tests are red as intended, another session writes the code with the tests frozen. Report with the
-table "requirement → test", the red run and the open points: [sync-plans-tests-report.md](../docs/Road/sync-plans-tests-report.md).
+table "requirement → test", the red run and the open points: `sync-plans-tests-report.md` (local archive).
 `npm run sync:plans:red` groups the red tests of this workspace by reason (checks the list in
 [plans-red-manifest.json](plans-red-manifest.json) with [plans_red.py](plans_red.py); after the implementation `--expect-green`),
 `sync:plans:red:app` does the same for the application and vitest, `sync:plans:measure` is the measurement of the quota check (Е.10-7).
@@ -93,7 +93,7 @@ Running your own server: [server/README.md](server/README.md) and
 [server/docker-compose.yml](server/docker-compose.yml).
 
 The sign-in client (stage Э4, the connect screen; report with the decisions for review:
-[sync-e4-connect-report.md](../docs/Road/sync-e4-connect-report.md)). Tests run against the server of
+`sync-e4-connect-report.md` (local archive)). Tests run against the server of
 `conformance` in the process (`Target::from_env`, so also against a container):
 
 | File                                                                 | Owns                                                                                                                       |
@@ -109,7 +109,7 @@ Stage Э3 (engine, tests first): rules are appendix В of the plan (decisions Д
 types are in [core/src/engine/](core/src/engine/mod.rs); the engine is written against the tests of
 `sim/` and `core/tests/`, which were written and reviewed first. The simulation and the tests of the
 engine are in `sim/`; stage report with the red run, the implementation and the mutation run:
-[sync-e3-report.md](../docs/Road/sync-e3-report.md).
+`sync-e3-report.md` (local archive).
 
 Inside [core/src/engine/](core/src/engine/mod.rs) (public: ports, model, names, consistency, stream,
 rules, sync; the rest is private to the engine):
@@ -144,11 +144,11 @@ ports and the session are in [src-tauri/src/sync/](../src-tauri/src/sync/mod.rs)
 for a parked item with an invalid name is not uploaded again after a full reconcile (`push.rs`), the copy of the
 second item on one path (Д71) is a listed conflict (`MoveAct::placed_as`). The test client of the server
 (`conformance/src/http.rs`) keeps and reuses its connections and repeats a failed transport. Report with the red
-run, open questions and the native check: [sync-e4-engine-report.md](../docs/Road/sync-e4-engine-report.md).
+run, open questions and the native check: `sync-e4-engine-report.md` (local archive).
 
 Stage Э4б (conflicts v2: the merge of a note and the conflict store; strict order, tests first). The rules are appendix Г of the
 plan (decisions Г1–Г36). The tests were written first (red run in the report), the code was written against them in another session.
-Report with the red run, the implementation and the open questions: [sync-e4b-report.md](../docs/Road/sync-e4b-report.md).
+Report with the red run, the implementation and the open questions: `sync-e4b-report.md` (local archive).
 
 | File                                                                                         | Owns                                                                                                     |
 | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |

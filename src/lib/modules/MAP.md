@@ -26,4 +26,4 @@ Tests: host lifecycle/capability/workspace tests, community tests, package-manag
 tests, [modular-acceptance.test.ts](modular-acceptance.test.ts) and native package
 tests in `package_manager.rs`. Shared version cases live in
 [package-versions.json](../../../tests/fixtures/package-versions.json).
-The modular documents under `docs/Road/` are plans/audits, not an API reference.
+The modular documents under `docs/road/` are plans/audits, not an API reference.

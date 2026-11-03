@@ -1,6 +1,6 @@
 /**
  * Core types for Amby's Modular Architecture (0.1.5+).
- * See docs/Road/modular-architecture-0.1.5-plan.md for architectural specifications.
+ * See docs/road/modular-architecture-0.1.5-plan.md for architectural specifications.
  */
 
 export type ModuleKind = "official" | "community"

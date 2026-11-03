@@ -47,3 +47,6 @@ sync/core/fuzz/artifacts/
 sync/core/fuzz/corpus/
 sync/reference/.venv/
 sync/reference/__pycache__/
+
+# Local archive of old documents: full texts kept on this machine only, never pushed.
+/docs/archive/
