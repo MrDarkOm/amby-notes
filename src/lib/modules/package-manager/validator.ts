@@ -307,7 +307,7 @@ export async function signOfficialManifest(
   const key = await crypto.subtle.importKey("pkcs8", privBytes, { name: "Ed25519" }, false, [
     "sign",
   ])
-  const sigBuffer = await crypto.subtle.sign("Ed25519", key, bytes)
+  const sigBuffer = await crypto.subtle.sign("Ed25519", key, new Uint8Array(bytes))
   const sigHex = Buffer.from(sigBuffer).toString("hex")
   return {
     ...manifest,
@@ -341,7 +341,7 @@ export async function verifyEd25519Signature(
     const key = await crypto.subtle.importKey("raw", pubBytes, { name: "Ed25519" }, false, [
       "verify",
     ])
-    return await crypto.subtle.verify("Ed25519", key, sigBytes, message)
+    return await crypto.subtle.verify("Ed25519", key, sigBytes, new Uint8Array(message))
   } catch {
     return false
   }
