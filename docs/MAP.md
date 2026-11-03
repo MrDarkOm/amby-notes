@@ -32,8 +32,11 @@ than silently changing source data to match a plan.
 - [road/](road/) holds everything planned, one file per category: [ai](road/ai.md) (AI panel, provider
   connections, write-capable agent), [mobile](road/mobile.md), [sync](road/sync.md) (gate reports; the plan
   itself is [sync-plan.md](sync-plan.md)), [boards](road/boards.md) (Excalidraw board), [modules](road/modules.md)
-  (modules and plugins) and [database](road/database.md). Each file opens with a status table; its parts are
+  (modules and plugins). Each file opens with a status table; its parts are
   the former separate plans. Status and counts can reflect an earlier revision; do not bulk-load these files.
+- [audit/](audit/) holds the audits, one folder or file each: [storage](audit/storage-issues-audit.md),
+  [database stabilization](audit/database-stabilization.md), [Windows](audit/windows-audit-2026-09-28.md) and the
+  [editor audit](audit/editor-audit-2026-10/). They are evidence at a date, not contracts.
 - [road/target/](road/target/README.md) lists what was deferred on purpose (sync, AI, editor, safety,
   platforms) and the product [ideas](road/target/IDEAS.md). Read it before proposing "next" work.
 - `docs/archive/` is local only and is not in git (ignored): full texts of old plans, audits, handoffs and
@@ -45,8 +48,7 @@ than silently changing source data to match a plan.
 
 - `*-plan.md`, `*-audit-*.md` and dated platform audits capture proposed work or evidence. Locate them with
   `rg --files docs` when the task names that initiative. A checkbox is not a substitute for verifying code.
-- Plans keep a "Status" line at the top (checked 2026-11-03); read it first. [Windows audit](windows-audit-2026-09-28.md),
-  [storage audit](storage-issues-audit.md) and the [editor audit](editor-audit-2026-10/) are evidence, not contracts.
+- Plans keep a "Status" line at the top (checked 2026-11-03); read it first. Audits live in [audit/](audit/).
 
 When a contract changes, update its owning document and the map only if routing
 changes. Keep detailed facts in one owner rather than copying whole contracts.

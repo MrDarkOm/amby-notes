@@ -9,7 +9,5 @@ GEMINI.md
 :(glob)**/MAP.md
 docs/ai
 docs/road
-docs/editor-audit-2026-10
+docs/audit
 docs/sync-plan.md
-docs/windows-audit-2026-09-28.md
-docs/storage-issues-audit.md

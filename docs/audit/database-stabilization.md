@@ -122,7 +122,7 @@
 
 ### Материалы и порядок следующей доработки
 
-Первый файл `database-stabilization-regressions.patch` уже применён Gemini к исходникам; повторно применять его не нужно. Новый [database-stabilization-followup-regressions.patch](database-stabilization-followup-regressions.patch) содержит только дополнительные тесты. Для воспроизведения использовать отдельную копию текущей рабочей версии с установленными зависимостями:
+Первый файл `database-stabilization-regressions.patch` уже применён Gemini к исходникам; повторно применять его не нужно. Новый [database-stabilization-followup-regressions.patch](../road/database-stabilization-followup-regressions.patch) содержит только дополнительные тесты. Для воспроизведения использовать отдельную копию текущей рабочей версии с установленными зависимостями:
 
 ```sh
 git apply docs/road/database-stabilization-followup-regressions.patch
@@ -293,7 +293,7 @@ npx vitest run src/components/workspace/database/use-database-query.test.ts -t '
 
 Провалившиеся дополнительные проверки: rollback после новых правок; повторное обнаружение успешной миграции; Select после rename; числовая цепочка Formula; multiSelect, Checkbox и Select фильтры.
 
-[Патч с воспроизводящими проверками](database-stabilization-regressions.patch) добавляет восемь тестов к проверенному состоянию. Это диагностический материал, а не исправление продукта. Семь тестов должны оставаться красными до исправления найденных дефектов; проверка будущей версии manifest уже проходит.
+[Патч с воспроизводящими проверками](../road/database-stabilization-regressions.patch) добавляет восемь тестов к проверенному состоянию. Это диагностический материал, а не исправление продукта. Семь тестов должны оставаться красными до исправления найденных дефектов; проверка будущей версии manifest уже проходит.
 
 Для воспроизведения применить патч **в отдельной копии текущей рабочей версии** и выполнить из корня этой копии:
 

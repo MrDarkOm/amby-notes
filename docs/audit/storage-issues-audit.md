@@ -20,25 +20,25 @@ Amby Notes позиционируется как безопасное **Local-Fi
 
 ## 2. Критические проблемы сохранности данных в базах данных (P1 / P2)
 
-В ходе аудита стабилизации баз данных ([`docs/road/database.md`](road/database.md)) зафиксированы открытые дефекты:
+В ходе аудита стабилизации баз данных ([`docs/audit/database-stabilization.md`](database-stabilization.md)) зафиксированы открытые дефекты:
 
 ### 2.1. Rollback миграции стирает свежие правки пользователя (Дефект R1, P1)
 
-- **Файлы:** [`src-tauri/src/database/migration.rs`](../src-tauri/src/database/migration.rs#L287), [`src-tauri/src/database/migration.rs`](../src-tauri/src/database/migration.rs#L555), [`src-tauri/src/database/migration.rs`](../src-tauri/src/database/migration.rs#L706)
+- **Файлы:** [`src-tauri/src/database/migration.rs`](../../src-tauri/src/database/migration.rs#L287), [`src-tauri/src/database/migration.rs`](../../src-tauri/src/database/migration.rs#L555), [`src-tauri/src/database/migration.rs`](../../src-tauri/src/database/migration.rs#L706)
 - **Суть проблемы:** Если заметка уже содержала валидные значения свойств во frontmatter, мигратор всё равно копирует её в резервную копию (backup), но тело заметки фактически не изменяет. Если после завершения миграции пользователь открывает заметку и дописывает текст, а затем по какой-либо причине инициируется откат (`Rollback`), процедура отката восстанавливает файл из бэкапа и **безвозвратно затирает дописанный текст**.
 - **Причина:** `post_migration_hashes` вычисляется только для файлов из `planned_writes`. Отсутствие хэша в карте трактуется процедурой отката как безусловное разрешение на перезапись. Кроме того, хэши фиксируются на диске только после выполнения изменений.
 - **Требуемое исправление:** Планировать полный набор ресурсов с ожидаемыми ревизиями до начала записи; файлы, не затронутые миграцией, исключать из перезаписи при rollback; сохранять durable-журнал до модификации файлов.
 
 ### 2.2. Отсутствие аварийного восстановления при пакетных мутациях (Дефект R2, P1)
 
-- **Файлы:** [`src-tauri/src/database/mutations.rs`](../src-tauri/src/database/mutations.rs#L1625), [`src-tauri/src/database/mutations.rs`](../src-tauri/src/database/mutations.rs#L1693)
-- **Суть проблемы:** При пакетном редактировании нескольких ячеек/строк базы ([`apply_database_value_batch`](../src-tauri/src/commands/database.rs)) исходные байты для компенсирующего отката удерживаются **только в оперативной памяти** (`Vec<u8>`).
+- **Файлы:** [`src-tauri/src/database/mutations.rs`](../../src-tauri/src/database/mutations.rs#L1625), [`src-tauri/src/database/mutations.rs`](../../src-tauri/src/database/mutations.rs#L1693)
+- **Суть проблемы:** При пакетном редактировании нескольких ячеек/строк базы ([`apply_database_value_batch`](../../src-tauri/src/commands/database.rs)) исходные байты для компенсирующего отката удерживаются **только в оперативной памяти** (`Vec<u8>`).
 - **Причина:** Отсутствует durable-журнал на диске до начала выполнения записи.
 - **Последствия:** Если в процессе записи (например, на 10-й заметке из 20) происходит падение процесса, аварийное завершение ОС или отключение питания, база остаётся в разорванном, частично обновлённом состоянии. Механизм crash recovery и идемпотентного повтора операции после перезапуска отсутствует.
 
 ### 2.3. Хранение истории опций Select в памяти процесса (Дефект R4, P1)
 
-- **Файлы:** [`src-tauri/src/database/format.rs`](../src-tauri/src/database/format.rs#L10), [`src-tauri/src/database/format.rs`](../src-tauri/src/database/format.rs#L467), [`src-tauri/src/database/format.rs`](../src-tauri/src/database/format.rs#L919)
+- **Файлы:** [`src-tauri/src/database/format.rs`](../../src-tauri/src/database/format.rs#L10), [`src-tauri/src/database/format.rs`](../../src-tauri/src/database/format.rs#L467), [`src-tauri/src/database/format.rs`](../../src-tauri/src/database/format.rs#L919)
 - **Суть проблемы:** Для сохранения стабильности ULID опций списков выбора при переименованиях используется структура `OPTION_NAME_HISTORY: HashMap<String, String>`. Она хранится исключительно в памяти процесса без скоупа по базе данных или конкретному свойству.
 - **Последствия:**
   1. При перезапуске приложения карта очищается. Последующее чтение ранее переименованной опции теряет связь с ULID и сваливается в обычную строку.
@@ -47,13 +47,13 @@ Amby Notes позиционируется как безопасное **Local-Fi
 
 ### 2.4. Небезопасное удаление неизвестных файлов при миграции (Дефект R7, P1/P2)
 
-- **Файлы:** [`src-tauri/src/database/migration.rs`](../src-tauri/src/database/migration.rs#L545), [`src-tauri/src/database/migration.rs`](../src-tauri/src/database/migration.rs#L615)
+- **Файлы:** [`src-tauri/src/database/migration.rs`](../../src-tauri/src/database/migration.rs#L545), [`src-tauri/src/database/migration.rs`](../../src-tauri/src/database/migration.rs#L615)
 - **Суть проблемы:** При очистке устаревших каталогов `.ambd/records/` вызывается безусловный `remove_dir_all`. Префлайт мигратора проверяет и бэкапит только известные JSON-манифесты верхнего уровня.
 - **Последствия:** Любые сторонние или неизвестные файлы, случайно оказавшиеся внутри папки шардов (например, бинарные файлы или бэкапы внешних утилит), удаляются без предупреждения и не попадают в резервную копию.
 
 ### 2.5. Нарушение графа вычисления формул и сокрытие циклов (Дефект R6, P2)
 
-- **Файлы:** [`src-tauri/src/database/formula.rs`](../src-tauri/src/database/formula.rs#L775), [`src-tauri/src/database/formula.rs`](../src-tauri/src/database/formula.rs#L837)
+- **Файлы:** [`src-tauri/src/database/formula.rs`](../../src-tauri/src/database/formula.rs#L775), [`src-tauri/src/database/formula.rs`](../../src-tauri/src/database/formula.rs#L837)
 - **Суть проблемы:** Граф зависимостей строится по ID, но зависимости из выражений формул разрешаются по именам колонок. Порядок вычисления завязан на порядок свойств в массиве схемы, а не на топологическую сортировку графа.
 - **Последствия:** Перемещение столбца-формулы левее его операндов приводит к невозможности рассчитать итоговое значение; циклические зависимости по именам поглощаются без возврата явной ошибки.
 
@@ -61,7 +61,7 @@ Amby Notes позиционируется как безопасное **Local-Fi
 
 ## 3. Риски модульной архитектуры и изоляции пространств (0.1.5)
 
-В ходе аудита модульной системы ([`docs/road/modules.md`](road/modules.md)) выявлены архитектурные несоответствия:
+В ходе аудита модульной системы ([`docs/road/modules.md`](../road/modules.md)) выявлены архитектурные несоответствия:
 
 ### 3.1. Утечка путей хранилища при переключении пространств
 
@@ -83,19 +83,19 @@ Amby Notes позиционируется как безопасное **Local-Fi
 
 ### 4.1. Блокировка автосохранения при внешнем конфликте (Silent Data Stagnation)
 
-- **Файлы:** [`src/components/workspace/file-actions/use-markdown-autosave.ts`](../src/components/workspace/file-actions/use-markdown-autosave.ts#L66-L69), [`src/components/workspace/external-conflict-dialog.tsx`](../src/components/workspace/external-conflict-dialog.tsx)
+- **Файлы:** [`src/components/workspace/file-actions/use-markdown-autosave.ts`](../../src/components/workspace/file-actions/use-markdown-autosave.ts#L66-L69), [`src/components/workspace/external-conflict-dialog.tsx`](../../src/components/workspace/external-conflict-dialog.tsx)
 - **Суть проблемы:** Если внешняя программа (или облачный синхронизатор) обновила файл на диске, пока в Amby открыт документ с несохранёнными правками, координатор автосохранения переводит документ в состояние паузы (`autosave.pause()`), выбрасывая `AutosaveConflictPausedError`.
 - **Последствия:** Если пользователь не заметил всплывший диалог конфликта или закрыл его без выбора действия, **автосохранение для этого документа полностью останавливается**. Все последующие часы работы текст сохраняется только в оперативной памяти и аварийных черновиках `.amby/recovery/`, не попадая на диск.
 
 ### 4.2. Ошибки блокировки файлов на Windows (`Sharing Violation`)
 
-- **Файлы:** [`src-tauri/src/frontmatter.rs`](../src-tauri/src/frontmatter.rs#L939)
+- **Файлы:** [`src-tauri/src/frontmatter.rs`](../../src-tauri/src/frontmatter.rs#L939)
 - **Суть проблемы:** Атомарная запись выполняет переименование временного файла через `fs::rename(&tmp, path)`. На Windows, если сторонний процесс (антивирус, агент OneDrive, индексатор поиска Windows) держит открытый дескриптор на исходный файл, системный вызов `rename` завершается ошибкой `Access is denied` (код 5) или `Sharing violation` (код 32).
 - **Последствия:** Запись завершается сбоем, а в коде отсутствует механизм повторных попыток с экспоненциальной задержкой (retry with backoff).
 
 ### 4.3. Ложные конфликты из-за таймаута фингерпринтов вотчера (8 секунд)
 
-- **Файлы:** [`src-tauri/src/watcher.rs`](../src-tauri/src/watcher.rs#L12)
+- **Файлы:** [`src-tauri/src/watcher.rs`](../../src-tauri/src/watcher.rs#L12)
 - **Суть проблемы:** Подавление событий файловой системы от собственных записей приложения основано на фингерпринтах с временем жизни `SELF_WRITE_RECORD_TTL = Duration::from_secs(8)`.
 - **Последствия:** На медленных сетевых дисках (SMB/NFS) или при перегруженном iCloud событие файловой системы может прийти с задержкой более 8 секунд. В этом случае Amby не распознает собственную запись и расценивает её как внешнее изменение, провоцируя ложные конфликты.
 
@@ -105,13 +105,13 @@ Amby Notes позиционируется как безопасное **Local-Fi
 
 ### 5.1. Риск исчерпания квоты `localStorage` в Web/Dev-режиме
 
-- **Файлы:** [`src/lib/recovery-drafts.ts`](../src/lib/recovery-drafts.ts#L91-L104)
+- **Файлы:** [`src/lib/recovery-drafts.ts`](../../src/lib/recovery-drafts.ts#L91-L104)
 - **Суть проблемы:** В браузере (при разработке через `npm run dev`) черновики аварийного восстановления и виртуальная файловая система сохраняются в `localStorage`.
 - **Последствия:** При работе с крупными заметками или несколькими вкладками лимит в 5 МБ быстро исчерпывается с неперехваченной ошибкой `QuotaExceededError`.
 
 ### 5.2. Накопление остаточных черновиков при внешнем перемещении файлов
 
-- **Файлы:** [`src/lib/recovery-drafts.ts`](../src/lib/recovery-drafts.ts#L280-L310), [`src-tauri/src/recovery.rs`](../src-tauri/src/recovery.rs)
+- **Файлы:** [`src/lib/recovery-drafts.ts`](../../src/lib/recovery-drafts.ts#L280-L310), [`src-tauri/src/recovery.rs`](../../src-tauri/src/recovery.rs)
 - **Суть проблемы:** Черновик очищается только при успешном событии `onSaveSuccess`. Если пользователь закрывает вкладку с ошибкой или файл переименовывается/удаляется внешней программой в момент сбоя, черновик в `.amby/recovery/` остаётся на диске до истечения TTL (14 дней). При каждом последующем открытии файла с таким же путем система навязчиво предлагает восстановить устаревший черновик.
 
 ---
@@ -120,19 +120,19 @@ Amby Notes позиционируется как безопасное **Local-Fi
 
 ### 6.1. Глобальная сериализация всех операций записи (`db.mutation_gate`)
 
-- **Файлы:** [`src-tauri/src/commands/notes.rs`](../src-tauri/src/commands/notes.rs#L35), [`src-tauri/src/commands/notes.rs`](../src-tauri/src/commands/notes.rs#L129), [`src-tauri/src/vault_context.rs`](../src-tauri/src/vault_context.rs)
+- **Файлы:** [`src-tauri/src/commands/notes.rs`](../../src-tauri/src/commands/notes.rs#L35), [`src-tauri/src/commands/notes.rs`](../../src-tauri/src/commands/notes.rs#L129), [`src-tauri/src/vault_context.rs`](../../src-tauri/src/vault_context.rs)
 - **Суть проблемы:** Все мутации (сохранение заметок `write_note`, обычных файлов `write_file`, создание конфликтных копий, переименование) захватывают единый мьютекс `db.mutation_gate`.
 - **Последствия:** Внутри блокировки выполняется подготовка данных, запись снимка истории на диск, атомарная запись временного файла, `sync_all()`, `rename()` и синхронное обновление SQLite-индекса. Любая задержка дискового ввода-вывода блокирует абсолютно все фоновые автосохранения других открытых документов.
 
 ### 6.2. Бесконтрольный рост каталога локальной истории (`.amby/history/`)
 
-- **Файлы:** [`src-tauri/src/history.rs`](../src-tauri/src/history.rs#L15), [`src-tauri/src/history.rs`](../src-tauri/src/history.rs#L417)
+- **Файлы:** [`src-tauri/src/history.rs`](../../src-tauri/src/history.rs#L15), [`src-tauri/src/history.rs`](../../src-tauri/src/history.rs#L417)
 - **Суть проблемы:** Локальная история версий является строго append-only структурой. Автоматическая очистка по возрасту или размеру хранилища отключена намеренно.
 - **Последствия:** На активных хранилищах с сотнями заметок регулярные автосохранения (до 1 снимка в 10 минут) приводят к незаметному разрастанию каталога `.amby/history/` до десятков гигабайт. Единственный способ очистки — ручное подтверждение в UI (с сохранением 20 последних версий), о котором большинство пользователей не знает.
 
 ### 6.3. Синхронный парсинг разметки при каждом сохранении заметки
 
-- **Файлы:** [`src-tauri/src/commands/notes.rs`](../src-tauri/src/commands/notes.rs#L180-L189), [`src-tauri/src/index/note_index.rs`](../src-tauri/src/index/note_index.rs#L380)
+- **Файлы:** [`src-tauri/src/commands/notes.rs`](../../src-tauri/src/commands/notes.rs#L180-L189), [`src-tauri/src/index/note_index.rs`](../../src-tauri/src/index/note_index.rs#L380)
 - **Суть проблемы:** При каждом срабатывании дебаунса автосохранения в потоке сохранения заметки выполняется полный проход по тексту для извлечения вики-ссылок (`extract_links`) и тегов, после чего открывается синхронная транзакция в SQLite. Для заметок размером от нескольких тысяч строк это создает скачки нагрузки на CPU и задержки в цикле автосохранения.
 
 ---
