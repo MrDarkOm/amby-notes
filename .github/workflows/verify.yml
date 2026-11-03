@@ -159,7 +159,7 @@ jobs:
           node-version: 22
           cache: npm
       - name: Set up Rust stable
-        run: rustup toolchain install stable --profile minimal --component rustfmt clippy
+        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
