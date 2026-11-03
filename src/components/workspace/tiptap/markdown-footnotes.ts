@@ -1,7 +1,9 @@
-import referenceRule from "markdown-it/lib/rules_block/reference.mjs"
-import type StateBlock from "markdown-it/lib/rules_block/state_block.mjs"
-import type StateCore from "markdown-it/lib/rules_core/state_core.mjs"
-import type StateInline from "markdown-it/lib/rules_inline/state_inline.mjs"
+import MarkdownIt, { type StateBlock, type StateCore, type StateInline } from "markdown-it"
+
+// markdown-it 15 no longer exposes its rule modules, so the stock rule is read from a default instance.
+const referenceRule = new MarkdownIt().block.ruler.__rules__.find(
+  (rule) => rule.name === "reference",
+)!.fn
 
 // Footnotes: a reference `[^label]`, a definition `[^label]: text` and an inline note
 // `^[text]`. Each one is a node of its own that is written exactly as it was read: the

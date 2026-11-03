@@ -5,9 +5,9 @@ import {
   referenceUnlessFootnote,
 } from "./markdown-footnotes"
 import { inlineMathRule } from "./markdown-math"
-import MarkdownIt from "markdown-it"
-import type StateCore from "markdown-it/lib/rules_core/state_core.mjs"
-import type Token from "markdown-it/lib/token.mjs"
+import MarkdownIt, { type MarkdownIt as MarkdownItInstance } from "markdown-it"
+import type { StateCore } from "markdown-it"
+import type { Token } from "markdown-it"
 import { ambyInlineRule, linkWithTitleMarkup } from "./markdown-inline"
 import {
   detectAmbyBlocks,
@@ -594,13 +594,13 @@ function flattenNestedEmphasis(state: StateCore) {
   }
 }
 
-export function createAmbyTokenizer(): MarkdownIt {
+export function createAmbyTokenizer(): MarkdownItInstance {
   const tokenizer = new MarkdownIt("default", { html: true, linkify: false, breaks: false })
   ambyMarkdownItPlugin(tokenizer)
   return tokenizer
 }
 
-function ambyMarkdownItPlugin(md: MarkdownIt) {
+function ambyMarkdownItPlugin(md: MarkdownItInstance) {
   md.inline.ruler.before("html_inline", "amby_html", ambyInlineRule)
   md.inline.ruler.at("link", linkWithTitleMarkup)
   // Before escapes and emphasis: nothing between the dollars of a formula is Markdown.
