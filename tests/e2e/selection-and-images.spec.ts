@@ -10,6 +10,8 @@ import {
 } from "./support"
 
 const ru = localeResources.ru.translation
+// ProseMirror puts an invisible `img.ProseMirror-separator` into some lines; a picture is any other image.
+const PICTURE = "img:not(.ProseMirror-separator)"
 
 // A plain 200x80 picture, small enough to live in the note.
 const PNG =
@@ -77,7 +79,7 @@ test("a selected picture gets picture actions, not text formatting", async ({ pa
   await seedVault(page, { Note: NOTE })
   await openInLive(page, "Note")
   const editor = liveEditor(page)
-  await editor.locator("img").first().click()
+  await editor.locator(PICTURE).first().click()
 
   const toolbar = page.locator("[data-image-toolbar]")
   await expect(toolbar).toBeVisible()
@@ -90,12 +92,12 @@ test("a selected picture gets picture actions, not text formatting", async ({ pa
   // A picture is not selectable text, so the system's text recognition leaves it alone.
   expect(
     await editor
-      .locator("img")
+      .locator(PICTURE)
       .first()
       .evaluate((img) => getComputedStyle(img).userSelect),
   ).toBe("none")
   // The toolbar is under the picture, as for text, and starts at its left edge.
-  const picture = (await editor.locator("img").first().boundingBox())!
+  const picture = (await editor.locator(PICTURE).first().boundingBox())!
   const bar = (await toolbar.boundingBox())!
   expect(bar.y).toBeGreaterThanOrEqual(picture.y + picture.height)
   expect(Math.abs(bar.x - picture.x)).toBeLessThan(2)
@@ -107,7 +109,7 @@ test("a selected picture gets picture actions, not text formatting", async ({ pa
   expect((await download).suggestedFilename()).toBe("image.png")
 
   await toolbar.getByRole("button", { name: ru.editorToolbar.imageDelete }).click()
-  await expect(editor.locator("img")).toHaveCount(0)
+  await expect(editor.locator(PICTURE)).toHaveCount(0)
   await expect(toolbar).toHaveCount(0)
 })
 
@@ -118,7 +120,7 @@ test("a picture stands close to its neighbours and columns have no vertical padd
   await openInLive(page, "Note")
   const editor = liveEditor(page)
 
-  const image = (await editor.locator("img").first().boundingBox())!
+  const image = (await editor.locator(PICTURE).first().boundingBox())!
   const above = (await editor.getByText("Second paragraph").boundingBox())!
   const aboveGap = image.y - (above.y + above.height)
   expect(aboveGap).toBeLessThan(16)
@@ -145,7 +147,7 @@ test("a picture's caption and alignment are written into the note", async ({ pag
   await seedVault(page, { Note: NOTE })
   await openInLive(page, "Note")
   const editor = liveEditor(page)
-  await editor.locator("img").first().click()
+  await editor.locator(PICTURE).first().click()
   const toolbar = page.locator("[data-image-toolbar]")
 
   await toolbar.getByRole("button", { name: ru.editorToolbar.imageCaption }).click()
@@ -192,7 +194,7 @@ test("a picture inside selected text is not left selected when the cursor moves 
   await expect.poll(() => highlighted(page)).toBeNull()
 
   // Selecting the picture itself and then clicking a line leaves nothing behind either.
-  await editor.locator("img").first().click()
+  await editor.locator(PICTURE).first().click()
   await expect(page.locator(".amby-image-wrap.is-selected")).toHaveCount(1)
   await editor.getByText("Tail").click()
   await expect(page.locator(".amby-image-wrap.is-selected")).toHaveCount(0)
@@ -202,7 +204,7 @@ test("a picture inside selected text is not left selected when the cursor moves 
 test("a picture opens in a viewer with zoom, and Escape closes it", async ({ page }) => {
   await seedVault(page, { Note: NOTE })
   await openInLive(page, "Note")
-  await liveEditor(page).locator("img").first().click()
+  await liveEditor(page).locator(PICTURE).first().click()
   await page
     .locator("[data-image-toolbar]")
     .getByRole("button", { name: ru.editorToolbar.imageOpen })
@@ -229,7 +231,7 @@ test("the block menu of a picture's line has the picture's actions", async ({ pa
   await seedVault(page, { Note: NOTE })
   await openInLive(page, "Note")
   const editor = liveEditor(page)
-  const box = (await editor.locator("img").first().boundingBox())!
+  const box = (await editor.locator(PICTURE).first().boundingBox())!
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 3 })
   const grip = page.locator(".amby-block-handles")
   await expect(grip).toBeVisible()
