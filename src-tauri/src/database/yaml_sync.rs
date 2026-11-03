@@ -684,14 +684,18 @@ fn build_conflict(
 mod tests {
     use super::*;
     use serde_json::json;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::sync::atomic::{AtomicU64, Ordering};
 
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    // Not a clock stamp: macOS counts in microseconds, so tests running in parallel could get the
+    // same folder.
     fn temp_vault(name: &str) -> std::path::PathBuf {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!("amby-yaml-sync-{name}-{stamp}"));
+        let path = std::env::temp_dir().join(format!(
+            "amby-yaml-sync-{name}-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
         std::fs::create_dir_all(&path).unwrap();
         path
     }

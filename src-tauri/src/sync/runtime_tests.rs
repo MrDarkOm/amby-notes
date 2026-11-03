@@ -488,8 +488,8 @@ fn the_renames_of_amby_reach_the_next_pass() {
             .is_some_and(|list| list.len() == 2)
     });
 
-    std::fs::rename(vault.root.join("old.md"), vault.root.join("new.md")).unwrap();
-    vault.put("new.md", b"entirely different text after the rename");
+    // The hint goes first, as `rename_item` does it: a pass that starts between the rename on
+    // disk and a later hint would read the rename as a deletion and a new file.
     pc.runtime.hints().record(
         &vault.root,
         &[PathChange {
@@ -497,6 +497,8 @@ fn the_renames_of_amby_reach_the_next_pass() {
             new_path: vault.root.join("new.md").to_string_lossy().into_owned(),
         }],
     );
+    std::fs::rename(vault.root.join("old.md"), vault.root.join("new.md")).unwrap();
+    vault.put("new.md", b"entirely different text after the rename");
     pc.runtime.sync_now().unwrap();
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         wait_until("the rename reaches the server", || {
