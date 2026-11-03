@@ -14,7 +14,7 @@
 
 ## Доска Excalidraw
 
-План [../excalidraw-canvas-claude-plan.md](../excalidraw-canvas-claude-plan.md): этапы E0–E12 не начаты; старый
+План [../excalidraw-canvas-claude-plan.md](../boards.md): этапы E0–E12 не начаты; старый
 Canvas (`src/components/workspace/canvas/`) остаётся. Совместное редактирование, облако и ИИ-генерация карт
 в план не входят.
 

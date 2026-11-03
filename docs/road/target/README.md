@@ -12,5 +12,5 @@
 | [safety-and-platforms.md](safety-and-platforms.md) | Хвосты безопасности данных, ключ подписи, Windows и Linux    |
 | [IDEAS.md](IDEAS.md)                               | Продуктовые идеи без решения                                 |
 
-Планы с решениями лежат рядом, в [../](../): [мобильная версия](../mobile-plan.md),
-[доска Excalidraw](../excalidraw-canvas-claude-plan.md), [ИИ-агент](../ai-harness-plan.md).
+Планы лежат рядом, по категориям: [ИИ](../ai.md), [мобильная версия](../mobile.md), [доски](../boards.md),
+[модули](../modules.md), [синхронизация](../sync.md), [базы данных](../database.md).

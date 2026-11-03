@@ -1,5 +1,5 @@
 //! Tests written for the mutants of `engine/apply.rs` and `engine/decide.rs` that survived the
-//! trial run of the gates (docs/road/sync-gates-survivors-report.md): what a pass does with a file
+//! trial run of the gates (docs/road/sync.md): what a pass does with a file
 //! that changed after the decision, renames onto files, folders that the server renamed or
 //! changed, the bases of merges, the copies of conflicts and where they are put. Real engine only.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -909,7 +909,7 @@ real_only!(
 );
 
 /// A real defect of the engine found while the mutants of `apply_plan` were examined (see
-/// docs/road/sync-gates-survivors-report.md): a swap of two names that arrives together with an
+/// docs/road/sync.md): a swap of two names that arrives together with an
 /// independent rename is left half done under a service name. Red on the current engine, so it is
 /// ignored until the engine is mended; run it with `--ignored`.
 #[test]

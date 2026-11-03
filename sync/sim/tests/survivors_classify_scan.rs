@@ -1,5 +1,5 @@
 //! Tests written for the mutants of `engine/classify.rs` and `engine/scan.rs` that survived the
-//! trial run of the gates (docs/road/sync-gates-survivors-report.md): how a moved folder is
+//! trial run of the gates (docs/road/sync.md): how a moved folder is
 //! recognised (Д13), a folder that is empty, a file that is too big to look at (Д71), the borders
 //! of the limits (Д74), two spellings of one name (Д61), a vault that disappears while it is
 //! listed (Д55). Real engine only.

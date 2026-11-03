@@ -1,5 +1,5 @@
 //! Tests written for the mutants of `engine/stream.rs` that survived the trial run of the gates
-//! (docs/road/sync-gates-survivors-report.md): reading a source that fails, and the exact reads
+//! (docs/road/sync.md): reading a source that fails, and the exact reads
 //! of the preamble. A mutant of `read_up_to` makes it ask again for ever, so every run is bounded
 //! in time: a loop that does not end is a red test here, not a timeout of the whole run.
 #![allow(clippy::unwrap_used, clippy::expect_used)]

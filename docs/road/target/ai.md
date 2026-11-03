@@ -1,7 +1,7 @@
 # ИИ: что осталось
 
-Планы: [../ai-stage-1-plan.md](../ai-stage-1-plan.md), [../ai-provider-connections-plan.md](../ai-provider-connections-plan.md),
-[../ai-harness-plan.md](../ai-harness-plan.md). Сделано: панель с сохранёнными беседами, ИИ только читает,
+Планы: [../ai-stage-1-plan.md](../ai.md), [../ai-provider-connections-plan.md](../ai.md),
+[../ai-harness-plan.md](../ai.md). Сделано: панель с сохранёнными беседами, ИИ только читает,
 подключения провайдеров (API, Codex, Claude Code CLI), перенос настроек с резервной копией, каталоги моделей.
 
 ## Проверки за владельцем

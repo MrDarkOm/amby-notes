@@ -1,5 +1,5 @@
 //! Tests written for the mutants of `engine/merge.rs` that survived the trial run of the gates
-//! (docs/road/sync-gates-survivors-report.md): the borders of the line comparison, the places
+//! (docs/road/sync.md): the borders of the line comparison, the places
 //! (fences, tables, formulas, keys of the header), the widening of the edits, the join of the edits
 //! of one side. Several mutants of these loops make them endless, so every call is bounded in time:
 //! an endless loop is a red test here, not a timeout of the whole run.

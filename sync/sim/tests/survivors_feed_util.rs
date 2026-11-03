@@ -1,5 +1,5 @@
 //! Tests written for the mutants of `engine/feed.rs` and `engine/util.rs` that survived the trial
-//! run of the gates (docs/road/sync-gates-survivors-report.md): the feed is read page by page and
+//! run of the gates (docs/road/sync.md): the feed is read page by page and
 //! ends; a page that is damaged once is asked for again, one that cannot be read is not; folders
 //! come in the order of their depth. Real engine only.
 #![allow(clippy::unwrap_used, clippy::expect_used)]

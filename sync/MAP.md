@@ -33,7 +33,7 @@ in a test), `sync:mutants`, `sync:fuzz -- <target>`, `sync:reference:setup`,
 testing and the long simulation) run from [sync-gates.yml](../.github/workflows/sync-gates.yml) on a push to
 `gates/run`, merged by [sync-gates-summary.mjs](../scripts/sync-gates-summary.mjs).
 The second gate run and the regression of seed 23390 are tracked in
-[sync-gates-second-report.md](../docs/road/sync-gates-second-report.md); its frozen scenario tests
+[docs/road/sync.md](../docs/road/sync.md); its frozen scenario tests
 are [gates_regressions.rs](sim/tests/gates_regressions.rs).
 
 The exact byte format is appendix "Точный формат v1" of the plan; the Python reference and the Rust
