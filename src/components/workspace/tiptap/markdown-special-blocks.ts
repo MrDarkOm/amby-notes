@@ -1,5 +1,5 @@
-import type StateCore from "markdown-it/lib/rules_core/state_core.mjs"
-import type Token from "markdown-it/lib/token.mjs"
+import type { StateCore } from "markdown-it"
+import type { Token } from "markdown-it"
 import { CALLOUT_DEFAULTS } from "./callout-node"
 
 const CALLOUT_FIRST_LINE_RE = /^\[!([A-Z0-9_-]+)\]([+-])?([ \t]+[^\n]*)?/i
