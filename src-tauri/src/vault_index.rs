@@ -221,7 +221,7 @@ mod tests {
 
         let migrated = fs::read(&note).unwrap();
         assert!(migrated.windows(2).any(|pair| pair == b"\r\n"));
-        assert!(!migrated.windows(2).any(|pair| pair == [b'\n', b'\n']));
+        assert!(!migrated.windows(2).any(|pair| pair == b"\n\n"));
         let migrated_text = String::from_utf8(migrated).unwrap();
         assert_eq!(migrated_text.matches("id: ").count(), 1);
         assert_eq!(
