@@ -79,7 +79,7 @@ describe("snapshot reader", () => {
     await screen.findByRole("heading", { name: "Safe" })
     expect(container.querySelector("script, iframe, video, audio")).toBeNull()
     await waitFor(() =>
-      expect(container.querySelector("img")?.getAttribute("src")).toBe(
+      expect(container.querySelector("img:not(.ProseMirror-separator)")?.getAttribute("src")).toBe(
         "https://example.invalid/image.png",
       ),
     )
