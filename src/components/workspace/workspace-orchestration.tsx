@@ -95,6 +95,7 @@ export function WorkspaceOrchestration() {
     [backendGeneration, vault],
   )
   const vaults = useVaultStore((s) => s.vaults)
+  const startupResolved = useVaultStore((s) => s.startupResolved)
   const { setVaults } = useVaultStore.getState()
 
   const {
@@ -1460,6 +1461,7 @@ export function WorkspaceOrchestration() {
         leftSidebar={null}
         noVault={
           <StartScreen
+            loading={!startupResolved}
             vaults={vaults}
             onSelect={loadVault}
             onOpenVault={handleOpenVault}

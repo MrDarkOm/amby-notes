@@ -918,6 +918,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
       if (currentVault) {
         workspacesHydrated.current = true
         await loadVault(currentVault)
+        useVaultStore.setState({ startupResolved: true })
         return
       }
       setVaults(deduplicateVaultRecords(file.recent))
@@ -929,8 +930,10 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         reopenLastVault: reopen,
         hasRecentVaults: file.recent.length > 0,
       })
-      if (startup.kind === "activate") void loadVault(startup.path)
-      else if (startup.kind === "attach-active") void loadVault(null, false)
+      const resolved = () => useVaultStore.setState({ startupResolved: true })
+      if (startup.kind === "activate") void loadVault(startup.path).finally(resolved)
+      else if (startup.kind === "attach-active") void loadVault(null, false).finally(resolved)
+      else resolved()
     })()
     return () => {
       cancelled = true

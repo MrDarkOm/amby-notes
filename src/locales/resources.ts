@@ -2366,6 +2366,7 @@ const ru = {
   },
   vaultPicker: {
     actions: "Действия с Workspace",
+    loading: "Открываем хранилище…",
     workspaceLabel: "Рабочая область",
     vaults: "Хранилища",
     noVaults: "Нет сохранённых хранилищ",
@@ -6372,6 +6373,7 @@ const en: typeof ru = {
   },
   vaultPicker: {
     actions: "Workspace actions",
+    loading: "Opening your vault…",
     workspaceLabel: "Workspace",
     vaults: "Vaults",
     noVaults: "No saved vaults",
