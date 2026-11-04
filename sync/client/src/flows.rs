@@ -348,6 +348,21 @@ async fn recover_named(
     }
 }
 
+/// Password change on a connected device (Р5, П18): the old password is checked here first (a
+/// wrong one is `invalid_proof` and nothing is sent), then `PUT /v1/keys` replaces the password
+/// pair under the proof of the old password. AK, the recovery pair and the tokens of all devices
+/// stay. `base_keys_version` is the version the caller read; a stale one is `keys_conflict`.
+/// Returns the new version of the keys.
+pub async fn change_password(
+    _client: &SyncClient,
+    _token: &DeviceToken,
+    _base_keys_version: u64,
+    _old_password: &str,
+    _new_password: &str,
+) -> Result<u64, ClientError> {
+    todo!("stage 2: sync password change")
+}
+
 /// The devices of the account with their names opened by AK (П19, Ф34).
 pub async fn list_devices(
     client: &SyncClient,

@@ -115,6 +115,8 @@ export interface SyncPort {
   listDevices(): Promise<DeviceView[]>
   disconnectDevice(deviceId: string): Promise<void>
   signOut(): Promise<SignOutResult>
+  /** Changes the password of the account from this connected device; needs the old one. */
+  changePassword(oldPassword: string, newPassword: string): Promise<void>
   /** Offers to save the recovery code as a text file; the path, or `null` when cancelled. */
   saveRecoveryCode(contents: string): Promise<string | null>
 
@@ -208,6 +210,9 @@ export function createDesktopSyncPort(): SyncPort {
       await call(commands.syncDisconnectDevice(deviceId))
     },
     signOut: () => call(commands.syncSignOut()),
+    changePassword: async () => {
+      throw new Error("not implemented: stage 2 of the sync password change")
+    },
     saveRecoveryCode: async (contents) => {
       let result: Result<string | null, string>
       try {
@@ -304,6 +309,7 @@ export const unavailableSyncPort: SyncPort = {
   listDevices: unavailable,
   disconnectDevice: unavailable,
   signOut: unavailable,
+  changePassword: unavailable,
   saveRecoveryCode: unavailable,
   vaultStatus: async () => ({
     enabled: false,

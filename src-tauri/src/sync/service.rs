@@ -551,6 +551,16 @@ impl SyncService {
         }
     }
 
+    /// Changes the password of the account on this connected device (Р5, П18). Needs the old
+    /// password; AK, the token and the record of this device stay as they are.
+    pub async fn change_password(
+        &self,
+        _old_password: &str,
+        _new_password: &str,
+    ) -> Result<(), SyncError> {
+        todo!("stage 2: sync password change")
+    }
+
     /// Disconnects another device (П19, Р5); the current device is signed out instead.
     pub async fn disconnect_device(&self, device_id: &str) -> Result<(), SyncError> {
         let session = self.session()?;

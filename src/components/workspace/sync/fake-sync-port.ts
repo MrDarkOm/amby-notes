@@ -252,6 +252,7 @@ export function createFakePort(overrides: Partial<SyncPort> = {}): FakePort {
     listDevices: async () => DEVICES,
     disconnectDevice: async () => {},
     signOut: async () => ({ serverNotified: true }),
+    changePassword: async () => {},
     saveRecoveryCode: async () => "/Users/alice/amby-recovery-code.txt",
     vaultStatus: async () => VAULT_OFF,
     listSpaces: async () => SPACES,

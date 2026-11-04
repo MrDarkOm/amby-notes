@@ -13,6 +13,7 @@ const commands = vi.hoisted(() => ({
   syncListDevices: vi.fn(),
   syncDisconnectDevice: vi.fn(),
   syncSignOut: vi.fn(),
+  syncChangePassword: vi.fn(),
   syncAccountOverview: vi.fn(),
   exportTextFile: vi.fn(),
 }))
@@ -111,6 +112,21 @@ describe("the desktop sync port", () => {
     await expect(port.cancelPending()).resolves.toBeUndefined()
   })
 
+  it("changes the password through the command, old password first", async () => {
+    const port = createDesktopSyncPort()
+    commands.syncChangePassword.mockResolvedValue(ok(null))
+    await expect(port.changePassword("old pw", "new pw")).resolves.toBeUndefined()
+    expect(commands.syncChangePassword).toHaveBeenCalledWith("old pw", "new pw")
+    commands.syncChangePassword.mockResolvedValue(failed("invalid_proof"))
+    await expect(port.changePassword("old pw", "new pw")).rejects.toMatchObject({
+      code: "invalid_proof",
+    })
+    commands.syncChangePassword.mockRejectedValue(new Error("boom"))
+    await expect(port.changePassword("old pw", "new pw")).rejects.toMatchObject({
+      code: "ipc_failed",
+    })
+  })
+
   it("keeps status reads silent unless the sign-in action explicitly permits interaction", async () => {
     const port = createDesktopSyncPort()
     commands.syncStatus.mockResolvedValue(ok({ connected: false }))
@@ -172,6 +188,9 @@ describe("the port of the browser build", () => {
     })
     await expect(unavailableSyncPort.listDevices()).rejects.toMatchObject({ code: "unavailable" })
     await expect(unavailableSyncPort.signOut()).rejects.toMatchObject({ code: "unavailable" })
+    await expect(unavailableSyncPort.changePassword("a", "b")).rejects.toMatchObject({
+      code: "unavailable",
+    })
     await expect(unavailableSyncPort.prepareAccount({} as never)).rejects.toMatchObject({
       code: "unavailable",
     })

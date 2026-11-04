@@ -25,8 +25,8 @@ pub use api::{
 };
 pub use error::ClientError;
 pub use flows::{
-    disconnect_device, enroll_prepared, list_devices, prepare_account, recover_account, sign_in,
-    validate_username, Connected, Device, PreparedAccount,
+    change_password, disconnect_device, enroll_prepared, list_devices, prepare_account,
+    recover_account, sign_in, validate_username, Connected, Device, PreparedAccount,
 };
 pub use spaces::{
     AccountLimits, AccountPlan, AccountSpace, AccountUsage, AccountView, BlobDownload, EventStream,
