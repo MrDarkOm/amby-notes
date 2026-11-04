@@ -31,10 +31,13 @@ export function PasswordStrength({ check }: { check: PasswordCheck }) {
   const warning = check.ok ? null : hint("warnings", check.warning ?? undefined)
   const advice = check.ok ? null : hint("suggestions", check.suggestions[0])
   return (
-    <div role="status" data-testid="password-strength" className="space-y-1">
+    <div role="status" data-testid="password-strength" className="min-h-[3.25rem] space-y-1">
       <div className="h-1 overflow-hidden rounded-full bg-muted">
         <div
-          className={cn("h-full rounded-full", STRENGTH_BAR[check.tooShort ? 0 : check.score])}
+          className={cn(
+            "h-full rounded-full transition-[width] motion-reduce:transition-none",
+            STRENGTH_BAR[check.tooShort ? 0 : check.score],
+          )}
         />
       </div>
       <p className={cn("text-[12px]", check.ok ? "text-muted-foreground" : "text-destructive")}>
@@ -75,9 +78,9 @@ export function NewPasswordFields({
   onValidChange,
 }: NewPasswordFieldsProps) {
   const { t } = useTranslation()
-  const verdict = usePasswordVerdict(port, password, username)
+  const { check, shown } = usePasswordVerdict(port, password, username)
   const same = password === repeat
-  const valid = Boolean(verdict?.ok) && same && password.length > 0
+  const valid = Boolean(check?.ok) && same && password.length > 0
   React.useEffect(() => onValidChange(valid), [onValidChange, valid])
   const passwordId = React.useId()
   const repeatId = React.useId()
@@ -94,7 +97,7 @@ export function NewPasswordFields({
           value={password}
           onChange={(event) => onPasswordChange(event.target.value)}
         />
-        {verdict && <PasswordStrength check={verdict} />}
+        {shown && <PasswordStrength check={shown} />}
       </div>
       <div className="space-y-1.5">
         <label htmlFor={repeatId} className="text-[12px] font-medium">
