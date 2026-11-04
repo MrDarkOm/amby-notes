@@ -93,7 +93,7 @@ pub struct ServerCheck {
     pub instance_id: String,
 }
 
-/// The verdict on a password (Р5: 12 characters and a sufficient `zxcvbn` score).
+/// The verdict on a password (Р5: 12 characters, the four kinds of characters and a sufficient `zxcvbn` score).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PasswordCheck {
@@ -110,10 +110,6 @@ pub struct PasswordCheck {
     /// What the password lacks, in the fixed order `length`, `lowercase`, `uppercase`, `digit`,
     /// `symbol`.
     pub missing: Vec<String>,
-    /// A machine name of the main weakness found (`zxcvbn` warning), if any.
-    pub warning: Option<String>,
-    /// Machine names of the advice of `zxcvbn`.
-    pub suggestions: Vec<String>,
 }
 
 /// The recovery code of a prepared account and the groups the person has to type back.

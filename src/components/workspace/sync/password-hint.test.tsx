@@ -15,8 +15,6 @@ function verdict(patch: Partial<PasswordCheck>): PasswordCheck {
     minLength: 12,
     tooShort: false,
     missing: [],
-    warning: null,
-    suggestions: [],
     ...patch,
   }
 }

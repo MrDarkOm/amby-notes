@@ -14,24 +14,24 @@ const STRENGTH_BAR = [
   "w-full bg-primary",
 ]
 
-/** The strength of a password in words, with the main weakness and one piece of advice. */
+/**
+ * The strength of a password in one line: what is still missing, or that it is too simple or
+ * known, or how good it is. The block keeps its height so that the form below does not move.
+ */
 export function PasswordStrength({ check }: { check: PasswordCheck }) {
-  const { t, i18n } = useTranslation()
-  const label = check.tooShort
-    ? t("sync.password.tooShort")
-    : check.score <= 2
-      ? t("sync.password.weak")
-      : check.score === 3
-        ? t("sync.password.good")
-        : t("sync.password.great")
-  const hint = (kind: "warnings" | "suggestions", name: string | undefined) => {
-    const key = `sync.password.${kind}.${name}`
-    return name && i18n.exists(key) ? t(key) : null
-  }
-  const warning = check.ok ? null : hint("warnings", check.warning ?? undefined)
-  const advice = check.ok ? null : hint("suggestions", check.suggestions[0])
+  const { t } = useTranslation()
+  const label =
+    check.missing.length > 0
+      ? t("sync.password.needs", {
+          items: check.missing.map((name) => t(`sync.password.missing.${name}`)).join(", "),
+        })
+      : !check.ok
+        ? t("sync.password.weak")
+        : check.score === 3
+          ? t("sync.password.good")
+          : t("sync.password.great")
   return (
-    <div role="status" data-testid="password-strength" className="min-h-[3.25rem] space-y-1">
+    <div role="status" data-testid="password-strength" className="min-h-[1.75rem] space-y-1">
       <div className="h-1 overflow-hidden rounded-full bg-muted">
         <div
           className={cn(
@@ -43,11 +43,6 @@ export function PasswordStrength({ check }: { check: PasswordCheck }) {
       <p className={cn("text-[12px]", check.ok ? "text-muted-foreground" : "text-destructive")}>
         {label}
       </p>
-      {(warning || advice) && (
-        <p className="text-[11px] text-muted-foreground">
-          {[warning, advice].filter(Boolean).join(" ")}
-        </p>
-      )}
     </div>
   )
 }

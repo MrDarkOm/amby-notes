@@ -240,7 +240,7 @@ describe("the connect wizard", () => {
       await fillCreateForm("Short1!")
       await waitFor(() =>
         expect(screen.getByTestId("password-strength").textContent).toMatch(
-          /Не короче 12 символов/,
+          /Нужно: не короче 12 символов/,
         ),
       )
       expect(button("Продолжить").disabled).toBe(true)

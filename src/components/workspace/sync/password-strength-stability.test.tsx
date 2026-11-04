@@ -18,8 +18,6 @@ const good: PasswordCheck = {
   minLength: 12,
   tooShort: false,
   missing: [],
-  warning: null,
-  suggestions: [],
 }
 
 /** A port whose verdict on `NEXT` waits until the test lets it go. */

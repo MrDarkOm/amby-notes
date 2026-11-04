@@ -2440,7 +2440,7 @@ renamed: number;
  */
 trashed: number }
 /**
- * The verdict on a password (Р5: 12 characters and a sufficient `zxcvbn` score).
+ * The verdict on a password (Р5: 12 characters, the four kinds of characters and a sufficient `zxcvbn` score).
  */
 export type PasswordCheck = { 
 /**
@@ -2467,15 +2467,7 @@ tooShort: boolean;
  * What the password lacks, in the fixed order `length`, `lowercase`, `uppercase`, `digit`,
  * `symbol`.
  */
-missing: string[]; 
-/**
- * A machine name of the main weakness found (`zxcvbn` warning), if any.
- */
-warning: string | null; 
-/**
- * Machine names of the advice of `zxcvbn`.
- */
-suggestions: string[] }
+missing: string[] }
 export type PathChange = { oldPath: string; newPath: string }
 /**
  * The answer to a refresh of a few paths: the tree patch and the sync report for them.

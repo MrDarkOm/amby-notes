@@ -229,8 +229,6 @@ export function fakePasswordCheck(password: string): PasswordCheck {
     minLength: 12,
     tooShort,
     missing,
-    warning: weak ? "common_password" : null,
-    suggestions: [],
   }
 }
 
