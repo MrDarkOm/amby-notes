@@ -84,6 +84,19 @@ export function UnsyncedList({ items }: { items: Unsynced[] }) {
 }
 
 /** The conflicts waiting for the person (Р7): the file, its copy and three ways out. */
+/**
+ * A conflict of a file Amby keeps for itself in `.amby/` (the properties of the notes, the
+ * layout of the graph): the person sees what it holds, not its path, and chooses one version.
+ * "Keep both" would only leave a second JSON file nobody reads, and there is nothing to compare.
+ */
+function appDataConflictKind(path: string): "properties" | "graph" | "other" | null {
+  const normalized = path.replace(/\\/gu, "/").replace(/^\/+/u, "")
+  if (!normalized.startsWith(".amby/")) return null
+  if (normalized === ".amby/properties.json") return "properties"
+  if (normalized === ".amby/graph-layout.json") return "graph"
+  return "other"
+}
+
 export function ConflictList({
   items,
   busyId,
@@ -104,45 +117,61 @@ export function ConflictList({
         {t("sync.vault.conflicts.title", { count: items.length })}
       </h4>
       <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
-        {items.map((item) => (
-          <li key={item.id} className="space-y-2 px-3 py-2.5">
-            <p className="text-[12px]">
-              {t(
-                item.kind === "bothCreated"
-                  ? "sync.vault.conflicts.bothCreated"
-                  : "sync.vault.conflicts.bothEdited",
-                { original: item.originalPath, copy: item.copyPath },
-              )}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {onCompare && (
-                <Button type="button" size="sm" onClick={() => onCompare(item.id)}>
-                  {t("sync.notices.compare")}
-                </Button>
-              )}
-              {(
-                [
-                  ["keepOriginal", "sync.vault.conflicts.keepOriginal"],
-                  ["keepCopy", "sync.vault.conflicts.keepCopy"],
-                  ["keepBoth", "sync.vault.conflicts.keepBoth"],
-                ] as const
-              ).map(([choice, key]) => (
-                <Button
-                  key={choice}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={busyId !== null}
-                  onClick={() => onResolve(item.id, choice)}
-                >
-                  {t(key)}
-                </Button>
-              ))}
-            </div>
-          </li>
-        ))}
+        {items.map((item) => {
+          const appData = appDataConflictKind(item.originalPath)
+          const choices = appData
+            ? ([
+                ["keepOriginal", "sync.vault.conflicts.appData.keepThis"],
+                ["keepCopy", "sync.vault.conflicts.appData.keepOther"],
+              ] as const)
+            : ([
+                ["keepOriginal", "sync.vault.conflicts.keepOriginal"],
+                ["keepCopy", "sync.vault.conflicts.keepCopy"],
+                ["keepBoth", "sync.vault.conflicts.keepBoth"],
+              ] as const)
+          return (
+            <li key={item.id} className="space-y-2 px-3 py-2.5">
+              <p className="text-[12px]">
+                {appData
+                  ? t(`sync.vault.conflicts.appData.${appData}`, { path: item.originalPath })
+                  : t(
+                      item.kind === "bothCreated"
+                        ? "sync.vault.conflicts.bothCreated"
+                        : "sync.vault.conflicts.bothEdited",
+                      { original: item.originalPath, copy: item.copyPath },
+                    )}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {onCompare && !appData && (
+                  <Button type="button" size="sm" onClick={() => onCompare(item.id)}>
+                    {t("sync.notices.compare")}
+                  </Button>
+                )}
+                {choices.map(([choice, key]) => (
+                  <Button
+                    key={choice}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={busyId !== null}
+                    onClick={() => onResolve(item.id, choice)}
+                  >
+                    {t(key)}
+                  </Button>
+                ))}
+              </div>
+            </li>
+          )
+        })}
       </ul>
-      <p className="text-[11px] text-muted-foreground">{t("sync.vault.conflicts.hint")}</p>
+      {items.some((item) => !appDataConflictKind(item.originalPath)) && (
+        <p className="text-[11px] text-muted-foreground">{t("sync.vault.conflicts.hint")}</p>
+      )}
+      {items.some((item) => appDataConflictKind(item.originalPath)) && (
+        <p className="text-[11px] text-muted-foreground">
+          {t("sync.vault.conflicts.appData.hint")}
+        </p>
+      )}
     </section>
   )
 }

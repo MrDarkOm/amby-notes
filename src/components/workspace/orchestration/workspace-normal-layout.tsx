@@ -26,7 +26,8 @@ import { searchNotes, openInExplorer } from "@/lib/storage"
 import { PresetNameDialog } from "../preset-name-dialog"
 import { VaultManagerDialog } from "../vault/vault-manager"
 import { flushEditorSerializations } from "../tiptap/editor-serialization-lifecycle"
-import { type PanelPresence, panelTransition, usePanelPresence } from "./use-panel-presence"
+import { motion, useTransform } from "motion/react"
+import { type PanelPresence, usePanelLength, usePanelPresence } from "./use-panel-presence"
 
 interface WorkspaceNormalLayoutProps {
   headerTabs: HeaderTab[]
@@ -219,12 +220,22 @@ export function WorkspaceNormalLayout({
   savePresetAs,
 }: WorkspaceNormalLayoutProps) {
   const { t } = useTranslation()
-  const leftPanel = usePanelPresence(leftDockPinned && isLeftSidebarVisible)
-  const rightPanel = usePanelPresence(rightPanelEnabled && rightDockPinned && isRightSidebarVisible)
+  // One progress per side, for the pinned panel, its overlay and the header alike.
+  const leftPanel = usePanelPresence(isLeftSidebarVisible)
+  const rightPanel = usePanelPresence(rightPanelEnabled && isRightSidebarVisible)
+  const leftOverlayWidth = usePanelLength(
+    leftPanel.progress,
+    "4px",
+    "(var(--amby-left-panel-width, 300px) + var(--amby-dock-width))",
+  )
+  const rightOverlayWidth = usePanelLength(
+    rightPanel.progress,
+    "4px",
+    "(var(--amby-right-panel-width, 300px) + var(--amby-dock-width))",
+  )
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       <HeaderTabs
-        isPanelResizing={resizingSide !== null}
         tabs={headerTabs}
         activeTabKey={activeTabKey}
         unsavedFileIds={unsavedFileIds}
@@ -232,6 +243,8 @@ export function WorkspaceNormalLayout({
         onTabClose={handleTabClose}
         onToggleLeftSidebar={() => toggleSidebar("left")}
         onToggleRightSidebar={() => toggleSidebar("right")}
+        leftPanelProgress={leftPanel.progress}
+        rightPanelProgress={rightPanel.progress}
         isLeftSidebarOpen={isLeftSidebarVisible}
         isRightSidebarOpen={isRightSidebarVisible}
         isLeftDockPinned={leftDockPinned}
@@ -301,7 +314,6 @@ export function WorkspaceNormalLayout({
                 side="left"
                 presence={leftPanel}
                 compact={isCompactLayout}
-                resizing={resizingSide === "left"}
                 onHoverChange={(hover) => setSidebarHover("left", hover)}
               >
                 <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />
@@ -317,14 +329,9 @@ export function WorkspaceNormalLayout({
           )}
 
           {!leftDockPinned && (
-            <div
+            <motion.div
               className="amby-sidebar-overlay--left fixed bottom-0 left-0 top-11 z-40 rounded-r-2xl"
-              style={{
-                width: isLeftSidebarVisible
-                  ? "calc(var(--amby-left-panel-width, 300px) + var(--amby-dock-width))"
-                  : 4,
-                transition: resizingSide === "left" ? "none" : panelTransition("width"),
-              }}
+              style={{ width: leftOverlayWidth }}
               onMouseEnter={() => setSidebarHover("left", true)}
               onMouseLeave={() => setSidebarHover("left", false)}
             >
@@ -371,7 +378,7 @@ export function WorkspaceNormalLayout({
                   </div>
                 </div>
               </div>
-            </div>
+            </motion.div>
           )}
 
           <main
@@ -408,7 +415,6 @@ export function WorkspaceNormalLayout({
                 side="right"
                 presence={rightPanel}
                 compact={isCompactLayout}
-                resizing={resizingSide === "right"}
                 onHoverChange={(hover) => setSidebarHover("right", hover)}
               >
                 {!isCompactLayout && (
@@ -441,14 +447,9 @@ export function WorkspaceNormalLayout({
         )}
 
         {rightPanelEnabled && !rightDockPinned && (
-          <div
+          <motion.div
             className="amby-sidebar-overlay--right fixed bottom-0 right-0 top-11 z-40 rounded-l-2xl"
-            style={{
-              width: isRightSidebarVisible
-                ? "calc(var(--amby-right-panel-width, 300px) + var(--amby-dock-width))"
-                : 4,
-              transition: resizingSide === "right" ? "none" : panelTransition("width"),
-            }}
+            style={{ width: rightOverlayWidth }}
             onMouseEnter={() => setSidebarHover("right", true)}
             onMouseLeave={() => setSidebarHover("right", false)}
           >
@@ -493,7 +494,7 @@ export function WorkspaceNormalLayout({
                 />
               </div>
             </div>
-          </div>
+          </motion.div>
         )}
       </div>
 
@@ -570,18 +571,18 @@ function PinnedSidePanel({
   side,
   presence,
   compact,
-  resizing,
   onHoverChange,
   children,
 }: {
   side: Side
   presence: PanelPresence
   compact: boolean
-  resizing: boolean
   onHoverChange: (hover: boolean) => void
   children: React.ReactNode
 }) {
   const width = `var(--amby-${side}-panel-width, 300px)`
+  const compactWidth = usePanelLength(presence.progress, "0px", width)
+  const slide = useTransform(presence.progress, [0, 1], [side === "left" ? "-100%" : "100%", "0%"])
   const hover = {
     onMouseEnter: () => onHoverChange(true),
     onMouseLeave: () => onHoverChange(false),
@@ -589,12 +590,9 @@ function PinnedSidePanel({
 
   if (compact) {
     return (
-      <div
+      <motion.div
         data-help-area={`${side}-panel`}
-        style={{
-          width: presence.expanded ? width : 0,
-          transition: resizing ? "none" : panelTransition("width"),
-        }}
+        style={{ width: compactWidth }}
         {...hover}
         className={cn(
           "fixed bottom-0 top-11 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl",
@@ -604,7 +602,7 @@ function PinnedSidePanel({
         <div className="relative h-full shrink-0" style={{ width }}>
           {children}
         </div>
-      </div>
+      </motion.div>
     )
   }
 
@@ -624,18 +622,9 @@ function PinnedSidePanel({
         )}
         style={{ width }}
       >
-        <div
-          className="relative h-full shrink-0"
-          style={{
-            width,
-            transform: presence.expanded
-              ? "translateX(0)"
-              : `translateX(${side === "left" ? "-100%" : "100%"})`,
-            transition: resizing ? "none" : panelTransition("transform"),
-          }}
-        >
+        <motion.div className="relative h-full shrink-0" style={{ width, x: slide }}>
           {children}
-        </div>
+        </motion.div>
       </div>
     </div>
   )

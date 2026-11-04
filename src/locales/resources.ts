@@ -3889,6 +3889,16 @@ const ru = {
         keepOriginal: "Оставить основной файл",
         keepCopy: "Заменить копией",
         keepBoth: "Оставить оба",
+        appData: {
+          properties:
+            "Свойства заметок изменили на двух компьютерах. Пока их нельзя соединить: нужно выбрать одну версию.",
+          graph: "Расположение узлов графа изменили на двух компьютерах. Выберите одну версию.",
+          other:
+            "Служебные данные Amby («{{path}}») изменили на двух компьютерах. Выберите одну версию.",
+          keepThis: "Оставить с этого компьютера",
+          keepOther: "Взять с другого компьютера",
+          hint: "Правки, сделанные на компьютере, версию которого вы не выбрали, пропадут. Невыбранная версия не удаляется сразу: копия уходит в корзину хранилища, а прежний файл остаётся в его истории.",
+        },
         hint: "«Оставить основной файл» убирает копию в корзину хранилища. «Заменить копией» кладёт текст копии в основной файл, а прежняя версия остаётся в истории файла. «Оставить оба» делает копию отдельной заметкой (ей присваивается свой идентификатор) и убирает строку из списка.",
       },
       unsynced: {
@@ -7881,6 +7891,15 @@ const en: typeof ru = {
         keepOriginal: "Keep the main file",
         keepCopy: "Replace with the copy",
         keepBoth: "Keep both",
+        appData: {
+          properties:
+            "The properties of notes were changed on two computers. They cannot be joined yet: choose one version.",
+          graph: "The layout of the graph was changed on two computers. Choose one version.",
+          other: "Amby's own data (“{{path}}”) was changed on two computers. Choose one version.",
+          keepThis: "Keep this computer's",
+          keepOther: "Take the other computer's",
+          hint: "The changes made on the computer whose version you did not choose are lost. The version you did not choose is not deleted at once: the copy goes to the trash of the vault, and the previous file stays in its history.",
+        },
         hint: "“Keep the main file” moves the copy to the trash of the vault. “Replace with the copy” puts the text of the copy into the main file, and the previous version stays in the history of the file. “Keep both” makes the copy a note of its own (it gets an identifier of its own) and removes the line from the list.",
       },
       unsynced: {

@@ -907,6 +907,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
   // the last vault if the user has that setting enabled.
   React.useEffect(() => {
     let cancelled = false
+    const resolved = () => useVaultStore.setState({ startupResolved: true })
     ;(async () => {
       await useSettingsStore.getState().hydrate()
       const reopen = useSettingsStore.getState().prefs.startup.reopenLastVault
@@ -917,8 +918,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
       const currentVault = useVaultStore.getState().vault
       if (currentVault) {
         workspacesHydrated.current = true
-        await loadVault(currentVault)
-        useVaultStore.setState({ startupResolved: true })
+        await loadVault(currentVault).finally(resolved)
         return
       }
       setVaults(deduplicateVaultRecords(file.recent))
@@ -930,11 +930,14 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         reopenLastVault: reopen,
         hasRecentVaults: file.recent.length > 0,
       })
-      const resolved = () => useVaultStore.setState({ startupResolved: true })
       if (startup.kind === "activate") void loadVault(startup.path).finally(resolved)
       else if (startup.kind === "attach-active") void loadVault(null, false).finally(resolved)
       else resolved()
-    })()
+    })().catch((error) => {
+      // A failed startup must not leave the loader up over the list of vaults.
+      logger.warn("vault.startup_failed", { errorType: errorType(error) })
+      if (!cancelled) resolved()
+    })
     return () => {
       cancelled = true
     }

@@ -3,7 +3,7 @@
 import { IS_SITE_DEMO } from "@/lib/site-demo"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, motion, type MotionValue } from "motion/react"
 import {
   Columns2,
   Rows2,
@@ -33,7 +33,7 @@ import { IconValue } from "./icon-value"
 import { isRichIconValue } from "./icon-values"
 import { KNOWN_ICONS } from "./tree/tree-types"
 import { handleDragStart } from "./editor/document-header-utils"
-import { panelTransition } from "./orchestration/use-panel-presence"
+import { useEdgeProgress, usePanelLength } from "./orchestration/use-panel-presence"
 import { beginTabPointerDown } from "./pane-dnd"
 import {
   DropdownMenu,
@@ -256,8 +256,9 @@ interface HeaderTabsProps {
   onUnsplitAll?: () => void
   /** When true and `isSplit` is active, each pane renders its own tab bar and HeaderTabs hides the center strip. */
   hideCenterTabsWhenSplit?: boolean
-  /** A side panel is being resized: the header follows the drag without its width transition. */
-  isPanelResizing?: boolean
+  /** How far each side panel is open (Motion); the header columns follow it. */
+  leftPanelProgress?: MotionValue<number>
+  rightPanelProgress?: MotionValue<number>
 }
 
 // Keep the title-bar controls aligned with the activity rails.
@@ -493,12 +494,10 @@ export function HeaderTabs({
   onCloseOtherTabs,
   onUnsplitAll,
   hideCenterTabsWhenSplit = false,
-  isPanelResizing = false,
+  leftPanelProgress,
+  rightPanelProgress,
 }: HeaderTabsProps) {
   const { t } = useTranslation()
-  // The header columns move with the side panels they line up with.
-  const edgeTransition = (property: string) =>
-    isPanelResizing ? "none" : panelTransition(property)
   const hideCenterStrip = isSplit && hideCenterTabsWhenSplit
   // The left header dock ends on the same divider as the left body panel.
   // On macOS account for the fixed traffic-light region and the current rail width.
@@ -511,10 +510,31 @@ export function HeaderTabs({
     : isMac
       ? `max(0px, calc(var(--amby-left-panel-width, ${leftTreeWidth}px) + ${ACTIVITY_BAR_WIDTH} - 80px))`
       : `var(--amby-left-panel-width, ${leftTreeWidth}px)`
-  const rightHeaderInsetCss =
-    rightPanelEnabled && isRightSidebarOpen && isRightDockPinned
-      ? `max(${isMac ? MACOS_SIDEBAR_TOGGLE_WIDTH : WINDOW_CONTROLS_WIDTH}px, calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth}))`
-      : `${isMac ? MACOS_SIDEBAR_TOGGLE_WIDTH : WINDOW_CONTROLS_WIDTH}px`
+  // The header columns follow the progress of the side panels they line up with
+  // (orchestration/use-panel-presence.ts): Motion moves it, the lengths are calc()s of it.
+  const edgeControlsWidth = `${isMac ? MACOS_SIDEBAR_TOGGLE_WIDTH : WINDOW_CONTROLS_WIDTH}px`
+  const rightPinned = rightPanelEnabled && isRightDockPinned
+  const leftProgress = useEdgeProgress(leftPanelProgress, isLeftSidebarOpen)
+  const rightProgress = useEdgeProgress(
+    rightPanelProgress,
+    Boolean(rightPanelEnabled && isRightSidebarOpen),
+  )
+  const leftHeaderWidth = usePanelLength(leftProgress, "0px", leftPanelHeaderCssWidth)
+  const rightHeaderInset = usePanelLength(
+    rightProgress,
+    edgeControlsWidth,
+    rightPinned
+      ? `max(${edgeControlsWidth}, calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth}))`
+      : edgeControlsWidth,
+  )
+  const rightColumnClosed = isMac ? "0px" : rightDockWidth
+  const rightColumnWidth = usePanelLength(
+    rightProgress,
+    rightColumnClosed,
+    rightPinned
+      ? `(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth})`
+      : rightColumnClosed,
+  )
   const [isMaximized, setIsMaximized] = React.useState(false)
   const lastClickTimeRef = React.useRef(0)
 
@@ -634,9 +654,9 @@ export function HeaderTabs({
   )
 
   const viewControls = hideCenterStrip ? null : (
-    <div
+    <motion.div
       className="absolute top-1.5 z-10 flex items-center gap-1"
-      style={{ right: rightHeaderInsetCss, transition: edgeTransition("right") }}
+      style={{ right: rightHeaderInset }}
     >
       {onToggleSplit && (
         <motion.button
@@ -680,7 +700,7 @@ export function HeaderTabs({
         onSplitDown={onSplitDown ? () => onSplitDown(activeTabKey) : undefined}
         onUnsplitAll={isSplit ? onUnsplitAll : undefined}
       />
-    </div>
+    </motion.div>
   )
 
   return (
@@ -723,12 +743,9 @@ export function HeaderTabs({
       )}
 
       {/* Workspace switcher (left panel header column, only when panel open) */}
-      <div
+      <motion.div
         className="pointer-events-auto flex shrink-0 items-center overflow-hidden bg-background"
-        style={{
-          width: isLeftSidebarOpen ? leftPanelHeaderCssWidth : 0,
-          transition: edgeTransition("width"),
-        }}
+        style={{ width: leftHeaderWidth }}
         aria-hidden={!isLeftSidebarOpen || undefined}
         onMouseDown={handleDragStart}
       >
@@ -764,7 +781,7 @@ export function HeaderTabs({
             </WorkspacePicker>
           )}
         </div>
-      </div>
+      </motion.div>
 
       {/* Editor area (flex-1). Tabs share the width and shrink with the window;
           the strip ends right where the view-controls cluster begins. */}
@@ -851,16 +868,8 @@ export function HeaderTabs({
       )}
       {/* Match the exact body dock width. This keeps the right toggle attached
           to the panel divider and prevents the large jump when it is closed. */}
-      <div
-        style={{
-          width:
-            rightPanelEnabled && isRightSidebarOpen && isRightDockPinned
-              ? `calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth})`
-              : isMac
-                ? 0
-                : rightDockWidth,
-          transition: edgeTransition("width"),
-        }}
+      <motion.div
+        style={{ width: rightColumnWidth }}
         className="pointer-events-auto shrink-0 bg-background"
         onMouseDown={handleDragStart}
       />

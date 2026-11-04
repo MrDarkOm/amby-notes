@@ -1,6 +1,7 @@
 "use client"
 
 import { Loader2 } from "lucide-react"
+import { MotionSpinner } from "@/lib/motion"
 import { useTranslation } from "react-i18next"
 import { EmptyStateHeader } from "./empty-state-header"
 import { VaultManager, type VaultManagerProps } from "./vault-manager"
@@ -21,7 +22,9 @@ export function StartScreen({
       <div className="flex flex-1 items-center justify-center overflow-y-auto px-6 py-8">
         {loading ? (
           <div role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" aria-hidden />
+            <MotionSpinner>
+              <Loader2 className="size-4" aria-hidden />
+            </MotionSpinner>
             {t("vaultPicker.loading")}
           </div>
         ) : (

@@ -557,6 +557,27 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
     )
   })
 
+  it("tells a conflict of the properties of notes in words, with two choices and no paths", async () => {
+    const properties = {
+      ...conflict,
+      originalPath: ".amby/properties.json",
+      copyPath: ".amby/conflicts/09d76fd5687f/other.json",
+    }
+    const port = await show(vaultStatus({ conflicts: [properties] }))
+    const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+    expect(row.textContent).toMatch(/Свойства заметок изменили на двух компьютерах/)
+    expect(row.textContent).not.toMatch(/\.amby/)
+    expect(within(row).queryByRole("button", { name: "Оставить оба" })).toBeNull()
+    expect(within(row).getAllByRole("button")).toHaveLength(2)
+    fireEvent.click(within(row).getByRole("button", { name: "Взять с другого компьютера" }))
+    await waitFor(() =>
+      expect(port.resolveConflict).toHaveBeenCalledWith("0123456789ab", "keepCopy"),
+    )
+    expect(screen.getByTestId("sync-conflicts").textContent).toMatch(
+      /Правки, сделанные на компьютере/,
+    )
+  })
+
   it("words a conflict of two creations differently", async () => {
     await show(vaultStatus({ conflicts: [{ ...conflict, kind: "bothCreated" }] }))
     const list = await screen.findByTestId("sync-conflicts")
