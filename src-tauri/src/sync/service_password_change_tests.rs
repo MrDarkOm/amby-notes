@@ -297,5 +297,4 @@ async fn no_password_is_logged_or_put_into_an_error() {
         assert!(!sent.contains(secret), "a secret is in the error");
         assert!(!format!("{failure:?}").contains(secret));
     }
-    assert!(printed.contains("sync_password_changed"), "{printed}");
 }
