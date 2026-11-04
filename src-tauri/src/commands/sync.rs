@@ -207,6 +207,17 @@ pub async fn sync_sign_out(
     Ok(result)
 }
 
+/// Changes the password of the account; needs the old one (Р5, П18).
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_change_password(
+    service: State<'_, SyncService>,
+    old_password: String,
+    new_password: String,
+) -> Result<(), SyncError> {
+    service.change_password(&old_password, &new_password).await
+}
+
 // ----- the sync of the open vault (stage Э4) -----
 
 fn open_vault(context: &VaultContext) -> Result<std::path::PathBuf, SyncError> {

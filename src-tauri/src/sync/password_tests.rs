@@ -41,32 +41,18 @@ fn long_but_guessable_passwords_are_refused() {
 }
 
 #[test]
-fn a_weak_password_names_its_weakness() {
-    // the interface tells why: a machine name of the warning or of the advice
-    let verdict = check_password("password123456", &[]);
-    assert!(verdict.warning.is_some() || !verdict.suggestions.is_empty());
-    for name in verdict.warning.iter().chain(verdict.suggestions.iter()) {
-        assert!(!name.is_empty());
-        assert!(
-            name.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
-            "a machine name, not a sentence: {name}"
-        );
-    }
-}
-
-#[test]
 fn strong_passwords_are_accepted() {
     // Р5
     for password in [
-        "correct horse battery staple 42",
+        "Correct-Horse-Battery-Staple-42!",
         "Zq7!vN2$kP9@mX4#",
-        "мой любимый пароль про синюю луну 9",
+        "Мой любимый пароль про синюю луну 9!",
     ] {
         let verdict = check_password(password, &[]);
         assert!(verdict.ok, "{password}: score {}", verdict.score);
         assert!(verdict.score >= 3);
         assert!(!verdict.too_short);
-        assert_eq!(verdict.warning, None);
+        assert!(verdict.missing.is_empty(), "{password}");
     }
 }
 
@@ -83,7 +69,7 @@ fn words_of_the_account_weaken_the_password() {
 fn a_very_long_text_is_judged_quickly() {
     // only the first 100 characters are scored; a pasted book must not hang the interface
     let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
-    let mut text = String::new();
+    let mut text = String::from("Aa1!");
     for _ in 0..20_000 {
         state = state
             .wrapping_mul(6364136223846793005)
@@ -98,5 +84,64 @@ fn a_very_long_text_is_judged_quickly() {
         started.elapsed()
     );
     assert!(verdict.ok);
-    assert_eq!(verdict.length, 20_000);
+    assert_eq!(verdict.length, 20_004);
+}
+
+fn missing(password: &str) -> Vec<String> {
+    check_password(password, &[]).missing
+}
+
+#[test]
+fn each_missing_requirement_is_named_on_its_own() {
+    // Р5: lower and upper case, a digit and a symbol, in one fixed order
+    assert_eq!(missing("ABCDEFGH-1234x"), Vec::<String>::new());
+    assert_eq!(missing("ABCDEFGH-1234"), vec!["lowercase"]);
+    assert_eq!(missing("abcdefgh-1234x"), vec!["uppercase"]);
+    assert_eq!(missing("abcdefgH-xyzwv"), vec!["digit"]);
+    assert_eq!(missing("abcdefgH1xyzwv"), vec!["symbol"]);
+    assert_eq!(missing("Ab1!x"), vec!["length"]);
+}
+
+#[test]
+fn missing_requirements_come_in_the_fixed_order() {
+    assert_eq!(
+        missing("abcdefghijklmno"),
+        vec!["uppercase", "digit", "symbol"]
+    );
+    assert_eq!(
+        missing("short"),
+        vec!["length", "uppercase", "digit", "symbol"]
+    );
+    assert_eq!(
+        missing(""),
+        vec!["length", "lowercase", "uppercase", "digit", "symbol"]
+    );
+}
+
+#[test]
+fn letters_are_unicode_and_a_space_is_not_a_symbol() {
+    // Cyrillic counts as lower and upper case; a space is neither a symbol nor a digit
+    assert!(missing("Привет-мир-123").is_empty());
+    assert_eq!(missing("Привет мир 123 абв"), vec!["symbol"]);
+    assert_eq!(missing("ПРИВЕТ-МИР-123"), vec!["lowercase"]);
+}
+
+#[test]
+fn a_known_password_with_every_class_is_still_refused() {
+    // the classes alone do not make a password good: zxcvbn still judges
+    let verdict = check_password("Password123!", &[]);
+    assert!(verdict.missing.is_empty());
+    assert!(verdict.score <= 2);
+    assert!(!verdict.ok);
+}
+
+#[test]
+fn ok_needs_every_requirement_and_the_score() {
+    // a long phrase of words without a digit or a symbol is not enough either
+    let verdict = check_password("correct horse battery staple", &[]);
+    assert!(verdict.score >= 3);
+    assert_eq!(verdict.missing, vec!["uppercase", "digit", "symbol"]);
+    assert!(!verdict.ok);
+    let good = check_password("Correct-Horse-Battery-Staple-42!", &[]);
+    assert!(good.missing.is_empty() && good.ok);
 }

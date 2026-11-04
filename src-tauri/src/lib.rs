@@ -223,6 +223,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::sync::sync_list_devices,
         commands::sync::sync_disconnect_device,
         commands::sync::sync_sign_out,
+        commands::sync::sync_change_password,
         commands::sync::sync_vault_status,
         commands::sync::sync_list_spaces,
         commands::sync::sync_account_overview,

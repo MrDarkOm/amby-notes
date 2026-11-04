@@ -110,6 +110,8 @@ mod runtime_backup_tests;
 #[cfg(test)]
 mod runtime_tests;
 #[cfg(test)]
+mod service_password_change_tests;
+#[cfg(test)]
 mod service_tests;
 #[cfg(test)]
 mod session_tests;

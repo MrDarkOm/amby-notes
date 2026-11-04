@@ -208,20 +208,27 @@ export function vaultListenerCount(): number {
   return vaultListeners.size
 }
 
-/** The fake's rule: under 12 characters is too short, a few well-known words are weak. */
+/** The fake's rule: the real one (12 characters, lower and upper case, a digit, a symbol) and a few well-known words are weak. */
 export function fakePasswordCheck(password: string): PasswordCheck {
   const length = [...password].length
   const tooShort = length < 12
   const weak = /password|12345|qwerty/i.test(password)
   const score = tooShort ? 1 : weak ? 1 : length > 20 ? 4 : 3
+  const chars = [...password]
+  const missing = [
+    tooShort && "length",
+    !chars.some((c) => c !== c.toUpperCase()) && "lowercase",
+    !chars.some((c) => c !== c.toLowerCase()) && "uppercase",
+    !chars.some((c) => /\p{N}/u.test(c)) && "digit",
+    !chars.some((c) => !/[\p{L}\p{N}\s]/u.test(c)) && "symbol",
+  ].filter((name): name is string => Boolean(name))
   return {
-    ok: !tooShort && !weak,
+    ok: missing.length === 0 && !weak,
     score,
     length,
     minLength: 12,
     tooShort,
-    warning: weak ? "common_password" : null,
-    suggestions: [],
+    missing,
   }
 }
 
@@ -252,6 +259,7 @@ export function createFakePort(overrides: Partial<SyncPort> = {}): FakePort {
     listDevices: async () => DEVICES,
     disconnectDevice: async () => {},
     signOut: async () => ({ serverNotified: true }),
+    changePassword: async () => {},
     saveRecoveryCode: async () => "/Users/alice/amby-recovery-code.txt",
     vaultStatus: async () => VAULT_OFF,
     listSpaces: async () => SPACES,

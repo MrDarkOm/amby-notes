@@ -9,8 +9,9 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use amby_sync_client::{
-    disconnect_device, enroll_prepared, list_devices, prepare_account, recover_account, sign_in,
-    validate_username, ClientError, Connected, DeviceToken, PreparedAccount, ServerUrl, SyncClient,
+    change_password, disconnect_device, enroll_prepared, list_devices, prepare_account,
+    recover_account, sign_in, validate_username, ClientError, Connected, DeviceToken,
+    PreparedAccount, ServerUrl, SyncClient,
 };
 use amby_sync_core::crypto::keys::AccountKey;
 use amby_sync_core::crypto::random::{OsRandom, Random};
@@ -544,6 +545,38 @@ impl SyncService {
                     current: device.current,
                 })
                 .collect()),
+            Err(error) => {
+                self.forget_if_revoked(&error);
+                Err(error.into())
+            }
+        }
+    }
+
+    /// Changes the password of the account on this connected device (Р5, П18). Needs the old
+    /// password; AK, the token and the record of this device stay as they are.
+    pub async fn change_password(
+        &self,
+        old_password: &str,
+        new_password: &str,
+    ) -> Result<(), SyncError> {
+        let session = self.session()?;
+        Self::require_good_password(new_password, &session.record.username)?;
+        if old_password == new_password {
+            return Err(SyncError::new("password_unchanged"));
+        }
+        let client = Self::client_of_record(&session.record)?;
+        // The version is read right before the change: a change made from another device earlier
+        // is not a conflict, one made in between is.
+        let result = async {
+            let base = client.keys(&session.token).await?.keys_version;
+            change_password(&client, &session.token, base, old_password, new_password).await
+        }
+        .await;
+        match result {
+            Ok(_) => {
+                tracing::info!(event = "sync_password_changed");
+                Ok(())
+            }
             Err(error) => {
                 self.forget_if_revoked(&error);
                 Err(error.into())

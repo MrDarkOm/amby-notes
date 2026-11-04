@@ -1515,6 +1515,17 @@ async syncSignOut() : Promise<Result<SignOutResult, SyncError>> {
 }
 },
 /**
+ * Changes the password of the account; needs the old one (Р5, П18).
+ */
+async syncChangePassword(oldPassword: string, newPassword: string) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_change_password", { oldPassword, newPassword }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * The state of the sync of the open vault; no network.
  */
 async syncVaultStatus() : Promise<VaultSyncStatus> {
@@ -2429,7 +2440,7 @@ renamed: number;
  */
 trashed: number }
 /**
- * The verdict on a password (Р5: 12 characters and a sufficient `zxcvbn` score).
+ * The verdict on a password (Р5: 12 characters, the four kinds of characters and a sufficient `zxcvbn` score).
  */
 export type PasswordCheck = { 
 /**
@@ -2453,13 +2464,10 @@ minLength: number;
  */
 tooShort: boolean; 
 /**
- * A machine name of the main weakness found (`zxcvbn` warning), if any.
+ * What the password lacks, in the fixed order `length`, `lowercase`, `uppercase`, `digit`,
+ * `symbol`.
  */
-warning: string | null; 
-/**
- * Machine names of the advice of `zxcvbn`.
- */
-suggestions: string[] }
+missing: string[] }
 export type PathChange = { oldPath: string; newPath: string }
 /**
  * The answer to a refresh of a few paths: the tree patch and the sync report for them.
