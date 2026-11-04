@@ -4,7 +4,7 @@ Owns the official `amby.creative` module: the sidebar section, the project page 
 dialogs that create projects and sections. Everything durable is Rust: discovery, creation,
 recovery and the index live in the [project backend](../../../../src-tauri/src/project/MAP.md)
 and arrive through [project-port.ts](../../../lib/storage/project-port.ts). The contract is the
-[format v3](../../../../docs/creative-format.md); the stages are summarised in the [archive](../../../../docs/archive/README.md).
+[format v3](../../../../docs/creative-format.md); the stages are summarised in the local archive (`docs/archive/`, not in git).
 
 | Concern                                 | Owner                                                                                                          |
 | --------------------------------------- | -------------------------------------------------------------------------------------------------------------- |

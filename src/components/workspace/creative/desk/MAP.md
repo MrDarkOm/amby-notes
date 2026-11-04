@@ -2,7 +2,7 @@
 
 The widgets of a story's overview tab (`ProjectDesk`, [project-desk.tsx](../project-desk.tsx)). The owner of the whole
 creative interface is the [creative map](../MAP.md); the plan is section 16 of the
-[workshop plan summary](../../../../../docs/archive/README.md). The desk reads the databases and the note index and
+workshop plan summary (local archive `docs/archive/`, not in git). The desk reads the databases and the note index and
 writes only through the calls the panel uses (`createTextPage`, `moveTextPage`, `createWorkshopEntity`,
 `updateDatabaseRelationValue` by `usePlotBinding`); compiling the manuscript only reads and writes one new file.
 

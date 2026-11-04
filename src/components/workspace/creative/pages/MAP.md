@@ -2,7 +2,7 @@
 
 The parts of the pages of the workshop, a story, a universe and the standalone stories that are not the file tree's panel:
 story cards, the notes board and the section gallery. The owner of the whole creative interface is the
-[creative map](../MAP.md); the plan was section 16 of the workshop plan (summary: [archive](../../../../../docs/archive/README.md)).
+[creative map](../MAP.md); the plan was section 16 of the workshop plan (summary in the local archive `docs/archive/`, not in git).
 Nothing here writes a file except a page or note made through `createWorkshopEntity`; every number is read from the
 databases and the note index.
 
