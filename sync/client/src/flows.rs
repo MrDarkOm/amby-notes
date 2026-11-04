@@ -354,13 +354,46 @@ async fn recover_named(
 /// stay. `base_keys_version` is the version the caller read; a stale one is `keys_conflict`.
 /// Returns the new version of the keys.
 pub async fn change_password(
-    _client: &SyncClient,
-    _token: &DeviceToken,
-    _base_keys_version: u64,
-    _old_password: &str,
-    _new_password: &str,
+    client: &SyncClient,
+    token: &DeviceToken,
+    base_keys_version: u64,
+    old_password: &str,
+    new_password: &str,
 ) -> Result<u64, ClientError> {
-    todo!("stage 2: sync password change")
+    let keys = client.keys(token).await?;
+    // Ф8, О8: parameters outside the limits stop us before any work is done.
+    keys.params.validate()?;
+    let (old, new) = (old_password.to_string(), new_password.to_string());
+    let (salt, params, wrapped) = (keys.salt, keys.params, keys.wrapped_ak);
+    let (old_keys, envelope) = blocking(move || {
+        let old_keys = derive_password_keys(&old, &salt, &params)?;
+        // Whatever keeps the envelope closed is told as a wrong old password.
+        let ak =
+            unwrap_account_key(&old_keys.kek, &wrapped).map_err(|_| CryptoError::Authentication)?;
+        let envelope =
+            seal_account_key_for_password(&new, &ak, &Argon2Params::V1_DEFAULT, &mut OsRandom)?;
+        Ok((old_keys, envelope))
+    })
+    .await
+    .map_err(|error| match error {
+        ClientError::Crypto(CryptoError::Authentication) => ClientError::Api {
+            status: 403,
+            code: "invalid_proof".to_string(),
+            retry_after_secs: None,
+        },
+        other => other,
+    })?;
+    client
+        .replace_keys(
+            token,
+            &ReplaceKeysRequest {
+                base_keys_version,
+                proof_kind: ProofKind::Password,
+                proof_auth_key: &old_keys.auth_key,
+                envelope: &envelope,
+            },
+        )
+        .await
 }
 
 /// The devices of the account with their names opened by AK (П19, Ф34).

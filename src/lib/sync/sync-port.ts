@@ -210,8 +210,8 @@ export function createDesktopSyncPort(): SyncPort {
       await call(commands.syncDisconnectDevice(deviceId))
     },
     signOut: () => call(commands.syncSignOut()),
-    changePassword: async () => {
-      throw new Error("not implemented: stage 2 of the sync password change")
+    changePassword: async (oldPassword, newPassword) => {
+      await call(commands.syncChangePassword(oldPassword, newPassword))
     },
     saveRecoveryCode: async (contents) => {
       let result: Result<string | null, string>

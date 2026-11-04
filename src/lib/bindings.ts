@@ -1515,6 +1515,17 @@ async syncSignOut() : Promise<Result<SignOutResult, SyncError>> {
 }
 },
 /**
+ * Changes the password of the account; needs the old one (Р5, П18).
+ */
+async syncChangePassword(oldPassword: string, newPassword: string) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_change_password", { oldPassword, newPassword }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * The state of the sync of the open vault; no network.
  */
 async syncVaultStatus() : Promise<VaultSyncStatus> {

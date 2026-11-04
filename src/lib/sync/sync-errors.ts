@@ -35,6 +35,7 @@ export const KNOWN_SYNC_ERROR_CODES: readonly string[] = [
   // the application
   "weak_password",
   "password_too_short",
+  "password_unchanged",
   "no_pending_account",
   "recovery_confirmation_mismatch",
   "invalid_recovery_code",

@@ -274,8 +274,7 @@ async fn no_password_is_logged_or_put_into_an_error() {
             .service
             .change_password(wrong, NEW_PASSWORD)
             .await
-            .err()
-            .expect("a wrong old password is refused");
+            .expect_err("a wrong old password is refused");
         device
             .service
             .change_password(PASSWORD, NEW_PASSWORD)

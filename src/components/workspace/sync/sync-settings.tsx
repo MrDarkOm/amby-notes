@@ -13,6 +13,7 @@ import {
   type SyncPort,
   type SyncStatus,
 } from "@/lib/sync/sync-port"
+import { ChangePassword } from "./change-password"
 import { AccountStorage } from "./account-storage"
 import { ConnectWizard } from "./connect-wizard"
 import { useVaultStore } from "../use-vault-store"
@@ -235,6 +236,8 @@ export function SyncSettings({ port: given, vault: givenVault }: SyncSettingsPro
 
       <div className="sync-settings-sections">
         <AccountStorage port={port} revision={storageRevision} />
+
+        <ChangePassword port={port} username={status.username ?? ""} />
 
         <section className="sync-section sync-devices">
           <div className="sync-devices-heading">

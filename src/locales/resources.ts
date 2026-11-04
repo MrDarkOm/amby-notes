@@ -3611,6 +3611,17 @@ const ru = {
     },
   },
   sync: {
+    changePassword: {
+      open: "Сменить пароль",
+      oldPassword: "Старый пароль",
+      newPassword: "Новый пароль",
+      repeatPassword: "Повторите новый пароль",
+      submit: "Сохранить новый пароль",
+      cancel: "Отмена",
+      done: "Пароль изменён",
+      oldWrong: "Старый пароль не подошёл.",
+      hint: "Другие устройства продолжат работать, код восстановления не изменится.",
+    },
     layout: {
       accountTitle: "Аккаунт",
       accountHint: "Выберите вход, создание аккаунта или восстановление доступа.",
@@ -3670,6 +3681,7 @@ const ru = {
       crypto:
         "Сервер прислал недопустимые параметры шифрования. Подключение остановлено ради безопасности.",
       weak_password: "Пароль слишком простой. Придумайте другой.",
+      password_unchanged: "Новый пароль совпадает со старым. Придумайте другой.",
       password_too_short: "Пароль короче 12 символов.",
       no_pending_account: "Создание учётной записи прервано. Начните сначала.",
       recovery_confirmation_mismatch:
@@ -7602,6 +7614,17 @@ const en: typeof ru = {
     },
   },
   sync: {
+    changePassword: {
+      open: "Change password",
+      oldPassword: "Old password",
+      newPassword: "New password",
+      repeatPassword: "Repeat the new password",
+      submit: "Save new password",
+      cancel: "Cancel",
+      done: "Password changed",
+      oldWrong: "The old password is wrong.",
+      hint: "Other devices keep working; the recovery code does not change.",
+    },
     layout: {
       accountTitle: "Account",
       accountHint: "Sign in, create an account, or recover access.",
@@ -7662,6 +7685,7 @@ const en: typeof ru = {
       crypto:
         "The server sent unacceptable encryption settings. The connection was stopped for your safety.",
       weak_password: "The password is too easy to guess. Choose another.",
+      password_unchanged: "The new password is the same as the old one. Choose another.",
       password_too_short: "The password is shorter than 12 characters.",
       no_pending_account: "Creating the account was interrupted. Start again.",
       recovery_confirmation_mismatch:

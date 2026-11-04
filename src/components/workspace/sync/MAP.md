@@ -20,7 +20,7 @@ Rules that tests hold: the recovery code is shown **before** anything is sent, a
 groups of it; the password is judged by the application (12 characters, `zxcvbn` score 3), the screen only
 shows the verdict; every error is a machine code translated in `sync.errors.*` (the text of a server is
 never shown); the browser build has the `unavailable` port. Keep passwords and codes out of component state
-once they have been used, and out of the DOM text.
+once they have been used, and out of the DOM text. Change password: [change-password.tsx](change-password.tsx).
 
 A vault that was switched off is resumed ("Switch on again") only when `VaultSyncStatus.resumable`: the link remembers the server address
 and the key of its space, and both must fit the current connection (runtime.rs `link_matches`). Otherwise the panel shows the
@@ -29,7 +29,7 @@ Legacy flags do not affect the panel. Setup uses the form; the switch resumes/di
 Account choice precedes server setup. Action rows are one per step (`wizard-actions`): primary first,
 secondary outline, links last. The server step offers the Amby server (default, address in `src/lib/sync/amby-server.ts`, no address field) or an own server (address field, guide link).
 
-The window of external changes of the editor ([external-conflict-dialog.tsx](../external-conflict-dialog.tsx)) is tied to an open,
+The external-changes window of the editor ([external-conflict-dialog.tsx](../external-conflict-dialog.tsx)) is tied to an open,
 edited buffer and writes through it, so the comparison of a sync conflict is a window of its own. It reads the two versions
 through the port (`readConflictVersions`; today the file and its copy, later wherever the engine keeps the second version) and
 resolves through `resolveConflict` (whole version) or `resolveConflictWithText` (the assembled result: written as given with a
@@ -43,11 +43,11 @@ marked only for a note that is open (Р8); the note stays open under the rule fo
 and a way back from `.amby/trash/`.
 
 Before the first pass Rust creates a verified external copy beside the vault.
-Backup manager is collapsed: [backup-panel.tsx](../backup/backup-panel.tsx). See [the backup contract](../../../../docs/vault-format.md#backup-and-git-policy).
+Backup manager: [backup-panel.tsx](../backup/backup-panel.tsx). See [the backup contract](../../../../docs/vault-format.md#backup-and-git-policy).
 
 Tests sit beside the files. The manual check in a native window, against a server in Docker, is the
 section "Синхронизация" of [native-ui-smoke.md](../../../../docs/native-ui-smoke.md).
 
-Appendix Е (limits of plans): [account-storage.tsx](account-storage.tsx) the storages of the account, plan and gauge (У1, У2, У4); connection changes refresh the list, including a queued read; [limit-notices.ts](limit-notices.ts) the cards of У3; sizes in decimal units [format-size.ts](../../../lib/sync/format-size.ts); the cards are drawn by [sync-notices-host.tsx](sync-notices-host.tsx) (“Show the list” asks the workspace for Settings through `OPEN_SETTINGS_REQUEST_EVENT`), the reasons with their limit by `UnsyncedList`, and `space_limit` is met by [sync-vault-panel.tsx](sync-vault-panel.tsx); tests `account-storage.test.tsx`, `sync-limits.test.tsx`.
+Appendix Е (limits of plans): [account-storage.tsx](account-storage.tsx) the storages of the account, plan and gauge (У1, У2, У4); connection changes refresh the list, including a queued read; [limit-notices.ts](limit-notices.ts) the cards of У3; sizes in decimal units [format-size.ts](../../../lib/sync/format-size.ts); the cards are drawn by [sync-notices-host.tsx](sync-notices-host.tsx), the reasons with their limit by `UnsyncedList`, and `space_limit` is met by [sync-vault-panel.tsx](sync-vault-panel.tsx); tests `account-storage.test.tsx`, `sync-limits.test.tsx`.
 
 Dock: [use-refresh-sync.ts](use-refresh-sync.ts). `SyncVaultPanel` owns the switch; `renderAccountHeader` groups it with account actions in `SyncSettings`.
