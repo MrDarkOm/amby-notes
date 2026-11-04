@@ -64,8 +64,8 @@ describe("changing the password of the account", () => {
       expect(field(label).type, label).toBe("password")
       expect(field(label).value, label).toBe("")
     }
-    // the old password is not offered to a password manager as the one to fill; the new ones are new
-    expect(field("Старый пароль").autocomplete).toBe("off")
+    // a password manager may fill the current password; the new ones are new
+    expect(field("Старый пароль").autocomplete).toBe("current-password")
     expect(field("Новый пароль").autocomplete).toBe("new-password")
     expect(field("Повторите новый пароль").autocomplete).toBe("new-password")
     expect(submit().disabled).toBe(true)
@@ -136,7 +136,7 @@ describe("changing the password of the account", () => {
   })
 
   it.each([
-    ["invalid_proof", /Старый пароль/],
+    ["invalid_proof", /^Старый пароль не подошёл\.$/],
     ["keys_conflict", /Ключи были изменены/],
     ["password_unchanged", /совпадает|тот же|такой же/i],
     ["network", /сервер/i],
