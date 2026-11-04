@@ -2506,6 +2506,16 @@ const ru = {
     clearBg: "Очистить фон",
   },
   filesPanel: {
+    importSkipped: "Не всё удалось скопировать в хранилище:",
+    importFailed: "Не удалось скопировать файлы в хранилище.",
+    importReason: {
+      hidden: "скрытый файл",
+      too_large: "больше 100 МБ",
+      unreadable: "не удалось прочитать",
+      link: "ссылка, а не файл",
+      into_itself: "папка внутри самой себя",
+      too_many: "слишком много файлов",
+    },
     sectionFiles: "Файлы",
     createNote: "Создать заметку",
     createFolder: "Создать папку",
@@ -3623,6 +3633,8 @@ const ru = {
       hint: "Другие устройства продолжат работать, код восстановления не изменится.",
     },
     layout: {
+      zoneAccount: "Аккаунт",
+      zoneStorage: "Хранилище",
       accountTitle: "Аккаунт",
       accountHint: "Выберите вход, создание аккаунта или восстановление доступа.",
       signOut: "Выйти",
@@ -6500,6 +6512,16 @@ const en: typeof ru = {
     clearBg: "Clear background",
   },
   filesPanel: {
+    importSkipped: "Not everything could be copied into the vault:",
+    importFailed: "The files could not be copied into the vault.",
+    importReason: {
+      hidden: "hidden file",
+      too_large: "larger than 100 MB",
+      unreadable: "could not be read",
+      link: "a link, not a file",
+      into_itself: "a folder inside itself",
+      too_many: "too many files",
+    },
     sectionFiles: "Files",
     createNote: "Create note",
     createFolder: "Create folder",
@@ -7602,6 +7624,8 @@ const en: typeof ru = {
       hint: "Other devices keep working; the recovery code does not change.",
     },
     layout: {
+      zoneAccount: "Account",
+      zoneStorage: "Storage",
       accountTitle: "Account",
       accountHint: "Sign in, create an account, or recover access.",
       signOut: "Sign out",

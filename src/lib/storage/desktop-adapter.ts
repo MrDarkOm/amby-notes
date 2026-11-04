@@ -134,6 +134,7 @@ import type {
   VaultPreflight,
   VaultTagEntry,
   WriteNoteOutcome,
+  ImportFilesResult,
 } from "./types"
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -1110,6 +1111,11 @@ export class DesktopAdapter implements StoragePort {
     sourcePath: string,
   ): Promise<ImportedAsset | null> {
     return unwrapCommand(commands.importAsset(notePath, sourcePath))
+  }
+
+  async importFiles(targetDir: string | null, sources: string[]): Promise<ImportFilesResult> {
+    const result = await unwrapCommand(commands.importFiles(targetDir, sources))
+    return result as ImportFilesResult
   }
 
   async importAssetBytes(

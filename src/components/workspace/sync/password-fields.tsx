@@ -34,10 +34,7 @@ export function PasswordStrength({ check }: { check: PasswordCheck }) {
     <div role="status" data-testid="password-strength" className="min-h-[1.75rem] space-y-1">
       <div className="h-1 overflow-hidden rounded-full bg-muted">
         <div
-          className={cn(
-            "h-full rounded-full transition-[width] motion-reduce:transition-none",
-            STRENGTH_BAR[check.tooShort ? 0 : check.score],
-          )}
+          className={cn("h-full rounded-full", STRENGTH_BAR[check.tooShort ? 0 : check.score])}
         />
       </div>
       <p className={cn("text-[12px]", check.ok ? "text-muted-foreground" : "text-destructive")}>

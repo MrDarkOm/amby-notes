@@ -50,4 +50,4 @@ section "Синхронизация" of [native-ui-smoke.md](../../../../docs/na
 
 Appendix Е (limits of plans): [account-storage.tsx](account-storage.tsx) the storages of the account, plan and gauge (У1, У2, У4); connection changes refresh the list, including a queued read; [limit-notices.ts](limit-notices.ts) the cards of У3; sizes in decimal units [format-size.ts](../../../lib/sync/format-size.ts); the cards are drawn by [sync-notices-host.tsx](sync-notices-host.tsx), the reasons with their limit by `UnsyncedList`, and `space_limit` is met by [sync-vault-panel.tsx](sync-vault-panel.tsx); tests `account-storage.test.tsx`, `sync-limits.test.tsx`.
 
-Dock: [use-refresh-sync.ts](use-refresh-sync.ts). `SyncVaultPanel` owns the switch; `renderAccountHeader` groups it with account actions in `SyncSettings`.
+Dock: [use-refresh-sync.ts](use-refresh-sync.ts). `SyncVaultPanel` owns the switch; Two zones: Account (`SyncSettings`), Storage (`SyncVaultPanel`, with the switch).

@@ -32,7 +32,6 @@ export interface SyncVaultPanelProps {
   port: SyncPort
   vault?: string | null
   onConnectionChange?: () => void
-  renderAccountHeader?: (syncControl: React.ReactNode) => React.ReactNode
 }
 
 type Mode = "new" | "existing"
@@ -45,7 +44,6 @@ type Mode = "new" | "existing"
 export function SyncVaultPanel({
   port,
   vault: givenVault,
-  renderAccountHeader,
   onConnectionChange,
 }: SyncVaultPanelProps) {
   const { t, i18n } = useTranslation()
@@ -204,11 +202,16 @@ export function SyncVaultPanel({
       />
     </label>
   )
-  const frame = (content: React.ReactNode) => (
-    <>
-      {renderAccountHeader ? renderAccountHeader(syncControl) : syncControl}
+  const frame = (content: React.ReactNode, controlInCard = false) => (
+    <section className="sync-zone" aria-labelledby="sync-zone-storage">
+      <div className="sync-zone-heading">
+        <h2 id="sync-zone-storage" className="sync-zone-title">
+          {t("sync.layout.zoneStorage")}
+        </h2>
+        {!controlInCard && syncControl}
+      </div>
       <div className="sync-vault-zone">{content}</div>
-    </>
+    </section>
   )
 
   if (!status) {
@@ -233,6 +236,7 @@ export function SyncVaultPanel({
                 {status.spaceName ?? t("sync.vault.unnamedSpace")}
               </h3>
             </div>
+            {syncControl}
             <Button type="button" size="sm" disabled={busy} onClick={() => void resumeAfterOff()}>
               {t("sync.vault.resume")}
             </Button>
@@ -248,6 +252,7 @@ export function SyncVaultPanel({
           {backupInfo && <div className="sync-vault-footer">{backupInfo}</div>}
           {errorLine}
         </section>,
+        true,
       )
     }
     return frame(
@@ -370,42 +375,47 @@ export function SyncVaultPanel({
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="sync-vault-name">{status.spaceName ?? t("sync.vault.unnamedSpace")}</h3>
+          <div data-testid="sync-status" role="status" className="sync-vault-status">
+            <p className="sync-status-line">
+              <span className="sync-status-dot" />
+              {line}
+            </p>
+            {status.phase === "idle" && (
+              <p className="sync-status-time">
+                {lastSync
+                  ? t("sync.vault.status.lastSync", {
+                      date: lastSync.toLocaleString(i18n.language),
+                    })
+                  : t("sync.vault.status.never")}
+              </p>
+            )}
+            {status.phase === "waiting" && status.errorCode && (
+              <p data-testid="sync-status-detail" className="sync-status-time">
+                {syncCodeMessage(status.errorCode, t)}
+              </p>
+            )}
+          </div>
         </div>
-        <Button
-          type="button"
-          size="sm"
-          disabled={busy || status.phase === "running"}
-          onClick={() => void act(() => port.runNow())}
-        >
-          {busy || status.phase === "running" ? (
-            <MotionSpinner>
+        <div className="sync-vault-actions">
+          {syncControl}
+          <Button
+            type="button"
+            size="sm"
+            variant={state === "problem" || state === "pending" ? "default" : "outline"}
+            disabled={busy || status.phase === "running"}
+            onClick={() => void act(() => port.runNow())}
+          >
+            {busy || status.phase === "running" ? (
+              <MotionSpinner>
+                <RefreshCw />
+              </MotionSpinner>
+            ) : (
               <RefreshCw />
-            </MotionSpinner>
-          ) : (
-            <RefreshCw />
-          )}
-          {t("sync.vault.runNow")}
-        </Button>
+            )}
+            {t("sync.vault.runNow")}
+          </Button>
+        </div>
       </div>
-      <div data-testid="sync-status" role="status" className="sync-vault-status">
-        <p className="sync-status-line">
-          <span className="sync-status-dot" />
-          {line}
-        </p>
-        {status.phase === "idle" && (
-          <p className="sync-status-time">
-            {lastSync
-              ? t("sync.vault.status.lastSync", { date: lastSync.toLocaleString(i18n.language) })
-              : t("sync.vault.status.never")}
-          </p>
-        )}
-        {status.phase === "waiting" && status.errorCode && (
-          <p data-testid="sync-status-detail" className="sync-status-time">
-            {syncCodeMessage(status.errorCode, t)}
-          </p>
-        )}
-      </div>
-
       {status.stop && (
         <StopNotice
           stop={status.stop}
@@ -434,5 +444,6 @@ export function SyncVaultPanel({
 
       {backupInfo && <div className="sync-vault-footer">{backupInfo}</div>}
     </section>,
+    true,
   )
 }

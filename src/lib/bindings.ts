@@ -1258,6 +1258,14 @@ async importAssetBytes(notePath: string, bytes: number[], suggestedExt: string) 
     else return { status: "error", error: e  as any };
 }
 },
+async importFiles(targetDir: string | null, sources: string[]) : Promise<Result<ImportFilesResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("import_files", { targetDir, sources }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async pickAssetFile(imagesOnly: boolean) : Promise<Result<string | null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("pick_asset_file", { imagesOnly }) };
@@ -2301,6 +2309,16 @@ export type IdMigrationRecoveryAction = "resume" | "rollback" | "inspectOnly"
 export type IdMigrationResult = { backupPath: string; journalPath: string; modifiedPaths: string[]; status: IdMigrationStatus }
 export type IdMigrationStatus = "planned" | "inProgress" | "completed" | "rolledBack"
 export type ImportDatabaseAssetRequest = { expectedGeneration: number; databaseId: string; noteId: string; sourcePath: string }
+export type ImportFilesResult = { 
+/**
+ * Absolute paths of the copies that were made (a folder counts once, as its own path).
+ */
+imported: string[]; skipped: ImportSkipped[] }
+export type ImportSkipped = { name: string; 
+/**
+ * A machine code: `hidden`, `too_large`, `unreadable`, `link`, `into_itself`, `too_many`.
+ */
+reason: string }
 export type ImportedAsset = { relPath: string; absPath: string; fileName: string; kind: string }
 export type ImportedDatabaseAsset = { databaseId: string; noteId: string; assetId: string; name: string; relativePath: string; mimeType: string; sizeBytes: number }
 /**

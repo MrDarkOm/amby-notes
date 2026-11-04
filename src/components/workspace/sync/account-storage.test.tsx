@@ -293,12 +293,12 @@ describe("the section in the settings (У1, У5)", () => {
   it("is shown when connected, next to the devices, and not in the browser build", async () => {
     const port = createFakePort({ status: async () => CONNECTED })
     render(<SyncSettings port={port} />)
-    expect(await screen.findByText("Хранилища аккаунта")).toBeTruthy()
+    expect((await screen.findAllByText("Хранилища аккаунта")).length).toBeGreaterThan(0)
     expect(await screen.findByTestId("account-storage")).toBeTruthy()
     cleanup()
     render(<SyncSettings port={unavailableSyncPort} />)
     await screen.findAllByText(/Синхронизация/)
-    expect(screen.queryByText("Хранилища аккаунта")).toBeNull()
+    expect(screen.queryAllByText("Хранилища аккаунта")).toHaveLength(0)
   })
 })
 

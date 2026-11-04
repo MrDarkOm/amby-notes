@@ -290,6 +290,16 @@ export interface ImportedAsset {
   kind: "image" | "file"
 }
 
+/** What a drop of files from the system onto the tree brought in, and what it left out. */
+export interface ImportFilesResult {
+  /** Absolute paths of the copies (a folder counts once). */
+  imported: string[]
+  skipped: Array<{
+    name: string
+    reason: "hidden" | "too_large" | "unreadable" | "link" | "into_itself" | "too_many"
+  }>
+}
+
 /** Where deleting an item sends it; `permanent` keeps no copy at all. */
 export type DeleteMode = "system" | "vault" | "permanent"
 

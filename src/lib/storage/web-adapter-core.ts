@@ -31,6 +31,7 @@ import type {
   IdMigrationRecovery,
   IdMigrationRecoveryAction,
   ImportedAsset,
+  ImportFilesResult,
   PageInfo,
   LayerKind,
   LayerResult,
@@ -1547,6 +1548,10 @@ export class WebAdapterCore implements StoragePort {
     _sourcePath: string,
   ): Promise<ImportedAsset | null> {
     return null
+  }
+
+  async importFiles(_targetDir: string | null, _sources: string[]): Promise<ImportFilesResult> {
+    return { imported: [], skipped: [] }
   }
 
   async importAssetBytes(

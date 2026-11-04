@@ -195,6 +195,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::external::fetch_page_info,
         commands::assets::import_asset,
         commands::assets::import_asset_bytes,
+        commands::import_files::import_files,
         commands::assets::pick_asset_file,
         commands::assets::export_text_file,
         commands::assets::import_text_file,

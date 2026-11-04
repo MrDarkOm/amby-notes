@@ -351,6 +351,8 @@ export function TiptapEditor({
   )
 
   const editor = useEditor({
+    // The base rules are in themes/prosemirror-base.css: the same on every system.
+    injectCSS: false,
     editable,
     extensions,
     content: initialContent,

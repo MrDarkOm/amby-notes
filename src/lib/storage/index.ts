@@ -70,6 +70,7 @@ import type {
   IdMigrationRecovery,
   IdMigrationRecoveryAction,
   ImportedAsset,
+  ImportFilesResult,
   PageInfo,
   LayerKind,
   LayerResult,
@@ -674,6 +675,10 @@ export const importAsset = (
   notePath: string,
   sourcePath: string,
 ): Promise<ImportedAsset | null> => assetsRepository.importAsset(vaultPath, notePath, sourcePath)
+export const importFiles = (
+  targetDir: string | null,
+  sources: string[],
+): Promise<ImportFilesResult> => assetsRepository.importFiles(targetDir, sources)
 export const importAssetBytes = (
   vaultPath: string,
   notePath: string,

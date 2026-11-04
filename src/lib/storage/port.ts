@@ -10,6 +10,7 @@ import type {
   IdMigrationRecovery,
   IdMigrationRecoveryAction,
   ImportedAsset,
+  ImportFilesResult,
   PageInfo,
   LayerKind,
   LayerResult,
@@ -163,6 +164,8 @@ export interface StoragePort extends DatabasePort, ProjectPort {
     notePath: string,
     sourcePath: string,
   ): Promise<ImportedAsset | null>
+  /** Copies files and folders from outside into a vault folder (the root when `null`); never replaces. */
+  importFiles(targetDir: string | null, sources: string[]): Promise<ImportFilesResult>
   importAssetBytes(
     vaultPath: string,
     notePath: string,

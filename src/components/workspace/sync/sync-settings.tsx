@@ -187,19 +187,24 @@ export function SyncSettings({ port: given, vault: givenVault }: SyncSettingsPro
     )
   }
 
-  const renderAccountHeader = (syncControl: React.ReactNode) => (
+  const accountHeader = (
     <>
       <section className="sync-account-strip">
         <div className="sync-account-avatar">
           <UserRound className="size-4" aria-hidden="true" />
         </div>
         <div className="sync-account-identity">
-          <div className="sync-account-heading">
-            <h2>{status.username}</h2>
-          </div>
+          <h3>{status.username}</h3>
+          <p className="sync-account-server">
+            {t(isAmbyServer(status.serverUrl) ? "sync.connected.toAmby" : "sync.connected.to", {
+              host: status.host ?? status.serverUrl ?? "",
+            })}
+          </p>
+        </div>
+        <div className="sync-account-actions">
           <Button
             type="button"
-            variant="ghost"
+            variant="outline"
             size="sm"
             disabled={busy}
             aria-expanded={changing}
@@ -224,14 +229,6 @@ export function SyncSettings({ port: given, vault: givenVault }: SyncSettingsPro
             <LogOut />
             {t("sync.layout.signOut")}
           </Button>
-        </div>
-        <div className="sync-account-connection">
-          <p className="sync-account-server">
-            {t(isAmbyServer(status.serverUrl) ? "sync.connected.toAmby" : "sync.connected.to", {
-              host: status.host ?? status.serverUrl ?? "",
-            })}
-          </p>
-          {syncControl}
         </div>
       </section>
       {passwordChanged && (
@@ -260,80 +257,84 @@ export function SyncSettings({ port: given, vault: givenVault }: SyncSettingsPro
         </p>
       )}
 
-      <SyncVaultPanel
-        port={port}
-        vault={vault}
-        renderAccountHeader={renderAccountHeader}
-        onConnectionChange={refreshStorage}
-      />
+      <SyncVaultPanel port={port} vault={vault} onConnectionChange={refreshStorage} />
 
-      <div className="sync-settings-sections">
-        <AccountStorage port={port} revision={storageRevision} />
-
-        <section className="sync-section sync-devices">
-          <div className="sync-devices-heading">
-            <h3 className="sync-section-title">
-              <Laptop className="size-4" aria-hidden="true" />
-              {t("sync.connected.devices")}
-            </h3>
-            <span className="sync-private-badge">
-              <ShieldCheck className="size-3.5" aria-hidden="true" />
-              {t("sync.layout.encrypted")}
-            </span>
+      <section className="sync-zone" aria-labelledby="sync-zone-account">
+        <h2 id="sync-zone-account" className="sync-zone-title">
+          {t("sync.layout.zoneAccount")}
+        </h2>
+        <div className="sync-account-grid">
+          <div className="sync-account-column">
+            {accountHeader}
+            <section className="sync-section sync-devices">
+              <div className="sync-devices-heading">
+                <h3 className="sync-section-title">
+                  <Laptop className="size-4" aria-hidden="true" />
+                  {t("sync.connected.devices")}
+                </h3>
+                <span className="sync-private-badge">
+                  <ShieldCheck className="size-3.5" aria-hidden="true" />
+                  {t("sync.layout.encrypted")}
+                </span>
+              </div>
+              <ul className="sync-device-list">
+                {(devices ?? []).map((device) => {
+                  const name = device.name ?? t("sync.connected.unknownDevice")
+                  return (
+                    <li key={device.deviceId} className="sync-device-row">
+                      <Laptop className="size-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[13px]">{name}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {t("sync.connected.lastSeen", {
+                            date: new Date(device.lastSeenMs).toLocaleString(i18n.language),
+                          })}
+                        </p>
+                      </div>
+                      {device.current ? (
+                        <span className="sync-device-current">
+                          {t("sync.connected.thisDevice")}
+                        </span>
+                      ) : confirming === device.deviceId ? (
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => void disconnect(device.deviceId)}
+                          >
+                            {t("sync.connected.confirmDisconnect")}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setConfirming(null)}
+                          >
+                            {t("sync.connected.cancel")}
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          aria-label={t("sync.connected.disconnectLabel", { name })}
+                          onClick={() => setConfirming(device.deviceId)}
+                        >
+                          {t("sync.connected.disconnect")}
+                        </Button>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            </section>
           </div>
-          <ul className="sync-device-list">
-            {(devices ?? []).map((device) => {
-              const name = device.name ?? t("sync.connected.unknownDevice")
-              return (
-                <li key={device.deviceId} className="sync-device-row">
-                  <Laptop className="size-4 shrink-0 text-muted-foreground" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13px]">{name}</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      {t("sync.connected.lastSeen", {
-                        date: new Date(device.lastSeenMs).toLocaleString(i18n.language),
-                      })}
-                    </p>
-                  </div>
-                  {device.current ? (
-                    <span className="sync-device-current">{t("sync.connected.thisDevice")}</span>
-                  ) : confirming === device.deviceId ? (
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        variant="destructive"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => void disconnect(device.deviceId)}
-                      >
-                        {t("sync.connected.confirmDisconnect")}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setConfirming(null)}
-                      >
-                        {t("sync.connected.cancel")}
-                      </Button>
-                    </div>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      aria-label={t("sync.connected.disconnectLabel", { name })}
-                      onClick={() => setConfirming(device.deviceId)}
-                    >
-                      {t("sync.connected.disconnect")}
-                    </Button>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-        </section>
-      </div>
+          <AccountStorage port={port} revision={storageRevision} />
+        </div>
+      </section>
     </div>
   )
 }

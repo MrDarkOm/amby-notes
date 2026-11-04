@@ -1,0 +1,73 @@
+/*
+ * The base rules of ProseMirror and Tiptap, shipped with the application instead of being
+ * injected by Tiptap at run time (`injectCSS: false`). An injected <style> can be refused by
+ * the webview's content security policy on one system and kept on another; then a single
+ * line break in a note was shown as a space on Windows only. A file of the application is
+ * loaded the same way everywhere. Copied from @tiptap/core/src/style.ts; keep it in step
+ * when Tiptap is updated. The blink of the gap cursor is left out: the application keeps
+ * animation out of CSS (src/lib/motion-boundary.test.ts), so that cursor stays steady.
+ */
+.ProseMirror {
+  position: relative;
+}
+
+.ProseMirror {
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  white-space: break-spaces;
+  -webkit-font-variant-ligatures: none;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0; /* the above doesn't seem to work in Edge */
+}
+
+.ProseMirror [contenteditable="false"] {
+  white-space: normal;
+}
+
+.ProseMirror [contenteditable="false"] [contenteditable="true"] {
+  white-space: pre-wrap;
+}
+
+.ProseMirror pre {
+  white-space: pre-wrap;
+}
+
+img.ProseMirror-separator {
+  display: inline !important;
+  border: none !important;
+  margin: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.ProseMirror-gapcursor {
+  display: none;
+  pointer-events: none;
+  position: absolute;
+  margin: 0;
+}
+
+.ProseMirror-gapcursor:after {
+  content: "";
+  display: block;
+  position: absolute;
+  top: -2px;
+  width: 20px;
+  border-top: 1px solid black;
+}
+
+.ProseMirror-hideselection *::selection {
+  background: transparent;
+}
+
+.ProseMirror-hideselection *::-moz-selection {
+  background: transparent;
+}
+
+.ProseMirror-hideselection * {
+  caret-color: transparent;
+}
+
+.ProseMirror-focused .ProseMirror-gapcursor {
+  display: block;
+}

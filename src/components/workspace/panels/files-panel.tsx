@@ -44,6 +44,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import type { TreeItem } from "@/lib/storage"
+import { useTreeFileDrop } from "../tree/use-tree-file-drop"
 import { SidebarTree } from "../sidebar-tree"
 import {
   applyManualTreeOrder,
@@ -211,6 +212,8 @@ export function FilesPanel(props: PanelRenderProps) {
   )
   const { key: sortKey, direction: sortDirection } = sortSelection
   const [query, setQuery] = React.useState("")
+  const treeDropRef = React.useRef<HTMLDivElement>(null)
+  useTreeFileDrop({ containerRef: treeDropRef, vault, treeItems: vaultTreeItems })
   React.useEffect(() => {
     localStorage.setItem(
       TREE_SORT_STORAGE_KEY,
@@ -480,7 +483,7 @@ export function FilesPanel(props: PanelRenderProps) {
         <ContextMenuTrigger asChild>
           <div className="flex flex-1 min-h-0 flex-col">
             {/* SidebarTree owns its own scroll container for virtualizer access */}
-            <div className="flex-1 min-h-0">
+            <div ref={treeDropRef} className="flex-1 min-h-0">
               {visibleTreeItems.length === 0 ? (
                 <p className="px-4 py-3 text-[12px] text-muted-foreground">
                   {query.trim() ? t("filesPanel.noResults") : t("filesPanel.empty")}
