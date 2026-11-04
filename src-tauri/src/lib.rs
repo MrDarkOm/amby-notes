@@ -16,6 +16,7 @@ pub mod package_manager;
 mod page_info;
 mod paths;
 mod project;
+mod property_groups;
 mod property_store;
 mod recovery;
 mod recycle_bin;

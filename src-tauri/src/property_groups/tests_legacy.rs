@@ -1,0 +1,317 @@
+//! Edits of an old version of Amby on another computer, carried over after the migration
+//! (docs/sync-plan.md, appendix З: З22, З36, З37). Red until written.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use serde_json::{json, Value};
+
+use super::legacy::*;
+use super::migration::{run, Context, Decisions};
+use super::testkit::*;
+use super::*;
+
+fn old_prop(id: &str, name: &str, icon: &str, value: &str) -> Value {
+    json!({"id": id, "name": name, "icon": icon, "propertyType": "text", "value": value, "settings": ""})
+}
+
+fn write_old(fx: &Fx, notes: &[(&str, Vec<Value>)]) {
+    let map: serde_json::Map<String, Value> = notes
+        .iter()
+        .map(|(id, props)| (id.to_string(), json!(props)))
+        .collect();
+    fx.write(
+        ".amby/properties.json",
+        &(serde_json::to_string_pretty(&json!({"version": 1, "notes": map})).unwrap() + "\n"),
+    );
+}
+
+/// Notes 1, 2, 3 with one property each, migrated.
+fn migrated() -> Fx {
+    let fx = fx_old();
+    for n in 1..=3 {
+        fx.note(&id(n), &format!("n{n}.md"), "Статус: Готово\n");
+    }
+    write_old(
+        &fx,
+        &[
+            (&id(1), vec![old_prop("P1", "Статус", "📌", "Готово")]),
+            (&id(2), vec![old_prop("P2", "Статус", "📌", "Готово")]),
+            (&id(3), vec![old_prop("P3", "Статус", "📌", "Готово")]),
+        ],
+    );
+    run(
+        &fx.conn,
+        &fx.vault,
+        &Decisions {
+            confirmed: true,
+            ..Decisions::default()
+        },
+        &Context::default(),
+    )
+    .unwrap();
+    fx
+}
+
+fn icon_of(fx: &Fx, note: &str) -> String {
+    fx.designs(note)[0]["icon"].as_str().unwrap().to_string()
+}
+
+#[test]
+fn right_after_the_migration_there_is_nothing_to_carry_and_the_old_file_is_unchanged() {
+    // З22, З36
+    let fx = migrated();
+    assert!(!properties_json_changed(&fx.vault).unwrap());
+    let report = check_old_version_edits(&fx.conn, &fx.vault).unwrap();
+    assert_eq!(report, LegacyReport::default());
+    assert_eq!(report.hint_text(), None);
+}
+
+#[test]
+fn an_edit_of_an_old_version_is_carried_to_the_group_without_values_and_the_owner_is_told() {
+    // З22, З36: the list comes from the old record, without `value`; the note is not touched
+    let fx = migrated();
+    let note_before = fx.bytes("n1.md");
+    write_old(
+        &fx,
+        &[
+            (
+                &id(1),
+                vec![
+                    old_prop("P1", "Статус", "🔥", "ЧУЖОЕ"),
+                    old_prop("P9", "Новое", "⭐", "v"),
+                ],
+            ),
+            (&id(2), vec![old_prop("P2", "Статус", "📌", "Готово")]),
+            (&id(3), vec![old_prop("P3", "Статус", "📌", "Готово")]),
+        ],
+    );
+    assert!(properties_json_changed(&fx.vault).unwrap());
+    let report = check_old_version_edits(&fx.conn, &fx.vault).unwrap();
+    assert_eq!(report.transferred, vec![id(1)]);
+    assert!(report.conflicts.is_empty());
+    assert_eq!(icon_of(&fx, &id(1)), "🔥");
+    let names: Vec<String> = fx
+        .designs(&id(1))
+        .iter()
+        .map(|d| d["name"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(names, vec!["Статус", "Новое"]);
+    assert!(
+        fx.designs(&id(1)).iter().all(|d| d.get("value").is_none()),
+        "values are never carried"
+    );
+    assert_eq!(
+        fx.bytes("n1.md"),
+        note_before,
+        "the header keeps its value: the old value is not brought back"
+    );
+    assert!(report.hint_text().unwrap().starts_with(
+        "Свойства, изменённые старой версией Amby на другом устройстве, перенесены: 1"
+    ));
+    assert!(
+        !properties_json_changed(&fx.vault).unwrap(),
+        "the new hash is remembered"
+    );
+}
+
+#[test]
+fn a_change_of_only_a_value_in_the_old_file_carries_nothing() {
+    // З36: the hash of the old record is taken without `value`
+    let fx = migrated();
+    write_old(
+        &fx,
+        &[
+            (
+                &id(1),
+                vec![old_prop("P1", "Статус", "📌", "СОВСЕМ ДРУГОЕ")],
+            ),
+            (&id(2), vec![old_prop("P2", "Статус", "📌", "Готово")]),
+            (&id(3), vec![old_prop("P3", "Статус", "📌", "Готово")]),
+        ],
+    );
+    let before = fx.snapshot();
+    let report = check_old_version_edits(&fx.conn, &fx.vault).unwrap();
+    assert!(report.transferred.is_empty() && report.conflicts.is_empty());
+    assert_eq!(
+        changed_paths(&before, &fx.snapshot())
+            .iter()
+            .filter(|p| p.starts_with(".amby/properties/"))
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn the_same_difference_is_not_carried_a_second_time_over_newer_local_edits() {
+    // З36: this is why the marks exist instead of a copy of the file
+    let fx = migrated();
+    write_old(
+        &fx,
+        &[
+            (&id(1), vec![old_prop("P1", "Статус", "🔥", "Готово")]),
+            (&id(2), vec![old_prop("P2", "Статус", "📌", "Готово")]),
+            (&id(3), vec![old_prop("P3", "Статус", "📌", "Готово")]),
+        ],
+    );
+    check_old_version_edits(&fx.conn, &fx.vault).unwrap();
+    set_appearance(&fx.conn, &fx.vault, &id(1), "P1", "⭐", "").unwrap();
+    // the same old file is looked at again
+    let again = check_old_version_edits(&fx.conn, &fx.vault).unwrap();
+    assert_eq!(again, LegacyReport::default());
+    assert_eq!(icon_of(&fx, &id(1)), "⭐");
+}
+
+#[test]
+fn a_computer_without_the_local_memo_does_not_carry_the_same_difference_again() {
+    // З36: the mark travels with the record, so the second device needs no copy of the file
+    let fx = migrated();
+    write_old(
+        &fx,
+        &[
+            (&id(1), vec![old_prop("P1", "Статус", "🔥", "Готово")]),
+            (&id(2), vec![old_prop("P2", "Статус", "📌", "Готово")]),
+            (&id(3), vec![old_prop("P3", "Статус", "📌", "Готово")]),
+        ],
+    );
+    check_old_version_edits(&fx.conn, &fx.vault).unwrap();
+    set_appearance(&fx.conn, &fx.vault, &id(1), "P1", "⭐", "").unwrap();
+    let second = fx.copy_to_second_device(&[".amby/migrations/"]);
+    let before = second.snapshot();
+    let report = check_old_version_edits(&second.conn, &second.vault).unwrap();
+    assert_eq!(report, LegacyReport::default());
+    assert_eq!(
+        changed_paths(&before, &second.snapshot())
+            .iter()
+            .filter(|p| p.starts_with(".amby/properties/"))
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn an_edit_here_and_an_edit_there_of_one_note_is_a_conflict_with_two_choices() {
+    // З22, З.7-3, З36
+    for choice in [LegacyChoice::KeepHere, LegacyChoice::TakeOld] {
+        let fx = migrated();
+        set_appearance(&fx.conn, &fx.vault, &id(1), "P1", "⭐", "").unwrap();
+        write_old(
+            &fx,
+            &[
+                (&id(1), vec![old_prop("P1", "Статус", "🔥", "Готово")]),
+                (&id(2), vec![old_prop("P2", "Статус", "📌", "Готово")]),
+                (&id(3), vec![old_prop("P3", "Статус", "📌", "Готово")]),
+            ],
+        );
+        let before = fx.group_bytes(&id(1));
+        let report = check_old_version_edits(&fx.conn, &fx.vault).unwrap();
+        assert_eq!(report.conflicts, vec![LegacyConflict { note_id: id(1) }]);
+        assert!(report.transferred.is_empty());
+        assert_eq!(
+            fx.group_bytes(&id(1)),
+            before,
+            "nothing is decided for the owner"
+        );
+        resolve_conflict(&fx.conn, &fx.vault, &id(1), choice).unwrap();
+        let expected = if choice == LegacyChoice::KeepHere {
+            "⭐"
+        } else {
+            "🔥"
+        };
+        assert_eq!(icon_of(&fx, &id(1)), expected);
+        assert_eq!(
+            check_old_version_edits(&fx.conn, &fx.vault).unwrap(),
+            LegacyReport::default(),
+            "{choice:?}: the mark is refreshed, no second question"
+        );
+    }
+}
+
+#[test]
+fn a_property_deleted_by_the_old_version_is_deleted_here_and_a_property_deleted_here_stays_deleted()
+{
+    // З36: the tombstone — an empty list with a mark is kept
+    let fx = migrated();
+    // here: the owner deletes the property of note 2
+    delete_property(&fx.conn, &fx.vault, &id(2), "P2").unwrap();
+    let entry = read_entry(&fx.vault, &id(2))
+        .unwrap()
+        .expect("the tombstone is kept");
+    assert!(entry.properties.is_empty() && entry.legacy.is_some());
+    assert_eq!(
+        check_old_version_edits(&fx.conn, &fx.vault).unwrap(),
+        LegacyReport::default(),
+        "properties.json still has it: it must not come back"
+    );
+    assert!(read_entry(&fx.vault, &id(2))
+        .unwrap()
+        .unwrap()
+        .properties
+        .is_empty());
+    // there: the old version removes the whole record of note 3
+    write_old(
+        &fx,
+        &[
+            (&id(1), vec![old_prop("P1", "Статус", "📌", "Готово")]),
+            (&id(2), vec![old_prop("P2", "Статус", "📌", "Готово")]),
+        ],
+    );
+    let report = check_old_version_edits(&fx.conn, &fx.vault).unwrap();
+    assert_eq!(report.transferred, vec![id(3)]);
+    assert!(fx.designs(&id(3)).is_empty());
+}
+
+#[test]
+fn a_note_added_by_the_old_version_after_the_migration_is_carried_or_is_a_conflict() {
+    // З36: no mark and an old record: no entry — carry; an entry — conflict
+    let fx = migrated();
+    fx.note(&id(4), "n4.md", "");
+    fx.note(&id(5), "n5.md", "");
+    create_property(&fx.conn, &fx.vault, &id(5), design("Своё"), "x").unwrap();
+    write_old(
+        &fx,
+        &[
+            (&id(1), vec![old_prop("P1", "Статус", "📌", "Готово")]),
+            (&id(2), vec![old_prop("P2", "Статус", "📌", "Готово")]),
+            (&id(3), vec![old_prop("P3", "Статус", "📌", "Готово")]),
+            (&id(4), vec![old_prop("P4", "Чужое", "📌", "v")]),
+            (&id(5), vec![old_prop("P5", "Чужое", "📌", "v")]),
+        ],
+    );
+    let report = check_old_version_edits(&fx.conn, &fx.vault).unwrap();
+    assert_eq!(report.transferred, vec![id(4)]);
+    assert_eq!(report.conflicts, vec![LegacyConflict { note_id: id(5) }]);
+    assert_eq!(fx.designs(&id(4))[0]["name"], "Чужое");
+}
+
+#[test]
+fn the_new_version_does_not_read_the_old_file_for_anything_but_the_check() {
+    // З22: broken or missing `properties.json` does not disturb the panel or the cache
+    let fx = migrated();
+    fx.write(".amby/properties.json", "garbage");
+    let shown = panel(&fx.conn, &fx.vault, &id(1)).unwrap();
+    assert_eq!(shown.active.len(), 1);
+    rebuild_cache(&fx.conn, &fx.vault).unwrap();
+    assert_eq!(
+        fx.read(".amby/properties.json"),
+        "garbage",
+        "and it is never written"
+    );
+}
+
+#[test]
+fn the_sync_screen_warns_with_the_sentence_of_the_owner_while_an_old_version_writes() {
+    // З22, З37, З.10-2
+    let fx = migrated();
+    assert_eq!(sync_screen_warning(&fx.vault).unwrap(), None);
+    write_old(
+        &fx,
+        &[(&id(1), vec![old_prop("P1", "Статус", "🔥", "Готово")])],
+    );
+    let warning = sync_screen_warning(&fx.vault)
+        .unwrap()
+        .expect("the file changed");
+    assert!(warning.contains(OLD_VERSION_WARNING), "{warning}");
+    assert_eq!(
+        OLD_VERSION_WARNING,
+        "На устройствах со старой версией Amby не меняйте свойства — она может вернуть прежние значения"
+    );
+}

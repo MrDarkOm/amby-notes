@@ -16,6 +16,7 @@
 //! - [`stream`]: opening a body as a stream (Ф24);
 //! - [`rules`]: what is not synchronised (Р4) and the mass-change threshold (Р8);
 //! - [`merge`]: the three-way merge of a note (Э4б, К1, appendix Г);
+//! - [`props_groups`]: the merge of the groups of note properties (appendix З);
 //! - [`conflict_set`]: the files of a conflict in `.amby/conflicts/` (Э4б, К2, appendix Г);
 //! - [`sync`]: the engine itself.
 
@@ -31,6 +32,7 @@ pub mod model;
 pub mod names;
 mod plan;
 pub mod ports;
+pub mod props_groups;
 mod push;
 pub mod rules;
 mod scan;
