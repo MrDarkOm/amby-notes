@@ -18,6 +18,7 @@ use super::plan::{
     Act, CopyPlan, Existing, KeepAct, LinkBase, MoveAct, Plan, PutAct, Srv, Undelete,
 };
 use super::ports::{FsError, NameRules};
+use super::props_groups::kind_of_path;
 use super::rules::is_excluded_path;
 use super::scan::Scan;
 use super::util::{hash_of, is_unmaterialised, UNMATERIALISED};
@@ -378,6 +379,7 @@ impl<'a> Decider<'a> {
                     copy: None,
                     rec,
                     merge: false,
+                    guard: None,
                 })));
             }
             Some(file) if self.by_path.contains_key(target.as_str()) => {
@@ -429,6 +431,7 @@ impl<'a> Decider<'a> {
                     copy: None,
                     rec,
                     merge: false,
+                    guard: None,
                 })));
             }
             Some(file) => {
@@ -492,6 +495,7 @@ impl<'a> Decider<'a> {
                     copy: Some(copy),
                     rec,
                     merge: false,
+                    guard: None,
                 })));
             }
         }
@@ -638,6 +642,7 @@ impl<'a> Decider<'a> {
                     (false, false) => self.set_base(srv.record(base.mtime_ns)),
                     (false, true) => {
                         self.overwrite(&base.path);
+                        let guard = self.group_guard(srv);
                         self.plan.acts.push(Act::Put(Box::new(PutAct {
                             seq: srv.seq,
                             srv: srv.clone(),
@@ -646,6 +651,7 @@ impl<'a> Decider<'a> {
                             copy: None,
                             rec: srv.record(0),
                             merge: false,
+                            guard,
                         })));
                     }
                     (true, false) => {
@@ -724,6 +730,7 @@ impl<'a> Decider<'a> {
                         copy: Some(copy),
                         rec: srv.record(0),
                         merge: true,
+                        guard: None,
                     })));
                 }
             }
@@ -783,6 +790,7 @@ impl<'a> Decider<'a> {
                             copy,
                             rec: srv.record(0),
                             merge: false,
+                            guard: None,
                         })));
                     }
                     (true, false) => {
@@ -928,7 +936,23 @@ impl<'a> Decider<'a> {
             copy,
             rec: srv.record(0),
             merge,
+            guard: None,
         }
+    }
+
+    /// Where the server version of a group of note properties would go if it could not be read
+    /// while the local one can (З33); `None` for any other file.
+    fn group_guard(&mut self, srv: &Srv) -> Option<CopyPlan> {
+        kind_of_path(&srv.path)?;
+        self.copy_for(
+            &srv.item,
+            &self.dest(srv),
+            srv.hash.unwrap_or([0; 32]),
+            srv.size,
+            srv.version,
+            ConflictKind::BothEdited,
+            None,
+        )
     }
 
     /// A file without a base at the target of a rename becomes a conflict copy (Д49, Д51).

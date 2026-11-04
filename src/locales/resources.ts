@@ -1389,6 +1389,35 @@ const ru = {
       "# Добро пожаловать в Amby\n\nЭто веб-предпросмотр. Откройте десктопное приложение, чтобы сохранять заметки в файловой системе.\n\nНачните записывать мысли здесь…",
   },
   infoPanel: {
+    groups: {
+      dormantTitle: "Нет в шапке",
+      dormantHint: "Оформление осталось, а ключа в шапке заметки нет.",
+      restore: "Вернуть",
+      purge: "Удалить окончательно",
+      renameHint:
+        "Похоже, «{{oldName}}» переименовали в «{{newName}}». Перенести на него тип и иконку?",
+      renameYes: "Перенести",
+      renameNo: "Нет",
+      formatNewer: "Формат свойств новее этой версии Amby: свойства доступны только для чтения.",
+      badLine:
+        "В файле свойств есть строка, которую нельзя прочитать: правки свойств этой группы отключены.",
+      migrationTitle: "Новый формат свойств",
+      migrationBody:
+        "Свойства заметок можно перенести в новый формат: значения остаются в шапках заметок, а оформление хранится только там, где оно отличается от стандартного. Старый файл не удаляется.",
+      migrationReview: "Показать отчёт",
+      migrationReport:
+        "Заметок со свойствами: {{notes}}, свойств: {{properties}}. Значение совпадает с шапкой: {{same}}. Расходится: {{mismatches}} (останется значение из шапки). Нет ключа в шапке: {{missing}}. Заметок получит новую шапку: {{edits}}.",
+      migrationRun: "Перенести свойства",
+      migrationDone: "Свойства перенесены.",
+      migrationFailed: "Не удалось перенести свойства: {{details}}",
+      oldVersionCheck: "Проверить правки старой версии",
+      oldVersionNothing: "Правок старой версии нет.",
+      oldVersionConflicts: "Заметок, изменённых и здесь, и в старой версии: {{count}}.",
+      oldVersionConflict:
+        "Свойства этой заметки изменили и здесь, и в старой версии Amby на другом устройстве.",
+      keepHere: "Оставить здешнее",
+      takeOld: "Взять из старой версии",
+    },
     id: "ID",
     noDocument: "Нет выбранной заметки",
     search: "Поиск свойств",
@@ -5410,6 +5439,36 @@ const en: typeof ru = {
       "# Welcome to Amby\n\nThis is a web preview. Open the desktop app to save notes to your filesystem.\n\nStart writing your thoughts here…",
   },
   infoPanel: {
+    groups: {
+      dormantTitle: "Not in the header",
+      dormantHint: "The look is kept, but the note's header has no such key.",
+      restore: "Bring back",
+      purge: "Delete for good",
+      renameHint:
+        'It looks like "{{oldName}}" was renamed to "{{newName}}". Move the type and icon to it?',
+      renameYes: "Move",
+      renameNo: "No",
+      formatNewer:
+        "The properties format is newer than this version of Amby: properties are read only.",
+      badLine:
+        "The properties file has a line that cannot be read: edits of the properties of this group are turned off.",
+      migrationTitle: "New properties format",
+      migrationBody:
+        "Note properties can be moved to a new format: values stay in the note headers, and the look is stored only where it differs from the default. The old file is not deleted.",
+      migrationReview: "Show the report",
+      migrationReport:
+        "Notes with properties: {{notes}}, properties: {{properties}}. Value equals the header: {{same}}. Differs: {{mismatches}} (the header value stays). No key in the header: {{missing}}. Notes that get a new header: {{edits}}.",
+      migrationRun: "Move properties",
+      migrationDone: "Properties moved.",
+      migrationFailed: "Could not move properties: {{details}}",
+      oldVersionCheck: "Check edits of the old version",
+      oldVersionNothing: "No edits of the old version.",
+      oldVersionConflicts: "Notes changed both here and in the old version: {{count}}.",
+      oldVersionConflict:
+        "The properties of this note were changed both here and in an old version of Amby on another device.",
+      keepHere: "Keep this one",
+      takeOld: "Take the old version's",
+    },
     id: "ID",
     noDocument: "No document selected",
     search: "Search properties",

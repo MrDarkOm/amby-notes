@@ -6,6 +6,7 @@ use crate::frontmatter;
 use crate::history;
 use crate::model::*;
 use crate::paths;
+use crate::property_groups;
 use crate::property_store;
 use crate::vault_context::VaultContext;
 use crate::vault_index;
@@ -374,7 +375,7 @@ pub fn restore_deleted_note(
     let revision = vault_index::body_revision(if opaque { &persisted } else { &body });
     let index_result =
         vault_index::upsert_note_index(conn, &conn.root, &request.note_id, &body, &path)
-            .and_then(|_| property_store::restore_cache(conn, &conn.root));
+            .and_then(|_| property_groups::restore_cache_any(conn, &conn.root));
     let path_string = path.to_string_lossy().to_string();
     drop(conn_guard);
 
@@ -489,7 +490,12 @@ pub fn upsert_custom_property(
     let name = property.name.clone();
     let prop_type = property.property_type.clone();
     let prop_id = property.id.clone();
-    let res = property_store::upsert(conn, &conn.root, &note_id, property);
+    let res = if property_groups::in_groups(&conn.root) {
+        property_groups::upsert_compat(conn, &conn.root, &note_id, property)
+    } else {
+        property_groups::ensure_old_store_writable(&conn.root)
+            .and_then(|_| property_store::upsert(conn, &conn.root, &note_id, property))
+    };
     if res.is_ok() {
         tracing::info!(
             event = "upsert_custom_property",
@@ -512,7 +518,12 @@ pub fn delete_custom_property(
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    let res = property_store::delete(conn, &conn.root, &note_id, &property_id);
+    let res = if property_groups::in_groups(&conn.root) {
+        property_groups::delete_compat(conn, &conn.root, &note_id, &property_id)
+    } else {
+        property_groups::ensure_old_store_writable(&conn.root)
+            .and_then(|_| property_store::delete(conn, &conn.root, &note_id, &property_id))
+    };
     if res.is_ok() {
         tracing::info!(
             event = "delete_custom_property",
@@ -534,7 +545,12 @@ pub fn reorder_custom_properties(
     let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     let count = property_ids.len();
-    let res = property_store::reorder(conn, &conn.root, &note_id, &property_ids);
+    let res = if property_groups::in_groups(&conn.root) {
+        property_groups::reorder_compat(conn, &conn.root, &note_id, &property_ids)
+    } else {
+        property_groups::ensure_old_store_writable(&conn.root)
+            .and_then(|_| property_store::reorder(conn, &conn.root, &note_id, &property_ids))
+    };
     if res.is_ok() {
         tracing::info!(
             event = "reorder_custom_properties",
@@ -554,7 +570,12 @@ pub fn backup_custom_properties(
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    property_store::backup_and_clear(conn, &conn.root, &note_id)
+    if property_groups::in_groups(&conn.root) {
+        property_groups::backup_and_clear(conn, &conn.root, &note_id)
+    } else {
+        property_groups::ensure_old_store_writable(&conn.root)
+            .and_then(|_| property_store::backup_and_clear(conn, &conn.root, &note_id))
+    }
 }
 
 #[tauri::command]

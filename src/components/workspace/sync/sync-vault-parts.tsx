@@ -92,7 +92,12 @@ export function UnsyncedList({ items }: { items: Unsynced[] }) {
 function appDataConflictKind(path: string): "properties" | "graph" | "other" | null {
   const normalized = path.replace(/\\/gu, "/").replace(/^\/+/u, "")
   if (!normalized.startsWith(".amby/")) return null
-  if (normalized === ".amby/properties.json") return "properties"
+  if (
+    normalized === ".amby/properties.json" ||
+    /^\.amby\/properties\/(?:prop|legacy)_[0-9a-f]\.jsonl$/u.test(normalized)
+  ) {
+    return "properties"
+  }
   if (normalized === ".amby/graph-layout.json") return "graph"
   return "other"
 }

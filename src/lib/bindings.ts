@@ -478,6 +478,132 @@ async backupCustomProperties(noteId: string) : Promise<Result<string, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async listPropertyTemplate() : Promise<PropertyTemplate> {
+    return await TAURI_INVOKE("list_property_template");
+},
+async getPropertyPanel(noteId: string) : Promise<Result<PropertyPanel, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_property_panel", { noteId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async restoreDormantProperty(noteId: string, name: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_dormant_property", { noteId, name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async purgeDormantProperty(noteId: string, name: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("purge_dormant_property", { noteId, name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async acceptPropertyRenameHint(noteId: string, hint: RenameHintView) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("accept_property_rename_hint", { noteId, hint }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async dismissPropertyRenameHint(noteId: string, hint: RenameHintView) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("dismiss_property_rename_hint", { noteId, hint }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async propertyStorageStatus() : Promise<Result<PropertyStorageStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("property_storage_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async previewPropertiesMigration() : Promise<Result<MigrationReportView, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("preview_properties_migration") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Runs the migration after the owner of the vault confirmed it (З21, З38).
+ */
+async runPropertiesMigration(useFileValues: FileValueChoice[]) : Promise<Result<MigrationOutcomeView, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("run_properties_migration", { useFileValues }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async rollbackPropertiesMigration(migrationId: string) : Promise<Result<RollbackView, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rollback_properties_migration", { migrationId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async checkOldVersionPropertyEdits() : Promise<Result<OldVersionReport, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("check_old_version_property_edits") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async resolveOldVersionPropertyConflict(noteId: string, keepHere: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("resolve_old_version_property_conflict", { noteId, keepHere }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async inspectProperties() : Promise<Result<PropertyInspection, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("inspect_properties") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listPropertyRebindOffers() : Promise<Result<RebindOfferView[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_property_rebind_offers") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async rebindNoteProperties(oldId: string, newId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rebind_note_properties", { oldId, newId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteOrphanProperties(noteId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_orphan_properties", { noteId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async listTags() : Promise<Result<TagEntry[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("list_tags") };
@@ -1983,6 +2109,10 @@ export type ApprovalKind =
 export type BackupCatalog = { vault: string; generation: number; backups: BackupInfo[] }
 export type BackupCondition = "unchecked" | "verified" | "damaged" | "incomplete" | "missing"
 export type BackupInfo = { id: string; createdMs: number; bytes: number; files: number; status: BackupCondition }
+/**
+ * A line of a group that cannot be used (З51).
+ */
+export type BadLineView = { file: string; number: number; noteId: string | null }
 export type CatalogModel = { model: string; label: string; supportsTools: boolean | null }
 export type ChangeDatabasePropertyTypeRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; propertyType: string; relationTargetDatabaseId?: string | null; relationMaxItems?: number | null; relationTwoWay?: boolean | null; relationInversePropertyName?: string | null; operationId?: string | null; expectedRelatedManifestRevisions?: DatabaseManifestRevision[] }
 export type ChangedDatabasePropertyType = { databaseId: string; propertyId: string; propertyType: string; manifestRevision: string; operationId: string | null; inversePropertyId: string | null; manifestRevisions: DatabaseManifestRevision[]; warnings: string[] }
@@ -2250,6 +2380,10 @@ lastSeenMs: number;
  * This device.
  */
 current: boolean }
+/**
+ * A record without a key: grey, «нет в шапке» (З3).
+ */
+export type DormantView = { name: string; icon: string; propertyType: string; settings: string }
 export type DuplicateDatabaseRowRequest = { expectedGeneration: number; databaseId: string; noteId: string; 
 /**
  * Title of the copy; the caller localizes the "copy" wording.
@@ -2284,6 +2418,10 @@ revision: string;
  */
 changed: boolean; replayed: boolean; warnings: string[] }
 export type FileMetadata = { created: number | null; modified: number | null; word_count: number }
+/**
+ * «Взять значение из файла» for one property (З20).
+ */
+export type FileValueChoice = { noteId: string; name: string }
 /**
  * Read-only view of a single YAML frontmatter entry. The original YAML stays
  * on disk untouched; `value` is only a display representation for the UI.
@@ -2367,6 +2505,22 @@ export type LoadVaultResult = { generation: number; vaultPath: string; tree: Tre
 export type LoadedChat = { chat: Chat | null; raw: JsonValue | null; status: string; revision: string }
 export type LogLevel = "debug" | "info" | "warn" | "error"
 export type LogSource = "frontend" | "backend"
+/**
+ * What the migration did (З21).
+ */
+export type MigrationOutcomeView = { migrationId: string; groupsWritten: number; headersWritten: string[]; skippedChanged: string[] }
+/**
+ * The report of the dry run of the migration (З19).
+ */
+export type MigrationReportView = { notes: number; properties: number; same: number; mismatches: MismatchView[]; missingKeys: MissingKeyView[]; untouchable: UntouchableView[]; orphans: string[]; headerEdits: number; warnings: string[] }
+/**
+ * A value of the file that differs from the header (З19).
+ */
+export type MismatchView = { noteId: string; name: string; fileValue: string; headerValue: string }
+/**
+ * A value of the file with no key in the header (З20).
+ */
+export type MissingKeyView = { noteId: string; name: string; fileValue: string }
 export type ModuleManifest = { formatVersion: number; id: string; name: string; version: string; publisher: string; kind: string; minAppVersion: string; maxAppVersion: string | null; entry: string; permissions: string[]; checksums: Partial<{ [key in string]: string }>; signature: ModuleSignature; dependencies: Partial<{ [key in string]: string }> | null }
 export type ModuleSignature = { keyId: string; sig: string }
 export type MoveTextPageRequest = { expectedGeneration: number; operationId: string; storyId: string; noteId: string; newParentNoteId?: string | null; orderKey: string; expectedRevision: string }
@@ -2379,6 +2533,10 @@ export type MutationOutcome = { mutation: FsMutationResult; indexState: IndexSta
 export type NoteLayers = { canvas: boolean; sketch: boolean; database: boolean; note: boolean }
 export type NoteMetadata = { created: number | null; modified: number | null; wordCount: number }
 export type NoteProperties = { hasFrontmatter: boolean; frontmatterStatus: FrontmatterStatus; bodyReadOnly: boolean; properties: FrontmatterProperty[]; parseError: string | null; customProperties: CustomProperty[] }
+/**
+ * A property of a note named in the inspection.
+ */
+export type NotePropertyRef = { noteId: string; name: string }
 /**
  * Editor text, its on-disk revision, and the complete source retained as a
  * restore template. Revisions hash unnormalised body bytes for stable IDs and
@@ -2435,8 +2593,24 @@ notebooks: Notebook[];
  * The folder tree was deeper or wider than a listing reads; the rest is left out.
  */
 truncated: boolean }
+/**
+ * The edits of an old version that were carried over, and the notes changed on both sides (З22).
+ */
+export type OldVersionReport = { transferred: string[]; conflicts: string[]; 
+/**
+ * «Свойства, изменённые старой версией Amby на другом устройстве, перенесены: N заметок».
+ */
+hintText: string | null }
 export type OperationWarning = "indexRebuildRequired"
 export type PageInfo = { title: string; description: string | null }
+/**
+ * A property of the panel (З46).
+ */
+export type PanelProperty = { name: string; key: string; value: string; propertyType: string; icon: string; settings: string; fromTemplate: boolean; hasRecord: boolean; readOnly: boolean; typeMismatch: boolean; outsideOptions: boolean }
+/**
+ * What is wrong with the panel of a note.
+ */
+export type PanelWarningView = { kind: "ambiguousKey"; name: string } | { kind: "formatNewer" } | { kind: "badLineInGroup" }
 /**
  * What the last pass did.
  */
@@ -2572,7 +2746,32 @@ export type ProjectTextSummary = { databaseId: string | null; properties: TextPr
  * projection yet, but the typed boundary is established now.
  */
 export type ProjectionVersion = { epoch: string; seq: number }
+/**
+ * The inspection of the properties of the vault (З10).
+ */
+export type PropertyInspection = { dormant: NotePropertyRef[]; orphans: string[]; ambiguous: NotePropertyRef[]; reservedNames: NotePropertyRef[]; unfinishedOperations: string[]; badLines: BadLineView[] }
+export type PropertyPanel = { unreadable: boolean; active: PanelProperty[]; dormant: DormantView[]; renameHint: RenameHintView | null; warnings: PanelWarningView[] }
+/**
+ * Where the properties of the open vault live (З6, З38) and whether an old version writes.
+ */
+export type PropertyStorageStatus = { 
+/**
+ * `legacy`, `groups` or `newer`.
+ */
+mode: string; 
+/**
+ * The sentence of З37 while an old version still writes `properties.json`.
+ */
+oldVersionWarning: string | null }
+/**
+ * The template of basic properties and its number (З45, З48).
+ */
+export type PropertyTemplate = { version: number; properties: TemplateEntry[] }
 export type PublishModuleResult = { success: boolean; moduleId: string; installedVersion: string; previousVersion: string | null; installPath: string }
+/**
+ * «У заметки сменился идентификатор. Привязать к ней её прежние свойства?» (З11, З35).
+ */
+export type RebindOfferView = { oldId: string; newId: string; path: string }
 export type RecordReference = { noteId: string; state: RecordReferenceState; title: string | null; path: string | null }
 export type RecordReferenceState = 
 /**
@@ -2605,6 +2804,10 @@ export type RemovedWorkshopSection = { operationId: string; workshopId: string; 
 export type RenameDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; name: string }
 export type RenameDatabaseRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string }
 export type RenameDatabaseViewRequest = { expectedGeneration: number; databaseId: string; viewId: string; expectedViewRevision: string; name: string }
+/**
+ * «Похоже, «Статус» переименовали в «Состояние»» (З3а).
+ */
+export type RenameHintView = { oldName: string; newName: string }
 export type RenamedDatabase = { databaseId: string; title: string; manifestRevision: string; warnings: string[] }
 export type RenamedDatabaseProperty = { databaseId: string; propertyId: string; name: string; manifestRevision: string; warnings: string[] }
 export type ReorderDatabasePropertiesRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; propertyIds: string[] }
@@ -2632,6 +2835,10 @@ references: RecordReference[] }
 export type RestoreDeletedNoteRequest = { expectedGeneration: number; noteId: string; path: string; content: string; sourceTemplate: string; originWindow: string }
 export type RestoredBackup = { path: string }
 export type RollbackModuleResult = { success: boolean; moduleId: string; rolledBackToVersion: string; previousVersion: string; activeInstallPath: string }
+/**
+ * What a rollback did (З42).
+ */
+export type RollbackView = { headersRestored: string[]; notRestored: string[]; groupsRemoved: number }
 export type SearchRelationCandidatesRequest = { expectedGeneration: number; 
 /**
  * The database the Relation points to.
@@ -2866,6 +3073,14 @@ deviceId: string | null;
 allowHttp: boolean }
 export type TagEntry = { tag: string; notes: IndexedNote[] }
 /**
+ * A basic property (З45).
+ */
+export type TemplateEntry = { propertyType: string; icon: string; names: TemplateName[] }
+/**
+ * A name of a basic property in one language of the interface, with its options (З45).
+ */
+export type TemplateName = { language: string; name: string; settings: string }
+/**
  * How an entry of the `text` block relates to the text database.
  */
 export type TextEntryState = 
@@ -2973,6 +3188,11 @@ maxBytes?: number | null;
  * For `tooLarge`: `plan` or `server`, where the limit comes from.
  */
 limitSource?: string | null }
+/**
+ * A note the migration does not touch, with the reason: `malformedHeader`, `noId`,
+ * `duplicateId` or `headerCannotChange` (З20, З25).
+ */
+export type UntouchableView = { noteId: string; reason: string }
 export type UpdateChannel = "stable" | "beta"
 /**
  * A change to the settings of a Text, Number, Date or Formula property. Only the

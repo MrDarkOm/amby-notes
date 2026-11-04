@@ -13,7 +13,6 @@ use super::apply::ApplyCtx;
 use super::classify::{classify, Lc};
 use super::decide::{decide, Inputs};
 use super::flow::{Flow, Res};
-use super::merge::is_mergeable_path;
 use super::model::{
     CycleOutcome, CycleReport, CycleRequest, Direction, EngineError, ItemRecord, PassLimits,
     ReadOnlyItem, StateOp, StopReason, SyncState, UnsyncedReason, UnsyncedRecord,
@@ -25,7 +24,7 @@ use super::ports::{
 };
 use super::rules::mass_change_reached;
 use super::scan::scan;
-use super::util::is_unmaterialised;
+use super::util::{is_merge_path, is_unmaterialised};
 
 /// The five ports of one device and one space (Д2).
 pub struct Ports {
@@ -365,6 +364,13 @@ impl Engine {
         plan.forget
             .extend(forgotten.iter().map(|key| ItemId::from_bytes(*key)));
 
+        // З32: too many properties would vanish from the groups, counted over the whole pass.
+        if !approvals.mass_change {
+            if let Some(stop) = self.property_loss(&state, &classes, &plan, &disk)? {
+                return Err(Flow::Stop(stop));
+            }
+        }
+
         // Д54: too many files would change.
         if !approvals.mass_change {
             let total = live_files.max(1);
@@ -559,7 +565,7 @@ impl Engine {
                 || is_unmaterialised(record)
                 || srv.version <= record.version
                 || srv.hash == record.content_hash
-                || !is_mergeable_path(&record.path)
+                || !is_merge_path(&record.path)
             {
                 continue;
             }

@@ -19,6 +19,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { PropertyEditor } from "./property-editor"
 import { databasePropertyIconKey } from "../database/property-icon"
 import { PanelHeader } from "./panel-header"
+import { PropertyGroupsNotices } from "./property-groups-notices"
 
 interface InfoPanelBodyProps {
   properties: DocumentProperties
@@ -145,6 +146,7 @@ export function InfoPanelBody({
               {t(warningKey)}
             </p>
           )}
+          <PropertyGroupsNotices noteId={properties.id} />
           {hasNoteProperties ? (
             <section>
               <div className="space-y-0.5">

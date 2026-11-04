@@ -19,7 +19,7 @@ Before persistence/indexing/frontmatter/rename/history/trash changes, read
 | Legacy index entry point                           | [vault_index.rs](vault_index.rs) is a facade to `index/` and `vault/`                                                                                                                    |
 | Bundle/layer/note operations                       | [bundle/mod.rs](bundle/mod.rs), [bundle/notes.rs](bundle/notes.rs), [bundle/layers.rs](bundle/layers.rs), [bundle/assets.rs](bundle/assets.rs)                                           |
 | Mutation planning, execution, rollback             | [bundle/planning.rs](bundle/planning.rs), [bundle/execute.rs](bundle/execute.rs), [bundle/rollback.rs](bundle/rollback.rs), [bundle/path_ops.rs](bundle/path_ops.rs)                     |
-| Durable standalone properties + cache coordination | [property_store.rs](property_store.rs)                                                                                                                                                   |
+| Properties of notes (appendix З), old `properties.json` | [property_groups map](property_groups/MAP.md), [property_store.rs](property_store.rs), [property_template.rs](property_template.rs), [commands/properties.rs](commands/properties.rs) |
 | Creative workshops (discovery, create, recovery)   | [project map](project/MAP.md)                                                                                                                                                            |
 | Database domain                                    | [database map](database/MAP.md)                                                                                                                                                          |
 | Open an attachment / address with the system | [commands/external.rs](commands/external.rs) (allow-list of types, `assets` folders only, http/https only)                                                                                 |
@@ -37,7 +37,7 @@ Before persistence/indexing/frontmatter/rename/history/trash changes, read
 Markdown, attachments and durable sidecars are authoritative; index computations
 must not rewrite them. Preserve unknown YAML/Markdown and line endings. Use
 existing vault guards, snapshots, atomic writes and journal/recovery mechanisms.
-`.amby/properties.json` is durable; its SQLite mirror is not. Relation journals
+`.amby/properties*` are durable; their SQLite mirror is not. Relation journals
 in `.amby/recovery/database_relations/` and `database_relation_schemas/` are
 durable too; activation preflights both before conditional rollback through
 `database/relation_recovery.rs` and `database/relation_schema_recovery.rs`, before

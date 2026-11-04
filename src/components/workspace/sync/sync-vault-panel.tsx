@@ -25,6 +25,7 @@ import {
   type SyncPort,
   type VaultSyncStatus,
 } from "@/lib/sync/sync-port"
+import { propertyStorageStatus } from "@/lib/properties/property-groups-port"
 import { ConflictList, StopNotice, UnsyncedList } from "./sync-vault-parts"
 
 export interface SyncVaultPanelProps {
@@ -61,6 +62,19 @@ export function SyncVaultPanel({
   const [spaceId, setSpaceId] = React.useState<string | null>(null)
   // A guard that does not wait for a render: two clicks in one tick are one request.
   const working = React.useRef(false)
+
+  // An old version of Amby still writes the old file of properties (З22, З37).
+  const [oldVersionWarning, setOldVersionWarning] = React.useState<string | null>(null)
+  const lastSyncMs = status?.lastSyncMs ?? null
+  React.useEffect(() => {
+    let alive = true
+    propertyStorageStatus()
+      .then((next) => alive && setOldVersionWarning(next?.oldVersionWarning ?? null))
+      .catch(() => alive && setOldVersionWarning(null))
+    return () => {
+      alive = false
+    }
+  }, [lastSyncMs])
 
   React.useEffect(() => {
     let alive = true
@@ -392,6 +406,11 @@ export function SyncVaultPanel({
             {status.phase === "waiting" && status.errorCode && (
               <p data-testid="sync-status-detail" className="sync-status-time">
                 {syncCodeMessage(status.errorCode, t)}
+              </p>
+            )}
+            {oldVersionWarning && (
+              <p role="status" className="sync-vault-old-version">
+                {oldVersionWarning}
               </p>
             )}
           </div>
