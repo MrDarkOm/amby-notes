@@ -683,15 +683,30 @@ fn a_file_over_sixteen_million_bytes_is_not_merged_and_exactly_the_limit_is() {
 // ----- З30, Ж11: short paths return the bytes of a side -----
 
 #[test]
-fn equal_sides_return_the_local_bytes_untouched_even_when_not_canonical() {
-    // З52 (Ж11)
-    let local = file_spaced(&[a(), b()]);
-    let remote = file(&[a(), b()]);
-    assert_ne!(local, remote);
+fn sides_equal_by_meaning_with_different_bytes_give_the_canonical_form_in_both_orders() {
+    // З52 (редакция 314f50c): neither side is the base, the bytes differ — the canonical form,
+    // so that the result is symmetric; equal bytes of the sides stay as they are
+    let spaced = file_spaced(&[a(), b()]);
+    let canonical = file(&[a(), b()]);
+    assert_ne!(spaced, canonical);
+    let base = valid();
     assert_eq!(
-        merge_group(P, &valid(), &local, &remote),
-        GroupMergeOutcome::Clean(local.clone()),
-        "equal by meaning: the local bytes"
+        merge_group(P, &base, &spaced, &canonical),
+        GroupMergeOutcome::Clean(canonical.clone())
+    );
+    assert_eq!(
+        merge_group(P, &base, &canonical, &spaced),
+        GroupMergeOutcome::Clean(canonical.clone())
+    );
+    assert_eq!(
+        canonicalize_group(P, &spaced).unwrap(),
+        canonical,
+        "the canonical form of З49"
+    );
+    // the bytes of the sides are equal: those bytes
+    assert_eq!(
+        merge_group(P, &base, &spaced, &spaced),
+        GroupMergeOutcome::Clean(spaced)
     );
 }
 

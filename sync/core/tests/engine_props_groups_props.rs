@@ -12,7 +12,8 @@ const IDS: [&str; 6] = ["A", "B", "C", "D", "E", "F"];
 
 /// Lines are drawn from a small pool: equal draws are equal lines, different draws differ.
 fn record(id: &str, n: usize) -> Value {
-    let props: Map<String, Value> = (0..n % 3)
+    // 1–3 properties, never none: a line without props is not stored (З47); different n differ
+    let props: Map<String, Value> = (0..1 + n % 3)
         .map(|i| {
             (
                 format!("Имя {n} {i}"),
