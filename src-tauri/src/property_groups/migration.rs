@@ -11,7 +11,6 @@ use rusqlite::Connection;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mismatch {
     pub note_id: String,
-    pub property_id: String,
     pub name: String,
     pub file_value: String,
     pub header_value: String,
@@ -21,7 +20,6 @@ pub struct Mismatch {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MissingKey {
     pub note_id: String,
-    pub property_id: String,
     pub name: String,
     pub file_value: String,
 }
@@ -58,7 +56,7 @@ pub struct Report {
 /// The owner's decisions (З20).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Decisions {
-    /// `(note id, property id)` for which the value of the file replaces the header's.
+    /// `(note id, property name)` for which the value of the file replaces the header's.
     pub use_file_value: BTreeSet<(String, String)>,
     /// Confirmation by the owner of the vault (З21, З38).
     pub confirmed: bool,
@@ -72,6 +70,8 @@ pub struct Context {
     pub last_pass_ok: bool,
     /// `layout.json` came from the server: another device migrated.
     pub layout_came_from_server: bool,
+    /// The number of the template in a `layout.json` that arrived from another device (З54).
+    pub arrived_template: Option<u32>,
 }
 
 /// What a run did.
@@ -99,9 +99,13 @@ pub fn preview(conn: &Connection, vault: &Path) -> Result<Report, String> {
     todo!("З19, З20, З40, З41")
 }
 
-/// The migration: confirmation → copies of `properties.json` and of every note whose header is
-/// edited → journal in `.amby/migrations/<id>/` → groups → headers → `layout.json` last →
-/// outcome (З21). `properties.json` is never changed (З22).
+/// The migration (З21, З54): confirmation → copies of `properties.json` and of every note whose
+/// header is edited → journal in `.amby/migrations/<id>/` → files → headers → `layout.json` last
+/// → outcome. `properties.json` becomes differences from the template, in the language of the name
+/// that matched; a property equal to the template gives no line; the order goes to `order` only
+/// when it differs from the header's; the `id` of properties are not carried. `properties.json`
+/// is never changed (З22). It does not start when the template number of an arrived `layout.json`
+/// is higher than ours (З54).
 pub fn run(
     conn: &Connection,
     vault: &Path,

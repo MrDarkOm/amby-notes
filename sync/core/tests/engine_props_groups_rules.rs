@@ -7,12 +7,12 @@ use amby_sync_core::engine::rules::is_excluded_path;
 
 #[test]
 fn the_groups_travel_and_the_state_of_this_device_does_not() {
-    // З14: `.amby/properties/` — all groups and `layout.json`
+    // З14, З48, З53: `.amby/properties/` — the groups, the marks and `layout.json`
     for path in [
         ".amby/properties/layout.json",
-        ".amby/properties/00.json",
-        ".amby/properties/af.json",
-        ".amby/properties/ff.json",
+        ".amby/properties/prop_0.jsonl",
+        ".amby/properties/prop_a.jsonl",
+        ".amby/properties/legacy_f.jsonl",
     ] {
         assert!(!is_excluded_path(path), "{path} must be synchronised (З14)");
     }
@@ -32,5 +32,7 @@ fn the_groups_travel_and_the_state_of_this_device_does_not() {
         assert!(is_excluded_path(path), "{path} must stay on this device");
     }
     // Р4: temporary files next to a group
-    assert!(is_excluded_path(".amby/properties/.af.json.amby-tmp-3f"));
+    assert!(is_excluded_path(
+        ".amby/properties/.prop_a.jsonl.amby-tmp-3f"
+    ));
 }

@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use amby_sync_core::engine::props_groups::group_of;
 use rusqlite::Connection;
 
-use super::Design;
+use super::{Design, Diff, NoteEntry};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -92,15 +92,13 @@ pub fn fx_old() -> Fx {
     blank(false)
 }
 
+/// A property the user made with an icon: a non-template name with an icon is a record.
 pub fn design(name: &str) -> Design {
     Design {
-        id: String::new(),
         name: name.to_string(),
         icon: "📌".to_string(),
         property_type: "text".to_string(),
         settings: String::new(),
-        previous_name: None,
-        extra: serde_json::Map::new(),
     }
 }
 
@@ -109,6 +107,26 @@ pub fn design_typed(name: &str, property_type: &str, settings: &str) -> Design {
         property_type: property_type.to_string(),
         settings: settings.to_string(),
         ..design(name)
+    }
+}
+
+/// A record of a note with the given icons per property name.
+pub fn entry_of(id: &str, props: &[(&str, &str)]) -> NoteEntry {
+    NoteEntry {
+        id: id.to_string(),
+        props: props
+            .iter()
+            .map(|(name, icon)| {
+                (
+                    name.to_string(),
+                    Diff {
+                        icon: Some(icon.to_string()),
+                        ..Diff::default()
+                    },
+                )
+            })
+            .collect(),
+        ..NoteEntry::default()
     }
 }
 
@@ -168,24 +186,42 @@ impl Fx {
     }
 
     pub fn group_rel(&self, note_id: &str) -> String {
-        format!(".amby/properties/{}.json", group_of(note_id))
+        format!(".amby/properties/prop_{}.jsonl", group_of(note_id))
     }
 
     pub fn group_bytes(&self, note_id: &str) -> Option<Vec<u8>> {
         self.bytes(&self.group_rel(note_id))
     }
 
-    pub fn group_json(&self, note_id: &str) -> serde_json::Value {
-        serde_json::from_slice(&self.group_bytes(note_id).expect("the group file exists")).unwrap()
+    /// The lines of the group file of a note, without the first line, as JSON.
+    pub fn lines(&self, note_id: &str) -> Vec<serde_json::Value> {
+        self.bytes(&self.group_rel(note_id))
+            .map(|b| {
+                String::from_utf8(b)
+                    .unwrap()
+                    .lines()
+                    .skip(1)
+                    .map(|l| serde_json::from_str(l).unwrap())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
-    /// The designs of a note as written in its group, in order.
-    pub fn designs(&self, note_id: &str) -> Vec<serde_json::Value> {
-        let group = self.bytes(&self.group_rel(note_id));
-        group
-            .map(|b| serde_json::from_slice::<serde_json::Value>(&b).unwrap())
-            .and_then(|v| v["notes"][note_id]["properties"].as_array().cloned())
+    /// The line of a note, if the group has it.
+    pub fn line(&self, note_id: &str) -> Option<serde_json::Value> {
+        self.lines(note_id).into_iter().find(|l| l["id"] == note_id)
+    }
+
+    /// `props` of the line of a note: name → differences.
+    pub fn props(&self, note_id: &str) -> serde_json::Map<String, serde_json::Value> {
+        self.line(note_id)
+            .and_then(|l| l["props"].as_object().cloned())
             .unwrap_or_default()
+    }
+
+    /// The names of the properties that have differences, ascending.
+    pub fn prop_names(&self, note_id: &str) -> Vec<String> {
+        self.props(note_id).keys().cloned().collect()
     }
 
     /// Every file under the vault (relative path → bytes).

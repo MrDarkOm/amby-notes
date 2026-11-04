@@ -1,99 +1,152 @@
-//! Merge of the groups of note properties (docs/sync-plan.md, appendix З: З5, З8, З16, З30, З31):
-//! a table of cases. Every case is a base and two sides and is run both ways (local/remote
-//! swapped): the merge is symmetric (Ж10 via З30). The unit is the record of a note, by the meaning
-//! of the JSON. Red until `props_groups` is written: its bodies are `todo!()` today.
+//! Merge of the files of note properties (docs/sync-plan.md, appendix З: З16, З30, З31, З45–З53):
+//! a table of cases. A file is JSON Lines: `{"version":1}` and one line per note, sorted by `id`.
+//! Every case is a base and two sides and is run both ways (local/remote swapped): the merge is
+//! symmetric (Ж10 via З30). The unit is the line of a note, by the meaning of the JSON. Red until
+//! `props_groups` is written: its bodies are `todo!()` today.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use std::collections::BTreeMap;
+
 use amby_sync_core::engine::props_groups::{
-    canonicalize_group, check_group, group_of, group_path_of, is_group_path, merge_group,
-    GroupConflict, GroupMergeOutcome, NotMergeable, GROUP_COUNT, PROPS_MAX_DEPTH,
-    PROPS_MERGE_MAX_BYTES,
+    canonicalize_group, check_group, group_of, group_path_of, kind_of_path, legacy_path_of,
+    merge_group, GroupConflict, GroupKind, GroupMergeOutcome, NotMergeable, GROUP_COUNT,
+    PROPS_MAX_DEPTH, PROPS_MERGE_MAX_BYTES,
 };
 use serde_json::{json, Value};
 
+const P: GroupKind = GroupKind::Props;
+const L: GroupKind = GroupKind::Legacy;
+
 // ----- builders -----
 
-fn prop_with(id: &str, name: &str, icon: &str) -> Value {
-    json!({"id": id, "name": name, "icon": icon, "propertyType": "text", "settings": ""})
+fn diff(icon: &str) -> Value {
+    json!({"icon": icon})
 }
 
-fn prop(id: &str, name: &str) -> Value {
-    prop_with(id, name, "📌")
+/// The line of a note: `props` is name → differences from the template.
+fn rec(id: &str, props: &[(&str, Value)]) -> Value {
+    rec_hint(id, props, "Заметка.md")
 }
 
-fn entry(props: Vec<Value>) -> Value {
-    json!({"hint": {"path": "Заметка.md", "title": "Заметка"}, "properties": props})
-}
-
-fn entry_hint(props: Vec<Value>, path: &str) -> Value {
-    json!({"hint": {"path": path, "title": "T"}, "properties": props})
-}
-
-/// A group file in an arbitrary (not canonical) layout: keys sorted, two-space indent.
-fn file(notes: &[(&str, Value)]) -> Vec<u8> {
-    let map: serde_json::Map<String, Value> = notes
+fn rec_hint(id: &str, props: &[(&str, Value)], path: &str) -> Value {
+    let map: serde_json::Map<String, Value> = props
         .iter()
-        .map(|(id, e)| (id.to_string(), e.clone()))
+        .map(|(n, d)| (n.to_string(), d.clone()))
         .collect();
-    let mut bytes = serde_json::to_vec_pretty(&json!({"version": 1, "notes": map})).unwrap();
-    bytes.push(b'\n');
-    bytes
+    json!({"id": id, "hint": {"path": path}, "props": map})
 }
 
-fn parsed(bytes: &[u8]) -> Value {
-    serde_json::from_slice(bytes).unwrap()
+fn line(value: &Value) -> String {
+    serde_json::to_string(value).unwrap()
 }
 
-fn notes_of(bytes: &[u8]) -> Value {
-    parsed(bytes)["notes"].clone()
+/// A file in canonical lines, sorted by `id`.
+fn file(recs: &[Value]) -> Vec<u8> {
+    let mut sorted: Vec<&Value> = recs.iter().collect();
+    sorted.sort_by_key(|r| r["id"].as_str().unwrap().to_string());
+    let mut text = String::from("{\"version\":1}\n");
+    for r in sorted {
+        text.push_str(&line(r));
+        text.push('\n');
+    }
+    text.into_bytes()
+}
+
+/// The same file with spaces inside the lines: equal by meaning, not canonical.
+fn file_spaced(recs: &[Value]) -> Vec<u8> {
+    let text = String::from_utf8(file(recs)).unwrap();
+    text.replace("\":", "\": ")
+        .replace(",\"", ", \"")
+        .into_bytes()
+}
+
+fn lines_of(bytes: &[u8]) -> Vec<String> {
+    String::from_utf8(bytes.to_vec())
+        .unwrap()
+        .lines()
+        .skip(1)
+        .map(str::to_string)
+        .collect()
+}
+
+fn by_id(bytes: &[u8]) -> BTreeMap<String, Value> {
+    lines_of(bytes)
+        .iter()
+        .map(|l| {
+            let v: Value = serde_json::from_str(l).unwrap();
+            (v["id"].as_str().unwrap().to_string(), v)
+        })
+        .collect()
+}
+
+fn map_of(recs: &[Value]) -> BTreeMap<String, Value> {
+    recs.iter()
+        .map(|r| (r["id"].as_str().unwrap().to_string(), r.clone()))
+        .collect()
 }
 
 #[track_caller]
-fn run(base: &[u8], local: &[u8], remote: &[u8]) -> GroupMergeOutcome {
-    merge_group(base, local, remote)
+fn run(kind: GroupKind, base: &[u8], local: &[u8], remote: &[u8]) -> GroupMergeOutcome {
+    merge_group(kind, base, local, remote)
 }
 
 /// The clean result; the swapped call must give the same bytes.
 #[track_caller]
 fn clean(base: &[u8], local: &[u8], remote: &[u8]) -> Vec<u8> {
-    let GroupMergeOutcome::Clean(bytes) = run(base, local, remote) else {
-        panic!("expected a clean merge, got {:?}", run(base, local, remote));
+    clean_k(P, base, local, remote)
+}
+
+#[track_caller]
+fn clean_k(kind: GroupKind, base: &[u8], local: &[u8], remote: &[u8]) -> Vec<u8> {
+    let GroupMergeOutcome::Clean(bytes) = run(kind, base, local, remote) else {
+        panic!(
+            "expected a clean merge, got {:?}",
+            run(kind, base, local, remote)
+        );
     };
-    match run(base, remote, local) {
+    match run(kind, base, remote, local) {
         GroupMergeOutcome::Clean(swapped) => assert_eq!(swapped, bytes, "symmetry"),
         other => panic!("swapped sides gave {other:?}"),
     }
     bytes
 }
 
-/// The conflict; the swapped call must give the same one.
 #[track_caller]
 fn conflict(base: &[u8], local: &[u8], remote: &[u8]) -> GroupConflict {
-    let GroupMergeOutcome::Conflict(found) = run(base, local, remote) else {
-        panic!("expected a conflict, got {:?}", run(base, local, remote));
+    conflict_k(P, base, local, remote)
+}
+
+#[track_caller]
+fn conflict_k(kind: GroupKind, base: &[u8], local: &[u8], remote: &[u8]) -> GroupConflict {
+    let GroupMergeOutcome::Conflict(found) = run(kind, base, local, remote) else {
+        panic!(
+            "expected a conflict, got {:?}",
+            run(kind, base, local, remote)
+        );
     };
-    match run(base, remote, local) {
+    match run(kind, base, remote, local) {
         GroupMergeOutcome::Conflict(swapped) => assert_eq!(swapped, found, "symmetry"),
         other => panic!("swapped sides gave {other:?}"),
     }
     found
 }
 
-fn two_notes() -> (Vec<u8>, Value, Value) {
-    let a = entry(vec![prop("P1", "Статус")]);
-    let b = entry(vec![prop("P2", "Автор")]);
-    (file(&[("A", a.clone()), ("B", b.clone())]), a, b)
+fn a() -> Value {
+    rec("A", &[("Заказчик", diff("0"))])
+}
+fn b() -> Value {
+    rec("B", &[("Автор", diff("0"))])
 }
 
-// ----- З5: the path of a group -----
+// ----- З48: the file of a group -----
 
-fn first_byte_hex(id: &str) -> String {
-    format!("{:02x}", blake3::hash(id.as_bytes()).as_bytes()[0])
+fn first_hex_digit(id: &str) -> String {
+    format!("{:x}", blake3::hash(id.as_bytes()).as_bytes()[0] >> 4)
 }
 
 #[test]
-fn the_group_is_the_first_byte_of_blake3_of_the_id_in_two_lowercase_hex_digits() {
-    // З5
+fn the_group_is_the_first_hex_digit_of_blake3_of_the_id() {
+    // З48: one lowercase digit, 16 files; the marks of З53 use the same digit
     for id in [
         "01JABCDEF0123456789ABCDEFG",
         "01JABCDEF0123456789ABCDEFH",
@@ -101,26 +154,28 @@ fn the_group_is_the_first_byte_of_blake3_of_the_id_in_two_lowercase_hex_digits()
         "",
         "x",
     ] {
-        assert_eq!(group_of(id), first_byte_hex(id), "{id:?}");
+        assert_eq!(group_of(id), first_hex_digit(id), "{id:?}");
         assert_eq!(
             group_path_of(id),
-            format!(".amby/properties/{}.json", first_byte_hex(id))
+            format!(".amby/properties/prop_{}.jsonl", first_hex_digit(id))
+        );
+        assert_eq!(
+            legacy_path_of(id),
+            format!(".amby/properties/legacy_{}.jsonl", first_hex_digit(id))
         );
     }
     // BLAKE3 of the empty string starts with af 13 49 b9 (the official vector).
-    assert_eq!(group_of(""), "af");
+    assert_eq!(group_of(""), "a");
 }
 
 #[test]
-fn ids_with_the_same_time_prefix_spread_over_the_groups() {
-    // З5: not the start of the ULID. 5000 ids that share the first 10 characters (the time) must
-    // not collapse into a few groups, and 100 000 ids must fill all 256 evenly enough.
+fn ids_with_the_same_time_prefix_spread_over_the_sixteen_groups() {
+    // З48: not the start of the ULID
     let mut same_time = std::collections::HashSet::new();
-    for n in 0..5000u32 {
+    for n in 0..2000u32 {
         same_time.insert(group_of(&format!("01JABCDEFG{n:016}")));
     }
-    assert!(same_time.len() > 240, "only {} groups", same_time.len());
-
+    assert_eq!(same_time.len(), GROUP_COUNT);
     let mut counts = vec![0usize; GROUP_COUNT];
     for n in 0..100_000u32 {
         let g = group_of(&format!("01JABCDE{n:018}"));
@@ -128,79 +183,80 @@ fn ids_with_the_same_time_prefix_spread_over_the_groups() {
     }
     let (min, max) = (*counts.iter().min().unwrap(), *counts.iter().max().unwrap());
     assert!(
-        min > 280 && max < 520,
-        "uneven spread: min {min}, max {max} (mean 390)"
+        min > 5800 && max < 6700,
+        "uneven spread: min {min}, max {max} (mean 6250)"
     );
 }
 
 #[test]
-fn only_two_lowercase_hex_digits_in_the_properties_folder_are_a_group() {
-    // З30, З6: `layout.json` and everything else is synchronised but not merged.
-    for good in [
-        ".amby/properties/00.json",
-        ".amby/properties/af.json",
-        ".amby/properties/9c.json",
-    ] {
-        assert!(is_group_path(good), "{good}");
+fn only_the_sixteen_prop_files_and_the_sixteen_legacy_files_are_merged() {
+    // З52, З53: `layout.json` and everything else is synchronised but not merged
+    for x in "0123456789abcdef".chars() {
+        assert_eq!(
+            kind_of_path(&format!(".amby/properties/prop_{x}.jsonl")),
+            Some(P)
+        );
+        assert_eq!(
+            kind_of_path(&format!(".amby/properties/legacy_{x}.jsonl")),
+            Some(L)
+        );
     }
     for bad in [
         ".amby/properties/layout.json",
-        ".amby/properties/AF.json",
-        ".amby/properties/a.json",
-        ".amby/properties/abc.json",
-        ".amby/properties/ag.json",
-        ".amby/properties/af.JSON",
-        ".amby/properties/af.json.tmp",
-        ".amby/properties/sub/af.json",
+        ".amby/properties/prop_A.jsonl",
+        ".amby/properties/prop_g.jsonl",
+        ".amby/properties/prop_ab.jsonl",
+        ".amby/properties/prop_.jsonl",
+        ".amby/properties/prop_a.json",
+        ".amby/properties/prop_a.jsonl.tmp",
+        ".amby/properties/af.json",
+        ".amby/properties/sub/prop_a.jsonl",
         ".amby/properties.json",
-        ".amby/property-ops/af.json",
-        "properties/af.json",
-        "Notes/.amby/properties/af.json",
+        ".amby/property-ops/prop_a.jsonl",
+        "properties/prop_a.jsonl",
+        "Notes/.amby/properties/prop_a.jsonl",
     ] {
-        assert!(!is_group_path(bad), "{bad}");
+        assert_eq!(kind_of_path(bad), None, "{bad}");
     }
 }
 
-// ----- З16: the unit is the record of a note -----
+// ----- З16, З52: the unit is the line of a note -----
 
 #[test]
-fn a_record_changed_on_one_side_is_taken() {
-    // З16: different notes edited on the two sides are both kept
-    let (base, a, b) = two_notes();
-    let a2 = entry(vec![prop_with("P1", "Статус", "🔥")]);
-    let b2 = entry(vec![prop("P2", "Автор"), prop("P3", "Срок")]);
-    let local = file(&[("A", a2.clone()), ("B", b)]);
-    let remote = file(&[("A", a), ("B", b2.clone())]);
-    let merged = clean(&base, &local, &remote);
-    assert_eq!(notes_of(&merged), json!({"A": a2, "B": b2}));
+fn a_line_changed_on_one_side_is_taken() {
+    // З16, З52: different notes edited on the two sides are both kept
+    let base = file(&[a(), b()]);
+    let a2 = rec("A", &[("Заказчик", diff("🔥"))]);
+    let b2 = rec("B", &[("Автор", diff("0")), ("Срок", diff("1"))]);
+    let merged = clean(&base, &file(&[a2.clone(), b()]), &file(&[a(), b2.clone()]));
+    assert_eq!(by_id(&merged), map_of(&[a2, b2]));
 }
 
 #[test]
-fn a_record_changed_the_same_way_on_both_sides_is_taken_once() {
+fn a_line_changed_the_same_way_on_both_sides_is_taken_once() {
     // З16
-    let (base, _, b) = two_notes();
-    let a2 = entry(vec![prop_with("P1", "Статус", "🔥")]);
-    let side = file(&[("A", a2.clone()), ("B", b.clone())]);
-    let merged = clean(&base, &side, &side);
-    assert_eq!(notes_of(&merged), json!({"A": a2, "B": b}));
+    let a2 = rec("A", &[("Заказчик", diff("🔥"))]);
+    let side = file(&[a2.clone(), b()]);
+    assert_eq!(
+        by_id(&clean(&file(&[a(), b()]), &side, &side)),
+        map_of(&[a2, b()])
+    );
 }
 
 #[test]
-fn a_record_changed_in_different_ways_is_a_conflict_of_that_note_only() {
-    // З16, З17: everything or nothing; the other records are counted as merged by themselves
-    let a = entry(vec![prop("P1", "Статус")]);
-    let b = entry(vec![prop("P2", "Автор")]);
-    let c = entry(vec![prop("P3", "Срок")]);
-    let base = file(&[("A", a.clone()), ("B", b.clone()), ("C", c.clone())]);
+fn a_line_changed_in_different_ways_is_a_conflict_of_that_note_only() {
+    // З16, З17: everything or nothing; the other lines are counted as merged by themselves
+    let c = rec("C", &[("Срок", diff("0"))]);
+    let base = file(&[a(), b(), c.clone()]);
     let local = file(&[
-        ("A", entry(vec![prop_with("P1", "Статус", "🔥")])),
-        ("B", entry(vec![prop_with("P2", "Автор", "👤")])),
-        ("C", c),
+        rec("A", &[("Заказчик", diff("L"))]),
+        rec("B", &[("Автор", diff("L"))]),
+        c,
     ]);
     let remote = file(&[
-        ("A", entry(vec![prop_with("P1", "Статус", "⭐")])),
-        ("B", b),
-        ("C", entry(vec![prop_with("P3", "Срок", "⏰")])),
+        rec("A", &[("Заказчик", diff("R"))]),
+        b(),
+        rec("C", &[("Срок", diff("R"))]),
     ]);
     let found = conflict(&base, &local, &remote);
     assert_eq!(found.notes, vec!["A".to_string()]);
@@ -209,16 +265,10 @@ fn a_record_changed_in_different_ways_is_a_conflict_of_that_note_only() {
 
 #[test]
 fn two_properties_of_one_note_edited_on_different_sides_are_still_a_conflict() {
-    // З16: no merge inside a note (it may be added later without a change of format)
-    let base = file(&[("A", entry(vec![prop("P1", "Статус"), prop("P2", "Автор")]))]);
-    let local = file(&[(
-        "A",
-        entry(vec![prop_with("P1", "Статус", "🔥"), prop("P2", "Автор")]),
-    )]);
-    let remote = file(&[(
-        "A",
-        entry(vec![prop("P1", "Статус"), prop_with("P2", "Автор", "👤")]),
-    )]);
+    // З16: no merge inside a note
+    let base = file(&[rec("A", &[("Один", diff("0")), ("Два", diff("0"))])]);
+    let local = file(&[rec("A", &[("Один", diff("🔥")), ("Два", diff("0"))])]);
+    let remote = file(&[rec("A", &[("Один", diff("0")), ("Два", diff("👤"))])]);
     assert_eq!(
         conflict(&base, &local, &remote).notes,
         vec!["A".to_string()]
@@ -226,165 +276,168 @@ fn two_properties_of_one_note_edited_on_different_sides_are_still_a_conflict() {
 }
 
 #[test]
-fn deleting_a_record_against_editing_it_is_a_conflict_of_that_note() {
+fn deleting_a_line_against_editing_it_is_a_conflict_of_that_note() {
     // З16
-    let (base, a, b) = two_notes();
-    let deleted = file(&[("B", b.clone())]);
-    let edited = file(&[
-        ("A", entry(vec![prop_with("P1", "Статус", "🔥")])),
-        ("B", b),
-    ]);
+    let base = file(&[a(), b()]);
+    let deleted = file(&[b()]);
+    let edited = file(&[rec("A", &[("Заказчик", diff("🔥"))]), b()]);
     assert_eq!(
         conflict(&base, &deleted, &edited).notes,
         vec!["A".to_string()]
     );
-    let _ = a;
 }
 
 #[test]
-fn deleting_a_record_the_other_side_did_not_touch_deletes_it() {
+fn deleting_a_line_the_other_side_did_not_touch_deletes_it_and_both_deleting_too() {
     // З16
-    let (base, _, b) = two_notes();
-    let deleted = file(&[("B", b.clone())]);
-    let merged = clean(&base, &deleted, &base);
-    assert_eq!(notes_of(&merged), json!({"B": b}));
+    let base = file(&[a(), b()]);
+    let deleted = file(&[b()]);
+    assert_eq!(by_id(&clean(&base, &deleted, &base)), map_of(&[b()]));
+    assert_eq!(by_id(&clean(&base, &deleted, &deleted)), map_of(&[b()]));
 }
 
 #[test]
-fn both_sides_deleting_the_same_record_deletes_it() {
-    // З16
-    let (base, _, b) = two_notes();
-    let deleted = file(&[("B", b.clone())]);
-    assert_eq!(notes_of(&clean(&base, &deleted, &deleted)), json!({"B": b}));
-}
-
-#[test]
-fn different_new_records_are_both_kept() {
-    // З16
-    let (base, a, b) = two_notes();
-    let c = entry(vec![prop("P3", "Срок")]);
-    let d = entry(vec![prop("P4", "Цвет")]);
-    let local = file(&[("A", a.clone()), ("B", b.clone()), ("C", c.clone())]);
-    let remote = file(&[("A", a.clone()), ("B", b.clone()), ("D", d.clone())]);
-    assert_eq!(
-        notes_of(&clean(&base, &local, &remote)),
-        json!({"A": a, "B": b, "C": c, "D": d})
+fn different_new_lines_are_both_kept_and_stay_sorted_by_id() {
+    // З16, З48
+    let base = file(&[a(), b()]);
+    let c = rec("C", &[("Срок", diff("0"))]);
+    let d = rec("D", &[("Цвет", diff("0"))]);
+    let merged = clean(
+        &base,
+        &file(&[a(), b(), c.clone()]),
+        &file(&[a(), b(), d.clone()]),
     );
+    assert_eq!(by_id(&merged), map_of(&[a(), b(), c, d]));
+    let ids: Vec<String> = lines_of(&merged)
+        .iter()
+        .map(|l| {
+            serde_json::from_str::<Value>(l).unwrap()["id"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(ids, vec!["A", "B", "C", "D"]);
 }
 
 #[test]
-fn a_record_added_by_both_is_one_when_equal_and_a_conflict_when_different() {
-    // З16, З31: no such record in the base
-    let (base, a, b) = two_notes();
-    let c = entry(vec![prop("P3", "Срок")]);
-    let same = file(&[("A", a.clone()), ("B", b.clone()), ("C", c.clone())]);
-    assert_eq!(
-        notes_of(&clean(&base, &same, &same)),
-        json!({"A": a.clone(), "B": b.clone(), "C": c})
-    );
-    let c2 = entry(vec![prop("P9", "Другое")]);
-    let other = file(&[("A", a), ("B", b), ("C", c2)]);
+fn a_line_added_by_both_is_one_when_equal_and_a_conflict_when_different() {
+    // З16, З31: no such line in the base
+    let base = file(&[a(), b()]);
+    let c = rec("C", &[("Срок", diff("0"))]);
+    let same = file(&[a(), b(), c.clone()]);
+    assert_eq!(by_id(&clean(&base, &same, &same)), map_of(&[a(), b(), c]));
+    let other = file(&[a(), b(), rec("C", &[("Другое", diff("9"))])]);
     assert_eq!(conflict(&base, &same, &other).notes, vec!["C".to_string()]);
 }
 
 #[test]
-fn an_empty_base_and_a_missing_notes_object_entries_are_ordinary() {
-    // З16: the first group of a vault: nothing in the base, one new record on each side
-    let base = file(&[]);
-    let a = entry(vec![prop("P1", "Статус")]);
-    let b = entry(vec![prop("P2", "Автор")]);
-    let merged = clean(
-        &base,
-        &file(&[("A", a.clone())]),
-        &file(&[("B", b.clone())]),
+fn an_empty_base_with_a_new_line_on_each_side_is_ordinary() {
+    // З16: the first file of a vault
+    let merged = clean(&file(&[]), &file(&[a()]), &file(&[b()]));
+    assert_eq!(by_id(&merged), map_of(&[a(), b()]));
+}
+
+#[test]
+fn a_line_taken_from_one_side_keeps_the_bytes_of_that_side_and_the_rest_of_the_base_stays() {
+    // З52: «строка, взятая с одной стороны без изменений, переносится её байтами»
+    let c = rec("C", &[("Срок", diff("0"))]);
+    let base = file(&[a(), b(), c]);
+    let a2 = rec("A", &[("Заказчик", diff("🔥"))]);
+    let b2 = rec("B", &[("Автор", diff("⭐"))]);
+    // local has the new A with spaces inside the line
+    let local = file_spaced(&[a2.clone(), b(), rec("C", &[("Срок", diff("0"))])]);
+    let remote = file(&[a(), b2.clone(), rec("C", &[("Срок", diff("0"))])]);
+    let merged = clean(&base, &local, &remote);
+    let spaced_a = lines_of(&local)[0].clone();
+    let got = lines_of(&merged);
+    assert_eq!(got[0], spaced_a, "A comes with the bytes of the local side");
+    assert_eq!(
+        got[1],
+        line(&b2),
+        "B comes with the bytes of the remote side"
     );
-    assert_eq!(notes_of(&merged), json!({"A": a, "B": b}));
+    assert_eq!(
+        got[2],
+        lines_of(&base)[2],
+        "C is the base line, byte for byte"
+    );
 }
 
 // ----- З31: hint and dismissedRenames take no part in the decision -----
 
 #[test]
-fn a_hint_changed_on_one_side_never_conflicts_with_the_properties_on_the_other() {
+fn a_hint_changed_on_one_side_never_conflicts_with_the_props_on_the_other() {
     // З31
-    let props = vec![prop("P1", "Статус")];
-    let base = file(&[("A", entry_hint(props.clone(), "Старый.md"))]);
-    let local = file(&[("A", entry_hint(props, "Новый.md"))]);
-    let remote = file(&[(
-        "A",
-        entry_hint(vec![prop_with("P1", "Статус", "🔥")], "Старый.md"),
-    )]);
-    let merged = notes_of(&clean(&base, &local, &remote));
+    let props = [("Заказчик", diff("0"))];
+    let base = file(&[rec_hint("A", &props, "Старый.md")]);
+    let local = file(&[rec_hint("A", &props, "Новый.md")]);
+    let remote = file(&[rec_hint("A", &[("Заказчик", diff("🔥"))], "Старый.md")]);
+    let merged = by_id(&clean(&base, &local, &remote));
     assert_eq!(
         merged["A"],
-        entry_hint(vec![prop_with("P1", "Статус", "🔥")], "Новый.md")
+        rec_hint("A", &[("Заказчик", diff("🔥"))], "Новый.md")
     );
 }
 
 #[test]
 fn hints_changed_in_different_ways_take_the_one_with_the_smaller_canonical_json() {
-    // З31: deterministic and symmetric; the canonical JSON of the hint is `{"path":…,"title":…}`
-    let props = vec![prop("P1", "Статус")];
-    let base = file(&[("A", entry_hint(props.clone(), "Старый.md"))]);
-    let local = file(&[("A", entry_hint(props.clone(), "Б.md"))]);
-    let remote = file(&[("A", entry_hint(props.clone(), "А.md"))]);
-    let merged = notes_of(&clean(&base, &local, &remote));
-    assert_eq!(merged["A"], entry_hint(props, "А.md"));
+    // З31: deterministic and symmetric; the canonical JSON of the hint is `{"path":…}`
+    let props = [("Заказчик", diff("0"))];
+    let base = file(&[rec_hint("A", &props, "Старый.md")]);
+    let local = file(&[rec_hint("A", &props, "Б.md")]);
+    let remote = file(&[rec_hint("A", &props, "А.md")]);
+    assert_eq!(
+        by_id(&clean(&base, &local, &remote))["A"],
+        rec_hint("A", &props, "А.md")
+    );
 }
 
 #[test]
-fn equal_new_records_with_different_hints_are_one_record() {
+fn equal_new_lines_with_different_hints_are_one_line() {
     // З31: added by both, equal without the hint
-    let base = file(&[]);
-    let props = vec![prop("P1", "Статус")];
-    let local = file(&[("A", entry_hint(props.clone(), "Б.md"))]);
-    let remote = file(&[("A", entry_hint(props.clone(), "А.md"))]);
-    let merged = notes_of(&clean(&base, &local, &remote));
-    assert_eq!(merged["A"], entry_hint(props, "А.md"));
+    let props = [("Заказчик", diff("0"))];
+    let merged = clean(
+        &file(&[]),
+        &file(&[rec_hint("A", &props, "Б.md")]),
+        &file(&[rec_hint("A", &props, "А.md")]),
+    );
+    assert_eq!(by_id(&merged)["A"], rec_hint("A", &props, "А.md"));
 }
 
 #[test]
 fn dismissed_renames_are_merged_as_a_set_and_never_conflict() {
     // З31, З44: a refusal on one computer and a new icon on the other give no conflict card
-    let props = vec![prop("P1", "Статус")];
-    let with = |pairs: Value, props: Vec<Value>| {
-        let mut e = entry(props);
-        e["dismissedRenames"] = pairs;
-        e
+    let with = |pairs: Value, icon: &str| {
+        let mut r = rec("A", &[("Заказчик", diff(icon))]);
+        r["dismissedRenames"] = pairs;
+        r
     };
-    let base = file(&[("A", with(json!([["Статус", "Состояние"]]), props.clone()))]);
-    // local adds a pair, remote changes the icon
-    let local = file(&[(
-        "A",
-        with(
-            json!([["Статус", "Состояние"], ["Автор", "Создатель"]]),
-            props.clone(),
-        ),
+    let base = file(&[with(json!([["Статус", "Состояние"]]), "0")]);
+    let local = file(&[with(
+        json!([["Статус", "Состояние"], ["Автор", "Создатель"]]),
+        "0",
     )]);
-    let remote_props = vec![prop_with("P1", "Статус", "🔥")];
-    let remote = file(&[(
-        "A",
-        with(json!([["Статус", "Состояние"]]), remote_props.clone()),
-    )]);
-    let merged = notes_of(&clean(&base, &local, &remote));
-    assert_eq!(merged["A"]["properties"], json!(remote_props));
-    let mut pairs: Vec<Value> = merged["A"]["dismissedRenames"].as_array().unwrap().clone();
-    pairs.sort_by_key(|p| p.to_string());
+    let remote = file(&[with(json!([["Статус", "Состояние"]]), "🔥")]);
+    let merged = by_id(&clean(&base, &local, &remote));
+    assert_eq!(merged["A"]["props"], json!({"Заказчик": {"icon": "🔥"}}));
+    let mut pairs: Vec<String> = merged["A"]["dismissedRenames"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p.to_string())
+        .collect();
+    pairs.sort();
     assert_eq!(
         pairs,
-        vec![
-            json!(["Автор", "Создатель"]),
-            json!(["Статус", "Состояние"])
-        ]
+        vec![r#"["Автор","Создатель"]"#, r#"["Статус","Состояние"]"#]
     );
 
-    // both add different pairs: the union; one side removes a pair the other did not touch: gone
-    let base2 = file(&[("A", with(json!([["a", "b"], ["c", "d"]]), props.clone()))]);
-    let l2 = file(&[("A", with(json!([["c", "d"], ["e", "f"]]), props.clone()))]);
-    let r2 = file(&[(
-        "A",
-        with(json!([["a", "b"], ["c", "d"], ["g", "h"]]), props),
-    )]);
-    let merged2 = notes_of(&clean(&base2, &l2, &r2));
+    // both add different pairs; one side removes a pair the other did not touch
+    let base2 = file(&[with(json!([["a", "b"], ["c", "d"]]), "0")]);
+    let l2 = file(&[with(json!([["c", "d"], ["e", "f"]]), "0")]);
+    let r2 = file(&[with(json!([["a", "b"], ["c", "d"], ["g", "h"]]), "0")]);
+    let merged2 = by_id(&clean(&base2, &l2, &r2));
     let mut pairs2: Vec<String> = merged2["A"]["dismissedRenames"]
         .as_array()
         .unwrap()
@@ -396,179 +449,180 @@ fn dismissed_renames_are_merged_as_a_set_and_never_conflict() {
 }
 
 #[test]
-fn the_legacy_mark_is_compared_together_with_the_properties() {
-    // З31, З36: unlike hint, `legacy` is part of the decision
-    let props = vec![prop("P1", "Статус")];
-    let mark = |record: &str| {
-        let mut e = entry(props.clone());
-        e["legacy"] = json!({"entry": "aa", "record": record});
-        e
-    };
-    let base = file(&[("A", mark("r0"))]);
-    let local = file(&[("A", mark("r1"))]);
-    let remote = file(&[("A", entry(vec![prop_with("P1", "Статус", "🔥")]))]);
+fn a_change_of_the_order_is_part_of_the_decision() {
+    // З47, З52: `order` is compared like `props`
+    let mut o1 = a();
+    o1["order"] = json!(["Один", "Два"]);
+    let mut o2 = a();
+    o2["order"] = json!(["Два", "Один"]);
+    let base = file(&[a()]);
     assert_eq!(
-        conflict(&base, &local, &remote).notes,
+        conflict(&base, &file(&[o1.clone()]), &file(&[o2])).notes,
         vec!["A".to_string()]
     );
-    // both sides add the same note with the same properties but a different mark: a conflict
+    assert_eq!(by_id(&clean(&base, &file(&[o1.clone()]), &base))["A"], o1);
+}
+
+// ----- З53: the marks of old versions are a file of their own -----
+
+fn mark(id: &str, entry: &str, record: &str) -> Value {
+    json!({"id": id, "entry": entry, "record": record})
+}
+
+#[test]
+fn the_marks_are_merged_by_lines_like_the_records_and_do_not_touch_the_prop_files() {
+    // З53, З52, З31: a mark changed on one side is taken, on both differently — a conflict of the
+    // note; `legacy` is no longer part of the line of the note in `prop_<x>.jsonl`
+    let base = file(&[mark("A", "e0", "r0"), mark("B", "e0", "r0")]);
+    let local = file(&[mark("A", "e0", "r1"), mark("B", "e0", "r0")]);
+    let remote = file(&[mark("A", "e0", "r0"), mark("B", "e1", "r1")]);
+    let merged = by_id(&clean_k(L, &base, &local, &remote));
+    assert_eq!(merged["A"], mark("A", "e0", "r1"));
+    assert_eq!(merged["B"], mark("B", "e1", "r1"));
+    let local2 = file(&[mark("A", "e0", "r1"), mark("B", "e0", "r0")]);
+    let remote2 = file(&[mark("A", "e0", "r2"), mark("B", "e0", "r0")]);
+    assert_eq!(
+        conflict_k(L, &base, &local2, &remote2).notes,
+        vec!["A".to_string()]
+    );
+    // added by both: equal — one, different — a conflict; deleted against changed — a conflict
     let empty = file(&[]);
+    let same = file(&[mark("C", "e", "r")]);
+    assert_eq!(by_id(&clean_k(L, &empty, &same, &same)).len(), 1);
     assert_eq!(
-        conflict(
-            &empty,
-            &file(&[("A", mark("r1"))]),
-            &file(&[("A", mark("r2"))])
-        )
-        .notes,
+        conflict_k(L, &empty, &same, &file(&[mark("C", "e", "x")])).notes,
+        vec!["C".to_string()]
+    );
+    assert_eq!(
+        conflict_k(L, &base, &file(&[mark("B", "e0", "r0")]), &local).notes,
         vec!["A".to_string()]
     );
-    // the same mark on one side only is taken
-    let merged = notes_of(&clean(&base, &local, &base));
-    assert_eq!(merged["A"]["legacy"]["record"], "r1");
 }
 
-// ----- З2, З16: unknown fields -----
+#[test]
+fn a_prop_file_is_not_a_legacy_file_and_the_other_way_round() {
+    // З53: the shapes differ
+    let props = file(&[a()]);
+    let marks = file(&[mark("A", "e", "r")]);
+    assert!(check_group(L, &props).is_err());
+    assert!(check_group(P, &marks).is_err());
+}
+
+// ----- З2, З51: unknown fields -----
 
 #[test]
-fn unknown_fields_of_the_file_the_record_and_the_property_are_kept() {
-    // З2, З16: a newer Amby wrote them; the merge does not lose them
-    let mut p = prop("P1", "Статус");
-    p["color"] = json!("red");
-    let mut e = entry(vec![p]);
-    e["future"] = json!({"deep": [1, 2, {"x": null}]});
-    let mut base_v =
-        json!({"version": 1, "notes": {"A": e.clone(), "B": entry(vec![prop("P2", "Автор")])}});
-    base_v["top"] = json!("kept");
-    let to_bytes = |v: &Value| {
-        let mut b = serde_json::to_vec_pretty(v).unwrap();
-        b.push(b'\n');
-        b
+fn unknown_fields_of_the_header_the_line_and_the_differences_are_kept() {
+    // З2, З47, З48: a newer Amby wrote them
+    let mut keep = rec(
+        "A",
+        &[(
+            "Заказчик",
+            json!({"icon": "0", "color": {"deep": [1, {"x": null}]}}),
+        )],
+    );
+    keep["future"] = json!("stay");
+    let header = "{\"future\":{\"keep\":[1,2]},\"version\":1}\n";
+    let build = |recs: &[Value]| {
+        let text = String::from_utf8(file(recs)).unwrap();
+        text.replacen("{\"version\":1}\n", header, 1).into_bytes()
     };
-    let base = to_bytes(&base_v);
-    let mut local_v = base_v.clone();
-    local_v["notes"]["B"] = entry(vec![prop("P2", "Автор"), prop("P3", "Срок")]);
-    let merged = parsed(&clean(&base, &to_bytes(&local_v), &to_bytes(&base_v)));
-    assert_eq!(merged["notes"]["A"], e);
-    assert_eq!(merged["top"], "kept");
-    assert_eq!(merged["notes"]["B"], local_v["notes"]["B"]);
+    let base = build(&[keep.clone(), b()]);
+    let local = build(&[keep.clone(), rec("B", &[("Автор", diff("🔥"))])]);
+    let merged = clean(&base, &local, &base);
+    let text = String::from_utf8(merged.clone()).unwrap();
+    assert!(text.starts_with(header), "{text}");
+    assert_eq!(by_id(&merged)["A"], keep);
 }
 
 #[test]
-fn an_unknown_top_level_field_is_one_record_that_conflicts_when_changed_differently() {
-    // З16: changed on one side — taken; on both differently — a conflict (of no note)
-    let (b0, _, _) = two_notes();
-    let mut base_v = parsed(&b0);
-    base_v["top"] = json!(1);
-    let to_bytes = |v: &Value| serde_json::to_vec_pretty(v).unwrap();
-    let mut l = base_v.clone();
-    l["top"] = json!(2);
-    let mut r = base_v.clone();
-    r["top"] = json!(3);
-    let merged = parsed(&clean(
-        &to_bytes(&base_v),
-        &to_bytes(&l),
-        &to_bytes(&base_v),
-    ));
-    assert_eq!(merged["top"], 2);
-    let found = conflict(&to_bytes(&base_v), &to_bytes(&l), &to_bytes(&r));
-    assert!(found.notes.is_empty());
+fn an_unknown_header_field_is_one_record_that_conflicts_when_changed_differently() {
+    // З16, З48: changed on one side — taken; on both differently — a conflict of no note
+    let with = |top: i32, recs: &[Value]| {
+        String::from_utf8(file(recs))
+            .unwrap()
+            .replacen(
+                "{\"version\":1}\n",
+                &format!("{{\"top\":{top},\"version\":1}}\n"),
+                1,
+            )
+            .into_bytes()
+    };
+    let base = with(1, &[a()]);
+    let merged = clean(&base, &with(2, &[a()]), &base);
+    assert!(String::from_utf8(merged)
+        .unwrap()
+        .starts_with("{\"top\":2,\"version\":1}\n"));
+    assert!(conflict(&base, &with(2, &[a()]), &with(3, &[a()]))
+        .notes
+        .is_empty());
 }
 
-// ----- З30: admission -----
+// ----- З30, З51: admission of the whole file -----
 
 fn valid() -> Vec<u8> {
-    file(&[("A", entry(vec![prop("P1", "Статус")]))])
+    file(&[a()])
 }
 
-/// Bytes that must not pass the admission check, with the reason.
+/// Bytes that must not pass the admission check.
 fn bad_versions() -> Vec<(&'static str, Vec<u8>)> {
-    let valid_entry = r#"{"hint":{"path":"a.md","title":"a"},"properties":[{"id":"P1","name":"N","icon":"i","propertyType":"text","settings":""}]}"#;
-    let wrap = |notes: &str| format!(r#"{{"version":1,"notes":{notes}}}"#).into_bytes();
-    let with_props = |props: &str| wrap(&format!(r#"{{"A":{{"properties":{props}}}}}"#));
-    let prop = |fields: &str| format!(r#"[{{{fields}}}]"#);
+    let head = "{\"version\":1}\n";
+    let with = |lines: &str| format!("{head}{lines}").into_bytes();
     let deep = |n: usize| {
         let nested = format!("{}{}", "[".repeat(n), "]".repeat(n));
-        wrap(&format!(r#"{{"A":{{"properties":[],"future":{nested}}}}}"#))
+        with(&format!("{{\"future\":{nested},\"id\":\"A\"}}\n"))
     };
     vec![
         ("not utf-8", {
-            let mut b = valid();
-            b.insert(5, 0xFF);
-            b
+            let mut v = valid();
+            v.insert(20, 0xFF);
+            v
         }),
         ("a NUL byte", {
-            let mut b = valid();
-            b.insert(5, 0x00);
-            b
+            let mut v = valid();
+            v.insert(20, 0x00);
+            v
         }),
-        ("not json", b"{not json".to_vec()),
         ("empty file", Vec::new()),
-        ("an array", b"[]".to_vec()),
-        ("a number", b"1".to_vec()),
-        (
-            "duplicate top-level key",
-            br#"{"version":1,"notes":{},"notes":{}}"#.to_vec(),
-        ),
-        (
-            "duplicate note id",
-            wrap(&format!(r#"{{"A":{valid_entry},"A":{valid_entry}}}"#)),
-        ),
-        (
-            "duplicate field in a property",
-            with_props(r#"[{"id":"P1","name":"N","name":"M"}]"#),
-        ),
-        ("version 2", br#"{"version":2,"notes":{}}"#.to_vec()),
-        (
-            "version a string",
-            br#"{"version":"1","notes":{}}"#.to_vec(),
-        ),
-        ("version missing", br#"{"notes":{}}"#.to_vec()),
-        ("notes an array", br#"{"version":1,"notes":[]}"#.to_vec()),
-        ("notes missing", br#"{"version":1}"#.to_vec()),
-        ("record not an object", wrap(r#"{"A":[]}"#)),
-        (
-            "properties not an array",
-            wrap(r#"{"A":{"properties":{}}}"#),
-        ),
-        ("property not an object", with_props(r#"["x"]"#)),
-        (
-            "known field not a string",
-            with_props(&prop(r#""id":"P1","name":5"#)),
-        ),
-        (
-            "icon not a string",
-            with_props(&prop(r#""id":"P1","name":"N","icon":null"#)),
-        ),
-        ("empty id", with_props(&prop(r#""id":"","name":"N""#))),
-        (
-            "repeated id in a record",
-            with_props(r#"[{"id":"P1","name":"N"},{"id":"P1","name":"M"}]"#),
-        ),
-        (
-            "repeated name in a record",
-            with_props(r#"[{"id":"P1","name":"Статус"},{"id":"P2","name":"статус"}]"#),
-        ),
-        (
-            "repeated name differing in ASCII case",
-            with_props(r#"[{"id":"P1","name":"Status"},{"id":"P2","name":"STATUS"}]"#),
-        ),
-        (
-            "an unknown value nested too deep",
-            deep(PROPS_MAX_DEPTH + 40),
-        ),
+        ("first line not json", b"not json\n{\"id\":\"A\"}\n".to_vec()),
+        ("first line an array", b"[1]\n".to_vec()),
+        ("version 2", b"{\"version\":2}\n".to_vec()),
+        ("version missing", b"{\"top\":1}\n".to_vec()),
+        ("version a string", b"{\"version\":\"1\"}\n".to_vec()),
+        ("duplicate key in the first line", b"{\"version\":1,\"version\":1}\n".to_vec()),
+        ("a line that is not json", with("{\"id\":\"A\"}\nthis is not json\n")),
+        ("a line that is an array", with("[1,2]\n")),
+        ("a blank line", with("{\"id\":\"A\"}\n\n{\"id\":\"B\"}\n")),
+        ("a line cut in the middle", with("{\"id\":\"A\",\"props\":{\"Я\"")),
+        ("a line without id", with("{\"props\":{}}\n")),
+        ("an empty id", with("{\"id\":\"\"}\n")),
+        ("an id that is not a string", with("{\"id\":5}\n")),
+        ("duplicate key in a line", with("{\"id\":\"A\",\"id\":\"A\"}\n")),
+        ("duplicate key in the differences", with("{\"id\":\"A\",\"props\":{\"X\":{\"icon\":\"a\",\"icon\":\"b\"}}}\n")),
+        ("the same id twice", with("{\"id\":\"A\"}\n{\"id\":\"A\"}\n")),
+        ("lines not sorted by id", with("{\"id\":\"B\"}\n{\"id\":\"A\"}\n")),
+        ("props not an object", with("{\"id\":\"A\",\"props\":[]}\n")),
+        ("differences not an object", with("{\"id\":\"A\",\"props\":{\"X\":5}}\n")),
+        ("icon not a string", with("{\"id\":\"A\",\"props\":{\"X\":{\"icon\":5}}}\n")),
+        ("propertyType not a string", with("{\"id\":\"A\",\"props\":{\"X\":{\"propertyType\":null}}}\n")),
+        ("order not a list of strings", with("{\"id\":\"A\",\"order\":[1]}\n")),
+        ("hint not an object", with("{\"id\":\"A\",\"hint\":\"x\"}\n")),
+        ("the same name twice", with("{\"id\":\"A\",\"props\":{\"Имя\":{},\"Имя\":{}}}\n")),
+        ("names equal apart from ASCII case", with("{\"id\":\"A\",\"props\":{\"Status\":{\"icon\":\"a\"},\"STATUS\":{\"icon\":\"b\"}}}\n")),
+        ("names equal after NFC", with("{\"id\":\"A\",\"props\":{\"Е\\u0308ж\":{},\"Ёж\":{}}}\n")),
+        ("an unknown value nested too deep", deep(PROPS_MAX_DEPTH + 40)),
     ]
 }
 
 #[test]
-fn every_reason_of_the_admission_check_refuses_the_version_in_any_of_the_three_places() {
-    // З30: base, local, remote; no repair, no merge
+fn every_reason_of_the_admission_check_refuses_the_file_in_any_of_the_three_places() {
+    // З30, З51, З52: base, local, remote; any damaged line sets the whole file apart; no repair
     let good = valid();
     for (label, bad) in bad_versions() {
-        assert!(check_group(&bad).is_err(), "{label}: check_group");
+        assert!(check_group(P, &bad).is_err(), "{label}: check_group");
         for place in 0..3 {
-            let mut versions = [good.clone(), good.clone(), good.clone()];
-            versions[place] = bad.clone();
-            let outcome = merge_group(&versions[0], &versions[1], &versions[2]);
+            let mut v = [good.clone(), good.clone(), good.clone()];
+            v[place] = bad.clone();
+            let outcome = merge_group(P, &v[0], &v[1], &v[2]);
             assert!(
                 matches!(outcome, GroupMergeOutcome::NotMergeable(_)),
                 "{label} in place {place}: {outcome:?}"
@@ -578,30 +632,32 @@ fn every_reason_of_the_admission_check_refuses_the_version_in_any_of_the_three_p
 }
 
 #[test]
-fn a_file_with_a_valid_shape_and_unknown_values_passes_the_check() {
-    // З30, З2: unknown fields of any kind are allowed (up to the depth limit)
-    assert!(check_group(&valid()).is_ok());
-    let nested = format!("{}{}", "[".repeat(20), "]".repeat(20));
-    let text = format!(
-        r#"{{"version":1,"notes":{{"A":{{"properties":[],"future":{nested},"n":1.0}}}},"top":{{"x":[true,null,"é"]}}}}"#
+fn a_file_with_unknown_values_and_valid_lines_passes_the_check() {
+    // З30, З2
+    assert!(check_group(P, &valid()).is_ok());
+    assert!(
+        check_group(P, b"{\"version\":1}\n").is_ok(),
+        "no notes at all"
     );
-    assert!(check_group(text.as_bytes()).is_ok());
-    // the same name in different notes, and the same name apart from the case of non-ASCII letters
+    let nested = format!("{}{}", "[".repeat(20), "]".repeat(20));
+    let text = format!("{{\"top\":{{\"x\":[true,null,\"é\"]}},\"version\":1}}\n{{\"future\":{nested},\"id\":\"A\",\"n\":1.0}}\n");
+    assert!(check_group(P, text.as_bytes()).is_ok());
+    // the same name in different notes; names that differ in the case of non-ASCII letters
     let ok = file(&[
-        ("A", entry(vec![prop("P1", "Статус")])),
-        ("B", entry(vec![prop("P1", "Статус")])),
-        ("C", entry(vec![prop("P1", "Статус"), prop("P2", "статус")])),
+        rec("A", &[("Статус", diff("a"))]),
+        rec("B", &[("Статус", diff("a"))]),
+        rec("C", &[("Статус", diff("a")), ("статус", diff("b"))]),
     ]);
-    assert!(check_group(&ok).is_ok(), "case folding is ASCII only (З2)");
+    assert!(check_group(P, &ok).is_ok(), "case folding is ASCII only");
 }
 
 #[test]
-fn a_version_over_sixteen_million_bytes_is_not_merged_and_exactly_the_limit_is() {
-    // З30, PROPS_MERGE_MAX_BYTES
-    assert_eq!((PROPS_MERGE_MAX_BYTES, GROUP_COUNT), (16_000_000, 256));
+fn a_file_over_sixteen_million_bytes_is_not_merged_and_exactly_the_limit_is() {
+    // З30, З52
+    assert_eq!((PROPS_MERGE_MAX_BYTES, GROUP_COUNT), (16_000_000, 16));
     let pad = |total: usize| {
-        let head = br#"{"version":1,"notes":{},"pad":""#;
-        let tail = br#""}"#;
+        let head = b"{\"pad\":\"";
+        let tail = b"\",\"version\":1}\n";
         let mut bytes = head.to_vec();
         bytes.resize(total - tail.len(), b'a');
         bytes.extend_from_slice(tail);
@@ -610,14 +666,14 @@ fn a_version_over_sixteen_million_bytes_is_not_merged_and_exactly_the_limit_is()
     };
     let at_limit = pad(PROPS_MERGE_MAX_BYTES);
     let over = pad(PROPS_MERGE_MAX_BYTES + 1);
-    assert!(check_group(&at_limit).is_ok());
-    assert_eq!(check_group(&over), Err(NotMergeable::TooLarge));
+    assert!(check_group(P, &at_limit).is_ok());
+    assert_eq!(check_group(P, &over), Err(NotMergeable::TooLarge));
     let small = valid();
     for place in 0..3 {
-        let mut versions = [small.clone(), small.clone(), small.clone()];
-        versions[place] = over.clone();
+        let mut v = [small.clone(), small.clone(), small.clone()];
+        v[place] = over.clone();
         assert_eq!(
-            merge_group(&versions[0], &versions[1], &versions[2]),
+            merge_group(P, &v[0], &v[1], &v[2]),
             GroupMergeOutcome::NotMergeable(NotMergeable::TooLarge),
             "place {place}"
         );
@@ -628,38 +684,37 @@ fn a_version_over_sixteen_million_bytes_is_not_merged_and_exactly_the_limit_is()
 
 #[test]
 fn equal_sides_return_the_local_bytes_untouched_even_when_not_canonical() {
-    // З30 (Ж11): the merge does not rewrite what it does not have to
-    let base = valid();
-    let a = b"{ \"version\" : 1,\t\"notes\":{\"A\":{\"properties\":[{\"id\":\"P1\",\"name\":\"\xd0\xa1\xd1\x82\",\"icon\":\"i\",\"propertyType\":\"text\",\"settings\":\"\"}]}}}".to_vec();
-    let a_same_meaning = serde_json::to_vec(&parsed(&a)).unwrap();
+    // З52 (Ж11)
+    let local = file_spaced(&[a(), b()]);
+    let remote = file(&[a(), b()]);
+    assert_ne!(local, remote);
     assert_eq!(
-        merge_group(&base, &a, &a_same_meaning),
-        GroupMergeOutcome::Clean(a.clone()),
-        "local and remote equal by meaning: the local bytes"
+        merge_group(P, &valid(), &local, &remote),
+        GroupMergeOutcome::Clean(local.clone()),
+        "equal by meaning: the local bytes"
     );
 }
 
 #[test]
 fn a_side_equal_to_the_base_gives_the_bytes_of_the_other_side() {
-    // З30 (Ж11)
+    // З52 (Ж11)
     let base = valid();
-    let edited = b"{\"version\":1,\"notes\":{}}".to_vec();
+    let edited = file_spaced(&[a(), b()]);
     assert_eq!(
-        merge_group(&base, &base, &edited),
+        merge_group(P, &base, &base, &edited),
         GroupMergeOutcome::Clean(edited.clone())
     );
     assert_eq!(
-        merge_group(&base, &edited, &base),
+        merge_group(P, &base, &edited, &base),
         GroupMergeOutcome::Clean(edited.clone())
     );
-    // a side reformatted but equal by meaning to the base: the other side's bytes are taken
-    let reformatted = serde_json::to_vec(&parsed(&base)).unwrap();
+    let reformatted = file_spaced(&[a()]);
     assert_eq!(
-        merge_group(&base, &reformatted, &edited),
+        merge_group(P, &base, &reformatted, &edited),
         GroupMergeOutcome::Clean(edited.clone())
     );
     assert_eq!(
-        merge_group(&base, &edited, &reformatted),
+        merge_group(P, &base, &edited, &reformatted),
         GroupMergeOutcome::Clean(edited)
     );
 }
@@ -669,79 +724,36 @@ fn the_admission_check_comes_before_the_short_paths() {
     // З30: a damaged base is refused even when local and remote are equal
     let good = valid();
     assert!(matches!(
-        merge_group(b"garbage", &good, &good),
+        merge_group(P, b"garbage\n", &good, &good),
         GroupMergeOutcome::NotMergeable(_)
     ));
 }
 
-// ----- З8, З30: canonical form, BOM, line endings -----
+// ----- З49: canonical form, BOM, line endings -----
 
-const CANONICAL_ONE: &str = "{\n  \"version\": 1,\n  \"notes\": {\n    \"A\": {\n      \"hint\": {\n        \"path\": \"Заметка.md\",\n        \"title\": \"Заметка\"\n      },\n      \"properties\": [\n        {\n          \"id\": \"P1\",\n          \"name\": \"Статус\",\n          \"icon\": \"📌\",\n          \"propertyType\": \"select\",\n          \"settings\": \"Идея,Готово\"\n        }\n      ]\n    }\n  }\n}\n";
-
-fn select_prop() -> Value {
-    json!({"id": "P1", "name": "Статус", "icon": "📌", "propertyType": "select", "settings": "Идея,Готово"})
+#[test]
+fn canonicalize_gives_compact_lines_with_ascending_keys_and_is_idempotent() {
+    // З49: no spaces, keys ascending byte by byte (so `hint` before `id`), a line feed after each
+    // line, lines sorted by id
+    let input = file_spaced(&[rec("A", &[("Статус", diff("🔥"))]), rec("B", &[])]);
+    let once = canonicalize_group(P, &input).unwrap();
+    assert_eq!(
+        String::from_utf8(once.clone()).unwrap(),
+        "{\"version\":1}\n{\"hint\":{\"path\":\"Заметка.md\"},\"id\":\"A\",\"props\":{\"Статус\":{\"icon\":\"🔥\"}}}\n{\"hint\":{\"path\":\"Заметка.md\"},\"id\":\"B\",\"props\":{}}\n"
+    );
+    assert_eq!(canonicalize_group(P, &once).unwrap(), once);
+    assert!(canonicalize_group(P, b"garbage\n").is_err());
 }
 
 #[test]
-fn a_real_merge_writes_the_canonical_form_byte_for_byte() {
-    // З8, З30: two-space indent, notes ascending, fields in the order of the structure, one line
-    // feed at the end
-    let base = file(&[("A", entry(vec![select_prop()]))]);
-    let local = file(&[
-        ("A", entry(vec![select_prop()])),
-        ("Z", entry(vec![prop("P9", "Z")])),
-    ]);
-    let remote = file(&[
-        ("A", entry(vec![select_prop()])),
-        ("B", entry(vec![prop("P8", "B")])),
-    ]);
+fn a_line_made_anew_by_a_merge_is_canonical() {
+    // З49, З52: only the lines made of both sides (here: the hint of one and the props of the other)
+    let props = [("Заказчик", diff("0"))];
+    let base = file(&[rec_hint("A", &props, "Старый.md")]);
+    let local = file_spaced(&[rec_hint("A", &props, "Новый.md")]);
+    let remote = file(&[rec_hint("A", &[("Заказчик", diff("🔥"))], "Старый.md")]);
     let merged = clean(&base, &local, &remote);
-    let text = String::from_utf8(merged).unwrap();
-    assert!(text.starts_with("{\n  \"version\": 1,\n  \"notes\": {\n    \"A\": {\n      \"hint\": {\n        \"path\": \"Заметка.md\",\n        \"title\": \"Заметка\"\n      },\n      \"properties\": [\n        {\n          \"id\": \"P1\",\n          \"name\": \"Статус\",\n          \"icon\": \"📌\",\n          \"propertyType\": \"select\",\n          \"settings\": \"Идея,Готово\"\n        }\n      ]\n    },\n    \"B\": {"), "{text}");
-    assert!(text.find("\"B\"").unwrap() < text.find("\"Z\"").unwrap());
-    assert!(text.ends_with("}\n") && !text.ends_with("\n\n"));
-}
-
-#[test]
-fn canonicalize_gives_the_documented_bytes_and_is_idempotent() {
-    // З8: the example of З7 in its canonical form
-    let input = file(&[("A", entry(vec![select_prop()]))]);
-    let once = canonicalize_group(&input).unwrap();
-    assert_eq!(String::from_utf8(once.clone()).unwrap(), CANONICAL_ONE);
-    assert_eq!(canonicalize_group(&once).unwrap(), once, "idempotent");
-    assert!(canonicalize_group(b"garbage").is_err());
-}
-
-#[test]
-fn a_merge_result_does_not_change_when_canonicalised_again() {
-    // З8, З30, Ж13: the app writes the same bytes after reading the merge
-    let (base, a, b) = two_notes();
-    let local = file(&[
-        ("A", entry(vec![prop_with("P1", "Статус", "🔥")])),
-        ("B", b),
-    ]);
-    let remote = file(&[
-        ("A", a),
-        ("B", entry(vec![prop("P2", "Автор"), prop("P3", "Срок")])),
-    ]);
-    let merged = clean(&base, &local, &remote);
-    assert_eq!(canonicalize_group(&merged).unwrap(), merged);
-}
-
-#[test]
-fn a_merge_twice_gives_the_same_bytes() {
-    // З30 (Г18): deterministic, so a retry after a crash gives the same result
-    let (base, a, b) = two_notes();
-    let local = file(&[
-        ("A", entry(vec![prop_with("P1", "Статус", "🔥")])),
-        ("B", b.clone()),
-    ]);
-    let remote = file(&[
-        ("A", a),
-        ("B", entry(vec![prop("P2", "Автор"), prop("P3", "Срок")])),
-    ]);
-    assert_eq!(clean(&base, &local, &remote), clean(&base, &local, &remote));
-    let _ = b;
+    assert_eq!(canonicalize_group(P, &merged).unwrap(), merged);
 }
 
 fn bom(mut bytes: Vec<u8>) -> Vec<u8> {
@@ -758,46 +770,35 @@ fn crlf(bytes: &[u8]) -> Vec<u8> {
 }
 
 fn merge_inputs() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
-    let (base, _, b) = two_notes();
-    let local = file(&[
-        ("A", entry(vec![prop_with("P1", "Статус", "🔥")])),
-        ("B", b.clone()),
-    ]);
-    let remote = file(&[
-        ("A", entry(vec![prop("P1", "Статус")])),
-        ("B", entry(vec![prop("P2", "Автор"), prop("P3", "Срок")])),
-    ]);
+    let base = file(&[a(), b()]);
+    let local = file(&[rec("A", &[("Заказчик", diff("🔥"))]), b()]);
+    let remote = file(&[a(), rec("B", &[("Автор", diff("0")), ("Срок", diff("1"))])]);
     (base, local, remote)
 }
 
 #[test]
 fn the_bom_is_kept_when_both_sides_have_it_and_follows_the_side_that_changed_it() {
-    // З30 (Ж14)
+    // З52 (Ж14), З49
     let (base, local, remote) = merge_inputs();
     let has_bom = |b: &[u8]| b.starts_with(&[0xEF, 0xBB, 0xBF]);
-    // all three have it
     assert!(has_bom(&clean(
         &bom(base.clone()),
         &bom(local.clone()),
         &bom(remote.clone())
     )));
-    // none has it
     assert!(!has_bom(&clean(&base, &local, &remote)));
-    // base without BOM, one side added it: it stays
     assert!(has_bom(&clean(&base, &bom(local.clone()), &remote)));
-    // base with BOM, one side dropped it: gone
     assert!(!has_bom(&clean(
         &bom(base.clone()),
         &local,
         &bom(remote.clone())
     )));
-    // both added it
     assert!(has_bom(&clean(&base, &bom(local), &bom(remote))));
 }
 
 #[test]
 fn the_line_ending_follows_the_rules_of_the_file_form() {
-    // З30 (Ж14): both CRLF — CRLF; one side changed it against the base — that one
+    // З52 (Ж14), З49: a new line is written with the ending of the file
     let (base, local, remote) = merge_inputs();
     let all_crlf = |b: &[u8]| {
         let t = String::from_utf8_lossy(b);
@@ -809,13 +810,14 @@ fn the_line_ending_follows_the_rules_of_the_file_form() {
         &crlf(&local),
         &crlf(&remote)
     )));
-    assert!(
-        all_crlf(&clean(&base, &crlf(&local), &remote)),
-        "local changed it"
-    );
-    assert!(
-        none_crlf(&clean(&crlf(&base), &local, &crlf(&remote))),
-        "local changed it back"
-    );
+    assert!(all_crlf(&clean(&base, &crlf(&local), &remote)));
+    assert!(none_crlf(&clean(&crlf(&base), &local, &crlf(&remote))));
     assert!(none_crlf(&clean(&base, &local, &remote)));
+}
+
+#[test]
+fn a_merge_twice_gives_the_same_bytes() {
+    // З30 (Г18)
+    let (base, local, remote) = merge_inputs();
+    assert_eq!(clean(&base, &local, &remote), clean(&base, &local, &remote));
 }

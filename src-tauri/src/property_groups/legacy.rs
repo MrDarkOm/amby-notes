@@ -43,10 +43,11 @@ pub fn properties_json_changed(vault: &Path) -> Result<bool, String> {
     todo!("З22")
 }
 
-/// The check of З36: only when the hash of `properties.json` differs from the remembered one.
-/// Per note: the old record equals `entry` of the mark — nothing; else the current list equals
-/// `record` — carry the old list over (without values); else a conflict. No mark and an old
-/// record: no entry — carry over, an entry — a conflict. Marks are refreshed. Values are never
+/// The check of З36 and З53: only when the hash of `properties.json` differs from the remembered
+/// one. Per note: the old record equals `entry` of the mark in `legacy_<x>.jsonl` — nothing; else
+/// the current line (without `hint` and `dismissedRenames`) hashes to `record` — carry the old
+/// record over as differences from the template (without values); else a conflict. No mark and an
+/// old record: no line — carry over, a line — a conflict. Marks are refreshed. Values are never
 /// carried (З36).
 pub fn check_old_version_edits(conn: &Connection, vault: &Path) -> Result<LegacyReport, String> {
     todo!("З22, З36")

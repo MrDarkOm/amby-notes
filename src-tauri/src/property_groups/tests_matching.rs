@@ -205,7 +205,7 @@ const CASES: [Case; 7] = [
             fx.note_raw(
                 id,
                 "N.md",
-                &format!("---\namby-id: {id}\nСтатус: Готово\nТекст\n"),
+                &format!("---\namby-id: {id}\nЗаказчик: Иван\nТекст\n"),
             )
         },
     },
@@ -229,25 +229,25 @@ const CASES: [Case; 7] = [
             fx.note_raw(
                 id,
                 "N.md",
-                &format!("---\namby-id: {id}\nСтатус: 1\nСтатус: 2\n---\nТекст\n"),
+                &format!("---\namby-id: {id}\nЗаказчик: 1\nЗаказчик: 2\n---\nТекст\n"),
             )
         },
     },
     Case {
         label: "no amby-id",
-        setup: |fx, id| fx.note_raw(id, "N.md", "---\nСтатус: Готово\n---\nТекст\n"),
+        setup: |fx, id| fx.note_raw(id, "N.md", "---\nЗаказчик: Иван\n---\nТекст\n"),
     },
     Case {
         label: "duplicate amby-id",
         setup: |fx, id| {
-            fx.note(id, "N.md", "Статус: Готово\n");
+            fx.note(id, "N.md", "Заказчик: Иван\n");
             fx.make_duplicate_id(id)
         },
     },
     Case {
         label: "file missing",
         setup: |fx, id| {
-            fx.note(id, "N.md", "Статус: Готово\n");
+            fx.note(id, "N.md", "Заказчик: Иван\n");
             std::fs::remove_file(fx.vault.join("N.md")).unwrap()
         },
     },
@@ -256,13 +256,12 @@ const CASES: [Case; 7] = [
 #[test]
 fn when_the_header_or_the_identity_is_bad_nothing_is_sleeping_nothing_is_offered_and_nothing_is_written(
 ) {
-    // З25: one typo in the header must not show every design grey and offer to delete them
+    // З25: one typo in the header must not show every record grey and offer to delete it
     for case in CASES {
         let fx = fx();
         let note = id(1);
-        // the group already holds a design for «Статус»
-        fx.note(&note, "N.md", "Статус: Готово\n");
-        let made = create_property(&fx.conn, &fx.vault, &note, design("Статус"), "Готово").unwrap();
+        fx.note(&note, "N.md", "Заказчик: Иван\n");
+        create_property(&fx.conn, &fx.vault, &note, design("Заказчик"), "Иван").unwrap();
         (case.setup)(&fx, &note);
         let before = fx.snapshot();
         let shown = panel(&fx.conn, &fx.vault, &note).unwrap();
@@ -273,21 +272,21 @@ fn when_the_header_or_the_identity_is_bad_nothing_is_sleeping_nothing_is_offered
             case.label
         );
         assert!(shown.rename_hint.is_none(), "{}: no hint", case.label);
-        // every edit of the properties of the note is refused
         let rename = RenameHint {
-            old_name: "Статус".into(),
-            new_name: "Состояние".into(),
+            old_name: "Заказчик".into(),
+            new_name: "Клиент".into(),
         };
+        let name = "Заказчик";
         let results = [
             create_property(&fx.conn, &fx.vault, &note, design("Автор"), "x").is_err(),
-            rename_property(&fx.conn, &fx.vault, &note, &made.id, "Состояние").is_err(),
-            set_value(&fx.conn, &fx.vault, &note, &made.id, "x").is_err(),
-            change_type(&fx.conn, &fx.vault, &note, &made.id, "number").is_err(),
-            set_appearance(&fx.conn, &fx.vault, &note, &made.id, "🔥", "").is_err(),
-            reorder(&fx.conn, &fx.vault, &note, std::slice::from_ref(&made.id)).is_err(),
-            delete_property(&fx.conn, &fx.vault, &note, &made.id).is_err(),
-            restore_dormant(&fx.conn, &fx.vault, &note, &made.id).is_err(),
-            purge_dormant(&fx.conn, &fx.vault, &note, &made.id).is_err(),
+            rename_property(&fx.conn, &fx.vault, &note, name, "Клиент").is_err(),
+            set_value(&fx.conn, &fx.vault, &note, name, "x").is_err(),
+            change_type(&fx.conn, &fx.vault, &note, name, "number").is_err(),
+            set_appearance(&fx.conn, &fx.vault, &note, name, "🔥", "").is_err(),
+            reorder(&fx.conn, &fx.vault, &note, &[name.to_string()]).is_err(),
+            delete_property(&fx.conn, &fx.vault, &note, name).is_err(),
+            restore_dormant(&fx.conn, &fx.vault, &note, name).is_err(),
+            purge_dormant(&fx.conn, &fx.vault, &note, name).is_err(),
             accept_rename_hint(&fx.conn, &fx.vault, &note, &rename).is_err(),
             dismiss_rename_hint(&fx.conn, &fx.vault, &note, &rename).is_err(),
         ];
@@ -311,17 +310,21 @@ fn ambiguous_keys_show_the_property_empty_with_a_warning_and_write_nothing() {
     let fx = fx();
     let note = id(1);
     fx.note(&note, "N.md", "");
-    let made = create_property(&fx.conn, &fx.vault, &note, design("Status"), "x").unwrap();
-    fx.note(&note, "N.md", "STATUS: a\nstatus: b\n");
+    create_property(&fx.conn, &fx.vault, &note, design("Status2"), "x").unwrap();
+    fx.note(&note, "N.md", "STATUS2: a\nstatus2: b\n");
     let before = fx.snapshot();
     let shown = panel(&fx.conn, &fx.vault, &note).unwrap();
     assert!(shown.warnings.contains(&PanelWarning::AmbiguousKey {
-        name: "Status".into()
+        name: "Status2".into()
     }));
     assert!(shown.dormant.is_empty(), "not a sleeping record");
-    assert_eq!(shown.active.len(), 1);
-    assert_eq!(shown.active[0].value, "");
-    assert!(set_value(&fx.conn, &fx.vault, &note, &made.id, "z").is_err());
+    let status = shown
+        .active
+        .iter()
+        .find(|p| p.name == "Status2")
+        .expect("the property is shown");
+    assert_eq!(status.value, "");
+    assert!(set_value(&fx.conn, &fx.vault, &note, "Status2", "z").is_err());
     assert_eq!(fx.snapshot(), before);
 }
 
@@ -330,33 +333,18 @@ fn a_value_is_written_into_the_found_spelling_and_makes_no_second_key() {
     // З24: the old upsert wrote under the name of the record and made a second key
     let fx = fx();
     let note = id(1);
-    fx.note(&note, "N.md", "STATUS: old\nАвтор: я\n");
-    fx.conn
-        .execute("DELETE FROM note_custom_properties", [])
-        .unwrap();
-    let entry = NoteEntry {
-        properties: vec![Design {
-            id: "01JC00000000000000000B0001".into(),
-            ..design("Status")
-        }],
-        ..NoteEntry::default()
-    };
-    put_entry(&fx.conn, &fx.vault, &note, Some(entry)).unwrap();
-    set_value(
+    fx.note(&note, "N.md", "STATUS2: old\nАвтор: я\n");
+    put_entry(
         &fx.conn,
         &fx.vault,
         &note,
-        "01JC00000000000000000B0001",
-        "new",
+        Some(entry_of(&note, &[("Status2", "1")])),
     )
     .unwrap();
+    set_value(&fx.conn, &fx.vault, &note, "Status2", "new").unwrap();
     let text = fx.read("N.md");
-    assert!(text.contains("STATUS: new"), "{text}");
-    assert!(!text.contains("Status:"), "{text}");
-    assert_eq!(
-        text.matches("tatus").count() + text.matches("TATUS").count(),
-        1
-    );
+    assert!(text.contains("STATUS2: new"), "{text}");
+    assert!(!text.contains("Status2:"), "{text}");
     assert!(text.contains("Автор: я"), "the other lines are untouched");
 }
 
@@ -367,22 +355,14 @@ fn a_value_in_an_nfd_key_is_written_into_that_same_key() {
     let note = id(1);
     let nfd = "Е\u{308}ж";
     fx.note(&note, "N.md", &format!("{nfd}: старое\n"));
-    let entry = NoteEntry {
-        properties: vec![Design {
-            id: "01JC00000000000000000B0001".into(),
-            ..design("Ёж")
-        }],
-        ..NoteEntry::default()
-    };
-    put_entry(&fx.conn, &fx.vault, &note, Some(entry)).unwrap();
-    set_value(
+    put_entry(
         &fx.conn,
         &fx.vault,
         &note,
-        "01JC00000000000000000B0001",
-        "новое",
+        Some(entry_of(&note, &[("Ёж", "1")])),
     )
     .unwrap();
+    set_value(&fx.conn, &fx.vault, &note, "Ёж", "новое").unwrap();
     assert_eq!(
         fx.read("N.md"),
         format!("---\namby-id: {}\n{nfd}: новое\n---\nТекст\n", note)
@@ -397,13 +377,13 @@ fn bom_and_line_endings_of_the_note_survive_a_value_edit() {
     fx.note_raw(
         &note,
         "N.md",
-        &format!("\u{feff}---\r\namby-id: {note}\r\nСтатус: Идея\r\n---\r\nТекст\r\n"),
+        &format!("\u{feff}---\r\namby-id: {note}\r\nЗаказчик: Идея\r\n---\r\nТекст\r\n"),
     );
-    let made = create_property(&fx.conn, &fx.vault, &note, design("Статус"), "Идея").unwrap();
-    set_value(&fx.conn, &fx.vault, &note, &made.id, "Готово").unwrap();
+    create_property(&fx.conn, &fx.vault, &note, design("Заказчик"), "Идея").unwrap();
+    set_value(&fx.conn, &fx.vault, &note, "Заказчик", "Готово").unwrap();
     assert_eq!(
         fx.read("N.md"),
-        format!("\u{feff}---\r\namby-id: {note}\r\nСтатус: Готово\r\n---\r\nТекст\r\n")
+        format!("\u{feff}---\r\namby-id: {note}\r\nЗаказчик: Готово\r\n---\r\nТекст\r\n")
     );
 }
 
@@ -413,7 +393,7 @@ fn the_name_of_a_property_may_not_start_with_amby() {
     let fx = fx();
     let note = id(1);
     fx.note(&note, "N.md", "");
-    let made = create_property(&fx.conn, &fx.vault, &note, design("Статус"), "").unwrap();
+    create_property(&fx.conn, &fx.vault, &note, design("Заказчик"), "").unwrap();
     let before = fx.snapshot();
     for name in ["amby-test", "AMBY-views", "amby-"] {
         assert!(
@@ -421,7 +401,7 @@ fn the_name_of_a_property_may_not_start_with_amby() {
             "{name}"
         );
         assert!(
-            rename_property(&fx.conn, &fx.vault, &note, &made.id, name).is_err(),
+            rename_property(&fx.conn, &fx.vault, &note, "Заказчик", name).is_err(),
             "{name}"
         );
     }
@@ -436,33 +416,18 @@ fn a_complex_value_is_read_only_and_its_edits_and_rename_are_refused_before_any_
     let fx = fx();
     let note = id(1);
     fx.note(&note, "N.md", "Описание: |\n  первая\n  вторая\n");
-    let entry = NoteEntry {
-        properties: vec![Design {
-            id: "01JC00000000000000000B0001".into(),
-            ..design("Описание")
-        }],
-        ..NoteEntry::default()
-    };
-    put_entry(&fx.conn, &fx.vault, &note, Some(entry)).unwrap();
+    put_entry(
+        &fx.conn,
+        &fx.vault,
+        &note,
+        Some(entry_of(&note, &[("Описание", "1")])),
+    )
+    .unwrap();
     let shown = panel(&fx.conn, &fx.vault, &note).unwrap();
     assert!(shown.active[0].read_only);
     let before = fx.snapshot();
-    assert!(set_value(
-        &fx.conn,
-        &fx.vault,
-        &note,
-        "01JC00000000000000000B0001",
-        "x"
-    )
-    .is_err());
-    assert!(rename_property(
-        &fx.conn,
-        &fx.vault,
-        &note,
-        "01JC00000000000000000B0001",
-        "Другое"
-    )
-    .is_err());
+    assert!(set_value(&fx.conn, &fx.vault, &note, "Описание", "x").is_err());
+    assert!(rename_property(&fx.conn, &fx.vault, &note, "Описание", "Другое").is_err());
     assert_eq!(fx.snapshot(), before);
     assert!(
         fx.files_under(".amby/property-ops/").is_empty(),
@@ -476,11 +441,11 @@ fn a_type_change_that_cannot_convert_the_value_keeps_the_value_and_says_so() {
     let fx = fx();
     let note = id(1);
     fx.note(&note, "N.md", "");
-    let made = create_property(&fx.conn, &fx.vault, &note, design("Флаг"), "abc").unwrap();
+    create_property(&fx.conn, &fx.vault, &note, design("Флаг"), "abc").unwrap();
     let before = fx.read("N.md");
-    change_type(&fx.conn, &fx.vault, &note, &made.id, "checkbox").unwrap();
+    change_type(&fx.conn, &fx.vault, &note, "Флаг", "checkbox").unwrap();
     assert_eq!(fx.read("N.md"), before, "the header is not rewritten");
-    assert_eq!(fx.designs(&note)[0]["propertyType"], "checkbox");
+    assert_eq!(fx.props(&note)["Флаг"]["propertyType"], "checkbox");
     let shown = panel(&fx.conn, &fx.vault, &note).unwrap();
     assert_eq!(shown.active[0].value, "abc");
     assert!(shown.active[0].type_mismatch);
@@ -492,8 +457,8 @@ fn a_type_change_with_a_reversible_conversion_rewrites_the_value() {
     let fx = fx();
     let note = id(1);
     fx.note(&note, "N.md", "");
-    let made = create_property(&fx.conn, &fx.vault, &note, design("Счёт"), "5").unwrap();
-    change_type(&fx.conn, &fx.vault, &note, &made.id, "number").unwrap();
+    create_property(&fx.conn, &fx.vault, &note, design("Счёт"), "5").unwrap();
+    change_type(&fx.conn, &fx.vault, &note, "Счёт", "number").unwrap();
     let shown = panel(&fx.conn, &fx.vault, &note).unwrap();
     assert_eq!(shown.active[0].value, "5");
     assert!(!shown.active[0].type_mismatch);
@@ -503,16 +468,16 @@ fn a_type_change_with_a_reversible_conversion_rewrites_the_value() {
 // ----- З27: databases -----
 
 #[test]
-fn backup_and_clear_copies_the_record_to_property_backups_before_removing_it_from_the_group() {
+fn backup_and_clear_copies_the_line_to_property_backups_before_removing_it() {
     // З27
     let fx = fx();
     let note = id(1);
     fx.note(&note, "N.md", "");
-    let made = create_property(
+    create_property(
         &fx.conn,
         &fx.vault,
         &note,
-        design_typed("Статус", "select", "А,Б"),
+        design_typed("Заказчик", "select", "А,Б"),
         "А",
     )
     .unwrap();
@@ -523,11 +488,13 @@ fn backup_and_clear_copies_the_record_to_property_backups_before_removing_it_fro
     );
     let copy: serde_json::Value = serde_json::from_slice(&fx.bytes(&rel).unwrap()).unwrap();
     assert_eq!(copy["noteId"], note.as_str());
-    assert_eq!(copy["properties"][0]["id"], made.id.as_str());
-    assert_eq!(copy["properties"][0]["name"], "Статус");
+    assert!(
+        copy.to_string().contains("Заказчик") && copy.to_string().contains("select"),
+        "the differences are in the copy"
+    );
     assert!(read_entry(&fx.vault, &note).unwrap().is_none());
     assert!(
-        fx.read("N.md").contains("Статус: А"),
+        fx.read("N.md").contains("Заказчик: А"),
         "the keys of the header are not touched"
     );
     assert!(
@@ -537,19 +504,15 @@ fn backup_and_clear_copies_the_record_to_property_backups_before_removing_it_fro
 }
 
 #[test]
-fn a_failed_group_write_after_the_backup_leaves_the_record_and_the_copy() {
-    // З27, З34: the copy is first; losing the group write loses nothing
+fn a_failed_write_after_the_backup_leaves_the_line_and_the_copy() {
+    // З27, З34: the copy is first; losing the file write loses nothing
     let fx = fx();
     let note = id(1);
     fx.note(&note, "N.md", "");
-    create_property(&fx.conn, &fx.vault, &note, design("Статус"), "А").unwrap();
+    create_property(&fx.conn, &fx.vault, &note, design("Заказчик"), "А").unwrap();
     let result = with_failing_write(1, false, || backup_and_clear(&fx.conn, &fx.vault, &note));
     assert!(result.is_err());
-    assert_eq!(
-        fx.designs(&note).len(),
-        1,
-        "the record is still in the group"
-    );
+    assert!(fx.line(&note).is_some(), "the line is still in the file");
     assert_eq!(
         fx.files_under(&format!(".amby/property-backups/{note}/"))
             .len(),
@@ -565,16 +528,15 @@ fn a_leftover_record_on_a_database_page_is_not_applied_to_the_keys_of_the_databa
     fx.note(
         &note,
         "База.md",
-        "amby-database: tasks\namby-views: v\nСтатус: Готово\n",
+        "amby-database: tasks\namby-views: v\nЗаказчик: Иван\n",
     );
-    let entry = NoteEntry {
-        properties: vec![Design {
-            id: "01JC00000000000000000B0001".into(),
-            ..design("amby-database")
-        }],
-        ..NoteEntry::default()
-    };
-    put_entry(&fx.conn, &fx.vault, &note, Some(entry)).unwrap();
+    put_entry(
+        &fx.conn,
+        &fx.vault,
+        &note,
+        Some(entry_of(&note, &[("amby-database", "1")])),
+    )
+    .unwrap();
     let shown = panel(&fx.conn, &fx.vault, &note).unwrap();
     assert!(shown.active.iter().all(|p| !p.key.starts_with("amby-")));
     let report = inspect(&fx.conn, &fx.vault).unwrap();

@@ -1,8 +1,10 @@
-//! Merge of the note-properties groups `.amby/properties/<g>.json` (docs/sync-plan.md, appendix З:
-//! З5, З14–З17, З30–З33). Interfaces only (раздел 6, шаг 1): the bodies are `todo!()` until the
-//! tests of `sync/core/tests/engine_props_groups*.rs` and `sync/sim/tests/props_groups.rs` are
-//! reviewed. The unit of the merge is the whole record of a note (`notes.<amby-id>`), by the
-//! meaning of the JSON and not by its bytes.
+//! Merge of the note-properties groups `.amby/properties/prop_<x>.jsonl` and the marks of old
+//! versions `legacy_<x>.jsonl` (docs/sync-plan.md, appendix З: З14–З17, З30–З33, З45–З53).
+//! Interfaces only (раздел 6, шаг 1): the bodies are `todo!()` until the tests of
+//! `sync/core/tests/engine_props_groups*.rs` and `sync/sim/tests/props_groups.rs` are reviewed.
+//! A file is JSON Lines: a first line `{"version":1}`, then one line per note, sorted by `id`. The
+//! unit of the merge is the line of a note, by the meaning of the JSON and not by its bytes; a line
+//! that one side did not change is carried over with its own bytes (З52).
 
 use std::collections::BTreeMap;
 
@@ -12,8 +14,8 @@ pub const PROPS_MERGE_MAX_BYTES: usize = 16_000_000;
 /// The deepest nesting of an unknown value the merge accepts (З30).
 pub const PROPS_MAX_DEPTH: usize = 32;
 
-/// Number of groups of the layout version 1 (З5, З6).
-pub const GROUP_COUNT: usize = 256;
+/// Number of groups of the layout version 1 (З48).
+pub const GROUP_COUNT: usize = 16;
 
 /// Fewest vanishing properties of a pass that stop it (З32, пороги Д54), with 10% of all.
 pub const PROPS_LOSS_MIN: usize = 20;
@@ -21,24 +23,40 @@ pub const PROPS_LOSS_MIN: usize = 20;
 /// Percentage of all properties of the device that stops a pass with [`PROPS_LOSS_MIN`] (З32).
 pub const PROPS_LOSS_PERCENT: usize = 10;
 
-/// The group of a note: two lowercase hexadecimal digits of the first byte of BLAKE3 of the
-/// `amby-id` as UTF-8 (З5). `"ab"`, not the start of the ULID.
+/// The group of a note: the first hexadecimal digit (lowercase) of BLAKE3 of the `amby-id` as
+/// UTF-8 (З48). `"a"`, not the start of the ULID.
 pub fn group_of(amby_id: &str) -> String {
     let _ = amby_id;
-    todo!("З5")
+    todo!("З48")
 }
 
-/// The vault-relative path of the group file of a note: `.amby/properties/<g>.json` (З5).
+/// The vault-relative path of the file of a note: `.amby/properties/prop_<x>.jsonl` (З48).
 pub fn group_path_of(amby_id: &str) -> String {
     let _ = amby_id;
-    todo!("З5")
+    todo!("З48")
 }
 
-/// Is `path` a group file the merge applies to: exactly `.amby/properties/<two lowercase hex>.json`
-/// (З30). `layout.json` and everything else in the folder is synchronised but not merged.
-pub fn is_group_path(path: &str) -> bool {
+/// The vault-relative path of the marks of a note: `.amby/properties/legacy_<x>.jsonl` (З53).
+pub fn legacy_path_of(amby_id: &str) -> String {
+    let _ = amby_id;
+    todo!("З53")
+}
+
+/// The two kinds of mergeable files (З52, З53).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroupKind {
+    /// `prop_<x>.jsonl`: lines `{"id","hint","props","order","dismissedRenames"}` (З47).
+    Props,
+    /// `legacy_<x>.jsonl`: lines `{"id","entry","record"}` (З53).
+    Legacy,
+}
+
+/// The kind of a path the merge applies to: exactly `.amby/properties/prop_<0–f>.jsonl` or
+/// `legacy_<0–f>.jsonl` (З52, З53); `None` for `layout.json` and everything else, which are
+/// synchronised but not merged.
+pub fn kind_of_path(path: &str) -> Option<GroupKind> {
     let _ = path;
-    todo!("З30")
+    todo!("З52, З53")
 }
 
 /// Why a version of a group is not merged but goes to a conflict set (З30).
@@ -50,14 +68,17 @@ pub enum NotMergeable {
     HasNul,
     /// A version is larger than [`PROPS_MERGE_MAX_BYTES`].
     TooLarge,
-    /// Not JSON, or not a JSON object at the root.
-    NotAnObject,
+    /// The first line is missing, is not a JSON object, or has `version` other than 1.
+    BadHeaderLine,
+    /// A line does not parse, is not an object, has no `id`, or breaks the shape of З47 / З53
+    /// (names not unique after NFC without ASCII case, a known field of the wrong type).
+    BadLine,
     /// A key repeats in some object, at any level.
     DuplicateKey,
-    /// `version` is not 1 (or missing, or not a number).
-    BadVersion,
-    /// The shape is wrong: `notes`, a record, `properties`, a known field, `id`, names (З30).
-    BadShape,
+    /// An `id` repeats in the file.
+    DuplicateId,
+    /// The lines are not sorted by `id`, byte by byte.
+    Unsorted,
     /// An unknown value is nested deeper than [`PROPS_MAX_DEPTH`].
     TooDeep,
 }
@@ -84,25 +105,28 @@ pub enum GroupMergeOutcome {
     NotMergeable(NotMergeable),
 }
 
-/// The admission check of З30 for one version of a group.
-pub fn check_group(bytes: &[u8]) -> Result<(), NotMergeable> {
-    let _ = bytes;
-    todo!("З30")
+/// The admission check of З30 and З51 for one version of a file, as a whole: any damaged line is
+/// a reason.
+pub fn check_group(kind: GroupKind, bytes: &[u8]) -> Result<(), NotMergeable> {
+    let _ = (kind, bytes);
+    todo!("З30, З51, З52")
 }
 
-/// The canonical form of a group (З8): keys of `notes` ascending, fields in the order of the
-/// structure, two-space indent, one line feed at the end; BOM and line endings of `bytes` stay.
+/// The canonical form of a file (З49): every line compact JSON, keys ascending byte by byte, a line
+/// feed at the end of each line; lines sorted by `id`; BOM and line endings of `bytes` stay.
 /// Idempotent. Fails like [`check_group`].
-pub fn canonicalize_group(bytes: &[u8]) -> Result<Vec<u8>, NotMergeable> {
-    let _ = bytes;
-    todo!("З8, З30")
+pub fn canonicalize_group(kind: GroupKind, bytes: &[u8]) -> Result<Vec<u8>, NotMergeable> {
+    let _ = (kind, bytes);
+    todo!("З49, З30")
 }
 
-/// Three-way merge of a group by the records of the notes (З16, З30, З31). `hint` and
-/// `dismissedRenames` take no part in the decision of a conflict (З31). Symmetric, deterministic.
-pub fn merge_group(base: &[u8], local: &[u8], remote: &[u8]) -> GroupMergeOutcome {
-    let _ = (base, local, remote);
-    todo!("З16, З30, З31")
+/// Three-way merge of a file by the lines of the notes (З16, З30, З31, З52). `hint` and
+/// `dismissedRenames` take no part in the decision of a conflict (З31). A line that one side did
+/// not change keeps the bytes of that side; a line made anew is canonical (З49). Symmetric,
+/// deterministic.
+pub fn merge_group(kind: GroupKind, base: &[u8], local: &[u8], remote: &[u8]) -> GroupMergeOutcome {
+    let _ = (kind, base, local, remote);
+    todo!("З16, З30, З31, З52")
 }
 
 /// Which version of a conflicting note the user keeps (З17).
@@ -130,6 +154,7 @@ pub enum ResolveError {
 /// in the set at this moment; if either differs from `local`/`other` that were compared, the
 /// answer is [`ResolveError::Stale`] (К4). З17.
 pub fn resolve_group(
+    kind: GroupKind,
     base: &[u8],
     local: &[u8],
     other: &[u8],
@@ -137,7 +162,7 @@ pub fn resolve_group(
     now_local: &[u8],
     now_other: &[u8],
 ) -> Result<Vec<u8>, ResolveError> {
-    let _ = (base, local, other, picks, now_local, now_other);
+    let _ = (kind, base, local, other, picks, now_local, now_other);
     todo!("З17")
 }
 
@@ -157,15 +182,16 @@ pub struct GroupWrite<'a> {
 /// What a pass would make vanish (З32).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MassLoss {
-    /// Elements of `properties[]` that are in `before` and not in `after`, summed over the pass.
+    /// Elements of `props` that are in `before` and not in `after`, summed over the pass.
     pub properties: usize,
     /// Notes that lose at least one.
     pub notes: usize,
 }
 
-/// Elements of `properties[]` (by note and property `id`) that `before` has and `after` does not.
-/// A property that only moved or changed its fields does not vanish; a whole removed note record
-/// loses all of its properties. Unreadable bytes count nothing. З32.
+/// Elements of `props` (by note `id` and property name) of a `prop_<x>.jsonl` that `before` has
+/// and `after` does not. A property whose differences changed, or that only moved in `order`, does
+/// not vanish; a whole removed line loses all of its properties. Unreadable bytes count nothing.
+/// З32, З52.
 pub fn vanishing_properties(before: &[u8], after: &[u8]) -> usize {
     let _ = (before, after);
     todo!("З32")

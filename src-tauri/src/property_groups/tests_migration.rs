@@ -47,19 +47,23 @@ const N_EMPTYKEY: u32 = 8;
 /// A vault before the migration with one note for each case of the report.
 fn old_vault() -> Fx {
     let fx = fx_old();
-    fx.note(&id(N_SAME), "same.md", "Статус: Готово\n");
-    fx.note(&id(N_DIFF), "diff.md", "Статус: Б\n");
+    fx.note(&id(N_SAME), "same.md", "Заказчик: Готово\n");
+    fx.note(&id(N_DIFF), "diff.md", "Заказчик: Б\n");
     fx.note(&id(N_NOKEY), "nokey.md", "");
     fx.note_raw(
         &id(N_BROKEN),
         "broken.md",
         &format!(
-            "---\namby-id: {}\nСтатус: Готово\nТекст без закрытия\n",
+            "---\namby-id: {}\nЗаказчик: Готово\nТекст без закрытия\n",
             id(N_BROKEN)
         ),
     );
-    fx.note_raw(&id(N_NOID), "noid.md", "---\nСтатус: Готово\n---\nТекст\n");
-    fx.note(&id(N_DUP), "dup.md", "Статус: Готово\n");
+    fx.note_raw(
+        &id(N_NOID),
+        "noid.md",
+        "---\nЗаказчик: Готово\n---\nТекст\n",
+    );
+    fx.note(&id(N_DUP), "dup.md", "Заказчик: Готово\n");
     fx.make_duplicate_id(&id(N_DUP));
     fx.note(&id(N_EMPTYKEY), "emptykey.md", "");
     write_old_file(
@@ -67,11 +71,17 @@ fn old_vault() -> Fx {
         &[
             (
                 &id(N_SAME),
-                vec![old_prop("P1", "Статус", "select", "Готово", "Идея,Готово")],
+                vec![old_prop(
+                    "P1",
+                    "Заказчик",
+                    "select",
+                    "Готово",
+                    "Идея,Готово",
+                )],
             ),
             (
                 &id(N_DIFF),
-                vec![old_prop("P2", "Статус", "select", "А", "А,Б")],
+                vec![old_prop("P2", "Заказчик", "select", "А", "А,Б")],
             ),
             (
                 &id(N_NOKEY),
@@ -79,15 +89,15 @@ fn old_vault() -> Fx {
             ),
             (
                 &id(N_BROKEN),
-                vec![old_prop("P4", "Статус", "text", "Готово", "")],
+                vec![old_prop("P4", "Заказчик", "text", "Готово", "")],
             ),
             (
                 &id(N_NOID),
-                vec![old_prop("P5", "Статус", "text", "Готово", "")],
+                vec![old_prop("P5", "Заказчик", "text", "Готово", "")],
             ),
             (
                 &id(N_DUP),
-                vec![old_prop("P6", "Статус", "text", "Готово", "")],
+                vec![old_prop("P6", "Заказчик", "text", "Готово", "")],
             ),
             (
                 &id(N_ORPHAN),
@@ -140,8 +150,7 @@ fn the_report_counts_and_names_every_case() {
         r.mismatches,
         vec![Mismatch {
             note_id: id(N_DIFF),
-            property_id: "P2".into(),
-            name: "Статус".into(),
+            name: "Заказчик".into(),
             file_value: "А".into(),
             header_value: "Б".into(),
         }]
@@ -150,7 +159,6 @@ fn the_report_counts_and_names_every_case() {
         r.missing_keys,
         vec![MissingKey {
             note_id: id(N_NOKEY),
-            property_id: "P3".into(),
             name: "Автор".into(),
             file_value: "Иван".into(),
         }]
@@ -293,26 +301,35 @@ fn a_run_applies_every_decision_of_the_report() {
     for rel in ["broken.md", "noid.md", "dup.md", "emptykey.md"] {
         assert_eq!(fx.bytes(rel), before.get(rel).cloned(), "{rel}");
     }
-    for (note, prop_id) in [
-        (N_BROKEN, "P4"),
-        (N_NOID, "P5"),
-        (N_DUP, "P6"),
-        (N_ORPHAN, "P7"),
-        (N_EMPTYKEY, "P8"),
-        (N_SAME, "P1"),
+    for (note, name) in [
+        (N_BROKEN, "Заказчик"),
+        (N_NOID, "Заказчик"),
+        (N_DUP, "Заказчик"),
+        (N_ORPHAN, "Сирота"),
+        (N_EMPTYKEY, "Пусто"),
+        (N_SAME, "Заказчик"),
     ] {
         assert!(
-            fx.designs(&id(note)).iter().any(|d| d["id"] == prop_id),
-            "the design {prop_id} of note {note} was carried (ids are kept)"
+            fx.prop_names(&id(note)).contains(&name.to_string()),
+            "the differences of {name} of note {note} were carried"
         );
     }
-    // the design keeps order, type, settings, and has no value
-    let d = &fx.designs(&id(N_SAME))[0];
+    // only differences are carried: type, settings, icon — no value, no id of the property
+    let d = fx.props(&id(N_SAME))["Заказчик"].clone();
     assert_eq!(
-        (d["propertyType"].as_str(), d["settings"].as_str()),
-        (Some("select"), Some("Идея,Готово"))
+        (
+            d["propertyType"].as_str(),
+            d["settings"].as_str(),
+            d["icon"].as_str()
+        ),
+        (Some("select"), Some("Идея,Готово"), Some("📌"))
     );
-    assert!(d.get("value").is_none());
+    assert!(d.get("value").is_none() && d.get("id").is_none());
+    let text = String::from_utf8(fx.group_bytes(&id(N_SAME)).unwrap()).unwrap();
+    assert!(
+        !text.contains("\"P1\"") && !text.contains("value"),
+        "{text}"
+    );
     // the old file is neither deleted nor changed
     assert_eq!(fx.bytes(".amby/properties.json"), Some(old_file));
     // the layout is there and the vault is in the new format
@@ -327,10 +344,10 @@ fn the_owner_can_choose_the_value_of_the_file_for_a_diverging_property() {
     let mut decisions = confirmed();
     decisions
         .use_file_value
-        .insert((id(N_DIFF), "P2".to_string()));
+        .insert((id(N_DIFF), "Заказчик".to_string()));
     run(&fx.conn, &fx.vault, &decisions, &plain_context()).unwrap();
     assert!(
-        fx.read("diff.md").contains("Статус: А"),
+        fx.read("diff.md").contains("Заказчик: А"),
         "{}",
         fx.read("diff.md")
     );
@@ -384,22 +401,28 @@ fn an_empty_migration_writes_the_layout() {
 
 #[test]
 fn two_computers_that_migrate_the_same_vault_write_the_same_bytes() {
-    // З39: group files and the layout, apart from `hint` (which never conflicts, З31)
+    // З39: the files and the layout, apart from `hint` (which never conflicts, З31)
     let a = old_vault();
     let b = a.copy_to_second_device(&[]);
     run(&a.conn, &a.vault, &confirmed(), &plain_context()).unwrap();
     run(&b.conn, &b.vault, &confirmed(), &plain_context()).unwrap();
-    let strip = |fx: &Fx| -> BTreeMap<String, Value> {
+    let strip = |fx: &Fx| -> BTreeMap<String, Vec<Value>> {
         fx.files_under(".amby/properties/")
             .into_iter()
+            .filter(|p| p.ends_with(".jsonl"))
             .map(|path| {
-                let mut value: Value = serde_json::from_slice(&fx.bytes(&path).unwrap()).unwrap();
-                if let Some(notes) = value.get_mut("notes").and_then(Value::as_object_mut) {
-                    for entry in notes.values_mut() {
-                        entry.as_object_mut().unwrap().remove("hint");
-                    }
-                }
-                (path, value)
+                let text = String::from_utf8(fx.bytes(&path).unwrap()).unwrap();
+                let lines = text
+                    .lines()
+                    .map(|l| {
+                        let mut v: Value = serde_json::from_str(l).unwrap();
+                        if let Some(o) = v.as_object_mut() {
+                            o.remove("hint");
+                        }
+                        v
+                    })
+                    .collect();
+                (path, lines)
             })
             .collect()
     };
@@ -426,6 +449,7 @@ fn the_migration_is_not_started_where_it_would_be_wrong() {
         sync_enabled: true,
         last_pass_ok: true,
         layout_came_from_server: true,
+        arrived_template: None,
     };
     assert!(run(&fx.conn, &fx.vault, &confirmed(), &from_server).is_err());
     assert_eq!(fx.snapshot(), before);
@@ -433,6 +457,7 @@ fn the_migration_is_not_started_where_it_would_be_wrong() {
         sync_enabled: true,
         last_pass_ok: true,
         layout_came_from_server: false,
+        arrived_template: None,
     };
     assert!(run(&fx.conn, &fx.vault, &confirmed(), &sync_ok).is_ok());
 }
@@ -590,4 +615,120 @@ fn a_header_edited_after_the_migration_is_not_given_back_by_a_rollback() {
     assert_eq!(report.not_restored, vec![id(N_NOKEY)]);
     assert!(report.headers_restored.is_empty());
     assert_eq!(fx.bytes("nokey.md"), edited);
+}
+
+// ----- З54: differences from the template, the order, the number of the template -----
+
+/// A vault with one note whose header has the given lines, and an old `properties.json` for it.
+fn one_note(header: &str, props: Vec<Value>) -> Fx {
+    let fx = fx_old();
+    fx.note(&id(1), "n.md", header);
+    write_old_file(&fx, &[(&id(1), props)]);
+    fx
+}
+
+#[test]
+fn a_property_equal_to_the_template_gives_no_line_in_any_language() {
+    // З54: «свойство, совпавшее с шаблоном полностью, строки не даёт»; the options are compared in
+    // the language of the name that matched
+    let (template, names) = crate::property_template::all()
+        .into_iter()
+        .find(|(p, _)| p.property_type == "select")
+        .unwrap();
+    for (_, name) in names {
+        let found = crate::property_template::lookup(&name).unwrap();
+        let fx = one_note(
+            &format!("{name}: x\n"),
+            vec![old_prop(
+                "P",
+                &name,
+                &found.property_type,
+                "x",
+                &found.settings,
+            )],
+        );
+        let mut old = old_prop("P", &name, &found.property_type, "x", &found.settings);
+        old["icon"] = serde_json::json!(template.icon);
+        write_old_file(&fx, &[(&id(1), vec![old])]);
+        run(&fx.conn, &fx.vault, &confirmed(), &plain_context()).unwrap();
+        assert!(
+            fx.line(&id(1)).is_none(),
+            "{name}: nothing differs from the template"
+        );
+        assert!(
+            fx.files_under(".amby/properties/")
+                .iter()
+                .all(|f| f.ends_with("layout.json")),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn only_the_fields_that_differ_from_the_template_are_carried() {
+    // З54, З47
+    let (template, names) = crate::property_template::all()
+        .into_iter()
+        .find(|(p, _)| p.property_type == "select")
+        .unwrap();
+    let name = names[0].1.clone();
+    let found = crate::property_template::lookup(&name).unwrap();
+    let mut old = old_prop("P", &name, &found.property_type, "x", &found.settings);
+    old["icon"] = serde_json::json!("🔥");
+    let fx = one_note(&format!("{name}: x\n"), vec![old]);
+    run(&fx.conn, &fx.vault, &confirmed(), &plain_context()).unwrap();
+    assert_eq!(fx.props(&id(1))[&name], serde_json::json!({"icon": "🔥"}));
+    let _ = template;
+}
+
+#[test]
+fn the_order_is_carried_only_when_it_differs_from_the_order_of_the_header() {
+    // З54, З47
+    let props = vec![
+        old_prop("P1", "Один", "text", "1", ""),
+        old_prop("P2", "Два", "text", "2", ""),
+    ];
+    let same = one_note("Один: 1\nДва: 2\n", props.clone());
+    run(&same.conn, &same.vault, &confirmed(), &plain_context()).unwrap();
+    assert!(same.line(&id(1)).unwrap().get("order").is_none());
+    let moved = one_note("Два: 2\nОдин: 1\n", props);
+    run(&moved.conn, &moved.vault, &confirmed(), &plain_context()).unwrap();
+    assert_eq!(
+        moved.line(&id(1)).unwrap()["order"],
+        serde_json::json!(["Один", "Два"])
+    );
+}
+
+#[test]
+fn the_layout_records_the_number_of_the_template() {
+    // З48, З54
+    let fx = one_note("Один: 1\n", vec![old_prop("P1", "Один", "text", "1", "")]);
+    run(&fx.conn, &fx.vault, &confirmed(), &plain_context()).unwrap();
+    let layout: Value = serde_json::from_str(&fx.read(".amby/properties/layout.json")).unwrap();
+    assert_eq!(
+        layout["template"],
+        crate::property_template::TEMPLATE_VERSION
+    );
+    assert_eq!(
+        (layout["groups"].as_u64(), layout["version"].as_u64()),
+        (Some(16), Some(1))
+    );
+}
+
+#[test]
+fn a_migration_under_an_older_template_than_the_arrived_layout_does_not_start() {
+    // З54: two computers with different template numbers must not migrate one vault apart
+    let fx = old_vault();
+    let before = fx.snapshot();
+    let newer = Context {
+        arrived_template: Some(crate::property_template::TEMPLATE_VERSION + 1),
+        ..Context::default()
+    };
+    assert!(run(&fx.conn, &fx.vault, &confirmed(), &newer).is_err());
+    assert_eq!(fx.snapshot(), before);
+    let equal = Context {
+        arrived_template: Some(crate::property_template::TEMPLATE_VERSION),
+        ..Context::default()
+    };
+    assert!(run(&fx.conn, &fx.vault, &confirmed(), &equal).is_ok());
 }

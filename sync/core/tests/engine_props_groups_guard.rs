@@ -1,56 +1,67 @@
-//! Resolution of a conflicting group (З17) and the protection against a mass loss over a whole
-//! pass (З32, З10 владельца: вариант (а)). Red until `props_groups` is written (`todo!()` today).
+//! Resolution of a conflicting file (З17) and the protection against a mass loss over a whole
+//! pass (З32, З52, З.10-1 владельца: вариант (а)); lines of JSON Lines (З47–З48). Red until `props_groups` is written (`todo!()` today).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeMap;
 
 use amby_sync_core::engine::props_groups::{
-    pass_mass_loss, resolve_group, vanishing_properties, GroupWrite, MassLoss, ResolveError, Side,
+    canonicalize_group, pass_mass_loss, resolve_group as resolve, vanishing_properties, GroupKind,
+    GroupWrite, MassLoss, ResolveError, Side,
 };
 use serde_json::{json, Value};
 
-fn prop(id: &str, name: &str, icon: &str) -> Value {
-    json!({"id": id, "name": name, "icon": icon, "propertyType": "text", "settings": ""})
-}
-
-fn entry(props: Vec<Value>) -> Value {
-    json!({"hint": {"path": "N.md", "title": "N"}, "properties": props})
-}
-
-fn file(notes: &[(&str, Value)]) -> Vec<u8> {
-    let map: serde_json::Map<String, Value> = notes
+fn rec(id: &str, props: &[(&str, &str)]) -> Value {
+    let map: serde_json::Map<String, Value> = props
         .iter()
-        .map(|(i, e)| (i.to_string(), e.clone()))
+        .map(|(n, icon)| (n.to_string(), json!({"icon": icon})))
         .collect();
-    let mut b = serde_json::to_vec_pretty(&json!({"version": 1, "notes": map})).unwrap();
-    b.push(b'\n');
-    b
+    json!({"id": id, "hint": {"path": "N.md"}, "props": map})
 }
 
-/// A group of `notes` notes, each with `per` properties named `p<note>-<k>`.
+fn file(recs: &[Value]) -> Vec<u8> {
+    let mut sorted: Vec<&Value> = recs.iter().collect();
+    sorted.sort_by_key(|r| r["id"].as_str().unwrap().to_string());
+    let mut text = String::from("{\"version\":1}\n");
+    for r in sorted {
+        text.push_str(&serde_json::to_string(r).unwrap());
+        text.push('\n');
+    }
+    text.into_bytes()
+}
+
+/// A file of `notes` notes, each with `per` properties named `p<k>`.
 fn big(first: usize, notes: usize, per: usize) -> Vec<u8> {
-    let list: Vec<(String, Value)> = (first..first + notes)
+    let names: Vec<String> = (0..per).map(|k| format!("p{k}")).collect();
+    let recs: Vec<Value> = (first..first + notes)
         .map(|n| {
-            (
-                format!("N{n:04}"),
-                entry(
-                    (0..per)
-                        .map(|k| prop(&format!("p{n}-{k}"), &format!("n{k}"), "📌"))
-                        .collect(),
-                ),
-            )
+            let props: Vec<(&str, &str)> = names.iter().map(|k| (k.as_str(), "📌")).collect();
+            rec(&format!("N{n:04}"), &props)
         })
         .collect();
-    let refs: Vec<(&str, Value)> = list.iter().map(|(i, e)| (i.as_str(), e.clone())).collect();
-    file(&refs)
+    file(&recs)
 }
 
 fn empty() -> Vec<u8> {
     file(&[])
 }
 
-fn parsed(b: &[u8]) -> Value {
-    serde_json::from_slice(b).unwrap()
+fn resolve_group(
+    base: &[u8],
+    local: &[u8],
+    other: &[u8],
+    picks: &BTreeMap<String, Side>,
+    now_local: &[u8],
+    now_other: &[u8],
+) -> Result<Vec<u8>, ResolveError> {
+    resolve(
+        GroupKind::Props,
+        base,
+        local,
+        other,
+        picks,
+        now_local,
+        now_other,
+    )
 }
 
 // ----- З17: resolution -----
@@ -63,11 +74,11 @@ struct Conflicting {
 
 /// A and B conflict, C is changed by `other` only, D by `local` only.
 fn conflicting() -> Conflicting {
-    let e = |icon: &str| entry(vec![prop("P", "Имя", icon)]);
+    let e = |id: &str, icon: &str| rec(id, &[("Имя", icon)]);
     Conflicting {
-        base: file(&[("A", e("0")), ("B", e("0")), ("C", e("0")), ("D", e("0"))]),
-        local: file(&[("A", e("L")), ("B", e("L")), ("C", e("0")), ("D", e("L"))]),
-        other: file(&[("A", e("O")), ("B", e("O")), ("C", e("O")), ("D", e("0"))]),
+        base: file(&[e("A", "0"), e("B", "0"), e("C", "0"), e("D", "0")]),
+        local: file(&[e("A", "L"), e("B", "L"), e("C", "0"), e("D", "L")]),
+        other: file(&[e("A", "O"), e("B", "O"), e("C", "O"), e("D", "0")]),
     }
 }
 
@@ -83,14 +94,15 @@ fn picks(a: Option<Side>, b: Option<Side>) -> BTreeMap<String, Side> {
 }
 
 fn icons(bytes: &[u8]) -> BTreeMap<String, String> {
-    parsed(bytes)["notes"]
-        .as_object()
+    String::from_utf8(bytes.to_vec())
         .unwrap()
-        .iter()
-        .map(|(id, e)| {
+        .lines()
+        .skip(1)
+        .map(|l| {
+            let v: Value = serde_json::from_str(l).unwrap();
             (
-                id.clone(),
-                e["properties"][0]["icon"].as_str().unwrap().to_string(),
+                v["id"].as_str().unwrap().to_string(),
+                v["props"]["Имя"]["icon"].as_str().unwrap().to_string(),
             )
         })
         .collect()
@@ -136,18 +148,17 @@ fn the_other_way_round_gives_the_other_picks() {
 #[test]
 fn a_pick_for_a_deleted_record_removes_it_and_the_result_is_canonical() {
     // З17, З16: deletion against an edit; З8
-    let e = |icon: &str| entry(vec![prop("P", "Имя", icon)]);
-    let base = file(&[("A", e("0")), ("B", e("0"))]);
-    let local = file(&[("B", e("0"))]);
-    let other = file(&[("A", e("O")), ("B", e("0"))]);
+    let e = |id: &str, icon: &str| rec(id, &[("Имя", icon)]);
+    let base = file(&[e("A", "0"), e("B", "0")]);
+    let local = file(&[e("B", "0")]);
+    let other = file(&[e("A", "O"), e("B", "0")]);
     let mut p = BTreeMap::new();
     p.insert("A".to_string(), Side::Local);
     let out = resolve_group(&base, &local, &other, &p, &local, &other).unwrap();
-    assert!(parsed(&out)["notes"].get("A").is_none());
-    assert_eq!(
-        amby_sync_core::engine::props_groups::canonicalize_group(&out).unwrap(),
-        out
-    );
+    assert!(!String::from_utf8(out.clone())
+        .unwrap()
+        .contains("\"id\":\"A\""));
+    assert_eq!(canonicalize_group(GroupKind::Props, &out).unwrap(), out);
 }
 
 #[test]
@@ -183,7 +194,7 @@ fn a_changed_file_or_second_version_makes_the_resolution_stale() {
     // З17 (К4): «пока вы сравнивали, пришла новая версия» — nothing is written
     let c = conflicting();
     let full = picks(Some(Side::Local), Some(Side::Local));
-    let newer = file(&[("A", entry(vec![prop("P", "Имя", "NEW")]))]);
+    let newer = file(&[rec("A", &[("Имя", "NEW")])]);
     assert_eq!(
         resolve_group(&c.base, &c.local, &c.other, &full, &newer, &c.other),
         Err(ResolveError::Stale)
@@ -198,40 +209,28 @@ fn a_changed_file_or_second_version_makes_the_resolution_stale() {
 
 #[test]
 fn only_properties_that_are_gone_count_as_vanishing() {
-    // З32: moved, renamed, restyled and added properties do not vanish
-    let before = file(&[(
-        "A",
-        entry(vec![
-            prop("P1", "a", "1"),
-            prop("P2", "b", "1"),
-            prop("P3", "c", "1"),
-        ]),
-    )]);
-    let reordered_and_changed = file(&[(
-        "A",
-        entry(vec![
-            prop("P3", "c", "9"),
-            prop("P1", "renamed", "1"),
-            prop("P2", "b", "1"),
-            prop("P4", "new", "1"),
-        ]),
-    )]);
-    assert_eq!(vanishing_properties(&before, &reordered_and_changed), 0);
-    let one_gone = file(&[("A", entry(vec![prop("P1", "a", "1"), prop("P3", "c", "1")]))]);
+    // З32, З52: changed differences and a changed order do not vanish; added ones neither
+    let before = file(&[{
+        let mut r = rec("A", &[("a", "1"), ("b", "1"), ("c", "1")]);
+        r["order"] = json!(["a", "b", "c"]);
+        r
+    }]);
+    let restyled = file(&[{
+        let mut r = rec("A", &[("a", "9"), ("b", "1"), ("c", "1"), ("d", "1")]);
+        r["order"] = json!(["c", "b", "a"]);
+        r
+    }]);
+    assert_eq!(vanishing_properties(&before, &restyled), 0);
+    let one_gone = file(&[rec("A", &[("a", "1"), ("c", "1")])]);
     assert_eq!(vanishing_properties(&before, &one_gone), 1);
-    let record_gone = empty();
-    assert_eq!(
-        vanishing_properties(&before, &record_gone),
-        3,
-        "a whole record"
-    );
+    assert_eq!(vanishing_properties(&before, &empty()), 3, "a whole line");
     assert_eq!(vanishing_properties(&before, &[]), 3, "the file is gone");
     assert_eq!(
         vanishing_properties(&[], &before),
         0,
         "a new file loses nothing"
     );
-    assert_eq!(vanishing_properties(b"garbage", &before), 0);
+    assert_eq!(vanishing_properties(b"garbage\n", &before), 0);
 }
 
 fn writes<'a>(items: &'a [(String, Vec<u8>, Vec<u8>)]) -> Vec<GroupWrite<'a>> {
@@ -245,14 +244,18 @@ fn writes<'a>(items: &'a [(String, Vec<u8>, Vec<u8>)]) -> Vec<GroupWrite<'a>> {
         .collect()
 }
 
-/// `n` groups, each with one note of two properties, and the same groups with `lose` of them
+/// `n` files, each with one note of two properties, and the same files with `lose` of them
 /// emptied: a pass that makes `lose * 2` properties vanish.
 fn pass_of(groups: usize, lose: usize) -> Vec<(String, Vec<u8>, Vec<u8>)> {
     (0..groups)
         .map(|g| {
             let before = big(g, 1, 2);
             let after = if g < lose { empty() } else { before.clone() };
-            (format!(".amby/properties/{g:02x}.json"), before, after)
+            (
+                format!(".amby/properties/prop_{:x}.jsonl", g % 16),
+                before,
+                after,
+            )
         })
         .collect()
 }
@@ -261,7 +264,7 @@ fn pass_of(groups: usize, lose: usize) -> Vec<(String, Vec<u8>, Vec<u8>)> {
 fn twenty_one_of_two_hundred_properties_stop_the_pass_and_nineteen_do_not() {
     // З32 (пороги Д54): the numbers of the plan, on groups
     let one = vec![(
-        ".amby/properties/aa.json".to_string(),
+        ".amby/properties/prop_a.jsonl".to_string(),
         big(0, 200, 1),
         big(0, 179, 1),
     )];
@@ -273,7 +276,7 @@ fn twenty_one_of_two_hundred_properties_stop_the_pass_and_nineteen_do_not() {
         })
     );
     let nineteen = vec![(
-        ".amby/properties/aa.json".to_string(),
+        ".amby/properties/prop_a.jsonl".to_string(),
         big(0, 200, 1),
         big(0, 181, 1),
     )];
@@ -283,7 +286,7 @@ fn twenty_one_of_two_hundred_properties_stop_the_pass_and_nineteen_do_not() {
         "fewer than twenty"
     );
     let too_few_of_many = vec![(
-        ".amby/properties/aa.json".to_string(),
+        ".amby/properties/prop_a.jsonl".to_string(),
         big(0, 200, 1),
         big(0, 179, 1),
     )];
@@ -293,7 +296,7 @@ fn twenty_one_of_two_hundred_properties_stop_the_pass_and_nineteen_do_not() {
         "21 of 1000 is not more than 10%"
     );
     let twenty = vec![(
-        ".amby/properties/aa.json".to_string(),
+        ".amby/properties/prop_a.jsonl".to_string(),
         big(0, 200, 1),
         big(0, 180, 1),
     )];
@@ -339,7 +342,7 @@ fn a_one_sided_replacement_of_every_group_is_a_loss() {
         .map(|g| {
             let after = if g % 2 == 0 { empty() } else { Vec::new() };
             (
-                format!(".amby/properties/{g:02x}.json"),
+                format!(".amby/properties/prop_{:x}.jsonl", g % 16),
                 big(g, 1, 1),
                 after,
             )
@@ -360,7 +363,7 @@ fn nothing_vanishing_never_stops_a_pass() {
     let items: Vec<(String, Vec<u8>, Vec<u8>)> = (0..100)
         .map(|g| {
             (
-                format!(".amby/properties/{g:02x}.json"),
+                format!(".amby/properties/prop_{:x}.jsonl", g % 16),
                 big(g, 1, 1),
                 big(g, 1, 3),
             )

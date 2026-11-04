@@ -13,6 +13,10 @@ fn old_prop(id: &str, name: &str, icon: &str, value: &str) -> Value {
     json!({"id": id, "name": name, "icon": icon, "propertyType": "text", "value": value, "settings": ""})
 }
 
+fn old_full(id: &str, name: &str, ty: &str, value: &str, settings: &str) -> Value {
+    json!({"id": id, "name": name, "icon": "📌", "propertyType": ty, "value": value, "settings": settings})
+}
+
 fn write_old(fx: &Fx, notes: &[(&str, Vec<Value>)]) {
     let map: serde_json::Map<String, Value> = notes
         .iter()
@@ -28,14 +32,14 @@ fn write_old(fx: &Fx, notes: &[(&str, Vec<Value>)]) {
 fn migrated() -> Fx {
     let fx = fx_old();
     for n in 1..=3 {
-        fx.note(&id(n), &format!("n{n}.md"), "Статус: Готово\n");
+        fx.note(&id(n), &format!("n{n}.md"), "Заказчик: Готово\n");
     }
     write_old(
         &fx,
         &[
-            (&id(1), vec![old_prop("P1", "Статус", "📌", "Готово")]),
-            (&id(2), vec![old_prop("P2", "Статус", "📌", "Готово")]),
-            (&id(3), vec![old_prop("P3", "Статус", "📌", "Готово")]),
+            (&id(1), vec![old_prop("P1", "Заказчик", "📌", "Готово")]),
+            (&id(2), vec![old_prop("P2", "Заказчик", "📌", "Готово")]),
+            (&id(3), vec![old_prop("P3", "Заказчик", "📌", "Готово")]),
         ],
     );
     run(
@@ -52,7 +56,10 @@ fn migrated() -> Fx {
 }
 
 fn icon_of(fx: &Fx, note: &str) -> String {
-    fx.designs(note)[0]["icon"].as_str().unwrap().to_string()
+    fx.props(note)["Заказчик"]["icon"]
+        .as_str()
+        .unwrap()
+        .to_string()
 }
 
 #[test]
@@ -76,12 +83,12 @@ fn an_edit_of_an_old_version_is_carried_to_the_group_without_values_and_the_owne
             (
                 &id(1),
                 vec![
-                    old_prop("P1", "Статус", "🔥", "ЧУЖОЕ"),
+                    old_prop("P1", "Заказчик", "🔥", "ЧУЖОЕ"),
                     old_prop("P9", "Новое", "⭐", "v"),
                 ],
             ),
-            (&id(2), vec![old_prop("P2", "Статус", "📌", "Готово")]),
-            (&id(3), vec![old_prop("P3", "Статус", "📌", "Готово")]),
+            (&id(2), vec![old_prop("P2", "Заказчик", "📌", "Готово")]),
+            (&id(3), vec![old_prop("P3", "Заказчик", "📌", "Готово")]),
         ],
     );
     assert!(properties_json_changed(&fx.vault).unwrap());
@@ -89,14 +96,10 @@ fn an_edit_of_an_old_version_is_carried_to_the_group_without_values_and_the_owne
     assert_eq!(report.transferred, vec![id(1)]);
     assert!(report.conflicts.is_empty());
     assert_eq!(icon_of(&fx, &id(1)), "🔥");
-    let names: Vec<String> = fx
-        .designs(&id(1))
-        .iter()
-        .map(|d| d["name"].as_str().unwrap().to_string())
-        .collect();
-    assert_eq!(names, vec!["Статус", "Новое"]);
+    assert_eq!(fx.prop_names(&id(1)), vec!["Заказчик", "Новое"]);
+    let text = String::from_utf8(fx.group_bytes(&id(1)).unwrap()).unwrap();
     assert!(
-        fx.designs(&id(1)).iter().all(|d| d.get("value").is_none()),
+        !text.contains("ЧУЖОЕ") && !text.contains("value"),
         "values are never carried"
     );
     assert_eq!(
@@ -122,10 +125,10 @@ fn a_change_of_only_a_value_in_the_old_file_carries_nothing() {
         &[
             (
                 &id(1),
-                vec![old_prop("P1", "Статус", "📌", "СОВСЕМ ДРУГОЕ")],
+                vec![old_prop("P1", "Заказчик", "📌", "СОВСЕМ ДРУГОЕ")],
             ),
-            (&id(2), vec![old_prop("P2", "Статус", "📌", "Готово")]),
-            (&id(3), vec![old_prop("P3", "Статус", "📌", "Готово")]),
+            (&id(2), vec![old_prop("P2", "Заказчик", "📌", "Готово")]),
+            (&id(3), vec![old_prop("P3", "Заказчик", "📌", "Готово")]),
         ],
     );
     let before = fx.snapshot();
@@ -147,13 +150,13 @@ fn the_same_difference_is_not_carried_a_second_time_over_newer_local_edits() {
     write_old(
         &fx,
         &[
-            (&id(1), vec![old_prop("P1", "Статус", "🔥", "Готово")]),
-            (&id(2), vec![old_prop("P2", "Статус", "📌", "Готово")]),
-            (&id(3), vec![old_prop("P3", "Статус", "📌", "Готово")]),
+            (&id(1), vec![old_prop("P1", "Заказчик", "🔥", "Готово")]),
+            (&id(2), vec![old_prop("P2", "Заказчик", "📌", "Готово")]),
+            (&id(3), vec![old_prop("P3", "Заказчик", "📌", "Готово")]),
         ],
     );
     check_old_version_edits(&fx.conn, &fx.vault).unwrap();
-    set_appearance(&fx.conn, &fx.vault, &id(1), "P1", "⭐", "").unwrap();
+    set_appearance(&fx.conn, &fx.vault, &id(1), "Заказчик", "⭐", "").unwrap();
     // the same old file is looked at again
     let again = check_old_version_edits(&fx.conn, &fx.vault).unwrap();
     assert_eq!(again, LegacyReport::default());
@@ -167,13 +170,13 @@ fn a_computer_without_the_local_memo_does_not_carry_the_same_difference_again() 
     write_old(
         &fx,
         &[
-            (&id(1), vec![old_prop("P1", "Статус", "🔥", "Готово")]),
-            (&id(2), vec![old_prop("P2", "Статус", "📌", "Готово")]),
-            (&id(3), vec![old_prop("P3", "Статус", "📌", "Готово")]),
+            (&id(1), vec![old_prop("P1", "Заказчик", "🔥", "Готово")]),
+            (&id(2), vec![old_prop("P2", "Заказчик", "📌", "Готово")]),
+            (&id(3), vec![old_prop("P3", "Заказчик", "📌", "Готово")]),
         ],
     );
     check_old_version_edits(&fx.conn, &fx.vault).unwrap();
-    set_appearance(&fx.conn, &fx.vault, &id(1), "P1", "⭐", "").unwrap();
+    set_appearance(&fx.conn, &fx.vault, &id(1), "Заказчик", "⭐", "").unwrap();
     let second = fx.copy_to_second_device(&[".amby/migrations/"]);
     let before = second.snapshot();
     let report = check_old_version_edits(&second.conn, &second.vault).unwrap();
@@ -192,13 +195,13 @@ fn an_edit_here_and_an_edit_there_of_one_note_is_a_conflict_with_two_choices() {
     // З22, З.7-3, З36
     for choice in [LegacyChoice::KeepHere, LegacyChoice::TakeOld] {
         let fx = migrated();
-        set_appearance(&fx.conn, &fx.vault, &id(1), "P1", "⭐", "").unwrap();
+        set_appearance(&fx.conn, &fx.vault, &id(1), "Заказчик", "⭐", "").unwrap();
         write_old(
             &fx,
             &[
-                (&id(1), vec![old_prop("P1", "Статус", "🔥", "Готово")]),
-                (&id(2), vec![old_prop("P2", "Статус", "📌", "Готово")]),
-                (&id(3), vec![old_prop("P3", "Статус", "📌", "Готово")]),
+                (&id(1), vec![old_prop("P1", "Заказчик", "🔥", "Готово")]),
+                (&id(2), vec![old_prop("P2", "Заказчик", "📌", "Готово")]),
+                (&id(3), vec![old_prop("P3", "Заказчик", "📌", "Готово")]),
             ],
         );
         let before = fx.group_bytes(&id(1));
@@ -228,35 +231,35 @@ fn an_edit_here_and_an_edit_there_of_one_note_is_a_conflict_with_two_choices() {
 #[test]
 fn a_property_deleted_by_the_old_version_is_deleted_here_and_a_property_deleted_here_stays_deleted()
 {
-    // З36: the tombstone — an empty list with a mark is kept
+    // З53: no tombstone line; the mark in `legacy_<x>.jsonl` is what stops the revival
     let fx = migrated();
-    // here: the owner deletes the property of note 2
-    delete_property(&fx.conn, &fx.vault, &id(2), "P2").unwrap();
-    let entry = read_entry(&fx.vault, &id(2))
-        .unwrap()
-        .expect("the tombstone is kept");
-    assert!(entry.properties.is_empty() && entry.legacy.is_some());
+    // here: the owner deletes the only property of note 2
+    delete_property(&fx.conn, &fx.vault, &id(2), "Заказчик").unwrap();
+    assert!(
+        read_entry(&fx.vault, &id(2)).unwrap().is_none(),
+        "no empty line"
+    );
+    assert!(
+        read_mark(&fx.vault, &id(2)).unwrap().is_some(),
+        "the mark stays"
+    );
     assert_eq!(
         check_old_version_edits(&fx.conn, &fx.vault).unwrap(),
         LegacyReport::default(),
         "properties.json still has it: it must not come back"
     );
-    assert!(read_entry(&fx.vault, &id(2))
-        .unwrap()
-        .unwrap()
-        .properties
-        .is_empty());
+    assert!(read_entry(&fx.vault, &id(2)).unwrap().is_none());
     // there: the old version removes the whole record of note 3
     write_old(
         &fx,
         &[
-            (&id(1), vec![old_prop("P1", "Статус", "📌", "Готово")]),
-            (&id(2), vec![old_prop("P2", "Статус", "📌", "Готово")]),
+            (&id(1), vec![old_prop("P1", "Заказчик", "📌", "Готово")]),
+            (&id(2), vec![old_prop("P2", "Заказчик", "📌", "Готово")]),
         ],
     );
     let report = check_old_version_edits(&fx.conn, &fx.vault).unwrap();
     assert_eq!(report.transferred, vec![id(3)]);
-    assert!(fx.designs(&id(3)).is_empty());
+    assert!(fx.line(&id(3)).is_none());
 }
 
 #[test]
@@ -269,9 +272,9 @@ fn a_note_added_by_the_old_version_after_the_migration_is_carried_or_is_a_confli
     write_old(
         &fx,
         &[
-            (&id(1), vec![old_prop("P1", "Статус", "📌", "Готово")]),
-            (&id(2), vec![old_prop("P2", "Статус", "📌", "Готово")]),
-            (&id(3), vec![old_prop("P3", "Статус", "📌", "Готово")]),
+            (&id(1), vec![old_prop("P1", "Заказчик", "📌", "Готово")]),
+            (&id(2), vec![old_prop("P2", "Заказчик", "📌", "Готово")]),
+            (&id(3), vec![old_prop("P3", "Заказчик", "📌", "Готово")]),
             (&id(4), vec![old_prop("P4", "Чужое", "📌", "v")]),
             (&id(5), vec![old_prop("P5", "Чужое", "📌", "v")]),
         ],
@@ -279,7 +282,7 @@ fn a_note_added_by_the_old_version_after_the_migration_is_carried_or_is_a_confli
     let report = check_old_version_edits(&fx.conn, &fx.vault).unwrap();
     assert_eq!(report.transferred, vec![id(4)]);
     assert_eq!(report.conflicts, vec![LegacyConflict { note_id: id(5) }]);
-    assert_eq!(fx.designs(&id(4))[0]["name"], "Чужое");
+    assert_eq!(fx.prop_names(&id(4)), vec!["Чужое"]);
 }
 
 #[test]
@@ -304,7 +307,7 @@ fn the_sync_screen_warns_with_the_sentence_of_the_owner_while_an_old_version_wri
     assert_eq!(sync_screen_warning(&fx.vault).unwrap(), None);
     write_old(
         &fx,
-        &[(&id(1), vec![old_prop("P1", "Статус", "🔥", "Готово")])],
+        &[(&id(1), vec![old_prop("P1", "Заказчик", "🔥", "Готово")])],
     );
     let warning = sync_screen_warning(&fx.vault)
         .unwrap()
@@ -313,5 +316,73 @@ fn the_sync_screen_warns_with_the_sentence_of_the_owner_while_an_old_version_wri
     assert_eq!(
         OLD_VERSION_WARNING,
         "На устройствах со старой версией Amby не меняйте свойства — она может вернуть прежние значения"
+    );
+}
+
+#[test]
+fn the_marks_hold_the_hashes_and_a_note_without_a_line_has_a_mark_with_32_zeros() {
+    // З53: `entry` — BLAKE3 of the old record without `value`; `record` — BLAKE3 of the canonical
+    // line without `hint` and `dismissedRenames`, or 32 zeros (64 hex) when there is no line
+    let (_, names) = crate::property_template::all()
+        .into_iter()
+        .find(|(p, _)| p.property_type == "select")
+        .unwrap();
+    let name = names[0].1.clone();
+    let found = crate::property_template::lookup(&name).unwrap();
+    let fx = fx_old();
+    fx.note(&id(1), "n1.md", "Заказчик: Готово\n");
+    fx.note(&id(2), "n2.md", &format!("{name}: x\n"));
+    write_old(
+        &fx,
+        &[
+            (&id(1), vec![old_prop("P1", "Заказчик", "📌", "Готово")]),
+            (
+                &id(2),
+                vec![old_full(
+                    "P2",
+                    &name,
+                    &found.property_type,
+                    "x",
+                    &found.settings,
+                )],
+            ),
+        ],
+    );
+    let mut template_icon = old_full("P2", &name, &found.property_type, "x", &found.settings);
+    template_icon["icon"] = serde_json::json!(found.icon);
+    write_old(
+        &fx,
+        &[
+            (&id(1), vec![old_prop("P1", "Заказчик", "📌", "Готово")]),
+            (&id(2), vec![template_icon]),
+        ],
+    );
+    run(
+        &fx.conn,
+        &fx.vault,
+        &Decisions {
+            confirmed: true,
+            ..Decisions::default()
+        },
+        &Context::default(),
+    )
+    .unwrap();
+    let with_line = read_mark(&fx.vault, &id(1))
+        .unwrap()
+        .expect("a mark for every migrated note");
+    let without_line = read_mark(&fx.vault, &id(2))
+        .unwrap()
+        .expect("also for a note with nothing to store");
+    for hash in [&with_line.entry, &with_line.record, &without_line.entry] {
+        assert!(
+            hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit()),
+            "{hash}"
+        );
+    }
+    assert_eq!(without_line.record, "0".repeat(64));
+    assert_ne!(with_line.record, "0".repeat(64));
+    assert!(
+        fx.line(&id(2)).is_none(),
+        "everything is as in the template: no line"
     );
 }
