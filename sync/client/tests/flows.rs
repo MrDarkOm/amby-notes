@@ -636,7 +636,7 @@ async fn a_wrong_old_password_is_found_before_anything_is_sent() {
             Canned::json(
                 200,
                 &format!(
-                    r#"{{"keys_version":3,"salt":"{}","params":{{"memory_kib":19456,"iterations":2,"parallelism":1}},"wrapped_ak":"{}","wrapped_ak_recovery":"{}"}}"#,
+                    r#"{{"keys_version":3,"salt":"{}","params":{{"memory_kib":65536,"iterations":3,"parallelism":4}},"wrapped_ak":"{}","wrapped_ak_recovery":"{}"}}"#,
                     "00".repeat(16),
                     "00".repeat(73),
                     "00".repeat(73)
