@@ -4,9 +4,7 @@
 //! records, the result is canonical. Red until `props_groups` is written (`todo!()` today).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use amby_sync_core::engine::props_groups::{
-    canonicalize_group, merge_group, GroupKind, GroupMergeOutcome,
-};
+use amby_sync_core::engine::props_groups::{merge_group, GroupKind, GroupMergeOutcome};
 use proptest::prelude::*;
 use serde_json::{json, Map, Value};
 
@@ -138,8 +136,10 @@ proptest! {
         match (model(&b, &l, &r), merge_group(GroupKind::Props, &base, &lb, &rb)) {
             (Ok(expected), GroupMergeOutcome::Clean(out)) => {
                 prop_assert_eq!(lines(&out), lines(&bytes(&expected, true)));
-                let header: &[u8] = b"{\"version\":1}";
-                prop_assert!(out.starts_with(header));
+                // the first line is compared by meaning: a short path returns the bytes of a side (З52)
+                let first = String::from_utf8(out).unwrap();
+                let first: Value = serde_json::from_str(first.lines().next().unwrap()).unwrap();
+                prop_assert_eq!(first, json!({"version": 1}));
             }
             (Err(ids), GroupMergeOutcome::Conflict(found)) => {
                 prop_assert_eq!(found.notes, ids);
@@ -166,13 +166,29 @@ proptest! {
     }
 
     #[test]
-    fn a_clean_result_is_canonical_and_idempotent((b, l, r) in triple()) {
-        // З8, Ж.8 (е, ж): the app reads it and writes the same bytes
+    fn every_line_of_a_clean_result_is_a_line_of_a_version_or_canonical((b, l, r) in triple()) {
+        // З49, З52, Ж.8 (е, ж): a line carried over keeps the bytes of its side; a line made anew
+        // is canonical (compact, keys ascending)
         let (base, lb, rb) = (bytes(&b, true), bytes(&l, false), bytes(&r, true));
         if let GroupMergeOutcome::Clean(out) = merge_group(GroupKind::Props, &base, &lb, &rb) {
-            if lines(&lb) != lines(&base) && lines(&rb) != lines(&base) && lines(&lb) != lines(&rb) {
-                prop_assert_eq!(canonicalize_group(GroupKind::Props, &out).unwrap(), out);
+            let sources: Vec<String> = [&base, &lb, &rb]
+                .iter()
+                .flat_map(|f| String::from_utf8_lossy(f).lines().skip(1).map(str::to_string).collect::<Vec<_>>())
+                .collect();
+            for l in String::from_utf8(out).unwrap().lines().skip(1) {
+                let canonical = serde_json::to_string(&serde_json::from_str::<Value>(l).unwrap()).unwrap();
+                prop_assert!(sources.iter().any(|s| s == l) || l == canonical, "{}", l);
             }
         }
+    }
+
+    #[test]
+    fn the_bytes_do_not_depend_on_the_side_when_the_formatting_differs((b, l, r) in triple()) {
+        // З52, Ж.8 (г): merge(b,l,r) == merge(b,r,l) byte for byte, with sides written differently
+        let (base, lb, rb) = (bytes(&b, false), bytes(&l, true), bytes(&r, false));
+        prop_assert_eq!(
+            merge_group(GroupKind::Props, &base, &lb, &rb),
+            merge_group(GroupKind::Props, &base, &rb, &lb)
+        );
     }
 }

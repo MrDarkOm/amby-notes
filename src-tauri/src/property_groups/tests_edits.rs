@@ -22,6 +22,17 @@ fn header_has(fx: &Fx, key: &str) -> bool {
         .any(|line| line.starts_with(&format!("{key}:")))
 }
 
+/// The order the panel shows (З47): the header's, or `order`.
+fn panel_names(fx: &Fx, note: &str) -> Vec<String> {
+    panel(&fx.conn, &fx.vault, note)
+        .unwrap()
+        .active
+        .iter()
+        .map(|p| p.name.clone())
+        .collect()
+}
+
+/// The names that have differences in the line: a set, ascending (the order of the line means nothing).
 fn names(fx: &Fx, note: &str) -> Vec<String> {
     fx.prop_names(note)
 }
@@ -82,9 +93,9 @@ fn creation_puts_the_key_into_the_header_and_the_design_into_the_group() {
     create_property(&fx.conn, &fx.vault, &note, design("Автор"), "я").unwrap();
     assert!(fx.read("N.md").contains("Автор: я"));
     assert_eq!(
-        names(&fx, &note),
+        panel_names(&fx, &note),
         vec!["Заказчик", "Автор"],
-        "appended to the order"
+        "appended to the order of the header"
     );
     assert!(ops_files(&fx).is_empty());
 }
@@ -101,7 +112,10 @@ fn a_name_is_unique_in_a_note_apart_from_the_ascii_case() {
     assert_eq!(fx.snapshot(), before);
     create_property(&fx.conn, &fx.vault, &note, design("Заказчик"), "").unwrap();
     create_property(&fx.conn, &fx.vault, &note, design("статус"), "").unwrap();
-    assert_eq!(names(&fx, &note), vec!["Status", "Заказчик", "статус"]);
+    assert_eq!(
+        panel_names(&fx, &note),
+        vec!["Status", "Заказчик", "статус"]
+    );
 }
 
 // ----- З28: refusal before the first write -----

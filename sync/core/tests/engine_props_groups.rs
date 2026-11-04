@@ -176,7 +176,7 @@ fn ids_with_the_same_time_prefix_spread_over_the_sixteen_groups() {
         same_time.insert(group_of(&format!("01JABCDEFG{n:016}")));
     }
     assert_eq!(same_time.len(), GROUP_COUNT);
-    let mut counts = vec![0usize; GROUP_COUNT];
+    let mut counts = [0usize; GROUP_COUNT];
     for n in 0..100_000u32 {
         let g = group_of(&format!("01JABCDE{n:018}"));
         counts[usize::from_str_radix(&g, 16).unwrap()] += 1;

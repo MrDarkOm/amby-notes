@@ -96,7 +96,13 @@ fn an_edit_of_an_old_version_is_carried_to_the_group_without_values_and_the_owne
     assert_eq!(report.transferred, vec![id(1)]);
     assert!(report.conflicts.is_empty());
     assert_eq!(icon_of(&fx, &id(1)), "🔥");
-    assert_eq!(fx.prop_names(&id(1)), vec!["Заказчик", "Новое"]);
+    let mut carried = fx.prop_names(&id(1));
+    carried.sort();
+    assert_eq!(
+        carried,
+        vec!["Заказчик", "Новое"],
+        "a set: the order of the line means nothing"
+    );
     let text = String::from_utf8(fx.group_bytes(&id(1)).unwrap()).unwrap();
     assert!(
         !text.contains("ЧУЖОЕ") && !text.contains("value"),

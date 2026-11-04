@@ -658,8 +658,12 @@ fn a_property_equal_to_the_template_gives_no_line_in_any_language() {
         assert!(
             fx.files_under(".amby/properties/")
                 .iter()
-                .all(|f| f.ends_with("layout.json")),
-            "{name}"
+                .all(|f| !f.contains("/prop_")),
+            "{name}: no file of differences"
+        );
+        assert!(
+            read_mark(&fx.vault, &id(1)).unwrap().is_some(),
+            "{name}: the migrated note has its mark (З53)"
         );
     }
 }
