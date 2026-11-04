@@ -16,7 +16,7 @@ use super::{Design, Diff, NoteEntry};
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub const LAYOUT_V1: &str =
-    "{\n  \"version\": 1,\n  \"groups\": 256,\n  \"hash\": \"blake3-first-byte\"\n}\n";
+    "{\"groups\":16,\"hash\":\"blake3-first-hex\",\"template\":1,\"version\":1}\n";
 
 /// A valid note id (a canonical ULID): `id(1)`, `id(2)`, …
 pub fn id(n: u32) -> String {
