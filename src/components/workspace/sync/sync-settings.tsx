@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Laptop, LogOut, RefreshCw, UserRound, ShieldCheck } from "lucide-react"
+import { KeyRound, Laptop, LogOut, RefreshCw, UserRound, ShieldCheck } from "lucide-react"
 
 import { isAmbyServer } from "@/lib/sync/amby-server"
 import { Button } from "@/components/ui/button"
@@ -13,7 +13,7 @@ import {
   type SyncPort,
   type SyncStatus,
 } from "@/lib/sync/sync-port"
-import { ChangePassword } from "./change-password"
+import { ChangePasswordForm } from "./change-password"
 import { AccountStorage } from "./account-storage"
 import { ConnectWizard } from "./connect-wizard"
 import { useVaultStore } from "../use-vault-store"
@@ -39,6 +39,8 @@ export function SyncSettings({ port: given, vault: givenVault }: SyncSettingsPro
   const [notice, setNotice] = React.useState<string | null>(null)
   const [confirming, setConfirming] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
+  const [changing, setChanging] = React.useState(false)
+  const [passwordChanged, setPasswordChanged] = React.useState(false)
   const working = React.useRef(false)
   const unavailable = port === unavailableSyncPort
 
@@ -186,37 +188,68 @@ export function SyncSettings({ port: given, vault: givenVault }: SyncSettingsPro
   }
 
   const renderAccountHeader = (syncControl: React.ReactNode) => (
-    <section className="sync-account-strip">
-      <div className="sync-account-avatar">
-        <UserRound className="size-4" aria-hidden="true" />
-      </div>
-      <div className="sync-account-identity">
-        <div className="sync-account-heading">
-          <h2>{status.username}</h2>
+    <>
+      <section className="sync-account-strip">
+        <div className="sync-account-avatar">
+          <UserRound className="size-4" aria-hidden="true" />
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="sync-account-signout"
-          title={t("sync.connected.signOutHint")}
-          aria-label={t("sync.connected.signOut")}
-          disabled={busy}
-          onClick={() => void signOut()}
-        >
-          <LogOut />
-          {t("sync.layout.signOut")}
-        </Button>
-      </div>
-      <div className="sync-account-connection">
-        <p className="sync-account-server">
-          {t(isAmbyServer(status.serverUrl) ? "sync.connected.toAmby" : "sync.connected.to", {
-            host: status.host ?? status.serverUrl ?? "",
-          })}
+        <div className="sync-account-identity">
+          <div className="sync-account-heading">
+            <h2>{status.username}</h2>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            aria-expanded={changing}
+            onClick={() => {
+              setPasswordChanged(false)
+              setChanging(true)
+            }}
+          >
+            <KeyRound />
+            {t("sync.changePassword.open")}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="sync-account-signout"
+            title={t("sync.connected.signOutHint")}
+            aria-label={t("sync.connected.signOut")}
+            disabled={busy}
+            onClick={() => void signOut()}
+          >
+            <LogOut />
+            {t("sync.layout.signOut")}
+          </Button>
+        </div>
+        <div className="sync-account-connection">
+          <p className="sync-account-server">
+            {t(isAmbyServer(status.serverUrl) ? "sync.connected.toAmby" : "sync.connected.to", {
+              host: status.host ?? status.serverUrl ?? "",
+            })}
+          </p>
+          {syncControl}
+        </div>
+      </section>
+      {passwordChanged && (
+        <p role="status" className="text-[12px] text-muted-foreground">
+          {t("sync.changePassword.done")}
         </p>
-        {syncControl}
-      </div>
-    </section>
+      )}
+      {changing && (
+        <ChangePasswordForm
+          port={port}
+          username={status.username ?? ""}
+          onClose={(changed) => {
+            setChanging(false)
+            setPasswordChanged(changed)
+          }}
+        />
+      )}
+    </>
   )
 
   return (
@@ -236,8 +269,6 @@ export function SyncSettings({ port: given, vault: givenVault }: SyncSettingsPro
 
       <div className="sync-settings-sections">
         <AccountStorage port={port} revision={storageRevision} />
-
-        <ChangePassword port={port} username={status.username ?? ""} />
 
         <section className="sync-section sync-devices">
           <div className="sync-devices-heading">
