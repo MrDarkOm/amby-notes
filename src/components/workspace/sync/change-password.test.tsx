@@ -7,8 +7,8 @@ import { SyncPortError } from "@/lib/sync/sync-port"
 import { SyncSettings } from "./sync-settings"
 import { CONNECTED, createFakePort, type FakePort } from "./fake-sync-port"
 
-const OLD = "correct horse battery staple 42"
-const STRONG = "a brand new phrase about owls 77"
+const OLD = "Correct-Horse-Battery-Staple-42!"
+const STRONG = "A-Brand-New-Phrase-About-Owls-77!"
 
 async function connected(overrides: Partial<Parameters<typeof createFakePort>[0]> = {}) {
   const port = createFakePort({ status: async () => CONNECTED, ...overrides })

@@ -14,7 +14,7 @@ import {
 } from "./fake-sync-port"
 
 const SERVER = "https://sync.example.com"
-const STRONG = "correct horse battery staple 42"
+const STRONG = "Correct-Horse-Battery-Staple-42!"
 
 function type(label: string, value: string) {
   fireEvent.change(screen.getByLabelText(label), { target: { value } })
@@ -225,7 +225,7 @@ describe("the connect wizard", () => {
       click("Создать учётную запись")
       await fillCreateForm("password12345678")
       await waitFor(() =>
-        expect(screen.getByTestId("password-strength").textContent).toMatch(/Слабый пароль/),
+        expect(screen.getByTestId("password-strength").textContent).toMatch(/^Нужно: /),
       )
       expect(button("Продолжить").disabled).toBe(true)
       click("Продолжить")
@@ -711,7 +711,7 @@ describe("the connect wizard", () => {
       type("Новый пароль", "password12345678")
       type("Повторите новый пароль", "password12345678")
       await waitFor(() =>
-        expect(screen.getByTestId("password-strength").textContent).toMatch(/Слабый/),
+        expect(screen.getByTestId("password-strength").textContent).toMatch(/^Нужно: /),
       )
       expect(button("Восстановить доступ").disabled).toBe(true)
     })

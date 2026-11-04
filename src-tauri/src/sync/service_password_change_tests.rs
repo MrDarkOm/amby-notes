@@ -13,8 +13,8 @@ use super::service::{PrepareRequest, RecoverRequest, SignInRequest};
 use super::test_support::{endpoint_of, Device, LogCapture};
 use super::types::SyncError;
 
-const PASSWORD: &str = "correct horse battery staple 42";
-const NEW_PASSWORD: &str = "a brand new password about owls 77";
+const PASSWORD: &str = "Correct-Horse-Battery-Staple-42!";
+const NEW_PASSWORD: &str = "A-Brand-New-Phrase-About-Owls-77!";
 
 struct Created {
     username: String,
@@ -190,7 +190,7 @@ async fn a_changed_password_works_everywhere_and_this_device_keeps_what_it_store
             endpoint: endpoint_of(&target),
             username: created.username.clone(),
             recovery_code: created.recovery_code.clone(),
-            new_password: "recovered after change 1234".to_string(),
+            new_password: "Recovered-After-Change-1234!".to_string(),
             device_name: "Mac E".to_string(),
         })
         .await
@@ -256,7 +256,7 @@ async fn a_second_change_after_another_device_changed_the_password_still_works()
         .unwrap();
     second
         .service
-        .change_password(NEW_PASSWORD, "yet another owl password 9")
+        .change_password(NEW_PASSWORD, "Yet-Another-Owl-Phrase-9!")
         .await
         .unwrap();
 }

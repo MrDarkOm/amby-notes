@@ -2464,6 +2464,11 @@ minLength: number;
  */
 tooShort: boolean; 
 /**
+ * What the password lacks, in the fixed order `length`, `lowercase`, `uppercase`, `digit`,
+ * `symbol`.
+ */
+missing: string[]; 
+/**
  * A machine name of the main weakness found (`zxcvbn` warning), if any.
  */
 warning: string | null; 

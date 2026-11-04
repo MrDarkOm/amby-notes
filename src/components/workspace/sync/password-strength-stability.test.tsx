@@ -7,8 +7,8 @@ import { ConnectWizard } from "./connect-wizard"
 import { SyncSettings } from "./sync-settings"
 import { CONNECTED, createFakePort } from "./fake-sync-port"
 
-const OLD = "correct horse battery staple 42"
-const STRONG = "a brand new phrase about owls 77"
+const OLD = "Correct-Horse-Battery-Staple-42!"
+const STRONG = "A-Brand-New-Phrase-About-Owls-77!"
 const NEXT = `${STRONG}8`
 
 const good: PasswordCheck = {
@@ -17,6 +17,7 @@ const good: PasswordCheck = {
   length: 33,
   minLength: 12,
   tooShort: false,
+  missing: [],
   warning: null,
   suggestions: [],
 }

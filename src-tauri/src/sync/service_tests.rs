@@ -14,8 +14,8 @@ use super::service::{PrepareRequest, RecoverRequest, SignInRequest};
 use super::test_support::{endpoint_of, Device, LogCapture};
 use super::types::{Endpoint, PreparedAccountView, SyncError};
 
-const PASSWORD: &str = "correct horse battery staple 42";
-const NEW_PASSWORD: &str = "a brand new password about owls 77";
+const PASSWORD: &str = "Correct-Horse-Battery-Staple-42!";
+const NEW_PASSWORD: &str = "A-Brand-New-Phrase-About-Owls-77!";
 
 fn prepare_request(target: &Target, username: &str, code: &str, device: &str) -> PrepareRequest {
     PrepareRequest {
@@ -1120,4 +1120,25 @@ async fn another_invitation_code_needs_a_prepared_account() {
         device.service.set_enroll_code("AAAA").unwrap_err().code,
         "no_pending_account"
     );
+}
+
+#[tokio::test]
+async fn signing_in_does_not_apply_the_rule_of_new_passwords() {
+    // Р5: an existing password that would not pass today is not refused by the application; the
+    // server answers, not `weak_password`
+    let target = Target::from_env();
+    let device = Device::new();
+    for password in ["password", "short", ""] {
+        assert_eq!(
+            code_of(device.service.sign_in(sign_in_request(
+                &target,
+                "nobody-here",
+                password,
+                "Mac B"
+            )))
+            .await,
+            "invalid_credentials",
+            "{password:?}"
+        );
+    }
 }

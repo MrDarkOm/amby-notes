@@ -107,6 +107,9 @@ pub struct PasswordCheck {
     pub min_length: u32,
     /// The password is shorter than the least length.
     pub too_short: bool,
+    /// What the password lacks, in the fixed order `length`, `lowercase`, `uppercase`, `digit`,
+    /// `symbol`.
+    pub missing: Vec<String>,
     /// A machine name of the main weakness found (`zxcvbn` warning), if any.
     pub warning: Option<String>,
     /// Machine names of the advice of `zxcvbn`.

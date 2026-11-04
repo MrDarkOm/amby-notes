@@ -72,6 +72,7 @@ pub fn check_password(password: &str, user_inputs: &[&str]) -> PasswordCheck {
         length: u32::try_from(length).unwrap_or(u32::MAX),
         min_length: MIN_PASSWORD_LENGTH as u32,
         too_short,
+        missing: Vec::new(),
         warning: feedback
             .and_then(|feedback| feedback.warning())
             .map(|warning| warning_name(warning).to_string()),
