@@ -264,6 +264,39 @@ pub fn set_value(
     Ok(())
 }
 
+/// Writes a list as the value of a multi-select: the items as they are, one YAML item each, never
+/// glued with commas (З62).
+pub fn set_list_value(
+    conn: &Connection,
+    vault: &Path,
+    note_id: &str,
+    name: &str,
+    items: &[String],
+) -> Result<(), String> {
+    require_groups(vault)?;
+    let access = open_note(conn, vault, note_id)?;
+    let (entry, state) = super::panel::group_state(vault, note_id)?;
+    if state.own_line_bad || state.format_newer {
+        return Err("The properties of this note are read only".to_string());
+    }
+    let resolved = resolve_note(&access.keys, entry.as_ref(), false);
+    let property = resolved
+        .active
+        .iter()
+        .find(|p| same_name(&p.name, name))
+        .ok_or_else(|| format!("No such property: {name}"))?;
+    if property.read_only {
+        return Err("This value cannot be rewritten without loss".to_string());
+    }
+    let updated =
+        frontmatter::upsert_frontmatter_list(&access.text, note_id, &property.key, items)?;
+    if updated != access.text {
+        write_note(vault, &access.path, &updated, "property-upsert")?;
+    }
+    refresh(conn, vault, note_id);
+    Ok(())
+}
+
 /// Changes the type: the record first, then the value when it is rewritten and the conversion is
 /// reversible (З26, З28).
 pub fn change_type(
@@ -334,6 +367,19 @@ pub fn set_appearance(
     icon: &str,
     settings: &str,
 ) -> Result<(), String> {
+    set_appearance_fields(conn, vault, note_id, name, Some(icon), Some(settings))
+}
+
+/// The look field by field: a field that is `None` is not touched (З60). A change of the icon
+/// never carries options it has not seen, and a change of the options never carries an icon.
+pub fn set_appearance_fields(
+    conn: &Connection,
+    vault: &Path,
+    note_id: &str,
+    name: &str,
+    icon: Option<&str>,
+    settings: Option<&str>,
+) -> Result<(), String> {
     let ctx = prepare(conn, vault, note_id)?;
     let (name, mut look) = match (ctx.property(name), ctx.record_name(name)) {
         (Some(p), _) => (
@@ -352,8 +398,12 @@ pub fn set_appearance(
         ),
         _ => return Err(format!("No such property: {name}")),
     };
-    look.icon = icon.to_string();
-    look.settings = settings.to_string();
+    if let Some(icon) = icon {
+        look.icon = icon.to_string();
+    }
+    if let Some(settings) = settings {
+        look.settings = settings.to_string();
+    }
     let names = ctx.names();
     update_entry(conn, vault, note_id, |old| {
         let mut entry = old.clone().unwrap_or_default();

@@ -92,6 +92,13 @@ export function InfoPanel({
   onUpsertCustomProperty,
   onDeleteCustomProperty,
   onReorderCustomProperties,
+  onCreateProperty,
+  onSetPropertyIcon,
+  onSetPropertySettings,
+  onRenameProperty,
+  onChangePropertyType,
+  onSetPropertyValue,
+  onSetPropertyList,
 }: PanelRenderProps) {
   const { t } = useTranslation()
   const [propertyEditorOpen, setPropertyEditorOpen] = React.useState(false)
@@ -554,6 +561,13 @@ export function InfoPanel({
       setPropertyEditorOpen={setPropertyEditorOpen}
       customPropertyOrderBusy={customPropertyOrderBusy}
       onReorderCustomProperties={onReorderCustomProperties}
+      onCreateProperty={onCreateProperty}
+      onSetPropertyIcon={onSetPropertyIcon}
+      onSetPropertySettings={onSetPropertySettings}
+      onRenameProperty={onRenameProperty}
+      onChangePropertyType={onChangePropertyType}
+      onSetPropertyValue={onSetPropertyValue}
+      onSetPropertyList={onSetPropertyList}
       metadata={metadata}
       editingProperty={editingProperty}
       propertyEditorOpen={propertyEditorOpen}

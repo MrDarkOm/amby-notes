@@ -1,6 +1,8 @@
 import * as React from "react"
 import type { TFunction } from "i18next"
 import { errorType, logger } from "@/lib/logger"
+import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
+import { usePropertyMigrationStore } from "../note-notices/use-property-migration-store"
 import {
   changePropertyType,
   createProperty,
@@ -12,6 +14,9 @@ import {
   reorderCustomProperties,
   reorderProperties,
   setPropertyAppearance,
+  setPropertyIcon,
+  setPropertyList,
+  setPropertySettings,
   setPropertyValue,
   type CustomProperty,
   type NoteProperties,
@@ -219,6 +224,7 @@ export function usePropertyActions({
           )
             throw new Error("Note has unresolved external edits")
           const result = await write()
+          useNoteNoticesStore.getState().setPropertyFailed(currentDoc.id, false)
           await reload(mutation.version)
           return result
         } catch (error) {
@@ -227,6 +233,7 @@ export function usePropertyActions({
             errorType: errorType(error),
             message: error instanceof Error ? error.message : String(error),
           })
+          useNoteNoticesStore.getState().setPropertyFailed(currentDoc.id, true)
           if (isCurrent()) {
             setFailure({ generation, noteId })
             await reload(mutation.version).catch(() => {})
@@ -256,34 +263,6 @@ export function usePropertyActions({
         id: property.id || previous?.id || crypto.randomUUID(),
       }
       const optimistic = (current: NoteProperties) => applyUpsert(current, next)
-      if (isTauri()) {
-        // The desktop app changes a property by its name, one command for each thing that changed
-        // (docs/sync-plan.md, З60), always against the state it has just seen.
-        if (!previous) {
-          return run(optimistic, async () => {
-            await createProperty(vault!, noteId!, next)
-            return next
-          })
-        }
-        const steps: Array<() => Promise<void>> = []
-        let at = previous.name
-        if (previous.name !== next.name) {
-          const from = previous.name
-          steps.push(() => renameProperty(vault!, noteId!, from, next.name))
-          at = next.name
-        }
-        const target = at
-        if (previous.propertyType !== next.propertyType)
-          steps.push(() => changePropertyType(vault!, noteId!, target, next.propertyType))
-        if (previous.icon !== next.icon || previous.settings !== next.settings)
-          steps.push(() => setPropertyAppearance(vault!, noteId!, target, next.icon, next.settings))
-        if (previous.value !== next.value)
-          steps.push(() => setPropertyValue(vault!, noteId!, target, next.value))
-        return run(optimistic, async () => {
-          for (const step of steps) await step()
-          return next
-        })
-      }
       return run(optimistic, async () => {
         const saved = await upsertCustomProperty(vault!, noteId!, next)
         logger.info("property.upsert", { noteId, propertyId: saved.id })
@@ -291,6 +270,50 @@ export function usePropertyActions({
       })
     },
     [currentDoc, noteId, scope, vault],
+  )
+
+  const handleCreateProperty = React.useCallback(
+    async (property: CustomProperty) => {
+      const { run } = scope()
+      const next = { ...property, name: property.name.trim(), id: property.name.trim() }
+      await run(
+        (current) => applyUpsert(current, next),
+        () => createProperty(vault!, noteId!, next),
+      )
+    },
+    [noteId, scope, vault],
+  )
+
+  const handleSetPropertyIcon = React.useCallback(
+    async (name: string, icon: string) => {
+      const { run } = scope()
+      await run(
+        (current) => ({
+          ...current,
+          customProperties: current.customProperties.map((item) =>
+            item.name === name ? { ...item, icon } : item,
+          ),
+        }),
+        () => setPropertyIcon(vault!, noteId!, name, icon),
+      )
+    },
+    [noteId, scope, vault],
+  )
+
+  const handleSetPropertySettings = React.useCallback(
+    async (name: string, settings: string) => {
+      const { run } = scope()
+      await run(
+        (current) => ({
+          ...current,
+          customProperties: current.customProperties.map((item) =>
+            item.name === name ? { ...item, settings } : item,
+          ),
+        }),
+        () => setPropertySettings(vault!, noteId!, name, settings),
+      )
+    },
+    [noteId, scope, vault],
   )
 
   const handleSetPropertyAppearance = React.useCallback(
@@ -309,6 +332,57 @@ export function usePropertyActions({
     [noteId, scope, vault],
   )
 
+  const handleSetPropertyList = React.useCallback(
+    async (name: string, items: string[]) => {
+      const { run } = scope()
+      await run(
+        (current) => ({
+          ...current,
+          properties: current.properties.map((item) =>
+            item.key === name ? { ...item, items, value: items.join(", ") } : item,
+          ),
+        }),
+        () => setPropertyList(vault!, noteId!, name, items),
+      )
+    },
+    [noteId, scope, vault],
+  )
+
+  const handleChangePropertyType = React.useCallback(
+    async (name: string, propertyType: string) => {
+      const { run } = scope()
+      await run(
+        (current) => ({
+          ...current,
+          customProperties: current.customProperties.map((item) =>
+            item.name === name ? { ...item, propertyType } : item,
+          ),
+        }),
+        () => changePropertyType(vault!, noteId!, name, propertyType),
+      )
+    },
+    [noteId, scope, vault],
+  )
+
+  const handleSetPropertyValue = React.useCallback(
+    async (name: string, value: string) => {
+      const { run } = scope()
+      await run(
+        (current) => ({
+          ...current,
+          properties: current.properties.map((item) =>
+            item.key === name ? { ...item, value } : item,
+          ),
+          customProperties: current.customProperties.map((item) =>
+            item.name === name ? { ...item, value } : item,
+          ),
+        }),
+        () => setPropertyValue(vault!, noteId!, name, value),
+      )
+    },
+    [noteId, scope, vault],
+  )
+
   const handleRenameProperty = React.useCallback(
     async (name: string, newName: string) => {
       const { run } = scope()
@@ -322,7 +396,11 @@ export function usePropertyActions({
             item.name === name ? { ...item, name: newName } : item,
           ),
         }),
-        () => renameProperty(vault!, noteId!, name, newName),
+        async () => {
+          await renameProperty(vault!, noteId!, name, newName)
+          // The notice of the migration follows the property to its new name.
+          usePropertyMigrationStore.getState().rename(noteId!, name, newName)
+        },
       )
     },
     [noteId, scope, vault],
@@ -393,6 +471,12 @@ export function usePropertyActions({
     handleDeleteCustomProperty,
     handleReorderCustomProperties,
     handleSetPropertyAppearance,
+    handleCreateProperty,
+    handleSetPropertyIcon,
+    handleSetPropertySettings,
     handleRenameProperty,
+    handleChangePropertyType,
+    handleSetPropertyValue,
+    handleSetPropertyList,
   }
 }

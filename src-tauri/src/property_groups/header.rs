@@ -170,7 +170,7 @@ pub(super) fn set_look(diff: &mut Diff, name: &str, look: &Look) {
     diff.icon = (look.icon != base.icon).then(|| look.icon.clone());
     diff.property_type =
         (look.property_type != base.property_type).then(|| look.property_type.clone());
-    diff.settings = (look.settings != base.settings).then(|| look.settings.clone());
+    diff.settings = (!same_settings(&look.settings, &base.settings)).then(|| look.settings.clone());
 }
 
 /// Does the value fit the type (З26)? An empty value fits every type.
@@ -186,14 +186,58 @@ pub(super) fn fits_type(value: &str, property_type: &str) -> bool {
     }
 }
 
+/// The options and the default of a select, from either form of `settings` (З62): the new JSON
+/// `{"options":[…],"default":"…"}`, or the old comma list.
+fn read_settings(settings: &str) -> (Vec<String>, Option<String>) {
+    if settings.trim_start().starts_with('{') {
+        if let Ok(serde_json::Value::Object(map)) = serde_json::from_str(settings) {
+            let options: Vec<String> = map
+                .get("options")
+                .and_then(serde_json::Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(serde_json::Value::as_str)
+                        .map(|item| item.trim().to_string())
+                        .filter(|item| !item.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let default = map
+                .get("default")
+                .and_then(serde_json::Value::as_str)
+                .filter(|d| options.iter().any(|o| o == d))
+                .map(str::to_string);
+            return (options, default);
+        }
+    }
+    (
+        settings
+            .split(',')
+            .map(|option| option.trim().to_string())
+            .filter(|option| !option.is_empty())
+            .collect(),
+        None,
+    )
+}
+
+/// The options of a select, whichever form `settings` has (З62).
+pub(super) fn options_of(settings: &str) -> Vec<String> {
+    read_settings(settings).0
+}
+
+/// Do two `settings` say the same: the same options and the same default, in either form (З62)?
+pub(super) fn same_settings(a: &str, b: &str) -> bool {
+    read_settings(a) == read_settings(b)
+}
+
 /// Is a value of a select outside its options (З45)?
 pub(super) fn outside_options(value: &str, property_type: &str, settings: &str) -> bool {
-    property_type == "select"
-        && !value.trim().is_empty()
-        && !settings.trim().is_empty()
-        && !settings
-            .split(',')
-            .any(|option| option.trim() == value.trim())
+    if !matches!(property_type, "select") || value.trim().is_empty() {
+        return false;
+    }
+    let options = options_of(settings);
+    !options.is_empty() && !options.iter().any(|option| option == value.trim())
 }
 
 /// Is `name` usable as the name of a property (З24, З47)?

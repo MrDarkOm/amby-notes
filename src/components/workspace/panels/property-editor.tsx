@@ -2,7 +2,7 @@
 
 import { AmbySelect } from "@/components/ui/amby-select"
 import * as React from "react"
-import { CalendarDays, CheckSquare, Hash, Link2, List, Trash2, Type } from "lucide-react"
+import { Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
@@ -12,8 +12,22 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import type { CustomProperty } from "@/lib/storage"
 import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
 import { IconValue } from "../icon-value"
+import { parseOptions, serializeOptions, validateOptions } from "../property-options"
+import { propertyTypeIcon } from "../property-type-icons"
+import { PropertyOptionsEditor } from "./property-options-editor"
 
-const CUSTOM_PROPERTY_TYPES = ["text", "number", "checkbox", "date", "select", "url"] as const
+const CUSTOM_PROPERTY_TYPES = [
+  "text",
+  "number",
+  "checkbox",
+  "date",
+  "select",
+  "list",
+  "url",
+] as const
+
+/** A select and a multi-select list their values in `settings` (docs/sync-plan.md, З62). */
+const hasOptions = (type: string) => type === "select" || type === "list"
 
 export interface PropertyEditorProps {
   property: CustomProperty | null
@@ -22,6 +36,19 @@ export interface PropertyEditorProps {
   onSave: (property: CustomProperty, options?: { addToDatabase?: boolean }) => Promise<void>
   onDelete: (propertyId: string) => Promise<void>
   databaseContext?: { databaseId: string; name?: string } | null
+}
+
+/** The items of a multi-select value kept in the form as a JSON list (docs/sync-plan.md, З62). */
+function chosenItems(value: string): string[] {
+  if (!value.startsWith("[")) return []
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : []
+  } catch {
+    return []
+  }
 }
 
 export function PropertyEditor({
@@ -64,34 +91,38 @@ export function PropertyEditor({
     )
     setEmojiOpen(false)
     setError("")
+    setOptionsInvalid(false)
     setAddToDatabase(true)
   }, [open, property])
 
-  const options = draft.settings
-    .split(",")
-    .map((option) => option.trim())
-    .filter(Boolean)
-
-  const PropertyTypeIcon =
-    draft.propertyType === "checkbox"
-      ? CheckSquare
-      : draft.propertyType === "number"
-        ? Hash
-        : draft.propertyType === "date"
-          ? CalendarDays
-          : draft.propertyType === "select"
-            ? List
-            : draft.propertyType === "url"
-              ? Link2
-              : Type
+  const [optionsInvalid, setOptionsInvalid] = React.useState(false)
+  const options = parseOptions(draft.settings).options
+  const PropertyTypeIcon = propertyTypeIcon(draft.propertyType)
 
   async function save() {
     if (!draft.name.trim() || saving) return
+    if (hasOptions(draft.propertyType) && !validateOptions(options)) {
+      setOptionsInvalid(true)
+      return
+    }
+    // A new select starts with its default option, a new multi-select with a list of it (З62).
+    const parsed = parseOptions(draft.settings)
+    const toSave =
+      hasOptions(draft.propertyType) && !draft.id && !draft.value && parsed.default
+        ? {
+            ...draft,
+            value:
+              draft.propertyType === "list" ? JSON.stringify([parsed.default]) : parsed.default,
+            settings: serializeOptions(parsed.options, parsed.default),
+          }
+        : draft
     const attempt = saveAttempt.current
     setSaving(true)
     setError("")
     try {
-      await onSave(draft, { addToDatabase: Boolean(databaseContext && !draft.id && addToDatabase) })
+      await onSave(toSave, {
+        addToDatabase: Boolean(databaseContext && !draft.id && addToDatabase),
+      })
       if (attempt === saveAttempt.current) onOpenChange(false)
     } catch {
       if (attempt === saveAttempt.current) setError(t("infoPanel.saveFailed"))
@@ -171,18 +202,15 @@ export function PropertyEditor({
             }
           />
         </label>
-        {draft.propertyType === "select" && (
-          <label className="grid gap-1 text-[10px] text-muted-foreground">
-            {t("infoPanel.propertyOptions")}
-            <Input
-              value={draft.settings}
-              onChange={(event) =>
-                setDraft((value) => ({ ...value, settings: event.target.value }))
-              }
-              placeholder={t("infoPanel.propertyOptionsHint")}
-              className="h-9 text-xs"
-            />
-          </label>
+        {hasOptions(draft.propertyType) && (
+          <PropertyOptionsEditor
+            settings={draft.settings}
+            invalid={optionsInvalid}
+            onChange={(settings) => {
+              setOptionsInvalid(false)
+              setDraft((value) => ({ ...value, settings }))
+            }}
+          />
         )}
         <label className="grid gap-1 text-[10px] text-muted-foreground">
           {t("infoPanel.propertyValue")}
@@ -202,14 +230,46 @@ export function PropertyEditor({
               {draft.value === "true" ? t("common.yes") : t("common.no")}
               <span>{draft.value === "true" ? "✓" : "○"}</span>
             </button>
+          ) : draft.propertyType === "list" ? (
+            <div
+              role="group"
+              aria-label={t("infoPanel.propertyValue")}
+              className="flex flex-wrap gap-1"
+            >
+              {options.map((option) => {
+                const chosen = chosenItems(draft.value)
+                const on = chosen.includes(option)
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    aria-pressed={on}
+                    aria-label={option}
+                    onClick={() =>
+                      setDraft((value) => {
+                        const items = chosenItems(value.value)
+                        const next = items.includes(option)
+                          ? items.filter((item) => item !== option)
+                          : [...items, option]
+                        return { ...value, value: next.length ? JSON.stringify(next) : "" }
+                      })
+                    }
+                    className={
+                      on
+                        ? "inline-flex items-center rounded bg-secondary px-1.5 py-0.5 text-[11px] font-medium text-secondary-foreground"
+                        : "inline-flex items-center rounded border border-dashed border-border px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-accent/40"
+                    }
+                  >
+                    {option}
+                  </button>
+                )
+              })}
+            </div>
           ) : draft.propertyType === "select" ? (
             <AmbySelect
               value={draft.value}
               aria-label={t("infoPanel.propertyValue", { defaultValue: draft.name })}
-              options={[
-                { value: "", label: "—" },
-                ...options.map((option) => ({ value: option, label: option })),
-              ]}
+              options={options.map((option) => ({ value: option, label: option }))}
               onValueChange={(next) => setDraft((value) => ({ ...value, value: next }))}
             />
           ) : (

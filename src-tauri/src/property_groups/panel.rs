@@ -159,6 +159,12 @@ pub(super) fn resolve_note(
             active = listed.into_iter().map(|(_, p)| p).chain(rest).collect();
         }
     }
+    // The items of a list come from the header as they are (З62).
+    for property in &mut active {
+        if let Some(key) = usable_keys.iter().find(|k| k.key == property.key) {
+            property.items = key.items.clone();
+        }
+    }
     Resolved {
         active,
         dormant,
@@ -180,6 +186,7 @@ fn active(
         name: name.to_string(),
         key: key.to_string(),
         value: value.to_string(),
+        items: Vec::new(),
         property_type: look.property_type.clone(),
         icon: look.icon.clone(),
         settings: look.settings.clone(),

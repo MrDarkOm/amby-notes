@@ -521,9 +521,9 @@ async openVaultProperties() : Promise<Result<OpenPropertiesView, string>> {
 /**
  * «Взять значение из старого файла»: an ordinary edit of the value (З58, З1).
  */
-async takePropertyFileValue(noteId: string, name: string) : Promise<Result<null, string>> {
+async takePropertyFileValue(noteId: string, fileName: string, name: string) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("take_property_file_value", { noteId, name }) };
+    return { status: "ok", data: await TAURI_INVOKE("take_property_file_value", { noteId, fileName, name }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -556,7 +556,7 @@ async changeNotePropertyType(noteId: string, name: string, propertyType: string)
     else return { status: "error", error: e  as any };
 }
 },
-async setNotePropertyAppearance(noteId: string, name: string, icon: string, settings: string) : Promise<Result<null, string>> {
+async setNotePropertyAppearance(noteId: string, name: string, icon: string | null, settings: string | null) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_note_property_appearance", { noteId, name, icon, settings }) };
 } catch (e) {
@@ -567,6 +567,14 @@ async setNotePropertyAppearance(noteId: string, name: string, icon: string, sett
 async setNotePropertyValue(noteId: string, name: string, value: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_note_property_value", { noteId, name, value }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setNotePropertyList(noteId: string, name: string, items: string[]) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_note_property_list", { noteId, name, items }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2462,7 +2470,11 @@ export type FileMetadata = { created: number | null; modified: number | null; wo
  * Read-only view of a single YAML frontmatter entry. The original YAML stays
  * on disk untouched; `value` is only a display representation for the UI.
  */
-export type FrontmatterProperty = { key: string; value: string; valueKind: string }
+export type FrontmatterProperty = { key: string; value: string; valueKind: string; 
+/**
+ * The items when the value is a YAML list of scalars, as they are (never glued with commas).
+ */
+items?: string[] }
 export type FrontmatterStatus = "none" | "valid" | "invalid" | "unterminated"
 export type FsMutationResult = { primaryId: string | null; primaryPath: string | null; pathChanges: PathChange[]; deletedPaths: string[]; deletedIds: string[]; 
 /**
@@ -2639,7 +2651,7 @@ export type PageInfo = { title: string; description: string | null }
 /**
  * A property of the panel (З46).
  */
-export type PanelProperty = { name: string; key: string; value: string; propertyType: string; icon: string; settings: string; fromTemplate: boolean; hasRecord: boolean; readOnly: boolean; typeMismatch: boolean; outsideOptions: boolean }
+export type PanelProperty = { name: string; key: string; value: string; propertyType: string; icon: string; settings: string; fromTemplate: boolean; hasRecord: boolean; items: string[]; readOnly: boolean; typeMismatch: boolean; outsideOptions: boolean }
 /**
  * What is wrong with the panel of a note.
  */

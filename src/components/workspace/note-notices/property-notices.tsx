@@ -15,9 +15,10 @@ import {
   type PropertyPanel,
   type PropertyStorageStatus,
 } from "@/lib/properties/property-groups-port"
+import { errorType, logger } from "@/lib/logger"
 import { useVaultStore } from "../use-vault-store"
 import { Card, type Notice } from "./notice-card"
-import { usePropertyMigrationStore } from "./use-property-migration-store"
+import { goneKey, usePropertyMigrationStore } from "./use-property-migration-store"
 
 /**
  * The warnings of the properties of a note as cards of its stack (docs/sync-plan.md, К3, appendix
@@ -34,6 +35,8 @@ export function usePropertyNotices(noteId: string): Notice[] {
   const generation = useVaultStore((state) => state.generation)
   const migration = usePropertyMigrationStore((state) => state.outcome)
   const migrationDismissed = usePropertyMigrationStore((state) => state.dismissed)
+  const goneItems = usePropertyMigrationStore((state) => state.gone)
+  const renamedItems = usePropertyMigrationStore((state) => state.renamed)
   const [transferred, setTransferred] = React.useState<string | null>(null)
   const [conflicts, setConflicts] = React.useState<string[]>([])
   const [busy, setBusy] = React.useState(false)
@@ -89,11 +92,33 @@ export function usePropertyNotices(noteId: string): Notice[] {
       await action()
       setError(null)
     } catch (caught) {
-      setError(
-        t("noteNotices.properties.failed", {
-          details: caught instanceof Error ? caught.message : String(caught),
-        }),
-      )
+      // The person gets a sentence; the words of the backend go to the log.
+      logger.error("property.notice_action_failed", {
+        errorType: errorType(caught),
+        message: caught instanceof Error ? caught.message : String(caught),
+      })
+      setError(t("noteNotices.properties.failedShort"))
+    } finally {
+      setBusy(false)
+      await load()
+    }
+  }
+
+  const takeFile = async (noteId: string, fileName: string, name: string) => {
+    setBusy(true)
+    try {
+      await takePropertyFileValue(noteId, fileName, name)
+      usePropertyMigrationStore.getState().settle(noteId, fileName)
+      setError(null)
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : String(caught)
+      logger.error("property.take_file_value_failed", { errorType: errorType(caught), message })
+      // The property was renamed away or deleted since: the card says so and offers nothing.
+      if (/No such property/iu.test(message)) {
+        usePropertyMigrationStore.getState().markGone(noteId, fileName)
+      } else {
+        setError(t("noteNotices.properties.failedShort"))
+      }
     } finally {
       setBusy(false)
       await load()
@@ -105,12 +130,12 @@ export function usePropertyNotices(noteId: string): Notice[] {
   if (migration?.state === "readOnly" || (status.mode === "legacy" && migration === null)) {
     notices.push({
       id: "properties-read-only",
-      urgent: false,
+      urgent: true,
       card: (
         <Card
           key="properties-read-only"
           testId="note-notice-properties-read-only"
-          urgent={false}
+          urgent
           icon={<FileWarning className="size-4" />}
           title={t(
             migration?.reason === "waitingForSync"
@@ -125,12 +150,12 @@ export function usePropertyNotices(noteId: string): Notice[] {
     const diverged = migration.diverged
     notices.push({
       id: "properties-migrated",
-      urgent: false,
+      urgent: diverged.length > 0,
       card: (
         <Card
           key="properties-migrated"
           testId="note-notice-properties-migrated"
-          urgent={false}
+          urgent={diverged.length > 0}
           icon={<Sparkles className="size-4" />}
           title={t("noteNotices.properties.migrated")}
           lines={
@@ -166,6 +191,7 @@ export function usePropertyNotices(noteId: string): Notice[] {
     })
     if (showReport) {
       for (const item of diverged) {
+        const missing = goneItems.includes(goneKey(item.noteId, item.name))
         notices.push({
           id: `properties-diverged:${item.noteId}:${item.name}`,
           urgent: false,
@@ -175,26 +201,33 @@ export function usePropertyNotices(noteId: string): Notice[] {
               testId="note-notice-properties-diverged"
               urgent={false}
               icon={<History className="size-4" />}
-              title={t("noteNotices.properties.divergedItem", {
-                name: item.name,
-                file: item.fileValue,
-                header: item.headerValue,
-              })}
-              actions={
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() =>
-                    void act(async () => {
-                      await takePropertyFileValue(item.noteId, item.name)
-                      usePropertyMigrationStore.getState().settle(item.noteId, item.name)
+              title={
+                missing
+                  ? t("noteNotices.properties.gone", { name: item.name, file: item.fileValue })
+                  : t("noteNotices.properties.divergedItem", {
+                      name: item.name,
+                      file: item.fileValue,
+                      header: item.headerValue,
                     })
-                  }
-                >
-                  {t("noteNotices.properties.takeFile")}
-                </Button>
+              }
+              actions={
+                missing ? undefined : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() =>
+                      void takeFile(
+                        item.noteId,
+                        item.name,
+                        renamedItems[goneKey(item.noteId, item.name)] ?? item.name,
+                      )
+                    }
+                  >
+                    {t("noteNotices.properties.takeFile")}
+                  </Button>
+                )
               }
             />
           ),

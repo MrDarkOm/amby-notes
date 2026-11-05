@@ -29,7 +29,7 @@ export function Card({
     <div
       data-testid={testId}
       data-urgent={urgent}
-      className="note-notice-card pointer-events-auto flex items-start gap-3 rounded-xl px-3 py-2.5"
+      className="note-notice-card pointer-events-auto flex items-start gap-3 px-3 py-2.5"
     >
       <span className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-300">{icon}</span>
       <div className="min-w-0 flex-1 space-y-1">

@@ -9,6 +9,9 @@ export interface DraftOffer {
 interface NoteNoticesState {
   /** Notes (by document id) whose last save failed; cleared by the next successful save. */
   saveFailed: Record<string, true>
+  /** Notes (by document id) whose last change of a property failed. */
+  propertyFailed: Record<string, true>
+  setPropertyFailed: (fileId: string, failed: boolean) => void
   /** Unsaved drafts waiting for an answer, by document id. The note is read only until it comes. */
   draftOffers: Record<string, DraftOffer>
   /** Paths (in the vault) of open notes that came back after a deletion made here. */
@@ -26,6 +29,13 @@ interface NoteNoticesState {
  */
 export const useNoteNoticesStore = create<NoteNoticesState>((set) => ({
   saveFailed: {},
+  propertyFailed: {},
+  setPropertyFailed: (fileId, failed) =>
+    set((state) => {
+      if (Boolean(state.propertyFailed[fileId]) === failed) return state
+      const { [fileId]: _gone, ...rest } = state.propertyFailed
+      return { propertyFailed: failed ? { ...rest, [fileId]: true } : rest }
+    }),
   draftOffers: {},
   restored: [],
   setSaveFailed: (fileId, failed) =>

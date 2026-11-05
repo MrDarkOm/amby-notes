@@ -33,17 +33,27 @@ mod tests_dormant;
 #[cfg(test)]
 mod tests_edits;
 #[cfg(test)]
+mod tests_fields;
+#[cfg(test)]
 mod tests_format;
+#[cfg(test)]
+mod tests_icons;
 #[cfg(test)]
 mod tests_identity;
 #[cfg(test)]
 mod tests_legacy;
 #[cfg(test)]
+mod tests_lists;
+#[cfg(test)]
 mod tests_matching;
 #[cfg(test)]
 mod tests_migration;
 #[cfg(test)]
+mod tests_options;
+#[cfg(test)]
 mod tests_scale;
+#[cfg(test)]
+mod tests_take;
 #[cfg(test)]
 mod tests_template;
 
@@ -178,6 +188,8 @@ pub struct ActiveProperty {
     /// The key as written in the header.
     pub key: String,
     pub value: String,
+    /// The items when the value is a list (YAML), as they are, never glued (З62); empty otherwise.
+    pub items: Vec<String>,
     /// Template + differences (З46).
     pub property_type: String,
     pub icon: String,

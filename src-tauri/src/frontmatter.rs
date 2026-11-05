@@ -847,7 +847,19 @@ fn yaml_inline_value(value: &Value) -> Result<String, String> {
     if let Value::Sequence(items) = value {
         let rendered = items
             .iter()
-            .map(yaml_inline_value)
+            .map(|item| match item {
+                // A comma or a bracket in an item would split or end the flow list.
+                Value::String(text)
+                    if text.is_empty()
+                        || text.contains([',', '[', ']', '{', '}', '#', '\n'])
+                        || text.contains(": ")
+                        || text.starts_with(char::is_whitespace)
+                        || text.ends_with(char::is_whitespace) =>
+                {
+                    Ok(format!("'{}'", text.replace('\'', "''")))
+                }
+                other => yaml_inline_value(other),
+            })
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
         return Ok(format!("[{rendered}]"));
@@ -931,6 +943,8 @@ pub(crate) struct HeaderKey {
     /// Text of the value: a string as it is, a flag or a number as YAML spells it, an empty value
     /// as an empty string, a list of scalars joined with `, `.
     pub value: String,
+    /// The items when the value is a YAML list of scalars, as they are; empty otherwise.
+    pub items: Vec<String>,
     /// Multiline, block string, anchor, tag or anything else the lossless writer refuses (З26).
     pub complex: bool,
 }
@@ -944,6 +958,44 @@ pub(crate) enum HeaderKeys {
     Unreadable,
     /// The keys in the order of the header; keys that are not strings are left out.
     Keys(Vec<HeaderKey>),
+}
+
+/// The items of a YAML list of scalars; nothing for any other value.
+pub(crate) fn list_items(value: &Value) -> Vec<String> {
+    match value {
+        Value::Sequence(items)
+            if items.iter().all(|item| {
+                !matches!(
+                    item,
+                    Value::Sequence(_) | Value::Mapping(_) | Value::Tagged(_)
+                )
+            }) =>
+        {
+            items.iter().map(value_as_text).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Writes a list as the value of a key without glueing its items: an item with a comma or a bracket
+/// is quoted (appendix З, З62).
+pub(crate) fn upsert_frontmatter_list(
+    content: &str,
+    note_id: &str,
+    key: &str,
+    items: &[String],
+) -> Result<String, String> {
+    let key = key.trim();
+    if key.is_empty() {
+        return Err("Property key cannot be empty".to_owned());
+    }
+    let content_with_envelope = if split_frontmatter(content).is_some() {
+        content.to_owned()
+    } else {
+        body_with_identity_field(content, note_id, AMBY_ID_FIELD)?
+    };
+    let list = Value::Sequence(items.iter().cloned().map(Value::String).collect());
+    replace_yaml_binding_lossless(&content_with_envelope, key, &list)
 }
 
 pub(crate) fn value_as_text(value: &Value) -> String {
@@ -985,6 +1037,7 @@ fn header_keys_by_lines(yaml: &str) -> HeaderKeys {
             keys.push(HeaderKey {
                 key: key.clone(),
                 value: yaml[entry.value_start..entry.value_end].trim().to_string(),
+                items: Vec::new(),
                 complex: true,
             });
         }
@@ -1032,6 +1085,7 @@ pub(crate) fn header_keys(content: &str) -> HeaderKeys {
             Some(HeaderKey {
                 key: key.clone(),
                 value: value_as_text(value),
+                items: list_items(value),
                 complex,
             })
         })
@@ -1320,6 +1374,7 @@ pub fn note_properties(content: &str) -> NoteProperties {
                 key: yaml_display(key),
                 value: yaml_display(value),
                 value_kind: yaml_value_kind(value).to_string(),
+                items: list_items(value),
             })
             .collect(),
         _ => Vec::new(),

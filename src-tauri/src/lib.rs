@@ -117,6 +117,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::properties::change_note_property_type,
         commands::properties::set_note_property_appearance,
         commands::properties::set_note_property_value,
+        commands::properties::set_note_property_list,
         commands::properties::reorder_note_properties,
         commands::properties::delete_note_property,
         commands::properties::rollback_properties_migration,

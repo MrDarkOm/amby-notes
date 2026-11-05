@@ -44,39 +44,39 @@ struct Basic {
 const TEMPLATE: &[Basic] = &[
     Basic {
         property_type: "select",
-        icon: "📌",
+        icon: "amby-icon:circle-chevron-down:",
         languages: &[
             Language {
                 code: "ru",
                 name: "Статус",
-                settings: "Идея,В работе,Готово",
+                settings: r#"{"options":["Идея","В работе","Готово"]}"#,
             },
             Language {
                 code: "en",
                 name: "Status",
-                settings: "Idea,In progress,Done",
+                settings: r#"{"options":["Idea","In progress","Done"]}"#,
             },
         ],
     },
     Basic {
         property_type: "select",
-        icon: "🚩",
+        icon: "amby-icon:flag:",
         languages: &[
             Language {
                 code: "ru",
                 name: "Приоритет",
-                settings: "Низкий,Средний,Высокий",
+                settings: r#"{"options":["Низкий","Средний","Высокий"]}"#,
             },
             Language {
                 code: "en",
                 name: "Priority",
-                settings: "Low,Medium,High",
+                settings: r#"{"options":["Low","Medium","High"]}"#,
             },
         ],
     },
     Basic {
         property_type: "date",
-        icon: "📅",
+        icon: "amby-icon:calendar-days:",
         languages: &[
             Language {
                 code: "ru",
@@ -92,7 +92,7 @@ const TEMPLATE: &[Basic] = &[
     },
     Basic {
         property_type: "list",
-        icon: "🏷",
+        icon: "amby-icon:list:",
         languages: &[
             Language {
                 code: "ru",

@@ -63,6 +63,7 @@ function NoteNoticesOf({
   const externalConflict = useDocStore((state) => state.externalConflicts[document.id])
   const openConflictDialog = useDocStore((state) => state.openConflictDialog)
   const saveFailed = useNoteNoticesStore((state) => Boolean(state.saveFailed[document.id]))
+  const propertyFailed = useNoteNoticesStore((state) => Boolean(state.propertyFailed[document.id]))
   const draftOffer = useNoteNoticesStore((state) => state.draftOffers[document.id])
   const restored = useNoteNoticesStore((state) =>
     relative ? state.restored.includes(relative) : false,
@@ -259,6 +260,21 @@ function NoteNoticesOf({
       ),
     })
   }
+  if (propertyFailed) {
+    notices.push({
+      id: "property-failed",
+      urgent: true,
+      card: (
+        <Card
+          key="property-failed"
+          testId="note-notice-property-failed"
+          urgent
+          icon={<FileWarning className="size-4" />}
+          title={t("noteNotices.properties.saveFailed")}
+        />
+      ),
+    })
+  }
   if (draftOffer) {
     notices.push({
       id: "draft",
@@ -288,12 +304,17 @@ function NoteNoticesOf({
   if (warningKey) {
     notices.push({
       id: `warning:${warningKey}`,
-      urgent: false,
+      // A damaged header or a lost id switches the properties off: the person must know.
+      urgent: [
+        "workspace.invalidFrontmatter",
+        "workspace.unterminatedFrontmatter",
+        "workspace.identityReadOnly",
+      ].includes(warningKey),
       card: (
         <Card
           key="warning"
           testId="note-notice-warning"
-          urgent={false}
+          urgent={warningKey !== "workspace.losslessSourceOnly"}
           icon={<FileWarning className="size-4" />}
           title={t(warningKey)}
         />
@@ -346,12 +367,12 @@ function NoteNoticesOf({
   return (
     <div
       data-testid="note-notices"
-      className="pointer-events-none absolute bottom-14 right-4 z-20 flex max-w-[calc(100%-2rem)] flex-col items-end gap-2"
+      className="pointer-events-none absolute bottom-12 right-4 z-20 flex max-w-[calc(100%-2rem)] flex-col items-end gap-1"
     >
       {open && (
         <div
           data-testid="note-notices-stack"
-          className="flex max-h-[60vh] w-[min(26rem,calc(100vw-2rem))] flex-col gap-2 overflow-y-auto"
+          className="note-notices-surface pointer-events-auto flex max-h-[60vh] w-[min(26rem,calc(100vw-2rem))] flex-col overflow-y-auto rounded-xl"
         >
           {notices.map((notice) => notice.card)}
         </div>

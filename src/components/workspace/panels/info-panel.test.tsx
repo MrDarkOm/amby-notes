@@ -327,16 +327,14 @@ describe("InfoPanel frontmatter properties", () => {
       }),
     )
 
-    // Options input should appear
-    const optionsInput = screen.getByPlaceholderText("Например: Идея, В работе, Готово")
-    expect(optionsInput).not.toBeNull()
-
-    fireEvent.change(optionsInput, { target: { value: "Todo, Doing, Done" } })
-    fireEvent.blur(optionsInput)
+    // The options are fields now (З62): one field for each option
+    const optionField = screen.getByLabelText("Вариант")
+    fireEvent.change(optionField, { target: { value: "Todo" } })
+    fireEvent.blur(optionField)
 
     expect(onUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        settings: "Todo, Doing, Done",
+        settings: '{"options":["Todo"]}',
       }),
     )
   })

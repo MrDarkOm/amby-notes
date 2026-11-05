@@ -294,6 +294,28 @@ export const setPropertyAppearance = (
     () => undefined,
   )
 }
+export const setPropertyIcon = (
+  vaultPath: string,
+  noteId: string,
+  name: string,
+  icon: string,
+): Promise<void> => {
+  void vaultPath
+  return byName(() => commands.setNotePropertyAppearance(noteId, name, icon, null)).then(
+    () => undefined,
+  )
+}
+export const setPropertySettings = (
+  vaultPath: string,
+  noteId: string,
+  name: string,
+  settings: string,
+): Promise<void> => {
+  void vaultPath
+  return byName(() => commands.setNotePropertyAppearance(noteId, name, null, settings)).then(
+    () => undefined,
+  )
+}
 export const renameProperty = (
   vaultPath: string,
   noteId: string,
@@ -322,6 +344,15 @@ export const setPropertyValue = (
 ): Promise<void> => {
   void vaultPath
   return byName(() => commands.setNotePropertyValue(noteId, name, value)).then(() => undefined)
+}
+export const setPropertyList = (
+  vaultPath: string,
+  noteId: string,
+  name: string,
+  items: string[],
+): Promise<void> => {
+  void vaultPath
+  return byName(() => commands.setNotePropertyList(noteId, name, items)).then(() => undefined)
 }
 export const reorderProperties = (
   vaultPath: string,

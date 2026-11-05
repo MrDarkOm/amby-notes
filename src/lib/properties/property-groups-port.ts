@@ -75,9 +75,14 @@ export async function openVaultProperties(): Promise<OpenPropertiesView | null> 
 }
 
 /** «Взять значение из старого файла»: an ordinary edit of the value (З58). */
-export async function takePropertyFileValue(noteId: string, name: string): Promise<void> {
+export async function takePropertyFileValue(
+  noteId: string,
+  fileName: string,
+  name: string,
+): Promise<void> {
   if (!isTauri()) return
-  await unwrapCommand(commands.takePropertyFileValue(noteId, name))
+  // The old file knows the property by `fileName`; the note has it as `name` now.
+  await unwrapCommand(commands.takePropertyFileValue(noteId, fileName, name))
 }
 
 /** Carries over what an old version of Amby changed in `properties.json` (З22, З36). */

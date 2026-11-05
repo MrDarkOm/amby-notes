@@ -496,6 +496,18 @@ pub fn take_file_value(
     note_id: &str,
     name: &str,
 ) -> Result<(), String> {
+    take_file_value_as(conn, vault, note_id, name, name)
+}
+
+/// The same after a rename in Amby: the old file knows the property as `file_name`, the note has it
+/// as `name` now.
+pub fn take_file_value_as(
+    conn: &Connection,
+    vault: &Path,
+    note_id: &str,
+    file_name: &str,
+    name: &str,
+) -> Result<(), String> {
     let old = read_old_file(vault)?.ok_or_else(|| "There is no properties.json".to_string())?;
     let list = old
         .notes
@@ -503,8 +515,8 @@ pub fn take_file_value(
         .ok_or_else(|| format!("The old file has no note {note_id}"))?;
     let object = list
         .iter()
-        .find(|object| super::header::same_name(&text_field(object, "name"), name))
-        .ok_or_else(|| format!("The old file has no property {name}"))?;
+        .find(|object| super::header::same_name(&text_field(object, "name"), file_name))
+        .ok_or_else(|| format!("The old file has no property {file_name}"))?;
     super::edits::set_value(conn, vault, note_id, name, &text_field(object, "value"))
 }
 

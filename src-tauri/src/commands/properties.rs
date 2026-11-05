@@ -85,6 +85,7 @@ pub struct PanelProperty {
     pub settings: String,
     pub from_template: bool,
     pub has_record: bool,
+    pub items: Vec<String>,
     pub read_only: bool,
     pub type_mismatch: bool,
     pub outside_options: bool,
@@ -101,6 +102,7 @@ impl From<ActiveProperty> for PanelProperty {
             settings: p.settings,
             from_template: p.from_template,
             has_record: p.has_record,
+            items: p.items,
             read_only: p.read_only,
             type_mismatch: p.type_mismatch,
             outside_options: p.outside_options,
@@ -380,10 +382,11 @@ pub fn open_vault_properties(
 pub fn take_property_file_value(
     db: State<'_, VaultContext>,
     note_id: String,
+    file_name: String,
     name: String,
 ) -> Result<(), String> {
-    with_vault_mutation!(db, |conn| migration::take_file_value(
-        conn, &conn.root, &note_id, &name
+    with_vault_mutation!(db, |conn| migration::take_file_value_as(
+        conn, &conn.root, &note_id, &file_name, &name
     ))
 }
 
@@ -451,11 +454,16 @@ pub fn set_note_property_appearance(
     db: State<'_, VaultContext>,
     note_id: String,
     name: String,
-    icon: String,
-    settings: String,
+    icon: Option<String>,
+    settings: Option<String>,
 ) -> Result<(), String> {
-    with_vault_mutation!(db, |conn| property_groups::set_appearance(
-        conn, &conn.root, &note_id, &name, &icon, &settings
+    with_vault_mutation!(db, |conn| property_groups::set_appearance_fields(
+        conn,
+        &conn.root,
+        &note_id,
+        &name,
+        icon.as_deref(),
+        settings.as_deref()
     ))
 }
 
@@ -469,6 +477,19 @@ pub fn set_note_property_value(
 ) -> Result<(), String> {
     with_vault_mutation!(db, |conn| property_groups::set_value(
         conn, &conn.root, &note_id, &name, &value
+    ))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_note_property_list(
+    db: State<'_, VaultContext>,
+    note_id: String,
+    name: String,
+    items: Vec<String>,
+) -> Result<(), String> {
+    with_vault_mutation!(db, |conn| property_groups::set_list_value(
+        conn, &conn.root, &note_id, &name, &items
     ))
 }
 
