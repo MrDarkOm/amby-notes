@@ -392,3 +392,82 @@ fn the_marks_hold_the_hashes_and_a_note_without_a_line_has_a_mark_with_32_zeros(
         "everything is as in the template: no line"
     );
 }
+
+// ----- З36, З38: the module must not break the recovery of the migration of IDs -----
+
+/// What the opening of a note does first: the recovery of unfinished migrations of IDs reads
+/// every `*.json` in the root of `.amby/migrations/` as its own journal.
+fn id_recovery_still_works(fx: &Fx) {
+    let recoveries = crate::vault::migration::unfinished_id_migrations(&fx.vault).expect(
+        "a file of the properties broke the recovery of the migration of IDs (read_note fails)",
+    );
+    assert!(recoveries.is_empty(), "{recoveries:?}");
+}
+
+fn json_files_in_migrations_root(fx: &Fx) -> Vec<String> {
+    fx.files_under(".amby/migrations/")
+        .into_iter()
+        .filter(|p| p.matches('/').count() == 2 && p.ends_with(".json"))
+        .collect()
+}
+
+#[test]
+fn after_the_migration_and_the_check_of_old_edits_the_notes_still_open() {
+    // З36, З38: `read_note` calls the recovery of the migration of IDs first
+    let fx = migrated();
+    id_recovery_still_works(&fx);
+    write_old(
+        &fx,
+        &[(&id(1), vec![old_prop("P1", "Заказчик", "🔥", "Готово")])],
+    );
+    check_old_version_edits(&fx.conn, &fx.vault).unwrap();
+    properties_json_changed(&fx.vault).unwrap();
+    id_recovery_still_works(&fx);
+}
+
+#[test]
+fn the_local_note_about_properties_json_lives_in_its_own_folder_and_the_root_has_only_id_journals()
+{
+    // З36: `.amby/migrations/properties/legacy-state.json`; no other `*.json` in the root
+    let fx = migrated();
+    write_old(
+        &fx,
+        &[(&id(1), vec![old_prop("P1", "Заказчик", "🔥", "Готово")])],
+    );
+    check_old_version_edits(&fx.conn, &fx.vault).unwrap();
+    assert!(
+        fx.exists(".amby/migrations/properties/legacy-state.json"),
+        "{:?}",
+        fx.files_under(".amby/migrations/")
+    );
+    assert!(!fx.exists(".amby/migrations/legacy-state.json"));
+    assert_eq!(json_files_in_migrations_root(&fx), Vec::<String>::new());
+}
+
+#[test]
+fn nothing_the_properties_module_writes_breaks_the_recovery_of_the_migration_of_ids() {
+    // З38: the general rule — every operation of the module, then the recovery
+    let fx = migrated();
+    create_property(&fx.conn, &fx.vault, &id(1), design("Автор"), "я").unwrap();
+    rename_property(&fx.conn, &fx.vault, &id(1), "Автор", "Создатель").unwrap();
+    let _ = with_failing_write(1, false, || {
+        rename_property(&fx.conn, &fx.vault, &id(1), "Создатель", "Автор")
+    });
+    id_recovery_still_works(&fx);
+    recover_operations(&fx.conn, &fx.vault).unwrap();
+    delete_property(&fx.conn, &fx.vault, &id(1), "Создатель").unwrap();
+    write_old(
+        &fx,
+        &[(&id(2), vec![old_prop("P2", "Заказчик", "🔥", "Готово")])],
+    );
+    check_old_version_edits(&fx.conn, &fx.vault).unwrap();
+    let outcome_id = fx
+        .files_under(".amby/migrations/")
+        .first()
+        .and_then(|p| p.split('/').nth(2).map(str::to_string));
+    if let Some(migration) = outcome_id.filter(|m| m != "properties") {
+        let _ = super::migration::rollback(&fx.conn, &fx.vault, &migration);
+    }
+    id_recovery_still_works(&fx);
+    assert_eq!(json_files_in_migrations_root(&fx), Vec::<String>::new());
+}
