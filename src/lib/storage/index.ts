@@ -257,6 +257,27 @@ export const upsertCustomProperty = (
   })
   return notesRepository.upsertCustomProperty(vaultPath, noteId, property)
 }
+// Commands of the new format of the properties, by the name of the property (docs/sync-plan.md,
+// З60). Stubs until the tests of `use-property-actions-by-name.test.tsx` are reviewed.
+export const setPropertyAppearance = (
+  vaultPath: string,
+  noteId: string,
+  name: string,
+  icon: string,
+  settings: string,
+): Promise<void> => {
+  void [vaultPath, noteId, name, icon, settings]
+  return Promise.reject(new Error("not implemented: setPropertyAppearance (З60)"))
+}
+export const renameProperty = (
+  vaultPath: string,
+  noteId: string,
+  name: string,
+  newName: string,
+): Promise<void> => {
+  void [vaultPath, noteId, name, newName]
+  return Promise.reject(new Error("not implemented: renameProperty (З60)"))
+}
 export const deleteCustomProperty = (
   vaultPath: string,
   noteId: string,

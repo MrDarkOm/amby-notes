@@ -2,7 +2,6 @@
 //! Interfaces only.
 #![allow(dead_code, unused_variables)]
 
-use std::collections::BTreeSet;
 use std::path::Path;
 
 use rusqlite::Connection;
@@ -53,15 +52,6 @@ pub struct Report {
     pub warnings: Vec<String>,
 }
 
-/// The owner's decisions (З20).
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Decisions {
-    /// `(note id, property name)` for which the value of the file replaces the header's.
-    pub use_file_value: BTreeSet<(String, String)>,
-    /// Confirmation by the owner of the vault (З21, З38).
-    pub confirmed: bool,
-}
-
 /// What the application knows around the migration (З38).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Context {
@@ -82,6 +72,9 @@ pub struct Outcome {
     pub headers_written: Vec<String>,
     /// Notes whose header changed between a crash and the repeat: left alone (З41).
     pub skipped_changed: Vec<String>,
+    /// Notes whose value in the old file and in the header differed; the header's was kept
+    /// (З58). The list for the report and the notice «Расходились значения у N заметок».
+    pub diverged: Vec<Mismatch>,
 }
 
 /// What a rollback did (З42).
@@ -99,20 +92,60 @@ pub fn preview(conn: &Connection, vault: &Path) -> Result<Report, String> {
     todo!("З19, З20, З40, З41")
 }
 
-/// The migration (З21, З54): confirmation → copies of `properties.json` and of every note whose
-/// header is edited → journal in `.amby/migrations/<id>/` → files → headers → `layout.json` last
-/// → outcome. `properties.json` becomes differences from the template, in the language of the name
-/// that matched; a property equal to the template gives no line; the order goes to `order` only
-/// when it differs from the header's; the `id` of properties are not carried. `properties.json`
-/// is never changed (З22). It does not start when the template number of an arrived `layout.json`
-/// is higher than ours (З54).
-pub fn run(
+/// The migration (З21, З54, З57): copies of `properties.json` and of every note whose header is
+/// edited → journal in `.amby/migrations/<id>/` → files → headers → `layout.json` last → outcome.
+/// No confirmation and no choice of values: a diverging value keeps the header's and is listed
+/// in [`Outcome::diverged`] (З58). `properties.json` becomes differences from the template, in
+/// the language of the name that matched; a property equal to the template gives no line; the
+/// order goes to `order` only when it differs from the header's; the `id` of properties are not
+/// carried. `properties.json` is never changed (З22). It does not start when the template number
+/// of an arrived `layout.json` is higher than ours (З54).
+pub fn run(conn: &Connection, vault: &Path, context: &Context) -> Result<Outcome, String> {
+    todo!("З21, З22, З38, З39, З40, З41, З54, З57, З58")
+}
+
+/// Why the properties of a vault are for reading only (З57, З59).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadOnlyReason {
+    /// `properties.json` cannot be read or has an unknown version (З59).
+    UnreadableOldFile,
+    /// Synchronisation is on and there was no successful pass yet (З38).
+    WaitingForSync,
+}
+
+/// What the opening of a vault found (З57).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpenOutcome {
+    /// `layout.json` is there: nothing to do.
+    AlreadyGroups,
+    /// Migrated now (or an interrupted migration was finished by its journal).
+    Migrated(Outcome),
+    /// `layout.json` came from another device: no migration of our own (З38).
+    ArrivedFromServer,
+    /// Not migrated, the properties are for reading only (З59, З38).
+    ReadOnly(ReadOnlyReason),
+}
+
+/// The first opening of a vault by the new version (З57): decides by itself, with no question —
+/// preview, then [`run`], or [`resume`] by an existing journal. Nothing is written when it does
+/// not migrate. Never changes `properties.json`.
+pub fn open_vault(
     conn: &Connection,
     vault: &Path,
-    decisions: &Decisions,
     context: &Context,
-) -> Result<Outcome, String> {
-    todo!("З20, З21, З22, З38, З39, З40, З41")
+) -> Result<OpenOutcome, String> {
+    todo!("З38, З41, З57, З59")
+}
+
+/// «Взять значение из старого файла» (З58): writes the value of `properties.json` into the header
+/// of the note as an ordinary edit of a value (З1, with history); changes nothing else.
+pub fn take_file_value(
+    conn: &Connection,
+    vault: &Path,
+    note_id: &str,
+    name: &str,
+) -> Result<(), String> {
+    todo!("З58, З1")
 }
 
 /// Finishes an interrupted migration by its journal (З21, З41).

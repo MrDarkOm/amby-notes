@@ -310,5 +310,15 @@ export function usePropertyActions({
     handleUpsertCustomProperty,
     handleDeleteCustomProperty,
     handleReorderCustomProperties,
+    /** З60: change the look of a property by its name. Stub until the tests are reviewed. */
+    handleSetPropertyAppearance: (name: string, icon: string, settings: string): Promise<void> => {
+      void [name, icon, settings]
+      return Promise.reject(new Error("not implemented: handleSetPropertyAppearance (З60)"))
+    },
+    /** З60: rename a property by its name. Stub until the tests are reviewed. */
+    handleRenameProperty: (name: string, newName: string): Promise<void> => {
+      void [name, newName]
+      return Promise.reject(new Error("not implemented: handleRenameProperty (З60)"))
+    },
   }
 }

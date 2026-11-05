@@ -296,6 +296,8 @@ pub struct Panel {
     pub dormant: Vec<DormantProperty>,
     pub rename_hint: Option<RenameHint>,
     pub warnings: Vec<PanelWarning>,
+    /// The whole panel is for reading only: the vault is not migrated yet or cannot be (З57, З59).
+    pub read_only: bool,
 }
 
 /// The panel of a note. Reads only: never writes (З8).
