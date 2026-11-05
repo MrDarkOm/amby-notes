@@ -19,7 +19,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { PropertyEditor } from "./property-editor"
 import { databasePropertyIconKey } from "../database/property-icon"
 import { PanelHeader } from "./panel-header"
-import { PropertyGroupsNotices } from "./property-groups-notices"
+import { PropertyDormantList } from "./property-dormant-list"
 
 interface InfoPanelBodyProps {
   properties: DocumentProperties
@@ -28,7 +28,6 @@ interface InfoPanelBodyProps {
   nonDuplicateCustomProperties: CustomProperty[]
   noteDatabaseContext: DatabaseNoteContext | null
   propertyError: string | null | undefined
-  warningKey: string | null
   hasNoteProperties: boolean
   orderedNoteDatabaseProperties: DatabasePropertySummary[]
   noteDatabaseOrder: {
@@ -80,7 +79,6 @@ export function InfoPanelBody({
   nonDuplicateCustomProperties,
   noteDatabaseContext,
   propertyError,
-  warningKey,
   hasNoteProperties,
   orderedNoteDatabaseProperties,
   noteDatabaseOrder,
@@ -117,15 +115,16 @@ export function InfoPanelBody({
         title={t("infoPanel.properties")}
         actions={
           <>
-            <button
-              type="button"
-              className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-              title={t("infoPanel.addProperty")}
-              disabled={Boolean(properties.frontmatter.parseError)}
-              onClick={openPropertyEditor}
-            >
-              <Plus className="size-3.5" />
-            </button>
+            {!properties.frontmatter.parseError && (
+              <button
+                type="button"
+                className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                title={t("infoPanel.addProperty")}
+                onClick={openPropertyEditor}
+              >
+                <Plus className="size-3.5" />
+              </button>
+            )}
             <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
               {nonDatabaseFrontmatterProperties.length +
                 nonDuplicateCustomProperties.length +
@@ -141,12 +140,7 @@ export function InfoPanelBody({
               {propertyError}
             </p>
           )}
-          {warningKey && (
-            <p role="status" className="text-xs text-muted-foreground">
-              {t(warningKey)}
-            </p>
-          )}
-          <PropertyGroupsNotices noteId={properties.id} />
+          <PropertyDormantList noteId={properties.id} />
           {hasNoteProperties ? (
             <section>
               <div className="space-y-0.5">
@@ -348,16 +342,17 @@ export function InfoPanelBody({
               </div>
             </section>
           ) : null}
-          <button
-            type="button"
-            className="flex items-start gap-2 px-1.5 py-1 text-left text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-            title={t("infoPanel.addProperty")}
-            disabled={Boolean(properties.frontmatter.parseError)}
-            onClick={openPropertyEditor}
-          >
-            <Plus className="mt-0.5 size-3.5 shrink-0" />
-            {t(hasNoteProperties ? "infoPanel.addProperty" : "infoPanel.addFirstProperty")}
-          </button>
+          {!properties.frontmatter.parseError && (
+            <button
+              type="button"
+              className="flex items-start gap-2 px-1.5 py-1 text-left text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              title={t("infoPanel.addProperty")}
+              onClick={openPropertyEditor}
+            >
+              <Plus className="mt-0.5 size-3.5 shrink-0" />
+              {t(hasNoteProperties ? "infoPanel.addProperty" : "infoPanel.addFirstProperty")}
+            </button>
+          )}
         </div>
       </ScrollArea>
       {metadata}

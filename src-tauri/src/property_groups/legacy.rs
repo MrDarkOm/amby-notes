@@ -245,6 +245,7 @@ fn memo_path(vault: &Path) -> PathBuf {
     vault
         .join(".amby")
         .join("migrations")
+        .join("properties")
         .join("legacy-state.json")
 }
 

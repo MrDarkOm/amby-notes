@@ -1391,32 +1391,8 @@ const ru = {
   infoPanel: {
     groups: {
       dormantTitle: "Нет в шапке",
-      dormantHint: "Оформление осталось, а ключа в шапке заметки нет.",
       restore: "Вернуть",
       purge: "Удалить окончательно",
-      renameHint:
-        "Похоже, «{{oldName}}» переименовали в «{{newName}}». Перенести на него тип и иконку?",
-      renameYes: "Перенести",
-      renameNo: "Нет",
-      formatNewer: "Формат свойств новее этой версии Amby: свойства доступны только для чтения.",
-      badLine:
-        "В файле свойств есть строка, которую нельзя прочитать: правки свойств этой группы отключены.",
-      migrationTitle: "Новый формат свойств",
-      migrationBody:
-        "Свойства заметок можно перенести в новый формат: значения остаются в шапках заметок, а оформление хранится только там, где оно отличается от стандартного. Старый файл не удаляется.",
-      migrationReview: "Показать отчёт",
-      migrationReport:
-        "Заметок со свойствами: {{notes}}, свойств: {{properties}}. Значение совпадает с шапкой: {{same}}. Расходится: {{mismatches}} (останется значение из шапки). Нет ключа в шапке: {{missing}}. Заметок получит новую шапку: {{edits}}.",
-      migrationRun: "Перенести свойства",
-      migrationDone: "Свойства перенесены.",
-      migrationFailed: "Не удалось перенести свойства: {{details}}",
-      oldVersionCheck: "Проверить правки старой версии",
-      oldVersionNothing: "Правок старой версии нет.",
-      oldVersionConflicts: "Заметок, изменённых и здесь, и в старой версии: {{count}}.",
-      oldVersionConflict:
-        "Свойства этой заметки изменили и здесь, и в старой версии Amby на другом устройстве.",
-      keepHere: "Оставить здешнее",
-      takeOld: "Взять из старой версии",
     },
     id: "ID",
     noDocument: "Нет выбранной заметки",
@@ -1639,6 +1615,22 @@ const ru = {
     wikiLink: "wiki-ссылка",
   },
   noteNotices: {
+    properties: {
+      failed: "Не удалось: {{details}}",
+      migrationTitle: "Новый формат свойств",
+      migrationBody: "Значения останутся в шапках заметок; старый файл не удаляется.",
+      migrationReport: "Заметок: {{notes}}, шапок изменится: {{edits}}.",
+      migrationReview: "Показать отчёт",
+      migrationRun: "Перенести свойства",
+      formatNewer: "Формат свойств новее этой версии Amby: только чтение.",
+      badLine: "В файле свойств есть нечитаемая строка: правки отключены.",
+      renameHint: "«{{oldName}}» → «{{newName}}»: перенести тип и иконку?",
+      renameYes: "Перенести",
+      renameNo: "Нет",
+      oldConflict: "Свойства изменены и здесь, и в старой версии Amby.",
+      keepHere: "Оставить здешнее",
+      takeOld: "Взять из старой версии",
+    },
     bulbLabel: "Уведомления заметки: {{count}}",
     bulbTitle: "Уведомления заметки",
     syncConflict: "Пришла другая версия заметки с другого компьютера",
@@ -2632,14 +2624,12 @@ const ru = {
       "Обнаружена незавершённая миграция ID ({{files}} файлов). Продолжить её?",
     identityMigrationConfirm:
       "В хранилище {{notes}} заметок. Поле amby-id будет добавлено в {{files}} файлов:\n\n{{preview}}\nЕщё файлов: {{remaining}}.\n\nСначала будут созданы резервные копии и журнал миграции. Существующее поле id останется без изменений; старый канонический ULID будет скопирован в amby-id. Некорректный YAML: {{malformed}}; конфликты ID: {{conflicts}} — эти файлы не изменятся.\n\nПродолжить?",
-    identityReadOnly:
-      "Не удалось определить amby-id. Исправьте YAML или конфликт ID во внешнем редакторе.",
+    identityReadOnly: "Не удалось определить amby-id: исправьте YAML или конфликт ID.",
     losslessSourceOnly:
       "Эта заметка открыта в исходном режиме: в ней есть разметка, которую визуальный редактор не может сохранить без потерь (например, ссылки-определения или смешанные окончания строк).",
-    invalidFrontmatter:
-      "Некорректный YAML: свойства недоступны. Текст заметки можно читать и редактировать; исходный YAML сохранится без изменений.",
+    invalidFrontmatter: "Некорректный YAML: свойства недоступны, текст можно править.",
     unterminatedFrontmatter:
-      "У YAML нет закрывающего разделителя. Показан весь исходный файл в Source; свойства недоступны. Исправления не вносятся автоматически. После исправления сохраните файл, обновите хранилище и заново откройте заметку.",
+      "У YAML нет закрывающего «---». Показан исходный файл; свойства недоступны.",
     migrationRollbackConfirm:
       "Восстановить заметки из резервных копий незавершённой миграции ID? Несохранённые внешние изменения не будут перезаписаны.",
   },
@@ -5441,33 +5431,8 @@ const en: typeof ru = {
   infoPanel: {
     groups: {
       dormantTitle: "Not in the header",
-      dormantHint: "The look is kept, but the note's header has no such key.",
       restore: "Bring back",
       purge: "Delete for good",
-      renameHint:
-        'It looks like "{{oldName}}" was renamed to "{{newName}}". Move the type and icon to it?',
-      renameYes: "Move",
-      renameNo: "No",
-      formatNewer:
-        "The properties format is newer than this version of Amby: properties are read only.",
-      badLine:
-        "The properties file has a line that cannot be read: edits of the properties of this group are turned off.",
-      migrationTitle: "New properties format",
-      migrationBody:
-        "Note properties can be moved to a new format: values stay in the note headers, and the look is stored only where it differs from the default. The old file is not deleted.",
-      migrationReview: "Show the report",
-      migrationReport:
-        "Notes with properties: {{notes}}, properties: {{properties}}. Value equals the header: {{same}}. Differs: {{mismatches}} (the header value stays). No key in the header: {{missing}}. Notes that get a new header: {{edits}}.",
-      migrationRun: "Move properties",
-      migrationDone: "Properties moved.",
-      migrationFailed: "Could not move properties: {{details}}",
-      oldVersionCheck: "Check edits of the old version",
-      oldVersionNothing: "No edits of the old version.",
-      oldVersionConflicts: "Notes changed both here and in the old version: {{count}}.",
-      oldVersionConflict:
-        "The properties of this note were changed both here and in an old version of Amby on another device.",
-      keepHere: "Keep this one",
-      takeOld: "Take the old version's",
     },
     id: "ID",
     noDocument: "No document selected",
@@ -5688,6 +5653,22 @@ const en: typeof ru = {
     wikiLink: "wiki link",
   },
   noteNotices: {
+    properties: {
+      failed: "Failed: {{details}}",
+      migrationTitle: "New properties format",
+      migrationBody: "Values stay in the note headers; the old file is not deleted.",
+      migrationReport: "Notes: {{notes}}, headers to change: {{edits}}.",
+      migrationReview: "Show the report",
+      migrationRun: "Move properties",
+      formatNewer: "The properties format is newer than this Amby: read only.",
+      badLine: "The properties file has a line that cannot be read: edits are off.",
+      renameHint: '"{{oldName}}" → "{{newName}}": move the type and icon?',
+      renameYes: "Move",
+      renameNo: "No",
+      oldConflict: "The properties were changed both here and in an old Amby.",
+      keepHere: "Keep this one",
+      takeOld: "Take the old one's",
+    },
     bulbLabel: "Note notices: {{count}}",
     bulbTitle: "Note notices",
     syncConflict: "Another version of this note came from another computer",
@@ -6677,14 +6658,12 @@ const en: typeof ru = {
     migrationResumeConfirm: "An unfinished ID migration was found ({{files}} files). Resume it?",
     identityMigrationConfirm:
       "The vault contains {{notes}} notes. amby-id will be added to {{files}} files:\n\n{{preview}}\nAdditional files: {{remaining}}.\n\nBackups and a migration journal will be created first. Existing id fields remain unchanged; a legacy canonical ULID will be copied to amby-id. Invalid YAML: {{malformed}}; ID conflicts: {{conflicts}} — those files will not be changed.\n\nContinue?",
-    identityReadOnly:
-      "Could not determine amby-id. Fix YAML or the ID conflict in an external editor.",
+    identityReadOnly: "Could not determine amby-id: fix the YAML or the ID conflict.",
     losslessSourceOnly:
       "This note is open in Source mode: it contains Markdown the visual editor cannot save without loss (for example, link definitions or mixed line endings).",
-    invalidFrontmatter:
-      "Invalid YAML: properties are unavailable. You can read and edit the note text; the original YAML will remain unchanged.",
+    invalidFrontmatter: "Invalid YAML: properties are unavailable, the text can be edited.",
     unterminatedFrontmatter:
-      "The YAML closing delimiter is missing. The complete file is shown in Source; properties are unavailable. No automatic repair is performed. After fixing it, save the file, refresh the vault, and reopen the note.",
+      "The YAML closing “---” is missing. The source is shown; properties are unavailable.",
     migrationRollbackConfirm:
       "Restore notes from the unfinished ID migration backups? Later external edits will not be overwritten.",
   },
