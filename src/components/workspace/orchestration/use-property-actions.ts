@@ -1,6 +1,6 @@
 import * as React from "react"
 import type { TFunction } from "i18next"
-import { logger } from "@/lib/logger"
+import { errorType, logger } from "@/lib/logger"
 import {
   deleteCustomProperty,
   getNoteProperties,
@@ -189,6 +189,11 @@ export function usePropertyActions({
           await reload(mutation.version)
           return result
         } catch (error) {
+          logger.error("property.mutation_failed", {
+            noteId,
+            errorType: errorType(error),
+            message: error instanceof Error ? error.message : String(error),
+          })
           if (isCurrent()) {
             setFailure({ generation, noteId })
             await reload(mutation.version).catch(() => {})
