@@ -25,8 +25,31 @@ Those directories, along with `.amby/`, are excluded from the note index.
   positions keyed by node ID (`nodes: { id: [x, y] }`) and the view (`camera`).
   It is user state, not a cache; a missing, unlocked or unknown-version file only
   means the graph lays itself out freely.
-- `properties.json` — versioned custom-property metadata keyed by stable note ID;
-  SQLite mirrors it for queries, while this sidecar makes the data rebuildable.
+- `properties/` — the look of note properties (sync plan, appendix З). The **value** of a
+  property lives only in the YAML header of the note. Type, icon and options come from the
+  template of basic properties in the application; a note's record keeps only the
+  **differences** from it, by property name, and an `order` only after the user reordered.
+  - `layout.json` — `{"groups":16,"hash":"blake3-first-hex","template":N,"version":1}`,
+    read before the groups; another number of groups or version makes the properties
+    read-only. It is written last by the migration and marks its end.
+  - `prop_<x>.jsonl` — `<x>` is the first lowercase hexadecimal digit of BLAKE3 of the
+    note's `amby-id`; at most 16 files, a file exists only if it has lines. JSON Lines: the
+    first line `{"version":1}` (unknown fields are kept), then one line per note sorted by
+    `id`: `{"hint":{"path":…},"id":…,"props":{"<name>":{"icon":…,"propertyType":…,
+"settings":…}},"order":[…],"dismissedRenames":[[…,…]]}` in compact JSON with keys in
+    ascending byte order. An edit replaces, inserts or removes only its own line; every
+    other line is copied byte for byte. A line that cannot be read is shown as read-only,
+    the file is never written while it is there, and nothing is repaired automatically.
+    `hint` is a hint for people and for rebinding, not a key.
+  - `legacy_<x>.jsonl` — marks of edits made by an old version: `{"entry":…,"id":…,
+"record":…}` (BLAKE3 hashes), same digit and same rules as `prop_<x>.jsonl`.
+- `properties.json` — the first format of the same data (a list of properties with values
+  per note). After the migration it is neither changed nor deleted so that old versions on
+  other devices keep working; the new version reads it only to carry over their edits and
+  never writes it. SQLite mirrors the properties for queries and can be rebuilt from the files.
+- `property-ops/<operation-id>.json` — journal of an edit that touches both the header and
+  the group (rename, create, delete, change of type). It exists only while the operation
+  does; on opening the vault the device that began it finishes it. It stays on this device.
 - `property-backups/<note-id>/<operation-id>.json` — immutable versioned backups
   created when standalone note properties are removed while the note enters a
   database. Each file records the destination note ID, creation time, complete
@@ -86,7 +109,9 @@ test holds the two together.
 
 | Entry                      | Synchronised | Why                                                               |
 | -------------------------- | ------------ | ----------------------------------------------------------------- |
-| `properties.json`          | yes          | user data of the notes                                            |
+| `properties.json`          | yes          | user data of the notes, for the old versions                      |
+| `properties/`              | yes          | the look of note properties: groups, marks, layout                |
+| `property-ops/`            | no           | journal of unfinished edits of this device                        |
 | `blocks/`                  | yes          | per-note UI sidecars                                              |
 | `graph-layout.json`        | yes          | user state                                                        |
 | `property-backups/`        | yes          | immutable backups of removed properties                           |

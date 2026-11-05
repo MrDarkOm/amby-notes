@@ -19,6 +19,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { PropertyEditor } from "./property-editor"
 import { databasePropertyIconKey } from "../database/property-icon"
 import { PanelHeader } from "./panel-header"
+import { PropertyDormantList } from "./property-dormant-list"
 
 interface InfoPanelBodyProps {
   properties: DocumentProperties
@@ -27,7 +28,6 @@ interface InfoPanelBodyProps {
   nonDuplicateCustomProperties: CustomProperty[]
   noteDatabaseContext: DatabaseNoteContext | null
   propertyError: string | null | undefined
-  warningKey: string | null
   hasNoteProperties: boolean
   orderedNoteDatabaseProperties: DatabasePropertySummary[]
   noteDatabaseOrder: {
@@ -63,6 +63,13 @@ interface InfoPanelBodyProps {
   setPropertyEditorOpen: React.Dispatch<React.SetStateAction<boolean>>
   customPropertyOrderBusy: boolean
   onReorderCustomProperties: ((propertyIds: string[]) => Promise<void>) | undefined
+  onCreateProperty?: (property: CustomProperty) => Promise<void>
+  onSetPropertyIcon?: (name: string, icon: string) => Promise<void>
+  onSetPropertySettings?: (name: string, settings: string) => Promise<void>
+  onRenameProperty?: (name: string, newName: string) => Promise<void>
+  onChangePropertyType?: (name: string, propertyType: string) => Promise<void>
+  onSetPropertyValue?: (name: string, value: string) => Promise<void>
+  onSetPropertyList?: (name: string, items: string[]) => Promise<void>
   metadata: React.JSX.Element | null
   editingProperty: CustomProperty | null
   propertyEditorOpen: boolean
@@ -72,6 +79,16 @@ interface InfoPanelBodyProps {
   invalidateDatabaseHosts: () => void
 }
 
+function listFromJson(value: string): string[] | null {
+  if (!value.startsWith("[")) return null
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return Array.isArray(parsed) && parsed.every((item) => typeof item === "string") ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 export function InfoPanelBody({
   properties,
   openPropertyEditor,
@@ -79,7 +96,6 @@ export function InfoPanelBody({
   nonDuplicateCustomProperties,
   noteDatabaseContext,
   propertyError,
-  warningKey,
   hasNoteProperties,
   orderedNoteDatabaseProperties,
   noteDatabaseOrder,
@@ -101,6 +117,13 @@ export function InfoPanelBody({
   setPropertyEditorOpen,
   customPropertyOrderBusy,
   onReorderCustomProperties,
+  onCreateProperty,
+  onSetPropertyIcon,
+  onSetPropertySettings,
+  onRenameProperty,
+  onChangePropertyType,
+  onSetPropertyValue,
+  onSetPropertyList,
   metadata,
   editingProperty,
   propertyEditorOpen,
@@ -110,21 +133,52 @@ export function InfoPanelBody({
   invalidateDatabaseHosts,
 }: InfoPanelBodyProps) {
   const { t } = useTranslation()
+  // Where the properties are changed by name (З60), the editor sends only the fields the person
+  // changed in the form, each as its own narrow command; the form is compared with the property as
+  // it was when the editor opened, never with what a row drew earlier.
+  async function saveEdited(draft: CustomProperty) {
+    if (!onRenameProperty || !onChangePropertyType || !onSetPropertyIcon) {
+      await onUpsertCustomProperty?.(draft)
+      return
+    }
+    const original = editingProperty
+    if (!original) {
+      await onCreateProperty?.(draft)
+      return
+    }
+    const name = draft.name.trim()
+    let at = original.name
+    if (name && name !== original.name) {
+      await onRenameProperty(original.name, name)
+      at = name
+    }
+    if (draft.propertyType !== original.propertyType)
+      await onChangePropertyType(at, draft.propertyType)
+    if (draft.icon !== original.icon) await onSetPropertyIcon(at, draft.icon)
+    if (draft.settings !== original.settings) await onSetPropertySettings?.(at, draft.settings)
+    if (draft.value !== original.value) {
+      // A multi-select value is a JSON list of items; it is written as the list (З62).
+      const items = draft.propertyType === "list" ? listFromJson(draft.value) : null
+      if (items && onSetPropertyList) await onSetPropertyList(at, items)
+      else await onSetPropertyValue?.(at, draft.value)
+    }
+  }
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PanelHeader
         title={t("infoPanel.properties")}
         actions={
           <>
-            <button
-              type="button"
-              className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-              title={t("infoPanel.addProperty")}
-              disabled={Boolean(properties.frontmatter.parseError)}
-              onClick={openPropertyEditor}
-            >
-              <Plus className="size-3.5" />
-            </button>
+            {!properties.frontmatter.parseError && (
+              <button
+                type="button"
+                className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                title={t("infoPanel.addProperty")}
+                onClick={openPropertyEditor}
+              >
+                <Plus className="size-3.5" />
+              </button>
+            )}
             <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
               {nonDatabaseFrontmatterProperties.length +
                 nonDuplicateCustomProperties.length +
@@ -140,11 +194,7 @@ export function InfoPanelBody({
               {propertyError}
             </p>
           )}
-          {warningKey && (
-            <p role="status" className="text-xs text-muted-foreground">
-              {t(warningKey)}
-            </p>
-          )}
+          <PropertyDormantList noteId={properties.id} />
           {hasNoteProperties ? (
             <section>
               <div className="space-y-0.5">
@@ -241,6 +291,13 @@ export function InfoPanelBody({
                           propertyType={propertyType}
                           settings={matchedCustom?.settings || ""}
                           onIconChange={async (nextIcon) => {
+                            if (onSetPropertyIcon) {
+                              await onSetPropertyIcon(
+                                matchedCustom?.name ?? property.key,
+                                nextIcon ?? "",
+                              )
+                              return
+                            }
                             await onUpsertCustomProperty?.({
                               id: matchedCustom?.id || property.key,
                               name: property.key,
@@ -252,6 +309,13 @@ export function InfoPanelBody({
                           }}
                           onRename={async (newName) => {
                             if (!newName.trim() || newName.trim() === property.key) return
+                            if (onRenameProperty) {
+                              await onRenameProperty(
+                                matchedCustom?.name ?? property.key,
+                                newName.trim(),
+                              )
+                              return
+                            }
                             await onUpsertCustomProperty?.({
                               id: matchedCustom?.id || property.key,
                               name: newName.trim(),
@@ -263,6 +327,13 @@ export function InfoPanelBody({
                           }}
                           onChangeType={async (nextType) => {
                             if (nextType === propertyType) return
+                            if (onChangePropertyType) {
+                              await onChangePropertyType(
+                                matchedCustom?.name ?? property.key,
+                                nextType,
+                              )
+                              return
+                            }
                             await onUpsertCustomProperty?.({
                               id: matchedCustom?.id || property.key,
                               name: property.key,
@@ -274,6 +345,13 @@ export function InfoPanelBody({
                           }}
                           onChangeSettings={async (nextSettings) => {
                             if (nextSettings === (matchedCustom?.settings || "")) return
+                            if (onSetPropertySettings) {
+                              await onSetPropertySettings(
+                                matchedCustom?.name ?? property.key,
+                                nextSettings,
+                              )
+                              return
+                            }
                             await onUpsertCustomProperty?.({
                               id: matchedCustom?.id || property.key,
                               name: property.key,
@@ -283,7 +361,17 @@ export function InfoPanelBody({
                               settings: nextSettings,
                             })
                           }}
+                          onSaveList={
+                            onSetPropertyList
+                              ? (items) =>
+                                  onSetPropertyList(matchedCustom?.name ?? property.key, items)
+                              : undefined
+                          }
                           onSave={async (nextVal) => {
+                            if (onSetPropertyValue) {
+                              await onSetPropertyValue(matchedCustom?.name ?? property.key, nextVal)
+                              return
+                            }
                             await onUpsertCustomProperty?.({
                               id: matchedCustom?.id || property.key,
                               name: property.key,
@@ -320,6 +408,10 @@ export function InfoPanelBody({
                           setPropertyEditorOpen(true)
                         }}
                         onValueSave={async (updated) => {
+                          if (onSetPropertyValue) {
+                            await onSetPropertyValue(updated.name, updated.value)
+                            return
+                          }
                           await onUpsertCustomProperty?.(updated)
                         }}
                         dragging={customOrder.draggingId === property.id}
@@ -346,16 +438,17 @@ export function InfoPanelBody({
               </div>
             </section>
           ) : null}
-          <button
-            type="button"
-            className="flex items-start gap-2 px-1.5 py-1 text-left text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-            title={t("infoPanel.addProperty")}
-            disabled={Boolean(properties.frontmatter.parseError)}
-            onClick={openPropertyEditor}
-          >
-            <Plus className="mt-0.5 size-3.5 shrink-0" />
-            {t(hasNoteProperties ? "infoPanel.addProperty" : "infoPanel.addFirstProperty")}
-          </button>
+          {!properties.frontmatter.parseError && (
+            <button
+              type="button"
+              className="flex items-start gap-2 px-1.5 py-1 text-left text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              title={t("infoPanel.addProperty")}
+              onClick={openPropertyEditor}
+            >
+              <Plus className="mt-0.5 size-3.5 shrink-0" />
+              {t(hasNoteProperties ? "infoPanel.addProperty" : "infoPanel.addFirstProperty")}
+            </button>
+          )}
         </div>
       </ScrollArea>
       {metadata}
@@ -401,7 +494,7 @@ export function InfoPanelBody({
               }
             }
           }
-          await onUpsertCustomProperty?.(property)
+          await saveEdited(property)
         }}
         onDelete={async (propertyId) => {
           await onDeleteCustomProperty?.(propertyId)

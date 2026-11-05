@@ -12,7 +12,6 @@ import {
   type DatabaseNoteContext,
   type DatabasePropertySummary,
 } from "@/lib/storage"
-import { noteEditingPolicy } from "../editor/note-editing-policy"
 import type { PanelRenderProps } from "../panel-registry"
 import { createRelationTargetRow, usePropertyMutation } from "../database/use-property-mutation"
 import { useDatabaseStore } from "../database/database-store"
@@ -93,6 +92,13 @@ export function InfoPanel({
   onUpsertCustomProperty,
   onDeleteCustomProperty,
   onReorderCustomProperties,
+  onCreateProperty,
+  onSetPropertyIcon,
+  onSetPropertySettings,
+  onRenameProperty,
+  onChangePropertyType,
+  onSetPropertyValue,
+  onSetPropertyList,
 }: PanelRenderProps) {
   const { t } = useTranslation()
   const [propertyEditorOpen, setPropertyEditorOpen] = React.useState(false)
@@ -504,8 +510,6 @@ export function InfoPanel({
       </div>
     )
   }
-  const warningKey =
-    properties.kind === "folder" ? null : noteEditingPolicy(properties.frontmatter).warningKey
   function openPropertyEditor() {
     setEditingProperty(null)
     setPropertyEditorOpen(true)
@@ -536,7 +540,6 @@ export function InfoPanel({
       nonDuplicateCustomProperties={nonDuplicateCustomProperties}
       noteDatabaseContext={noteDatabaseContext}
       propertyError={propertyError}
-      warningKey={warningKey}
       hasNoteProperties={hasNoteProperties}
       orderedNoteDatabaseProperties={orderedNoteDatabaseProperties}
       noteDatabaseOrder={noteDatabaseOrder}
@@ -558,6 +561,13 @@ export function InfoPanel({
       setPropertyEditorOpen={setPropertyEditorOpen}
       customPropertyOrderBusy={customPropertyOrderBusy}
       onReorderCustomProperties={onReorderCustomProperties}
+      onCreateProperty={onCreateProperty}
+      onSetPropertyIcon={onSetPropertyIcon}
+      onSetPropertySettings={onSetPropertySettings}
+      onRenameProperty={onRenameProperty}
+      onChangePropertyType={onChangePropertyType}
+      onSetPropertyValue={onSetPropertyValue}
+      onSetPropertyList={onSetPropertyList}
       metadata={metadata}
       editingProperty={editingProperty}
       propertyEditorOpen={propertyEditorOpen}

@@ -421,9 +421,11 @@ pub(crate) fn replace_yaml_binding_lossless(
 
 fn validate_binding_key(key: &str) -> Result<(), String> {
     if key.is_empty()
-        || !key
-            .chars()
-            .all(|character| character.is_alphanumeric() || matches!(character, '-' | '_' | ' '))
+        || !key.chars().all(|character| {
+            character.is_alphanumeric()
+                || matches!(character, '-' | '_' | ' ')
+                || unicode_normalization::char::is_combining_mark(character)
+        })
     {
         return Err("YAML binding key is not a safe top-level key".to_owned());
     }
@@ -845,7 +847,19 @@ fn yaml_inline_value(value: &Value) -> Result<String, String> {
     if let Value::Sequence(items) = value {
         let rendered = items
             .iter()
-            .map(yaml_inline_value)
+            .map(|item| match item {
+                // A comma or a bracket in an item would split or end the flow list.
+                Value::String(text)
+                    if text.is_empty()
+                        || text.contains([',', '[', ']', '{', '}', '#', '\n'])
+                        || text.contains(": ")
+                        || text.starts_with(char::is_whitespace)
+                        || text.ends_with(char::is_whitespace) =>
+                {
+                    Ok(format!("'{}'", text.replace('\'', "''")))
+                }
+                other => yaml_inline_value(other),
+            })
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
         return Ok(format!("[{rendered}]"));
@@ -910,6 +924,229 @@ pub(crate) fn remove_yaml_binding_lossless(content: &str, key: &str) -> Result<S
     let mut next_yaml = String::with_capacity(yaml.len());
     next_yaml.push_str(&yaml[..entry.line_start]);
     next_yaml.push_str(&yaml[entry.line_end..]);
+    let next = format!(
+        "{}{}{}{}",
+        &content[..yaml_start],
+        next_yaml,
+        &content[yaml_end..envelope_end],
+        &content[envelope_end..]
+    );
+    validate_yaml_mapping_change(&next, &expected)
+}
+
+/// A top-level key of the header as appendix З reads it (З1, З24): a key that YAML reads as a
+/// string, with the value as text and the mark that the value cannot be rewritten without loss.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HeaderKey {
+    /// The key as spelled in the header.
+    pub key: String,
+    /// Text of the value: a string as it is, a flag or a number as YAML spells it, an empty value
+    /// as an empty string, a list of scalars joined with `, `.
+    pub value: String,
+    /// The items when the value is a YAML list of scalars, as they are; empty otherwise.
+    pub items: Vec<String>,
+    /// Multiline, block string, anchor, tag or anything else the lossless writer refuses (З26).
+    pub complex: bool,
+}
+
+/// What the header of a note holds, for reading only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum HeaderKeys {
+    /// The note has no header.
+    Absent,
+    /// The header is not closed, not YAML, not a mapping or repeats a key (З25).
+    Unreadable,
+    /// The keys in the order of the header; keys that are not strings are left out.
+    Keys(Vec<HeaderKey>),
+}
+
+/// The items of a YAML list of scalars; nothing for any other value.
+pub(crate) fn list_items(value: &Value) -> Vec<String> {
+    match value {
+        Value::Sequence(items)
+            if items.iter().all(|item| {
+                !matches!(
+                    item,
+                    Value::Sequence(_) | Value::Mapping(_) | Value::Tagged(_)
+                )
+            }) =>
+        {
+            items.iter().map(value_as_text).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Writes a list as the value of a key without glueing its items: an item with a comma or a bracket
+/// is quoted (appendix З, З62).
+pub(crate) fn upsert_frontmatter_list(
+    content: &str,
+    note_id: &str,
+    key: &str,
+    items: &[String],
+) -> Result<String, String> {
+    let key = key.trim();
+    if key.is_empty() {
+        return Err("Property key cannot be empty".to_owned());
+    }
+    let content_with_envelope = if split_frontmatter(content).is_some() {
+        content.to_owned()
+    } else {
+        body_with_identity_field(content, note_id, AMBY_ID_FIELD)?
+    };
+    let list = Value::Sequence(items.iter().cloned().map(Value::String).collect());
+    replace_yaml_binding_lossless(&content_with_envelope, key, &list)
+}
+
+pub(crate) fn value_as_text(value: &Value) -> String {
+    match value {
+        Value::Null => String::new(),
+        Value::String(text) => text.clone(),
+        Value::Bool(flag) => flag.to_string(),
+        Value::Number(number) => number.to_string(),
+        Value::Sequence(items)
+            if items.iter().all(|item| {
+                !matches!(
+                    item,
+                    Value::Sequence(_) | Value::Mapping(_) | Value::Tagged(_)
+                )
+            }) =>
+        {
+            items
+                .iter()
+                .map(value_as_text)
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
+        other => yaml_display(other),
+    }
+}
+
+fn header_keys_by_lines(yaml: &str) -> HeaderKeys {
+    let Ok(entries) = scan_top_level_yaml_entries(yaml) else {
+        return HeaderKeys::Unreadable;
+    };
+    let mut seen: Vec<&Value> = Vec::new();
+    let mut keys = Vec::new();
+    for entry in &entries {
+        if seen.contains(&&entry.key) {
+            return HeaderKeys::Unreadable;
+        }
+        seen.push(&entry.key);
+        if let Value::String(key) = &entry.key {
+            keys.push(HeaderKey {
+                key: key.clone(),
+                value: yaml[entry.value_start..entry.value_end].trim().to_string(),
+                items: Vec::new(),
+                complex: true,
+            });
+        }
+    }
+    if keys.is_empty() {
+        HeaderKeys::Unreadable
+    } else {
+        HeaderKeys::Keys(keys)
+    }
+}
+
+/// Reads the keys of the header without writing anything and without caring whether a key could
+/// be changed (appendix З: З1, З24–З26).
+pub(crate) fn header_keys(content: &str) -> HeaderKeys {
+    let Some((yaml, _)) = split_frontmatter(content) else {
+        let without_bom = content.strip_prefix('\u{feff}').unwrap_or(content);
+        return if without_bom.starts_with("---\n") || without_bom.starts_with("---\r\n") {
+            HeaderKeys::Unreadable
+        } else {
+            HeaderKeys::Absent
+        };
+    };
+    let mapping = match parse_yaml(yaml) {
+        Ok(Value::Mapping(mapping)) => mapping,
+        Ok(_) => return HeaderKeys::Unreadable,
+        // YAML that libyaml refuses (an anchor with a non-ASCII name): the lines are still
+        // readable one by one, and every such value is one the writer will not touch.
+        Err(_) => return header_keys_by_lines(yaml),
+    };
+    let entries = scan_top_level_yaml_entries(yaml).ok();
+    let keys = mapping
+        .iter()
+        .filter_map(|(key, value)| {
+            let Value::String(key) = key else {
+                return None;
+            };
+            let complex = entries.as_ref().is_some_and(|entries| {
+                entries.iter().any(|entry| {
+                    matches!(&entry.key, Value::String(k) if k == key)
+                        && entry.value_kind == YamlValueKind::Complex
+                        && !matches!(value, Value::Null)
+                })
+            }) || matches!(value, Value::Mapping(_) | Value::Tagged(_))
+                || matches!(value, Value::Sequence(items) if items.iter().any(|item| matches!(item, Value::Sequence(_) | Value::Mapping(_) | Value::Tagged(_))));
+            Some(HeaderKey {
+                key: key.clone(),
+                value: value_as_text(value),
+                items: list_items(value),
+                complex,
+            })
+        })
+        .collect();
+    HeaderKeys::Keys(keys)
+}
+
+/// Is `key` a key the lossless writer accepts (letters, digits, `-`, `_`, space)?
+pub(crate) fn is_safe_binding_key(key: &str) -> bool {
+    validate_binding_key(key).is_ok()
+}
+
+/// Renames one top-level key without touching its value or anything else of the header (З9,
+/// З28). The value may not be complex; the new key may not exist yet.
+pub(crate) fn rename_yaml_key_lossless(
+    content: &str,
+    old_key: &str,
+    new_key: &str,
+) -> Result<String, String> {
+    validate_binding_key(old_key)?;
+    validate_binding_key(new_key)?;
+    let (yaml, _) = split_frontmatter(content)
+        .ok_or_else(|| "YAML binding requires a closed frontmatter envelope".to_owned())?;
+    let (yaml_start, yaml_end, envelope_end) = frontmatter_yaml_offsets(content, yaml)?;
+    let original =
+        parse_yaml(yaml).map_err(|error| format!("Invalid frontmatter YAML: {error}"))?;
+    let Value::Mapping(mapping) = original else {
+        return Err("YAML binding requires a mapping frontmatter root".to_owned());
+    };
+    let entries = scan_top_level_yaml_entries(yaml)?;
+    validate_mapping_entries(&mapping, &entries)?;
+    let old = Value::String(old_key.to_owned());
+    let new = Value::String(new_key.to_owned());
+    if entries.iter().any(|entry| entry.key == new) {
+        return Err(format!("YAML binding key '{new_key}' already exists"));
+    }
+    let matching = entries
+        .iter()
+        .filter(|entry| entry.key == old)
+        .collect::<Vec<_>>();
+    let [entry] = matching.as_slice() else {
+        return Err(format!(
+            "YAML binding key '{old_key}' is missing or duplicated"
+        ));
+    };
+    if entry.value_kind == YamlValueKind::Complex {
+        return Err(format!(
+            "YAML binding key '{old_key}' has an unsupported, anchored, or multiline value"
+        ));
+    }
+    let line = &yaml[entry.line_start..entry.line_end];
+    let (key_text, _) = top_level_key_colon(line.trim_end_matches(['\n', '\r']))
+        .ok_or_else(|| "YAML binding key line is not understood".to_owned())?;
+    let key_start = entry.line_start;
+    let key_end = key_start + key_text.len();
+    let mut next_yaml = yaml.to_owned();
+    next_yaml.replace_range(key_start..key_end, new_key);
+    let mut expected = Mapping::new();
+    for (key, value) in mapping {
+        expected.insert(if key == old { new.clone() } else { key }, value);
+    }
     let next = format!(
         "{}{}{}{}",
         &content[..yaml_start],
@@ -1137,6 +1374,7 @@ pub fn note_properties(content: &str) -> NoteProperties {
                 key: yaml_display(key),
                 value: yaml_display(value),
                 value_kind: yaml_value_kind(value).to_string(),
+                items: list_items(value),
             })
             .collect(),
         _ => Vec::new(),

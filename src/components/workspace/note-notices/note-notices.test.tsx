@@ -57,6 +57,19 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+describe("important warnings of the properties", () => {
+  it("open the stack for a damaged header and for a property that could not be saved", async () => {
+    mount({ warningKey: "workspace.invalidFrontmatter" })
+    expect(stack()).not.toBeNull()
+    cleanup()
+    mount()
+    expect(stack()).toBeNull()
+    act(() => useNoteNoticesStore.getState().setPropertyFailed(ABSOLUTE, true))
+    expect(stack()).not.toBeNull()
+    expect(screen.getByTestId("note-notice-property-failed")).toBeTruthy()
+  })
+})
+
 describe("the bulb", () => {
   it("is not there while the note has nothing to say", () => {
     mount()
@@ -65,7 +78,7 @@ describe("the bulb", () => {
   })
 
   it("appears with the number of notices and opens and hides the stack on a click", () => {
-    mount({ warningKey: "workspace.identityReadOnly" })
+    mount({ warningKey: "workspace.losslessSourceOnly" })
     const button = bulb()!
     expect(button.textContent).toContain("1")
     expect(button.getAttribute("aria-label")).toMatch(/Уведомления заметки: 1/)
@@ -111,7 +124,7 @@ describe("the bulb", () => {
 
 describe("what opens the stack by itself", () => {
   it("a new sync conflict, even when the person had hidden the stack", () => {
-    mount({ warningKey: "workspace.identityReadOnly" })
+    mount({ warningKey: "workspace.losslessSourceOnly" })
     fireEvent.click(bulb()!)
     fireEvent.click(bulb()!)
     expect(stack()).toBeNull()
@@ -186,7 +199,8 @@ describe("the warnings that used to be strips above the note", () => {
     ["workspace.unterminatedFrontmatter"],
   ])("%s is a card, with its own text", (key) => {
     mount({ warningKey: key })
-    fireEvent.click(bulb()!)
+    // a damaged header or a lost id is important: the stack is open without a click
+    if (!stack()) fireEvent.click(bulb()!)
     expect(within(stack()!).getByText(i18n.t(key))).toBeTruthy()
   })
 

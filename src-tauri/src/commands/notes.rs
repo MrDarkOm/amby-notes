@@ -6,7 +6,7 @@ use crate::frontmatter;
 use crate::history;
 use crate::model::*;
 use crate::paths;
-use crate::property_store;
+use crate::property_groups;
 use crate::vault_context::VaultContext;
 use crate::vault_index;
 use crate::watcher::{self, WatcherState};
@@ -374,7 +374,7 @@ pub fn restore_deleted_note(
     let revision = vault_index::body_revision(if opaque { &persisted } else { &body });
     let index_result =
         vault_index::upsert_note_index(conn, &conn.root, &request.note_id, &body, &path)
-            .and_then(|_| property_store::restore_cache(conn, &conn.root));
+            .and_then(|_| property_groups::restore_cache_any(conn, &conn.root));
     let path_string = path.to_string_lossy().to_string();
     drop(conn_guard);
 
@@ -478,75 +478,6 @@ pub fn get_note_properties(
 
 #[tauri::command]
 #[specta::specta]
-pub fn upsert_custom_property(
-    db: tauri::State<'_, VaultContext>,
-    note_id: String,
-    property: CustomProperty,
-) -> Result<CustomProperty, String> {
-    let _mutation_guard = db.mutation_gate.lock_or_recover();
-    let conn_guard = db.conn.lock_or_recover();
-    let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    let name = property.name.clone();
-    let prop_type = property.property_type.clone();
-    let prop_id = property.id.clone();
-    let res = property_store::upsert(conn, &conn.root, &note_id, property);
-    if res.is_ok() {
-        tracing::info!(
-            event = "upsert_custom_property",
-            note_id = %note_id,
-            property_id = %prop_id,
-            name = %name,
-            property_type = %prop_type,
-        );
-    }
-    res
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn delete_custom_property(
-    db: tauri::State<'_, VaultContext>,
-    note_id: String,
-    property_id: String,
-) -> Result<(), String> {
-    let _mutation_guard = db.mutation_gate.lock_or_recover();
-    let conn_guard = db.conn.lock_or_recover();
-    let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    let res = property_store::delete(conn, &conn.root, &note_id, &property_id);
-    if res.is_ok() {
-        tracing::info!(
-            event = "delete_custom_property",
-            note_id = %note_id,
-            property_id = %property_id,
-        );
-    }
-    res
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn reorder_custom_properties(
-    db: tauri::State<'_, VaultContext>,
-    note_id: String,
-    property_ids: Vec<String>,
-) -> Result<(), String> {
-    let _mutation_guard = db.mutation_gate.lock_or_recover();
-    let conn_guard = db.conn.lock_or_recover();
-    let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    let count = property_ids.len();
-    let res = property_store::reorder(conn, &conn.root, &note_id, &property_ids);
-    if res.is_ok() {
-        tracing::info!(
-            event = "reorder_custom_properties",
-            note_id = %note_id,
-            count = count,
-        );
-    }
-    res
-}
-
-#[tauri::command]
-#[specta::specta]
 pub fn backup_custom_properties(
     db: tauri::State<'_, VaultContext>,
     note_id: String,
@@ -554,7 +485,7 @@ pub fn backup_custom_properties(
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    property_store::backup_and_clear(conn, &conn.root, &note_id)
+    property_groups::backup_and_clear(conn, &conn.root, &note_id)
 }
 
 #[tauri::command]

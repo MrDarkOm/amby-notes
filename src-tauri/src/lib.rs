@@ -16,7 +16,9 @@ pub mod package_manager;
 mod page_info;
 mod paths;
 mod project;
+mod property_groups;
 mod property_store;
+mod property_template;
 mod recovery;
 mod recycle_bin;
 mod shadow_check;
@@ -100,10 +102,31 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::notes::restore_deleted_note,
         commands::notes::get_note_metadata,
         commands::notes::get_note_properties,
-        commands::notes::upsert_custom_property,
-        commands::notes::delete_custom_property,
-        commands::notes::reorder_custom_properties,
         commands::notes::backup_custom_properties,
+        commands::properties::list_property_template,
+        commands::properties::get_property_panel,
+        commands::properties::restore_dormant_property,
+        commands::properties::purge_dormant_property,
+        commands::properties::accept_property_rename_hint,
+        commands::properties::dismiss_property_rename_hint,
+        commands::properties::property_storage_status,
+        commands::properties::open_vault_properties,
+        commands::properties::take_property_file_value,
+        commands::properties::create_note_property,
+        commands::properties::rename_note_property,
+        commands::properties::change_note_property_type,
+        commands::properties::set_note_property_appearance,
+        commands::properties::set_note_property_value,
+        commands::properties::set_note_property_list,
+        commands::properties::reorder_note_properties,
+        commands::properties::delete_note_property,
+        commands::properties::rollback_properties_migration,
+        commands::properties::check_old_version_property_edits,
+        commands::properties::resolve_old_version_property_conflict,
+        commands::properties::inspect_properties,
+        commands::properties::list_property_rebind_offers,
+        commands::properties::rebind_note_properties,
+        commands::properties::delete_orphan_properties,
         commands::notes::list_tags,
         commands::notes::search_notes,
         commands::notes::get_link_graph,

@@ -263,6 +263,9 @@ function toBindingQuerySource(sourceRequest: DatabaseQueryRequest["source"]) {
   return source
 }
 
+const BY_NAME_ONLY =
+  "The desktop app changes properties by name (docs/sync-plan.md, З60), not by the old contract"
+
 export class DesktopAdapter implements StoragePort {
   async getDatabaseModuleState(): Promise<DatabaseModuleState> {
     return unwrapDatabaseCommand(await commands.getDatabaseModuleState())
@@ -985,7 +988,8 @@ export class DesktopAdapter implements StoragePort {
     noteId: string,
     property: CustomProperty,
   ): Promise<CustomProperty> {
-    return unwrapCommand(commands.upsertCustomProperty(noteId, property))
+    void [noteId, property]
+    throw new Error(BY_NAME_ONLY)
   }
 
   async deleteCustomProperty(
@@ -993,7 +997,8 @@ export class DesktopAdapter implements StoragePort {
     noteId: string,
     propertyId: string,
   ): Promise<void> {
-    await unwrapCommand(commands.deleteCustomProperty(noteId, propertyId))
+    void [noteId, propertyId]
+    throw new Error(BY_NAME_ONLY)
   }
 
   async reorderCustomProperties(
@@ -1001,7 +1006,8 @@ export class DesktopAdapter implements StoragePort {
     noteId: string,
     propertyIds: string[],
   ): Promise<void> {
-    await unwrapCommand(commands.reorderCustomProperties(noteId, propertyIds))
+    void [noteId, propertyIds]
+    throw new Error(BY_NAME_ONLY)
   }
 
   async backupCustomProperties(_vaultPath: string, noteId: string): Promise<string> {

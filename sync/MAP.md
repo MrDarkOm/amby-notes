@@ -170,6 +170,16 @@ the base before the commit leaves (Г8 б). In the application: `state_db.rs` ke
 `conflict_store.rs` is the store behind `session.rs` (the list, the two versions, the three resolutions; the comparison and the
 buttons of К3/К4 use it), and `session.rs` tells `SessionHooks::merged_after_edits` once per pass.
 
+Groups of note properties (appendix З of the sync plan): [core/src/engine/props_groups.rs](core/src/engine/props_groups.rs) merges
+`.amby/properties/prop_<x>.jsonl` and `legacy_<x>.jsonl` by the **lines** of the notes (`merge_group`, the admission check
+`check_group`, the canonical form `canonicalize_group`, the resolution `resolve_group`, the protection of a whole pass from a mass loss
+`vanishing_properties` / `pass_mass_loss`, З32). `rules.rs` lets the folder `.amby/properties/` travel and keeps `property-ops/` and
+`migrations/` on the device. In the engine, `util.rs` (`is_merge_path`, `merge_limit`, `base_eligible`) decides which files keep a base
+and of what size; `apply.rs` (`apply_put`) merges a group instead of a note, keeps the readable local group when the incoming one is
+unreadable (`PutAct::guard`, З33) and counts the vanishing properties of the whole pass before anything is written
+(`property_loss`, З32); `sync.rs` stops the pass with `StopReason::MassChange` when they reach the thresholds of Д54. Tests:
+`core/tests/engine_props_groups*.rs`, [sim/tests/props_groups.rs](sim/tests/props_groups.rs).
+
 The simulation has two new invariants (`Kind::MergeLoss`, `NotMerged`, `ConflictNotStored`, `Marks`; merge episodes in `scenario.rs`) and
 five new broken mini-engines (`MergeDropsLine`, `NeverMerges`, `ConflictCopyInTree`, `MergeWritesMarks`, `MergeWithoutBase`). In the
 application: [conflict_store.rs](../src-tauri/src/sync/conflict_store.rs) is the port of the store of conflicts for the interface of К3 and К4

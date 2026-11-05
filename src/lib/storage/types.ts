@@ -25,6 +25,8 @@ export interface FrontmatterProperty {
   key: string
   value: string
   valueKind: string
+  /** The items when the value is a YAML list, as they are; the browser adapter leaves it out. */
+  items?: string[]
 }
 
 export interface CustomProperty {

@@ -5567,16 +5567,26 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   border-color: color-mix(in srgb, var(--destructive) 45%, var(--border));
 }
 
+/* The stack is one surface with the floating bar below it (time, words, undo, lock): the same
+   border, background, blur and shadow; the cards are rows inside it, parted by a line. */
+.note-notices-surface {
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--card) 90%, transparent);
+  color: var(--card-foreground);
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+  backdrop-filter: blur(12px);
+}
+
 .note-notice-card {
-  border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--popover) 96%, transparent);
-  color: var(--popover-foreground);
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.14);
-  backdrop-filter: blur(8px);
+  background: transparent;
+}
+
+.note-notice-card + .note-notice-card {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
 
 .note-notice-card[data-urgent="true"] {
-  border-color: color-mix(in srgb, var(--destructive) 45%, var(--border));
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--destructive) 55%, transparent);
 }
 
 .sync-print-sheet {

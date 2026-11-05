@@ -19,6 +19,8 @@ import { restoreRemoteDeleted } from "../sync/restore-remote-deleted"
 import { conflictForPath, useSyncNoticesStore } from "../sync/use-sync-notices-store"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
+import { Card, type Notice } from "./notice-card"
+import { usePropertyNotices } from "./property-notices"
 import { useNoteNoticesStore } from "./use-note-notices-store"
 
 export interface NoteNoticesProps {
@@ -31,14 +33,6 @@ export interface NoteNoticesProps {
   onCloseTab?: () => void
 }
 
-interface Notice {
-  /** Stable while the same thing is being said; a new one opens the stack when it is urgent. */
-  id: string
-  /** The text of the note is in danger, or the person must decide: opens the stack by itself. */
-  urgent: boolean
-  card: React.ReactNode
-}
-
 /**
  * The notices of a note above its bottom bar (docs/sync-plan.md, stage Э4б К3): a bulb with the number
  * and a stack of cards. Every warning that used to be a strip above the note is a card here, with the
@@ -46,48 +40,6 @@ interface Notice {
  */
 export function NoteNotices(props: NoteNoticesProps) {
   return <NoteNoticesOf key={props.document.id} {...props} />
-}
-
-function Card({
-  testId,
-  urgent,
-  icon,
-  title,
-  lines = [],
-  error,
-  actions,
-}: {
-  testId: string
-  urgent: boolean
-  icon: React.ReactNode
-  title: string
-  lines?: string[]
-  error?: string | null
-  actions?: React.ReactNode
-}) {
-  return (
-    <div
-      data-testid={testId}
-      data-urgent={urgent}
-      className="note-notice-card pointer-events-auto flex items-start gap-3 rounded-xl px-3 py-2.5"
-    >
-      <span className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-300">{icon}</span>
-      <div className="min-w-0 flex-1 space-y-1">
-        <p className="text-[13px] font-medium">{title}</p>
-        {lines.map((line) => (
-          <p key={line} className="break-all text-[11px] text-muted-foreground">
-            {line}
-          </p>
-        ))}
-        {error && (
-          <p role="alert" className="text-[11px] text-destructive">
-            {error}
-          </p>
-        )}
-        {actions && <div className="flex flex-wrap gap-2 pt-1">{actions}</div>}
-      </div>
-    </div>
-  )
 }
 
 function NoteNoticesOf({
@@ -111,6 +63,7 @@ function NoteNoticesOf({
   const externalConflict = useDocStore((state) => state.externalConflicts[document.id])
   const openConflictDialog = useDocStore((state) => state.openConflictDialog)
   const saveFailed = useNoteNoticesStore((state) => Boolean(state.saveFailed[document.id]))
+  const propertyFailed = useNoteNoticesStore((state) => Boolean(state.propertyFailed[document.id]))
   const draftOffer = useNoteNoticesStore((state) => state.draftOffers[document.id])
   const restored = useNoteNoticesStore((state) =>
     relative ? state.restored.includes(relative) : false,
@@ -152,6 +105,7 @@ function NoteNoticesOf({
   }
 
   const notices: Notice[] = []
+  const propertyNotices = usePropertyNotices(document.id)
   const found = vault ? conflictForPath(conflicts, vault, document.path) : null
   if (found) {
     notices.push({
@@ -306,6 +260,21 @@ function NoteNoticesOf({
       ),
     })
   }
+  if (propertyFailed) {
+    notices.push({
+      id: "property-failed",
+      urgent: true,
+      card: (
+        <Card
+          key="property-failed"
+          testId="note-notice-property-failed"
+          urgent
+          icon={<FileWarning className="size-4" />}
+          title={t("noteNotices.properties.saveFailed")}
+        />
+      ),
+    })
+  }
   if (draftOffer) {
     notices.push({
       id: "draft",
@@ -335,12 +304,17 @@ function NoteNoticesOf({
   if (warningKey) {
     notices.push({
       id: `warning:${warningKey}`,
-      urgent: false,
+      // A damaged header or a lost id switches the properties off: the person must know.
+      urgent: [
+        "workspace.invalidFrontmatter",
+        "workspace.unterminatedFrontmatter",
+        "workspace.identityReadOnly",
+      ].includes(warningKey),
       card: (
         <Card
           key="warning"
           testId="note-notice-warning"
-          urgent={false}
+          urgent={warningKey !== "workspace.losslessSourceOnly"}
           icon={<FileWarning className="size-4" />}
           title={t(warningKey)}
         />
@@ -374,6 +348,8 @@ function NoteNoticesOf({
     })
   }
 
+  notices.push(...propertyNotices)
+
   const [open, setOpen] = React.useState(false)
   const seen = React.useRef<Set<string>>(new Set())
   const urgentKey = notices
@@ -391,12 +367,12 @@ function NoteNoticesOf({
   return (
     <div
       data-testid="note-notices"
-      className="pointer-events-none absolute bottom-14 right-4 z-20 flex max-w-[calc(100%-2rem)] flex-col items-end gap-2"
+      className="pointer-events-none absolute bottom-12 right-4 z-20 flex max-w-[calc(100%-2rem)] flex-col items-end gap-1"
     >
       {open && (
         <div
           data-testid="note-notices-stack"
-          className="flex max-h-[60vh] w-[min(26rem,calc(100vw-2rem))] flex-col gap-2 overflow-y-auto"
+          className="note-notices-surface pointer-events-auto flex max-h-[60vh] w-[min(26rem,calc(100vw-2rem))] flex-col overflow-y-auto rounded-xl"
         >
           {notices.map((notice) => notice.card)}
         </div>

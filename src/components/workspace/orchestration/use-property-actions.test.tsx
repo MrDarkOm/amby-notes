@@ -2,6 +2,7 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
+import { logger } from "@/lib/logger"
 import * as storage from "@/lib/storage"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
@@ -212,5 +213,20 @@ describe("property edits", () => {
     })
     expect(useDocStore.getState().openDocs.note.noteProperties?.customProperties).toEqual([])
     expect(hook.result.current.propertyError).toContain("Не удалось сохранить")
+  })
+
+  it("writes the message of the backend to the log when a property cannot be saved", async () => {
+    const error = vi.spyOn(logger, "error").mockImplementation(() => null)
+    vi.mocked(storage.upsertCustomProperty).mockRejectedValue(
+      new Error("A property named X exists"),
+    )
+    const hook = open()
+    await act(async () => {
+      await expect(hook.result.current.handleUpsertCustomProperty(property("X"))).rejects.toThrow()
+    })
+    expect(error).toHaveBeenCalledWith(
+      "property.mutation_failed",
+      expect.objectContaining({ message: "A property named X exists" }),
+    )
   })
 })
