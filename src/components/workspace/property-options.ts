@@ -1,3 +1,5 @@
+import { OPTION_COLOR_NAMES, type OptionColorName } from "@/themes/palettes"
+
 /**
  * The options of a select or a multi-select (docs/sync-plan.md, З62). `settings` stays a string:
  * the new form is JSON `{"options":[…],"default":"…"}` (an option may hold a comma), the old one is
@@ -41,15 +43,79 @@ export function parseOptions(settings: string): PropertyOptions {
   }
 }
 
+/**
+ * The colours chosen for the options, by option (З63): only values written as strings. A name that
+ * is not in the palette is kept as it is, so that it survives until the options are edited.
+ */
+export function parseOptionColors(settings: string): Record<string, string> {
+  if (!settings.trimStart().startsWith("{")) return {}
+  try {
+    const colors = (JSON.parse(settings) as { colors?: unknown }).colors
+    if (!colors || typeof colors !== "object" || Array.isArray(colors)) return {}
+    return Object.fromEntries(
+      Object.entries(colors as Record<string, unknown>).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string",
+      ),
+    )
+  } catch {
+    return {}
+  }
+}
+
 /** The new form; empty options give an empty string. */
-export function serializeOptions(options: string[], defaultOption: string | null): string {
+export function serializeOptions(
+  options: string[],
+  defaultOption: string | null,
+  colors: Record<string, string> = {},
+): string {
   const clean = options.map((item) => item.trim()).filter(Boolean)
   if (clean.length === 0) return ""
-  return JSON.stringify(
-    defaultOption && clean.includes(defaultOption)
-      ? { options: clean, default: defaultOption }
-      : { options: clean },
+  const kept = Object.fromEntries(
+    Object.entries(colors).filter(([option]) => clean.includes(option)),
   )
+  return JSON.stringify({
+    options: clean,
+    ...(defaultOption && clean.includes(defaultOption) ? { default: defaultOption } : {}),
+    ...(Object.keys(kept).length > 0 ? { colors: kept } : {}),
+  })
+}
+
+const isColorName = (name: string): name is OptionColorName =>
+  (OPTION_COLOR_NAMES as readonly string[]).includes(name)
+
+/**
+ * The colour of an option: the one chosen, else one that follows from its text, the same on every
+ * device (З63). `gray` is left for values that are not options.
+ */
+export function optionColor(option: string, colors: Record<string, string>): OptionColorName {
+  const chosen = colors[option]
+  if (chosen && isColorName(chosen)) return chosen
+  let hash = 2166136261
+  for (let at = 0; at < option.length; at++) {
+    hash = Math.imul(hash ^ option.charCodeAt(at), 16777619) >>> 0
+  }
+  const own = OPTION_COLOR_NAMES.slice(1)
+  return own[hash % own.length]
+}
+
+/** The colours after an option got another name: the colour goes with it. */
+export function renameOptionColor(
+  colors: Record<string, string>,
+  from: string,
+  to: string,
+): Record<string, string> {
+  if (!(from in colors) || from === to) return colors
+  const { [from]: moved, ...rest } = colors
+  return { ...rest, [to]: moved }
+}
+
+/** The colours after an option was removed. */
+export function dropOptionColor(
+  colors: Record<string, string>,
+  option: string,
+): Record<string, string> {
+  const { [option]: _removed, ...rest } = colors
+  return rest
 }
 
 /** A select or a multi-select needs at least one non-empty option. */

@@ -226,9 +226,23 @@ pub(super) fn options_of(settings: &str) -> Vec<String> {
     read_settings(settings).0
 }
 
-/// Do two `settings` say the same: the same options and the same default, in either form (З62)?
+/// The colours chosen for the options, by option (З63): none in the old form or when the map is
+/// absent, so "no colour chosen" and an empty map are the same.
+fn colors_of(settings: &str) -> serde_json::Map<String, serde_json::Value> {
+    if settings.trim_start().starts_with('{') {
+        if let Ok(serde_json::Value::Object(map)) = serde_json::from_str(settings) {
+            if let Some(serde_json::Value::Object(colors)) = map.get("colors") {
+                return colors.clone();
+            }
+        }
+    }
+    serde_json::Map::new()
+}
+
+/// Do two `settings` say the same: the same options, default and colours, in either form
+/// (З62, З63)?
 pub(super) fn same_settings(a: &str, b: &str) -> bool {
-    read_settings(a) == read_settings(b)
+    read_settings(a) == read_settings(b) && colors_of(a) == colors_of(b)
 }
 
 /// Is a value of a select outside its options (З45)?

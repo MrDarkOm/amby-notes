@@ -16,6 +16,8 @@ import {
   type PropertyStorageStatus,
 } from "@/lib/properties/property-groups-port"
 import { errorType, logger } from "@/lib/logger"
+import { getNoteProperties } from "@/lib/storage"
+import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import { Card, type Notice } from "./notice-card"
 import { goneKey, usePropertyMigrationStore } from "./use-property-migration-store"
@@ -26,6 +28,25 @@ import { goneKey, usePropertyMigrationStore } from "./use-property-migration-sto
  * choice after an edit made here and there, the warning about an old version, and the notes about
  * the file of the properties. Each is one or two lines. Nothing in the browser.
  */
+/**
+ * The note of the last session opens before the first opening of the vault has migrated its
+ * properties, so its first reading has no look and no options. When the opening changed the
+ * storage, every open note reads its properties again.
+ */
+async function rereadOpenNotes(vault: string) {
+  const docs = useDocStore.getState().openDocs
+  await Promise.all(
+    Object.values(docs)
+      .filter((doc) => doc.noteProperties)
+      .map(async (doc) => {
+        const noteProperties = await getNoteProperties(vault, doc.noteId ?? doc.id).catch(
+          () => null,
+        )
+        if (noteProperties) useDocStore.getState().patchDoc(doc.id, { noteProperties })
+      }),
+  )
+}
+
 export function usePropertyNotices(noteId: string): Notice[] {
   const { t } = useTranslation()
   const [status, setStatus] = React.useState<PropertyStorageStatus | null>(null)
@@ -61,7 +82,8 @@ export function usePropertyNotices(noteId: string): Notice[] {
     openVaultProperties()
       .then((outcome) => {
         store.finish(key, outcome)
-        return load()
+        const changed = outcome?.state === "migrated" || outcome?.state === "arrivedFromServer"
+        return Promise.all([load(), changed ? rereadOpenNotes(vault) : undefined])
       })
       .catch(() => {})
   }, [vault, generation, load])

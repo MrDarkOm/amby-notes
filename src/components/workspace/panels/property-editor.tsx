@@ -12,7 +12,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import type { CustomProperty } from "@/lib/storage"
 import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
 import { IconValue } from "../icon-value"
-import { parseOptions, serializeOptions, validateOptions } from "../property-options"
+import {
+  parseOptionColors,
+  parseOptions,
+  serializeOptions,
+  validateOptions,
+} from "../property-options"
 import { propertyTypeIcon } from "../property-type-icons"
 import { PropertyOptionsEditor } from "./property-options-editor"
 
@@ -38,19 +43,6 @@ export interface PropertyEditorProps {
   databaseContext?: { databaseId: string; name?: string } | null
 }
 
-/** The items of a multi-select value kept in the form as a JSON list (docs/sync-plan.md, З62). */
-function chosenItems(value: string): string[] {
-  if (!value.startsWith("[")) return []
-  try {
-    const parsed: unknown = JSON.parse(value)
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === "string")
-      : []
-  } catch {
-    return []
-  }
-}
-
 export function PropertyEditor({
   property,
   open,
@@ -70,6 +62,7 @@ export function PropertyEditor({
   })
   const [emojiOpen, setEmojiOpen] = React.useState(false)
   const emojiRef = React.useRef<HTMLButtonElement>(null)
+  const nameRef = React.useRef<HTMLInputElement>(null)
   const saveAttempt = React.useRef(0)
   const [saving, setSaving] = React.useState(false)
   const [error, setError] = React.useState("")
@@ -113,7 +106,11 @@ export function PropertyEditor({
             ...draft,
             value:
               draft.propertyType === "list" ? JSON.stringify([parsed.default]) : parsed.default,
-            settings: serializeOptions(parsed.options, parsed.default),
+            settings: serializeOptions(
+              parsed.options,
+              parsed.default,
+              parseOptionColors(draft.settings),
+            ),
           }
         : draft
     const attempt = saveAttempt.current
@@ -133,7 +130,16 @@ export function PropertyEditor({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm gap-3 border-border bg-popover p-4 text-foreground">
+      <DialogContent
+        className="max-w-sm gap-3 border-border bg-popover p-4 text-foreground"
+        onOpenAutoFocus={(event) => {
+          // A new property starts in its name: the button stays off until there is one.
+          if (!draft.id) {
+            event.preventDefault()
+            nameRef.current?.focus()
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="text-sm">{t("infoPanel.propertyEditor")}</DialogTitle>
         </DialogHeader>
@@ -182,12 +188,16 @@ export function PropertyEditor({
             </PopoverContent>
           </Popover>
           <Input
+            ref={nameRef}
             value={draft.name}
             onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))}
             placeholder={t("infoPanel.propertyName")}
             className="h-9 text-xs"
           />
         </div>
+        {!draft.name.trim() && (
+          <p className="-mt-1 text-xs text-muted-foreground">{t("infoPanel.nameRequired")}</p>
+        )}
         <label className="grid gap-1 text-[10px] text-muted-foreground">
           {t("infoPanel.propertyType")}
           <AmbySelect
@@ -206,91 +216,54 @@ export function PropertyEditor({
           <PropertyOptionsEditor
             settings={draft.settings}
             invalid={optionsInvalid}
+            autoDefault={!draft.id}
             onChange={(settings) => {
               setOptionsInvalid(false)
               setDraft((value) => ({ ...value, settings }))
             }}
           />
         )}
-        <label className="grid gap-1 text-[10px] text-muted-foreground">
-          {t("infoPanel.propertyValue")}
-          {draft.propertyType === "checkbox" ? (
-            <button
-              type="button"
-              role="checkbox"
-              aria-checked={draft.value === "true"}
-              className="flex h-9 items-center justify-between rounded-md border border-border px-3 text-xs text-foreground"
-              onClick={() =>
-                setDraft((value) => ({
-                  ...value,
-                  value: value.value === "true" ? "false" : "true",
-                }))
-              }
-            >
-              {draft.value === "true" ? t("common.yes") : t("common.no")}
-              <span>{draft.value === "true" ? "✓" : "○"}</span>
-            </button>
-          ) : draft.propertyType === "list" ? (
-            <div
-              role="group"
-              aria-label={t("infoPanel.propertyValue")}
-              className="flex flex-wrap gap-1"
-            >
-              {options.map((option) => {
-                const chosen = chosenItems(draft.value)
-                const on = chosen.includes(option)
-                return (
-                  <button
-                    key={option}
-                    type="button"
-                    aria-pressed={on}
-                    aria-label={option}
-                    onClick={() =>
-                      setDraft((value) => {
-                        const items = chosenItems(value.value)
-                        const next = items.includes(option)
-                          ? items.filter((item) => item !== option)
-                          : [...items, option]
-                        return { ...value, value: next.length ? JSON.stringify(next) : "" }
-                      })
-                    }
-                    className={
-                      on
-                        ? "inline-flex items-center rounded bg-secondary px-1.5 py-0.5 text-[11px] font-medium text-secondary-foreground"
-                        : "inline-flex items-center rounded border border-dashed border-border px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-accent/40"
-                    }
-                  >
-                    {option}
-                  </button>
-                )
-              })}
-            </div>
-          ) : draft.propertyType === "select" ? (
-            <AmbySelect
-              value={draft.value}
-              aria-label={t("infoPanel.propertyValue", { defaultValue: draft.name })}
-              options={options.map((option) => ({ value: option, label: option }))}
-              onValueChange={(next) => setDraft((value) => ({ ...value, value: next }))}
-            />
-          ) : (
-            <Input
-              type={
-                draft.propertyType === "number"
-                  ? "number"
-                  : draft.propertyType === "date"
-                    ? "date"
-                    : draft.propertyType === "url"
-                      ? "url"
-                      : "text"
-              }
-              value={draft.value}
-              onChange={(event) => setDraft((value) => ({ ...value, value: event.target.value }))}
-              className={
-                draft.propertyType === "number" ? "amby-property-number h-9 text-xs" : "h-9 text-xs"
-              }
-            />
-          )}
-        </label>
+        {!hasOptions(draft.propertyType) && (
+          <label className="grid gap-1 text-[10px] text-muted-foreground">
+            {t("infoPanel.propertyValue")}
+            {draft.propertyType === "checkbox" ? (
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={draft.value === "true"}
+                className="flex h-9 items-center justify-between rounded-md border border-border px-3 text-xs text-foreground"
+                onClick={() =>
+                  setDraft((value) => ({
+                    ...value,
+                    value: value.value === "true" ? "false" : "true",
+                  }))
+                }
+              >
+                {draft.value === "true" ? t("common.yes") : t("common.no")}
+                <span>{draft.value === "true" ? "✓" : "○"}</span>
+              </button>
+            ) : (
+              <Input
+                type={
+                  draft.propertyType === "number"
+                    ? "number"
+                    : draft.propertyType === "date"
+                      ? "date"
+                      : draft.propertyType === "url"
+                        ? "url"
+                        : "text"
+                }
+                value={draft.value}
+                onChange={(event) => setDraft((value) => ({ ...value, value: event.target.value }))}
+                className={
+                  draft.propertyType === "number"
+                    ? "amby-property-number h-9 text-xs"
+                    : "h-9 text-xs"
+                }
+              />
+            )}
+          </label>
+        )}
         {databaseContext && !draft.id && (
           <div className="rounded-lg border border-border bg-accent/30 p-2.5 space-y-2">
             <div className="text-xs font-medium text-foreground">

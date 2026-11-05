@@ -8,7 +8,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use super::files::{self, all_groups, storage_mode};
 use super::header::{
-    base_look, fits_type, look_of, open_note, outside_options, resolve, same_name, NoteAccess,
+    base_look, fits_type, look_of, open_note, options_of, outside_options, resolve, same_name,
+    NoteAccess,
 };
 use super::{
     ActiveProperty, DormantProperty, NoteEntry, Panel, PanelWarning, RenameHint, StorageMode,
@@ -163,6 +164,28 @@ pub(super) fn resolve_note(
     for property in &mut active {
         if let Some(key) = usable_keys.iter().find(|k| k.key == property.key) {
             property.items = key.items.clone();
+        }
+        // A list in the header with no stored type reads as a multi-select whose options are its
+        // items (З62). Nothing is written for it: the header and the groups stay as they are until
+        // the person edits the property.
+        let typed = props
+            .iter()
+            .any(|(name, diff)| same_name(name, &property.name) && diff.property_type.is_some());
+        if property.property_type == "text"
+            && !property.from_template
+            && !typed
+            && !property.items.is_empty()
+        {
+            property.property_type = "list".to_string();
+            if options_of(&property.settings).is_empty() {
+                let mut options: Vec<&String> = Vec::new();
+                for item in &property.items {
+                    if !options.contains(&item) {
+                        options.push(item);
+                    }
+                }
+                property.settings = serde_json::json!({ "options": options }).to_string();
+            }
         }
     }
     Resolved {

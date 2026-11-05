@@ -1,4 +1,5 @@
-import { parseOptions } from "../property-options"
+import { parseOptionColors, parseOptions, optionColor, serializeOptions } from "../property-options"
+import { OptionChip, OptionPicker } from "./option-picker"
 import { PropertyOptionsEditor } from "./property-options-editor"
 import { PROPERTY_TYPE_FALLBACKS, frontmatterPropertyIcon } from "./info-property-icons"
 import { PropertyValueTextarea } from "./info-database-rows"
@@ -57,17 +58,87 @@ function listValueText(items: string[]): string {
   return items.some((item) => /[,"[\]]/u.test(item)) ? JSON.stringify(items) : items.join(", ")
 }
 
+/** The value of a select or a multi-select: its chips, and the window that chooses (З63 г). */
+function OptionValue({
+  multi,
+  settings,
+  selected,
+  disabled,
+  onSelect,
+  onChangeSettings,
+}: {
+  multi: boolean
+  settings: string
+  selected: string[]
+  disabled?: boolean
+  onSelect: (selected: string[]) => void
+  onChangeSettings?: (settings: string) => Promise<void> | void
+}) {
+  const [local, setLocal] = React.useState(settings)
+  React.useEffect(() => setLocal(settings), [settings])
+  const parsed = parseOptions(local)
+  const colors = parseOptionColors(local)
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          data-testid="option-trigger"
+          disabled={disabled}
+          className="flex min-h-7 w-full flex-wrap items-center gap-1 rounded-md px-1 py-1 text-left text-xs outline-none hover:bg-accent/40 focus-visible:bg-accent/40"
+        >
+          {selected.length > 0 ? (
+            selected.map((value) => (
+              <OptionChip
+                key={value}
+                label={value}
+                color={parsed.options.includes(value) ? optionColor(value, colors) : "gray"}
+              />
+            ))
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        side="bottom"
+        sideOffset={4}
+        collisionPadding={16}
+        className="z-50 w-auto rounded-xl border border-border bg-popover p-2 text-popover-foreground shadow-lg"
+      >
+        <OptionPicker
+          options={parsed.options}
+          colors={colors}
+          selected={selected}
+          multi={multi}
+          disabled={disabled}
+          onSelect={onSelect}
+          onOptionsChange={(change) => {
+            const next = serializeOptions(change.options, parsed.default, change.colors)
+            setLocal(next)
+            if (next) void Promise.resolve(onChangeSettings?.(next)).catch(() => setLocal(settings))
+          }}
+        />
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export function FrontmatterPropertyValue({
   property,
   propertyType,
   settings = "",
   onSave,
   onSaveList,
+  onChangeSettings,
   disabled,
 }: {
   property: FrontmatterProperty
   propertyType?: string
   settings?: string
+  /** The options and their colours are written to `settings` (З62, З63). */
+  onChangeSettings?: (settings: string) => Promise<void> | void
   onSave?: (value: string) => Promise<void>
   /** A list is written as its items, never glued with commas (docs/sync-plan.md, З62). */
   onSaveList?: (items: string[]) => Promise<void>
@@ -100,13 +171,6 @@ export function FrontmatterPropertyValue({
   const [isEditingList, setIsEditingList] = React.useState(false)
   React.useEffect(() => setValue(property.value), [property.value])
 
-  const options = React.useMemo(() => {
-    const list = parseOptions(settings).options
-    if (value && !list.includes(value)) {
-      list.unshift(value)
-    }
-    return list
-  }, [settings, value])
   // The items of a list: from the header as they are; the text is only for the old payloads.
   const [localItems, setLocalItems] = React.useState<string[] | null>(null)
   React.useEffect(() => setLocalItems(null), [property.items, property.value])
@@ -114,12 +178,6 @@ export function FrontmatterPropertyValue({
     () => localItems ?? (property.items?.length ? property.items : parseYamlList(value)),
     [localItems, property.items, value],
   )
-  // The options of a multi-select, and the items of the list that are not among them (З62).
-  const listOptions = React.useMemo(() => {
-    const known = parseOptions(settings).options
-    return [...currentItems.filter((item) => !known.includes(item)), ...known]
-  }, [settings, currentItems])
-
   if (effectiveType === "checkbox") {
     const checked = value === "true"
     return (
@@ -150,16 +208,16 @@ export function FrontmatterPropertyValue({
 
   if (effectiveType === "select") {
     return (
-      <AmbySelect
-        size="sm"
-        variant="bare"
-        value={value}
+      <OptionValue
+        multi={false}
+        settings={settings}
+        selected={value ? [value] : []}
         disabled={disabled}
-        aria-label={property.key}
-        options={options.map((option) => ({ value: option, label: option }))}
-        onValueChange={(next) => {
-          setValue(next)
-          void commitValue(next)
+        onChangeSettings={onChangeSettings}
+        onSelect={(next) => {
+          const chosen = next[0] ?? ""
+          setValue(chosen)
+          void commitValue(chosen)
         }}
       />
     )
@@ -206,49 +264,28 @@ export function FrontmatterPropertyValue({
   }
 
   if (effectiveType === "list" && parseOptions(settings).options.length > 0) {
-    const chosen = currentItems
     return (
-      <div
-        role="group"
-        aria-label={property.key}
-        className="flex min-h-7 flex-wrap gap-1 px-1 py-1"
-      >
-        {listOptions.map((option) => {
-          const on = chosen.includes(option)
-          return (
-            <button
-              key={option}
-              type="button"
-              disabled={disabled}
-              aria-pressed={on}
-              aria-label={option}
-              onClick={async () => {
-                const next = on ? chosen.filter((item) => item !== option) : [...chosen, option]
-                setLocalItems(next)
-                if (onSaveList) {
-                  try {
-                    await onSaveList(next)
-                  } catch {
-                    /* The panel displays the write failure. */
-                  }
-                  return
-                }
-                const text = listValueText(next)
-                setValue(text)
-                await commitValue(text)
-              }}
-              className={cn(
-                "inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium outline-none",
-                on
-                  ? "bg-secondary text-secondary-foreground"
-                  : "border border-dashed border-border text-muted-foreground hover:bg-accent/40",
-              )}
-            >
-              {option}
-            </button>
-          )
-        })}
-      </div>
+      <OptionValue
+        multi
+        settings={settings}
+        selected={currentItems}
+        disabled={disabled}
+        onChangeSettings={onChangeSettings}
+        onSelect={async (next) => {
+          setLocalItems(next)
+          if (onSaveList) {
+            try {
+              await onSaveList(next)
+            } catch {
+              /* The panel displays the write failure. */
+            }
+            return
+          }
+          const text = listValueText(next)
+          setValue(text)
+          await commitValue(text)
+        }}
+      />
     )
   }
 
@@ -599,6 +636,7 @@ export function FrontmatterPropertyRow({
           settings={settings}
           onSave={onSave}
           onSaveList={onSaveList}
+          onChangeSettings={onChangeSettings}
           disabled={disabled}
         />
       </div>

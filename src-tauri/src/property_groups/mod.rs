@@ -51,6 +51,8 @@ mod tests_migration;
 #[cfg(test)]
 mod tests_options;
 #[cfg(test)]
+mod tests_polish;
+#[cfg(test)]
 mod tests_scale;
 #[cfg(test)]
 mod tests_take;

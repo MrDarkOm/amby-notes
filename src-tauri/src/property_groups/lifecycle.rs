@@ -40,7 +40,10 @@ pub fn custom_properties(
     Ok(shown
         .active
         .iter()
-        .filter(|property| property.has_record || property.from_template)
+        .filter(|property| {
+            // A header list with no record is listed too: it reads as a multi-select (З62).
+            property.has_record || property.from_template || property.property_type != "text"
+        })
         .map(as_custom)
         .collect())
 }
