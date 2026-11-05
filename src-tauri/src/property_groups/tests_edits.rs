@@ -469,3 +469,58 @@ fn renaming_a_basic_property_moves_its_differences_and_keeps_the_template_out_of
         .values()
         .all(|d| d.get("previousName").is_none()));
 }
+
+// ----- З60: the commands of the new format work by name, one after another -----
+
+#[test]
+fn an_icon_then_a_rename_then_an_icon_again_ends_with_the_new_name_and_the_last_icon() {
+    // З60: the sequence that failed by hand — every command by the name the panel shows now
+    let (fx, note) = with_status();
+    set_appearance(&fx.conn, &fx.vault, &note, NAME, "🔥", "").unwrap();
+    rename_property(&fx.conn, &fx.vault, &note, NAME, "Клиент").unwrap();
+    set_appearance(&fx.conn, &fx.vault, &note, "Клиент", "⭐", "").unwrap();
+    assert_eq!(fx.prop_names(&note), vec!["Клиент"], "the old name is gone");
+    assert_eq!(fx.props(&note)["Клиент"]["icon"], "⭐");
+    assert!(fx.read("N.md").contains("Клиент: Готово") && !fx.read("N.md").contains("Заказчик"));
+    let shown = panel(&fx.conn, &fx.vault, &note).unwrap();
+    assert_eq!(
+        (shown.active[0].name.as_str(), shown.active[0].icon.as_str()),
+        ("Клиент", "⭐")
+    );
+    assert!(fx
+        .props(&note)
+        .values()
+        .all(|d| d.get("previousName").is_none()));
+    assert!(ops_files(&fx).is_empty());
+}
+
+#[test]
+fn many_quick_edits_of_one_property_lose_none() {
+    // З60: icon, type, value, settings, in turn and many times; the last of each is in the result
+    let (fx, note) = with_status();
+    for n in 0..20 {
+        set_appearance(
+            &fx.conn,
+            &fx.vault,
+            &note,
+            NAME,
+            &format!("i{n}"),
+            &format!("s{n}"),
+        )
+        .unwrap();
+        set_value(&fx.conn, &fx.vault, &note, NAME, &format!("v{n}")).unwrap();
+    }
+    change_type(&fx.conn, &fx.vault, &note, NAME, "select").unwrap();
+    set_appearance(&fx.conn, &fx.vault, &note, NAME, "последняя", "А,Б").unwrap();
+    set_value(&fx.conn, &fx.vault, &note, NAME, "А").unwrap();
+    let diff = fx.props(&note)[NAME].clone();
+    assert_eq!(diff["icon"], "последняя");
+    assert_eq!(diff["settings"], "А,Б");
+    assert_eq!(diff["propertyType"], "select");
+    assert!(
+        fx.read("N.md").contains("Заказчик: А\n"),
+        "{}",
+        fx.read("N.md")
+    );
+    assert_eq!(fx.lines(&note).len(), 1, "still one line for the note");
+}

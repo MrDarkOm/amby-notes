@@ -446,30 +446,6 @@ async getNoteProperties(noteId: string) : Promise<Result<NoteProperties, string>
     else return { status: "error", error: e  as any };
 }
 },
-async upsertCustomProperty(noteId: string, property: CustomProperty) : Promise<Result<CustomProperty, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("upsert_custom_property", { noteId, property }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async deleteCustomProperty(noteId: string, propertyId: string) : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_custom_property", { noteId, propertyId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async reorderCustomProperties(noteId: string, propertyIds: string[]) : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("reorder_custom_properties", { noteId, propertyIds }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async backupCustomProperties(noteId: string) : Promise<Result<string, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("backup_custom_properties", { noteId }) };
@@ -529,20 +505,84 @@ async propertyStorageStatus() : Promise<Result<PropertyStorageStatus, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async previewPropertiesMigration() : Promise<Result<MigrationReportView, string>> {
+/**
+ * The first opening of the vault by the new version migrates the properties by itself, with no
+ * question; asked again it has nothing to do (З57, З59). Nothing is written when it does not
+ * migrate.
+ */
+async openVaultProperties() : Promise<Result<OpenPropertiesView, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("preview_properties_migration") };
+    return { status: "ok", data: await TAURI_INVOKE("open_vault_properties") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
 /**
- * Runs the migration after the owner of the vault confirmed it (З21, З38).
+ * «Взять значение из старого файла»: an ordinary edit of the value (З58, З1).
  */
-async runPropertiesMigration(useFileValues: FileValueChoice[]) : Promise<Result<MigrationOutcomeView, string>> {
+async takePropertyFileValue(noteId: string, name: string) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("run_properties_migration", { useFileValues }) };
+    return { status: "ok", data: await TAURI_INVOKE("take_property_file_value", { noteId, name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * A new property: the key goes into the header, the look into the record if it differs.
+ */
+async createNoteProperty(noteId: string, name: string, icon: string, propertyType: string, settings: string, value: string) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_note_property", { noteId, name, icon, propertyType, settings, value }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async renameNoteProperty(noteId: string, name: string, newName: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rename_note_property", { noteId, name, newName }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeNotePropertyType(noteId: string, name: string, propertyType: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_note_property_type", { noteId, name, propertyType }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setNotePropertyAppearance(noteId: string, name: string, icon: string, settings: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_note_property_appearance", { noteId, name, icon, settings }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setNotePropertyValue(noteId: string, name: string, value: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_note_property_value", { noteId, name, value }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async reorderNoteProperties(noteId: string, names: string[]) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reorder_note_properties", { noteId, names }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteNoteProperty(noteId: string, name: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_note_property", { noteId, name }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2419,10 +2459,6 @@ revision: string;
 changed: boolean; replayed: boolean; warnings: string[] }
 export type FileMetadata = { created: number | null; modified: number | null; word_count: number }
 /**
- * «Взять значение из файла» for one property (З20).
- */
-export type FileValueChoice = { noteId: string; name: string }
-/**
  * Read-only view of a single YAML frontmatter entry. The original YAML stays
  * on disk untouched; `value` is only a display representation for the UI.
  */
@@ -2506,21 +2542,9 @@ export type LoadedChat = { chat: Chat | null; raw: JsonValue | null; status: str
 export type LogLevel = "debug" | "info" | "warn" | "error"
 export type LogSource = "frontend" | "backend"
 /**
- * What the migration did (З21).
- */
-export type MigrationOutcomeView = { migrationId: string; groupsWritten: number; headersWritten: string[]; skippedChanged: string[] }
-/**
- * The report of the dry run of the migration (З19).
- */
-export type MigrationReportView = { notes: number; properties: number; same: number; mismatches: MismatchView[]; missingKeys: MissingKeyView[]; untouchable: UntouchableView[]; orphans: string[]; headerEdits: number; warnings: string[] }
-/**
- * A value of the file that differs from the header (З19).
+ * A value of the old file that differs from the header of the note (З58).
  */
 export type MismatchView = { noteId: string; name: string; fileValue: string; headerValue: string }
-/**
- * A value of the file with no key in the header (З20).
- */
-export type MissingKeyView = { noteId: string; name: string; fileValue: string }
 export type ModuleManifest = { formatVersion: number; id: string; name: string; version: string; publisher: string; kind: string; minAppVersion: string; maxAppVersion: string | null; entry: string; permissions: string[]; checksums: Partial<{ [key in string]: string }>; signature: ModuleSignature; dependencies: Partial<{ [key in string]: string }> | null }
 export type ModuleSignature = { keyId: string; sig: string }
 export type MoveTextPageRequest = { expectedGeneration: number; operationId: string; storyId: string; noteId: string; newParentNoteId?: string | null; orderKey: string; expectedRevision: string }
@@ -2601,6 +2625,15 @@ export type OldVersionReport = { transferred: string[]; conflicts: string[];
  * «Свойства, изменённые старой версией Amby на другом устройстве, перенесены: N заметок».
  */
 hintText: string | null }
+/**
+ * What the opening of the vault did with the properties (З57): `alreadyGroups`, `migrated`,
+ * `arrivedFromServer` or `readOnly` (with the reason `unreadableOldFile` or `waitingForSync`).
+ */
+export type OpenPropertiesView = { state: string; reason: string | null; migrationId: string | null; 
+/**
+ * The notes whose value in the old file differed from the header's (З58).
+ */
+diverged: MismatchView[] }
 export type OperationWarning = "indexRebuildRequired"
 export type PageInfo = { title: string; description: string | null }
 /**
@@ -3188,11 +3221,6 @@ maxBytes?: number | null;
  * For `tooLarge`: `plan` or `server`, where the limit comes from.
  */
 limitSource?: string | null }
-/**
- * A note the migration does not touch, with the reason: `malformedHeader`, `noId`,
- * `duplicateId` or `headerCannotChange` (З20, З25).
- */
-export type UntouchableView = { noteId: string; reason: string }
 export type UpdateChannel = "stable" | "beta"
 /**
  * A change to the settings of a Text, Number, Date or Formula property. Only the

@@ -267,6 +267,7 @@ pub(super) fn build_panel(
         dormant: resolved.dormant,
         rename_hint: hint,
         warnings,
+        read_only: false,
     }
 }
 
@@ -309,8 +310,10 @@ pub(super) fn group_state(
     }
 }
 
-/// The panel of a note. Reads only: never writes (З8).
+/// The panel of a note. Reads only: never writes (З8). While the vault is not migrated, or cannot
+/// be, or is of a newer format, the whole panel is for reading only (З57, З59).
 pub fn panel(conn: &Connection, vault: &Path, note_id: &str) -> Result<Panel, String> {
+    let read_only = storage_mode(vault)? != StorageMode::Groups;
     let (entry, state) = group_state(vault, note_id)?;
     let Ok(access) = open_note(conn, vault, note_id) else {
         let mut warnings = Vec::new();
@@ -320,10 +323,13 @@ pub fn panel(conn: &Connection, vault: &Path, note_id: &str) -> Result<Panel, St
         return Ok(Panel {
             unreadable: true,
             warnings,
+            read_only,
             ..Panel::default()
         });
     };
-    Ok(build_panel(conn, note_id, &access, entry.as_ref(), &state))
+    let mut shown = build_panel(conn, note_id, &access, entry.as_ref(), &state);
+    shown.read_only = read_only;
+    Ok(shown)
 }
 
 // ----- the cache (З23) -----

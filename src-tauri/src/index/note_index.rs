@@ -193,7 +193,10 @@ pub fn note_properties(
     }
     properties.custom_properties = if crate::property_groups::in_groups(vault) {
         crate::property_groups::custom_properties(conn, vault, note_id)?
-    } else if crate::property_groups::ensure_old_store_writable(vault).is_ok() {
+    } else if !matches!(
+        crate::property_groups::storage_mode(vault),
+        Ok(crate::property_groups::StorageMode::Newer)
+    ) {
         crate::property_store::list(conn, note_id)?
     } else {
         Vec::new()

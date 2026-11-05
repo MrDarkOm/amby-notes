@@ -24,13 +24,6 @@ fn write_old_file(fx: &Fx, notes: &[(&str, Vec<Value>)]) {
     fx.write(".amby/properties.json", &text);
 }
 
-fn confirmed() -> Decisions {
-    Decisions {
-        confirmed: true,
-        ..Decisions::default()
-    }
-}
-
 fn plain_context() -> Context {
     Context::default()
 }
@@ -241,7 +234,7 @@ fn an_unreadable_old_file_or_another_version_starts_nothing() {
         let before = fx.snapshot();
         assert!(preview(&fx.conn, &fx.vault).is_err(), "{content}");
         assert!(
-            run(&fx.conn, &fx.vault, &confirmed(), &plain_context()).is_err(),
+            run(&fx.conn, &fx.vault, &plain_context()).is_err(),
             "{content}"
         );
         assert_eq!(fx.snapshot(), before, "{content}");
@@ -251,36 +244,138 @@ fn an_unreadable_old_file_or_another_version_starts_nothing() {
 // ----- З20, З21, З22, З39: the run -----
 
 #[test]
-fn nothing_is_migrated_without_the_confirmation_of_the_owner() {
-    // З21, З38
+fn the_vault_is_migrated_by_itself_at_the_first_opening_with_no_question() {
+    // З57: no confirmation — the opening decides; groups, layout and the outcome appear
     let fx = old_vault();
+    assert_eq!(storage_mode(&fx.vault).unwrap(), StorageMode::Legacy);
+    let OpenOutcome::Migrated(outcome) = open_vault(&fx.conn, &fx.vault, &plain_context()).unwrap()
+    else {
+        panic!("the opening must migrate");
+    };
+    assert_eq!(storage_mode(&fx.vault).unwrap(), StorageMode::Groups);
+    assert!(outcome.groups_written > 0 && !outcome.migration_id.is_empty());
+    assert!(fx.exists(".amby/properties/layout.json"));
+    assert!(
+        fx.read("nokey.md").contains("Автор: Иван"),
+        "the report of З19 was applied (З20)"
+    );
+    // a second opening has nothing to do and writes nothing
     let before = fx.snapshot();
-    assert!(run(&fx.conn, &fx.vault, &Decisions::default(), &plain_context()).is_err());
+    assert_eq!(
+        open_vault(&fx.conn, &fx.vault, &plain_context()).unwrap(),
+        OpenOutcome::AlreadyGroups
+    );
     assert_eq!(fx.snapshot(), before);
 }
 
 #[test]
-fn until_the_owner_confirms_the_properties_work_the_old_way() {
-    // З38: `properties.json`, the old code, no groups
-    let fx = fx_old();
-    fx.note(&id(1), "n.md", "");
-    assert_eq!(storage_mode(&fx.vault).unwrap(), StorageMode::Legacy);
-    crate::property_store::upsert(
-        &fx.conn,
-        &fx.vault,
-        &id(1),
-        crate::model::CustomProperty {
-            id: String::new(),
-            name: "Статус".into(),
-            icon: "📌".into(),
-            property_type: "text".into(),
-            value: "x".into(),
-            settings: String::new(),
-        },
-    )
-    .unwrap();
-    assert!(fx.exists(".amby/properties.json"));
-    assert!(!fx.exists(".amby/properties"), "no group, no layout");
+fn the_opening_does_not_migrate_where_the_conditions_of_the_sync_say_no() {
+    // З57, З38: sync on and no successful pass — the properties wait, read only; `layout.json`
+    // came from the server — no migration of our own
+    let fx = old_vault();
+    let before = fx.snapshot();
+    let waiting = Context {
+        sync_enabled: true,
+        last_pass_ok: false,
+        ..Context::default()
+    };
+    assert_eq!(
+        open_vault(&fx.conn, &fx.vault, &waiting).unwrap(),
+        OpenOutcome::ReadOnly(ReadOnlyReason::WaitingForSync)
+    );
+    assert_eq!(fx.snapshot(), before);
+    let shown = panel(&fx.conn, &fx.vault, &id(N_SAME)).unwrap();
+    assert!(
+        shown.read_only,
+        "З57: for the time of the migration the properties are for reading only"
+    );
+    assert!(create_property(&fx.conn, &fx.vault, &id(N_SAME), design("Автор"), "x").is_err());
+    assert_eq!(fx.snapshot(), before);
+    let arrived = Context {
+        sync_enabled: true,
+        last_pass_ok: true,
+        layout_came_from_server: true,
+        ..Context::default()
+    };
+    assert_eq!(
+        open_vault(&fx.conn, &fx.vault, &arrived).unwrap(),
+        OpenOutcome::ArrivedFromServer
+    );
+    assert_eq!(fx.snapshot(), before);
+    let ready = Context {
+        sync_enabled: true,
+        last_pass_ok: true,
+        ..Context::default()
+    };
+    assert!(matches!(
+        open_vault(&fx.conn, &fx.vault, &ready).unwrap(),
+        OpenOutcome::Migrated(_)
+    ));
+}
+
+#[test]
+fn a_crash_at_any_write_of_the_opening_is_finished_by_the_next_opening() {
+    // З57, З41: the repeat goes by the journal and gives the bytes of an uninterrupted run
+    let reference = old_vault();
+    open_vault(&reference.conn, &reference.vault, &plain_context()).unwrap();
+    let expected = migrated_files(&reference.snapshot());
+    let mut crashed = false;
+    for (n, after) in (1..=14).flat_map(|n| [(n, false), (n, true)]) {
+        let fx = old_vault();
+        let result = with_failing_write(n, after, || {
+            open_vault(&fx.conn, &fx.vault, &plain_context())
+        });
+        if result.is_err() {
+            crashed = true;
+            assert!(
+                !fx.exists(".amby/properties/layout.json"),
+                "crash at {n}/{after}: the layout is last"
+            );
+            assert!(matches!(
+                open_vault(&fx.conn, &fx.vault, &plain_context()).unwrap(),
+                OpenOutcome::Migrated(_)
+            ));
+        }
+        assert_eq!(
+            migrated_files(&fx.snapshot()),
+            expected,
+            "crash at {n}/{after}"
+        );
+    }
+    assert!(crashed);
+}
+
+#[test]
+fn an_unreadable_old_file_leaves_the_properties_read_only_and_writes_nothing() {
+    // З59: unreadable or another version — no migration, no layout, no edits
+    for content in ["not-json", "{\"version\":2,\"notes\":{}}"] {
+        let fx = old_vault();
+        fx.write(".amby/properties.json", content);
+        let before = fx.snapshot();
+        assert_eq!(
+            open_vault(&fx.conn, &fx.vault, &plain_context()).unwrap(),
+            OpenOutcome::ReadOnly(ReadOnlyReason::UnreadableOldFile),
+            "{content}"
+        );
+        assert_eq!(fx.snapshot(), before, "{content}: not a byte was written");
+        assert_eq!(storage_mode(&fx.vault).unwrap(), StorageMode::Legacy);
+        let shown = panel(&fx.conn, &fx.vault, &id(N_SAME)).unwrap();
+        assert!(shown.read_only, "{content}");
+        assert!(
+            shown.active.iter().any(|p| p.name == "Заказчик"),
+            "{content}: the keys of the header are shown"
+        );
+        let note = id(N_SAME);
+        let refused = [
+            create_property(&fx.conn, &fx.vault, &note, design("Автор"), "x").is_err(),
+            set_value(&fx.conn, &fx.vault, &note, "Заказчик", "x").is_err(),
+            rename_property(&fx.conn, &fx.vault, &note, "Заказчик", "Клиент").is_err(),
+            set_appearance(&fx.conn, &fx.vault, &note, "Заказчик", "🔥", "").is_err(),
+            delete_property(&fx.conn, &fx.vault, &note, "Заказчик").is_err(),
+        ];
+        assert!(refused.iter().all(|r| *r), "{content}: {refused:?}");
+        assert_eq!(fx.snapshot(), before, "{content}");
+    }
 }
 
 #[test]
@@ -289,7 +384,7 @@ fn a_run_applies_every_decision_of_the_report() {
     let fx = old_vault();
     let old_file = fx.bytes(".amby/properties.json").unwrap();
     let before = fx.snapshot();
-    let outcome = run(&fx.conn, &fx.vault, &confirmed(), &plain_context()).unwrap();
+    let outcome = run(&fx.conn, &fx.vault, &plain_context()).unwrap();
     // matching: the value is not carried and the header stays
     assert_eq!(fx.bytes("same.md"), before.get("same.md").cloned());
     // the missing key with a value is written into the header
@@ -338,19 +433,45 @@ fn a_run_applies_every_decision_of_the_report() {
 }
 
 #[test]
-fn the_owner_can_choose_the_value_of_the_file_for_a_diverging_property() {
-    // З20
+fn the_outcome_lists_the_notes_whose_values_differed_and_the_header_value_is_kept() {
+    // З58: «Расходились значения у N заметок, оставлены значения из шапки»
     let fx = old_vault();
-    let mut decisions = confirmed();
-    decisions
-        .use_file_value
-        .insert((id(N_DIFF), "Заказчик".to_string()));
-    run(&fx.conn, &fx.vault, &decisions, &plain_context()).unwrap();
+    let outcome = run(&fx.conn, &fx.vault, &plain_context()).unwrap();
+    assert_eq!(outcome.diverged.len(), 1);
+    assert_eq!(outcome.diverged[0].note_id, id(N_DIFF));
+    assert_eq!(
+        (
+            outcome.diverged[0].file_value.as_str(),
+            outcome.diverged[0].header_value.as_str()
+        ),
+        ("А", "Б")
+    );
+    assert!(
+        fx.read("diff.md").contains("Заказчик: Б"),
+        "the header wins"
+    );
+}
+
+#[test]
+fn take_the_value_from_the_old_file_is_an_ordinary_edit_of_the_value_and_nothing_else() {
+    // З58, З1
+    let fx = old_vault();
+    run(&fx.conn, &fx.vault, &plain_context()).unwrap();
+    let before = fx.snapshot();
+    take_file_value(&fx.conn, &fx.vault, &id(N_DIFF), "Заказчик").unwrap();
     assert!(
         fx.read("diff.md").contains("Заказчик: А"),
         "{}",
         fx.read("diff.md")
     );
+    assert_eq!(
+        changed_paths(&before, &fx.snapshot()),
+        vec!["diff.md".to_string()],
+        "only the note"
+    );
+    let after = fx.snapshot();
+    assert!(take_file_value(&fx.conn, &fx.vault, &id(N_DIFF), "Нет такого").is_err());
+    assert_eq!(fx.snapshot(), after);
 }
 
 #[test]
@@ -359,7 +480,7 @@ fn copies_and_the_journal_are_made_before_the_first_change() {
     let fx = old_vault();
     let old_file = fx.bytes(".amby/properties.json").unwrap();
     let old_note = fx.bytes("nokey.md").unwrap();
-    let outcome = run(&fx.conn, &fx.vault, &confirmed(), &plain_context()).unwrap();
+    let outcome = run(&fx.conn, &fx.vault, &plain_context()).unwrap();
     let prefix = format!(".amby/migrations/{}/", outcome.migration_id);
     let files = fx
         .snapshot()
@@ -390,7 +511,7 @@ fn an_empty_migration_writes_the_layout() {
     // З41: no `properties.json` — nothing to carry; the layout is written before the first group
     let fx = fx_old();
     fx.note(&id(1), "n.md", "");
-    let outcome = run(&fx.conn, &fx.vault, &confirmed(), &plain_context()).unwrap();
+    let outcome = run(&fx.conn, &fx.vault, &plain_context()).unwrap();
     assert_eq!(outcome.groups_written, 0);
     assert_eq!(storage_mode(&fx.vault).unwrap(), StorageMode::Groups);
     assert!(fx
@@ -404,8 +525,8 @@ fn two_computers_that_migrate_the_same_vault_write_the_same_bytes() {
     // З39: the files and the layout, apart from `hint` (which never conflicts, З31)
     let a = old_vault();
     let b = a.copy_to_second_device(&[]);
-    run(&a.conn, &a.vault, &confirmed(), &plain_context()).unwrap();
-    run(&b.conn, &b.vault, &confirmed(), &plain_context()).unwrap();
+    run(&a.conn, &a.vault, &plain_context()).unwrap();
+    run(&b.conn, &b.vault, &plain_context()).unwrap();
     let strip = |fx: &Fx| -> BTreeMap<String, Vec<Value>> {
         fx.files_under(".amby/properties/")
             .into_iter()
@@ -444,14 +565,14 @@ fn the_migration_is_not_started_where_it_would_be_wrong() {
         last_pass_ok: false,
         ..Context::default()
     };
-    assert!(run(&fx.conn, &fx.vault, &confirmed(), &sync_not_ok).is_err());
+    assert!(run(&fx.conn, &fx.vault, &sync_not_ok).is_err());
     let from_server = Context {
         sync_enabled: true,
         last_pass_ok: true,
         layout_came_from_server: true,
         arrived_template: None,
     };
-    assert!(run(&fx.conn, &fx.vault, &confirmed(), &from_server).is_err());
+    assert!(run(&fx.conn, &fx.vault, &from_server).is_err());
     assert_eq!(fx.snapshot(), before);
     let sync_ok = Context {
         sync_enabled: true,
@@ -459,7 +580,7 @@ fn the_migration_is_not_started_where_it_would_be_wrong() {
         layout_came_from_server: false,
         arrived_template: None,
     };
-    assert!(run(&fx.conn, &fx.vault, &confirmed(), &sync_ok).is_ok());
+    assert!(run(&fx.conn, &fx.vault, &sync_ok).is_ok());
 }
 
 // ----- З21, З41: a crash at every write, and the repeat -----
@@ -468,21 +589,13 @@ fn the_migration_is_not_started_where_it_would_be_wrong() {
 fn a_crash_at_any_write_is_finished_by_the_journal_and_the_result_equals_an_uninterrupted_run() {
     // З21, З41
     let reference = old_vault();
-    run(
-        &reference.conn,
-        &reference.vault,
-        &confirmed(),
-        &plain_context(),
-    )
-    .unwrap();
+    run(&reference.conn, &reference.vault, &plain_context()).unwrap();
     let expected = migrated_files(&reference.snapshot());
     let mut crashed_at_least_once = false;
     for (n, after) in (1..=14).flat_map(|n| [(n, false), (n, true)]) {
         let fx = old_vault();
         let old_file = fx.bytes(".amby/properties.json");
-        let result = with_failing_write(n, after, || {
-            run(&fx.conn, &fx.vault, &confirmed(), &plain_context())
-        });
+        let result = with_failing_write(n, after, || run(&fx.conn, &fx.vault, &plain_context()));
         let label = format!("crash at write {n} (after publish: {after})");
         assert_eq!(
             fx.bytes(".amby/properties.json"),
@@ -501,7 +614,7 @@ fn a_crash_at_any_write_is_finished_by_the_journal_and_the_result_equals_an_unin
                 "{label}"
             );
             if resume(&fx.conn, &fx.vault).is_err() {
-                run(&fx.conn, &fx.vault, &confirmed(), &plain_context()).unwrap();
+                run(&fx.conn, &fx.vault, &plain_context()).unwrap();
             }
         }
         assert_eq!(migrated_files(&fx.snapshot()), expected, "{label}");
@@ -514,9 +627,7 @@ fn a_note_edited_between_the_crash_and_the_repeat_is_not_touched() {
     // З41: neither «до» nor «после» — leave it and put it in the outcome
     for (n, after) in (1..=14).flat_map(|n| [(n, false), (n, true)]) {
         let fx = old_vault();
-        let result = with_failing_write(n, after, || {
-            run(&fx.conn, &fx.vault, &confirmed(), &plain_context())
-        });
+        let result = with_failing_write(n, after, || run(&fx.conn, &fx.vault, &plain_context()));
         let in_the_middle = result.is_err()
             && !fx.exists(".amby/properties/layout.json")
             && !fx.read("nokey.md").contains("Автор")
@@ -545,9 +656,7 @@ fn a_rollback_of_an_unfinished_migration_removes_only_the_groups_it_wrote_and_re
     let original = reference.snapshot();
     for (n, after) in (1..=14).flat_map(|n| [(n, false), (n, true)]) {
         let fx = old_vault();
-        let result = with_failing_write(n, after, || {
-            run(&fx.conn, &fx.vault, &confirmed(), &plain_context())
-        });
+        let result = with_failing_write(n, after, || run(&fx.conn, &fx.vault, &plain_context()));
         if result.is_ok() || fx.files_under(".amby/migrations/").is_empty() {
             continue;
         }
@@ -581,7 +690,7 @@ fn a_rollback_after_the_end_restores_only_unchanged_headers_and_moves_groups_to_
     // З42: manual action of the inspection
     let fx = old_vault();
     let original_nokey = fx.bytes("nokey.md").unwrap();
-    let outcome = run(&fx.conn, &fx.vault, &confirmed(), &plain_context()).unwrap();
+    let outcome = run(&fx.conn, &fx.vault, &plain_context()).unwrap();
     assert_ne!(fx.bytes("nokey.md").unwrap(), original_nokey);
     let old_file = fx.bytes(".amby/properties.json");
     let report = rollback(&fx.conn, &fx.vault, &outcome.migration_id).unwrap();
@@ -604,7 +713,7 @@ fn a_rollback_after_the_end_restores_only_unchanged_headers_and_moves_groups_to_
 fn a_header_edited_after_the_migration_is_not_given_back_by_a_rollback() {
     // З42: «шапка возвращается только если не менялась после миграции»
     let fx = old_vault();
-    let outcome = run(&fx.conn, &fx.vault, &confirmed(), &plain_context()).unwrap();
+    let outcome = run(&fx.conn, &fx.vault, &plain_context()).unwrap();
     fx.note(
         &id(N_NOKEY),
         "nokey.md",
@@ -650,7 +759,7 @@ fn a_property_equal_to_the_template_gives_no_line_in_any_language() {
         let mut old = old_prop("P", &name, &found.property_type, "x", &found.settings);
         old["icon"] = serde_json::json!(template.icon);
         write_old_file(&fx, &[(&id(1), vec![old])]);
-        run(&fx.conn, &fx.vault, &confirmed(), &plain_context()).unwrap();
+        run(&fx.conn, &fx.vault, &plain_context()).unwrap();
         assert!(
             fx.line(&id(1)).is_none(),
             "{name}: nothing differs from the template"
@@ -680,7 +789,7 @@ fn only_the_fields_that_differ_from_the_template_are_carried() {
     let mut old = old_prop("P", &name, &found.property_type, "x", &found.settings);
     old["icon"] = serde_json::json!("🔥");
     let fx = one_note(&format!("{name}: x\n"), vec![old]);
-    run(&fx.conn, &fx.vault, &confirmed(), &plain_context()).unwrap();
+    run(&fx.conn, &fx.vault, &plain_context()).unwrap();
     assert_eq!(fx.props(&id(1))[&name], serde_json::json!({"icon": "🔥"}));
     let _ = template;
 }
@@ -693,10 +802,10 @@ fn the_order_is_carried_only_when_it_differs_from_the_order_of_the_header() {
         old_prop("P2", "Два", "text", "2", ""),
     ];
     let same = one_note("Один: 1\nДва: 2\n", props.clone());
-    run(&same.conn, &same.vault, &confirmed(), &plain_context()).unwrap();
+    run(&same.conn, &same.vault, &plain_context()).unwrap();
     assert!(same.line(&id(1)).unwrap().get("order").is_none());
     let moved = one_note("Два: 2\nОдин: 1\n", props);
-    run(&moved.conn, &moved.vault, &confirmed(), &plain_context()).unwrap();
+    run(&moved.conn, &moved.vault, &plain_context()).unwrap();
     assert_eq!(
         moved.line(&id(1)).unwrap()["order"],
         serde_json::json!(["Один", "Два"])
@@ -707,7 +816,7 @@ fn the_order_is_carried_only_when_it_differs_from_the_order_of_the_header() {
 fn the_layout_records_the_number_of_the_template() {
     // З48, З54
     let fx = one_note("Один: 1\n", vec![old_prop("P1", "Один", "text", "1", "")]);
-    run(&fx.conn, &fx.vault, &confirmed(), &plain_context()).unwrap();
+    run(&fx.conn, &fx.vault, &plain_context()).unwrap();
     let layout: Value = serde_json::from_str(&fx.read(".amby/properties/layout.json")).unwrap();
     assert_eq!(
         layout["template"],
@@ -728,11 +837,11 @@ fn a_migration_under_an_older_template_than_the_arrived_layout_does_not_start() 
         arrived_template: Some(crate::property_template::TEMPLATE_VERSION + 1),
         ..Context::default()
     };
-    assert!(run(&fx.conn, &fx.vault, &confirmed(), &newer).is_err());
+    assert!(run(&fx.conn, &fx.vault, &newer).is_err());
     assert_eq!(fx.snapshot(), before);
     let equal = Context {
         arrived_template: Some(crate::property_template::TEMPLATE_VERSION),
         ..Context::default()
     };
-    assert!(run(&fx.conn, &fx.vault, &confirmed(), &equal).is_ok());
+    assert!(run(&fx.conn, &fx.vault, &equal).is_ok());
 }

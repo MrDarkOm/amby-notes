@@ -8,14 +8,15 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import i18n from "@/lib/i18n"
 import type { PropertyPanel, PropertyStorageStatus } from "@/lib/properties/property-groups-port"
 import { useVaultStore } from "../use-vault-store"
+import { usePropertyMigrationStore } from "./use-property-migration-store"
 
 const port = vi.hoisted(() => ({
   propertyStorageStatus: vi.fn(),
   getPropertyPanel: vi.fn(),
   acceptPropertyRenameHint: vi.fn(),
   dismissPropertyRenameHint: vi.fn(),
-  previewPropertiesMigration: vi.fn(),
-  runPropertiesMigration: vi.fn(),
+  openVaultProperties: vi.fn(),
+  takePropertyFileValue: vi.fn(),
   checkOldVersionPropertyEdits: vi.fn(),
   resolveOldVersionPropertyConflict: vi.fn(),
 }))
@@ -43,6 +44,13 @@ const open = async () => {
 }
 
 beforeEach(async () => {
+  port.openVaultProperties.mockResolvedValue({
+    state: "alreadyGroups",
+    reason: null,
+    migrationId: null,
+    diverged: [],
+  })
+  usePropertyMigrationStore.setState(usePropertyMigrationStore.getInitialState())
   await i18n.changeLanguage("ru")
   useVaultStore.setState({ vault: "/vault" })
   port.getPropertyPanel.mockResolvedValue(panel())
@@ -65,32 +73,48 @@ describe("the notices of the properties", () => {
     expect(screen.queryByTestId("note-notices-bulb")).toBeNull()
   })
 
-  it("offer the new format with a report first and run the migration only on the second click", async () => {
-    port.propertyStorageStatus.mockResolvedValue({ mode: "legacy", oldVersionWarning: null })
-    port.previewPropertiesMigration.mockResolvedValue({
-      notes: 3,
-      properties: 5,
-      same: 4,
-      mismatches: [],
-      missingKeys: [],
-      untouchable: [],
-      orphans: [],
-      headerEdits: 2,
-      warnings: [],
-    })
-    port.runPropertiesMigration.mockResolvedValue({
+  it("tell once after the migration that the properties are in the new format, with no question before it", async () => {
+    port.propertyStorageStatus.mockResolvedValue(groups)
+    port.openVaultProperties.mockResolvedValue({
+      state: "migrated",
+      reason: null,
       migrationId: "M",
-      groupsWritten: 1,
-      headersWritten: [],
-      skippedChanged: [],
+      diverged: [],
     })
     mount()
     await open()
-    fireEvent.click(await screen.findByText("Показать отчёт"))
-    expect(await screen.findByText(/Заметок: 3/)).toBeTruthy()
-    expect(port.runPropertiesMigration).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByText("Перенести свойства"))
-    await waitFor(() => expect(port.runPropertiesMigration).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText(/переведены в новый формат/)).toBeTruthy()
+    expect(port.openVaultProperties).toHaveBeenCalledTimes(1)
+  })
+
+  it("list the notes whose values differed and take the value of the old file on request", async () => {
+    port.propertyStorageStatus.mockResolvedValue(groups)
+    port.openVaultProperties.mockResolvedValue({
+      state: "migrated",
+      reason: null,
+      migrationId: "M",
+      diverged: [{ noteId: "N7", name: "Заказчик", fileValue: "А", headerValue: "Б" }],
+    })
+    port.takePropertyFileValue.mockResolvedValue(undefined)
+    mount()
+    await open()
+    expect(await screen.findByText(/Расходились значения у 1 заметки/)).toBeTruthy()
+    fireEvent.click(screen.getByText("Отчёт"))
+    fireEvent.click(await screen.findByText("Взять значение из старого файла"))
+    await waitFor(() => expect(port.takePropertyFileValue).toHaveBeenCalledWith("N7", "Заказчик"))
+  })
+
+  it("say why the properties are read only when the vault could not be migrated", async () => {
+    port.propertyStorageStatus.mockResolvedValue({ mode: "legacy", oldVersionWarning: null })
+    port.openVaultProperties.mockResolvedValue({
+      state: "readOnly",
+      reason: "unreadableOldFile",
+      migrationId: null,
+      diverged: [],
+    })
+    mount()
+    await open()
+    expect(await screen.findByText(/только для чтения/)).toBeTruthy()
   })
 
   it("ask about a rename outside Amby and store a refusal", async () => {

@@ -289,7 +289,7 @@ pub fn property_storage_status(
     })
 }
 
-/// A value of the file that differs from the header (З19).
+/// A value of the old file that differs from the header of the note (З58).
 #[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct MismatchView {
@@ -299,106 +299,16 @@ pub struct MismatchView {
     pub header_value: String,
 }
 
-/// A value of the file with no key in the header (З20).
+/// What the opening of the vault did with the properties (З57): `alreadyGroups`, `migrated`,
+/// `arrivedFromServer` or `readOnly` (with the reason `unreadableOldFile` or `waitingForSync`).
 #[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub struct MissingKeyView {
-    pub note_id: String,
-    pub name: String,
-    pub file_value: String,
-}
-
-/// A note the migration does not touch, with the reason: `malformedHeader`, `noId`,
-/// `duplicateId` or `headerCannotChange` (З20, З25).
-#[derive(Debug, Clone, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct UntouchableView {
-    pub note_id: String,
-    pub reason: String,
-}
-
-/// The report of the dry run of the migration (З19).
-#[derive(Debug, Clone, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct MigrationReportView {
-    pub notes: u32,
-    pub properties: u32,
-    pub same: u32,
-    pub mismatches: Vec<MismatchView>,
-    pub missing_keys: Vec<MissingKeyView>,
-    pub untouchable: Vec<UntouchableView>,
-    pub orphans: Vec<String>,
-    pub header_edits: u32,
-    pub warnings: Vec<String>,
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn preview_properties_migration(
-    db: State<'_, VaultContext>,
-) -> Result<MigrationReportView, String> {
-    let conn_guard = db.conn.lock_or_recover();
-    let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    let report = migration::preview(conn, &conn.root)?;
-    Ok(MigrationReportView {
-        notes: report.notes as u32,
-        properties: report.properties as u32,
-        same: report.same as u32,
-        mismatches: report
-            .mismatches
-            .into_iter()
-            .map(|m| MismatchView {
-                note_id: m.note_id,
-                name: m.name,
-                file_value: m.file_value,
-                header_value: m.header_value,
-            })
-            .collect(),
-        missing_keys: report
-            .missing_keys
-            .into_iter()
-            .map(|m| MissingKeyView {
-                note_id: m.note_id,
-                name: m.name,
-                file_value: m.file_value,
-            })
-            .collect(),
-        untouchable: report
-            .untouchable
-            .into_iter()
-            .map(|(note_id, reason)| UntouchableView {
-                note_id,
-                reason: match reason {
-                    migration::Untouchable::MalformedHeader => "malformedHeader",
-                    migration::Untouchable::NoId => "noId",
-                    migration::Untouchable::DuplicateId => "duplicateId",
-                    migration::Untouchable::HeaderCannotChange => "headerCannotChange",
-                }
-                .to_string(),
-            })
-            .collect(),
-        orphans: report.orphans,
-        header_edits: report.header_edits as u32,
-        warnings: report.warnings,
-    })
-}
-
-/// «Взять значение из файла» for one property (З20).
-#[derive(Debug, Clone, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct FileValueChoice {
-    pub note_id: String,
-    pub name: String,
-}
-
-/// What the migration did (З21).
-#[derive(Debug, Clone, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct MigrationOutcomeView {
-    pub migration_id: String,
-    pub groups_written: u32,
-    pub headers_written: Vec<String>,
-    pub skipped_changed: Vec<String>,
+pub struct OpenPropertiesView {
+    pub state: String,
+    pub reason: Option<String>,
+    pub migration_id: Option<String>,
+    /// The notes whose value in the old file differed from the header's (З58).
+    pub diverged: Vec<MismatchView>,
 }
 
 fn sync_context(runtime: &SyncRuntime) -> migration::Context {
@@ -414,33 +324,176 @@ fn sync_context(runtime: &SyncRuntime) -> migration::Context {
     }
 }
 
-/// Runs the migration after the owner of the vault confirmed it (З21, З38).
+/// The first opening of the vault by the new version migrates the properties by itself, with no
+/// question; asked again it has nothing to do (З57, З59). Nothing is written when it does not
+/// migrate.
 #[tauri::command]
 #[specta::specta]
-pub fn run_properties_migration(
+pub fn open_vault_properties(
     db: State<'_, VaultContext>,
     runtime: State<'_, SyncRuntime>,
-    use_file_values: Vec<FileValueChoice>,
-) -> Result<MigrationOutcomeView, String> {
+) -> Result<OpenPropertiesView, String> {
     let context = sync_context(&runtime);
-    let decisions = migration::Decisions {
-        use_file_value: use_file_values
-            .into_iter()
-            .map(|choice| (choice.note_id, choice.name))
-            .collect(),
-        confirmed: true,
-    };
     let outcome = with_vault_mutation!(db, |conn| {
-        let outcome = migration::run(conn, &conn.root, &decisions, &context)?;
-        let _ = property_groups::restore_cache_any(conn, &conn.root);
+        let outcome = migration::open_vault(conn, &conn.root, &context)?;
+        if matches!(outcome, migration::OpenOutcome::Migrated(_)) {
+            let _ = property_groups::restore_cache_any(conn, &conn.root);
+        }
         outcome
     });
-    Ok(MigrationOutcomeView {
-        migration_id: outcome.migration_id,
-        groups_written: outcome.groups_written as u32,
-        headers_written: outcome.headers_written,
-        skipped_changed: outcome.skipped_changed,
+    let view = |state: &str, reason: Option<&str>| OpenPropertiesView {
+        state: state.to_string(),
+        reason: reason.map(str::to_string),
+        migration_id: None,
+        diverged: Vec::new(),
+    };
+    Ok(match outcome {
+        migration::OpenOutcome::AlreadyGroups => view("alreadyGroups", None),
+        migration::OpenOutcome::ArrivedFromServer => view("arrivedFromServer", None),
+        migration::OpenOutcome::ReadOnly(reason) => view(
+            "readOnly",
+            Some(match reason {
+                migration::ReadOnlyReason::UnreadableOldFile => "unreadableOldFile",
+                migration::ReadOnlyReason::WaitingForSync => "waitingForSync",
+            }),
+        ),
+        migration::OpenOutcome::Migrated(done) => OpenPropertiesView {
+            migration_id: Some(done.migration_id),
+            diverged: done
+                .diverged
+                .into_iter()
+                .map(|m| MismatchView {
+                    note_id: m.note_id,
+                    name: m.name,
+                    file_value: m.file_value,
+                    header_value: m.header_value,
+                })
+                .collect(),
+            ..view("migrated", None)
+        },
     })
+}
+
+/// «Взять значение из старого файла»: an ordinary edit of the value (З58, З1).
+#[tauri::command]
+#[specta::specta]
+pub fn take_property_file_value(
+    db: State<'_, VaultContext>,
+    note_id: String,
+    name: String,
+) -> Result<(), String> {
+    with_vault_mutation!(db, |conn| migration::take_file_value(
+        conn, &conn.root, &note_id, &name
+    ))
+}
+
+// ----- the edits by the name of the property (З60) -----
+
+/// A new property: the key goes into the header, the look into the record if it differs.
+#[tauri::command]
+#[specta::specta]
+pub fn create_note_property(
+    db: State<'_, VaultContext>,
+    note_id: String,
+    name: String,
+    icon: String,
+    property_type: String,
+    settings: String,
+    value: String,
+) -> Result<String, String> {
+    with_vault_mutation!(db, |conn| property_groups::create_property(
+        conn,
+        &conn.root,
+        &note_id,
+        property_groups::Design {
+            name,
+            icon,
+            property_type,
+            settings
+        },
+        &value
+    ))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn rename_note_property(
+    db: State<'_, VaultContext>,
+    note_id: String,
+    name: String,
+    new_name: String,
+) -> Result<(), String> {
+    with_vault_mutation!(db, |conn| property_groups::rename_property(
+        conn, &conn.root, &note_id, &name, &new_name
+    ))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_note_property_type(
+    db: State<'_, VaultContext>,
+    note_id: String,
+    name: String,
+    property_type: String,
+) -> Result<(), String> {
+    with_vault_mutation!(db, |conn| property_groups::change_type(
+        conn,
+        &conn.root,
+        &note_id,
+        &name,
+        &property_type
+    ))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_note_property_appearance(
+    db: State<'_, VaultContext>,
+    note_id: String,
+    name: String,
+    icon: String,
+    settings: String,
+) -> Result<(), String> {
+    with_vault_mutation!(db, |conn| property_groups::set_appearance(
+        conn, &conn.root, &note_id, &name, &icon, &settings
+    ))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_note_property_value(
+    db: State<'_, VaultContext>,
+    note_id: String,
+    name: String,
+    value: String,
+) -> Result<(), String> {
+    with_vault_mutation!(db, |conn| property_groups::set_value(
+        conn, &conn.root, &note_id, &name, &value
+    ))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn reorder_note_properties(
+    db: State<'_, VaultContext>,
+    note_id: String,
+    names: Vec<String>,
+) -> Result<(), String> {
+    with_vault_mutation!(db, |conn| property_groups::reorder(
+        conn, &conn.root, &note_id, &names
+    ))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn delete_note_property(
+    db: State<'_, VaultContext>,
+    note_id: String,
+    name: String,
+) -> Result<(), String> {
+    with_vault_mutation!(db, |conn| property_groups::delete_property(
+        conn, &conn.root, &note_id, &name
+    ))
 }
 
 /// What a rollback did (З42).

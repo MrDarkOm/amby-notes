@@ -6,8 +6,7 @@
 
 import { commands } from "@/lib/bindings"
 import type {
-  MigrationOutcomeView,
-  MigrationReportView,
+  OpenPropertiesView,
   OldVersionReport,
   PropertyPanel,
   PropertyStorageStatus,
@@ -17,8 +16,7 @@ import { isTauri } from "@/lib/storage"
 import { unwrapCommand } from "@/lib/storage/ipc-result"
 
 export type {
-  MigrationOutcomeView,
-  MigrationReportView,
+  OpenPropertiesView,
   OldVersionReport,
   PropertyPanel,
   PropertyStorageStatus,
@@ -67,16 +65,19 @@ export async function dismissPropertyRenameHint(
   await unwrapCommand(commands.dismissPropertyRenameHint(noteId, hint))
 }
 
-/** The dry run of the migration: nothing is written (З19). */
-export async function previewPropertiesMigration(): Promise<MigrationReportView | null> {
+/**
+ * The first opening of the vault by the new version migrates the properties by itself, with no
+ * question; asked again it has nothing to do (З57, З59).
+ */
+export async function openVaultProperties(): Promise<OpenPropertiesView | null> {
   if (!isTauri()) return null
-  return unwrapCommand<MigrationReportView>(commands.previewPropertiesMigration())
+  return unwrapCommand<OpenPropertiesView>(commands.openVaultProperties())
 }
 
-/** The migration after the owner of the vault confirmed it (З21, З38). */
-export async function runPropertiesMigration(): Promise<MigrationOutcomeView | null> {
-  if (!isTauri()) return null
-  return unwrapCommand<MigrationOutcomeView>(commands.runPropertiesMigration([]))
+/** «Взять значение из старого файла»: an ordinary edit of the value (З58). */
+export async function takePropertyFileValue(noteId: string, name: string): Promise<void> {
+  if (!isTauri()) return
+  await unwrapCommand(commands.takePropertyFileValue(noteId, name))
 }
 
 /** Carries over what an old version of Amby changed in `properties.json` (З22, З36). */

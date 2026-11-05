@@ -17,19 +17,17 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-mod compat;
 mod edits;
 mod files;
 mod header;
 mod identity;
 pub mod legacy;
+mod lifecycle;
 pub mod migration;
 mod panel;
 
 #[cfg(test)]
 mod testkit;
-#[cfg(test)]
-mod tests_compat;
 #[cfg(test)]
 mod tests_dormant;
 #[cfg(test)]
@@ -232,6 +230,8 @@ pub struct Panel {
     pub dormant: Vec<DormantProperty>,
     pub rename_hint: Option<RenameHint>,
     pub warnings: Vec<PanelWarning>,
+    /// The whole panel is for reading only: the vault is not migrated yet or cannot be (З57, З59).
+    pub read_only: bool,
 }
 
 // ----- edits (З9, З24–З29, З55) -----
@@ -284,11 +284,11 @@ pub struct Inspection {
     pub bad_lines: Vec<BadLine>,
 }
 
-pub use compat::*;
 pub use edits::*;
 pub use files::*;
 pub use header::look_for_view;
 #[allow(unused_imports)]
 pub use header::match_key;
 pub use identity::*;
+pub use lifecycle::*;
 pub use panel::*;

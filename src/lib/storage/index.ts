@@ -8,6 +8,8 @@ import { AssetsRepository } from "./assets-repository"
 import { HistoryRepository } from "./history-repository"
 import { SettingsRepository } from "./settings-repository"
 import { configureDebugRepositoryRuntime } from "./debug-repository"
+import { commands, type Result } from "../bindings"
+import { unwrapCommand } from "./ipc-result"
 import { logger, traceOperation } from "../logger"
 import type { StoragePort, WriteNoteOptions } from "./port"
 import type {
@@ -256,6 +258,86 @@ export const upsertCustomProperty = (
     propertyType: property.propertyType,
   })
   return notesRepository.upsertCustomProperty(vaultPath, noteId, property)
+}
+// Commands of the new format of the properties, by the name of the property (docs/sync-plan.md,
+// З60). They exist in the desktop application only; the browser keeps the old contract below.
+const byName = <T>(command: () => Promise<Result<T, string>>): Promise<T> => {
+  if (!isTauri()) return Promise.reject(new Error("Properties by name need the desktop app"))
+  return unwrapCommand<T>(command())
+}
+export const createProperty = (
+  vaultPath: string,
+  noteId: string,
+  property: Pick<CustomProperty, "name" | "icon" | "propertyType" | "settings" | "value">,
+): Promise<string> => {
+  void vaultPath
+  return byName(() =>
+    commands.createNoteProperty(
+      noteId,
+      property.name,
+      property.icon,
+      property.propertyType,
+      property.settings,
+      property.value,
+    ),
+  )
+}
+export const setPropertyAppearance = (
+  vaultPath: string,
+  noteId: string,
+  name: string,
+  icon: string,
+  settings: string,
+): Promise<void> => {
+  void vaultPath
+  return byName(() => commands.setNotePropertyAppearance(noteId, name, icon, settings)).then(
+    () => undefined,
+  )
+}
+export const renameProperty = (
+  vaultPath: string,
+  noteId: string,
+  name: string,
+  newName: string,
+): Promise<void> => {
+  void vaultPath
+  return byName(() => commands.renameNoteProperty(noteId, name, newName)).then(() => undefined)
+}
+export const changePropertyType = (
+  vaultPath: string,
+  noteId: string,
+  name: string,
+  propertyType: string,
+): Promise<void> => {
+  void vaultPath
+  return byName(() => commands.changeNotePropertyType(noteId, name, propertyType)).then(
+    () => undefined,
+  )
+}
+export const setPropertyValue = (
+  vaultPath: string,
+  noteId: string,
+  name: string,
+  value: string,
+): Promise<void> => {
+  void vaultPath
+  return byName(() => commands.setNotePropertyValue(noteId, name, value)).then(() => undefined)
+}
+export const reorderProperties = (
+  vaultPath: string,
+  noteId: string,
+  names: string[],
+): Promise<void> => {
+  void vaultPath
+  return byName(() => commands.reorderNoteProperties(noteId, names)).then(() => undefined)
+}
+export const deletePropertyByName = (
+  vaultPath: string,
+  noteId: string,
+  name: string,
+): Promise<void> => {
+  void vaultPath
+  return byName(() => commands.deleteNoteProperty(noteId, name)).then(() => undefined)
 }
 export const deleteCustomProperty = (
   vaultPath: string,

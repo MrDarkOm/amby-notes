@@ -2,9 +2,17 @@ import * as React from "react"
 import type { TFunction } from "i18next"
 import { errorType, logger } from "@/lib/logger"
 import {
+  changePropertyType,
+  createProperty,
   deleteCustomProperty,
+  deletePropertyByName,
   getNoteProperties,
+  isTauri,
+  renameProperty,
   reorderCustomProperties,
+  reorderProperties,
+  setPropertyAppearance,
+  setPropertyValue,
   type CustomProperty,
   type NoteProperties,
   type TreeItem,
@@ -32,6 +40,31 @@ type UsePropertyActionsParams = {
   t: TFunction
   vault: string | null
   includeAttachmentImages?: boolean
+}
+
+/** The optimistic view of an upsert: the key of the header and the entry of the look. */
+function applyUpsert(current: NoteProperties, next: CustomProperty): NoteProperties {
+  const properties = [...current.properties]
+  const previousName = current.customProperties.find((item) => item.id === next.id)?.name
+  const frontIndex = properties.findIndex(
+    (item) => item.key === previousName || item.key.toLowerCase() === next.name.toLowerCase(),
+  )
+  const front = {
+    key: next.name,
+    value: next.value,
+    valueKind: ["number", "date", "checkbox"].includes(next.propertyType)
+      ? next.propertyType
+      : "text",
+  }
+  if (frontIndex >= 0) properties[frontIndex] = front
+  else properties.push(front)
+  const custom = [...current.customProperties]
+  const index = custom.findIndex(
+    (item) => item.id === next.id || item.name.toLowerCase() === next.name.toLowerCase(),
+  )
+  if (index >= 0) custom[index] = next
+  else custom.push(next)
+  return { ...current, hasFrontmatter: true, properties, customProperties: custom }
 }
 
 /** Derives Info-panel metadata and applies durable custom-property mutations. */
@@ -222,39 +255,77 @@ export function usePropertyActions({
         name: property.name.trim(),
         id: property.id || previous?.id || crypto.randomUUID(),
       }
-      return run(
-        (current) => {
-          const properties = [...current.properties]
-          const previousName = current.customProperties.find((item) => item.id === next.id)?.name
-          const frontIndex = properties.findIndex(
-            (item) =>
-              item.key === previousName || item.key.toLowerCase() === next.name.toLowerCase(),
-          )
-          const front = {
-            key: next.name,
-            value: next.value,
-            valueKind: ["number", "date", "checkbox"].includes(next.propertyType)
-              ? next.propertyType
-              : "text",
-          }
-          if (frontIndex >= 0) properties[frontIndex] = front
-          else properties.push(front)
-          const custom = [...current.customProperties]
-          const index = custom.findIndex(
-            (item) => item.id === next.id || item.name.toLowerCase() === next.name.toLowerCase(),
-          )
-          if (index >= 0) custom[index] = next
-          else custom.push(next)
-          return { ...current, hasFrontmatter: true, properties, customProperties: custom }
-        },
-        async () => {
-          const saved = await upsertCustomProperty(vault!, noteId!, next)
-          logger.info("property.upsert", { noteId, propertyId: saved.id })
-          return saved
-        },
-      )
+      const optimistic = (current: NoteProperties) => applyUpsert(current, next)
+      if (isTauri()) {
+        // The desktop app changes a property by its name, one command for each thing that changed
+        // (docs/sync-plan.md, З60), always against the state it has just seen.
+        if (!previous) {
+          return run(optimistic, async () => {
+            await createProperty(vault!, noteId!, next)
+            return next
+          })
+        }
+        const steps: Array<() => Promise<void>> = []
+        let at = previous.name
+        if (previous.name !== next.name) {
+          const from = previous.name
+          steps.push(() => renameProperty(vault!, noteId!, from, next.name))
+          at = next.name
+        }
+        const target = at
+        if (previous.propertyType !== next.propertyType)
+          steps.push(() => changePropertyType(vault!, noteId!, target, next.propertyType))
+        if (previous.icon !== next.icon || previous.settings !== next.settings)
+          steps.push(() => setPropertyAppearance(vault!, noteId!, target, next.icon, next.settings))
+        if (previous.value !== next.value)
+          steps.push(() => setPropertyValue(vault!, noteId!, target, next.value))
+        return run(optimistic, async () => {
+          for (const step of steps) await step()
+          return next
+        })
+      }
+      return run(optimistic, async () => {
+        const saved = await upsertCustomProperty(vault!, noteId!, next)
+        logger.info("property.upsert", { noteId, propertyId: saved.id })
+        return saved
+      })
     },
     [currentDoc, noteId, scope, vault],
+  )
+
+  const handleSetPropertyAppearance = React.useCallback(
+    async (name: string, icon: string, settings: string) => {
+      const { run } = scope()
+      await run(
+        (current) => ({
+          ...current,
+          customProperties: current.customProperties.map((item) =>
+            item.name === name ? { ...item, icon, settings } : item,
+          ),
+        }),
+        () => setPropertyAppearance(vault!, noteId!, name, icon, settings),
+      )
+    },
+    [noteId, scope, vault],
+  )
+
+  const handleRenameProperty = React.useCallback(
+    async (name: string, newName: string) => {
+      const { run } = scope()
+      await run(
+        (current) => ({
+          ...current,
+          properties: current.properties.map((item) =>
+            item.key === name ? { ...item, key: newName } : item,
+          ),
+          customProperties: current.customProperties.map((item) =>
+            item.name === name ? { ...item, name: newName } : item,
+          ),
+        }),
+        () => renameProperty(vault!, noteId!, name, newName),
+      )
+    },
+    [noteId, scope, vault],
   )
 
   const handleDeleteCustomProperty = React.useCallback(
@@ -275,7 +346,10 @@ export function usePropertyActions({
             ),
           }
         },
-        () => deleteCustomProperty(vault!, noteId!, propertyId),
+        () =>
+          isTauri()
+            ? deletePropertyByName(vault!, noteId!, propertyId)
+            : deleteCustomProperty(vault!, noteId!, propertyId),
       )
     },
     [noteId, scope, vault],
@@ -298,7 +372,10 @@ export function usePropertyActions({
           ...properties,
           customProperties: completeIds.map((id) => byId.get(id)!),
         }),
-        () => reorderCustomProperties(vault!, noteId!, completeIds),
+        () =>
+          isTauri()
+            ? reorderProperties(vault!, noteId!, completeIds)
+            : reorderCustomProperties(vault!, noteId!, completeIds),
       )
     },
     [currentDoc, noteId, scope, vault],
@@ -315,5 +392,7 @@ export function usePropertyActions({
     handleUpsertCustomProperty,
     handleDeleteCustomProperty,
     handleReorderCustomProperties,
+    handleSetPropertyAppearance,
+    handleRenameProperty,
   }
 }

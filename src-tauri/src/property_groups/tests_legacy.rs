@@ -5,7 +5,7 @@
 use serde_json::{json, Value};
 
 use super::legacy::*;
-use super::migration::{run, Context, Decisions};
+use super::migration::{run, Context};
 use super::testkit::*;
 use super::*;
 
@@ -42,16 +42,7 @@ fn migrated() -> Fx {
             (&id(3), vec![old_prop("P3", "Заказчик", "📌", "Готово")]),
         ],
     );
-    run(
-        &fx.conn,
-        &fx.vault,
-        &Decisions {
-            confirmed: true,
-            ..Decisions::default()
-        },
-        &Context::default(),
-    )
-    .unwrap();
+    run(&fx.conn, &fx.vault, &Context::default()).unwrap();
     fx
 }
 
@@ -363,16 +354,7 @@ fn the_marks_hold_the_hashes_and_a_note_without_a_line_has_a_mark_with_32_zeros(
             (&id(2), vec![template_icon]),
         ],
     );
-    run(
-        &fx.conn,
-        &fx.vault,
-        &Decisions {
-            confirmed: true,
-            ..Decisions::default()
-        },
-        &Context::default(),
-    )
-    .unwrap();
+    run(&fx.conn, &fx.vault, &Context::default()).unwrap();
     let with_line = read_mark(&fx.vault, &id(1))
         .unwrap()
         .expect("a mark for every migrated note");

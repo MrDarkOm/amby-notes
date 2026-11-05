@@ -8,15 +8,16 @@ import {
   checkOldVersionPropertyEdits,
   dismissPropertyRenameHint,
   getPropertyPanel,
-  previewPropertiesMigration,
+  openVaultProperties,
   propertyStorageStatus,
   resolveOldVersionPropertyConflict,
-  runPropertiesMigration,
-  type MigrationReportView,
+  takePropertyFileValue,
   type PropertyPanel,
   type PropertyStorageStatus,
 } from "@/lib/properties/property-groups-port"
+import { useVaultStore } from "../use-vault-store"
 import { Card, type Notice } from "./notice-card"
+import { usePropertyMigrationStore } from "./use-property-migration-store"
 
 /**
  * The warnings of the properties of a note as cards of its stack (docs/sync-plan.md, К3, appendix
@@ -28,7 +29,11 @@ export function usePropertyNotices(noteId: string): Notice[] {
   const { t } = useTranslation()
   const [status, setStatus] = React.useState<PropertyStorageStatus | null>(null)
   const [panel, setPanel] = React.useState<PropertyPanel | null>(null)
-  const [report, setReport] = React.useState<MigrationReportView | null>(null)
+  const [showReport, setShowReport] = React.useState(false)
+  const vault = useVaultStore((state) => state.vault)
+  const generation = useVaultStore((state) => state.generation)
+  const migration = usePropertyMigrationStore((state) => state.outcome)
+  const migrationDismissed = usePropertyMigrationStore((state) => state.dismissed)
   const [transferred, setTransferred] = React.useState<string | null>(null)
   const [conflicts, setConflicts] = React.useState<string[]>([])
   const [busy, setBusy] = React.useState(false)
@@ -44,6 +49,19 @@ export function usePropertyNotices(noteId: string): Notice[] {
       setPanel(null)
     }
   }, [noteId])
+  // The first opening of the vault migrates the properties by itself, with no question (З57).
+  React.useEffect(() => {
+    if (!vault) return
+    const key = `${vault}:${generation}`
+    const store = usePropertyMigrationStore.getState()
+    if (!store.begin(key)) return
+    openVaultProperties()
+      .then((outcome) => {
+        store.finish(key, outcome)
+        return load()
+      })
+      .catch(() => {})
+  }, [vault, generation, load])
   React.useEffect(() => {
     void load()
   }, [load])
@@ -84,57 +102,105 @@ export function usePropertyNotices(noteId: string): Notice[] {
 
   const notices: Notice[] = []
   if (!status) return notices
-  if (status.mode === "legacy") {
+  if (migration?.state === "readOnly" || (status.mode === "legacy" && migration === null)) {
     notices.push({
-      id: "properties-migration",
+      id: "properties-read-only",
       urgent: false,
       card: (
         <Card
-          key="properties-migration"
-          testId="note-notice-properties-migration"
+          key="properties-read-only"
+          testId="note-notice-properties-read-only"
+          urgent={false}
+          icon={<FileWarning className="size-4" />}
+          title={t(
+            migration?.reason === "waitingForSync"
+              ? "noteNotices.properties.waitingForSync"
+              : "noteNotices.properties.readOnly",
+          )}
+        />
+      ),
+    })
+  }
+  if (migration?.state === "migrated" && !migrationDismissed) {
+    const diverged = migration.diverged
+    notices.push({
+      id: "properties-migrated",
+      urgent: false,
+      card: (
+        <Card
+          key="properties-migrated"
+          testId="note-notice-properties-migrated"
           urgent={false}
           icon={<Sparkles className="size-4" />}
-          title={t("noteNotices.properties.migrationTitle")}
-          lines={[
-            report
-              ? t("noteNotices.properties.migrationReport", {
-                  notes: report.notes,
-                  edits: report.headerEdits,
-                })
-              : t("noteNotices.properties.migrationBody"),
-          ]}
+          title={t("noteNotices.properties.migrated")}
+          lines={
+            diverged.length > 0
+              ? [t("noteNotices.properties.diverged", { count: diverged.length })]
+              : []
+          }
           error={error}
           actions={
-            report ? (
-              <Button
-                type="button"
-                size="sm"
-                disabled={busy}
-                onClick={() =>
-                  void act(async () => {
-                    await runPropertiesMigration()
-                    setReport(null)
-                  })
-                }
-              >
-                {t("noteNotices.properties.migrationRun")}
-              </Button>
-            ) : (
+            <>
+              {diverged.length > 0 && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowReport((value) => !value)}
+                >
+                  {t("noteNotices.properties.report")}
+                </Button>
+              )}
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
-                disabled={busy}
-                onClick={() => void act(async () => setReport(await previewPropertiesMigration()))}
+                onClick={() => usePropertyMigrationStore.getState().dismiss()}
               >
-                {t("noteNotices.properties.migrationReview")}
+                {t("sync.notices.dismiss")}
               </Button>
-            )
+            </>
           }
         />
       ),
     })
-    return notices
+    if (showReport) {
+      for (const item of diverged) {
+        notices.push({
+          id: `properties-diverged:${item.noteId}:${item.name}`,
+          urgent: false,
+          card: (
+            <Card
+              key={`properties-diverged:${item.noteId}:${item.name}`}
+              testId="note-notice-properties-diverged"
+              urgent={false}
+              icon={<History className="size-4" />}
+              title={t("noteNotices.properties.divergedItem", {
+                name: item.name,
+                file: item.fileValue,
+                header: item.headerValue,
+              })}
+              actions={
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() =>
+                    void act(async () => {
+                      await takePropertyFileValue(item.noteId, item.name)
+                      usePropertyMigrationStore.getState().settle(item.noteId, item.name)
+                    })
+                  }
+                >
+                  {t("noteNotices.properties.takeFile")}
+                </Button>
+              }
+            />
+          ),
+        })
+      }
+    }
   }
   const warnings = panel?.warnings ?? []
   if (status.mode === "newer" || warnings.some((w) => w.kind === "formatNewer")) {

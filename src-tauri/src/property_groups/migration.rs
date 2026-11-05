@@ -2,7 +2,7 @@
 //! З19–З21, З38–З42, З54). The dry run writes nothing; the run keeps copies and a journal and
 //! writes `layout.json` last, so a repeat finishes what a crash left (З41).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -27,7 +27,7 @@ use crate::property_template::TEMPLATE_VERSION;
 use std::collections::BTreeSet as Set;
 
 /// A value in the file that differs from the header (З19, З20).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Mismatch {
     pub note_id: String,
     pub name: String,
@@ -72,15 +72,6 @@ pub struct Report {
     pub warnings: Vec<String>,
 }
 
-/// The owner's decisions (З20).
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Decisions {
-    /// `(note id, property name)` for which the value of the file replaces the header's.
-    pub use_file_value: BTreeSet<(String, String)>,
-    /// Confirmation by the owner of the vault (З21, З38).
-    pub confirmed: bool,
-}
-
 /// What the application knows around the migration (З38).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Context {
@@ -101,6 +92,9 @@ pub struct Outcome {
     pub headers_written: Vec<String>,
     /// Notes whose header changed between a crash and the repeat: left alone (З41).
     pub skipped_changed: Vec<String>,
+    /// Notes whose value in the old file and in the header differed; the header's was kept
+    /// (З58).
+    pub diverged: Vec<Mismatch>,
 }
 
 /// What a rollback did (З42).
@@ -144,6 +138,8 @@ struct Journal {
     lines: BTreeMap<String, String>,
     marks: BTreeMap<String, LegacyMark>,
     edits: Vec<Edit>,
+    #[serde(default)]
+    diverged: Vec<Mismatch>,
 }
 
 struct Plan {
@@ -220,12 +216,7 @@ fn touch_state(
     }
 }
 
-fn build_plan(
-    conn: &Connection,
-    vault: &Path,
-    old: &OldFile,
-    decisions: &Decisions,
-) -> Result<Plan, String> {
+fn build_plan(conn: &Connection, vault: &Path, old: &OldFile) -> Result<Plan, String> {
     let mut plan = Plan {
         lines: BTreeMap::new(),
         marks: BTreeMap::new(),
@@ -242,16 +233,8 @@ fn build_plan(
             match touch_state(conn, vault, id, rel) {
                 Err(reason) => plan.report.untouchable.push((id.clone(), reason)),
                 Ok((text, keys)) => {
-                    let (names, edit) = examine(
-                        id,
-                        rel,
-                        &text,
-                        &keys,
-                        list,
-                        decisions,
-                        &mut plan.report,
-                        vault,
-                    )?;
+                    let (names, edit) =
+                        examine(id, rel, &text, &keys, list, &mut plan.report, vault)?;
                     header_names = names;
                     if let Some(edit) = edit {
                         plan.report.header_edits += 1;
@@ -289,7 +272,6 @@ fn examine(
     text: &str,
     keys: &[crate::frontmatter::HeaderKey],
     list: &OldProps,
-    decisions: &Decisions,
     report: &mut Report,
     vault: &Path,
 ) -> Result<(Option<Vec<String>>, Option<Edit>), String> {
@@ -300,7 +282,6 @@ fn examine(
         .map(|k| k.key.clone())
         .collect();
     let mut seen: Set<String> = Set::new();
-    let mut cannot_change = false;
     for object in list {
         let name = text_field(object, "name").trim().to_string();
         if name.is_empty() || !seen.insert(amby_sync_core::engine::props_groups::name_key(&name)) {
@@ -312,11 +293,7 @@ fn examine(
         };
         let file_value = text_field(object, "value");
         match resolve(keys, &name, None) {
-            KeyMatch::Found {
-                key,
-                value,
-                complex,
-            } => {
+            KeyMatch::Found { value, .. } => {
                 if same_value(&file_value, &property_type, &value) {
                     report.same += 1;
                 } else {
@@ -326,20 +303,6 @@ fn examine(
                         file_value: file_value.clone(),
                         header_value: value,
                     });
-                    if decisions
-                        .use_file_value
-                        .contains(&(id.to_string(), name.clone()))
-                    {
-                        if complex {
-                            cannot_change = true;
-                        } else {
-                            ops.push(Op {
-                                key,
-                                value: file_value,
-                                property_type,
-                            });
-                        }
-                    }
                 }
             }
             KeyMatch::Missing => {
@@ -359,12 +322,6 @@ fn examine(
             }
             KeyMatch::Ambiguous { .. } | KeyMatch::HeaderUnreadable => {}
         }
-    }
-    if cannot_change {
-        report
-            .untouchable
-            .push((id.to_string(), Untouchable::HeaderCannotChange));
-        return Ok((None, None));
     }
     if ops.is_empty() {
         return Ok((Some(names), None));
@@ -413,7 +370,7 @@ pub fn preview(conn: &Connection, vault: &Path) -> Result<Report, String> {
         report.warnings.push(OLD_VERSION_WARNING.to_string());
         return Ok(report);
     };
-    Ok(build_plan(conn, vault, &old, &Decisions::default())?.report)
+    Ok(build_plan(conn, vault, &old)?.report)
 }
 
 // ----- the run -----
@@ -429,22 +386,15 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
     }
 }
 
-/// The migration (З21, З54): confirmation → copies of `properties.json` and of every note whose
-/// header is edited → journal in `.amby/migrations/<id>/` → files → headers → `layout.json` last
-/// → outcome. `properties.json` becomes differences from the template, in the language of the name
+/// The migration (З21, З54, З57): copies of `properties.json` and of every note whose header is
+/// edited → journal in `.amby/migrations/<id>/` → files → headers → `layout.json` last → outcome.
+/// No confirmation and no choice of values: a diverging value keeps the header's and is listed in
+/// [`Outcome::diverged`] (З58). `properties.json` becomes differences from the template, in the language of the name
 /// that matched; a property equal to the template gives no line; the order goes to `order` only
 /// when it differs from the header's; the `id` of properties are not carried. `properties.json`
 /// is never changed (З22). It does not start when the template number of an arrived `layout.json`
 /// is higher than ours (З54).
-pub fn run(
-    conn: &Connection,
-    vault: &Path,
-    decisions: &Decisions,
-    context: &Context,
-) -> Result<Outcome, String> {
-    if !decisions.confirmed {
-        return Err("The owner of the vault has not confirmed the migration".to_string());
-    }
+pub fn run(conn: &Connection, vault: &Path, context: &Context) -> Result<Outcome, String> {
     if context.sync_enabled && !context.last_pass_ok {
         return Err("The migration waits for a successful pass of the synchronisation".to_string());
     }
@@ -469,7 +419,8 @@ pub fn run(
         write_new(&layout_path(vault), layout_text().as_bytes())?;
         return Ok(Outcome::default());
     };
-    let plan = build_plan(conn, vault, &old, decisions)?;
+    let mut plan = build_plan(conn, vault, &old)?;
+    let diverged = std::mem::take(&mut plan.report.mismatches);
     let id = Ulid::generate().to_string();
     let dir = migrations_dir(vault).join(&id);
     write_new(&dir.join("properties.json"), &old.bytes)?;
@@ -484,11 +435,77 @@ pub fn run(
         lines: plan.lines,
         marks: plan.marks,
         edits: plan.edits,
+        diverged,
     };
     let mut body = serde_json::to_vec_pretty(&journal).map_err(|error| error.to_string())?;
     body.push(b'\n');
     write_new(&dir.join("journal.json"), &body)?;
     execute(vault, &dir, &journal)
+}
+
+/// Why the properties of a vault are for reading only (З57, З59).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadOnlyReason {
+    /// `properties.json` cannot be read or has an unknown version (З59).
+    UnreadableOldFile,
+    /// Synchronisation is on and there was no successful pass yet (З38).
+    WaitingForSync,
+}
+
+/// What the opening of a vault found (З57).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpenOutcome {
+    /// `layout.json` is there: nothing to do.
+    AlreadyGroups,
+    /// Migrated now (or an interrupted migration was finished by its journal).
+    Migrated(Outcome),
+    /// `layout.json` came from another device: no migration of our own (З38).
+    ArrivedFromServer,
+    /// Not migrated, the properties are for reading only (З59, З38).
+    ReadOnly(ReadOnlyReason),
+}
+
+/// The first opening of a vault by the new version (З57): decides by itself, with no question —
+/// [`run`], or [`resume`] by an existing journal. Nothing is written when it does not migrate.
+/// Never changes `properties.json`.
+pub fn open_vault(
+    conn: &Connection,
+    vault: &Path,
+    context: &Context,
+) -> Result<OpenOutcome, String> {
+    if storage_mode(vault)? != StorageMode::Legacy {
+        return Ok(OpenOutcome::AlreadyGroups);
+    }
+    if context.layout_came_from_server {
+        return Ok(OpenOutcome::ArrivedFromServer);
+    }
+    if context.sync_enabled && !context.last_pass_ok {
+        return Ok(OpenOutcome::ReadOnly(ReadOnlyReason::WaitingForSync));
+    }
+    if read_old_file(vault).is_err() {
+        return Ok(OpenOutcome::ReadOnly(ReadOnlyReason::UnreadableOldFile));
+    }
+    run(conn, vault, context).map(OpenOutcome::Migrated)
+}
+
+/// «Взять значение из старого файла» (З58): writes the value of `properties.json` into the header
+/// of the note as an ordinary edit of a value (З1, with history); changes nothing else.
+pub fn take_file_value(
+    conn: &Connection,
+    vault: &Path,
+    note_id: &str,
+    name: &str,
+) -> Result<(), String> {
+    let old = read_old_file(vault)?.ok_or_else(|| "There is no properties.json".to_string())?;
+    let list = old
+        .notes
+        .get(note_id)
+        .ok_or_else(|| format!("The old file has no note {note_id}"))?;
+    let object = list
+        .iter()
+        .find(|object| super::header::same_name(&text_field(object, "name"), name))
+        .ok_or_else(|| format!("The old file has no property {name}"))?;
+    super::edits::set_value(conn, vault, note_id, name, &text_field(object, "value"))
 }
 
 /// A migration with a journal and no outcome, the newest one.
@@ -566,6 +583,7 @@ fn put_planned(path: &Path, kind: GroupKind, entries: &[(String, String)]) -> Re
 fn execute(vault: &Path, dir: &Path, journal: &Journal) -> Result<Outcome, String> {
     let mut outcome = Outcome {
         migration_id: journal.id.clone(),
+        diverged: journal.diverged.clone(),
         ..Outcome::default()
     };
     // The files of the groups and the marks come first (З21).

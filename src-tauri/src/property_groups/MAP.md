@@ -15,8 +15,8 @@ a note's record keeps only the differences from it, by property name.
 | Panel, sleeping records, hint about a rename, SQLite mirror (З3, З3а, З23, З44)                 | [panel.rs](panel.rs)                                               |
 | Edits: value, look, order, rename, create, delete; journal `.amby/property-ops/` (З9, З28, З29) | [edits.rs](edits.rs)                                               |
 | Backups, rebinding on a new `amby-id`, inspection, orphans (З10, З11, З34, З35)                 | [identity.rs](identity.rs)                                         |
-| The old id-based contract of the commands on the groups; rebuild of the mirror                  | [compat.rs](compat.rs)                                             |
-| Migration from `properties.json`: report, run, resume, rollback (З19–З21, З38–З42, З54)         | [migration.rs](migration.rs)                                       |
+| Which store the vault is in, the list shown for a note, the mirror, the report of old-version edits at the opening | [lifecycle.rs](lifecycle.rs) |
+| Migration from `properties.json`: by itself at the first opening (`open_vault`), run, resume, rollback (З19–З21, З38–З42, З54)         | [migration.rs](migration.rs)                                       |
 | Edits of an old version carried over by marks (З22, З36, З37, З53)                              | [legacy.rs](legacy.rs)                                             |
 | Merge of the files between devices                                                              | [sync/core engine `props_groups.rs`](../../../sync/core/src/engine/props_groups.rs) |
 | IPC                                                                                             | [commands/properties.rs](../commands/properties.rs)                |
