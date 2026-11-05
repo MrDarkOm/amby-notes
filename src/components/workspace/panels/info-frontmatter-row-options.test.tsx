@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-// docs/sync-plan.md, З62 in the row of a property: a multi-select shows its options as chips that
-// toggle a value of the YAML list; the options are read from either form of `settings`.
+// docs/sync-plan.md, З62, З63 in the row of a property: the value of a select or a multi-select
+// shows as chips and is chosen in a window (the picker); the options are read from either form of
+// `settings`, and the YAML list is written as items.
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -8,6 +9,11 @@ import "@/lib/i18n"
 import { FrontmatterPropertyRow } from "./info-frontmatter-rows"
 
 afterEach(cleanup)
+
+const option = (name: string) =>
+  screen.getByTestId("option-list").querySelector(`[data-option="${name}"]`) as HTMLElement
+
+const openPicker = () => fireEvent.click(screen.getByTestId("option-trigger"))
 
 describe("a multi-select whose option holds a comma", () => {
   it("shows the items the backend gives and writes the list of items, never glued", async () => {
@@ -27,18 +33,19 @@ describe("a multi-select whose option holds a comma", () => {
         onSaveList={onSaveList}
       />,
     )
-    const pressed = (name: string) =>
-      screen.getByRole("button", { name }).getAttribute("aria-pressed")
-    expect(pressed("Фэнтези, тёмное")).toBe("true")
-    expect(pressed("Драма")).toBe("false")
-    fireEvent.click(screen.getByRole("button", { name: "Детектив" }))
+    const trigger = screen.getByTestId("option-trigger")
+    expect(trigger.textContent).toContain("Фэнтези, тёмное")
+    expect(trigger.textContent).toContain("Детектив")
+    expect(trigger.textContent).not.toContain("Драма")
+    openPicker()
+    fireEvent.click(option("Детектив"))
     await waitFor(() => expect(onSaveList).toHaveBeenCalledWith(["Фэнтези, тёмное"]))
     expect(onSave).not.toHaveBeenCalled()
   })
 })
 
 describe("a multi-select in its row", () => {
-  it("toggles an option of the list and writes the list", async () => {
+  it("adds an option of the list and writes the list", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined)
     render(
       <FrontmatterPropertyRow
@@ -48,13 +55,12 @@ describe("a multi-select in its row", () => {
         onSave={onSave}
       />,
     )
-    fireEvent.click(screen.getByRole("button", { name: "Б, В" }))
+    openPicker()
+    fireEvent.click(option("Б, В"))
     await waitFor(() => expect(onSave).toHaveBeenCalledWith('["А","Б, В"]'))
-    fireEvent.click(screen.getByRole("button", { name: "А" }))
-    await waitFor(() => expect(onSave).toHaveBeenLastCalledWith('["Б, В"]'))
   })
 
-  it("a value outside the options is shown as it is, with the options", () => {
+  it("a value outside the options is a grey chip and stays", () => {
     render(
       <FrontmatterPropertyRow
         property={{ key: "Теги", value: "Чужое", valueKind: "list" }}
@@ -62,7 +68,44 @@ describe("a multi-select in its row", () => {
         settings="А,Б"
       />,
     )
-    expect(screen.getByRole("button", { name: "Чужое" })).toBeTruthy()
-    expect(screen.getByRole("button", { name: "А" })).toBeTruthy()
+    const chip = screen.getByTestId("option-trigger").querySelector('[data-color="gray"]')
+    expect(chip?.textContent).toBe("Чужое")
+  })
+
+  it("a new option is written with the options and chosen", async () => {
+    const onChangeSettings = vi.fn().mockResolvedValue(undefined)
+    const onSaveList = vi.fn().mockResolvedValue(undefined)
+    render(
+      <FrontmatterPropertyRow
+        property={{ key: "Теги", value: "А", valueKind: "list", items: ["А"] }}
+        propertyType="list"
+        settings='{"options":["А"]}'
+        onChangeSettings={onChangeSettings}
+        onSaveList={onSaveList}
+      />,
+    )
+    openPicker()
+    const field = screen.getByPlaceholderText("Выберите вариант или создайте новый")
+    fireEvent.change(field, { target: { value: "Новый" } })
+    fireEvent.keyDown(field, { key: "Enter" })
+    await waitFor(() => expect(onChangeSettings).toHaveBeenCalledWith('{"options":["А","Новый"]}'))
+    await waitFor(() => expect(onSaveList).toHaveBeenCalledWith(["А", "Новый"]))
+  })
+})
+
+describe("a select in its row", () => {
+  it("replaces the value with the option that was clicked", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    render(
+      <FrontmatterPropertyRow
+        property={{ key: "Статус", value: "Идея", valueKind: "text" }}
+        propertyType="select"
+        settings="Идея,В работе,Готово"
+        onSave={onSave}
+      />,
+    )
+    openPicker()
+    fireEvent.click(option("Готово"))
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith("Готово"))
   })
 })

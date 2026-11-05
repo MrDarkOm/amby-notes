@@ -21,6 +21,12 @@ const port = vi.hoisted(() => ({
   resolveOldVersionPropertyConflict: vi.fn(),
 }))
 vi.mock("@/lib/properties/property-groups-port", () => port)
+const storage = vi.hoisted(() => ({ getNoteProperties: vi.fn() }))
+vi.mock("@/lib/storage", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/storage")>()),
+  getNoteProperties: storage.getNoteProperties,
+}))
+import { useDocStore } from "../use-doc-store"
 
 import { NoteNotices } from "./note-notices"
 
@@ -129,6 +135,44 @@ describe("the notices of the properties", () => {
     })
     mount()
     expect(await screen.findByTestId("note-notices-stack")).toBeTruthy()
+  })
+
+  it("give the open notes the properties read after the migration, not the ones read before it", async () => {
+    // The note of the last session opens before the first opening of the vault migrates the
+    // properties: its first reading had no look and no options (docs/sync-plan.md, З62).
+    const before = { hasFrontmatter: true, customProperties: [] } as never
+    const after = {
+      hasFrontmatter: true,
+      customProperties: [
+        { id: "Жанр", name: "Жанр", propertyType: "list", settings: '{"options":["а"]}' },
+      ],
+    } as never
+    useDocStore.setState({
+      openDocs: {
+        N1: {
+          id: "N1",
+          title: "",
+          content: "",
+          created: "",
+          modified: "",
+          wordCount: 0,
+          path: "/vault/Заметка.md",
+          source: "",
+          noteProperties: before,
+        },
+      },
+    })
+    storage.getNoteProperties.mockResolvedValue(after)
+    port.propertyStorageStatus.mockResolvedValue(groups)
+    port.openVaultProperties.mockResolvedValue({
+      state: "migrated",
+      reason: null,
+      migrationId: "M",
+      diverged: [],
+    })
+    mount()
+    await waitFor(() => expect(useDocStore.getState().openDocs.N1.noteProperties).toBe(after))
+    expect(storage.getNoteProperties).toHaveBeenCalledWith("/vault", "N1")
   })
 
   it("keep the plain «moved» notice under the bulb", async () => {

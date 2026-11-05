@@ -94,15 +94,106 @@ describe("the options as fields", () => {
     expect(refused).not.toHaveBeenCalled()
   })
 
-  it("the value of a multi-select is chosen with the same chips as in the row", async () => {
-    const onSave = mount({
-      ...base,
-      propertyType: "list",
-      settings: '{"options":["А, Б","В"]}',
-    })
-    fireEvent.click(screen.getByRole("button", { name: "А, Б" }))
+  it("has no «Содержимое» field for a select or a multi-select: the value is the default option", () => {
+    mount({ ...base, settings: '{"options":["А","Б"]}' })
+    expect(screen.queryByText("Содержимое")).toBeNull()
+    cleanup()
+    mount({ ...base, propertyType: "list", settings: '{"options":["А","Б"]}' })
+    expect(screen.queryByText("Содержимое")).toBeNull()
+  })
+})
+
+describe("the first option is the default at once (new property)", () => {
+  async function typeOptions(onSave: ReturnType<typeof mount>, ...options: string[]) {
+    for (const [index, option] of options.entries()) {
+      if (index > 0) fireEvent.click(screen.getByText("Добавить вариант"))
+      await waitFor(() => expect(fields()).toHaveLength(index + 1))
+      fireEvent.change(fields()[index], { target: { value: option } })
+    }
+    return onSave
+  }
+
+  it("a select saves its first option as the value without a click on the star", async () => {
+    const onSave = mount(base)
+    await typeOptions(onSave, "А", "Б")
+    expect(screen.getAllByTitle("Стандартный")[0].getAttribute("aria-pressed")).toBe("true")
     fireEvent.click(screen.getByText("Сохранить"))
     await waitFor(() => expect(onSave).toHaveBeenCalled())
-    expect((onSave.mock.calls[0][0] as CustomProperty).value).toBe('["А, Б"]')
+    const saved = onSave.mock.calls[0][0] as CustomProperty
+    expect(saved.value).toBe("А")
+    expect(JSON.parse(saved.settings)).toEqual({ options: ["А", "Б"], default: "А" })
+  })
+
+  it("a multi-select saves a list of its first option", async () => {
+    const onSave = mount({ ...base, propertyType: "list" })
+    await typeOptions(onSave, "А", "Б")
+    fireEvent.click(screen.getByText("Сохранить"))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect((onSave.mock.calls[0][0] as CustomProperty).value).toBe('["А"]')
+  })
+
+  it("the star can be taken off: the value is then empty and stays so when more is typed", async () => {
+    const onSave = mount(base)
+    await typeOptions(onSave, "А")
+    fireEvent.click(screen.getAllByTitle("Стандартный")[0])
+    expect(screen.getAllByTitle("Стандартный")[0].getAttribute("aria-pressed")).toBe("false")
+    await typeOptions(onSave, "А", "Б")
+    fireEvent.click(screen.getByText("Сохранить"))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    const saved = onSave.mock.calls[0][0] as CustomProperty
+    expect(saved.value).toBe("")
+    expect(JSON.parse(saved.settings)).toEqual({ options: ["А", "Б"] })
+  })
+
+  it("an existing property does not get a default by itself", async () => {
+    const onSave = mount({ ...base, id: "Статус", settings: '{"options":["А"]}', value: "А" })
+    fireEvent.change(fields()[0], { target: { value: "Ж" } })
+    expect(screen.getAllByTitle("Стандартный")[0].getAttribute("aria-pressed")).toBe("false")
+    fireEvent.click(screen.getByText("Сохранить"))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(JSON.parse((onSave.mock.calls[0][0] as CustomProperty).settings)).toEqual({
+      options: ["Ж"],
+    })
+  })
+})
+
+describe("a new property without a name", () => {
+  it("says why it cannot be saved and puts the cursor into the name", () => {
+    mount({ ...base, name: "" })
+    expect(screen.getByText("Введите название свойства")).toBeTruthy()
+    expect(document.activeElement).toBe(screen.getByPlaceholderText("Название свойства"))
+  })
+
+  it("shows no hint once a name is typed", () => {
+    mount(base)
+    expect(screen.queryByText("Введите название свойства")).toBeNull()
+  })
+})
+
+describe("the colours of the options in the editor (З63)", () => {
+  const coloured = '{"options":["А","Б"],"colors":{"А":"red","Б":"blue"}}'
+
+  it("moves the colour with a renamed option and drops it with a removed one", async () => {
+    const onSave = mount({ ...base, id: "x", settings: coloured })
+    fireEvent.change(fields()[0], { target: { value: "В" } })
+    fireEvent.click(screen.getAllByTitle("Удалить вариант")[1])
+    await waitFor(() => expect(fields()).toHaveLength(1))
+    fireEvent.click(screen.getByText("Сохранить"))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect((onSave.mock.calls[0][0] as CustomProperty).settings).toBe(
+      '{"options":["В"],"colors":{"В":"red"}}',
+    )
+  })
+
+  it("keeps the colours of a new property that is saved with its default", async () => {
+    const onSave = mount({ ...base, settings: '{"options":["А"],"colors":{"А":"green"}}' })
+    fireEvent.change(fields()[0], { target: { value: "Ы" } })
+    fireEvent.click(screen.getByText("Сохранить"))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(JSON.parse((onSave.mock.calls[0][0] as CustomProperty).settings)).toEqual({
+      options: ["Ы"],
+      default: "Ы",
+      colors: { Ы: "green" },
+    })
   })
 })

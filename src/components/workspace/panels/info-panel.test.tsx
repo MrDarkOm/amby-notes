@@ -339,7 +339,7 @@ describe("InfoPanel frontmatter properties", () => {
     )
   })
 
-  it("renders dropdown select input for select property type with options", async () => {
+  it("chooses the value of a select property in the picker window", async () => {
     const docWithSelect: DocumentProperties = {
       ...mockDocumentWithFrontmatter,
       frontmatter: {
@@ -370,10 +370,12 @@ describe("InfoPanel frontmatter properties", () => {
       />,
     )
 
-    const select = screen.getByRole("combobox")
-    expect(select.textContent).toBe("in-progress")
-    fireEvent.click(select)
-    fireEvent.click(await screen.findByRole("option", { name: "done" }))
+    const trigger = screen.getByTestId("option-trigger")
+    expect(trigger.textContent).toBe("in-progress")
+    fireEvent.click(trigger)
+    fireEvent.click(
+      (await screen.findByTestId("option-list")).querySelector('[data-option="done"]')!,
+    )
     expect(onUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
         value: "done",
