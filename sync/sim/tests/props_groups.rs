@@ -48,6 +48,16 @@ fn group(notes: &[(&str, &str)]) -> String {
     )
 }
 
+/// A line of the file of marks of the old format.
+fn mark(id: &str, r: &str) -> String {
+    format!("{{\"entry\":\"e\",\"id\":\"{id}\",\"record\":\"{r}\"}}\n")
+}
+
+/// A file of marks from its lines.
+fn file_of(lines: &[String]) -> String {
+    format!("{{\"version\":1}}\n{}", lines.concat())
+}
+
 fn icons(text: &str) -> std::collections::BTreeMap<String, String> {
     text.lines()
         .skip(1)
@@ -163,9 +173,6 @@ fn the_history_keeps_the_local_file_that_a_merge_replaced() {
 #[test]
 fn the_marks_of_old_versions_are_merged_like_the_groups() {
     // З53: `legacy_<x>.jsonl` — lines `{"id","entry","record"}`
-    let mark =
-        |id: &str, r: &str| format!("{{\"entry\":\"e\",\"id\":\"{id}\",\"record\":\"{r}\"}}\n");
-    let file_of = |lines: &[String]| format!("{{\"version\":1}}\n{}", lines.concat());
     let w = two(Engine::boxed);
     w.save(0, "Keep/k.md", "keep");
     w.save(0, MARKS, &file_of(&[mark("A", "r0"), mark("B", "r0")]));
@@ -243,10 +250,12 @@ fn a_group_and_a_marks_file_get_a_base_and_layout_json_does_not() {
 
 #[test]
 fn a_vault_already_converted_on_both_computers_meets_without_a_base_and_loses_no_line() {
-    // З64 (6 Nov 2026): both computers hold the groups from the migration but the groups never
-    // travelled, so there is no base. The rule of two files made at one path (Д43) holds: the
-    // server version stays on the path, the local file is kept whole in a set (kind bothCreated),
-    // nothing is lost and the pass is not stopped as a mass loss (З32).
+    // З64а (6 Nov 2026): both computers hold the groups from the migration but the groups never
+    // travelled, so there is no base. The groups are merged by notes against an empty base: one
+    // note changed differently on the two computers is a conflict of that note; the server
+    // version stays on the path, the local file is kept whole in a set that has the empty base
+    // (so the notes can be chosen one by one, З17), nothing is lost and the pass is not stopped
+    // as a mass loss (З32).
     let w = two(Engine::boxed);
     w.save(0, "Keep/k.md", "keep");
     w.save(1, "Keep/k.md", "keep");
@@ -267,6 +276,11 @@ fn a_vault_already_converted_on_both_computers_meets_without_a_base_and_loses_no
     assert_eq!(sets.len(), 1, "one conflict set for the file");
     assert_eq!(sets[0].path, GROUP);
     assert_eq!(sets[0].kind, "bothCreated");
+    assert_eq!(
+        sets[0].base.as_deref().map(text).as_deref(),
+        Some("{\"version\":1}\n"),
+        "the set keeps the empty base, so the conflicting notes can be chosen one by one"
+    );
     assert_eq!(w.read(1, GROUP).as_deref(), Some(left.as_str()));
     let kept = icons(&text(&sets[0].other));
     assert_eq!(kept["A"], "R", "the local edit is kept whole in the set");
@@ -276,9 +290,10 @@ fn a_vault_already_converted_on_both_computers_meets_without_a_base_and_loses_no
 }
 
 #[test]
-fn a_vault_already_converted_on_both_computers_keeps_the_lines_of_different_notes_in_the_set() {
-    // З64: without a base the file is not merged by notes (this is the known price of the first
-    // meeting); every line of both sides is still somewhere: on the path or in the set
+fn a_vault_already_converted_on_both_computers_merges_the_lines_of_different_notes() {
+    // З64а: without a base the file is merged against an empty base; lines of different notes
+    // and equal lines of one note are merged with no set, and both computers end with the same
+    // file
     let w = two(Engine::boxed);
     w.save(0, "Keep/k.md", "keep");
     w.save(1, "Keep/k.md", "keep");
@@ -289,12 +304,32 @@ fn a_vault_already_converted_on_both_computers_keeps_the_lines_of_different_note
     w.pass(0);
     let report = w.pass(1);
     assert_eq!(report.outcome, CycleOutcome::Done);
-    let on_path = icons(&w.read(1, GROUP).unwrap());
-    let sets = w.sets(1);
-    assert_eq!(sets.len(), 1);
-    let in_set = icons(&text(&sets[0].other));
-    assert_eq!(on_path["B"], "L");
-    assert_eq!(in_set["C"], "R");
+    assert!(w.sets(1).is_empty(), "no conflict set");
+    assert_eq!(report.merged_paths, vec![GROUP.to_string()]);
+    let merged = group(&[("A", "0"), ("B", "L"), ("C", "R")]);
+    assert_eq!(w.read(1, GROUP).as_deref(), Some(merged.as_str()));
+    w.pass(1);
+    w.pass(0);
+    assert_eq!(w.read(0, GROUP).as_deref(), Some(merged.as_str()));
+    assert!(w.sets(0).is_empty());
+}
+
+#[test]
+fn the_marks_of_a_vault_already_converted_on_both_computers_are_merged_too() {
+    // З64а: the same holds for the files of the marks of the old format (`legacy_<x>.jsonl`)
+    let w = two(Engine::boxed);
+    w.save(0, "Keep/k.md", "keep");
+    w.save(1, "Keep/k.md", "keep");
+    w.save(0, MARKS, &file_of(&[mark("A", "r0"), mark("B", "r0")]));
+    w.save(1, MARKS, &file_of(&[mark("A", "r0"), mark("C", "r0")]));
+    w.pass(0);
+    let report = w.pass(1);
+    assert_eq!(report.outcome, CycleOutcome::Done);
+    assert!(w.sets(1).is_empty(), "no conflict set");
+    assert_eq!(
+        w.read(1, MARKS).as_deref(),
+        Some(file_of(&[mark("A", "r0"), mark("B", "r0"), mark("C", "r0")]).as_str())
+    );
 }
 
 #[test]
