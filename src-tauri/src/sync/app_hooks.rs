@@ -40,6 +40,10 @@ pub const RESTORED_EVENT: &str = "sync-restored-after-deletion";
 /// list of paths in the vault.
 pub const MERGED_EVENT: &str = "sync-merged";
 
+/// The event for the files of `.amby/` that a pass wrote (the groups of note properties, З65); the
+/// payload is the list of paths relative to the vault. The watcher does not look into `.amby/`.
+pub const AMBY_WRITTEN_EVENT: &str = "sync-amby-written";
+
 /// Hooks that talk to the windows of the application.
 pub struct AppHooks {
     app: tauri::AppHandle,
@@ -56,6 +60,10 @@ impl AppHooks {
 impl FsHooks for AppHooks {
     fn batch_begin(&self) {
         self.batch.begin();
+    }
+
+    fn amby_written(&self, paths: &[String]) {
+        let _ = self.app.emit(AMBY_WRITTEN_EVENT, paths);
     }
 
     fn batch_end(&self) {

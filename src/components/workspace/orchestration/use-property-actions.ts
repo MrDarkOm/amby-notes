@@ -173,7 +173,12 @@ export function usePropertyActions({
     return items
   }, [currentDoc, includeAttachmentImages])
 
-  const [failure, setFailure] = React.useState<{ generation: number; noteId: string } | null>(null)
+  const [failure, setFailure] = React.useState<{
+    generation: number
+    noteId: string
+    /** The property was changed or removed on another computer (З65). */
+    changedElsewhere?: boolean
+  } | null>(null)
   const generation = useVaultStore((state) => state.generation)
   const noteId = currentDoc?.noteId ?? currentDoc?.id
 
@@ -233,9 +238,13 @@ export function usePropertyActions({
             errorType: errorType(error),
             message: error instanceof Error ? error.message : String(error),
           })
-          useNoteNoticesStore.getState().setPropertyFailed(currentDoc.id, true)
+          // The property the person edited is gone under its old name: another computer changed it.
+          const changedElsewhere = /No such property/iu.test(
+            error instanceof Error ? error.message : String(error),
+          )
+          useNoteNoticesStore.getState().setPropertyFailed(currentDoc.id, !changedElsewhere)
           if (isCurrent()) {
-            setFailure({ generation, noteId })
+            setFailure({ generation, noteId, changedElsewhere })
             await reload(mutation.version).catch(() => {})
           }
           throw error
@@ -463,7 +472,7 @@ export function usePropertyActions({
     currentProperties,
     propertyError:
       failure?.generation === generation && failure.noteId === noteId
-        ? t("infoPanel.saveFailed")
+        ? t(failure.changedElsewhere ? "infoPanel.changedElsewhere" : "infoPanel.saveFailed")
         : null,
     attachments,
     attachmentImages,

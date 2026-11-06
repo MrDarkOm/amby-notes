@@ -15,7 +15,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::UNIX_EPOCH;
 
 use amby_sync_core::engine::{
@@ -42,6 +42,9 @@ pub trait FsHooks: Send + Sync {
 pub struct VaultFs {
     root: PathBuf,
     hooks: Option<Arc<dyn FsHooks>>,
+    /// The files of `.amby/` written since the batch began (`None` outside a batch), shared with
+    /// the writes in flight (З65).
+    amby_written: Arc<Mutex<Option<Vec<String>>>>,
 }
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -53,7 +56,11 @@ const AMBY_SYNCED_FOLDERS: [&str; 4] = ["blocks", "property-backups", "conflicts
 impl VaultFs {
     /// The vault at `root`, with no hooks.
     pub fn new(root: PathBuf) -> Self {
-        Self { root, hooks: None }
+        Self {
+            root,
+            hooks: None,
+            amby_written: Arc::default(),
+        }
     }
 
     /// The vault at `root`; `hooks` are told about batches.
@@ -61,6 +68,7 @@ impl VaultFs {
         Self {
             root,
             hooks: Some(hooks),
+            amby_written: Arc::default(),
         }
     }
 
@@ -248,6 +256,7 @@ struct VaultStaged {
     rel: String,
     temp: PathBuf,
     file: Option<fs::File>,
+    amby_written: Arc<Mutex<Option<Vec<String>>>>,
 }
 
 impl VaultStaged {
@@ -270,6 +279,15 @@ impl StagedWrite for VaultStaged {
         let result = self.publish_inner(snapshot);
         if result.is_err() {
             self.remove_temp();
+        } else if self.rel.starts_with(".amby/") {
+            // The watcher does not look into `.amby/`, so the batch tells what it wrote there.
+            if let Ok(mut written) = self.amby_written.lock() {
+                if let Some(list) = written.as_mut() {
+                    if !list.contains(&self.rel) {
+                        list.push(self.rel.clone());
+                    }
+                }
+            }
         }
         result
     }
@@ -385,6 +403,7 @@ impl LocalFs for VaultFs {
             rel: path.to_string(),
             temp,
             file: Some(file),
+            amby_written: Arc::clone(&self.amby_written),
         }))
     }
 
@@ -520,13 +539,25 @@ impl LocalFs for VaultFs {
     }
 
     fn batch_begin(&mut self) {
+        if let Ok(mut written) = self.amby_written.lock() {
+            *written = Some(Vec::new());
+        }
         if let Some(hooks) = &self.hooks {
             hooks.batch_begin();
         }
     }
 
     fn batch_end(&mut self) {
+        let written = self
+            .amby_written
+            .lock()
+            .ok()
+            .and_then(|mut list| list.take())
+            .unwrap_or_default();
         if let Some(hooks) = &self.hooks {
+            if !written.is_empty() {
+                hooks.amby_written(&written);
+            }
             hooks.batch_end();
         }
     }

@@ -289,7 +289,17 @@ export function createDesktopSyncPort(): SyncPort {
         throw new SyncPortError("ipc_failed")
       }
     },
-    onAmbyWritten: async () => () => {},
+    onAmbyWritten: async (listener) => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event")
+        const unlisten = await listen<string[]>(AMBY_WRITTEN_EVENT, (event) =>
+          listener(event.payload),
+        )
+        return () => unlisten()
+      } catch {
+        throw new SyncPortError("ipc_failed")
+      }
+    },
   }
 }
 
