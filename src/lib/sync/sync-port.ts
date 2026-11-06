@@ -10,6 +10,8 @@ import type {
   ApprovalKind,
   ConflictChoice,
   ConflictVersions,
+  GroupConflictVersions,
+  NotePick,
   Result,
   SpaceTarget,
   SpaceView,
@@ -29,6 +31,8 @@ export type {
   ConflictChoice,
   ConflictVersions,
   DeviceView,
+  GroupConflictVersions,
+  NotePick,
   PasswordCheck,
   PreparedAccountView,
   ServerCheck,
@@ -156,6 +160,17 @@ export interface SyncPort {
    * answer is `conflict_changed`.
    */
   resolveConflictWithText(id: string, text: string, stamp: string): Promise<void>
+  /**
+   * The conflicting notes of a conflict of a group of note properties (З69). `conflict_not_group` when
+   * the person can only choose a whole file (no base, a version cannot be read).
+   */
+  readGroupConflict(id: string): Promise<GroupConflictVersions>
+  /**
+   * Resolves a conflict of a group of note properties by notes (З17, З69): a pick for every conflicting
+   * note, everything else from the merge. `stamp` is the one `readGroupConflict` returned
+   * (`conflict_changed` when a file changed since).
+   */
+  resolveGroupConflict(id: string, picks: Record<string, NotePick>, stamp: string): Promise<void>
   /** Calls `listener` whenever the status changes; returns the function that stops it. */
   onVaultStatus(listener: (status: VaultSyncStatus) => void): Promise<() => void>
   /** Calls `listener` with the vault and the paths (in it) of files deleted on another computer. */
@@ -255,6 +270,10 @@ export function createDesktopSyncPort(): SyncPort {
     readConflictVersions: (id) => call(commands.syncReadConflictVersions(id)),
     resolveConflictWithText: async (id, text, stamp) => {
       await call(commands.syncResolveConflictWithText(id, text, stamp))
+    },
+    readGroupConflict: (id) => call(commands.syncReadGroupConflict(id)),
+    resolveGroupConflict: async (id, picks, stamp) => {
+      await call(commands.syncResolveGroupConflict(id, picks, stamp))
     },
     onVaultStatus: async (listener) => {
       try {
@@ -359,6 +378,8 @@ export const unavailableSyncPort: SyncPort = {
   resolveConflict: unavailable,
   readConflictVersions: unavailable,
   resolveConflictWithText: unavailable,
+  readGroupConflict: unavailable,
+  resolveGroupConflict: unavailable,
   onVaultStatus: async () => () => {},
   onRemoteDeleted: async () => () => {},
   onRestoredAfterDeletion: async () => () => {},

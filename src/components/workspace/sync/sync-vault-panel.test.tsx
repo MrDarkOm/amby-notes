@@ -578,6 +578,112 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
     )
   })
 
+  // ----- З69: a conflict of a group of note properties is chosen by notes -----
+
+  const groupConflict = {
+    ...conflict,
+    originalPath: ".amby/properties/prop_3.jsonl",
+    copyPath: ".amby/conflicts/09d76fd5687f/other.jsonl",
+    hasBase: true,
+  }
+  const groupRead = {
+    group: {
+      notes: [
+        { noteId: "A", notePath: "Папка/Идея.md", noteTitle: "Идея" },
+        { noteId: "B", notePath: null, noteTitle: null },
+      ],
+      autoMerged: 3,
+    },
+    stamp: "stamp-g",
+  }
+
+  it("lists the conflicting notes of a group and resolves it only when every note is chosen", async () => {
+    const resolveGroupConflict = vi.fn(async () => {})
+    const port = await show(vaultStatus({ conflicts: [groupConflict] }), {
+      readGroupConflict: vi.fn(async () => groupRead),
+      resolveGroupConflict,
+    })
+    const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+    const notes = await within(row).findByTestId("sync-group-notes")
+    expect(port.readGroupConflict).toHaveBeenCalledWith("0123456789ab")
+    expect(notes.textContent).toMatch(/«Идея»/)
+    expect(notes.textContent).toMatch(/Заметка без названия/)
+    expect(row.textContent).toMatch(/Остальные изменения \(3\) соединены сами/)
+    expect(row.textContent).not.toMatch(/\.amby/)
+    expect(within(row).queryByRole("button", { name: "Взять с другого компьютера" })).toBeNull()
+    const done = within(row).getByRole("button", { name: "Готово" })
+    expect(done).toHaveProperty("disabled", true)
+    const [first, second] = within(notes).getAllByRole("group")
+    fireEvent.click(within(first).getByRole("button", { name: "С другого" }))
+    expect(done).toHaveProperty("disabled", true)
+    fireEvent.click(within(second).getByRole("button", { name: "С этого компьютера" }))
+    expect(
+      within(second)
+        .getByRole("button", { name: "С этого компьютера" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true")
+    expect(done).toHaveProperty("disabled", false)
+    fireEvent.click(done)
+    await waitFor(() =>
+      expect(resolveGroupConflict).toHaveBeenCalledWith(
+        "0123456789ab",
+        { A: "other", B: "current" },
+        "stamp-g",
+      ),
+    )
+    expect(port.resolveConflict).not.toHaveBeenCalled()
+  })
+
+  it("rereads the notes of a group when the files changed while the person chose", async () => {
+    let reads = 0
+    const readGroupConflict = vi.fn(async () => {
+      reads += 1
+      return { ...groupRead, stamp: `stamp-${reads}` }
+    })
+    const resolveGroupConflict = vi.fn(async () => {
+      throw new SyncPortError("conflict_changed")
+    })
+    await show(vaultStatus({ conflicts: [groupConflict] }), {
+      readGroupConflict,
+      resolveGroupConflict,
+    })
+    const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+    const notes = await within(row).findByTestId("sync-group-notes")
+    for (const note of within(notes).getAllByRole("group")) {
+      fireEvent.click(within(note).getByRole("button", { name: "С другого" }))
+    }
+    fireEvent.click(within(row).getByRole("button", { name: "Готово" }))
+    await waitFor(() => expect(readGroupConflict).toHaveBeenCalledTimes(2))
+    expect((await screen.findByRole("alert")).textContent).toMatch(/выбор ещё раз/)
+    // the choice starts again on the new versions
+    expect(within(row).getByRole("button", { name: "Готово" })).toHaveProperty("disabled", true)
+  })
+
+  it("keeps the whole-file choice for a group the app cannot choose by notes", async () => {
+    // З69: `conflict_not_group` (no base, an unreadable version): two buttons as before
+    const port = await show(vaultStatus({ conflicts: [groupConflict] }), {
+      readGroupConflict: vi.fn(async () => {
+        throw new SyncPortError("conflict_not_group")
+      }),
+    })
+    const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+    fireEvent.click(await within(row).findByRole("button", { name: "Взять с другого компьютера" }))
+    await waitFor(() =>
+      expect(port.resolveConflict).toHaveBeenCalledWith("0123456789ab", "keepCopy"),
+    )
+    expect(within(row).queryByTestId("sync-group-notes")).toBeNull()
+  })
+
+  it("does not ask for notes when the group set has no base", async () => {
+    const readGroupConflict = vi.fn(async () => groupRead)
+    await show(vaultStatus({ conflicts: [{ ...groupConflict, hasBase: false }] }), {
+      readGroupConflict,
+    })
+    const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+    expect(within(row).getByRole("button", { name: "Взять с другого компьютера" })).toBeTruthy()
+    expect(readGroupConflict).not.toHaveBeenCalled()
+  })
+
   it("words a conflict of two creations differently", async () => {
     await show(vaultStatus({ conflicts: [{ ...conflict, kind: "bothCreated" }] }))
     const list = await screen.findByTestId("sync-conflicts")
