@@ -1815,6 +1815,29 @@ async syncResolveConflictWithText(id: string, text: string, stamp: string) : Pro
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * The conflicting notes of a conflict of a group of note properties (З69).
+ */
+async syncReadGroupConflict(id: string) : Promise<Result<GroupConflictVersions, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_read_group_conflict", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Resolves a conflict of a group of note properties by notes (З69): a pick for every
+ * conflicting note; refused with `conflict_changed` when a file changed since it was read.
+ */
+async syncResolveGroupConflict(id: string, picks: Partial<{ [key in string]: NotePick }>, stamp: string) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_resolve_group_conflict", { id, picks, stamp }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async cancelAiRequest(streamId: string) : Promise<Result<boolean, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("cancel_ai_request", { streamId }) };
@@ -2484,6 +2507,47 @@ export type FsMutationResult = { primaryId: string | null; primaryPath: string |
  * the whole tree.
  */
 treePatch?: TreePatch | null }
+/**
+ * One conflicting note of a group of note properties (З17, З69).
+ */
+export type GroupConflictNote = { 
+/**
+ * The `amby-id` of the note.
+ */
+noteId: string; 
+/**
+ * The path of the note from `hint.path` of its line (the file on the path first).
+ */
+notePath: string | null; 
+/**
+ * The name of the note file without `.md`.
+ */
+noteTitle: string | null }
+/**
+ * A conflict of a group of note properties for the choice by notes (З69).
+ */
+export type GroupConflictVersions = { 
+/**
+ * The conflicting notes and how many lines merged by themselves.
+ */
+group: GroupConflictView; 
+/**
+ * A fingerprint of both files as they were read; `resolve_group_conflict` refuses picks made
+ * on versions that have changed since (`conflict_changed`).
+ */
+stamp: string }
+/**
+ * What a conflict of a group of note properties holds (З17, З69).
+ */
+export type GroupConflictView = { 
+/**
+ * The notes changed differently on the two computers, by `amby-id` ascending.
+ */
+notes: GroupConflictNote[]; 
+/**
+ * How many lines the merge settled by itself.
+ */
+autoMerged: number }
 export type HistoryCleanupPreview = { removedCount: number; freedBytes: number; remaining: HistoryStats }
 export type HistoryCleanupResult = { removedCount: number; freedBytes: number; remaining: HistoryStats }
 export type HistoryRetention = { maxSnapshotsPerNote: number; maxAgeDays: number | null }
@@ -2568,6 +2632,18 @@ export type MovedTextPage = { databaseId: string; noteId: string; parentNoteId: 
 export type MutationOutcome = { mutation: FsMutationResult; indexState: IndexState; warnings: OperationWarning[] }
 export type NoteLayers = { canvas: boolean; sketch: boolean; database: boolean; note: boolean }
 export type NoteMetadata = { created: number | null; modified: number | null; wordCount: number }
+/**
+ * The choice for one conflicting note of a group of note properties (З17, З69).
+ */
+export type NotePick = 
+/**
+ * The line of the file on the path («С этого компьютера»).
+ */
+"current" | 
+/**
+ * The line of the second version («С другого»).
+ */
+"other"
 export type NoteProperties = { hasFrontmatter: boolean; frontmatterStatus: FrontmatterStatus; bodyReadOnly: boolean; properties: FrontmatterProperty[]; parseError: string | null; customProperties: CustomProperty[] }
 /**
  * A property of a note named in the inspection.

@@ -489,8 +489,24 @@ impl SyncSession {
     /// The conflicting notes of a conflict of a group of note properties and a fingerprint of both
     /// files (З69). `conflict_not_group` when the person can only choose a whole file.
     pub fn read_group_conflict(&self, id: &str) -> Result<GroupConflictVersions, SyncError> {
-        let _ = id;
-        todo!("З69")
+        let shared = &self.shared;
+        let _work = shared.work.lock().unwrap_or_else(|e| e.into_inner());
+        let vault = &shared.config.vault;
+        let mut store = SqliteStateStore::open(vault).map_err(|e| state_error(&e))?;
+        let conflicts = list_conflicts(vault, &mut store).map_err(|e| state_error(&e))?;
+        let conflict = conflicts
+            .into_iter()
+            .find(|conflict| conflict.id == id)
+            .ok_or_else(|| SyncError::new("conflict_not_found"))?;
+        let (mut conflict_store, _files) =
+            conflict_store_of(vault, &mut store, shared).map_err(|e| state_error(&e))?;
+        let group = conflict_store
+            .read_group(&conflict.id)
+            .map_err(|error| SyncError::new(conflict_error_code(&error)))?;
+        Ok(GroupConflictVersions {
+            group,
+            stamp: conflict_stamp(vault, &conflict),
+        })
     }
 
     /// Resolves a conflict of a group of note properties by notes (З17, З69): written only when
@@ -501,8 +517,9 @@ impl SyncSession {
         picks: BTreeMap<String, NotePick>,
         stamp: &str,
     ) -> Result<(), SyncError> {
-        let _ = (id, picks, stamp);
-        todo!("З69")
+        self.resolve_with(id, Some(stamp), |store, entry, _files, _vault| {
+            store.resolve(&entry.id, Resolution::Notes { picks })
+        })
     }
 
     /// The common part of resolving a conflict: finds it, changes the files with `change`, takes

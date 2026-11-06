@@ -14,6 +14,7 @@ use zeroize::Zeroizing;
 
 use crate::sync::account_types::{AccountOverview, BoundVault};
 use crate::sync::backup;
+use crate::sync::conflict_store::NotePick;
 use crate::sync::connection::ConnectionStore;
 use crate::sync::gate;
 use crate::sync::hints::RenameHints;
@@ -26,7 +27,8 @@ use crate::sync::state_db::{
 };
 use crate::sync::types::SyncError;
 use crate::sync::vault_types::{
-    ApprovalKind, ConflictChoice, ConflictVersions, SpaceTarget, SpaceView, VaultSyncStatus,
+    ApprovalKind, ConflictChoice, ConflictVersions, GroupConflictVersions, SpaceTarget, SpaceView,
+    VaultSyncStatus,
 };
 
 /// Who this device is on the server.
@@ -755,6 +757,21 @@ impl SyncRuntime {
     /// The two versions of a conflict as text, for the comparison.
     pub fn read_conflict_versions(&self, id: &str) -> Result<ConflictVersions, SyncError> {
         self.with_session(|session| session.read_conflict_versions(id))?
+    }
+
+    /// The conflicting notes of a conflict of a group of note properties (З69).
+    pub fn read_group_conflict(&self, id: &str) -> Result<GroupConflictVersions, SyncError> {
+        self.with_session(|session| session.read_group_conflict(id))?
+    }
+
+    /// Resolves a conflict of a group of note properties by notes (З69).
+    pub fn resolve_group_conflict(
+        &self,
+        id: &str,
+        picks: std::collections::BTreeMap<String, NotePick>,
+        stamp: &str,
+    ) -> Result<(), SyncError> {
+        self.with_session(|session| session.resolve_group_conflict(id, picks, stamp))?
     }
 
     /// The person renamed or moved something through Amby (Д70): remembered for the next pass.
