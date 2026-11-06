@@ -124,7 +124,7 @@ fn mtime_ns(metadata: &fs::Metadata) -> i64 {
 
 /// Is a folder named `name` at `rel_parent` (relative, `""` for the root) not entered by the
 /// listing? Its entry is listed, its content is not: nothing in it is ever synchronised (Р4).
-fn is_not_entered(rel_parent: &str, name: &str) -> bool {
+pub(super) fn is_not_entered(rel_parent: &str, name: &str) -> bool {
     if name == ".git" {
         return true;
     }

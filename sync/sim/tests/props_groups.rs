@@ -242,6 +242,62 @@ fn a_group_and_a_marks_file_get_a_base_and_layout_json_does_not() {
 }
 
 #[test]
+fn a_vault_already_converted_on_both_computers_meets_without_a_base_and_loses_no_line() {
+    // З64 (6 Nov 2026): both computers hold the groups from the migration but the groups never
+    // travelled, so there is no base. The rule of two files made at one path (Д43) holds: the
+    // server version stays on the path, the local file is kept whole in a set (kind bothCreated),
+    // nothing is lost and the pass is not stopped as a mass loss (З32).
+    let w = two(Engine::boxed);
+    w.save(0, "Keep/k.md", "keep");
+    w.save(1, "Keep/k.md", "keep");
+    w.save(0, LAYOUT, LAYOUT_BYTES);
+    w.save(1, LAYOUT, LAYOUT_BYTES);
+    let left = group(&[("A", "L"), ("B", "0"), ("C", "0")]);
+    let right = group(&[("A", "R"), ("B", "0"), ("C", "R")]);
+    w.save(0, GROUP, &left);
+    w.save(1, GROUP, &right);
+    w.pass(0);
+    let report = w.pass(1);
+    assert_eq!(
+        report.outcome,
+        CycleOutcome::Done,
+        "no false mass-loss stop"
+    );
+    let sets = w.sets(1);
+    assert_eq!(sets.len(), 1, "one conflict set for the file");
+    assert_eq!(sets[0].path, GROUP);
+    assert_eq!(sets[0].kind, "bothCreated");
+    assert_eq!(w.read(1, GROUP).as_deref(), Some(left.as_str()));
+    let kept = icons(&text(&sets[0].other));
+    assert_eq!(kept["A"], "R", "the local edit is kept whole in the set");
+    assert_eq!(kept["C"], "R");
+    w.pass(0);
+    assert_eq!(w.read(0, GROUP).as_deref(), Some(left.as_str()));
+}
+
+#[test]
+fn a_vault_already_converted_on_both_computers_keeps_the_lines_of_different_notes_in_the_set() {
+    // З64: without a base the file is not merged by notes (this is the known price of the first
+    // meeting); every line of both sides is still somewhere: on the path or in the set
+    let w = two(Engine::boxed);
+    w.save(0, "Keep/k.md", "keep");
+    w.save(1, "Keep/k.md", "keep");
+    w.save(0, LAYOUT, LAYOUT_BYTES);
+    w.save(1, LAYOUT, LAYOUT_BYTES);
+    w.save(0, GROUP, &group(&[("A", "0"), ("B", "L")]));
+    w.save(1, GROUP, &group(&[("A", "0"), ("C", "R")]));
+    w.pass(0);
+    let report = w.pass(1);
+    assert_eq!(report.outcome, CycleOutcome::Done);
+    let on_path = icons(&w.read(1, GROUP).unwrap());
+    let sets = w.sets(1);
+    assert_eq!(sets.len(), 1);
+    let in_set = icons(&text(&sets[0].other));
+    assert_eq!(on_path["B"], "L");
+    assert_eq!(in_set["C"], "R");
+}
+
+#[test]
 fn a_group_over_one_mebibyte_is_still_merged() {
     // З15, З30, Ж3: the limit of a group is 16 000 000 bytes, not the 1 MiB of a note
     let w = two(Engine::boxed);
