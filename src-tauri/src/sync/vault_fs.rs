@@ -42,9 +42,9 @@ pub struct VaultFs {
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// Folders of `.amby/` whose files are synchronised (Р4); the rest of `.amby/` is listed by name
-/// only.
-const AMBY_SYNCED_FOLDERS: [&str; 3] = ["blocks", "property-backups", "conflicts"];
+/// Folders of `.amby/` whose files are synchronised (Р4, З14); the rest of `.amby/` is listed by
+/// name only. Must agree with `amby_sync_core::engine::rules::is_excluded_path` (a test holds it).
+const AMBY_SYNCED_FOLDERS: [&str; 4] = ["blocks", "property-backups", "conflicts", "properties"];
 
 impl VaultFs {
     /// The vault at `root`, with no hooks.
