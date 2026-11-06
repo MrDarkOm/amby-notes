@@ -53,6 +53,8 @@ import {
 } from "./settings-navigation"
 import type { useRefreshSync } from "./sync/use-refresh-sync"
 import { syncErrorMessage } from "@/lib/sync/sync-errors"
+import { syncInactiveText } from "./sync/sync-inactive"
+import { SyncInactiveMenu } from "./sync/sync-inactive-menu"
 import type { HelpContext } from "./help-modal"
 import { useSettingsStore } from "./use-settings-store"
 
@@ -336,12 +338,16 @@ export function ActivityBar({
     const isActive = def.kind === "view" && isPanelOpen && activeView === def.id
     const isDragging = draggingId === def.id
     const sync = def.id === "refresh" ? refreshSync : undefined
+    // While sync does not work the button opens a menu with the reason and the way to fix it.
+    const syncInactive = sync?.inactive ?? null
     const Icon = def.icon
-    const label = sync
-      ? `${t("sync.refresh.action")} — ${t(`sync.refresh.${sync.state}`)}${sync.error ? `: ${syncErrorMessage(sync.error, t)}` : ""}`
-      : def.id === "help" && helpContext && helpContext !== "workspace"
-        ? t("actions.helpWithContext", { context: t(`help.tabs.${helpContext}`) })
-        : t(def.labelKey)
+    const label = syncInactive
+      ? syncInactiveText(syncInactive, t)
+      : sync
+        ? `${t("sync.refresh.action")} — ${t(`sync.refresh.${sync.state}`)}${sync.error ? `: ${syncErrorMessage(sync.error, t)}` : ""}`
+        : def.id === "help" && helpContext && helpContext !== "workspace"
+          ? t("actions.helpWithContext", { context: t(`help.tabs.${helpContext}`) })
+          : t(def.labelKey)
     const settingsTarget = settingsTargetForActivityButton(def.id)
     const settingsLabelKey = settingsLabelKeyForActivityButton(def.id)
     const element = (
@@ -372,7 +378,7 @@ export function ActivityBar({
             event.currentTarget.removeAttribute("data-suppress-click")
             return
           }
-          if (def.id !== "presets") onActivate(def.id)
+          if (def.id !== "presets" && !syncInactive) onActivate(def.id)
         }}
         className={cn(
           "amby-activity-button relative flex size-8 items-center justify-center rounded-md border text-muted-foreground",
@@ -419,6 +425,15 @@ export function ActivityBar({
               </ContextMenuTrigger>
               {presetMenu()}
             </DropdownMenu>
+          ) : sync && syncInactive ? (
+            <SyncInactiveMenu
+              sync={sync}
+              reason={syncInactive}
+              side={side === "left" ? "right" : "left"}
+              onOpenSettings={() => onOpenSettings(settingsTarget)}
+            >
+              {element}
+            </SyncInactiveMenu>
           ) : (
             <ContextMenuTrigger asChild>{element}</ContextMenuTrigger>
           )}

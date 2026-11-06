@@ -25,7 +25,7 @@ once they have been used, and out of the DOM text. Change password: [change-pass
 A vault that was switched off is resumed ("Switch on again") only when `VaultSyncStatus.resumable`: the link remembers the server address
 and the key of its space, and both must fit the current connection (runtime.rs `link_matches`). Otherwise the panel shows the
 first-time choice (new / existing space); resuming a space that is gone forgets the stale link.
-Legacy flags do not affect the panel. Setup uses the form; the switch resumes/disables.
+Setup uses the form; the switch resumes/disables.
 Account choice precedes server setup. Action rows are one per step (`wizard-actions`): primary first,
 secondary outline, links last. The server step offers the Amby server (default, address in `src/lib/sync/amby-server.ts`, no address field) or an own server (address field, guide link).
 
@@ -50,4 +50,4 @@ section "Синхронизация" of [native-ui-smoke.md](../../../../docs/na
 
 Appendix Е (limits of plans): [account-storage.tsx](account-storage.tsx) the storages of the account, plan and gauge (У1, У2, У4); connection changes refresh the list, including a queued read; [limit-notices.ts](limit-notices.ts) the cards of У3; sizes in decimal units [format-size.ts](../../../lib/sync/format-size.ts); the cards are drawn by [sync-notices-host.tsx](sync-notices-host.tsx), the reasons with their limit by `UnsyncedList`, and `space_limit` is met by [sync-vault-panel.tsx](sync-vault-panel.tsx); tests `account-storage.test.tsx`, `sync-limits.test.tsx`.
 
-Dock: [use-refresh-sync.ts](use-refresh-sync.ts). `SyncVaultPanel` owns the switch; Two zones: Account (`SyncSettings`), Storage (`SyncVaultPanel`, with the switch).
+Dock: [use-refresh-sync.ts](use-refresh-sync.ts). Inactive: [sync-inactive-menu.tsx](sync-inactive-menu.tsx), [sync-inactive.ts](sync-inactive.ts). Two zones: Account (`SyncSettings`), Storage (`SyncVaultPanel`, with the switch).
