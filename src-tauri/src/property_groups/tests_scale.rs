@@ -95,3 +95,89 @@ fn one_million_notes_with_differences_in_thirty_per_cent() {
     // З56: the extreme case, a file ≈ 2 MB
     measure(3, "30%");
 }
+
+/// A vault before the migration: `notes` notes, each with three properties in `properties.json`
+/// (version 1); one in ten lacks the key of one property in its header, so the migration writes
+/// into that note (З20). Returns the size of `properties.json`.
+fn fill_old_vault(fx: &Fx, notes: u32) -> usize {
+    let mut map = serde_json::Map::new();
+    for n in 0..notes {
+        let note = format!("01JD{n:022}");
+        let folder = n % 50;
+        let rel = format!("Папка {folder}/Заметка {n}.md");
+        let header = if n % 10 == 0 {
+            "Статус: Идея\nЗаказчик: Иван\n".to_string()
+        } else {
+            "Статус: Идея\nЗаказчик: Иван\nСрок: 2026-11-06\n".to_string()
+        };
+        fx.note(&note, &rel, &header);
+        let prop = |id: &str, name: &str, ty: &str, value: &str, settings: &str, icon: &str| {
+            serde_json::json!({"id": id, "name": name, "icon": icon, "propertyType": ty,
+                "value": value, "settings": settings})
+        };
+        map.insert(
+            note,
+            serde_json::json!([
+                prop(
+                    "p1",
+                    "Статус",
+                    "select",
+                    "Идея",
+                    "Идея,В работе,Готово",
+                    "📌"
+                ),
+                prop("p2", "Заказчик", "text", "Иван", "", ""),
+                prop("p3", "Срок", "date", "2026-11-06", "", "📅"),
+            ]),
+        );
+    }
+    let text =
+        serde_json::to_string_pretty(&serde_json::json!({"version": 1, "notes": map})).unwrap();
+    fx.write(".amby/properties.json", &format!("{text}\n"));
+    text.len()
+}
+
+fn measure_migration(notes: u32) {
+    let fx = fx_old();
+    let size = fill_old_vault(&fx, notes);
+    let started = Instant::now();
+    let report = migration::preview(&fx.conn, &fx.vault).unwrap();
+    println!(
+        "migration notes={notes} properties.json={size} preview={:?} report.notes={}",
+        started.elapsed(),
+        report.notes
+    );
+    let started = Instant::now();
+    let outcome = migration::open_vault(&fx.conn, &fx.vault, &migration::Context::default());
+    let took = started.elapsed();
+    let groups: usize = fx
+        .files_under(".amby/properties/")
+        .iter()
+        .filter(|p| p.ends_with(".jsonl"))
+        .map(|p| fx.bytes(p).unwrap().len())
+        .sum();
+    println!(
+        "migration notes={notes} open-vault={took:?} ok={} groups-bytes={groups}",
+        outcome.is_ok()
+    );
+    assert!(matches!(outcome, Ok(migration::OpenOutcome::Migrated(_))));
+    assert_eq!(
+        storage_mode(&fx.vault).unwrap(),
+        StorageMode::Groups,
+        "the vault is in the new format after one opening"
+    );
+}
+
+#[test]
+#[ignore = "measurement, minutes of work: run by hand (З68)"]
+fn migration_of_ten_thousand_notes() {
+    // З68: the migration runs by itself at the first opening (З57); how long the person waits
+    measure_migration(10_000);
+}
+
+#[test]
+#[ignore = "measurement, minutes of work: run by hand (З68)"]
+fn migration_of_fifty_thousand_notes() {
+    // З68: a large vault
+    measure_migration(50_000);
+}

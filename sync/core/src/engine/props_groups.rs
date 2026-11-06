@@ -30,6 +30,9 @@ pub const PROPS_LOSS_PERCENT: usize = 10;
 
 const BOM: &[u8] = &[0xEF, 0xBB, 0xBF];
 
+/// A group with no lines: the base of two groups made apart, when they first meet (З64а).
+pub const EMPTY_GROUP: &[u8] = b"{\"version\":1}\n";
+
 /// The group of a note: the first hexadecimal digit (lowercase) of BLAKE3 of the `amby-id` as
 /// UTF-8 (З48). `"a"`, not the start of the ULID.
 pub fn group_of(amby_id: &str) -> String {
