@@ -18,7 +18,7 @@ use super::plan::{
     Act, CopyPlan, Existing, KeepAct, LinkBase, MoveAct, Plan, PutAct, Srv, Undelete,
 };
 use super::ports::{FsError, NameRules};
-use super::props_groups::kind_of_path;
+use super::props_groups::{kind_of_path, EMPTY_GROUP};
 use super::rules::is_excluded_path;
 use super::scan::Scan;
 use super::util::{hash_of, is_unmaterialised, UNMATERIALISED};
@@ -474,7 +474,7 @@ impl<'a> Decider<'a> {
                     return;
                 }
                 // Д43, Р7 row 5: the one that came later keeps a copy.
-                let Some(copy) = self.copy_for(
+                let Some(mut copy) = self.copy_for(
                     &srv.item,
                     &target,
                     local_hash,
@@ -485,6 +485,13 @@ impl<'a> Decider<'a> {
                 ) else {
                     return self.no_copy_name(srv);
                 };
+                // З64а: two groups of note properties made apart (both vaults migrated before they
+                // met) are merged by notes against an empty base; the copy is the fallback and
+                // keeps that base, so the conflicting notes can be chosen one by one (З17).
+                let merge = kind_of_path(&target).is_some();
+                if merge {
+                    copy.base = Some(EMPTY_GROUP.to_vec());
+                }
                 self.overwrite(&target);
                 let rec = srv.record(0);
                 self.plan.acts.push(Act::Put(Box::new(PutAct {
@@ -494,7 +501,7 @@ impl<'a> Decider<'a> {
                     existing: Some(existing),
                     copy: Some(copy),
                     rec,
-                    merge: false,
+                    merge,
                     guard: None,
                 })));
             }
