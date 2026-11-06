@@ -95,11 +95,15 @@ pub fn ensure_unique_identity(conn: &Connection, note_id: &str) -> Result<(), St
         );
     }
     let prefix = format!("{CONFLICT_PREFIX}{note_id}:");
+    // Every id that starts with `prefix` lies in [prefix, prefix with its last ':' made ';'):
+    // a range on the primary key instead of a scan of every note (З68: the scan made the
+    // migration of 50 000 notes take minutes).
+    let end = format!("{CONFLICT_PREFIX}{note_id};");
     let mut statement = conn
-        .prepare("SELECT id FROM notes WHERE substr(id, 1, length(?1)) = ?1")
+        .prepare_cached("SELECT id FROM notes WHERE id >= ?1 AND id < ?2")
         .map_err(|error| error.to_string())?;
     let rows = statement
-        .query_map([&prefix], |row| row.get::<_, String>(0))
+        .query_map([&prefix, &end], |row| row.get::<_, String>(0))
         .map_err(|error| error.to_string())?;
     for row in rows {
         let key = row.map_err(|error| error.to_string())?;
