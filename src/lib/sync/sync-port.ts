@@ -52,6 +52,9 @@ export interface RemoteDeletedEvent {
 /** The event for notes that came back after a deletion made on this computer; the payload is the paths. */
 const RESTORED_AFTER_DELETION_EVENT = "sync-restored-after-deletion"
 
+/** The event for files of `.amby/` that a pass of synchronisation wrote (the watcher does not look there). */
+const AMBY_WRITTEN_EVENT = "sync-amby-written"
+
 /** The default name of the recovery code file offered by "Save to file". */
 export const RECOVERY_CODE_FILE_NAME = "amby-recovery-code.txt"
 
@@ -162,6 +165,11 @@ export interface SyncPort {
    * another computer edited them (Р7, Д37).
    */
   onRestoredAfterDeletion(listener: (paths: string[]) => void): Promise<() => void>
+  /**
+   * Calls `listener` with the paths (relative to the vault) of the files in `.amby/` that a pass wrote,
+   * such as the groups of note properties (З65). The watcher does not report them.
+   */
+  onAmbyWritten(listener: (paths: string[]) => void): Promise<() => void>
 }
 
 /** Unwraps the answer of a command. A failure of the IPC layer itself carries no text on purpose. */
@@ -281,6 +289,7 @@ export function createDesktopSyncPort(): SyncPort {
         throw new SyncPortError("ipc_failed")
       }
     },
+    onAmbyWritten: async () => () => {},
   }
 }
 
@@ -343,6 +352,7 @@ export const unavailableSyncPort: SyncPort = {
   onVaultStatus: async () => () => {},
   onRemoteDeleted: async () => () => {},
   onRestoredAfterDeletion: async () => () => {},
+  onAmbyWritten: async () => () => {},
 }
 
 let desktopPort: SyncPort | null = null

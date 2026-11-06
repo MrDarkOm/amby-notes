@@ -756,3 +756,69 @@ fn batches_are_reported_to_the_application() {
         vec!["begin", "end", "begin", "end"]
     );
 }
+
+#[derive(Default)]
+struct WrittenRecorder(Mutex<Vec<String>>);
+
+impl FsHooks for WrittenRecorder {
+    fn batch_begin(&self) {
+        self.0.lock().unwrap().push("begin".into());
+    }
+    fn amby_written(&self, paths: &[String]) {
+        self.0
+            .lock()
+            .unwrap()
+            .push(format!("written {}", paths.join(",")));
+    }
+    fn batch_end(&self) {
+        self.0.lock().unwrap().push("end".into());
+    }
+}
+
+fn write_file(fs: &mut VaultFs, path: &str, bytes: &[u8]) {
+    let mut staged = fs.begin_write(path).unwrap();
+    staged.write(bytes).unwrap();
+    staged.publish(None).unwrap();
+}
+
+#[test]
+fn a_batch_tells_which_files_of_amby_it_wrote_before_it_ends() {
+    // З65: the watcher does not look into `.amby/`, so the files of `.amby/` that a batch wrote
+    // (the groups of properties) are reported once, relative to the vault, before the end of the
+    // batch; notes are the business of the watcher and are not repeated
+    let vault = Vault::new();
+    let hooks = Arc::new(WrittenRecorder::default());
+    let mut fs = VaultFs::with_hooks(vault.root.clone(), hooks.clone());
+    write_file(&mut fs, ".amby/properties/prop_0.jsonl", b"outside a batch");
+    fs.batch_begin();
+    write_file(&mut fs, ".amby/properties/prop_3.jsonl", b"{}");
+    write_file(&mut fs, "Notes/a.md", b"a");
+    write_file(&mut fs, ".amby/blocks/n.json", b"{}");
+    write_file(&mut fs, ".amby/properties/prop_3.jsonl", b"{\"v\":2}");
+    fs.batch_end();
+    assert_eq!(
+        *hooks.0.lock().unwrap(),
+        vec![
+            "begin".to_string(),
+            "written .amby/properties/prop_3.jsonl,.amby/blocks/n.json".to_string(),
+            "end".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn a_batch_that_wrote_nothing_in_amby_tells_nothing_about_it() {
+    // З65
+    let vault = Vault::new();
+    let hooks = Arc::new(WrittenRecorder::default());
+    let mut fs = VaultFs::with_hooks(vault.root.clone(), hooks.clone());
+    fs.batch_begin();
+    write_file(&mut fs, "Notes/a.md", b"a");
+    fs.batch_end();
+    fs.batch_begin();
+    fs.batch_end();
+    assert_eq!(
+        *hooks.0.lock().unwrap(),
+        vec!["begin", "end", "begin", "end"]
+    );
+}

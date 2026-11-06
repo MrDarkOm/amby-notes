@@ -32,6 +32,10 @@ pub trait FsHooks: Send + Sync {
     fn batch_begin(&self) {}
     /// It ended (also after an error).
     fn batch_end(&self) {}
+    /// The files of `.amby/` (paths relative to the vault) that the batch wrote, told once before
+    /// [`Self::batch_end`] and only when there are some. The watcher does not look into `.amby/`,
+    /// so this is how the windows learn about an updated group of properties (З65).
+    fn amby_written(&self, _paths: &[String]) {}
 }
 
 /// The vault as the engine sees it.
