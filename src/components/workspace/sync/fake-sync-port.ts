@@ -203,6 +203,13 @@ export function emitRestoredAfterDeletion(paths: string[]): void {
   for (const listener of [...restoredListeners]) listener(paths)
 }
 
+const ambyWrittenListeners = new Set<(paths: string[]) => void>()
+
+/** Tells every listener that a pass wrote these files of `.amby/` (paths relative to the vault). */
+export function emitAmbyWritten(paths: string[]): void {
+  for (const listener of [...ambyWrittenListeners]) listener(paths)
+}
+
 /** How many screens listen now (for "stops listening when closed"). */
 export function vaultListenerCount(): number {
   return vaultListeners.size
@@ -291,6 +298,12 @@ export function createFakePort(overrides: Partial<SyncPort> = {}): FakePort {
       restoredListeners.add(listener)
       return () => {
         restoredListeners.delete(listener)
+      }
+    },
+    onAmbyWritten: async (listener) => {
+      ambyWrittenListeners.add(listener)
+      return () => {
+        ambyWrittenListeners.delete(listener)
       }
     },
     ...overrides,

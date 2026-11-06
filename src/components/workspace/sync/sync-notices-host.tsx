@@ -15,6 +15,10 @@ import { useVaultStore } from "../use-vault-store"
 import { SyncCompareDialog } from "./sync-compare-dialog"
 import { limitNoticesOf, type LimitNotice } from "./limit-notices"
 import { ConflictList } from "./sync-vault-parts"
+import {
+  rereadOpenNoteProperties,
+  touchesNoteProperties,
+} from "../orchestration/reread-note-properties"
 import { useSyncNoticesStore, type SyncConflict } from "./use-sync-notices-store"
 
 /** How long the notice about a new conflict stays, in milliseconds. */
@@ -142,6 +146,15 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
           const key = counter.current
           setNotices((list) => [...list, { key, kind: "restored", path: path.normalize("NFC") }])
         }
+      })
+      .then((off) => (alive ? unlisten.push(off) : off()))
+      .catch(() => {})
+    port
+      .onAmbyWritten((paths) => {
+        // A pass wrote the groups of properties: the panels of the open notes read them again (З65).
+        if (!alive || !touchesNoteProperties(paths)) return
+        const state = useVaultStore.getState()
+        if (state.vault) void rereadOpenNoteProperties(state.vault, state.generation)
       })
       .then((off) => (alive ? unlisten.push(off) : off()))
       .catch(() => {})

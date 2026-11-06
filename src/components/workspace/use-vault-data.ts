@@ -24,6 +24,7 @@ import {
   applyIconOverrides,
   newTabKey,
 } from "./workspace-tree-utils"
+import { rereadOpenNoteProperties } from "./orchestration/reread-note-properties"
 import { buildLinkGraph } from "./wiki-links"
 import { applyTreePatchOps, patchedItems, removePaths } from "./tree-patch"
 import type { TreeItem } from "./sidebar-tree"
@@ -800,6 +801,8 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
                   source: note.source,
                 })
                 markSaved(id)
+                // The header changed with the text, so the panel reads the properties again (З65).
+                void rereadOpenNoteProperties(vault, useVaultStore.getState().generation, [id])
               }
             } catch (err) {
               logger.warn("watcher.open_document_reload_failed", { errorType: errorType(err) })

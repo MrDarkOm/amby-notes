@@ -90,4 +90,36 @@ describe("properties and the notices", () => {
     })
     expect(useNoteNoticesStore.getState().propertyFailed.note).toBeUndefined()
   })
+
+  it("a property another computer changed or removed rereads the panel and says so (З65)", async () => {
+    await i18n.changeLanguage("ru")
+    const changed = {
+      ...empty,
+      customProperties: [
+        { id: "p", name: "Статус 2", icon: "", propertyType: "text", value: "", settings: "" },
+      ],
+    }
+    vi.mocked(storage.renameProperty).mockRejectedValueOnce(new Error("No such property: Статус"))
+    vi.mocked(storage.getNoteProperties).mockResolvedValue(changed)
+    const hook = open()
+    await act(async () => {
+      await hook.result.current.handleRenameProperty("Статус", "Другое").catch(() => undefined)
+    })
+    expect(useDocStore.getState().openDocs.note.noteProperties).toEqual(changed)
+    expect(hook.result.current.propertyError).toBe(
+      "Это свойство изменили на другом компьютере. Панель обновлена, повторите правку.",
+    )
+  })
+
+  it("any other failure still says that the property was not saved", async () => {
+    await i18n.changeLanguage("ru")
+    vi.mocked(storage.renameProperty).mockRejectedValueOnce(new Error("refused"))
+    const hook = open()
+    await act(async () => {
+      await hook.result.current.handleRenameProperty("А", "Б").catch(() => undefined)
+    })
+    expect(hook.result.current.propertyError).toBe(
+      "Не удалось сохранить свойство. Повторите попытку.",
+    )
+  })
 })

@@ -5,12 +5,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import i18n from "@/lib/i18n"
-import { listTrash, readFile, restoreTrash } from "@/lib/storage"
+import { getNoteProperties, listTrash, readFile, restoreTrash } from "@/lib/storage"
 import type { Document } from "../use-doc-store"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import {
   createFakePort,
+  emitAmbyWritten,
   emitRemoteDeleted,
   emitRestoredAfterDeletion,
   emitVaultStatus,
@@ -23,6 +24,7 @@ import { useSyncNoticesStore } from "./use-sync-notices-store"
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
   readFile: vi.fn(),
+  getNoteProperties: vi.fn(),
   listTrash: vi.fn(),
   restoreTrash: vi.fn(),
 }))
@@ -266,5 +268,40 @@ describe("a note deleted on another computer", () => {
     expect(await screen.findByRole("alert")).toBeTruthy()
     expect(restoreTrash).not.toHaveBeenCalled()
     expect(screen.getByText(message)).toBeTruthy()
+  })
+})
+
+describe("properties changed on another computer (З65)", () => {
+  const written = { hasFrontmatter: true, properties: [], customProperties: [] }
+  const withLook = {
+    hasFrontmatter: true,
+    properties: [],
+    customProperties: [
+      { id: "p", name: "Статус", icon: "star", propertyType: "text", value: "", settings: "" },
+    ],
+  }
+  const openNote = () => {
+    const note = {
+      ...doc("/vault/Заметки/идея.md"),
+      id: "n1",
+      noteId: "n1",
+      noteProperties: written,
+    }
+    useDocStore.setState({ openDocs: { n1: note }, externalConflicts: {} })
+    vi.mocked(getNoteProperties).mockResolvedValue(withLook)
+  }
+
+  it("a written group makes the open notes read their properties again", async () => {
+    await mount()
+    openNote()
+    await act(async () => emitAmbyWritten([".amby/properties/prop_a.jsonl"]))
+    await waitFor(() => expect(useDocStore.getState().openDocs.n1.noteProperties).toEqual(withLook))
+  })
+
+  it("other files of .amby/ do not", async () => {
+    await mount()
+    openNote()
+    await act(async () => emitAmbyWritten([".amby/blocks/n.json"]))
+    expect(getNoteProperties).not.toHaveBeenCalled()
   })
 })

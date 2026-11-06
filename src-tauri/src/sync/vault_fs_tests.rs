@@ -6,9 +6,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use amby_sync_core::engine::rules::is_excluded_path;
 use amby_sync_core::engine::{FsError, LocalFs, LocalKind, RootState, SnapshotReason, TrashReason};
 
-use super::vault_fs::{pending_journals, FsHooks, VaultFs};
+use super::vault_fs::{is_not_entered, pending_journals, FsHooks, VaultFs};
 use crate::{history, recycle_bin};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -189,6 +190,63 @@ fn service_folders_are_named_but_not_entered() {
         ".amby/sync/state.db",
     ] {
         assert!(!paths.contains(&skipped), "{skipped} was walked: {paths:?}");
+    }
+}
+
+#[test]
+fn the_groups_of_note_properties_are_walked_and_the_journal_of_edits_is_not() {
+    // З14, Р4: `.amby/properties/` is synchronised (groups, marks, layout); `property-ops/` and
+    // `migrations/` are local and are named but not entered. 6 Nov 2026: the walk missed the
+    // folder, so no group ever left the computer.
+    let vault = Vault::new();
+    vault.put(".amby/properties/prop_0.jsonl", b"{\"version\":1}\n");
+    vault.put(".amby/properties/legacy_0.jsonl", b"{\"version\":1}\n");
+    vault.put(".amby/properties/layout.json", b"{}");
+    vault.put(".amby/property-ops/01JABC.json", b"{}");
+    vault.put(".amby/migrations/m1.json", b"{}");
+    let listing = vault.fs().list().unwrap();
+    let paths: Vec<&str> = listing.entries.iter().map(|e| e.path.as_str()).collect();
+    for kept in [
+        ".amby/properties",
+        ".amby/properties/prop_0.jsonl",
+        ".amby/properties/legacy_0.jsonl",
+        ".amby/properties/layout.json",
+        ".amby/property-ops",
+        ".amby/migrations",
+    ] {
+        assert!(paths.contains(&kept), "{kept} missing from {paths:?}");
+    }
+    for skipped in [".amby/property-ops/01JABC.json", ".amby/migrations/m1.json"] {
+        assert!(!paths.contains(&skipped), "{skipped} was walked: {paths:?}");
+    }
+}
+
+#[test]
+fn the_walk_enters_exactly_the_folders_of_amby_that_the_rules_of_the_core_keep() {
+    // Р4: the walk of the application and `is_excluded_path` of the engine must never disagree
+    // about a folder of `.amby/`: a folder the walk does not enter holds nothing the engine could
+    // see, so a kept folder that is not entered is a silent loss of synchronisation.
+    for folder in [
+        "blocks",
+        "property-backups",
+        "conflicts",
+        "properties",
+        "property-ops",
+        "migrations",
+        "history",
+        "recovery",
+        "trash",
+        "sync",
+        "quarantine",
+        "creative",
+        "anything-else",
+    ] {
+        let kept_by_rules = !is_excluded_path(&format!(".amby/{folder}/file"));
+        assert_eq!(
+            !is_not_entered(".amby", folder),
+            kept_by_rules,
+            ".amby/{folder}: the walk and the rules of the core disagree"
+        );
     }
 }
 
@@ -690,6 +748,72 @@ fn batches_are_reported_to_the_application() {
     let hooks = Arc::new(Recorder::default());
     let mut fs = VaultFs::with_hooks(vault.root.clone(), hooks.clone());
     fs.batch_begin();
+    fs.batch_end();
+    fs.batch_begin();
+    fs.batch_end();
+    assert_eq!(
+        *hooks.0.lock().unwrap(),
+        vec!["begin", "end", "begin", "end"]
+    );
+}
+
+#[derive(Default)]
+struct WrittenRecorder(Mutex<Vec<String>>);
+
+impl FsHooks for WrittenRecorder {
+    fn batch_begin(&self) {
+        self.0.lock().unwrap().push("begin".into());
+    }
+    fn amby_written(&self, paths: &[String]) {
+        self.0
+            .lock()
+            .unwrap()
+            .push(format!("written {}", paths.join(",")));
+    }
+    fn batch_end(&self) {
+        self.0.lock().unwrap().push("end".into());
+    }
+}
+
+fn write_file(fs: &mut VaultFs, path: &str, bytes: &[u8]) {
+    let mut staged = fs.begin_write(path).unwrap();
+    staged.write(bytes).unwrap();
+    staged.publish(None).unwrap();
+}
+
+#[test]
+fn a_batch_tells_which_files_of_amby_it_wrote_before_it_ends() {
+    // З65: the watcher does not look into `.amby/`, so the files of `.amby/` that a batch wrote
+    // (the groups of properties) are reported once, relative to the vault, before the end of the
+    // batch; notes are the business of the watcher and are not repeated
+    let vault = Vault::new();
+    let hooks = Arc::new(WrittenRecorder::default());
+    let mut fs = VaultFs::with_hooks(vault.root.clone(), hooks.clone());
+    write_file(&mut fs, ".amby/properties/prop_0.jsonl", b"outside a batch");
+    fs.batch_begin();
+    write_file(&mut fs, ".amby/properties/prop_3.jsonl", b"{}");
+    write_file(&mut fs, "Notes/a.md", b"a");
+    write_file(&mut fs, ".amby/blocks/n.json", b"{}");
+    write_file(&mut fs, ".amby/properties/prop_3.jsonl", b"{\"v\":2}");
+    fs.batch_end();
+    assert_eq!(
+        *hooks.0.lock().unwrap(),
+        vec![
+            "begin".to_string(),
+            "written .amby/properties/prop_3.jsonl,.amby/blocks/n.json".to_string(),
+            "end".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn a_batch_that_wrote_nothing_in_amby_tells_nothing_about_it() {
+    // З65
+    let vault = Vault::new();
+    let hooks = Arc::new(WrittenRecorder::default());
+    let mut fs = VaultFs::with_hooks(vault.root.clone(), hooks.clone());
+    fs.batch_begin();
+    write_file(&mut fs, "Notes/a.md", b"a");
     fs.batch_end();
     fs.batch_begin();
     fs.batch_end();

@@ -1470,6 +1470,8 @@ const ru = {
     parseError: "Не удалось прочитать frontmatter. Откройте режим исходного кода и исправьте его.",
     noCustom: "Свойств пока нет",
     saveFailed: "Не удалось сохранить свойство. Повторите попытку.",
+    changedElsewhere:
+      "Это свойство изменили на другом компьютере. Панель обновлена, повторите правку.",
     addFirstProperty: "Свойств пока нет, добавить свойство",
     noMatches: "Подходящих свойств не найдено",
     type: "Тип",
@@ -5539,6 +5541,8 @@ const en: typeof ru = {
     parseError: "Frontmatter could not be parsed. Edit it in Source mode.",
     noCustom: "No properties yet",
     saveFailed: "Could not save the property. Please try again.",
+    changedElsewhere:
+      "This property was changed on another computer. The panel is updated, please repeat your edit.",
     addFirstProperty: "No properties yet, add a property",
     noMatches: "No matching properties",
     type: "Type",
