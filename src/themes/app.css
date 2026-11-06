@@ -5659,6 +5659,56 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   opacity: 0.5;
 }
 
+/* The menu of an inactive sync button: one line of the reason, then the actions. */
+.sync-inactive-menu {
+  width: 18rem;
+  border-color: hsl(var(--border));
+  background: hsl(var(--popover));
+  color: hsl(var(--foreground));
+}
+.sync-inactive-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+.sync-inactive-title svg {
+  width: 14px;
+  height: 14px;
+  color: hsl(var(--destructive));
+}
+.sync-inactive-reason {
+  padding: 2px 8px 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: normal;
+}
+.sync-inactive-error {
+  padding: 0 8px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: hsl(var(--destructive));
+}
+.sync-inactive-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.sync-inactive-item[data-primary] {
+  font-weight: 500;
+}
+.sync-inactive-item svg {
+  width: 14px;
+  height: 14px;
+  color: hsl(var(--muted-foreground));
+}
+
 /* Synchronization settings: current vault first, account tools second. */
 .sync-settings-page {
   width: 100%;

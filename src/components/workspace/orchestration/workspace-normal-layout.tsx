@@ -3,7 +3,7 @@ import type { ActivityButton, PanelId, Side, PanelRenderProps } from "../panel-r
 import type { LayoutLeafItem, LayoutSplitDivider } from "../split-tree"
 import type { ModuleContext } from "../modules"
 import type { PanelScope } from "../app-config"
-import type { RefreshSyncState } from "../sync/use-refresh-sync"
+import type { RefreshSync } from "../sync/use-refresh-sync"
 import { type SplitPaneOptions, type Tab, useTabsStore } from "../use-tabs-store"
 import type { SpotlightCreateAction } from "../sidebar-search"
 import type { VaultRecord } from "../workspace-picker"
@@ -72,12 +72,7 @@ interface WorkspaceNormalLayoutProps {
     onPointerDown: (defId: string) => (e: React.PointerEvent<HTMLElement>) => void
   }
   activityBarPresetProps: {
-    refreshSync: {
-      refresh: () => Promise<void>
-      state: RefreshSyncState
-      busy: boolean
-      error: unknown
-    }
+    refreshSync: RefreshSync
     presets: { id: string; label: string; hint: string }[]
     activePresetId: string
     onSwitchPreset: (id: string) => Promise<boolean>
