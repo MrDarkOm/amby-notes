@@ -14,6 +14,10 @@ use amby_sync_core::engine::conflict_set::{
     decode_meta, is_in_conflicts_dir, SetMeta, CONFLICTS_DIR,
 };
 use amby_sync_core::engine::merge::{is_mergeable_path, MERGE_MAX_BYTES};
+use amby_sync_core::engine::props_groups::{
+    check_group, kind_of_path, merge_group, parse_line, resolve_group, GroupKind,
+    GroupMergeOutcome, ResolveError, Side,
+};
 use amby_sync_core::engine::rules::is_excluded_path;
 use amby_sync_core::engine::{ConflictKind, FsError, LocalFs, SnapshotReason, TrashReason};
 use serde::{Deserialize, Serialize};
@@ -100,6 +104,45 @@ pub enum Resolution {
         /// The text assembled by the interface from the source text of the chosen blocks.
         text: String,
     },
+    /// A group of note properties assembled by notes (З17, З69): a pick for every conflicting
+    /// note, everything else from the clean merge.
+    #[serde(rename_all = "camelCase")]
+    Notes {
+        /// `amby-id` → the chosen side.
+        picks: BTreeMap<String, NotePick>,
+    },
+}
+
+/// The choice for one conflicting note of a group of note properties (З17, З69).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum NotePick {
+    /// The line of the file on the path («С этого компьютера»).
+    Current,
+    /// The line of the second version («С другого»).
+    Other,
+}
+
+/// One conflicting note of a group of note properties (З17, З69).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupConflictNote {
+    /// The `amby-id` of the note.
+    pub note_id: String,
+    /// The path of the note from `hint.path` of its line (the file on the path first).
+    pub note_path: Option<String>,
+    /// The name of the note file without `.md`.
+    pub note_title: Option<String>,
+}
+
+/// What a conflict of a group of note properties holds (З17, З69).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupConflictView {
+    /// The notes changed differently on the two computers, by `amby-id` ascending.
+    pub notes: Vec<GroupConflictNote>,
+    /// How many lines the merge settled by itself.
+    pub auto_merged: u32,
 }
 
 /// Why the store refused (Г35). The interface translates the code.
@@ -113,6 +156,10 @@ pub enum ConflictError {
     OriginalMissing,
     /// `Assembled` for a file that is not text (Г28).
     NotText,
+    /// Not a group of note properties with a base, or a version cannot be read (З69).
+    NotGroup,
+    /// Some conflicting note of a group has no pick (З17, З69).
+    IncompletePicks,
     /// The disk failed.
     Storage(String),
 }
@@ -131,6 +178,8 @@ impl ConflictError {
             Self::Incomplete => "incomplete",
             Self::OriginalMissing => "original_missing",
             Self::NotText => "not_text",
+            Self::NotGroup => "not_group",
+            Self::IncompletePicks => "incomplete_picks",
             Self::Storage(_) => "storage_error",
         }
     }
@@ -166,6 +215,26 @@ enum Located {
     Legacy { copy: String },
 }
 
+/// The versions of a set of a group of note properties (З69).
+struct GroupVersions {
+    entry: ConflictEntry,
+    kind: GroupKind,
+    base: Vec<u8>,
+    current: Vec<u8>,
+    other: Vec<u8>,
+}
+
+/// `hint.path` of the line of `note_id` in a group file, when it has one (З69).
+fn hint_path(kind: GroupKind, bytes: &[u8], note_id: &str) -> Option<String> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    text.trim_start_matches('\u{feff}')
+        .lines()
+        .skip(1)
+        .filter_map(|line| parse_line(kind, line.trim_end_matches('\r')).ok())
+        .find(|line| line.get("id").and_then(|id| id.as_str()) == Some(note_id))
+        .and_then(|line| line.get("hint")?.get("path")?.as_str().map(str::to_string))
+}
+
 /// Is `bytes` something both sides of a comparison can show as text (Г28, Г5)?
 fn is_text(path: &str, bytes: &[u8]) -> bool {
     is_mergeable_path(path)
@@ -197,6 +266,74 @@ fn is_plain_name(name: &str) -> bool {
 }
 
 impl FileConflictStore {
+    /// The conflicting notes of a set of a group of note properties (З17, З69). `NotGroup` when
+    /// the conflict is not a group, has no base or a version cannot be read.
+    pub fn read_group(&mut self, id: &str) -> Result<GroupConflictView, ConflictError> {
+        let group = self.group_versions(id)?;
+        let (notes, auto_merged) =
+            match merge_group(group.kind, &group.base, &group.current, &group.other) {
+                GroupMergeOutcome::Conflict(conflict) => (conflict.notes, conflict.auto_merged),
+                // The versions merge by themselves now: nothing to choose.
+                GroupMergeOutcome::Clean(_) => (Vec::new(), 0),
+                GroupMergeOutcome::NotMergeable(_) => return Err(ConflictError::NotGroup),
+            };
+        let notes = notes
+            .into_iter()
+            .map(|note_id| {
+                let note_path = hint_path(group.kind, &group.current, &note_id)
+                    .or_else(|| hint_path(group.kind, &group.other, &note_id));
+                let note_title = note_path.as_deref().and_then(|path| {
+                    Path::new(path)
+                        .file_stem()
+                        .and_then(|stem| stem.to_str())
+                        .map(str::to_string)
+                });
+                GroupConflictNote {
+                    note_id,
+                    note_path,
+                    note_title,
+                }
+            })
+            .collect();
+        Ok(GroupConflictView {
+            notes,
+            auto_merged: u32::try_from(auto_merged).unwrap_or(u32::MAX),
+        })
+    }
+
+    /// The three versions of a set of a group of note properties (З69): the base, the file on the
+    /// path and the second version. `NotGroup` for anything else.
+    fn group_versions(&self, id: &str) -> Result<GroupVersions, ConflictError> {
+        let (entry, located) = self.locate(id)?;
+        let kind = kind_of_path(&entry.path).ok_or(ConflictError::NotGroup)?;
+        let Located::Bundle { meta, dir } = &located else {
+            return Err(ConflictError::NotGroup);
+        };
+        let base = meta
+            .base
+            .as_ref()
+            .and_then(|name| self.read_file(&format!("{dir}/{name}")))
+            .ok_or(ConflictError::NotGroup)?;
+        let current = self
+            .read_file(&entry.path)
+            .ok_or(ConflictError::OriginalMissing)?;
+        let other = self
+            .read_file(&entry.other_path)
+            .ok_or(ConflictError::Incomplete)?;
+        for bytes in [&base, &current, &other] {
+            if check_group(kind, bytes).is_err() {
+                return Err(ConflictError::NotGroup);
+            }
+        }
+        Ok(GroupVersions {
+            entry,
+            kind,
+            base,
+            current,
+            other,
+        })
+    }
+
     /// A store of the vault `vault`. `paths` maps the hex of an `item_id` to its current path in
     /// the vault; `created_here` is the set of ids in `SyncState.conflicts` (Г25).
     pub fn new(
@@ -569,6 +706,33 @@ impl ConflictStore for FileConflictStore {
                     return Err(ConflictError::OriginalMissing);
                 }
                 self.write_original(&entry.path, text.as_bytes())?;
+            }
+            Resolution::Notes { picks } => {
+                let group = self.group_versions(id)?;
+                let sides: BTreeMap<String, Side> = picks
+                    .iter()
+                    .map(|(note, pick)| {
+                        let side = match pick {
+                            NotePick::Current => Side::Local,
+                            NotePick::Other => Side::Other,
+                        };
+                        (note.clone(), side)
+                    })
+                    .collect();
+                let bytes = resolve_group(
+                    group.kind,
+                    &group.base,
+                    &group.current,
+                    &group.other,
+                    &sides,
+                    &group.current,
+                    &group.other,
+                )
+                .map_err(|error| match error {
+                    ResolveError::IncompletePicks => ConflictError::IncompletePicks,
+                    ResolveError::Stale | ResolveError::NotMergeable(_) => ConflictError::NotGroup,
+                })?;
+                self.write_original(&group.entry.path, &bytes)?;
             }
         }
         // (2) The files of the conflict go to the trash of the vault, the meta first: the

@@ -282,6 +282,10 @@ export function createFakePort(overrides: Partial<SyncPort> = {}): FakePort {
       stamp: "stamp-1",
     }),
     resolveConflictWithText: async () => {},
+    readGroupConflict: async () => {
+      throw new SyncPortError("conflict_not_group")
+    },
+    resolveGroupConflict: async () => {},
     onVaultStatus: async (listener) => {
       vaultListeners.add(listener)
       return () => {

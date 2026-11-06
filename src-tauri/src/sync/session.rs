@@ -10,6 +10,7 @@
 //!
 //! A pass that stops (Р8) waits for the person; nothing is retried until they answer.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
@@ -31,7 +32,7 @@ use sha2::{Digest, Sha256};
 use crate::sync::clock::SystemClock;
 use crate::sync::conflict_store::{
     copy_name_id, ConflictEntry, ConflictError, ConflictSource, ConflictStore, FileConflictStore,
-    Resolution,
+    NotePick, Resolution,
 };
 use crate::sync::gate;
 use crate::sync::remote::HttpRemote;
@@ -39,8 +40,8 @@ use crate::sync::state_db::{state_dir, SqliteStateStore, META_DEVICE_ID, META_SP
 use crate::sync::types::SyncError;
 use crate::sync::vault_fs::{FsHooks, VaultFs};
 use crate::sync::vault_types::{
-    ApprovalKind, ConflictChoice, ConflictVersions, ConflictView, PassSummary, PlannedView,
-    StopView, SyncPhase, UnsyncedView, VaultSyncStatus,
+    ApprovalKind, ConflictChoice, ConflictVersions, ConflictView, GroupConflictVersions,
+    PassSummary, PlannedView, StopView, SyncPhase, UnsyncedView, VaultSyncStatus,
 };
 
 /// When passes run (Д19).
@@ -485,6 +486,42 @@ impl SyncSession {
         })
     }
 
+    /// The conflicting notes of a conflict of a group of note properties and a fingerprint of both
+    /// files (З69). `conflict_not_group` when the person can only choose a whole file.
+    pub fn read_group_conflict(&self, id: &str) -> Result<GroupConflictVersions, SyncError> {
+        let shared = &self.shared;
+        let _work = shared.work.lock().unwrap_or_else(|e| e.into_inner());
+        let vault = &shared.config.vault;
+        let mut store = SqliteStateStore::open(vault).map_err(|e| state_error(&e))?;
+        let conflicts = list_conflicts(vault, &mut store).map_err(|e| state_error(&e))?;
+        let conflict = conflicts
+            .into_iter()
+            .find(|conflict| conflict.id == id)
+            .ok_or_else(|| SyncError::new("conflict_not_found"))?;
+        let (mut conflict_store, _files) =
+            conflict_store_of(vault, &mut store, shared).map_err(|e| state_error(&e))?;
+        let group = conflict_store
+            .read_group(&conflict.id)
+            .map_err(|error| SyncError::new(conflict_error_code(&error)))?;
+        Ok(GroupConflictVersions {
+            group,
+            stamp: conflict_stamp(vault, &conflict),
+        })
+    }
+
+    /// Resolves a conflict of a group of note properties by notes (З17, З69): written only when
+    /// both files are what `read_group_conflict` read (`conflict_changed`).
+    pub fn resolve_group_conflict(
+        &self,
+        id: &str,
+        picks: BTreeMap<String, NotePick>,
+        stamp: &str,
+    ) -> Result<(), SyncError> {
+        self.resolve_with(id, Some(stamp), |store, entry, _files, _vault| {
+            store.resolve(&entry.id, Resolution::Notes { picks })
+        })
+    }
+
     /// The common part of resolving a conflict: finds it, changes the files with `change`, takes
     /// the entry out of the list and starts a pass.
     fn resolve_with(
@@ -721,6 +758,8 @@ fn conflict_error_code(error: &ConflictError) -> &'static str {
         ConflictError::Incomplete => "conflict_incomplete",
         ConflictError::OriginalMissing => "conflict_original_missing",
         ConflictError::NotText => "conflict_not_text",
+        ConflictError::NotGroup => "conflict_not_group",
+        ConflictError::IncompletePicks => "conflict_incomplete_picks",
         ConflictError::Storage(_) => "storage_error",
     }
 }

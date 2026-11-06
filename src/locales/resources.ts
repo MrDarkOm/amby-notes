@@ -3817,6 +3817,9 @@ const ru = {
       conflict_not_found: "Этого конфликта уже нет в списке.",
       conflict_changed:
         "Пока вы сравнивали, пришла новая версия. Сравнение обновлено, проверьте выбор.",
+      conflict_not_group:
+        "Этот конфликт нельзя решить по заметкам: выберите версию с одного из компьютеров.",
+      conflict_incomplete_picks: "Выберите версию для каждой заметки в списке.",
       vault_locked: "Это хранилище уже синхронизирует другая копия приложения.",
       state_error: "Не удалось прочитать или записать состояние синхронизации в папке хранилища.",
       state_newer: "Состояние синхронизации записала более новая версия Amby. Обновите приложение.",
@@ -3997,6 +4000,19 @@ const ru = {
             "Служебные данные Amby («{{path}}») изменили на двух компьютерах. Выберите одну версию.",
           keepThis: "Оставить с этого компьютера",
           keepOther: "Взять с другого компьютера",
+          group: {
+            intro:
+              "Оформление свойств изменили на двух компьютерах. Для каждой заметки ниже выберите, чью версию оставить; остальные изменения соединены сами.",
+            note: "«{{title}}»",
+            untitled: "Заметка без названия",
+            current: "С этого компьютера",
+            other: "С другого",
+            done: "Готово",
+            merged: "Остальные изменения ({{count}}) соединены сами.",
+            loading: "Читаю, какие заметки изменили на обоих компьютерах…",
+            changed:
+              "Пока вы выбирали, свойства снова изменились. Список обновлён, сделайте выбор ещё раз.",
+          },
           hint: "Правки, сделанные на компьютере, версию которого вы не выбрали, пропадут. Невыбранная версия не удаляется сразу: копия уходит в корзину хранилища, а прежний файл остаётся в его истории.",
         },
         hint: "«Оставить основной файл» убирает копию в корзину хранилища. «Заменить копией» кладёт текст копии в основной файл, а прежняя версия остаётся в истории файла. «Оставить оба» делает копию отдельной заметкой (ей присваивается свой идентификатор) и убирает строку из списка.",
@@ -7917,6 +7933,9 @@ const en: typeof ru = {
       conflict_not_found: "This conflict is no longer in the list.",
       conflict_changed:
         "A new version arrived while you were comparing. The comparison was refreshed, check your choices.",
+      conflict_not_group:
+        "This conflict cannot be resolved note by note: choose the version of one of the computers.",
+      conflict_incomplete_picks: "Choose a version for every note in the list.",
       vault_locked: "Another copy of the app is already synchronising this vault.",
       state_error:
         "The state of synchronisation in the folder of the vault could not be read or written.",
@@ -8095,6 +8114,19 @@ const en: typeof ru = {
           other: "Amby's own data (“{{path}}”) was changed on two computers. Choose one version.",
           keepThis: "Keep this computer's",
           keepOther: "Take the other computer's",
+          group: {
+            intro:
+              "The look of the properties was changed on two computers. For each note below, choose whose version to keep; the other changes were joined by themselves.",
+            note: "“{{title}}”",
+            untitled: "Untitled note",
+            current: "This computer's",
+            other: "The other's",
+            done: "Done",
+            merged: "The other changes ({{count}}) were joined by themselves.",
+            loading: "Reading which notes were changed on both computers…",
+            changed:
+              "The properties changed again while you were choosing. The list is updated; choose once more.",
+          },
           hint: "The changes made on the computer whose version you did not choose are lost. The version you did not choose is not deleted at once: the copy goes to the trash of the vault, and the previous file stays in its history.",
         },
         hint: "“Keep the main file” moves the copy to the trash of the vault. “Replace with the copy” puts the text of the copy into the main file, and the previous version stays in the history of the file. “Keep both” makes the copy a note of its own (it gets an identifier of its own) and removes the line from the list.",

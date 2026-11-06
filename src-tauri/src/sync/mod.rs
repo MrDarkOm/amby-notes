@@ -90,6 +90,8 @@ mod backup_tests;
 #[cfg(test)]
 mod base_store_tests;
 #[cfg(test)]
+mod conflict_store_group_tests;
+#[cfg(test)]
 mod conflict_store_tests;
 #[cfg(test)]
 mod connection_tests;

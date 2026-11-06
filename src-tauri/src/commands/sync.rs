@@ -6,6 +6,7 @@
 use tauri::State;
 
 use crate::sync::account_types::AccountOverview;
+use crate::sync::conflict_store::NotePick;
 use crate::sync::password::check_password;
 use crate::sync::runtime::SyncRuntime;
 use crate::sync::service::{PrepareRequest, RecoverRequest, SignInRequest, SyncService};
@@ -14,7 +15,8 @@ use crate::sync::types::{
     SyncError, SyncStatus,
 };
 use crate::sync::vault_types::{
-    ApprovalKind, ConflictChoice, ConflictVersions, SpaceTarget, SpaceView, VaultSyncStatus,
+    ApprovalKind, ConflictChoice, ConflictVersions, GroupConflictVersions, SpaceTarget, SpaceView,
+    VaultSyncStatus,
 };
 use crate::vault_context::VaultContext;
 
@@ -307,6 +309,29 @@ pub fn sync_read_conflict_versions(
     id: String,
 ) -> Result<ConflictVersions, SyncError> {
     runtime.read_conflict_versions(&id)
+}
+
+/// The conflicting notes of a conflict of a group of note properties (З69).
+#[tauri::command]
+#[specta::specta]
+pub fn sync_read_group_conflict(
+    runtime: State<'_, SyncRuntime>,
+    id: String,
+) -> Result<GroupConflictVersions, SyncError> {
+    runtime.read_group_conflict(&id)
+}
+
+/// Resolves a conflict of a group of note properties by notes (З69): a pick for every
+/// conflicting note; refused with `conflict_changed` when a file changed since it was read.
+#[tauri::command]
+#[specta::specta]
+pub fn sync_resolve_group_conflict(
+    runtime: State<'_, SyncRuntime>,
+    id: String,
+    picks: std::collections::BTreeMap<String, NotePick>,
+    stamp: String,
+) -> Result<(), SyncError> {
+    runtime.resolve_group_conflict(&id, picks, &stamp)
 }
 
 /// Resolves a conflict with a text put together by the comparison (stage Э4б).

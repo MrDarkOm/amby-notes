@@ -247,6 +247,17 @@ pub struct ConflictVersions {
     pub stamp: String,
 }
 
+/// A conflict of a group of note properties for the choice by notes (З69).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupConflictVersions {
+    /// The conflicting notes and how many lines merged by themselves.
+    pub group: crate::sync::conflict_store::GroupConflictView,
+    /// A fingerprint of both files as they were read; `resolve_group_conflict` refuses picks made
+    /// on versions that have changed since (`conflict_changed`).
+    pub stamp: String,
+}
+
 /// A space of the account, for "connect an existing vault".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]

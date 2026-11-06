@@ -21,6 +21,7 @@ import {
   SyncPortError,
   type ApprovalKind,
   type ConflictChoice,
+  type NotePick,
   type SpaceView,
   type SyncPort,
   type VaultSyncStatus,
@@ -177,6 +178,18 @@ export function SyncVaultPanel({
         setResolving(null)
       })
   }
+
+  const groupActions = React.useMemo(
+    () => ({
+      read: (id: string) => port.readGroupConflict(id),
+      resolve: (id: string, picks: Record<string, NotePick>, stamp: string) => {
+        setError(null)
+        return port.resolveGroupConflict(id, picks, stamp)
+      },
+      onError: (caught: unknown) => setError(syncErrorMessage(caught, t)),
+    }),
+    [port, t],
+  )
 
   const errorLine = error && (
     <div className="space-y-1.5">
@@ -458,7 +471,12 @@ export function SyncVaultPanel({
       )}
       {errorLine}
 
-      <ConflictList items={status.conflicts} busyId={resolving} onResolve={resolve} />
+      <ConflictList
+        items={status.conflicts}
+        busyId={resolving}
+        onResolve={resolve}
+        groups={groupActions}
+      />
       <UnsyncedList items={status.unsynced} />
 
       {backupInfo && <div className="sync-vault-footer">{backupInfo}</div>}

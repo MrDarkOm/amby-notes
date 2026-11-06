@@ -258,6 +258,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::sync::sync_resolve_conflict,
         commands::sync::sync_read_conflict_versions,
         commands::sync::sync_resolve_conflict_with_text,
+        commands::sync::sync_read_group_conflict,
+        commands::sync::sync_resolve_group_conflict,
         ai::cancel_ai_request,
         ai::ai_model_catalog,
         ai::ai_chat,

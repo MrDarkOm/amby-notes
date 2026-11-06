@@ -5,6 +5,7 @@ import { AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { formatSize } from "@/lib/sync/format-size"
 import type { ApprovalKind, ConflictChoice, VaultSyncStatus } from "@/lib/sync/sync-port"
+import { GroupConflictChooser, type GroupConflictActions } from "./sync-group-conflict"
 
 type Stop = NonNullable<VaultSyncStatus["stop"]>
 type Conflict = VaultSyncStatus["conflicts"][number]
@@ -83,6 +84,12 @@ export function UnsyncedList({ items }: { items: Unsynced[] }) {
   )
 }
 
+/** Is `path` a file of a group of note properties (`prop_<x>.jsonl`, `legacy_<x>.jsonl`)? */
+function isPropertyGroupPath(path: string): boolean {
+  const normalized = path.replace(/\\/gu, "/").replace(/^\/+/u, "")
+  return /^\.amby\/properties\/(?:prop|legacy)_[0-9a-f]\.jsonl$/u.test(normalized)
+}
+
 /** The conflicts waiting for the person (Р7): the file, its copy and three ways out. */
 /**
  * A conflict of a file Amby keeps for itself in `.amby/` (the properties of the notes, the
@@ -107,12 +114,15 @@ export function ConflictList({
   busyId,
   onResolve,
   onCompare,
+  groups,
 }: {
   items: Conflict[]
   busyId: string | null
   onResolve: (id: string, choice: ConflictChoice) => void
   /** Adds a "Compare" button that opens the two versions side by side. */
   onCompare?: (id: string) => void
+  /** The choice by notes for a group of note properties that has a base (З69). */
+  groups?: GroupConflictActions
 }) {
   const { t } = useTranslation()
   if (items.length === 0) return null
@@ -134,37 +144,53 @@ export function ConflictList({
                 ["keepCopy", "sync.vault.conflicts.keepCopy"],
                 ["keepBoth", "sync.vault.conflicts.keepBoth"],
               ] as const)
+          const byNotes =
+            groups !== undefined && item.hasBase === true && isPropertyGroupPath(item.originalPath)
+          const buttons = (
+            <div className="flex flex-wrap gap-2">
+              {onCompare && !appData && (
+                <Button type="button" size="sm" onClick={() => onCompare(item.id)}>
+                  {t("sync.notices.compare")}
+                </Button>
+              )}
+              {choices.map(([choice, key]) => (
+                <Button
+                  key={choice}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={busyId !== null}
+                  onClick={() => onResolve(item.id, choice)}
+                >
+                  {t(key)}
+                </Button>
+              ))}
+            </div>
+          )
           return (
             <li key={item.id} className="space-y-2 px-3 py-2.5">
               <p className="text-[12px]">
-                {appData
-                  ? t(`sync.vault.conflicts.appData.${appData}`, { path: item.originalPath })
-                  : t(
-                      item.kind === "bothCreated"
-                        ? "sync.vault.conflicts.bothCreated"
-                        : "sync.vault.conflicts.bothEdited",
-                      { original: item.originalPath, copy: item.copyPath },
-                    )}
+                {byNotes
+                  ? t("sync.vault.conflicts.appData.group.intro")
+                  : appData
+                    ? t(`sync.vault.conflicts.appData.${appData}`, { path: item.originalPath })
+                    : t(
+                        item.kind === "bothCreated"
+                          ? "sync.vault.conflicts.bothCreated"
+                          : "sync.vault.conflicts.bothEdited",
+                        { original: item.originalPath, copy: item.copyPath },
+                      )}
               </p>
-              <div className="flex flex-wrap gap-2">
-                {onCompare && !appData && (
-                  <Button type="button" size="sm" onClick={() => onCompare(item.id)}>
-                    {t("sync.notices.compare")}
-                  </Button>
-                )}
-                {choices.map(([choice, key]) => (
-                  <Button
-                    key={choice}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={busyId !== null}
-                    onClick={() => onResolve(item.id, choice)}
-                  >
-                    {t(key)}
-                  </Button>
-                ))}
-              </div>
+              {byNotes ? (
+                <GroupConflictChooser
+                  id={item.id}
+                  actions={groups}
+                  disabled={busyId !== null}
+                  fallback={buttons}
+                />
+              ) : (
+                buttons
+              )}
             </li>
           )
         })}
