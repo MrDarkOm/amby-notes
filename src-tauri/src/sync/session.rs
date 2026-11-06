@@ -10,6 +10,7 @@
 //!
 //! A pass that stops (Р8) waits for the person; nothing is retried until they answer.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
@@ -31,7 +32,7 @@ use sha2::{Digest, Sha256};
 use crate::sync::clock::SystemClock;
 use crate::sync::conflict_store::{
     copy_name_id, ConflictEntry, ConflictError, ConflictSource, ConflictStore, FileConflictStore,
-    Resolution,
+    NotePick, Resolution,
 };
 use crate::sync::gate;
 use crate::sync::remote::HttpRemote;
@@ -39,8 +40,8 @@ use crate::sync::state_db::{state_dir, SqliteStateStore, META_DEVICE_ID, META_SP
 use crate::sync::types::SyncError;
 use crate::sync::vault_fs::{FsHooks, VaultFs};
 use crate::sync::vault_types::{
-    ApprovalKind, ConflictChoice, ConflictVersions, ConflictView, PassSummary, PlannedView,
-    StopView, SyncPhase, UnsyncedView, VaultSyncStatus,
+    ApprovalKind, ConflictChoice, ConflictVersions, ConflictView, GroupConflictVersions,
+    PassSummary, PlannedView, StopView, SyncPhase, UnsyncedView, VaultSyncStatus,
 };
 
 /// When passes run (Д19).
@@ -485,6 +486,25 @@ impl SyncSession {
         })
     }
 
+    /// The conflicting notes of a conflict of a group of note properties and a fingerprint of both
+    /// files (З69). `conflict_not_group` when the person can only choose a whole file.
+    pub fn read_group_conflict(&self, id: &str) -> Result<GroupConflictVersions, SyncError> {
+        let _ = id;
+        todo!("З69")
+    }
+
+    /// Resolves a conflict of a group of note properties by notes (З17, З69): written only when
+    /// both files are what `read_group_conflict` read (`conflict_changed`).
+    pub fn resolve_group_conflict(
+        &self,
+        id: &str,
+        picks: BTreeMap<String, NotePick>,
+        stamp: &str,
+    ) -> Result<(), SyncError> {
+        let _ = (id, picks, stamp);
+        todo!("З69")
+    }
+
     /// The common part of resolving a conflict: finds it, changes the files with `change`, takes
     /// the entry out of the list and starts a pass.
     fn resolve_with(
@@ -721,6 +741,8 @@ fn conflict_error_code(error: &ConflictError) -> &'static str {
         ConflictError::Incomplete => "conflict_incomplete",
         ConflictError::OriginalMissing => "conflict_original_missing",
         ConflictError::NotText => "conflict_not_text",
+        ConflictError::NotGroup => "conflict_not_group",
+        ConflictError::IncompletePicks => "conflict_incomplete_picks",
         ConflictError::Storage(_) => "storage_error",
     }
 }

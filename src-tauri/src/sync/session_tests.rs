@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use amby_sync_core::engine::RenameHint;
 
+use super::conflict_store::NotePick;
 use super::session::{should_trigger, Schedule, SessionConfig, SyncSession};
 use super::test_support::{pass, settle, wait_for, Env, TempVault};
 use super::vault_types::{ApprovalKind, ConflictChoice, StopView, SyncPhase};
@@ -1485,6 +1486,126 @@ fn a_note_brought_back_after_a_deletion_here_is_reported_here() {
     assert_eq!(
         recorder_b.restored_after_local_deletion(),
         vec!["Notes/n.md"]
+    );
+    sa.stop();
+    sb.stop();
+}
+
+// ----- З69: a conflict of a group of note properties, chosen by notes -----
+
+const GROUP: &str = ".amby/properties/prop_3.jsonl";
+
+/// A group file of notes `(id, icon)`, lines sorted by id.
+fn props_group(notes: &[(&str, &str)]) -> String {
+    let mut text = String::from("{\"version\":1}\n");
+    for (id, icon) in notes {
+        text.push_str(&format!(
+            "{{\"hint\":{{\"path\":\"{id}.md\"}},\"id\":\"{id}\",\"props\":{{\"Заказчик\":{{\"icon\":\"{icon}\"}}}}}}\n"
+        ));
+    }
+    text
+}
+
+fn props_icons(text: &str) -> BTreeMap<String, String> {
+    text.lines()
+        .skip(1)
+        .map(|l| {
+            let v: serde_json::Value = serde_json::from_str(l).unwrap();
+            (
+                v["id"].as_str().unwrap().to_string(),
+                v["props"]["Заказчик"]["icon"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect()
+}
+
+/// A and B edit note A differently; A also edits B, B also edits C.
+fn group_conflict_between_two(
+    env: &Env,
+) -> (TempVault, TempVault, SyncSession, SyncSession, String) {
+    let (a, b) = (TempVault::new("a"), TempVault::new("b"));
+    a.put("Keep.md", b"keep");
+    a.put(
+        GROUP,
+        props_group(&[("A", "0"), ("B", "0"), ("C", "0")]).as_bytes(),
+    );
+    let (sa, _) = env.start(&a, &env.account);
+    let (sb, _) = env.start(&b, &env.another_computer("B"));
+    settle(&sa, &sb);
+    a.put(
+        GROUP,
+        props_group(&[("A", "L"), ("B", "L"), ("C", "0")]).as_bytes(),
+    );
+    b.put(
+        GROUP,
+        props_group(&[("A", "R"), ("B", "0"), ("C", "R")]).as_bytes(),
+    );
+    pass(&sa);
+    let status = pass(&sb);
+    assert_eq!(status.conflicts.len(), 1, "{:?}", status.conflicts);
+    assert_eq!(status.conflicts[0].original_path, GROUP);
+    let id = status.conflicts[0].id.clone();
+    (a, b, sa, sb, id)
+}
+
+#[test]
+fn a_conflict_of_a_group_is_chosen_by_notes_and_no_edit_of_another_note_is_lost() {
+    // З17, З69: the person decides note A; B (edited on a) and C (edited on b) stay everywhere
+    let env = Env::new();
+    let (a, b, sa, sb, id) = group_conflict_between_two(&env);
+    let read = sb.read_group_conflict(&id).unwrap();
+    assert_eq!(
+        read.group
+            .notes
+            .iter()
+            .map(|n| n.note_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["A"]
+    );
+    assert_eq!(read.group.notes[0].note_title.as_deref(), Some("A"));
+    let picks: BTreeMap<String, NotePick> = [("A".to_string(), NotePick::Other)].into();
+    sb.resolve_group_conflict(&id, picks, &read.stamp).unwrap();
+    let status = pass(&sb);
+    assert!(status.conflicts.is_empty(), "the entry left the list");
+    let got = props_icons(&b.text(GROUP).unwrap());
+    assert_eq!(got["B"], "L", "the edit of a is kept");
+    assert_eq!(got["C"], "R", "the edit of b is kept");
+    assert!(got["A"] == "L" || got["A"] == "R");
+    settle(&sa, &sb);
+    assert_eq!(a.text(GROUP), b.text(GROUP));
+    sa.stop();
+    sb.stop();
+}
+
+#[test]
+fn picks_made_on_versions_that_changed_are_not_written() {
+    // З69: as with the comparison, nothing overwrites what arrived while the person chose
+    let env = Env::new();
+    let (_a, b, sa, sb, id) = group_conflict_between_two(&env);
+    let stamp = sb.read_group_conflict(&id).unwrap().stamp;
+    let changed = props_group(&[("A", "X"), ("B", "L"), ("C", "0")]);
+    b.put(GROUP, changed.as_bytes());
+    let picks: BTreeMap<String, NotePick> = [("A".to_string(), NotePick::Other)].into();
+    assert_eq!(
+        sb.resolve_group_conflict(&id, picks.clone(), &stamp)
+            .unwrap_err()
+            .code,
+        "conflict_changed"
+    );
+    assert_eq!(b.text(GROUP).as_deref(), Some(changed.as_str()));
+    assert_eq!(sb.status().conflicts.len(), 1, "the conflict stays");
+    sa.stop();
+    sb.stop();
+}
+
+#[test]
+fn a_conflict_of_a_note_cannot_be_chosen_by_notes() {
+    // З69: `conflict_not_group` — the window keeps its whole-file choice
+    let env = Env::new();
+    let (_a, _b, sa, sb, id) = conflict_between_two(&env);
+    assert_eq!(
+        sb.read_group_conflict(&id).unwrap_err().code,
+        "conflict_not_group"
     );
     sa.stop();
     sb.stop();
