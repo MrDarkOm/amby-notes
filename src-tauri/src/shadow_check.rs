@@ -509,5 +509,7 @@ pub fn note_patch(
 ) {
 }
 
-#[cfg(test)]
+// The check exists only in development builds, so its tests do too: in a release build
+// `enabled` is not compiled and every entry point is empty.
+#[cfg(all(test, debug_assertions))]
 mod tests;
