@@ -56,6 +56,8 @@ export const KNOWN_SYNC_ERROR_CODES: readonly string[] = [
   "sync_not_running",
   "conflict_not_found",
   "conflict_changed",
+  "conflict_not_group",
+  "conflict_incomplete_picks",
   "vault_locked",
   "state_error",
   "state_newer",
