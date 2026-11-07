@@ -117,6 +117,49 @@ describe("the badge and the list of conflicts", () => {
       expect(port.resolveConflict).toHaveBeenCalledWith("0123456789ab", "keepOriginal"),
     )
   })
+
+  it("chooses a conflict of a group of note properties by notes, as the settings do (З69)", async () => {
+    const group = {
+      ...conflict,
+      originalPath: ".amby/properties/prop_3.jsonl",
+      copyPath: ".amby/conflicts/0123456789ab/other.jsonl",
+      hasBase: true,
+    }
+    const resolveGroupConflict = vi.fn(async () => {})
+    const port = createFakePort({
+      vaultStatus: async () => vaultStatus({ conflicts: [group] }),
+      readGroupConflict: vi.fn(async () => ({
+        group: {
+          notes: [
+            {
+              noteId: "A",
+              notePath: "Идея.md",
+              noteTitle: "Идея",
+              changes: [],
+              orderDiffers: true,
+              currentRemoved: false,
+              otherRemoved: false,
+            },
+          ],
+          autoMerged: 2,
+        },
+        stamp: "stamp-g",
+      })),
+      resolveGroupConflict,
+    })
+    render(<SyncNoticesHost port={port} />)
+    fireEvent.click(await screen.findByTestId("sync-conflict-badge"))
+    const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+    const notes = await within(row).findByTestId("sync-group-notes")
+    expect(notes.textContent).toMatch(/«Идея»/)
+    expect(within(row).queryByRole("button", { name: "Взять с другого компьютера" })).toBeNull()
+    fireEvent.click(within(notes).getByRole("radio", { name: "Другой компьютер" }))
+    fireEvent.click(within(row).getByRole("button", { name: "Применить" }))
+    await waitFor(() =>
+      expect(resolveGroupConflict).toHaveBeenCalledWith("0123456789ab", { A: "other" }, "stamp-g"),
+    )
+    expect(port.resolveConflict).not.toHaveBeenCalled()
+  })
 })
 
 describe("the notice about a new conflict", () => {

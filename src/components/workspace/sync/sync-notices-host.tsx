@@ -6,7 +6,12 @@ import { Button } from "@/components/ui/button"
 import { formatSize } from "@/lib/sync/format-size"
 
 import { syncErrorMessage } from "@/lib/sync/sync-errors"
-import { resolveSyncPort, type ConflictChoice, type SyncPort } from "@/lib/sync/sync-port"
+import {
+  resolveSyncPort,
+  type ConflictChoice,
+  type NotePick,
+  type SyncPort,
+} from "@/lib/sync/sync-port"
 import { relativeToVault } from "../editor/document-breadcrumbs-utils"
 import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { OPEN_SETTINGS_REQUEST_EVENT } from "../settings-navigation"
@@ -207,6 +212,19 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
       .finally(() => setResolving(null))
   }
 
+  // З69: a conflict of a group of note properties is chosen by notes here as in the settings.
+  const groupActions = React.useMemo(
+    () => ({
+      read: (id: string) => port.readGroupConflict(id),
+      resolve: (id: string, picks: Record<string, NotePick>, stamp: string) => {
+        setError(null)
+        return port.resolveGroupConflict(id, picks, stamp)
+      },
+      onError: (caught: unknown) => setError(syncErrorMessage(caught, t)),
+    }),
+    [port, t],
+  )
+
   const shownLimits = limitNotices.filter((notice) => !dismissedLimits.includes(notice.kind))
   const showList = () => {
     window.dispatchEvent(
@@ -293,6 +311,7 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
               items={conflicts}
               busyId={resolving}
               onResolve={resolve}
+              groups={groupActions}
               onCompare={(id) => {
                 setListOpen(false)
                 openCompare(id)

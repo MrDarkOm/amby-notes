@@ -4002,12 +4002,21 @@ const ru = {
           keepOther: "Взять с другого компьютера",
           group: {
             intro:
-              "Оформление свойств изменили на двух компьютерах. Для каждой заметки ниже выберите, чью версию оставить; остальные изменения соединены сами.",
+              "Оформление свойств заметки отличается на двух компьютерах. Выберите, какое оставить.",
+            introMany:
+              "Оформление свойств этих заметок отличается на двух компьютерах. Для каждой выберите, какое оставить.",
             note: "«{{title}}»",
             untitled: "Заметка без названия",
-            current: "С этого компьютера",
-            other: "С другого",
-            done: "Готово",
+            current: "Этот компьютер",
+            other: "Другой компьютер",
+            done: "Применить",
+            defaultLook: "Как по умолчанию",
+            removed: "Оформление заметки удалено",
+            order: "Свой порядок свойств",
+            options: "другие варианты",
+            settings: "другие настройки",
+            sameLook: "Оформление не меняли",
+            keep: "Прежнее оформление останется в истории хранилища.",
             merged: "Остальные изменения ({{count}}) соединены сами.",
             loading: "Читаю, какие заметки изменили на обоих компьютерах…",
             changed:
@@ -8116,12 +8125,21 @@ const en: typeof ru = {
           keepOther: "Take the other computer's",
           group: {
             intro:
-              "The look of the properties was changed on two computers. For each note below, choose whose version to keep; the other changes were joined by themselves.",
+              "The look of the note's properties differs on the two computers. Choose which one to keep.",
+            introMany:
+              "The look of these notes' properties differs on the two computers. Choose which one to keep for each.",
             note: "“{{title}}”",
             untitled: "Untitled note",
-            current: "This computer's",
-            other: "The other's",
-            done: "Done",
+            current: "This computer",
+            other: "Other computer",
+            done: "Apply",
+            defaultLook: "Default look",
+            removed: "The note's look was removed",
+            order: "Own order of properties",
+            options: "other options",
+            settings: "other settings",
+            sameLook: "The look was not changed",
+            keep: "The previous look stays in the history of the vault.",
             merged: "The other changes ({{count}}) were joined by themselves.",
             loading: "Reading which notes were changed on both computers…",
             changed:

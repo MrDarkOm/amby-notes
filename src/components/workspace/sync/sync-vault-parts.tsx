@@ -169,27 +169,35 @@ export function ConflictList({
           )
           return (
             <li key={item.id} className="space-y-2 px-3 py-2.5">
-              <p className="text-[12px]">
-                {byNotes
-                  ? t("sync.vault.conflicts.appData.group.intro")
-                  : appData
-                    ? t(`sync.vault.conflicts.appData.${appData}`, { path: item.originalPath })
-                    : t(
-                        item.kind === "bothCreated"
-                          ? "sync.vault.conflicts.bothCreated"
-                          : "sync.vault.conflicts.bothEdited",
-                        { original: item.originalPath, copy: item.copyPath },
-                      )}
-              </p>
               {byNotes ? (
                 <GroupConflictChooser
                   id={item.id}
                   actions={groups}
                   disabled={busyId !== null}
-                  fallback={buttons}
+                  fallback={
+                    <>
+                      <p className="text-[12px]">{t("sync.vault.conflicts.appData.properties")}</p>
+                      {buttons}
+                      <p className="text-[11px] text-muted-foreground">
+                        {t("sync.vault.conflicts.appData.hint")}
+                      </p>
+                    </>
+                  }
                 />
               ) : (
-                buttons
+                <>
+                  <p className="text-[12px]">
+                    {appData
+                      ? t(`sync.vault.conflicts.appData.${appData}`, { path: item.originalPath })
+                      : t(
+                          item.kind === "bothCreated"
+                            ? "sync.vault.conflicts.bothCreated"
+                            : "sync.vault.conflicts.bothEdited",
+                          { original: item.originalPath, copy: item.copyPath },
+                        )}
+                  </p>
+                  {buttons}
+                </>
               )}
             </li>
           )
@@ -198,7 +206,15 @@ export function ConflictList({
       {items.some((item) => !appDataConflictKind(item.originalPath)) && (
         <p className="text-[11px] text-muted-foreground">{t("sync.vault.conflicts.hint")}</p>
       )}
-      {items.some((item) => appDataConflictKind(item.originalPath)) && (
+      {items.some(
+        (item) =>
+          appDataConflictKind(item.originalPath) &&
+          !(
+            groups !== undefined &&
+            item.hasBase === true &&
+            isPropertyGroupPath(item.originalPath)
+          ),
+      ) && (
         <p className="text-[11px] text-muted-foreground">
           {t("sync.vault.conflicts.appData.hint")}
         </p>

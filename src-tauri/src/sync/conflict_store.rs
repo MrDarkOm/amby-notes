@@ -21,6 +21,7 @@ use amby_sync_core::engine::props_groups::{
 use amby_sync_core::engine::rules::is_excluded_path;
 use amby_sync_core::engine::{ConflictKind, FsError, LocalFs, SnapshotReason, TrashReason};
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use unicode_normalization::UnicodeNormalization;
 use walkdir::WalkDir;
@@ -133,6 +134,36 @@ pub struct GroupConflictNote {
     pub note_path: Option<String>,
     /// The name of the note file without `.md`.
     pub note_title: Option<String>,
+    /// The properties whose look differs between the two computers, by name.
+    pub changes: Vec<GroupPropertyChange>,
+    /// The order of the properties differs between the two computers.
+    pub order_differs: bool,
+    /// The line of the note is gone from the file on the path (this computer removed it).
+    pub current_removed: bool,
+    /// The line of the note is gone from the second version (the other computer removed it).
+    pub other_removed: bool,
+}
+
+/// One property of a conflicting note whose look differs between the two computers (З69).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupPropertyChange {
+    pub name: String,
+    /// The look on this computer; `None` when the note does not change the property here.
+    pub current: Option<PropertyLook>,
+    /// The look on the other computer; `None` when the note does not change the property there.
+    pub other: Option<PropertyLook>,
+}
+
+/// What a note changes in a property against the template (З47), for showing it (З69).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PropertyLook {
+    /// An `IconValue`.
+    pub icon: Option<String>,
+    pub property_type: Option<String>,
+    /// The settings of the type as JSON text (options, colors).
+    pub settings: Option<String>,
 }
 
 /// What a conflict of a group of note properties holds (З17, З69).
@@ -226,13 +257,54 @@ struct GroupVersions {
 
 /// `hint.path` of the line of `note_id` in a group file, when it has one (З69).
 fn hint_path(kind: GroupKind, bytes: &[u8], note_id: &str) -> Option<String> {
+    note_line(kind, bytes, note_id)?
+        .get("hint")?
+        .get("path")?
+        .as_str()
+        .map(str::to_string)
+}
+
+/// The line of a note in a group file, or `None` when the file has no line for it.
+fn note_line(kind: GroupKind, bytes: &[u8], note_id: &str) -> Option<Map<String, Value>> {
     let text = std::str::from_utf8(bytes).ok()?;
     text.trim_start_matches('\u{feff}')
         .lines()
         .skip(1)
         .filter_map(|line| parse_line(kind, line.trim_end_matches('\r')).ok())
         .find(|line| line.get("id").and_then(|id| id.as_str()) == Some(note_id))
-        .and_then(|line| line.get("hint")?.get("path")?.as_str().map(str::to_string))
+}
+
+/// The properties whose look differs between two lines of a note, by name (З69).
+fn property_changes(
+    current: Option<&Map<String, Value>>,
+    other: Option<&Map<String, Value>>,
+) -> Vec<GroupPropertyChange> {
+    let props = |line: Option<&Map<String, Value>>| -> BTreeMap<String, Value> {
+        line.and_then(|l| l.get("props"))
+            .and_then(Value::as_object)
+            .map(|map| map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+            .unwrap_or_default()
+    };
+    let (mine, theirs) = (props(current), props(other));
+    let names: BTreeSet<&String> = mine.keys().chain(theirs.keys()).collect();
+    names
+        .into_iter()
+        .filter(|name| mine.get(*name) != theirs.get(*name))
+        .map(|name| GroupPropertyChange {
+            name: name.clone(),
+            current: mine.get(name).map(look_of),
+            other: theirs.get(name).map(look_of),
+        })
+        .collect()
+}
+
+fn look_of(diff: &Value) -> PropertyLook {
+    let text = |key: &str| diff.get(key).and_then(Value::as_str).map(str::to_string);
+    PropertyLook {
+        icon: text("icon"),
+        property_type: text("propertyType"),
+        settings: text("settings"),
+    }
 }
 
 /// Is `bytes` something both sides of a comparison can show as text (Г28, Г5)?
@@ -280,6 +352,8 @@ impl FileConflictStore {
         let notes = notes
             .into_iter()
             .map(|note_id| {
+                let current = note_line(group.kind, &group.current, &note_id);
+                let other = note_line(group.kind, &group.other, &note_id);
                 let note_path = hint_path(group.kind, &group.current, &note_id)
                     .or_else(|| hint_path(group.kind, &group.other, &note_id));
                 let note_title = note_path.as_deref().and_then(|path| {
@@ -292,6 +366,11 @@ impl FileConflictStore {
                     note_id,
                     note_path,
                     note_title,
+                    changes: property_changes(current.as_ref(), other.as_ref()),
+                    order_differs: current.as_ref().and_then(|l| l.get("order"))
+                        != other.as_ref().and_then(|l| l.get("order")),
+                    current_removed: current.is_none(),
+                    other_removed: other.is_none(),
                 }
             })
             .collect();

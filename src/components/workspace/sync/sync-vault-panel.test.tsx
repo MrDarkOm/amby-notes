@@ -589,8 +589,30 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
   const groupRead = {
     group: {
       notes: [
-        { noteId: "A", notePath: "Папка/Идея.md", noteTitle: "Идея" },
-        { noteId: "B", notePath: null, noteTitle: null },
+        {
+          noteId: "A",
+          notePath: "Папка/Идея.md",
+          noteTitle: "Идея",
+          changes: [
+            {
+              name: "Статус",
+              current: { icon: "lucide:star", propertyType: "select", settings: null },
+              other: null,
+            },
+          ],
+          orderDiffers: true,
+          currentRemoved: false,
+          otherRemoved: false,
+        },
+        {
+          noteId: "B",
+          notePath: null,
+          noteTitle: null,
+          changes: [],
+          orderDiffers: false,
+          currentRemoved: false,
+          otherRemoved: true,
+        },
       ],
       autoMerged: 3,
     },
@@ -611,16 +633,27 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
     expect(row.textContent).toMatch(/Остальные изменения \(3\) соединены сами/)
     expect(row.textContent).not.toMatch(/\.amby/)
     expect(within(row).queryByRole("button", { name: "Взять с другого компьютера" })).toBeNull()
-    const done = within(row).getByRole("button", { name: "Готово" })
+    const done = within(row).getByRole("button", { name: "Применить" })
     expect(done).toHaveProperty("disabled", true)
-    const [first, second] = within(notes).getAllByRole("group")
-    fireEvent.click(within(first).getByRole("button", { name: "С другого" }))
+    const [first, second] = within(notes).getAllByRole("radiogroup")
+    // each side shows what it keeps: the property, its type, the default look, the removal
+    const mine = within(first).getByRole("radio", { name: "Этот компьютер" })
+    const theirs = within(first).getByRole("radio", { name: "Другой компьютер" })
+    expect(mine.textContent).toMatch(/Статус/)
+    expect(mine.textContent).toMatch(/Выбор/)
+    expect(mine.textContent).toMatch(/Свой порядок свойств/)
+    expect(theirs.textContent).toMatch(/Статус/)
+    expect(theirs.textContent).toMatch(/Как по умолчанию/)
+    expect(within(second).getByRole("radio", { name: "Другой компьютер" }).textContent).toMatch(
+      /Оформление заметки удалено/,
+    )
+    // the warning about the whole file does not apply to the choice by notes
+    expect(screen.queryByText(/пропадут/)).toBeNull()
+    fireEvent.click(within(first).getByRole("radio", { name: "Другой компьютер" }))
     expect(done).toHaveProperty("disabled", true)
-    fireEvent.click(within(second).getByRole("button", { name: "С этого компьютера" }))
+    fireEvent.click(within(second).getByRole("radio", { name: "Этот компьютер" }))
     expect(
-      within(second)
-        .getByRole("button", { name: "С этого компьютера" })
-        .getAttribute("aria-pressed"),
+      within(second).getByRole("radio", { name: "Этот компьютер" }).getAttribute("aria-checked"),
     ).toBe("true")
     expect(done).toHaveProperty("disabled", false)
     fireEvent.click(done)
@@ -649,14 +682,14 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
     })
     const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
     const notes = await within(row).findByTestId("sync-group-notes")
-    for (const note of within(notes).getAllByRole("group")) {
-      fireEvent.click(within(note).getByRole("button", { name: "С другого" }))
+    for (const note of within(notes).getAllByRole("radiogroup")) {
+      fireEvent.click(within(note).getByRole("radio", { name: "Другой компьютер" }))
     }
-    fireEvent.click(within(row).getByRole("button", { name: "Готово" }))
+    fireEvent.click(within(row).getByRole("button", { name: "Применить" }))
     await waitFor(() => expect(readGroupConflict).toHaveBeenCalledTimes(2))
     expect((await screen.findByRole("alert")).textContent).toMatch(/выбор ещё раз/)
     // the choice starts again on the new versions
-    expect(within(row).getByRole("button", { name: "Готово" })).toHaveProperty("disabled", true)
+    expect(within(row).getByRole("button", { name: "Применить" })).toHaveProperty("disabled", true)
   })
 
   it("keeps the whole-file choice for a group the app cannot choose by notes", async () => {
