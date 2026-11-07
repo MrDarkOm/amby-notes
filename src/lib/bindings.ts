@@ -2522,7 +2522,23 @@ notePath: string | null;
 /**
  * The name of the note file without `.md`.
  */
-noteTitle: string | null }
+noteTitle: string | null; 
+/**
+ * The properties whose look differs between the two computers, by name.
+ */
+changes: GroupPropertyChange[]; 
+/**
+ * The order of the properties differs between the two computers.
+ */
+orderDiffers: boolean; 
+/**
+ * The line of the note is gone from the file on the path (this computer removed it).
+ */
+currentRemoved: boolean; 
+/**
+ * The line of the note is gone from the second version (the other computer removed it).
+ */
+otherRemoved: boolean }
 /**
  * A conflict of a group of note properties for the choice by notes (З69).
  */
@@ -2548,6 +2564,18 @@ notes: GroupConflictNote[];
  * How many lines the merge settled by itself.
  */
 autoMerged: number }
+/**
+ * One property of a conflicting note whose look differs between the two computers (З69).
+ */
+export type GroupPropertyChange = { name: string; 
+/**
+ * The look on this computer; `None` when the note does not change the property here.
+ */
+current: PropertyLook | null; 
+/**
+ * The look on the other computer; `None` when the note does not change the property there.
+ */
+other: PropertyLook | null }
 export type HistoryCleanupPreview = { removedCount: number; freedBytes: number; remaining: HistoryStats }
 export type HistoryCleanupResult = { removedCount: number; freedBytes: number; remaining: HistoryStats }
 export type HistoryRetention = { maxSnapshotsPerNote: number; maxAgeDays: number | null }
@@ -2871,6 +2899,18 @@ export type ProjectionVersion = { epoch: string; seq: number }
  * The inspection of the properties of the vault (З10).
  */
 export type PropertyInspection = { dormant: NotePropertyRef[]; orphans: string[]; ambiguous: NotePropertyRef[]; reservedNames: NotePropertyRef[]; unfinishedOperations: string[]; badLines: BadLineView[] }
+/**
+ * What a note changes in a property against the template (З47), for showing it (З69).
+ */
+export type PropertyLook = { 
+/**
+ * An `IconValue`.
+ */
+icon: string | null; propertyType: string | null; 
+/**
+ * The settings of the type as JSON text (options, colors).
+ */
+settings: string | null }
 export type PropertyPanel = { unreadable: boolean; active: PanelProperty[]; dormant: DormantView[]; renameHint: RenameHintView | null; warnings: PanelWarningView[] }
 /**
  * Where the properties of the open vault live (З6, З38) and whether an old version writes.
