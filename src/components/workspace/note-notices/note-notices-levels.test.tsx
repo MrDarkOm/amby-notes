@@ -38,7 +38,7 @@ function mount(props: Partial<NoteNoticesProps> = {}) {
 /** The stack, opened with a click if the card did not open it by itself. */
 function card(testId: string) {
   if (!screen.queryByTestId("note-notices-stack")) {
-    fireEvent.click(screen.getByTestId("note-notices-bulb"))
+    fireEvent.click(screen.getByTestId("note-notices-strip"))
   }
   return screen.getByTestId(testId)
 }

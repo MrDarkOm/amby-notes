@@ -46,7 +46,7 @@ function mount() {
   )
 }
 const open = async () => {
-  fireEvent.click(await screen.findByTestId("note-notices-bulb"))
+  fireEvent.click(await screen.findByTestId("note-notices-strip"))
 }
 
 beforeEach(async () => {
@@ -76,7 +76,7 @@ describe("the notices of the properties", () => {
     port.propertyStorageStatus.mockResolvedValue(null)
     mount()
     await waitFor(() => expect(port.propertyStorageStatus).toHaveBeenCalled())
-    expect(screen.queryByTestId("note-notices-bulb")).toBeNull()
+    expect(screen.queryByTestId("note-notices-strip")).toBeNull()
   })
 
   it("tell once after the migration that the properties are in the new format, with no question before it", async () => {
@@ -125,7 +125,7 @@ describe("the notices of the properties", () => {
     expect(await screen.findByText(/только для чтения/)).toBeTruthy()
   })
 
-  it("keep the differing values under the bulb after the migration: a warning does not open the stack", async () => {
+  it("keep the differing values under the strip after the migration: a warning does not open the stack", async () => {
     port.propertyStorageStatus.mockResolvedValue(groups)
     port.openVaultProperties.mockResolvedValue({
       state: "migrated",
@@ -134,7 +134,7 @@ describe("the notices of the properties", () => {
       diverged: [{ noteId: "N7", name: "Заказчик", fileValue: "А", headerValue: "Б" }],
     })
     mount()
-    expect(await screen.findByTestId("note-notices-bulb")).toBeTruthy()
+    expect(await screen.findByTestId("note-notices-strip")).toBeTruthy()
     expect(screen.queryByTestId("note-notices-stack")).toBeNull()
   })
 
@@ -176,7 +176,7 @@ describe("the notices of the properties", () => {
     expect(storage.getNoteProperties).toHaveBeenCalledWith("/vault", "N1")
   })
 
-  it("keep the plain «moved» notice under the bulb", async () => {
+  it("keep the plain «moved» notice under the strip", async () => {
     port.propertyStorageStatus.mockResolvedValue(groups)
     port.openVaultProperties.mockResolvedValue({
       state: "migrated",
@@ -185,7 +185,7 @@ describe("the notices of the properties", () => {
       diverged: [],
     })
     mount()
-    expect(await screen.findByTestId("note-notices-bulb")).toBeTruthy()
+    expect(await screen.findByTestId("note-notices-strip")).toBeTruthy()
     expect(screen.queryByTestId("note-notices-stack")).toBeNull()
   })
 

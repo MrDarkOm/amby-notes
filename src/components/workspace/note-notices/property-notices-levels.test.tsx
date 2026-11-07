@@ -51,7 +51,7 @@ function mount() {
 }
 
 async function card(testId: string) {
-  const bulb = await screen.findByTestId("note-notices-bulb")
+  const bulb = await screen.findByTestId("note-notices-strip")
   if (!screen.queryByTestId("note-notices-stack")) fireEvent.click(bulb)
   return screen.findByTestId(testId)
 }
@@ -107,7 +107,7 @@ describe("the level of the cards of the properties", () => {
     port.openVaultProperties.mockResolvedValue(migrated([item]))
     mount()
     // a warning: the stack waits for a click, and the card says so with its flag
-    await screen.findByTestId("note-notices-bulb")
+    await screen.findByTestId("note-notices-strip")
     expect(screen.queryByTestId("note-notices-stack")).toBeNull()
     const migratedCard = await card("note-notice-properties-migrated")
     expect(migratedCard.getAttribute("data-level")).toBe("warning")

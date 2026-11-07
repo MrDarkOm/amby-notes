@@ -2,6 +2,7 @@ import { create } from "zustand"
 
 import type { VaultSyncStatus } from "@/lib/sync/sync-port"
 import { relativeToVault } from "../editor/document-breadcrumbs-utils"
+import type { LimitNotice } from "./limit-notices"
 
 export type SyncConflict = VaultSyncStatus["conflicts"][number]
 
@@ -16,6 +17,13 @@ interface SyncNoticesState {
   /** Paths whose return from the archive failed: the general "deleted" strip is shown again. */
   restoreFailed: string[]
   setRestoreFailed: (path: string, failed: boolean) => void
+  /** The notices about the limits of the plan that are shown now (one per cause, closed ones left out). */
+  limits: LimitNotice[]
+  setLimits: (limits: LimitNotice[]) => void
+  /** The list of conflicts beside the notices button of the dock is open. */
+  conflictListOpen: boolean
+  toggleConflictList: () => void
+  closeConflictList: () => void
   /** The conflict shown in the comparison, if any. */
   compareId: string | null
   setConflicts: (conflicts: SyncConflict[]) => void
@@ -30,6 +38,11 @@ export const useSyncNoticesStore = create<SyncNoticesState>((set) => ({
   remoteDeleted: [],
   compareId: null,
   restoreFailed: [],
+  limits: [],
+  setLimits: (limits) => set({ limits }),
+  conflictListOpen: false,
+  toggleConflictList: () => set((state) => ({ conflictListOpen: !state.conflictListOpen })),
+  closeConflictList: () => set({ conflictListOpen: false }),
   setRestoreFailed: (path, failed) =>
     set((state) => {
       const rest = state.restoreFailed.filter((item) => item !== path)

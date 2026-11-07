@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // The notices of a note above the bottom bar (docs/sync-plan.md, stage Э4б, К3): a stack of cards and a
-// bulb with the number. The bulb is there only while there is something to say; urgent cards (a new
+// strip with the most serious card. The strip is there only while there is something to say; urgent cards (a new
 // sync conflict, text in danger) open it by themselves; every warning that used to be a strip above the
 // note is a card here with the same buttons. Behaviour only; how it looks is checked in a native window.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -40,7 +40,7 @@ function mount(props: Partial<NoteNoticesProps> = {}) {
   return render(<NoteNotices {...merged} />)
 }
 
-const bulb = () => screen.queryByTestId("note-notices-bulb")
+const bulb = () => screen.queryByTestId("note-notices-strip")
 const stack = () => screen.queryByTestId("note-notices-stack")
 
 beforeEach(async () => {
@@ -70,17 +70,19 @@ describe("important warnings of the properties", () => {
   })
 })
 
-describe("the bulb", () => {
+describe("the strip", () => {
   it("is not there while the note has nothing to say", () => {
     mount()
     expect(bulb()).toBeNull()
     expect(stack()).toBeNull()
   })
 
-  it("appears with the number of notices and opens and hides the stack on a click", () => {
+  it("shows the most serious card in one line, and opens and hides the stack on a click", () => {
     mount({ warningKey: "workspace.losslessSourceOnly" })
     const button = bulb()!
-    expect(button.textContent).toContain("1")
+    // one card: its title, and no "+N"
+    expect(button.textContent).toContain(i18n.t("workspace.losslessSourceOnly"))
+    expect(button.textContent).not.toMatch(/\+\d/)
     expect(button.getAttribute("aria-label")).toMatch(/Уведомления заметки: 1/)
     // a warning does not open by itself
     expect(stack()).toBeNull()
@@ -89,13 +91,17 @@ describe("the bulb", () => {
     expect(button.getAttribute("aria-expanded")).toBe("true")
     fireEvent.click(button)
     expect(stack()).toBeNull()
+    expect(button.getAttribute("aria-expanded")).toBe("false")
   })
 
-  it("counts every notice of this note, and no notice of another note", () => {
+  it("counts every other notice of this note as +N, and no notice of another note", () => {
     useSyncNoticesStore.setState({ conflicts: [conflict] })
     useNoteNoticesStore.getState().markRestored(ORIGINAL)
     mount({ warningKey: "workspace.losslessSourceOnly" })
-    expect(bulb()!.textContent).toContain("3")
+    expect(bulb()!.textContent).toContain("+2")
+    expect(bulb()!.getAttribute("aria-label")).toMatch(/Уведомления заметки: 3/)
+    // the line shows the most serious one: the conflict
+    expect(bulb()!.textContent).toContain("Пришла другая версия заметки")
     cleanup()
     mount({ document: { id: "/vault/Заметки/другая.md", path: "/vault/Заметки/другая.md" } })
     expect(bulb()).toBeNull()
@@ -114,11 +120,18 @@ describe("the bulb", () => {
     mount()
     expect(bulb()).toBeNull()
     act(() => useNoteNoticesStore.getState().setSaveFailed(ABSOLUTE, true))
-    expect(bulb()!.textContent).toContain("1")
+    expect(bulb()!.textContent).not.toMatch(/\+\d/)
     act(() => useSyncNoticesStore.getState().setConflicts([conflict]))
-    expect(bulb()!.textContent).toContain("2")
+    expect(bulb()!.textContent).toContain("+1")
     act(() => useNoteNoticesStore.getState().setSaveFailed(ABSOLUTE, false))
-    expect(bulb()!.textContent).toContain("1")
+    expect(bulb()!.textContent).not.toMatch(/\+\d/)
+  })
+
+  it("does not draw the old bulb or a stack of its own beside the strip", () => {
+    useNoteNoticesStore.getState().markRestored(ORIGINAL)
+    mount()
+    expect(screen.queryByTestId("note-notices-bulb")).toBeNull()
+    expect(screen.getByTestId("note-notices").contains(bulb())).toBe(true)
   })
 })
 
@@ -309,7 +322,7 @@ describe("a note deleted on another computer", () => {
     mount({ document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true } })
     expect(within(stack()!).getByText(message)).toBeTruthy()
     expect(within(stack()!).queryByText("Файл удалён")).toBeNull()
-    expect(bulb()!.textContent).toContain("1")
+    expect(bulb()!.getAttribute("aria-label")).toMatch(/: 1$/)
   })
 
   it("brings the file back from the archive of the vault and the card goes away", async () => {

@@ -19,6 +19,7 @@ import {
 } from "./fake-sync-port"
 import { NoteNotices } from "../note-notices/note-notices"
 import { SyncNoticesHost } from "./sync-notices-host"
+import { NoticesDock, dockButton } from "./dock-test-harness"
 import { useSyncNoticesStore } from "./use-sync-notices-store"
 
 vi.mock("@/lib/storage", async (importOriginal) => ({
@@ -62,7 +63,12 @@ async function mount(status = vaultStatus()) {
       stamp: "stamp-1",
     }),
   })
-  const view = render(<SyncNoticesHost port={port} />)
+  const view = render(
+    <>
+      <SyncNoticesHost port={port} />
+      <NoticesDock />
+    </>,
+  )
   await waitFor(() => expect(port.vaultStatus).toHaveBeenCalled())
   return { port, ...view }
 }
@@ -84,34 +90,41 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe("the badge and the list of conflicts", () => {
-  it("shows nothing while there is no conflict", async () => {
+describe("the dock button and the list of conflicts", () => {
+  it("shows no number while there is no conflict, and no floating badge", async () => {
     await mount()
+    expect(dockButton()).not.toBeNull()
+    expect(screen.queryByTestId("notices-dock-count")).toBeNull()
     expect(screen.queryByTestId("sync-conflict-badge")).toBeNull()
   })
 
-  it("shows a badge with the number of conflicts, and the list on a click", async () => {
+  it("shows the number of conflicts on the dock button, and the list on a click", async () => {
     await mount(vaultStatus({ conflicts: [conflict, { ...conflict, id: "ba9876543210" }] }))
-    const badge = await screen.findByTestId("sync-conflict-badge")
-    expect(badge.textContent).toContain("2")
-    expect(badge.getAttribute("aria-label")).toMatch(/Конфликты синхронизации/)
+    const count = await screen.findByTestId("notices-dock-count")
+    expect(count.textContent).toContain("2")
+    expect(dockButton()!.getAttribute("aria-label")).toMatch(/Уведомления: 2/)
     expect(screen.queryByTestId("sync-conflicts")).toBeNull()
-    fireEvent.click(badge)
+    fireEvent.click(dockButton()!)
     const list = await screen.findByTestId("sync-conflicts")
     expect(within(list).getAllByRole("listitem")).toHaveLength(2)
     expect(list.textContent).toMatch(/идея\.0123456789ab-conflict\.md/)
   })
 
-  it("takes the badge away once the conflict is resolved", async () => {
+  it("takes the number away once the conflict is resolved, and closes the list", async () => {
     await mount(vaultStatus({ conflicts: [conflict] }))
-    await screen.findByTestId("sync-conflict-badge")
+    await screen.findByTestId("notices-dock-count")
+    fireEvent.click(dockButton()!)
+    await screen.findByTestId("sync-conflict-popover")
     await pushStatus(vaultStatus({ conflicts: [] }))
-    await waitFor(() => expect(screen.queryByTestId("sync-conflict-badge")).toBeNull())
+    await waitFor(() => expect(screen.queryByTestId("notices-dock-count")).toBeNull())
+    expect(screen.queryByTestId("sync-conflict-popover")).toBeNull()
+    expect(dockButton()).not.toBeNull()
   })
 
   it("resolves from the list with the existing command", async () => {
     const { port } = await mount(vaultStatus({ conflicts: [conflict] }))
-    fireEvent.click(await screen.findByTestId("sync-conflict-badge"))
+    await screen.findByTestId("notices-dock-count")
+    fireEvent.click(dockButton()!)
     fireEvent.click(await screen.findByRole("button", { name: "Оставить основной файл" }))
     await waitFor(() =>
       expect(port.resolveConflict).toHaveBeenCalledWith("0123456789ab", "keepOriginal"),
@@ -148,7 +161,8 @@ describe("the badge and the list of conflicts", () => {
       resolveGroupConflict,
     })
     render(<SyncNoticesHost port={port} />)
-    fireEvent.click(await screen.findByTestId("sync-conflict-badge"))
+    await screen.findByTestId("notices-dock-count")
+    fireEvent.click(dockButton()!)
     const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
     const notes = await within(row).findByTestId("sync-group-notes")
     expect(notes.textContent).toMatch(/«Идея»/)
@@ -175,7 +189,7 @@ describe("the notice about a new conflict", () => {
 
   it("is not shown for a conflict that was already there when the screen opened", async () => {
     await mount(vaultStatus({ conflicts: [conflict] }))
-    await screen.findByTestId("sync-conflict-badge")
+    await screen.findByTestId("notices-dock-count")
     expect(screen.queryByRole("status")).toBeNull()
   })
 })
@@ -232,7 +246,8 @@ describe("the comparison of the two versions", () => {
 
   it("opens from the list too", async () => {
     await mount(vaultStatus({ conflicts: [conflict] }))
-    fireEvent.click(await screen.findByTestId("sync-conflict-badge"))
+    await screen.findByTestId("notices-dock-count")
+    fireEvent.click(dockButton()!)
     fireEvent.click(await screen.findByRole("button", { name: "Сравнить" }))
     expect(await screen.findByRole("dialog")).toBeTruthy()
   })

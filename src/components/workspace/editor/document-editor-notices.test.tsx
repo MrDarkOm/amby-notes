@@ -108,7 +108,7 @@ describe("DocumentEditor notices", () => {
 
   it("shows nothing and no bulb for a note that has nothing to say", () => {
     render(<DocumentEditor document={note()} />)
-    expect(screen.queryByTestId("note-notices-bulb")).toBeNull()
+    expect(screen.queryByTestId("note-notices-strip")).toBeNull()
     expect(rendered.bodies[rendered.bodies.length - 1]?.isLocked).toBe(false)
   })
 

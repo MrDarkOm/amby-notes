@@ -10,6 +10,7 @@ import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import { SyncNoticesHost } from "./sync-notices-host"
+import { NoticesDock } from "./dock-test-harness"
 import { useSyncNoticesStore } from "./use-sync-notices-store"
 import {
   createFakePort,
@@ -35,7 +36,12 @@ const conflict = {
 
 async function mount(status = vaultStatus()) {
   const port = createFakePort({ vaultStatus: async () => status })
-  render(<SyncNoticesHost port={port} />)
+  render(
+    <>
+      <SyncNoticesHost port={port} />
+      <NoticesDock />
+    </>,
+  )
   await waitFor(() => expect(port.vaultStatus).toHaveBeenCalled())
   return port
 }
@@ -73,12 +79,13 @@ describe("the level of the toasts of the sync host", () => {
     expect(toast.querySelector("svg.lucide-triangle-alert")).not.toBeNull()
   })
 
-  it("the badge of the conflicts is a decision too", async () => {
+  it("the number on the dock button is a decision for a conflict, and no floating badge is left", async () => {
     await mount(vaultStatus({ conflicts: [conflict] }))
-    const badge = await screen.findByTestId("sync-conflict-badge")
-    expect(badge.getAttribute("data-level")).toBe("decision")
-    expect(badge.className).toContain("--notice-decision-")
-    expect(badge.className).not.toMatch(/amber/)
+    const count = await screen.findByTestId("notices-dock-count")
+    expect(count.getAttribute("data-level")).toBe("decision")
+    expect(count.getAttribute("class")).toContain("--notice-decision-")
+    expect(count.getAttribute("class")).not.toMatch(/amber/)
+    expect(screen.queryByTestId("sync-conflict-badge")).toBeNull()
   })
 
   it("the files over the limit, and the full storage, are warnings", async () => {
@@ -119,7 +126,7 @@ describe("the level of the toasts of the sync host", () => {
         }),
       ),
     )
-    await screen.findByTestId("sync-conflict-badge")
+    await screen.findByTestId("notices-dock-count")
     expect(document.body.innerHTML).not.toMatch(/amber/)
   })
 })
