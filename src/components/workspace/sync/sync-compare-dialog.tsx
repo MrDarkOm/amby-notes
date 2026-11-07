@@ -134,6 +134,9 @@ export function SyncCompareDialog({
   )
 
   const blocks = plan?.kind === "blocks" ? plan : null
+  // Once a difference is chosen otherwise than at the start, the main button is the one that applies
+  // the choice: a button that means a whole version must never drop it.
+  const chosen = choices.some((item) => item !== "mine")
   return (
     <Dialog
       open
@@ -168,7 +171,6 @@ export function SyncCompareDialog({
             onChoose={(id, choice) =>
               setChoices((list) => list.map((item, index) => (index === id ? choice : item)))
             }
-            onFinish={() => void finish(blocks)}
           />
         ) : (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -188,17 +190,35 @@ export function SyncCompareDialog({
           </p>
         )}
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" disabled={busy} onClick={() => void resolve("keepOriginal")}>
-            {t("sync.notices.keepOriginal")}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy}
-            onClick={() => void resolve("keepCopy")}
-          >
-            {t("sync.notices.keepCopy")}
-          </Button>
+          {chosen && blocks ? (
+            <>
+              <Button type="button" disabled={busy} onClick={() => void finish(blocks)}>
+                {t("sync.notices.compareDone")}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => setChoices(blocks.hunks.map(() => "mine"))}
+              >
+                {t("sync.notices.resetChoices")}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button type="button" disabled={busy} onClick={() => void resolve("keepOriginal")}>
+                {t("sync.notices.keepOriginal")}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void resolve("keepCopy")}
+              >
+                {t("sync.notices.keepCopy")}
+              </Button>
+            </>
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -229,13 +249,11 @@ function BlockView({
   choices,
   disabled,
   onChoose,
-  onFinish,
 }: {
   plan: BlockCompare
   choices: CompareChoice[]
   disabled: boolean
   onChoose: (id: number, choice: CompareChoice) => void
-  onFinish: () => void
 }) {
   const { t } = useTranslation()
   return (
@@ -246,6 +264,9 @@ function BlockView({
           : t("sync.notices.differences", { count: plan.hunks.length })}
         {plan.live ? "" : ` · ${t("sync.notices.sourceView")}`}
       </p>
+      {plan.hunks.length > 0 && (
+        <p className="text-xs text-muted-foreground">{t("sync.notices.chooseHint")}</p>
+      )}
       <div className="grid grid-cols-2 gap-3 text-sm font-medium">
         <h3>{t("sync.notices.originalVersion")}</h3>
         <h3>{t("sync.notices.copyVersion")}</h3>
@@ -261,11 +282,6 @@ function BlockView({
             onChoose={onChoose}
           />
         ))}
-      </div>
-      <div className="flex justify-end">
-        <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={onFinish}>
-          {t("sync.notices.compareDone")}
-        </Button>
       </div>
     </div>
   )

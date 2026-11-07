@@ -34,8 +34,8 @@ offer waits, `document-editor.tsx` keeps the note read only so typing cannot ove
 ("“Name” was changed on two computers"), "Both versions are safe" and one button, "Compare": no paths, no legend; the choice is made in
 [the comparison](../sync/sync-compare-dialog.tsx) (docs/notices.md, section 10). Its sides are "Version in the note" and "Second version",
 not "this" and "the other computer": by Р7 the path stays with whoever reached the server first, but the engine does not record whose
-version the second one is. Two main buttons (`keepOriginal`, `keepCopy`); `keepBoth` is in the menu "…"; the choice by blocks has its own
-button (`resolveConflictWithText`). After the port answers, [conflict-outcome.ts](../sync/conflict-outcome.ts) leaves a `ConflictOutcome`
+version the second one is. Two main buttons (`keepOriginal`, `keepCopy`); `keepBoth` is in the menu "…"; once a difference is chosen otherwise the main button becomes
+"Put together from the chosen" (`resolveConflictWithText`, with "Reset the choice"; the whole-version buttons go away). After the port answers, [conflict-outcome.ts](../sync/conflict-outcome.ts) leaves a `ConflictOutcome`
 in the sync store: an `info` card here (it leaves with the note), else a line in the list until it is closed. This stands in for the log of
 the notification centre (docs/notices.md, step 2). `keepOriginal` sends the other version to the trash; `keepCopy` and the assembled text
 leave a `sync-overwrite` snapshot in the history ("Open the history" is `requestOpenPanel` in [panel-navigation.ts](../panel-navigation.ts)); `keepBoth` makes it a note.
