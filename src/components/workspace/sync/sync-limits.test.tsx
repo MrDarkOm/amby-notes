@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-// The notices and the texts about the limits of a plan (docs/sync-plan.md, appendix Е, У3): three
-// cards in the stack of notices, each shown once per cause, gone when the cause is gone; the
+// The notices and the texts about the limits of a plan (docs/sync-plan.md, appendix Е, У3): records of
+// "Attention" in the notification centre, each shown once per cause, gone when the cause is gone; the
 // files that stay behind are listed with the limit; the wizard that meets `space_limit` offers the
 // existing storages. Written before the code.
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
@@ -12,6 +12,8 @@ import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { useVaultStore } from "../use-vault-store"
 import { limitNoticesOf } from "./limit-notices"
 import { SyncNoticesHost } from "./sync-notices-host"
+import { NoticesPanel } from "../notices/notices-panel"
+import { useNoticesCentreStore } from "../notices/use-notices-centre-store"
 import { SyncVaultPanel } from "./sync-vault-panel"
 import { useSyncNoticesStore } from "./use-sync-notices-store"
 import { SPACES, VAULT_OFF, createFakePort, emitVaultStatus, vaultStatus } from "./fake-sync-port"
@@ -32,12 +34,18 @@ beforeEach(async () => {
   useVaultStore.setState({ vault: "/vault" })
   useSyncNoticesStore.setState(useSyncNoticesStore.getInitialState())
   useNoteNoticesStore.setState({ restored: [] })
+  useNoticesCentreStore.setState(useNoticesCentreStore.getInitialState())
 })
 afterEach(cleanup)
 
 async function mount(status = vaultStatus()) {
   const port = createFakePort({ vaultStatus: async () => status })
-  render(<SyncNoticesHost port={port} />)
+  render(
+    <>
+      <SyncNoticesHost port={port} />
+      <NoticesPanel port={port} />
+    </>,
+  )
   await waitFor(() => expect(port.vaultStatus).toHaveBeenCalled())
   return port
 }
@@ -47,8 +55,12 @@ const push = async (unsynced: Unsynced[]) =>
 
 const cards = (kind?: string) =>
   screen
-    .queryAllByTestId("sync-limit-notice")
-    .filter((card) => kind === undefined || card.getAttribute("data-kind") === kind)
+    .queryAllByTestId("notices-entry")
+    .filter(
+      (card) =>
+        card.getAttribute("data-entry-id")?.startsWith("limit:") &&
+        (kind === undefined || card.getAttribute("data-entry-id") === `limit:${kind}`),
+    )
 
 describe("which notices the status asks for (У3)", () => {
   it("counts the files over the limit of the plan as one cause", () => {
@@ -69,19 +81,17 @@ describe("which notices the status asks for (У3)", () => {
   })
 })
 
-describe("the cards in the stack of notices (У3)", () => {
+describe("the records of 'Attention' in the centre (У3)", () => {
   it("says that files were not sent, how many, the limit, and that nothing is lost", async () => {
     await mount()
     await push([tooLarge("a.bin"), tooLarge("b.bin"), tooLarge("c.bin")])
     const [card] = cards("tooLarge")
     expect(card).toBeTruthy()
     const text = card.textContent ?? ""
-    expect(text).toMatch(/не отправлены/)
-    expect(text).toMatch(/\b3\b/)
-    expect(text).toMatch(/больше 20 МБ на вашем тарифе/)
-    expect(text).toMatch(/остаются на этом компьютере/)
-    expect(text).toMatch(/на других устройствах ничего не изменилось/)
-    expect(within(card).getByRole("button", { name: "Показать список" })).toBeTruthy()
+    expect(text).toMatch(/Файлов не отправлено: 3/)
+    expect(text).toMatch(/Больше 20 МБ на вашем тарифе/)
+    expect(text).toMatch(/Они остались на этом компьютере, ничего не потеряно/)
+    expect(within(card).getByRole("button", { name: "Показать" })).toBeTruthy()
   })
 
   it("says that the storage is full, that receiving goes on, and what to do", async () => {
@@ -89,19 +99,18 @@ describe("the cards in the stack of notices (У3)", () => {
     await push([quotaFull("a.bin")])
     const [card] = cards("quotaFull")
     const text = card.textContent ?? ""
-    expect(text).toMatch(/Хранилище заполнено/)
-    expect(text).toMatch(/Новые и изменённые файлы не отправляются/)
-    expect(text).toMatch(/файлы с других устройств приходят как обычно/)
+    expect(text).toMatch(/Хранилище на сервере заполнено/)
+    expect(text).toMatch(/Новое не отправляется, чужое приходит как обычно/)
     expect(text).toMatch(/Удалите ненужное или попросите владельца сервера увеличить тариф/)
   })
 
-  it("shows both cards when both causes are there", async () => {
+  it("shows both records when both causes are there", async () => {
     await mount()
     await push([tooLarge("a.bin"), quotaFull("b.bin")])
     expect(cards()).toHaveLength(2)
   })
 
-  it("shows one card per cause however many passes repeat the status", async () => {
+  it("shows one record per cause however many passes repeat the status", async () => {
     await mount()
     for (let pass = 0; pass < 4; pass += 1) {
       await push([tooLarge("a.bin"), quotaFull("b.bin")])
@@ -110,7 +119,7 @@ describe("the cards in the stack of notices (У3)", () => {
     expect(cards("quotaFull")).toHaveLength(1)
   })
 
-  it("takes a card away when its cause is gone and shows it again if the cause comes back", async () => {
+  it("takes a record away when its cause is gone and shows it again if the cause comes back", async () => {
     await mount()
     await push([tooLarge("a.bin"), quotaFull("b.bin")])
     await push([quotaFull("b.bin")])
@@ -122,12 +131,12 @@ describe("the cards in the stack of notices (У3)", () => {
     expect(cards("tooLarge")).toHaveLength(1)
   })
 
-  it("shows the card of a cause that was already there when the vault was opened", async () => {
+  it("shows the record of a cause that was already there when the vault was opened", async () => {
     await mount(vaultStatus({ unsynced: [quotaFull("a.bin")] }))
     await waitFor(() => expect(cards("quotaFull")).toHaveLength(1))
   })
 
-  it("has no cards on a server without limits", async () => {
+  it("has no records on a server without limits", async () => {
     await mount()
     await push([{ path: "x", reason: "noAccess", detail: null }])
     expect(cards()).toHaveLength(0)

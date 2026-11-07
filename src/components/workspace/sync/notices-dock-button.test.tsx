@@ -1,14 +1,15 @@
 // @vitest-environment happy-dom
 // The notices button of the dock (docs/notices.md, section 5): an ordinary button of the dock with a bell,
 // always there, above the settings. It carries the number of conflicts and limit notices, coloured by the
-// most serious level (a conflict is a decision, a limit a warning). A click opens the list of conflicts
-// beside it, until the notification centre (step 2) takes the place.
+// most serious level (a conflict is a decision, a limit a warning). A click opens the notification centre.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import i18n from "@/lib/i18n"
 import { ACTION_DEFS, PERSISTENT_ACTION_BUTTONS } from "../panel-definitions"
 import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { useVaultStore } from "../use-vault-store"
+import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
+import { useNoticesCentreStore } from "../notices/use-notices-centre-store"
 import { createFakePort, vaultStatus } from "./fake-sync-port"
 import { NoticesDock } from "./dock-test-harness"
 import { dockButton } from "./dock-button"
@@ -29,7 +30,9 @@ beforeEach(async () => {
   await i18n.changeLanguage("ru")
   useVaultStore.setState({ vault: "/vault" })
   useSyncNoticesStore.setState(useSyncNoticesStore.getInitialState())
-  useNoteNoticesStore.setState({ restored: [] })
+  useNoteNoticesStore.setState(useNoteNoticesStore.getInitialState())
+  useNoticesCentreStore.setState(useNoticesCentreStore.getInitialState())
+  useNoticeJournalStore.setState(useNoticeJournalStore.getInitialState())
 })
 afterEach(() => {
   cleanup()
@@ -37,8 +40,9 @@ afterEach(() => {
 })
 
 describe("where the button stands", () => {
-  it("is one of the persistent actions of the dock, between help and settings", () => {
+  it("is one of the persistent actions of the dock, between help and settings, and opens a panel", () => {
     const def = ACTION_DEFS.find((item) => item.id === "notices")
+    expect(def?.opens).toBe("notices-centre")
     expect(def?.kind).toBe("action")
     expect(def?.persistent).toBe(true)
     const order = (id: string) => PERSISTENT_ACTION_BUTTONS.find((b) => b.defId === id)!.order
@@ -96,7 +100,7 @@ describe("the button in the dock", () => {
   })
 })
 
-describe("what a click does for now", () => {
+describe("what a click does", () => {
   async function mountBoth(conflicts = [conflict("aaaaaaaaaaaa")]) {
     const port = createFakePort({ vaultStatus: async () => vaultStatus({ conflicts }) })
     render(
@@ -108,17 +112,17 @@ describe("what a click does for now", () => {
     await screen.findByTestId("notices-dock-count")
   }
 
-  it("opens the list of conflicts, and closes it on the next click", async () => {
+  it("opens the notification centre with the conflicts in it, and closes it on the next click", async () => {
     await mountBoth()
-    expect(screen.queryByTestId("sync-conflict-popover")).toBeNull()
+    expect(screen.queryByTestId("notices-centre")).toBeNull()
     fireEvent.click(dockButton()!)
-    expect(await screen.findByTestId("sync-conflict-popover")).toBeTruthy()
+    expect(await screen.findByTestId("notices-centre")).toBeTruthy()
     expect(screen.getByTestId("sync-conflicts")).toBeTruthy()
     fireEvent.click(dockButton()!)
-    await waitFor(() => expect(screen.queryByTestId("sync-conflict-popover")).toBeNull())
+    await waitFor(() => expect(screen.queryByTestId("notices-centre")).toBeNull())
   })
 
-  it("opens nothing while there is no conflict", async () => {
+  it("opens the centre also while nothing is wrong: the journal is there", async () => {
     render(
       <>
         <SyncNoticesHost port={createFakePort()} />
@@ -126,11 +130,15 @@ describe("what a click does for now", () => {
       </>,
     )
     fireEvent.click(dockButton()!)
-    expect(screen.queryByTestId("sync-conflict-popover")).toBeNull()
+    expect(await screen.findByTestId("notices-centre")).toBeTruthy()
+    expect(screen.queryByTestId("sync-conflicts")).toBeNull()
   })
 
-  it("leaves no floating badge in the corner of the window", async () => {
+  it("leaves no floating badge in the corner of the window, and no popover", async () => {
     await mountBoth()
     expect(screen.queryByTestId("sync-conflict-badge")).toBeNull()
+    fireEvent.click(dockButton()!)
+    await screen.findByTestId("notices-centre")
+    expect(screen.queryByTestId("sync-conflict-popover")).toBeNull()
   })
 })

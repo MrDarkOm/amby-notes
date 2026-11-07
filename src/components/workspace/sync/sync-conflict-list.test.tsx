@@ -96,7 +96,7 @@ describe("a conflict of the data Amby keeps for itself", () => {
 })
 
 describe("what was done after a choice", () => {
-  it("is said in the list, even when no conflict is left in it", () => {
+  it("is not said in the list: that is the business of the journal of the notification centre", () => {
     useSyncNoticesStore.setState({
       outcomes: [
         {
@@ -104,41 +104,13 @@ describe("what was done after a choice", () => {
           path: "Заметки/идея.md",
           name: "идея",
           choice: "keepOriginal",
-          where: "list",
         },
       ],
     })
-    show([])
-    expect(screen.getByTestId("sync-conflict-outcome").textContent).toBe(
-      "Оставлена версия в заметке «идея». Вторая версия — в корзине хранилища.",
+    const view = render(
+      <ConflictList items={[]} busyId={null} onResolve={vi.fn()} onCompare={vi.fn()} />,
     )
-  })
-
-  it("is not repeated in the list for an outcome that belongs to an open note", () => {
-    useSyncNoticesStore.setState({
-      outcomes: [
-        {
-          conflictId: "0123456789ab",
-          path: "Заметки/идея.md",
-          name: "идея",
-          choice: "keepOriginal",
-          where: "card",
-        },
-      ],
-    })
-    show([])
+    expect(view.container.textContent).toBe("")
     expect(screen.queryByTestId("sync-conflict-outcome")).toBeNull()
-  })
-
-  it("goes away when the list is closed, and only the lines of the list", () => {
-    useSyncNoticesStore.setState({
-      outcomes: [
-        { conflictId: "a", path: "a.md", name: "a", choice: "keepBoth", where: "list" },
-        { conflictId: "b", path: "b.md", name: "b", choice: "keepCopy", where: "card" },
-      ],
-      conflictListOpen: true,
-    })
-    useSyncNoticesStore.getState().closeConflictList()
-    expect(useSyncNoticesStore.getState().outcomes.map((item) => item.conflictId)).toEqual(["b"])
   })
 })

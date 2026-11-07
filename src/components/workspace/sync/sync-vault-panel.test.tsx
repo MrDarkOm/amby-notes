@@ -3,6 +3,7 @@
 // and what the screen asks of the application. How it looks is checked in a native window.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
 import i18n from "@/lib/i18n"
 import { KNOWN_SYNC_ERROR_CODES, syncErrorKey } from "@/lib/sync/sync-errors"
 import { SyncPortError } from "@/lib/sync/sync-port"
@@ -34,6 +35,7 @@ const click = (name: string | RegExp) => fireEvent.click(button(name))
 
 describe("sync of the open vault: switching it on", () => {
   beforeEach(async () => {
+    useNoticeJournalStore.setState(useNoticeJournalStore.getInitialState())
     await i18n.changeLanguage("ru")
   })
   afterEach(cleanup)
@@ -200,6 +202,7 @@ describe("sync of the open vault: a binding that was switched off", () => {
     vaultStatus({ enabled: false, phase: "off", linked: true, resumable: true, ...overrides })
 
   beforeEach(async () => {
+    useNoticeJournalStore.setState(useNoticeJournalStore.getInitialState())
     await i18n.changeLanguage("ru")
   })
   afterEach(cleanup)
@@ -276,6 +279,7 @@ describe("sync of the open vault: a binding that was switched off", () => {
 
 describe("sync of the open vault: the status", () => {
   beforeEach(async () => {
+    useNoticeJournalStore.setState(useNoticeJournalStore.getInitialState())
     await i18n.changeLanguage("ru")
   })
   afterEach(cleanup)
@@ -398,6 +402,7 @@ describe("sync of the open vault: the status", () => {
 
 describe("sync of the open vault: the stops of Р8", () => {
   beforeEach(async () => {
+    useNoticeJournalStore.setState(useNoticeJournalStore.getInitialState())
     await i18n.changeLanguage("ru")
   })
   afterEach(cleanup)
@@ -523,6 +528,7 @@ describe("sync of the open vault: the stops of Р8", () => {
 
 describe("sync of the open vault: conflicts and files that stay behind", () => {
   beforeEach(async () => {
+    useNoticeJournalStore.setState(useNoticeJournalStore.getInitialState())
     await i18n.changeLanguage("ru")
   })
   afterEach(cleanup)
@@ -734,7 +740,7 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
     expect(list.textContent).toMatch(/создали на двух компьютерах/)
   })
 
-  it("says after the choice where the replaced version went, and only then", async () => {
+  it("writes to the journal after the choice where the replaced version went, and only then", async () => {
     const port = await show(vaultStatus({ conflicts: [conflict] }), {
       readConflictVersions: async () => ({ original: "a", copy: "b", stamp: "s" }),
     })
@@ -744,11 +750,13 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
     fireEvent.click(within(row).getByRole("button", { name: "Сравнить" }))
     fireEvent.click(await screen.findByRole("button", { name: "Взять вторую версию" }))
     await waitFor(() => expect(port.resolveConflict).toHaveBeenCalled())
+    // What the choice did is said in the journal of the notification centre, not in this list.
     await waitFor(() =>
-      expect(screen.getByTestId("sync-conflict-outcome").textContent).toBe(
-        "В заметке «идея» теперь вторая версия. Прежняя — в истории заметки.",
-      ),
+      expect(
+        useNoticeJournalStore.getState().entries.map((entry) => [entry.kind, entry.params.choice]),
+      ).toEqual([["conflictOutcome", "keepCopy"]]),
     )
+    expect(screen.queryByTestId("sync-conflict-outcome")).toBeNull()
   })
 
   it("shows the list as it changes: a resolved conflict leaves it", async () => {

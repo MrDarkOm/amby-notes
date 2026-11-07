@@ -203,6 +203,13 @@ export function emitRestoredAfterDeletion(paths: string[]): void {
   for (const listener of [...restoredListeners]) listener(paths)
 }
 
+const mergedListeners = new Set<(paths: string[]) => void>()
+
+/** Tells every listener that a pass merged the edits of two computers in these notes (paths in the vault). */
+export function emitMerged(paths: string[]): void {
+  for (const listener of [...mergedListeners]) listener(paths)
+}
+
 const ambyWrittenListeners = new Set<(paths: string[]) => void>()
 
 /** Tells every listener that a pass wrote these files of `.amby/` (paths relative to the vault). */
@@ -302,6 +309,12 @@ export function createFakePort(overrides: Partial<SyncPort> = {}): FakePort {
       restoredListeners.add(listener)
       return () => {
         restoredListeners.delete(listener)
+      }
+    },
+    onMerged: async (listener) => {
+      mergedListeners.add(listener)
+      return () => {
+        mergedListeners.delete(listener)
       }
     },
     onAmbyWritten: async (listener) => {
