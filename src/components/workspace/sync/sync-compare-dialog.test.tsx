@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // The comparison window of a sync conflict in Live mode (docs/sync-plan.md, stage Э4б, К4): the two
 // versions side by side drawn as a note (read only), the blocks that differ marked, a choice for each,
-// and “Собрать из выбранного” that hands the assembled text to the port. The assembling itself is tested byte for
+// and “Собрать из выбранного” (the main button once a choice differs) that hands the assembled text to the port. The assembling itself is tested byte for
 // byte in compare/block-compare.test.ts.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
@@ -40,6 +40,12 @@ async function open(
   render(<SyncCompareDialog port={port} conflict={item} vault="/vault" onClose={onClose} />)
   const dialog = await screen.findByRole("dialog")
   return { port, onClose, dialog }
+}
+
+/** Chooses `label` for the difference number `index` (0-based). */
+function pick(dialog: HTMLElement, index: number, label: "В заметке" | "Вторая" | "Обе") {
+  const hunk = within(dialog).getAllByTestId("compare-hunk")[index]!
+  fireEvent.click(within(hunk).getByRole("radio", { name: label }))
 }
 
 beforeEach(async () => {
@@ -108,6 +114,7 @@ describe("the comparison of two versions of a note", () => {
       },
     })
     await waitFor(() => expect(within(dialog).getAllByTestId("compare-hunk").length).toBe(2))
+    pick(dialog, 0, "Вторая")
     fireEvent.click(within(dialog).getByRole("button", { name: "Собрать из выбранного" }))
     expect(await within(dialog).findByRole("alert")).toBeTruthy()
     expect(onClose).not.toHaveBeenCalled()
@@ -160,6 +167,155 @@ describe("the choice of a whole version", () => {
     const { dialog } = await open()
     await waitFor(() => expect(within(dialog).getAllByTestId("compare-hunk").length).toBe(2))
     expect(dialog.textContent).not.toMatch(/корзин|идентификатор|основной файл|копи/i)
+  })
+})
+
+// The choice by differences has no button of its own: the main button of the window is the one that
+// applies it, so a choice made on a paragraph is never dropped by a button that means something else.
+describe("the choice by differences and the main button", () => {
+  const FIRST = "Оставить версию в заметке"
+  const ASSEMBLE = "Собрать из выбранного"
+  const RESET = "Сбросить выбор"
+  const SECOND = "Взять вторую версию"
+  const button = (dialog: HTMLElement, name: string) =>
+    within(dialog).queryByRole("button", { name })
+  const ready = async () => {
+    const view = await open()
+    await waitFor(() => expect(within(view.dialog).getAllByTestId("compare-hunk").length).toBe(2))
+    return view
+  }
+
+  it("starts with the two buttons and the menu, and nothing to assemble or reset", async () => {
+    const { dialog } = await ready()
+    expect(button(dialog, FIRST)).not.toBeNull()
+    expect(button(dialog, SECOND)).not.toBeNull()
+    expect(button(dialog, ASSEMBLE)).toBeNull()
+    expect(button(dialog, RESET)).toBeNull()
+    expect(button(dialog, "Другие варианты")).not.toBeNull()
+  })
+
+  it("makes the main button “Собрать из выбранного” as soon as one difference is chosen otherwise", async () => {
+    const { dialog } = await ready()
+    pick(dialog, 1, "Обе")
+    expect(button(dialog, ASSEMBLE)).not.toBeNull()
+    expect(button(dialog, RESET)).not.toBeNull()
+    expect(button(dialog, FIRST)).toBeNull()
+    expect(button(dialog, SECOND)).toBeNull()
+    // the menu stays
+    expect(button(dialog, "Другие варианты")).not.toBeNull()
+  })
+
+  it("has one place for the button: the footer, not under the differences", async () => {
+    const { dialog } = await ready()
+    pick(dialog, 0, "Вторая")
+    expect(within(dialog).getAllByRole("button", { name: ASSEMBLE })).toHaveLength(1)
+    const footer = within(dialog).getByRole("button", { name: "Другие варианты" }).parentElement!
+    expect(within(footer).getByRole("button", { name: ASSEMBLE })).toBeTruthy()
+  })
+
+  it("“Сбросить выбор” brings the first state back, with every difference on “В заметке”", async () => {
+    const { dialog } = await ready()
+    pick(dialog, 0, "Вторая")
+    pick(dialog, 1, "Обе")
+    fireEvent.click(within(dialog).getByRole("button", { name: RESET }))
+    expect(button(dialog, FIRST)).not.toBeNull()
+    expect(button(dialog, SECOND)).not.toBeNull()
+    expect(button(dialog, ASSEMBLE)).toBeNull()
+    for (const hunk of within(dialog).getAllByTestId("compare-hunk")) {
+      expect(
+        (within(hunk).getByRole("radio", { name: "В заметке" }) as HTMLInputElement).checked,
+      ).toBe(true)
+    }
+  })
+
+  it("is the first state again when the choice is put back by hand", async () => {
+    const { dialog } = await ready()
+    pick(dialog, 0, "Вторая")
+    pick(dialog, 0, "В заметке")
+    expect(button(dialog, FIRST)).not.toBeNull()
+    expect(button(dialog, ASSEMBLE)).toBeNull()
+  })
+
+  it("applies the first state with keepOriginal and never with the assembled text", async () => {
+    const { port, dialog } = await ready()
+    fireEvent.click(within(dialog).getByRole("button", { name: FIRST }))
+    await waitFor(() =>
+      expect(port.resolveConflict).toHaveBeenCalledWith("0123456789ab", "keepOriginal"),
+    )
+    expect(port.resolveConflictWithText).not.toHaveBeenCalled()
+  })
+
+  it("applies the chosen state with the assembled text and never with a whole-version choice", async () => {
+    const { port, dialog } = await ready()
+    pick(dialog, 0, "Вторая")
+    pick(dialog, 1, "Обе")
+    fireEvent.click(within(dialog).getByRole("button", { name: ASSEMBLE }))
+    await waitFor(() =>
+      expect(port.resolveConflictWithText).toHaveBeenCalledWith(
+        "0123456789ab",
+        "# Идея\n\nобщий абзац\n\nих второй абзац\n\n* пункт\n* мой пункт\n* их пункт\n",
+        "stamp-1",
+      ),
+    )
+    expect(port.resolveConflict).not.toHaveBeenCalled()
+  })
+
+  it("a reset only clears the choice: nothing is sent to the port", async () => {
+    const { port, dialog } = await ready()
+    pick(dialog, 0, "Вторая")
+    fireEvent.click(within(dialog).getByRole("button", { name: RESET }))
+    expect(port.resolveConflict).not.toHaveBeenCalled()
+    expect(port.resolveConflictWithText).not.toHaveBeenCalled()
+  })
+
+  it("says the truth when every difference is “Вторая”: it is assembled, the old text is in the history", async () => {
+    const { port, dialog } = await ready()
+    pick(dialog, 0, "Вторая")
+    pick(dialog, 1, "Вторая")
+    fireEvent.click(within(dialog).getByRole("button", { name: ASSEMBLE }))
+    await waitFor(() => expect(port.resolveConflictWithText).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(useSyncNoticesStore.getState().outcomes[0]?.choice).toBe("assembled"),
+    )
+    expect(port.resolveConflict).not.toHaveBeenCalled()
+  })
+
+  it("leaves the menu working in the chosen state: both versions as notes, the choice by differences does not apply", async () => {
+    const { port, dialog } = await ready()
+    pick(dialog, 0, "Вторая")
+    fireEvent.pointerDown(within(dialog).getByRole("button", { name: "Другие варианты" }), {
+      button: 0,
+      ctrlKey: false,
+    })
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Сохранить обе как отдельные заметки" }),
+    )
+    await waitFor(() =>
+      expect(port.resolveConflict).toHaveBeenCalledWith("0123456789ab", "keepBoth"),
+    )
+    expect(port.resolveConflictWithText).not.toHaveBeenCalled()
+  })
+
+  it("has a short line about the choice by differences above them, and none when nothing differs", async () => {
+    const { dialog } = await ready()
+    expect(within(dialog).getByText("Для каждого отличия можно выбрать своё.")).toBeTruthy()
+    cleanup()
+    const same = await open({ original: MINE, copy: MINE })
+    await waitFor(() => expect(within(same.dialog).getByTestId("compare-hunk-count")).toBeTruthy())
+    expect(within(same.dialog).queryByText("Для каждого отличия можно выбрать своё.")).toBeNull()
+    expect(button(same.dialog, ASSEMBLE)).toBeNull()
+  })
+
+  it("does not offer to assemble a file that is chosen as a whole", async () => {
+    const json = {
+      ...conflict,
+      originalPath: "данные.json",
+      copyPath: ".amby/conflicts/0123456789ab/other.json",
+    }
+    const { dialog } = await open({ original: '{"a":1}', copy: '{"a":2}' }, {}, json)
+    await waitFor(() => expect(within(dialog).getByText('{"a":2}')).toBeTruthy())
+    expect(button(dialog, ASSEMBLE)).toBeNull()
+    expect(button(dialog, RESET)).toBeNull()
   })
 })
 
@@ -241,6 +397,7 @@ describe("after the choice", () => {
   it("assembling from blocks leaves a result", async () => {
     const { dialog } = await open()
     await waitFor(() => expect(within(dialog).getAllByTestId("compare-hunk").length).toBe(2))
+    pick(dialog, 0, "Вторая")
     fireEvent.click(within(dialog).getByRole("button", { name: "Собрать из выбранного" }))
     await waitFor(() =>
       expect(useSyncNoticesStore.getState().outcomes[0]?.choice).toBe("assembled"),
@@ -352,6 +509,7 @@ describe("when a version changed while the person compared", () => {
       },
     })
     await waitFor(() => expect(within(dialog).getAllByTestId("compare-hunk").length).toBe(2))
+    pick(dialog, 0, "Вторая")
     fireEvent.click(within(dialog).getByRole("button", { name: "Собрать из выбранного" }))
     expect(await within(dialog).findByRole("alert")).toBeTruthy()
     expect(within(dialog).getByRole("alert").textContent).toMatch(
@@ -361,6 +519,8 @@ describe("when a version changed while the person compared", () => {
     expect(onClose).not.toHaveBeenCalled()
     // the next try carries the new stamp
     await waitFor(() => expect(within(dialog).getAllByTestId("compare-hunk").length).toBe(2))
+    // a new reading starts from the first choice again: the versions are not the ones that were chosen on
+    pick(dialog, 0, "Вторая")
     fireEvent.click(within(dialog).getByRole("button", { name: "Собрать из выбранного" }))
     await waitFor(() =>
       expect(port.resolveConflictWithText).toHaveBeenLastCalledWith(
