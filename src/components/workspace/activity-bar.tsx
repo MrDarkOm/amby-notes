@@ -55,6 +55,8 @@ import type { useRefreshSync } from "./sync/use-refresh-sync"
 import { syncErrorMessage } from "@/lib/sync/sync-errors"
 import { syncInactiveText } from "./sync/sync-inactive"
 import { SyncInactiveMenu } from "./sync/sync-inactive-menu"
+import { useNoticesDockSummary } from "./sync/use-notices-dock-summary"
+import { noticeBadgeClass } from "./notices/notice-look"
 import type { HelpContext } from "./help-modal"
 import { useSettingsStore } from "./use-settings-store"
 
@@ -131,6 +133,7 @@ export function ActivityBar({
   const { t } = useTranslation()
   const dockWidth = useSettingsStore((state) => (state.prefs.density === "compact" ? 32 : 48))
   const reducedMotion = useReducedMotion()
+  const noticesSummary = useNoticesDockSummary()
   const [isAutoHideHover, setIsAutoHideHover] = React.useState(false)
   const isExpanded = pinned || autoHideReveal || isAutoHideHover
   const sideButtons = buttonsForSide(buttons, side)
@@ -345,9 +348,11 @@ export function ActivityBar({
       ? syncInactiveText(syncInactive, t)
       : sync
         ? `${t("sync.refresh.action")} — ${t(`sync.refresh.${sync.state}`)}${sync.error ? `: ${syncErrorMessage(sync.error, t)}` : ""}`
-        : def.id === "help" && helpContext && helpContext !== "workspace"
-          ? t("actions.helpWithContext", { context: t(`help.tabs.${helpContext}`) })
-          : t(def.labelKey)
+        : def.id === "notices" && noticesSummary
+          ? t("actions.noticesCount", { count: noticesSummary.count })
+          : def.id === "help" && helpContext && helpContext !== "workspace"
+            ? t("actions.helpWithContext", { context: t(`help.tabs.${helpContext}`) })
+            : t(def.labelKey)
     const settingsTarget = settingsTargetForActivityButton(def.id)
     const settingsLabelKey = settingsLabelKeyForActivityButton(def.id)
     const element = (
@@ -411,6 +416,19 @@ export function ActivityBar({
             role="status"
             aria-label={t(`sync.refresh.${sync.state}`)}
           />
+        )}
+        {def.id === "notices" && noticesSummary && (
+          <span
+            data-testid="notices-dock-count"
+            data-level={noticesSummary.level}
+            aria-hidden="true"
+            className={cn(
+              "absolute -right-1 -top-1 min-w-4 rounded-full border px-1 text-[10px] leading-[14px] font-semibold",
+              noticeBadgeClass(noticesSummary.level),
+            )}
+          >
+            {noticesSummary.count}
+          </span>
         )}
       </motion.button>
     )

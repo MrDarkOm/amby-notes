@@ -4,7 +4,7 @@
 // carried over from an old version, the choice after an edit made in both places, the warning about
 // an old version and the notes about the file of the properties.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import i18n from "@/lib/i18n"
 import type { PropertyPanel, PropertyStorageStatus } from "@/lib/properties/property-groups-port"
 import { useVaultStore } from "../use-vault-store"
@@ -45,8 +45,10 @@ function mount() {
     <NoteNotices document={{ id: "N1", path: "/vault/Заметка.md" }} warningKey={null} />,
   )
 }
+/** The cards of the panel, not the line of the strip that repeats the title of the most serious one. */
+const stackCards = async () => within(await screen.findByTestId("note-notices-stack"))
 const open = async () => {
-  fireEvent.click(await screen.findByTestId("note-notices-bulb"))
+  fireEvent.click(await screen.findByTestId("note-notices-strip"))
 }
 
 beforeEach(async () => {
@@ -76,7 +78,7 @@ describe("the notices of the properties", () => {
     port.propertyStorageStatus.mockResolvedValue(null)
     mount()
     await waitFor(() => expect(port.propertyStorageStatus).toHaveBeenCalled())
-    expect(screen.queryByTestId("note-notices-bulb")).toBeNull()
+    expect(screen.queryByTestId("note-notices-strip")).toBeNull()
   })
 
   it("tell once after the migration that the properties are in the new format, with no question before it", async () => {
@@ -89,7 +91,7 @@ describe("the notices of the properties", () => {
     })
     mount()
     await open()
-    expect(await screen.findByText(/переведены в новый формат/)).toBeTruthy()
+    expect(await (await stackCards()).findByText(/переведены в новый формат/)).toBeTruthy()
     expect(port.openVaultProperties).toHaveBeenCalledTimes(1)
   })
 
@@ -103,10 +105,10 @@ describe("the notices of the properties", () => {
     })
     port.takePropertyFileValue.mockResolvedValue(undefined)
     mount()
-    await screen.findByTestId("note-notices-stack")
-    expect(await screen.findByText(/Расходились значения у 1 заметки/)).toBeTruthy()
-    fireEvent.click(screen.getByText("Отчёт"))
-    fireEvent.click(await screen.findByText("Взять значение из старого файла"))
+    await open()
+    expect(await (await stackCards()).findByText(/Расходились значения у 1 заметки/)).toBeTruthy()
+    fireEvent.click(within(screen.getByTestId("note-notices-stack")).getByText("Отчёт"))
+    fireEvent.click(await (await stackCards()).findByText("Взять значение из старого файла"))
     await waitFor(() =>
       expect(port.takePropertyFileValue).toHaveBeenCalledWith("N7", "Заказчик", "Заказчик"),
     )
@@ -122,10 +124,10 @@ describe("the notices of the properties", () => {
     })
     mount()
     await screen.findByTestId("note-notices-stack")
-    expect(await screen.findByText(/только для чтения/)).toBeTruthy()
+    expect(await (await stackCards()).findByText(/только для чтения/)).toBeTruthy()
   })
 
-  it("open the stack by themselves for the important ones: differing values after the migration", async () => {
+  it("keep the differing values under the strip after the migration: a warning does not open the stack", async () => {
     port.propertyStorageStatus.mockResolvedValue(groups)
     port.openVaultProperties.mockResolvedValue({
       state: "migrated",
@@ -134,7 +136,8 @@ describe("the notices of the properties", () => {
       diverged: [{ noteId: "N7", name: "Заказчик", fileValue: "А", headerValue: "Б" }],
     })
     mount()
-    expect(await screen.findByTestId("note-notices-stack")).toBeTruthy()
+    expect(await screen.findByTestId("note-notices-strip")).toBeTruthy()
+    expect(screen.queryByTestId("note-notices-stack")).toBeNull()
   })
 
   it("give the open notes the properties read after the migration, not the ones read before it", async () => {
@@ -175,7 +178,7 @@ describe("the notices of the properties", () => {
     expect(storage.getNoteProperties).toHaveBeenCalledWith("/vault", "N1")
   })
 
-  it("keep the plain «moved» notice under the bulb", async () => {
+  it("keep the plain «moved» notice under the strip", async () => {
     port.propertyStorageStatus.mockResolvedValue(groups)
     port.openVaultProperties.mockResolvedValue({
       state: "migrated",
@@ -184,7 +187,7 @@ describe("the notices of the properties", () => {
       diverged: [],
     })
     mount()
-    expect(await screen.findByTestId("note-notices-bulb")).toBeTruthy()
+    expect(await screen.findByTestId("note-notices-strip")).toBeTruthy()
     expect(screen.queryByTestId("note-notices-stack")).toBeNull()
   })
 
@@ -210,10 +213,10 @@ describe("the notices of the properties", () => {
     })
     port.takePropertyFileValue.mockResolvedValue(undefined)
     mount()
-    await screen.findByTestId("note-notices-stack")
+    await open()
     act(() => usePropertyMigrationStore.getState().rename("N7", "Статус", "Статусы"))
-    fireEvent.click(screen.getByText("Отчёт"))
-    fireEvent.click(await screen.findByText("Взять значение из старого файла"))
+    fireEvent.click(within(screen.getByTestId("note-notices-stack")).getByText("Отчёт"))
+    fireEvent.click(await (await stackCards()).findByText("Взять значение из старого файла"))
     await waitFor(() =>
       expect(port.takePropertyFileValue).toHaveBeenCalledWith("N7", "Статус", "Статусы"),
     )
@@ -229,14 +232,22 @@ describe("the notices of the properties", () => {
     })
     port.takePropertyFileValue.mockRejectedValue(new Error("No such property: Статус"))
     mount()
-    await screen.findByTestId("note-notices-stack")
-    fireEvent.click(screen.getByText("Отчёт"))
-    fireEvent.click(await screen.findByText("Взять значение из старого файла"))
+    await open()
+    fireEvent.click(within(screen.getByTestId("note-notices-stack")).getByText("Отчёт"))
+    fireEvent.click(await (await stackCards()).findByText("Взять значение из старого файла"))
     expect(
-      await screen.findByText(/Свойства «Статус» больше нет\. Значение из старого файла: «Идея»/),
+      await (
+        await stackCards()
+      ).findByText(/Свойства «Статус» больше нет\. Значение из старого файла: «Идея»/),
     ).toBeTruthy()
-    expect(screen.queryByText("Взять значение из старого файла")).toBeNull()
-    expect(screen.queryByText(/No such property/)).toBeNull()
+    expect(
+      within(screen.getByTestId("note-notices-stack")).queryByText(
+        "Взять значение из старого файла",
+      ),
+    ).toBeNull()
+    expect(
+      within(screen.getByTestId("note-notices-stack")).queryByText(/No such property/),
+    ).toBeNull()
   })
 
   it("never show the raw English text of a backend error in a card", async () => {
@@ -245,9 +256,9 @@ describe("the notices of the properties", () => {
     port.acceptPropertyRenameHint.mockRejectedValue(new Error("YAML binding key is duplicated"))
     mount()
     await open()
-    fireEvent.click(await screen.findByText("Перенести"))
-    expect(await screen.findByText(/Не удалось выполнить действие/)).toBeTruthy()
-    expect(screen.queryByText(/YAML binding/)).toBeNull()
+    fireEvent.click(await (await stackCards()).findByText("Перенести"))
+    expect(await (await stackCards()).findByText(/Не удалось выполнить действие/)).toBeTruthy()
+    expect(within(screen.getByTestId("note-notices-stack")).queryByText(/YAML binding/)).toBeNull()
   })
 
   it("ask about a rename outside Amby and store a refusal", async () => {
@@ -257,8 +268,8 @@ describe("the notices of the properties", () => {
     port.dismissPropertyRenameHint.mockResolvedValue(undefined)
     mount()
     await open()
-    expect(await screen.findByText(/«Статус» → «Состояние»/)).toBeTruthy()
-    fireEvent.click(screen.getByText("Нет"))
+    expect(await (await stackCards()).findByText(/«Статус» → «Состояние»/)).toBeTruthy()
+    fireEvent.click(within(screen.getByTestId("note-notices-stack")).getByText("Нет"))
     await waitFor(() => expect(port.dismissPropertyRenameHint).toHaveBeenCalledWith("N1", hint))
   })
 
@@ -275,8 +286,12 @@ describe("the notices of the properties", () => {
     })
     mount()
     await open()
-    expect(await screen.findByText(/перенесены: 2 заметки/)).toBeTruthy()
-    expect(screen.getByText(/со старой версией Amby не меняйте свойства/)).toBeTruthy()
+    expect(await (await stackCards()).findByText(/перенесены: 2 заметки/)).toBeTruthy()
+    expect(
+      within(screen.getByTestId("note-notices-stack")).getByText(
+        /со старой версией Amby не меняйте свойства/,
+      ),
+    ).toBeTruthy()
   })
 
   it("let the owner choose after an edit made here and in an old version", async () => {
@@ -292,7 +307,7 @@ describe("the notices of the properties", () => {
     port.resolveOldVersionPropertyConflict.mockResolvedValue(undefined)
     mount()
     // an urgent card opens the stack by itself
-    fireEvent.click(await screen.findByText("Оставить здешнее"))
+    fireEvent.click(await (await stackCards()).findByText("Оставить здешнее"))
     await waitFor(() =>
       expect(port.resolveOldVersionPropertyConflict).toHaveBeenCalledWith("N1", true),
     )
@@ -307,7 +322,9 @@ describe("the notices of the properties", () => {
     )
     mount()
     await open()
-    expect(await screen.findByText(/новее этой версии Amby/)).toBeTruthy()
-    expect(screen.getByText(/нечитаемая строка/)).toBeTruthy()
+    expect(await (await stackCards()).findByText(/новее этой версии Amby/)).toBeTruthy()
+    expect(
+      within(screen.getByTestId("note-notices-stack")).getByText(/нечитаемая строка/),
+    ).toBeTruthy()
   })
 })

@@ -1,6 +1,5 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { FileWarning, History, Sparkles } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -152,13 +151,11 @@ export function usePropertyNotices(noteId: string): Notice[] {
   if (migration?.state === "readOnly" || (status.mode === "legacy" && migration === null)) {
     notices.push({
       id: "properties-read-only",
-      urgent: true,
       card: (
         <Card
           key="properties-read-only"
           testId="note-notice-properties-read-only"
-          urgent
-          icon={<FileWarning className="size-4" />}
+          level="decision"
           title={t(
             migration?.reason === "waitingForSync"
               ? "noteNotices.properties.waitingForSync"
@@ -172,13 +169,11 @@ export function usePropertyNotices(noteId: string): Notice[] {
     const diverged = migration.diverged
     notices.push({
       id: "properties-migrated",
-      urgent: diverged.length > 0,
       card: (
         <Card
           key="properties-migrated"
           testId="note-notice-properties-migrated"
-          urgent={diverged.length > 0}
-          icon={<Sparkles className="size-4" />}
+          level={diverged.length > 0 ? "warning" : "info"}
           title={t("noteNotices.properties.migrated")}
           lines={
             diverged.length > 0
@@ -216,13 +211,11 @@ export function usePropertyNotices(noteId: string): Notice[] {
         const missing = goneItems.includes(goneKey(item.noteId, item.name))
         notices.push({
           id: `properties-diverged:${item.noteId}:${item.name}`,
-          urgent: false,
           card: (
             <Card
               key={`properties-diverged:${item.noteId}:${item.name}`}
               testId="note-notice-properties-diverged"
-              urgent={false}
-              icon={<History className="size-4" />}
+              level="warning"
               title={
                 missing
                   ? t("noteNotices.properties.gone", { name: item.name, file: item.fileValue })
@@ -261,13 +254,11 @@ export function usePropertyNotices(noteId: string): Notice[] {
   if (status.mode === "newer" || warnings.some((w) => w.kind === "formatNewer")) {
     notices.push({
       id: "properties-newer",
-      urgent: false,
       card: (
         <Card
           key="properties-newer"
           testId="note-notice-properties-newer"
-          urgent={false}
-          icon={<FileWarning className="size-4" />}
+          level="warning"
           title={t("noteNotices.properties.formatNewer")}
         />
       ),
@@ -276,13 +267,11 @@ export function usePropertyNotices(noteId: string): Notice[] {
   if (warnings.some((w) => w.kind === "badLineInGroup")) {
     notices.push({
       id: "properties-bad-line",
-      urgent: false,
       card: (
         <Card
           key="properties-bad-line"
           testId="note-notice-properties-bad-line"
-          urgent={false}
-          icon={<FileWarning className="size-4" />}
+          level="warning"
           title={t("noteNotices.properties.badLine")}
         />
       ),
@@ -292,13 +281,11 @@ export function usePropertyNotices(noteId: string): Notice[] {
   if (hint) {
     notices.push({
       id: `properties-rename:${hint.oldName}:${hint.newName}`,
-      urgent: false,
       card: (
         <Card
           key="properties-rename"
           testId="note-notice-properties-rename"
-          urgent={false}
-          icon={<Sparkles className="size-4" />}
+          level="info"
           title={t("noteNotices.properties.renameHint", {
             oldName: hint.oldName,
             newName: hint.newName,
@@ -332,13 +319,11 @@ export function usePropertyNotices(noteId: string): Notice[] {
   if (conflicts.includes(noteId)) {
     notices.push({
       id: "properties-old-conflict",
-      urgent: true,
       card: (
         <Card
           key="properties-old-conflict"
           testId="note-notice-properties-old-conflict"
-          urgent
-          icon={<History className="size-4" />}
+          level="decision"
           title={t("noteNotices.properties.oldConflict")}
           error={error}
           actions={
@@ -371,13 +356,11 @@ export function usePropertyNotices(noteId: string): Notice[] {
   if (transferred) {
     notices.push({
       id: "properties-transferred",
-      urgent: false,
       card: (
         <Card
           key="properties-transferred"
           testId="note-notice-properties-transferred"
-          urgent={false}
-          icon={<History className="size-4" />}
+          level="info"
           title={transferred}
           actions={
             <Button type="button" size="sm" variant="outline" onClick={() => setTransferred(null)}>
@@ -391,13 +374,11 @@ export function usePropertyNotices(noteId: string): Notice[] {
   if (oldVersion) {
     notices.push({
       id: "properties-old-version",
-      urgent: false,
       card: (
         <Card
           key="properties-old-version"
           testId="note-notice-properties-old-version"
-          urgent={false}
-          icon={<History className="size-4" />}
+          level="info"
           title={oldVersion}
         />
       ),

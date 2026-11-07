@@ -39,6 +39,8 @@ and attachments. SQLite is rebuildable; durable sidecars and recovery data are n
   recording and rollback. Never treat all of `.amby/` as a disposable cache.
 - Visible strings belong in `src/locales/resources.ts` with all translations;
   static visuals belong in `src/themes/`. Use `IconValue` for encoded icons.
+- Errors, warnings, conflicts and confirmations follow [notice rules](docs/notices.md):
+  one level, one place, at most one announcement; no raw error text, no new native dialogs.
 - Keep Tauri permissions narrow and vault paths canonicalized. Never commit
   secrets, vault contents, recovery data, `dist/` or `src-tauri/target/`.
 - Preserve unrelated working changes. Start feature/fix work from `dev`.

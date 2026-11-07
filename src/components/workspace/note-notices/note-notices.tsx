@@ -1,15 +1,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import {
-  AlertTriangle,
-  ArchiveRestore,
-  FileWarning,
-  GitCompare,
-  Lightbulb,
-  NotebookPen,
-  Save,
-  X,
-} from "lucide-react"
+import { ChevronDown, ChevronUp, GitCompare } from "lucide-react"
+import { motion, useReducedMotion } from "motion/react"
 
 import { Button } from "@/components/ui/button"
 import { errorType, logger } from "@/lib/logger"
@@ -19,6 +11,14 @@ import { restoreRemoteDeleted } from "../sync/restore-remote-deleted"
 import { conflictForPath, useSyncNoticesStore } from "../sync/use-sync-notices-store"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
+import { NoticeLevelIcon } from "../notices/notice-level"
+import {
+  mostSeriousNoticeLevel,
+  noticeDotClass,
+  noticeIsUrgent,
+  noticeSeverityRank,
+} from "../notices/notice-look"
+import { motionTransitions } from "@/lib/motion-config"
 import { Card, type Notice } from "./notice-card"
 import { usePropertyNotices } from "./property-notices"
 import { useNoteNoticesStore } from "./use-note-notices-store"
@@ -110,13 +110,11 @@ function NoteNoticesOf({
   if (found) {
     notices.push({
       id: `sync-conflict:${found.conflict.id}`,
-      urgent: true,
       card: (
         <Card
           key="sync-conflict"
           testId="note-notice-sync-conflict"
-          urgent
-          icon={<AlertTriangle className="size-4" />}
+          level="decision"
           title={t("noteNotices.syncConflict")}
           lines={[
             found.role === "original"
@@ -144,13 +142,11 @@ function NoteNoticesOf({
   if (remoteDeleted) {
     notices.push({
       id: "remote-deleted",
-      urgent: true,
       card: (
         <Card
           key="remote-deleted"
           testId="note-notice-remote-deleted"
-          urgent
-          icon={<ArchiveRestore className="size-4" />}
+          level="decision"
           title={t("sync.notices.remoteDeleted")}
           error={remoteRestoreError ? t("sync.notices.restoreFailed") : null}
           actions={
@@ -171,13 +167,11 @@ function NoteNoticesOf({
   if (document.externallyDeleted && !remoteActive) {
     notices.push({
       id: "external-deleted",
-      urgent: true,
       card: (
         <Card
           key="external-deleted"
           testId="note-notice-deleted"
-          urgent
-          icon={<AlertTriangle className="size-4" />}
+          level="danger"
           title={t("conflict.deletedBannerTitle")}
           lines={[t("conflict.deletedBannerDescription")]}
           error={deletedRestoreError ? t("conflict.restoreFailed") : null}
@@ -205,13 +199,11 @@ function NoteNoticesOf({
   if (externalConflict && !document.externallyDeleted) {
     notices.push({
       id: "external-change",
-      urgent: true,
       card: (
         <Card
           key="external-change"
           testId="note-notice-external-change"
-          urgent
-          icon={<AlertTriangle className="size-4" />}
+          level="decision"
           title={t("conflict.pausedAutosaveBannerTitle")}
           lines={[t("conflict.pausedAutosaveBannerDescription")]}
           actions={
@@ -231,13 +223,11 @@ function NoteNoticesOf({
   if (saveFailed) {
     notices.push({
       id: "save-failed",
-      urgent: true,
       card: (
         <Card
           key="save-failed"
           testId="note-notice-save-failed"
-          urgent
-          icon={<Save className="size-4" />}
+          level="danger"
           title={t("noteNotices.saveFailedTitle")}
           lines={[t("noteNotices.saveFailedDescription")]}
           actions={
@@ -263,13 +253,11 @@ function NoteNoticesOf({
   if (propertyFailed) {
     notices.push({
       id: "property-failed",
-      urgent: true,
       card: (
         <Card
           key="property-failed"
           testId="note-notice-property-failed"
-          urgent
-          icon={<FileWarning className="size-4" />}
+          level="danger"
           title={t("noteNotices.properties.saveFailed")}
         />
       ),
@@ -278,13 +266,11 @@ function NoteNoticesOf({
   if (draftOffer) {
     notices.push({
       id: "draft",
-      urgent: true,
       card: (
         <Card
           key="draft"
           testId="note-notice-draft"
-          urgent
-          icon={<NotebookPen className="size-4" />}
+          level="decision"
           title={t("noteNotices.draftTitle")}
           lines={[t("noteNotices.draftDescription")]}
           actions={
@@ -302,20 +288,16 @@ function NoteNoticesOf({
     })
   }
   if (warningKey) {
+    // A lost id switches the properties off for good: the person decides what to do. The other
+    // warnings about the header only limit what the note can do.
+    const warningLevel = warningKey === "workspace.identityReadOnly" ? "decision" : "warning"
     notices.push({
       id: `warning:${warningKey}`,
-      // A damaged header or a lost id switches the properties off: the person must know.
-      urgent: [
-        "workspace.invalidFrontmatter",
-        "workspace.unterminatedFrontmatter",
-        "workspace.identityReadOnly",
-      ].includes(warningKey),
       card: (
         <Card
           key="warning"
           testId="note-notice-warning"
-          urgent={warningKey !== "workspace.losslessSourceOnly"}
-          icon={<FileWarning className="size-4" />}
+          level={warningLevel}
           title={t(warningKey)}
         />
       ),
@@ -325,13 +307,11 @@ function NoteNoticesOf({
     const name = (relative.split("/").pop() ?? relative).replace(/\.md$/iu, "")
     notices.push({
       id: "restored",
-      urgent: false,
       card: (
         <Card
           key="restored"
           testId="note-notice-restored"
-          urgent={false}
-          icon={<ArchiveRestore className="size-4" />}
+          level="info"
           title={t("sync.notices.restoredAfterDeletion", { name })}
           actions={
             <Button
@@ -349,11 +329,17 @@ function NoteNoticesOf({
   }
 
   notices.push(...propertyNotices)
+  // The panel reads from the most serious down (docs/notices.md, section 7); inside one level the order
+  // in which the cards were collected stays (the sort is stable).
+  notices.sort(
+    (a, b) => noticeSeverityRank(a.card.props.level) - noticeSeverityRank(b.card.props.level),
+  )
 
+  const reducedMotion = useReducedMotion()
   const [open, setOpen] = React.useState(false)
   const seen = React.useRef<Set<string>>(new Set())
   const urgentKey = notices
-    .filter((notice) => notice.urgent)
+    .filter((notice) => noticeIsUrgent(notice.card.props.level))
     .map((notice) => notice.id)
     .join("\u0000")
   React.useEffect(() => {
@@ -363,34 +349,60 @@ function NoteNoticesOf({
   }, [urgentKey])
 
   if (notices.length === 0) return null
-  const anyUrgent = notices.some((notice) => notice.urgent)
+  const topLevel = mostSeriousNoticeLevel(notices.map((notice) => notice.card.props.level))!
+  const top = notices.find((notice) => notice.card.props.level === topLevel)!
+  const more = notices.length - 1
+  const Chevron = open ? ChevronDown : ChevronUp
   return (
     <div
       data-testid="note-notices"
-      className="pointer-events-none absolute bottom-12 right-4 z-20 flex max-w-[calc(100%-2rem)] flex-col items-end gap-1"
+      className="pointer-events-none absolute inset-x-0 bottom-[-0.5rem] flex justify-end"
     >
-      {open && (
-        <div
-          data-testid="note-notices-stack"
-          className="note-notices-surface pointer-events-auto flex max-h-[60vh] w-[min(26rem,calc(100vw-2rem))] flex-col overflow-y-auto rounded-xl"
-        >
-          {notices.map((notice) => notice.card)}
-        </div>
-      )}
-      <button
-        type="button"
-        data-testid="note-notices-bulb"
-        data-urgent={anyUrgent}
-        aria-label={t("noteNotices.bulbLabel", { count: notices.length })}
-        title={t("noteNotices.bulbTitle")}
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        className="note-notices-bulb pointer-events-auto flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold select-none"
+      {/* The strip peeks out from behind the floating bar of the note (the bar draws this inside its own
+          anchor): as wide as the bar, a little narrower, its foot under the bar. Open, it grows upwards
+          and wider, to read the cards. */}
+      <div
+        data-testid="note-notices-frame"
+        className={`note-notices-strip pointer-events-auto overflow-hidden rounded-t-xl border border-b-0 pb-2 ${open ? "w-[min(24rem,calc(100vw-3rem))]" : "w-[calc(100%-1rem)]"} min-w-[18.75rem] max-w-[calc(100vw-3rem)] shrink-0 mx-2`}
       >
-        <Lightbulb className="size-3.5" aria-hidden="true" />
-        <span>{notices.length}</span>
-        {open && <X className="size-3" aria-hidden="true" />}
-      </button>
+        {open && (
+          <motion.div
+            data-testid="note-notices-stack"
+            className="flex max-h-[min(55vh,24rem)] flex-col overflow-y-auto border-b border-border/60"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            transition={reducedMotion ? motionTransitions.instant : motionTransitions.panel}
+          >
+            {notices.map((notice) => notice.card)}
+          </motion.div>
+        )}
+        <button
+          type="button"
+          data-testid="note-notices-strip"
+          data-urgent={noticeIsUrgent(topLevel)}
+          data-level={topLevel}
+          aria-label={t("noteNotices.stripLabel", { count: notices.length })}
+          title={t(open ? "noteNotices.stripCollapse" : "noteNotices.stripExpand")}
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+          className="flex h-8 w-full items-center gap-2 px-3 text-left text-[12px] select-none hover:bg-accent/40"
+        >
+          <NoticeLevelIcon level={topLevel} className="size-4 shrink-0" />
+          <span className="min-w-0 flex-1 truncate font-medium">{top.card.props.title}</span>
+          {more > 0 && (
+            <span className="shrink-0 text-[11px] text-muted-foreground">
+              {t("noteNotices.stripMore", { count: more })}
+            </span>
+          )}
+          <span
+            data-testid="note-notices-dot"
+            data-level={topLevel}
+            aria-hidden="true"
+            className={`size-2 shrink-0 rounded-full ${noticeDotClass(topLevel)}`}
+          />
+          <Chevron className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        </button>
+      </div>
     </div>
   )
 }

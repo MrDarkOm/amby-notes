@@ -103,4 +103,19 @@ describe("PageFloatingBar", () => {
     rerender(<PageFloatingBar />)
     expect(container.firstChild).toBeNull()
   })
+
+  it("lets something peek out from behind the bar, and keeps it when the bar is hidden", () => {
+    const { container, rerender } = render(
+      <PageFloatingBar wordCount="3 words" above={<p data-testid="peek">strip</p>} />,
+    )
+    // inside the same anchor as the bar, before it, so the bar can cover its foot
+    const anchor = container.firstElementChild!
+    expect(anchor.contains(screen.getByTestId("peek"))).toBe(true)
+    expect(anchor.firstElementChild!.contains(screen.getByTestId("peek"))).toBe(true)
+    expect(screen.getByText("3 words")).toBeTruthy()
+
+    rerender(<PageFloatingBar hidden wordCount="3 words" above={<p data-testid="peek">strip</p>} />)
+    expect(screen.getByTestId("peek")).toBeTruthy()
+    expect(screen.queryByText("3 words")).toBeNull()
+  })
 })

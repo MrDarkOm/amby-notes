@@ -1,3 +1,4 @@
+import type * as React from "react"
 import { useTranslation } from "react-i18next"
 import { PanelBottomClose, Files, Maximize2 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -23,6 +24,8 @@ export interface DocumentAreaControlsProps {
   nestedNotes?: TreeItem[]
   nestedNotesPlacement?: "top" | "bottom" | "hidden"
   onNestedNotesPlacementChange?: (placement: "top" | "bottom" | "hidden") => void
+  /** The strip of the notices of the note: it peeks out from behind the bar. */
+  notices?: React.ReactNode
 }
 
 export function DocumentAreaControls({
@@ -37,6 +40,7 @@ export function DocumentAreaControls({
   nestedNotes = [],
   nestedNotesPlacement = "hidden",
   onNestedNotesPlacementChange,
+  notices,
 }: DocumentAreaControlsProps) {
   const { t } = useTranslation()
   const showAreaControls = useSettingsStore((s) => s.prefs.editor.showAreaControls ?? true)
@@ -122,6 +126,7 @@ export function DocumentAreaControls({
 
   return (
     <PageFloatingBar
+      above={notices}
       hidden={!showAreaControls}
       modified={docModified}
       wordCount={t("docEditor.wordCount", { count: wordCount })}

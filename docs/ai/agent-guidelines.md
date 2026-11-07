@@ -68,6 +68,21 @@ Static visual definitions belong under `src/themes/`, not in components. Compone
 
 Workspace icons may be native emoji, encoded Lucide values, or cropped raster data URLs. Create and parse encoded values through `src/components/workspace/icon-values.ts`, render them through `IconValue`, and keep picker palettes and shadow-DOM styling under `src/themes/`. Do not render encoded icon strings directly as text.
 
+## User-Facing Notices
+
+Anything that tells the person about an error, a warning, a conflict, an event or the result of an action follows
+[the notice rules](../notices.md). Before adding or changing one:
+
+- Pick its level (`danger`, `decision`, `warning`, `info`, `success`) and its single place: under the element for an
+  answer to an action, the note card for an open note, the notification centre for everything else, an in-app
+  confirmation window only for an irreversible request.
+- Announce only `danger` and `decision`, once: the self-opening note stack or a toast, never both.
+- Show text from `src/locales/resources.ts` keyed by an error code; never render `error.message` or a server string.
+- Do not add `confirmAction`, `showErrorMessage`, `window.confirm` or `window.alert` calls, or new ad-hoc toast hosts.
+- Take level colours and icons from the theme tokens and the shared level component, not from `amber-*` classes.
+- A swallowed error carries a comment saying why and a `logger` call with its code; never silence a data problem.
+- Test that the notice appears in its place, is announced at most once, does not duplicate and leaves with its cause.
+
 ## Data-Safety and Compatibility Rules
 
 - Treat Markdown and attachments as the source of truth; the SQLite index must always remain rebuildable.
