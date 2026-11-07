@@ -79,7 +79,7 @@ afterEach(() => {
 })
 
 describe("the level of the cards of the properties", () => {
-  it("properties that are read only are a warning", async () => {
+  it("properties that are read only are a decision: the stack opens by itself", async () => {
     port.propertyStorageStatus.mockResolvedValue({ mode: "legacy", oldVersionWarning: null })
     port.openVaultProperties.mockResolvedValue({
       state: "readOnly",
@@ -88,25 +88,30 @@ describe("the level of the cards of the properties", () => {
       diverged: [],
     })
     mount()
-    expect((await card("note-notice-properties-read-only")).getAttribute("data-level")).toBe(
-      "warning",
-    )
+    const element = await screen.findByTestId("note-notice-properties-read-only")
+    expect(element.getAttribute("data-level")).toBe("decision")
+    expect(element.getAttribute("data-urgent")).toBe("true")
   })
 
   it("«moved to the new format» is information when all values agree", async () => {
     port.propertyStorageStatus.mockResolvedValue(groups)
     port.openVaultProperties.mockResolvedValue(migrated())
     mount()
-    expect((await card("note-notice-properties-migrated")).getAttribute("data-level")).toBe("info")
+    const element = await card("note-notice-properties-migrated")
+    expect(element.getAttribute("data-level")).toBe("info")
+    expect(element.getAttribute("data-urgent")).toBe("false")
   })
 
   it("«moved» with differing values is a warning, and so is each differing value", async () => {
     port.propertyStorageStatus.mockResolvedValue(groups)
     port.openVaultProperties.mockResolvedValue(migrated([item]))
     mount()
-    expect((await card("note-notice-properties-migrated")).getAttribute("data-level")).toBe(
-      "warning",
-    )
+    // a warning: the stack waits for a click, and the card says so with its flag
+    await screen.findByTestId("note-notices-bulb")
+    expect(screen.queryByTestId("note-notices-stack")).toBeNull()
+    const migratedCard = await card("note-notice-properties-migrated")
+    expect(migratedCard.getAttribute("data-level")).toBe("warning")
+    expect(migratedCard.getAttribute("data-urgent")).toBe("false")
     fireEvent.click(screen.getByText("Отчёт"))
     expect(
       (await screen.findByTestId("note-notice-properties-diverged")).getAttribute("data-level"),
@@ -175,5 +180,33 @@ describe("the level of the cards of the properties", () => {
     mount()
     await card("note-notice-properties-migrated")
     expect(screen.getByTestId("note-notices-stack").innerHTML).not.toMatch(/amber/)
+  })
+
+  it("the flag of every card of the properties is its level", async () => {
+    port.propertyStorageStatus.mockResolvedValue({ mode: "groups", oldVersionWarning: "Старая" })
+    port.openVaultProperties.mockResolvedValue(migrated([item]))
+    port.getPropertyPanel.mockResolvedValue(
+      panel({
+        warnings: [{ kind: "formatNewer" }, { kind: "badLineInGroup" }],
+        renameHint: { oldName: "А", newName: "Б" },
+      }),
+    )
+    port.checkOldVersionPropertyEdits.mockResolvedValue({
+      transferred: ["N1"],
+      conflicts: ["N1"],
+      hintText: "Перенесены свойства: 1 заметка",
+    })
+    mount()
+    await card("note-notice-properties-migrated")
+    fireEvent.click(screen.getByText("Отчёт"))
+    await screen.findByTestId("note-notice-properties-diverged")
+    const cards = [...screen.getByTestId("note-notices-stack").querySelectorAll("[data-level]")]
+    expect(cards.length).toBeGreaterThanOrEqual(8)
+    for (const element of cards) {
+      const level = element.getAttribute("data-level")
+      expect(element.getAttribute("data-urgent")).toBe(
+        String(level === "danger" || level === "decision"),
+      )
+    }
   })
 })

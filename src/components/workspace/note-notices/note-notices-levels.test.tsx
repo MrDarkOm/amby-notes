@@ -113,13 +113,14 @@ describe("the level of every card of a note", () => {
   })
 
   it.each([
-    ["workspace.identityReadOnly"],
-    ["workspace.losslessSourceOnly"],
-    ["workspace.invalidFrontmatter"],
-    ["workspace.unterminatedFrontmatter"],
-  ])("the warning %s about the header is a warning", (key) => {
+    ["workspace.losslessSourceOnly", "warning"],
+    ["workspace.invalidFrontmatter", "warning"],
+    ["workspace.unterminatedFrontmatter", "warning"],
+    // a lost id switches the properties off for good: the person must decide what to do
+    ["workspace.identityReadOnly", "decision"],
+  ])("the warning %s about the header is a %s", (key, level) => {
     mount({ warningKey: key })
-    expect(card("note-notice-warning").getAttribute("data-level")).toBe("warning")
+    expect(card("note-notice-warning").getAttribute("data-level")).toBe(level)
   })
 
   it("a note that came back is information, not a triangle", () => {
@@ -161,19 +162,133 @@ describe("the level of every card of a note", () => {
   })
 })
 
-describe("what each card does as before (behaviour is not part of this step)", () => {
-  it("the flag that opens the stack by itself does not follow the level", () => {
-    // Three warnings about the header open the stack although they are warnings; the lossless one waits.
-    mount({ warningKey: "workspace.invalidFrontmatter" })
-    expect(screen.queryByTestId("note-notices-stack")).not.toBeNull()
-    expect(screen.getByTestId("note-notice-warning").getAttribute("data-urgent")).toBe("true")
+describe("what opens the stack by itself follows the level (docs/notices.md, 2.1 and 7)", () => {
+  /** Mounts one card; returns whether the stack was open without a click and the flag of the card. */
+  function opened(setup: () => void, props: Partial<NoteNoticesProps>, testId: string) {
     cleanup()
-    mount({ warningKey: "workspace.losslessSourceOnly" })
-    expect(screen.queryByTestId("note-notices-stack")).toBeNull()
-    cleanup()
-    act(() => useNoteNoticesStore.getState().markRestored(ORIGINAL))
-    mount()
-    expect(screen.queryByTestId("note-notices-stack")).toBeNull()
-    expect(card("note-notice-restored").getAttribute("data-urgent")).toBe("false")
+    useSyncNoticesStore.setState(useSyncNoticesStore.getInitialState())
+    useNoteNoticesStore.setState(useNoteNoticesStore.getInitialState())
+    setup()
+    mount(props)
+    const byItself = screen.queryByTestId("note-notices-stack") !== null
+    const flag = card(testId).getAttribute("data-urgent")
+    const level = card(testId).getAttribute("data-level")
+    return { byItself, flag, level }
+  }
+  const external = {
+    [ABSOLUTE]: {
+      fileId: ABSOLUTE,
+      path: ABSOLUTE,
+      localContent: "a",
+      externalContent: "b",
+      externalRevision: "r",
+      sourceTemplate: "b",
+    },
+  }
+  const none = () => {}
+
+  it.each([
+    ["a damaged header", { warningKey: "workspace.invalidFrontmatter" }, "note-notice-warning"],
+    [
+      "an unterminated header",
+      { warningKey: "workspace.unterminatedFrontmatter" },
+      "note-notice-warning",
+    ],
+    [
+      "a header that is only source",
+      { warningKey: "workspace.losslessSourceOnly" },
+      "note-notice-warning",
+    ],
+  ])("%s is a warning: the stack waits for a click", (_name, props, testId) => {
+    const result = opened(none, props, testId)
+    expect(result).toEqual({ byItself: false, flag: "false", level: "warning" })
+  })
+
+  it("a lost id is a decision: the stack opens by itself", () => {
+    const result = opened(none, { warningKey: "workspace.identityReadOnly" }, "note-notice-warning")
+    expect(result).toEqual({ byItself: true, flag: "true", level: "decision" })
+  })
+
+  it("a note that came back waits for a click", () => {
+    const result = opened(
+      () => useNoteNoticesStore.getState().markRestored(ORIGINAL),
+      {},
+      "note-notice-restored",
+    )
+    expect(result).toEqual({ byItself: false, flag: "false", level: "info" })
+  })
+
+  it.each([
+    [
+      "a sync conflict",
+      () => useSyncNoticesStore.setState({ conflicts: [conflict] }),
+      {},
+      "note-notice-sync-conflict",
+      "decision",
+    ],
+    [
+      "a note deleted on another computer",
+      () => useSyncNoticesStore.getState().markRemoteDeleted(ORIGINAL),
+      { document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true } },
+      "note-notice-remote-deleted",
+      "decision",
+    ],
+    [
+      "a file deleted outside Amby",
+      none,
+      { document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true } },
+      "note-notice-deleted",
+      "danger",
+    ],
+    [
+      "a change outside Amby",
+      () => useDocStore.setState({ externalConflicts: external }),
+      {},
+      "note-notice-external-change",
+      "decision",
+    ],
+    [
+      "text that was not saved",
+      () => useNoteNoticesStore.getState().setSaveFailed(ABSOLUTE, true),
+      {},
+      "note-notice-save-failed",
+      "danger",
+    ],
+    [
+      "a property that was not saved",
+      () => useNoteNoticesStore.getState().setPropertyFailed(ABSOLUTE, true),
+      {},
+      "note-notice-property-failed",
+      "danger",
+    ],
+    [
+      "a draft",
+      () =>
+        useNoteNoticesStore.getState().offerDraft(ABSOLUTE, { accept: vi.fn(), reject: vi.fn() }),
+      {},
+      "note-notice-draft",
+      "decision",
+    ],
+  ])("%s opens the stack by itself", (_name, setup, props, testId, level) => {
+    const result = opened(setup, props as Partial<NoteNoticesProps>, testId)
+    expect(result).toEqual({ byItself: true, flag: "true", level })
+  })
+
+  it("the flag of every card is the level: urgent only for danger and decision", () => {
+    useSyncNoticesStore.setState({ conflicts: [conflict] })
+    useNoteNoticesStore.getState().markRestored(ORIGINAL)
+    mount({
+      warningKey: "workspace.invalidFrontmatter",
+      document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true },
+    })
+    card("note-notice-warning")
+    const cards = [...screen.getByTestId("note-notices-stack").querySelectorAll("[data-level]")]
+    expect(cards.length).toBeGreaterThanOrEqual(4)
+    for (const element of cards) {
+      const level = element.getAttribute("data-level")
+      expect(element.getAttribute("data-urgent")).toBe(
+        String(level === "danger" || level === "decision"),
+      )
+    }
   })
 })

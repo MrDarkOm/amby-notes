@@ -103,7 +103,7 @@ describe("the notices of the properties", () => {
     })
     port.takePropertyFileValue.mockResolvedValue(undefined)
     mount()
-    await screen.findByTestId("note-notices-stack")
+    await open()
     expect(await screen.findByText(/Расходились значения у 1 заметки/)).toBeTruthy()
     fireEvent.click(screen.getByText("Отчёт"))
     fireEvent.click(await screen.findByText("Взять значение из старого файла"))
@@ -125,7 +125,7 @@ describe("the notices of the properties", () => {
     expect(await screen.findByText(/только для чтения/)).toBeTruthy()
   })
 
-  it("open the stack by themselves for the important ones: differing values after the migration", async () => {
+  it("keep the differing values under the bulb after the migration: a warning does not open the stack", async () => {
     port.propertyStorageStatus.mockResolvedValue(groups)
     port.openVaultProperties.mockResolvedValue({
       state: "migrated",
@@ -134,7 +134,8 @@ describe("the notices of the properties", () => {
       diverged: [{ noteId: "N7", name: "Заказчик", fileValue: "А", headerValue: "Б" }],
     })
     mount()
-    expect(await screen.findByTestId("note-notices-stack")).toBeTruthy()
+    expect(await screen.findByTestId("note-notices-bulb")).toBeTruthy()
+    expect(screen.queryByTestId("note-notices-stack")).toBeNull()
   })
 
   it("give the open notes the properties read after the migration, not the ones read before it", async () => {
@@ -210,7 +211,7 @@ describe("the notices of the properties", () => {
     })
     port.takePropertyFileValue.mockResolvedValue(undefined)
     mount()
-    await screen.findByTestId("note-notices-stack")
+    await open()
     act(() => usePropertyMigrationStore.getState().rename("N7", "Статус", "Статусы"))
     fireEvent.click(screen.getByText("Отчёт"))
     fireEvent.click(await screen.findByText("Взять значение из старого файла"))
@@ -229,7 +230,7 @@ describe("the notices of the properties", () => {
     })
     port.takePropertyFileValue.mockRejectedValue(new Error("No such property: Статус"))
     mount()
-    await screen.findByTestId("note-notices-stack")
+    await open()
     fireEvent.click(screen.getByText("Отчёт"))
     fireEvent.click(await screen.findByText("Взять значение из старого файла"))
     expect(

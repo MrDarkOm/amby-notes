@@ -58,8 +58,8 @@ afterEach(() => {
 })
 
 describe("important warnings of the properties", () => {
-  it("open the stack for a damaged header and for a property that could not be saved", async () => {
-    mount({ warningKey: "workspace.invalidFrontmatter" })
+  it("open the stack for a lost id and for a property that could not be saved", async () => {
+    mount({ warningKey: "workspace.identityReadOnly" })
     expect(stack()).not.toBeNull()
     cleanup()
     mount()
@@ -199,7 +199,7 @@ describe("the warnings that used to be strips above the note", () => {
     ["workspace.unterminatedFrontmatter"],
   ])("%s is a card, with its own text", (key) => {
     mount({ warningKey: key })
-    // a damaged header or a lost id is important: the stack is open without a click
+    // a lost id opens the stack by itself; the other warnings wait for a click on the bulb
     if (!stack()) fireEvent.click(bulb()!)
     expect(within(stack()!).getByText(i18n.t(key))).toBeTruthy()
   })
