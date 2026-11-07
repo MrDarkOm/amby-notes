@@ -18,6 +18,17 @@ use crate::frontmatter;
 use crate::property_template::TEMPLATE_VERSION;
 
 /// `.amby/properties/` (З48).
+thread_local! {
+    /// The clock of the edits in tests (З70); `None` is the computer's clock.
+    static EDIT_CLOCK: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
+/// Sets the time `update_entry` stamps on a changed line (З70), for tests.
+#[cfg(test)]
+pub(crate) fn set_edit_clock(ms: Option<u64>) {
+    EDIT_CLOCK.with(|clock| clock.set(ms));
+}
+
 pub fn properties_dir(vault: &Path) -> PathBuf {
     vault.join(".amby").join("properties")
 }
