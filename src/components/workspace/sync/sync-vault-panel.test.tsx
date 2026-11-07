@@ -531,31 +531,42 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
     id: "0123456789ab",
     kind: "bothEdited",
     originalPath: "Заметки/идея.md",
-    copyPath: "Заметки/идея.0123456789ab-conflict.md",
+    copyPath: ".amby/conflicts/0123456789ab/other.md",
     createdMs: 1_760_000_000_000,
   }
 
-  it("lists a conflict with both files and three ways to resolve it", async () => {
-    const port = await show(vaultStatus({ conflicts: [conflict] }))
+  it("lists a conflict by the name of the note, with one button and the choice in the comparison", async () => {
+    const port = await show(vaultStatus({ conflicts: [conflict] }), {
+      readConflictVersions: async () => ({ original: "a", copy: "b", stamp: "s" }),
+    })
     const list = await screen.findByTestId("sync-conflicts")
     expect(list.textContent).toMatch(/Конфликты \(1\)/)
     const row = within(list).getAllByRole("listitem")[0]
-    expect(row.textContent).toMatch(/Заметки\/идея\.md/)
-    expect(row.textContent).toMatch(/идея\.0123456789ab-conflict\.md/)
-    expect(row.textContent).toMatch(/изменили на двух компьютерах/)
-    fireEvent.click(within(row).getByRole("button", { name: "Оставить основной файл" }))
+    expect(row.textContent).toMatch(/«идея» изменили на двух компьютерах/)
+    expect(row.textContent).toMatch(/Обе версии целы/)
+    expect(row.textContent).not.toMatch(/\.md|conflict|Заметки\//)
+    expect(within(row).getAllByRole("button")).toHaveLength(1)
+    fireEvent.click(within(row).getByRole("button", { name: "Сравнить" }))
+    const dialog = await screen.findByRole("dialog")
+    expect(port.resolveConflict).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole("button", { name: "Оставить версию в заметке" }))
     await waitFor(() =>
       expect(port.resolveConflict).toHaveBeenCalledWith("0123456789ab", "keepOriginal"),
     )
-    fireEvent.click(within(row).getByRole("button", { name: "Заменить копией" }))
-    await waitFor(() =>
-      expect(port.resolveConflict).toHaveBeenCalledWith("0123456789ab", "keepCopy"),
-    )
-    fireEvent.click(within(row).getByRole("button", { name: "Оставить оба" }))
-    await waitFor(() =>
-      expect(port.resolveConflict).toHaveBeenCalledWith("0123456789ab", "keepBoth"),
-    )
   })
+
+  it.each([["Взять вторую версию", "keepCopy"]])(
+    "takes “%s” in the comparison as %s",
+    async (label, choice) => {
+      const port = await show(vaultStatus({ conflicts: [conflict] }), {
+        readConflictVersions: async () => ({ original: "a", copy: "b", stamp: "s" }),
+      })
+      const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+      fireEvent.click(within(row).getByRole("button", { name: "Сравнить" }))
+      fireEvent.click(await screen.findByRole("button", { name: label }))
+      await waitFor(() => expect(port.resolveConflict).toHaveBeenCalledWith("0123456789ab", choice))
+    },
+  )
 
   it("tells a conflict of the properties of notes in words, with two choices and no paths", async () => {
     const properties = {
@@ -567,7 +578,7 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
     const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
     expect(row.textContent).toMatch(/Свойства заметок изменили на двух компьютерах/)
     expect(row.textContent).not.toMatch(/\.amby/)
-    expect(within(row).queryByRole("button", { name: "Оставить оба" })).toBeNull()
+    expect(within(row).queryByRole("button", { name: "Сравнить" })).toBeNull()
     expect(within(row).getAllByRole("button")).toHaveLength(2)
     fireEvent.click(within(row).getByRole("button", { name: "Взять с другого компьютера" }))
     await waitFor(() =>
@@ -723,14 +734,21 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
     expect(list.textContent).toMatch(/создали на двух компьютерах/)
   })
 
-  it("replaces a replaced file only after a confirmation that names the file", async () => {
-    // "Заменить копией" overwrites the file with the copy: the person has to mean it
-    const port = await show(vaultStatus({ conflicts: [conflict] }))
+  it("says after the choice where the replaced version went, and only then", async () => {
+    const port = await show(vaultStatus({ conflicts: [conflict] }), {
+      readConflictVersions: async () => ({ original: "a", copy: "b", stamp: "s" }),
+    })
     const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
-    fireEvent.click(within(row).getByRole("button", { name: "Заменить копией" }))
+    // nothing is promised before the choice
+    expect(document.body.textContent).not.toMatch(/истории/)
+    fireEvent.click(within(row).getByRole("button", { name: "Сравнить" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Взять вторую версию" }))
     await waitFor(() => expect(port.resolveConflict).toHaveBeenCalled())
-    // The replaced version stays in the history: the screen says where to find it.
-    expect(document.body.textContent).toMatch(/истории/)
+    await waitFor(() =>
+      expect(screen.getByTestId("sync-conflict-outcome").textContent).toBe(
+        "В заметке «идея» теперь вторая версия. Прежняя — в истории заметки.",
+      ),
+    )
   })
 
   it("shows the list as it changes: a resolved conflict leaves it", async () => {
@@ -747,7 +765,8 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
       },
     })
     const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
-    fireEvent.click(within(row).getByRole("button", { name: "Оставить оба" }))
+    fireEvent.click(within(row).getByRole("button", { name: "Сравнить" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Оставить версию в заметке" }))
     expect((await screen.findByRole("alert")).textContent).toMatch(/уже нет в списке/)
   })
 

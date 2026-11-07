@@ -87,9 +87,7 @@ describe("DocumentEditor notices", () => {
     const body = screen.getByTestId("body")
     // everything that warns is inside the stack, which the body draws with its floating bar
     expect(within(stack).getByText("Автосохранение приостановлено")).toBeTruthy()
-    expect(
-      within(stack).getByText("Пришла другая версия заметки с другого компьютера"),
-    ).toBeTruthy()
+    expect(within(stack).getByText("«идея» изменили на двух компьютерах")).toBeTruthy()
     expect(body.contains(stack)).toBe(true)
     const outside = [...container.querySelectorAll('[role="alert"], [role="status"]')].filter(
       (element) => !stack.contains(element),
