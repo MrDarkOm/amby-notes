@@ -15,9 +15,9 @@ passes it to [document-area-controls.tsx](../editor/document-area-controls.tsx) 
 | Sources read by the cards                                                                                       | external conflicts and deletion: [use-doc-store.ts](../use-doc-store.ts); sync conflicts, remote deletions: [use-sync-notices-store.ts](../sync/use-sync-notices-store.ts); warning key: [note-editing-policy.ts](../editor/note-editing-policy.ts) |
 | Writers                                                                                                         | `saveFailed`: [use-markdown-autosave.ts](../file-actions/use-markdown-autosave.ts); `draftOffers`: [use-document-loading.ts](../file-actions/use-document-loading.ts); `restored`: [sync-notices-host.tsx](../sync/sync-notices-host.tsx)           |
 
-The strip is there only while the note has a notice. Folded it is one line and one button (`aria-expanded`): the icon of the most
+The strip is there only while the note has a notice; folded it is at least about 300px wide and grows to the left of the bar. Folded it is one line and one button (`aria-expanded`): the icon of the most
 serious level, the title of its card cut to one line, "+N" for the other cards, a dot of that level and a chevron; open, it grows
-upwards into the panel of all the cards (limited height, scrolls inside; animation by the motion tokens, instant for reduced motion)
+upwards into the panel of all the cards, most serious first (danger, decision, warning, information; the order inside a level is the order they are collected in) (limited height, scrolls inside; animation by the motion tokens, instant for reduced motion)
 and the line stays at its foot. The level of a card (`danger`, `decision`, `warning`, `info`) says how it looks, how it is announced
 and whether it opens the panel by itself: only `danger` and `decision` do, when a new one appears or when the note is opened
 (`noticeIsUrgent` in [notice-look.ts](../notices/notice-look.ts); `data-urgent` on a card is derived from its level). Today these are a

@@ -12,7 +12,12 @@ import { conflictForPath, useSyncNoticesStore } from "../sync/use-sync-notices-s
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import { NoticeLevelIcon } from "../notices/notice-level"
-import { mostSeriousNoticeLevel, noticeDotClass, noticeIsUrgent } from "../notices/notice-look"
+import {
+  mostSeriousNoticeLevel,
+  noticeDotClass,
+  noticeIsUrgent,
+  noticeSeverityRank,
+} from "../notices/notice-look"
 import { motionTransitions } from "@/lib/motion-config"
 import { Card, type Notice } from "./notice-card"
 import { usePropertyNotices } from "./property-notices"
@@ -324,6 +329,11 @@ function NoteNoticesOf({
   }
 
   notices.push(...propertyNotices)
+  // The panel reads from the most serious down (docs/notices.md, section 7); inside one level the order
+  // in which the cards were collected stays (the sort is stable).
+  notices.sort(
+    (a, b) => noticeSeverityRank(a.card.props.level) - noticeSeverityRank(b.card.props.level),
+  )
 
   const reducedMotion = useReducedMotion()
   const [open, setOpen] = React.useState(false)
@@ -352,7 +362,8 @@ function NoteNoticesOf({
           anchor): as wide as the bar, a little narrower, its foot under the bar. Open, it grows upwards
           and wider, to read the cards. */}
       <div
-        className={`note-notices-strip pointer-events-auto overflow-hidden rounded-t-xl border border-b-0 pb-2 ${open ? "w-[min(24rem,calc(100vw-3rem))] shrink-0" : "min-w-0 flex-1"} mx-2`}
+        data-testid="note-notices-frame"
+        className={`note-notices-strip pointer-events-auto overflow-hidden rounded-t-xl border border-b-0 pb-2 ${open ? "w-[min(24rem,calc(100vw-3rem))]" : "w-[calc(100%-1rem)]"} min-w-[18.75rem] max-w-[calc(100vw-3rem)] shrink-0 mx-2`}
       >
         {open && (
           <motion.div

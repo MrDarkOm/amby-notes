@@ -63,6 +63,11 @@ export function noticeIsUrgent(level: NoticeLevel): boolean {
 
 const BY_SERIOUSNESS = ["danger", "decision", "warning", "info", "success"] as const
 
+/** Where a level stands in the order of seriousness: 0 is the most serious. */
+export function noticeSeverityRank(level: NoticeLevel): number {
+  return BY_SERIOUSNESS.indexOf(level)
+}
+
 /** The most serious of the levels, or null when there are none (docs/notices.md, section 2.1 order). */
 export function mostSeriousNoticeLevel(levels: readonly NoticeLevel[]): NoticeLevel | null {
   return BY_SERIOUSNESS.find((level) => levels.includes(level)) ?? null
