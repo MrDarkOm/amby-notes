@@ -9,7 +9,8 @@ use amby_sync_core::crypto::primitives::blake3_hash;
 use serde_json::{json, Value};
 
 use super::conflict_store::{
-    ConflictError, ConflictStore, FileConflictStore, GroupConflictNote, NotePick, Resolution,
+    ConflictError, ConflictStore, FileConflictStore, GroupConflictNote, GroupPropertyChange,
+    NotePick, PropertyLook, Resolution,
 };
 use super::test_support::TempVault;
 
@@ -106,6 +107,25 @@ fn vault_with_a_group_set() -> TempVault {
     vault
 }
 
+fn look(icon: &str) -> PropertyLook {
+    PropertyLook {
+        icon: Some(icon.into()),
+        ..PropertyLook::default()
+    }
+}
+
+/// A group file from whole lines, sorted by `id`.
+fn group_of_lines(lines: &[Value]) -> String {
+    let mut sorted: Vec<&Value> = lines.iter().collect();
+    sorted.sort_by_key(|l| l["id"].as_str().unwrap().to_string());
+    let mut text = String::from(EMPTY);
+    for l in sorted {
+        text.push_str(&serde_json::to_string(l).unwrap());
+        text.push('\n');
+    }
+    text
+}
+
 fn picks(items: &[(&str, NotePick)]) -> BTreeMap<String, NotePick> {
     items.iter().map(|(id, p)| (id.to_string(), *p)).collect()
 }
@@ -123,6 +143,14 @@ fn the_conflict_of_a_group_lists_only_the_notes_changed_differently_on_both_side
             note_id: "A".into(),
             note_path: Some("Папка/A-заметка.md".into()),
             note_title: Some("A-заметка".into()),
+            changes: vec![GroupPropertyChange {
+                name: "Заказчик".into(),
+                current: Some(look("L")),
+                other: Some(look("R")),
+            }],
+            order_differs: false,
+            current_removed: false,
+            other_removed: false,
         }]
     );
     assert_eq!(view.auto_merged, 2, "B and C merged by themselves");
@@ -425,5 +453,100 @@ fn a_pick_for_a_note_that_does_not_conflict_changes_nothing_of_it() {
     assert_eq!(
         (got["A"].as_str(), got["B"].as_str(), got["C"].as_str()),
         ("L", "L", "R")
+    );
+}
+
+// ----- what differs (З69: the person sees what they choose) -----
+
+#[test]
+fn only_the_properties_that_differ_are_shown_with_both_looks() {
+    // З69: a property equal on both sides is not shown; one changed only there has `None` here
+    let vault = TempVault::new("group-conflicts");
+    let hint = json!({"path": "Идея.md"});
+    let mine = json!({"hint": hint, "id": "A", "props": {
+        "Статус": {"icon": "lucide:star", "propertyType": "select", "settings": "{\"options\":[\"a\"]}"},
+        "Жанр": {"icon": "lucide:book"},
+    }});
+    let theirs = json!({"hint": hint, "id": "A", "props": {
+        "Статус": {"icon": "emoji:📘"},
+        "Жанр": {"icon": "lucide:book"},
+        "Автор": {"icon": "lucide:user"},
+    }});
+    let base = json!({"hint": hint, "id": "A", "props": {"Жанр": {"icon": "lucide:book"}}});
+    vault.put(GROUP, group_of_lines(&[mine]).as_bytes());
+    make_set(
+        &vault,
+        "bothEdited",
+        GROUP,
+        group_of_lines(&[theirs]).as_bytes(),
+        Some(group_of_lines(&[base]).as_bytes()),
+    );
+    let view = store(&vault).read_group(ID).unwrap();
+    assert_eq!(view.notes.len(), 1);
+    let note = &view.notes[0];
+    assert_eq!(
+        note.changes,
+        vec![
+            GroupPropertyChange {
+                name: "Автор".into(),
+                current: None,
+                other: Some(look("lucide:user")),
+            },
+            GroupPropertyChange {
+                name: "Статус".into(),
+                current: Some(PropertyLook {
+                    icon: Some("lucide:star".into()),
+                    property_type: Some("select".into()),
+                    settings: Some("{\"options\":[\"a\"]}".into()),
+                }),
+                other: Some(look("emoji:📘")),
+            },
+        ],
+        "«Жанр» is the same on both computers"
+    );
+    assert!(!note.order_differs);
+    assert!(!note.current_removed && !note.other_removed);
+}
+
+#[test]
+fn a_changed_order_and_a_removed_line_are_told() {
+    // З69: the order of the properties is a difference too; a line gone from one side is said
+    let vault = TempVault::new("group-conflicts");
+    let props = json!({"Статус": {"icon": "lucide:star"}, "Жанр": {"icon": "lucide:book"}});
+    let line_of = |id: &str, order: &[&str]| json!({"hint": {"path": format!("{id}.md")}, "id": id, "props": props, "order": order});
+    let base_b =
+        json!({"hint": {"path": "B.md"}, "id": "B", "props": {"Жанр": {"icon": "lucide:x"}}});
+    let changed_b =
+        json!({"hint": {"path": "B.md"}, "id": "B", "props": {"Жанр": {"icon": "lucide:y"}}});
+    vault.put(
+        GROUP,
+        group_of_lines(&[line_of("A", &["Статус", "Жанр"])]).as_bytes(),
+    );
+    make_set(
+        &vault,
+        "bothEdited",
+        GROUP,
+        group_of_lines(&[line_of("A", &["Жанр", "Статус"]), changed_b]).as_bytes(),
+        Some(group_of_lines(&[line_of("A", &["Жанр"]), base_b]).as_bytes()),
+    );
+    let view = store(&vault).read_group(ID).unwrap();
+    let ids: Vec<&str> = view.notes.iter().map(|n| n.note_id.as_str()).collect();
+    assert_eq!(ids, vec!["A", "B"]);
+    let a = &view.notes[0];
+    assert!(a.order_differs);
+    assert!(
+        a.changes.is_empty(),
+        "the looks are the same, only the order"
+    );
+    let b = &view.notes[1];
+    assert!(b.current_removed, "this computer removed the line of B");
+    assert!(!b.other_removed);
+    assert_eq!(
+        b.changes,
+        vec![GroupPropertyChange {
+            name: "Жанр".into(),
+            current: None,
+            other: Some(look("lucide:y")),
+        }]
     );
 }
