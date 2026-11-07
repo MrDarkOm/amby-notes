@@ -127,8 +127,8 @@ pub(super) fn old_entry_hash(list: Option<&OldProps>) -> String {
     blake3_hex(canonical_json(&Value::Array(stripped)).as_bytes())
 }
 
-/// BLAKE3 of the canonical line of a note without `hint` and `dismissedRenames`; 32 zeros when
-/// there is no line (З53).
+/// BLAKE3 of the canonical line of a note without `hint`, `dismissedRenames` and `edited` (З70);
+/// 32 zeros when there is no line (З53).
 pub(super) fn record_hash(entry: Option<&NoteEntry>) -> String {
     let Some(entry) = entry else {
         return NO_RECORD.to_string();
@@ -136,6 +136,7 @@ pub(super) fn record_hash(entry: Option<&NoteEntry>) -> String {
     let mut stripped = entry.clone();
     stripped.hint = None;
     stripped.dismissed_renames.clear();
+    stripped.extra.remove("edited");
     blake3_hex(super::files::canonical_line(&stripped).as_bytes())
 }
 

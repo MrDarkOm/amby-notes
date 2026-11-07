@@ -582,3 +582,52 @@ fn a_merge_that_drops_properties_is_counted_with_the_one_sided_replacements() {
         "14 + 12 properties together are a mass loss"
     );
 }
+
+// ----- З70: the last edit wins -----
+
+/// A file of notes `(id, icon, edited)`; each note has one property «Заказчик».
+fn stamped(notes: &[(&str, &str, u64)]) -> String {
+    file(
+        &notes
+            .iter()
+            .map(|(id, icon, at)| {
+                let mut line = rec(id, &[("Заказчик", icon)]);
+                line["edited"] = json!(at);
+                line
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
+#[test]
+fn the_later_edit_of_one_note_wins_on_both_computers_without_a_set() {
+    // З70: the Mac (device 1) set the sheet first, the PC (device 0) the smile later and synced
+    // first; the Mac meets it — no conflict, the smile stays everywhere, the edits of other notes
+    // are kept
+    let w = pair(Engine::boxed);
+    w.save(
+        1,
+        GROUP,
+        &stamped(&[("A", "sheet", 1_000), ("B", "0", 1), ("C", "mac", 1_500)]),
+    );
+    w.save(
+        0,
+        GROUP,
+        &stamped(&[("A", "smile", 2_000), ("B", "pc", 2_100), ("C", "0", 1)]),
+    );
+    w.pass(0);
+    let report = w.pass(1);
+    assert!(report.conflicts.is_empty(), "no conflict");
+    assert!(w.sets(1).is_empty(), "no conflict set");
+    let mac = icons(&w.read(1, GROUP).unwrap());
+    assert_eq!(mac["A"], "smile", "the later edit of A wins");
+    assert_eq!(mac["B"], "pc");
+    assert_eq!(mac["C"], "mac");
+    w.pass(0);
+    assert_eq!(
+        w.read(0, GROUP),
+        w.read(1, GROUP),
+        "both computers hold the same file"
+    );
+    assert!(w.sets(0).is_empty());
+}

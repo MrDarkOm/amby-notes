@@ -36,8 +36,10 @@ Those directories, along with `.amby/`, are excluded from the note index.
     note's `amby-id`; at most 16 files, a file exists only if it has lines. JSON Lines: the
     first line `{"version":1}` (unknown fields are kept), then one line per note sorted by
     `id`: `{"hint":{"path":…},"id":…,"props":{"<name>":{"icon":…,"propertyType":…,
-"settings":…}},"order":[…],"dismissedRenames":[[…,…]]}` in compact JSON with keys in
-    ascending byte order. An edit replaces, inserts or removes only its own line; every
+"settings":…}},"order":[…],"dismissedRenames":[[…,…]],"edited":…}` in compact JSON with keys in
+    ascending byte order. `edited` (optional) is the Unix time in milliseconds of the last edit
+    of the line; when sync meets a note edited differently on two devices, the later edit
+    wins. An edit replaces, inserts or removes only its own line; every
     other line is copied byte for byte. A line that cannot be read is shown as read-only,
     the file is never written while it is there, and nothing is repaired automatically.
     `hint` is a hint for people and for rebinding, not a key.

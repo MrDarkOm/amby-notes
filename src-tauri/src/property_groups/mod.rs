@@ -41,6 +41,8 @@ mod tests_icons;
 #[cfg(test)]
 mod tests_identity;
 #[cfg(test)]
+mod tests_last_edit;
+#[cfg(test)]
 mod tests_legacy;
 #[cfg(test)]
 mod tests_lists;
