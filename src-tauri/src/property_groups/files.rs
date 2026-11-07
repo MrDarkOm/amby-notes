@@ -17,9 +17,8 @@ use super::{BadLine, GroupFile, LegacyMark, NoteEntry, StorageMode};
 use crate::frontmatter;
 use crate::property_template::TEMPLATE_VERSION;
 
-/// `.amby/properties/` (З48).
 thread_local! {
-    /// The clock of the edits in tests (З70); `None` is the computer's clock.
+    // The clock of the edits in tests (З70); `None` is the computer's clock.
     static EDIT_CLOCK: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
 }
 
@@ -29,6 +28,18 @@ pub(crate) fn set_edit_clock(ms: Option<u64>) {
     EDIT_CLOCK.with(|clock| clock.set(ms));
 }
 
+/// The time of an edit (З70): milliseconds of Unix time by the computer's clock.
+fn edit_time() -> u64 {
+    EDIT_CLOCK.with(std::cell::Cell::get).unwrap_or_else(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| {
+                u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
+            })
+    })
+}
+
+/// `.amby/properties/` (З48).
 pub fn properties_dir(vault: &Path) -> PathBuf {
     vault.join(".amby").join("properties")
 }
@@ -423,6 +434,10 @@ pub(super) fn update_entry(
         return Ok((old, new));
     }
     if let Some(entry) = new.as_mut() {
+        // З70: the time of the last edit, so sync keeps the later of two edits.
+        entry
+            .extra
+            .insert("edited".to_string(), serde_json::Value::from(edit_time()));
         let current: Option<String> = conn
             .query_row("SELECT path FROM notes WHERE id = ?1", [note_id], |row| {
                 row.get(0)

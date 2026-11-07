@@ -486,8 +486,34 @@ fn core_of(kind: GroupKind, line: &Map<String, Value>) -> Map<String, Value> {
     if kind == GroupKind::Props {
         core.remove("hint");
         core.remove("dismissedRenames");
+        core.remove("edited");
     }
     core
+}
+
+/// The time of the last edit of a line (З70): `edited` as milliseconds, `None` when absent or not
+/// a number.
+fn edited_of(line: &Line) -> Option<u64> {
+    line.value.get("edited").and_then(Value::as_u64)
+}
+
+/// The later of two lines of a note edited differently on both sides (З70): the greater `edited`,
+/// a line with a time over one without, an edit with a time over a removal; equal times take the
+/// greater text, so both computers get the same. `None` when neither side has a time: the
+/// conflict of З17 stays.
+fn later<'a>(local: Option<&'a Line>, remote: Option<&'a Line>) -> Option<Option<&'a Line>> {
+    match (local, remote) {
+        (Some(l), None) => edited_of(l).map(|_| Some(l)),
+        (None, Some(r)) => edited_of(r).map(|_| Some(r)),
+        (Some(l), Some(r)) => match (edited_of(l), edited_of(r)) {
+            (None, None) => None,
+            (Some(_), None) => Some(Some(l)),
+            (None, Some(_)) => Some(Some(r)),
+            (Some(a), Some(b)) if a != b => Some(Some(if a > b { l } else { r })),
+            _ => Some(Some(if l.text >= r.text { l } else { r })),
+        },
+        (None, None) => Some(None),
+    }
 }
 
 fn same_meaning(a: &Parsed, b: &Parsed) -> bool {
@@ -576,9 +602,21 @@ fn with_aux(
     );
     let hint = merge_hint(bh.as_ref(), lh.as_ref(), rh.as_ref());
     let dismissed = merge_pairs(bd.as_ref(), ld.as_ref(), rd.as_ref());
+    // З70: the time of the result is the latest of the sides that hold the chosen meaning, so the
+    // merge stays symmetric when the two sides made the same change at different times.
+    let chosen_core = core_of(kind, &chosen.value);
+    let edited = [local, remote]
+        .into_iter()
+        .flatten()
+        .filter(|line| core_of(kind, &line.value) == chosen_core)
+        .filter_map(edited_of)
+        .max();
     let mut value = chosen.value.clone();
     value.remove("hint");
     value.remove("dismissedRenames");
+    if let Some(at) = edited {
+        value.insert("edited".to_string(), Value::from(at));
+    }
     if let Some(hint) = hint {
         value.insert("hint".to_string(), hint);
     }
@@ -674,10 +712,16 @@ fn merge_parsed(
             match picks.and_then(|p| p.get(id.as_str())) {
                 Some(Side::Local) => l.map(|x| x.text.clone()),
                 Some(Side::Other) => r.map(|x| x.text.clone()),
-                None => {
-                    conflicts.push(id.clone());
-                    continue;
-                }
+                None => match (kind, later(l, r)) {
+                    // З70: the later edit wins, no conflict.
+                    (GroupKind::Props, Some(chosen)) => {
+                        chosen.map(|chosen| with_aux(kind, chosen, b, l, r))
+                    }
+                    _ => {
+                        conflicts.push(id.clone());
+                        continue;
+                    }
+                },
             }
         };
         if changed {

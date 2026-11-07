@@ -129,16 +129,19 @@ fn the_value_is_never_stored_and_no_property_has_an_id() {
 
 #[test]
 fn only_differences_are_written_and_the_line_is_canonical_bytes() {
-    // З47, З49: icon only — a type of plain text and empty settings equal the default
+    // З47, З49: icon only — a type of plain text and empty settings equal the default; З70: the
+    // time of the edit, keys in ascending byte order
     let fx = fx();
     let note = id(1);
     fx.note(&note, "Note.md", "");
+    super::files::set_edit_clock(Some(1_700_000_000_000));
     create_property(&fx.conn, &fx.vault, &note, design("Заказчик"), "Иван").unwrap();
+    super::files::set_edit_clock(None);
     let text = String::from_utf8(fx.group_bytes(&note).unwrap()).unwrap();
     assert_eq!(
         text,
         format!(
-            "{{\"version\":1}}\n{{\"hint\":{{\"path\":\"Note.md\"}},\"id\":\"{note}\",\"props\":{{\"Заказчик\":{{\"icon\":\"📌\"}}}}}}\n"
+            "{{\"version\":1}}\n{{\"edited\":1700000000000,\"hint\":{{\"path\":\"Note.md\"}},\"id\":\"{note}\",\"props\":{{\"Заказчик\":{{\"icon\":\"📌\"}}}}}}\n"
         )
     );
 }

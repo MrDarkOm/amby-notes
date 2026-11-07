@@ -79,10 +79,15 @@ fn note_exists(conn: &Connection, id: &str) -> bool {
 }
 
 fn same_content(a: &NoteEntry, b: &NoteEntry) -> bool {
-    let strip = |entry: &NoteEntry| NoteEntry {
-        id: String::new(),
-        hint: None,
-        ..entry.clone()
+    let strip = |entry: &NoteEntry| {
+        let mut stripped = NoteEntry {
+            id: String::new(),
+            hint: None,
+            ..entry.clone()
+        };
+        // З70: the time of the last edit is not the content.
+        stripped.extra.remove("edited");
+        stripped
     };
     strip(a) == strip(b)
 }
