@@ -2,8 +2,12 @@
 // background, a text colour and a border for each level, in the light theme and in the dark one,
 // readable, and open to portable themes. Patterned after themes.test.ts and theme-boundary.test.ts.
 import { describe, expect, it } from "vitest"
-import css from "../themes/app.css?raw"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { THEME_TOKENS, parseThemeDefinition } from "./themes"
+
+// Vitest turns a `?raw` import of a stylesheet into an empty string, so the file is read from disk.
+const css = readFileSync(join(import.meta.dirname, "../themes/app.css"), "utf8")
 
 const LEVELS = ["danger", "decision", "warning", "info", "success"] as const
 const PARTS = ["bg", "fg", "border"] as const

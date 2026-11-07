@@ -147,8 +147,8 @@ describe("the level of every card of a note", () => {
     }
     for (const [testId, iconClass] of Object.entries(icons)) {
       const element = screen.getByTestId(testId)
-      expect(element.querySelectorAll("svg")).toHaveLength(1)
-      expect(element.querySelector(`svg.${iconClass}`)).not.toBeNull()
+      // the icon of the level stands first; a button of the card may carry an icon of its own
+      expect(element.querySelector("svg")!.classList.contains(iconClass)).toBe(true)
     }
     expect(screen.getByTestId("note-notices-stack").innerHTML).not.toMatch(/amber/)
   })
