@@ -105,7 +105,13 @@ function EntryRow({ entry }: { entry: CentreEntry }) {
         <p className="text-[12px] text-muted-foreground">{line}</p>
         <div className="flex flex-wrap gap-2 pt-1">
           {button && (
-            <Button type="button" size="sm" variant="outline" onClick={go}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-auto min-h-8 max-w-full whitespace-normal py-1.5 text-left"
+              onClick={go}
+            >
               {button}
             </Button>
           )}
