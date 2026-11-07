@@ -97,6 +97,8 @@ export interface DocumentBodyProps {
   onScrollPositionChange?: (position: number) => void
   viewModeMenuOpen: boolean
   onViewModeMenuOpenChange: (open: boolean) => void
+  /** The strip of the notices of the note; it is drawn by the floating bar, peeking out from behind it. */
+  notices?: React.ReactNode
   treeItems?: TreeItem[]
 }
 
@@ -161,6 +163,7 @@ export function DocumentBody({
   onScrollPositionChange,
   viewModeMenuOpen,
   onViewModeMenuOpenChange,
+  notices,
   treeItems,
 }: DocumentBodyProps) {
   const { t } = useTranslation()
@@ -443,6 +446,7 @@ export function DocumentBody({
           nestedNotes={nestedNotes}
           nestedNotesPlacement={nestedNotesPlacement}
           onNestedNotesPlacementChange={onNestedNotesPlacementChange}
+          notices={notices}
         />
       </div>
 

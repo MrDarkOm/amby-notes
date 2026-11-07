@@ -213,12 +213,13 @@ describe("the strip and the panel of cards", () => {
     expect(screen.queryByTestId("note-notices-strip")).toBeNull()
   })
 
-  it("sits behind the bottom bar of the note, narrower than the screen", () => {
+  it("does not float over the note by itself: the bar of the note places it and covers its foot", () => {
     restored()
     mount()
     const root = screen.getByTestId("note-notices")
-    // under the floating bar (z-10), not above it
-    expect(root.getAttribute("class")).toMatch(/\bz-\[?[0-9]\b|z-0/)
-    expect(root.getAttribute("class")).not.toMatch(/z-20/)
+    const classes = root.getAttribute("class") ?? ""
+    // no stacking of its own: it follows the anchor of the floating bar, which is under the bar itself
+    expect(classes).not.toMatch(/\bz-\d|z-\[/)
+    expect(classes).toContain("inset-x-0")
   })
 })

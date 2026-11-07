@@ -346,11 +346,14 @@ function NoteNoticesOf({
   return (
     <div
       data-testid="note-notices"
-      className="pointer-events-none absolute bottom-9 right-6 z-[9] w-[min(24rem,calc(100%-3rem))]"
+      className="pointer-events-none absolute inset-x-0 bottom-[-0.5rem] flex justify-end"
     >
-      {/* The strip peeks out from behind the floating bar of the note: rounded at the top, its foot
-          (the padding) goes under the bar. Folded it is one line; open it grows upwards. */}
-      <div className="note-notices-strip pointer-events-auto overflow-hidden rounded-t-xl border border-b-0 pb-2">
+      {/* The strip peeks out from behind the floating bar of the note (the bar draws this inside its own
+          anchor): as wide as the bar, a little narrower, its foot under the bar. Open, it grows upwards
+          and wider, to read the cards. */}
+      <div
+        className={`note-notices-strip pointer-events-auto overflow-hidden rounded-t-xl border border-b-0 pb-2 ${open ? "w-[min(24rem,calc(100vw-3rem))] shrink-0" : "min-w-0 flex-1"} mx-2`}
+      >
         {open && (
           <motion.div
             data-testid="note-notices-stack"

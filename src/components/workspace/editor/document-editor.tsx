@@ -584,13 +584,15 @@ export function DocumentEditor({
           onScrollPositionChange={onScrollPositionChange}
           viewModeMenuOpen={viewModeMenuOpen}
           onViewModeMenuOpenChange={(open) => setExclusiveMenu("view", open)}
-        />
-        <NoteNotices
-          document={document}
-          warningKey={editingPolicy.warningKey}
-          canRestoreDeleted={canRestoreDeleted}
-          onRestoreDeleted={onRestoreDeleted}
-          onCloseTab={onCloseTab}
+          notices={
+            <NoteNotices
+              document={document}
+              warningKey={editingPolicy.warningKey}
+              canRestoreDeleted={canRestoreDeleted}
+              onRestoreDeleted={onRestoreDeleted}
+              onCloseTab={onCloseTab}
+            />
+          }
         />
       </div>
 
