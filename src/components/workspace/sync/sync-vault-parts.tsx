@@ -5,10 +5,8 @@ import { AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { formatSize } from "@/lib/sync/format-size"
 import type { ApprovalKind, ConflictChoice, VaultSyncStatus } from "@/lib/sync/sync-port"
-import { NoticeLevelIcon, NoticeShell } from "../notices/notice-level"
 import { conflictName } from "./conflict-outcome"
 import { GroupConflictChooser, type GroupConflictActions } from "./sync-group-conflict"
-import { useSyncNoticesStore } from "./use-sync-notices-store"
 
 type Stop = NonNullable<VaultSyncStatus["stop"]>
 type Conflict = VaultSyncStatus["conflicts"][number]
@@ -111,26 +109,6 @@ function appDataConflictKind(path: string): "properties" | "graph" | "other" | n
   return "other"
 }
 
-/** What was done after a choice, said in the list until the list is closed (docs/notices.md, section 10). */
-function OutcomeLines() {
-  const { t } = useTranslation()
-  const outcomes = useSyncNoticesStore((state) => state.outcomes)
-  const lines = outcomes.filter((item) => item.where === "list")
-  return lines.map((item) => (
-    <NoticeShell
-      key={item.conflictId}
-      level="info"
-      data-testid="sync-conflict-outcome"
-      className="flex items-start gap-2 rounded-lg border px-3 py-2 text-[12px] text-foreground"
-    >
-      <NoticeLevelIcon level="info" className="mt-0.5 size-3.5 shrink-0" />
-      <span className="min-w-0 flex-1">
-        {t(`sync.notices.outcome.${item.choice}`, { name: item.name })}
-      </span>
-    </NoticeShell>
-  ))
-}
-
 /**
  * The conflicts waiting for the person (Р7). A conflict of a note is a title, one line that both versions are
  * safe and one button: the choice is made in the comparison, where both versions are seen
@@ -152,13 +130,9 @@ export function ConflictList({
   groups?: GroupConflictActions
 }) {
   const { t } = useTranslation()
-  const hasOutcomes = useSyncNoticesStore((state) =>
-    state.outcomes.some((item) => item.where === "list"),
-  )
-  if (items.length === 0 && !hasOutcomes) return null
+  if (items.length === 0) return null
   return (
     <>
-      <OutcomeLines />
       {items.length > 0 && (
         <section data-testid="sync-conflicts" className="space-y-1.5">
           <h4 className="text-[12px] font-medium text-muted-foreground">

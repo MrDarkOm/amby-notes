@@ -16,6 +16,16 @@ interface NoteNoticesState {
   draftOffers: Record<string, DraftOffer>
   /** Paths (in the vault) of open notes that came back after a deletion made here. */
   restored: string[]
+  /** Paths (in the vault) of open notes where a pass merged the edits of two computers. */
+  merged: string[]
+  markMerged: (path: string) => void
+  clearMerged: (path: string) => void
+  /**
+   * Notes (by document id) that are no longer open and whose last autosave failed. Their text is kept in
+   * the recovery draft; the notification centre says it until the save goes through or the draft is decided.
+   */
+  closedSaveFailed: Record<string, { name: string; path: string }>
+  setClosedSaveFailed: (fileId: string, failure: { name: string; path: string } | null) => void
   setSaveFailed: (fileId: string, failed: boolean) => void
   offerDraft: (fileId: string, offer: DraftOffer) => void
   clearDraftOffer: (fileId: string) => void
@@ -38,6 +48,20 @@ export const useNoteNoticesStore = create<NoteNoticesState>((set) => ({
     }),
   draftOffers: {},
   restored: [],
+  merged: [],
+  markMerged: (path) =>
+    set((state) => (state.merged.includes(path) ? state : { merged: [...state.merged, path] })),
+  clearMerged: (path) => set((state) => ({ merged: state.merged.filter((item) => item !== path) })),
+  closedSaveFailed: {},
+  setClosedSaveFailed: (fileId, failure) =>
+    set((state) => {
+      if (failure === null) {
+        if (!state.closedSaveFailed[fileId]) return state
+        const { [fileId]: _gone, ...rest } = state.closedSaveFailed
+        return { closedSaveFailed: rest }
+      }
+      return { closedSaveFailed: { ...state.closedSaveFailed, [fileId]: failure } }
+    }),
   setSaveFailed: (fileId, failed) =>
     set((state) => {
       if (Boolean(state.saveFailed[fileId]) === failed) return state

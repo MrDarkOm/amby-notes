@@ -149,8 +149,10 @@ describe("a stop of the sync", () => {
     expect(toasts()[0]!.textContent).toMatch(/Папка хранилища не найдена/)
     await push(vaultStatus({ stop: { kind: "vaultMissing" }, lastSyncMs: 1 }))
     expect(toasts()).toHaveLength(1)
+    // A toast goes with its cause: the new stop replaces the old one.
     await push(vaultStatus({ stop: { kind: "serverReset" } }))
-    expect(toasts()).toHaveLength(2)
+    expect(toasts()).toHaveLength(1)
+    expect(toasts()[0]!.textContent).toMatch(/Сервер сброшен или заменён/)
   })
 
   it("is not announced when it was there at the start", async () => {
@@ -233,6 +235,26 @@ describe("the journal gets", () => {
       ["conflictOutcome", "keepCopy", "идея"],
     ])
     expect(journal().every((entry) => entry.level === "info")).toBe(true)
+  })
+})
+
+describe("the backup before the first pass", () => {
+  it("is a success in the journal when it is made, and nothing when it was there at the start", async () => {
+    await mount()
+    await push(vaultStatus({ backupPath: "/backups/vault-copy" }))
+    expect(journal()).toHaveLength(1)
+    expect(journal()[0]).toMatchObject({ kind: "backupReady", level: "success" })
+    // The path of the copy is not written into the journal.
+    expect(JSON.stringify(journal())).not.toMatch(/backups/)
+    await push(vaultStatus({ backupPath: "/backups/vault-copy", lastSyncMs: 1 }))
+    expect(journal()).toHaveLength(1)
+    expect(toasts()).toHaveLength(0)
+  })
+
+  it("is not news at the start", async () => {
+    await mount(vaultStatus({ backupPath: "/backups/vault-copy" }))
+    await waitFor(() => expect(useSyncNoticesStore.getState().conflicts).toEqual([]))
+    expect(journal()).toEqual([])
   })
 })
 

@@ -65,4 +65,4 @@ Filesystem behavior crosses the [storage boundary](../../lib/storage/MAP.md).
 Test changed pure logic beside its owner, and interactions using the scenarios in
 [the tests map](../../../tests/MAP.md). Browser tests cannot certify native I/O.
 
-Backup recovery: [map](backup/MAP.md).
+Backup recovery: [map](backup/MAP.md). Notification centre: [map](notices/MAP.md).

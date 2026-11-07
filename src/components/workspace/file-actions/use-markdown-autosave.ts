@@ -1,5 +1,4 @@
 import * as React from "react"
-import i18n from "@/lib/i18n"
 import { errorType, logger } from "@/lib/logger"
 import { recordAutosaveDiagnostic } from "@/lib/debug/autosave"
 import {
@@ -13,12 +12,14 @@ import {
   getNoteProperties,
   NoteRevisionConflictError,
   readNote,
-  showErrorMessage,
   writeFile,
   writeNote,
   type FsMutationResult,
 } from "@/lib/storage"
 import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
+import { useNoticeToastStore } from "../notices/use-notice-toasts-store"
+import { conflictName } from "../sync/conflict-outcome"
+import { relativeToVault } from "../editor/document-breadcrumbs-utils"
 import { AutosaveCoordinator, type AutosaveKey } from "../autosave/autosave-coordinator"
 import { registerAutosaveLifecycle } from "../autosave/autosave-lifecycle"
 import {
@@ -170,6 +171,9 @@ export function useMarkdownAutosave({
       onSaveSuccess: (snapshot) => {
         if (snapshot.key.generation !== generationRef.current) return
         useNoteNoticesStore.getState().setSaveFailed(snapshot.value.fileId, false)
+        // A note that was closed with a failed autosave has been saved: its record and its toast go.
+        useNoteNoticesStore.getState().setClosedSaveFailed(snapshot.value.fileId, null)
+        useNoticeToastStore.getState().dismiss(`closed-save-failed:${snapshot.value.fileId}`)
         logger.info("autosave.success", {
           fileId: snapshot.value.fileId,
           path: snapshot.value.path,
@@ -192,15 +196,30 @@ export function useMarkdownAutosave({
         )
           return
         logger.error("autosave.failed", { errorType: errorType(error) })
-        // An open note says so in its own notices, next to the text that is in danger; a note that is
-        // no longer open has no such place, so the dialog stays for it.
+        // An open note says so in its own notices, next to the text that is in danger.
         if (useDocStore.getState().openDocs[snapshot.value.fileId]) {
           useNoteNoticesStore.getState().setSaveFailed(snapshot.value.fileId, true)
           return
         }
-        void showErrorMessage(i18n.t("errors.autosaveFailed")).catch((dialogError) =>
-          logger.warn("autosave.error_dialog_failed", { errorType: errorType(dialogError) }),
-        )
+        // A note that is no longer open has no such place: the notification centre says it, and a toast
+        // announces it (docs/notices.md, section 6). The text is not lost: the recovery draft is written as
+        // the person types and is discarded only after a save has gone through or the draft was decided.
+        const name = conflictName(snapshot.value.path)
+        const activeVault = vaultRef.current
+        useNoteNoticesStore.getState().setClosedSaveFailed(snapshot.value.fileId, {
+          name,
+          path: activeVault
+            ? relativeToVault(snapshot.value.path, activeVault).normalize("NFC")
+            : snapshot.value.path,
+        })
+        useNoticeToastStore.getState().announce({
+          id: `closed-save-failed:${snapshot.value.fileId}`,
+          level: "danger",
+          titleKey: "notices.centre.closedSaveFailed",
+          params: { name },
+          actionKey: "notices.toast.openNote",
+          target: { kind: "note", id: snapshot.value.fileId },
+        })
       },
     })
   }

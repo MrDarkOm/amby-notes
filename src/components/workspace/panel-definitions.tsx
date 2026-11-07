@@ -24,7 +24,7 @@ import {
 } from "./panel-registry"
 import { ArchivePanel } from "./panels/archive-panel"
 import { moduleHost } from "@/lib/modules/host"
-import { useSyncNoticesStore } from "./sync/use-sync-notices-store"
+import { NoticesPanel } from "./notices/notices-panel"
 
 /**
  * Core built-in panels that do not belong to optional modules.
@@ -59,6 +59,14 @@ export const PANEL_DEFS: PanelDef[] = [
     icon: Paperclip,
     kind: "view",
     render: (props) => <AttachmentsPanel {...props} />,
+  },
+  {
+    // Has no button of its own: the bell of the dock (the action `notices`) opens it.
+    id: "notices-centre",
+    labelKey: "notices.centre.title",
+    icon: Bell,
+    kind: "view",
+    render: () => <NoticesPanel />,
   },
 ]
 
@@ -98,13 +106,13 @@ export const ACTION_DEFS: ActionDef[] = [
     invoke: (context) => context.openHelp?.(),
   },
   {
-    // The future notification centre (docs/notices.md, section 5); for now it opens the list of conflicts.
+    // The notification centre (docs/notices.md, section 5): the bell opens its panel.
     id: "notices",
     labelKey: "actions.notifications",
     icon: Bell,
     kind: "action",
     persistent: true,
-    invoke: () => useSyncNoticesStore.getState().toggleConflictList(),
+    opens: "notices-centre",
   },
   {
     id: "settings",

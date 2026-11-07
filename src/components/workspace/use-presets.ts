@@ -84,9 +84,10 @@ export interface UsePresets {
 }
 
 const sanitizeSide = (saved: Record<Side, PanelId | null>): Record<Side, PanelId | null> => {
-  // "search" is no longer a panel (now a spotlight action) — sanitize stale state.
+  // "search" is no longer a panel (now a spotlight action) — sanitize stale state. The notification centre
+  // is opened by its bell on purpose, never restored as the panel a dock starts with.
   const fix = (v: PanelId | null, fallback: PanelId): PanelId | null =>
-    (v as string) === "search" ? fallback : v
+    (v as string) === "search" || v === "notices-centre" ? fallback : v
   return { left: fix(saved.left, "files"), right: fix(saved.right, "info") }
 }
 

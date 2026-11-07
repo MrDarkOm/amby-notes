@@ -14,8 +14,8 @@ export type OutcomeChoice = ConflictChoice | "assembled"
 
 /**
  * What was done after a choice in the comparison (docs/notices.md, section 10: consequences are said after
- * the action). Until the notification centre keeps a log (step 2), it is a card in the note when the note
- * is open (`card`) and a line in the list of conflicts, until the list is closed, when it is not (`list`).
+ * the action). It is a card in the note when the note is open; the journal of the notification centre
+ * says it too, whether the note is open or not.
  */
 export interface ConflictOutcome {
   conflictId: string
@@ -24,15 +24,12 @@ export interface ConflictOutcome {
   /** The name of the note, without the extension. */
   name: string
   choice: OutcomeChoice
-  where: "card" | "list"
 }
 
 interface SyncNoticesState {
   outcomes: ConflictOutcome[]
   addOutcome: (outcome: ConflictOutcome) => void
   dismissOutcome: (conflictId: string) => void
-  /** The list of conflicts is closed: what it said about the choices made is not kept. */
-  clearListOutcomes: () => void
   /** The open conflicts of the vault, as the last status said. */
   conflicts: SyncConflict[]
   /** Paths (in the vault) of notes deleted on another computer while they were open. */
@@ -40,13 +37,18 @@ interface SyncNoticesState {
   /** Paths whose return from the archive failed: the general "deleted" strip is shown again. */
   restoreFailed: string[]
   setRestoreFailed: (path: string, failed: boolean) => void
-  /** The notices about the limits of the plan that are shown now (one per cause, closed ones left out). */
+  /** The limits of the plan the last status speaks of (one per cause); the centre lets the person hide them. */
   limits: LimitNotice[]
-  setLimits: (limits: LimitNotice[]) => void
-  /** The list of conflicts beside the notices button of the dock is open. */
-  conflictListOpen: boolean
-  toggleConflictList: () => void
-  closeConflictList: () => void
+  /** The stop of the sync that waits for the person, as the last status said. */
+  stop: NonNullable<VaultSyncStatus["stop"]> | null
+  /** How many files failed in the last pass. */
+  itemErrors: number
+  /** Takes what the notification centre needs from a status of the sync. */
+  setStatusSummary: (summary: {
+    limits: LimitNotice[]
+    stop: NonNullable<VaultSyncStatus["stop"]> | null
+    itemErrors: number
+  }) => void
   /** The conflict shown in the comparison, if any. */
   compareId: string | null
   setConflicts: (conflicts: SyncConflict[]) => void
@@ -67,30 +69,14 @@ export const useSyncNoticesStore = create<SyncNoticesState>((set) => ({
     })),
   dismissOutcome: (conflictId) =>
     set((state) => ({ outcomes: state.outcomes.filter((item) => item.conflictId !== conflictId) })),
-  clearListOutcomes: () =>
-    set((state) =>
-      state.outcomes.some((item) => item.where === "list")
-        ? { outcomes: state.outcomes.filter((item) => item.where !== "list") }
-        : state,
-    ),
   conflicts: [],
   remoteDeleted: [],
   compareId: null,
   restoreFailed: [],
   limits: [],
-  setLimits: (limits) => set({ limits }),
-  conflictListOpen: false,
-  toggleConflictList: () => {
-    if (useSyncNoticesStore.getState().conflictListOpen) {
-      useSyncNoticesStore.getState().closeConflictList()
-    } else {
-      set({ conflictListOpen: true })
-    }
-  },
-  closeConflictList: () => {
-    set({ conflictListOpen: false })
-    useSyncNoticesStore.getState().clearListOutcomes()
-  },
+  stop: null,
+  itemErrors: 0,
+  setStatusSummary: ({ limits, stop, itemErrors }) => set({ limits, stop, itemErrors }),
   setRestoreFailed: (path, failed) =>
     set((state) => {
       const rest = state.restoreFailed.filter((item) => item !== path)

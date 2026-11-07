@@ -42,10 +42,13 @@ const APPENDIX_E_KEYS = [
   "sync.errors.space_limit",
 ]
 
-const PLURAL_KEYS = ["sync.notices.tooLarge"]
+const PLURAL_KEYS: string[] = []
 const PLAIN_NOTICE_KEYS = [
-  "sync.notices.tooLargeShow",
-  "sync.notices.quotaFull",
+  "notices.centre.tooLarge",
+  "notices.centre.tooLargeLine",
+  "notices.centre.quotaFull",
+  "notices.centre.quotaFullLine",
+  "notices.centre.show",
   "sync.notices.spaceLimit",
   "sync.notices.chooseExisting",
 ]

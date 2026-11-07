@@ -26,8 +26,6 @@ const ru = {
       "При открытии хранилища найдено незавершённых операций: {{count}}. Данные сохранены и не изменены или перенесены в карантин (.amby/recovery/…/quarantine), ничего не удалено.\n{{details}}",
     fileChangedExternally:
       "Файл изменён вне Amby после открытия. Перезаписать его вашей версией? Если отменить, внешняя версия останется на диске, автосохранение этого файла приостановится, а ваши изменения сохранятся в черновике восстановления.",
-    autosaveFailed:
-      "Не удалось сохранить изменения на диск. Проверьте доступ к хранилищу и свободное место.",
     settingsSaveError:
       "Не удалось сохранить настройки. Проверьте права доступа к файлам конфигурации.",
     storageQuotaExceeded:
@@ -1640,6 +1638,71 @@ const ru = {
     backlink: "обратная ссылка",
     wikiLink: "wiki-ссылка",
   },
+  notices: {
+    centre: {
+      title: "Уведомления",
+      decision: "Требует решения",
+      warning: "Внимание",
+      journal: "Журнал",
+      journalEmpty: "Пока ничего не происходило",
+      clear: "Очистить",
+      hide: "Скрыть",
+      show: "Показать",
+      open: "Открыть",
+      openNote: "Открыть заметку",
+      openSyncSettings: "Открыть настройки синхронизации",
+      stopLine: "Синхронизация остановилась и ждёт вас. Ничего не потеряно.",
+      stopUnknown: "Синхронизация остановилась",
+      note: {
+        "remote-deleted": {
+          title: "«{{name}}» удалили на другом компьютере",
+          line: "Заметка в архиве хранилища, её можно вернуть.",
+        },
+        "external-deleted": {
+          title: "Файл «{{name}}» удалён",
+          line: "Текст остался в редакторе, его можно сохранить снова.",
+        },
+        "external-change": {
+          title: "«{{name}}» изменили вне Amby",
+          line: "Автосохранение приостановлено, пока вы не решите.",
+        },
+        "save-failed": {
+          title: "«{{name}}» не сохранилась",
+          line: "Текст остался в редакторе и в черновике.",
+        },
+        "property-failed": {
+          title: "В «{{name}}» не сохранилось свойство",
+          line: "Повторите попытку.",
+        },
+        draft: {
+          title: "У «{{name}}» есть несохранённая версия",
+          line: "Решите, взять её или отклонить.",
+        },
+      },
+      closedSaveFailed: "«{{name}}» не сохранилась",
+      closedSaveFailedLine: "Текст в черновике, не потерян",
+      tooLarge: "Файлов не отправлено: {{count}}",
+      tooLargeLine:
+        "Больше {{limit}} на вашем тарифе. Они остались на этом компьютере, ничего не потеряно.",
+      quotaFull: "Хранилище на сервере заполнено",
+      quotaFullLine:
+        "Новое не отправляется, чужое приходит как обычно. Удалите ненужное или попросите владельца сервера увеличить тариф.",
+      itemErrors: "Файлов с ошибкой: {{count}}",
+      itemErrorsLine: "Попробуем снова, ничего не потеряно.",
+    },
+    toast: {
+      open: "Открыть центр уведомлений",
+      openNote: "Открыть",
+      more: "ещё {{count}}",
+      newConflicts: "Новых конфликтов: {{count}}",
+    },
+    journal: {
+      merged: "«{{name}}»: правки двух компьютеров объединены",
+      backupReady: "Резервная копия готова",
+      updateFailed: "Не удалось проверить обновления, попробуем позже",
+      unknown: "Событие",
+    },
+  },
   noteNotices: {
     properties: {
       failed: "Не удалось: {{details}}",
@@ -1670,6 +1733,8 @@ const ru = {
     saveFailedDescription:
       "Текст остаётся в редакторе и во временном черновике. Проверьте место на диске и доступ к папке.",
     saveNow: "Сохранить сейчас",
+    mergedTitle: "Правки двух компьютеров объединены",
+    mergedLine: "Прежняя версия — в истории",
     draftTitle: "Найдена несохранённая версия",
     draftDescription:
       "Она осталась после сбоя. Пока вы не ответите, заметка открыта только для чтения.",
@@ -3860,26 +3925,9 @@ const ru = {
       rowHistory: "и история {{size}}",
     },
     notices: {
-      tooLarge_one:
-        "{{count}} файл не отправлен (размер указан в списке): больше {{limit}} на вашем тарифе. Он остаётся на этом компьютере, на других устройствах ничего не изменилось.",
-      tooLarge_few:
-        "{{count}} файла не отправлены (размер каждого указан в списке): больше {{limit}} на вашем тарифе. Они остаются на этом компьютере, на других устройствах ничего не изменилось.",
-      tooLarge_many:
-        "{{count}} файлов не отправлены (размер каждого указан в списке): больше {{limit}} на вашем тарифе. Они остаются на этом компьютере, на других устройствах ничего не изменилось.",
-      tooLarge_other:
-        "{{count}} файла не отправлены (размер каждого указан в списке): больше {{limit}} на вашем тарифе. Они остаются на этом компьютере, на других устройствах ничего не изменилось.",
-      tooLargeShow: "Показать список",
-      quotaFull:
-        "Хранилище заполнено. Новые и изменённые файлы не отправляются, файлы с других устройств приходят как обычно. Удалите ненужное или попросите владельца сервера увеличить тариф.",
       spaceLimit:
         "На вашем тарифе больше нет места для новых хранилищ. Подключите существующее или обратитесь к владельцу сервера.",
       chooseExisting: "Выбрать существующее",
-      badgeLabel: "Конфликты синхронизации: {{count}}",
-      badgeTitle: "Конфликты синхронизации. Нажмите, чтобы увидеть список.",
-      newConflict:
-        "Конфликт синхронизации: у заметки «{{name}}» есть вторая версия с другого компьютера.",
-      newConflicts:
-        "Новых конфликтов синхронизации: {{count}}. Нажмите на значок, чтобы открыть список.",
       restoredAfterDeletion: "Заметку «{{name}}» вернули: её правили на другом компьютере.",
       dismiss: "Закрыть",
       compare: "Сравнить",
@@ -4187,7 +4235,6 @@ const en: typeof ru = {
       "Unfinished operations found while opening the vault: {{count}}. Data was preserved and left unchanged or moved to quarantine (.amby/recovery/…/quarantine); nothing was deleted.\n{{details}}",
     fileChangedExternally:
       "The file was changed outside Amby after it was opened. Overwrite it with your version? If you cancel, the external version stays on disk, autosave for this file pauses, and your changes are kept in the recovery draft.",
-    autosaveFailed: "Could not save changes to disk. Check vault access and free space.",
     settingsSaveError: "Failed to save settings. Check configuration file permissions.",
     storageQuotaExceeded: "Browser storage is full. Free up space and try again.",
     storageUnavailable: "Browser storage is unavailable. Check browser settings and try again.",
@@ -5790,6 +5837,70 @@ const en: typeof ru = {
     backlink: "backlink",
     wikiLink: "wiki link",
   },
+  notices: {
+    centre: {
+      title: "Notifications",
+      decision: "Needs a decision",
+      warning: "Attention",
+      journal: "Journal",
+      journalEmpty: "Nothing has happened yet",
+      clear: "Clear",
+      hide: "Hide",
+      show: "Show",
+      open: "Open",
+      openNote: "Open the note",
+      openSyncSettings: "Open sync settings",
+      stopLine: "Sync has stopped and is waiting for you. Nothing is lost.",
+      stopUnknown: "Sync has stopped",
+      note: {
+        "remote-deleted": {
+          title: "“{{name}}” was deleted on another computer",
+          line: "The note is in the archive of the vault; it can be brought back.",
+        },
+        "external-deleted": {
+          title: "The file “{{name}}” was deleted",
+          line: "The text is still in the editor; it can be saved again.",
+        },
+        "external-change": {
+          title: "“{{name}}” was changed outside Amby",
+          line: "Autosave is paused until you decide.",
+        },
+        "save-failed": {
+          title: "“{{name}}” was not saved",
+          line: "The text is still in the editor and in a draft.",
+        },
+        "property-failed": {
+          title: "A property of “{{name}}” was not saved",
+          line: "Try again.",
+        },
+        draft: {
+          title: "“{{name}}” has an unsaved version",
+          line: "Decide whether to take it or discard it.",
+        },
+      },
+      closedSaveFailed: "“{{name}}” was not saved",
+      closedSaveFailedLine: "The text is in a draft, not lost",
+      tooLarge: "Files not sent: {{count}}",
+      tooLargeLine: "Over {{limit}} on your plan. They stay on this computer; nothing is lost.",
+      quotaFull: "The storage on the server is full",
+      quotaFullLine:
+        "New files are not sent; files from other devices arrive as usual. Delete what you do not need or ask the owner of the server for a bigger plan.",
+      itemErrors: "Files with an error: {{count}}",
+      itemErrorsLine: "We will try again; nothing is lost.",
+    },
+    toast: {
+      open: "Open the notification centre",
+      openNote: "Open",
+      more: "{{count}} more",
+      newConflicts: "New conflicts: {{count}}",
+    },
+    journal: {
+      merged: "“{{name}}”: the edits of two computers were merged",
+      backupReady: "The backup is ready",
+      updateFailed: "Could not check for updates; we will try later",
+      unknown: "Event",
+    },
+  },
   noteNotices: {
     properties: {
       failed: "Failed: {{details}}",
@@ -5820,6 +5931,8 @@ const en: typeof ru = {
     saveFailedDescription:
       "The text stays in the editor and in a temporary draft. Check the free space and access to the folder.",
     saveNow: "Save now",
+    mergedTitle: "The edits of two computers were merged",
+    mergedLine: "The earlier version is in the history",
     draftTitle: "An unsaved version was found",
     draftDescription:
       "It was left after a crash. Until you answer, the note is open for reading only.",
@@ -7992,24 +8105,9 @@ const en: typeof ru = {
       rowHistory: "and history {{size}}",
     },
     notices: {
-      tooLarge_one:
-        "{{count}} file was not sent (its size is in the list): over {{limit}} on your plan. It stays on this computer; nothing changed on your other devices.",
-      tooLarge_few:
-        "{{count}} files were not sent (the size of each is in the list): over {{limit}} on your plan. They stay on this computer; nothing changed on your other devices.",
-      tooLarge_many:
-        "{{count}} files were not sent (the size of each is in the list): over {{limit}} on your plan. They stay on this computer; nothing changed on your other devices.",
-      tooLarge_other:
-        "{{count}} files were not sent (the size of each is in the list): over {{limit}} on your plan. They stay on this computer; nothing changed on your other devices.",
-      tooLargeShow: "Show the list",
-      quotaFull:
-        "The storage is full. New and changed files are not sent; files from other devices arrive as usual. Delete what you do not need or ask the owner of the server for a bigger plan.",
       spaceLimit:
         "Your plan has no room for another storage. Connect an existing one or ask the owner of the server.",
       chooseExisting: "Choose an existing one",
-      badgeLabel: "Sync conflicts: {{count}}",
-      badgeTitle: "Sync conflicts. Click to see the list.",
-      newConflict: "Sync conflict: the note “{{name}}” has a second version from another computer.",
-      newConflicts: "New sync conflicts: {{count}}. Click the badge to open the list.",
       restoredAfterDeletion: "The note “{{name}}” came back: it was edited on another computer.",
       dismiss: "Close",
       compare: "Compare",

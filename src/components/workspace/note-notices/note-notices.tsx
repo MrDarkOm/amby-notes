@@ -64,9 +64,7 @@ function NoteNoticesOf({
   )
   const outcomes = useSyncNoticesStore((state) => state.outcomes)
   const dismissOutcome = useSyncNoticesStore((state) => state.dismissOutcome)
-  const conflictOutcomes = outcomes.filter(
-    (item) => item.where === "card" && item.path === relative,
-  )
+  const conflictOutcomes = outcomes.filter((item) => item.path === relative)
   const externalConflict = useDocStore((state) => state.externalConflicts[document.id])
   const openConflictDialog = useDocStore((state) => state.openConflictDialog)
   const saveFailed = useNoteNoticesStore((state) => Boolean(state.saveFailed[document.id]))
@@ -74,6 +72,9 @@ function NoteNoticesOf({
   const draftOffer = useNoteNoticesStore((state) => state.draftOffers[document.id])
   const restored = useNoteNoticesStore((state) =>
     relative ? state.restored.includes(relative) : false,
+  )
+  const merged = useNoteNoticesStore((state) =>
+    relative ? state.merged.includes(relative) : false,
   )
 
   const [restoringRemote, setRestoringRemote] = React.useState(false)
@@ -344,6 +345,43 @@ function NoteNoticesOf({
           testId="note-notice-warning"
           level={warningLevel}
           title={t(warningKey)}
+        />
+      ),
+    })
+  }
+  // The program merged the edits of two computers by itself (docs/notices.md, section 12): it says so,
+  // quietly, and shows where the earlier version is.
+  if (merged && relative) {
+    notices.push({
+      id: "merged",
+      card: (
+        <Card
+          key="merged"
+          testId="note-notice-merged"
+          level="info"
+          title={t("noteNotices.mergedTitle")}
+          lines={[t("noteNotices.mergedLine")]}
+          actions={
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => requestOpenPanel("history")}
+              >
+                <History />
+                {t("sync.notices.openHistory")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => useNoteNoticesStore.getState().clearMerged(relative)}
+              >
+                {t("sync.notices.dismiss")}
+              </Button>
+            </>
+          }
         />
       ),
     })

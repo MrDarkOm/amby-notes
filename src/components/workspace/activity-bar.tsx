@@ -338,7 +338,11 @@ export function ActivityBar({
   function renderButton(button: ActivityButton, zone: ActivityZone) {
     const def = findDef(button.defId)
     if (!def) return null
-    const isActive = def.kind === "view" && isPanelOpen && activeView === def.id
+    const isActive =
+      isPanelOpen &&
+      (def.kind === "view"
+        ? activeView === def.id
+        : def.opens !== undefined && activeView === def.opens)
     const isDragging = draggingId === def.id
     const sync = def.id === "refresh" ? refreshSync : undefined
     // While sync does not work the button opens a menu with the reason and the way to fix it.
