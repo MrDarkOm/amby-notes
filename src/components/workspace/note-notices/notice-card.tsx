@@ -1,41 +1,37 @@
 import * as React from "react"
 
 import { NoticeLevelIcon, NoticeShell, type NoticeLevel } from "../notices/notice-level"
+import { noticeIsUrgent } from "../notices/notice-look"
 
 export interface Notice {
-  /** Stable while the same thing is being said; a new one opens the stack when it is urgent. */
+  /** Stable while the same thing is being said; a new urgent one opens the stack. */
   id: string
-  /** The text of the note is in danger, or the person must decide: opens the stack by itself. */
-  urgent: boolean
-  card: React.ReactNode
+  /**
+   * The card; its `level` is the level of the notice. A danger or a decision (and only these) opens the
+   * stack by itself.
+   */
+  card: React.ReactElement<CardProps>
 }
 
 /**
- * One card of the stack. The level (docs/notices.md, section 2.1) gives its icon, role and colours; `urgent`
- * is a separate matter: whether the card opens the stack by itself.
+ * One card of the stack. The level (docs/notices.md, section 2.1) gives its icon, role and colours, and
+ * whether it opens the stack by itself (`data-urgent`).
  */
-export function Card({
-  testId,
-  level,
-  urgent,
-  title,
-  lines = [],
-  error,
-  actions,
-}: {
+export interface CardProps {
   testId: string
   level: NoticeLevel
-  urgent: boolean
   title: string
   lines?: string[]
   error?: string | null
   actions?: React.ReactNode
-}) {
+}
+
+export function Card({ testId, level, title, lines = [], error, actions }: CardProps) {
   return (
     <NoticeShell
       level={level}
       data-testid={testId}
-      data-urgent={urgent}
+      data-urgent={noticeIsUrgent(level)}
       className="note-notice-card pointer-events-auto flex items-start gap-3 border-l-2 px-3 py-2.5"
     >
       <NoticeLevelIcon level={level} className="mt-0.5 size-4 shrink-0" />

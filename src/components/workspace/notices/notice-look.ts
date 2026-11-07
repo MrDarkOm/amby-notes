@@ -47,3 +47,29 @@ export const NOTICE_LOOK: Record<
 export function noticeFrameClass(level: NoticeLevel): string {
   return NOTICE_LOOK[level].frame
 }
+
+/**
+ * Whether a notice of this level opens the stack of a note by itself: only a danger and a decision do
+ * (docs/notices.md, sections 2.1 and 7). The one place that says it.
+ */
+export function noticeIsUrgent(level: NoticeLevel): boolean {
+  return level === "danger" || level === "decision"
+}
+
+/**
+ * The level that colours the bulb of a note: the most serious one among `danger`, `decision` and
+ * `warning`, or null (a neutral bulb) when the note has only information and good news.
+ */
+export function strongestNoticeLevel(levels: readonly NoticeLevel[]): NoticeLevel | null {
+  for (const level of ["danger", "decision", "warning"] as const) {
+    if (levels.includes(level)) return level
+  }
+  return null
+}
+
+/** The classes of the bulb of a note: the colours of the strongest level, none while it is neutral. */
+export function noticeBulbClass(level: NoticeLevel | null): string {
+  if (level === null) return ""
+  const { icon, frame } = NOTICE_LOOK[level]
+  return `${frame} ${icon}`
+}

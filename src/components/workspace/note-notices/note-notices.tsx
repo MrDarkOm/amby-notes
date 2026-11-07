@@ -10,6 +10,7 @@ import { restoreRemoteDeleted } from "../sync/restore-remote-deleted"
 import { conflictForPath, useSyncNoticesStore } from "../sync/use-sync-notices-store"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
+import { noticeBulbClass, noticeIsUrgent, strongestNoticeLevel } from "../notices/notice-look"
 import { Card, type Notice } from "./notice-card"
 import { usePropertyNotices } from "./property-notices"
 import { useNoteNoticesStore } from "./use-note-notices-store"
@@ -101,13 +102,11 @@ function NoteNoticesOf({
   if (found) {
     notices.push({
       id: `sync-conflict:${found.conflict.id}`,
-      urgent: true,
       card: (
         <Card
           key="sync-conflict"
           testId="note-notice-sync-conflict"
           level="decision"
-          urgent
           title={t("noteNotices.syncConflict")}
           lines={[
             found.role === "original"
@@ -135,13 +134,11 @@ function NoteNoticesOf({
   if (remoteDeleted) {
     notices.push({
       id: "remote-deleted",
-      urgent: true,
       card: (
         <Card
           key="remote-deleted"
           testId="note-notice-remote-deleted"
           level="decision"
-          urgent
           title={t("sync.notices.remoteDeleted")}
           error={remoteRestoreError ? t("sync.notices.restoreFailed") : null}
           actions={
@@ -162,13 +159,11 @@ function NoteNoticesOf({
   if (document.externallyDeleted && !remoteActive) {
     notices.push({
       id: "external-deleted",
-      urgent: true,
       card: (
         <Card
           key="external-deleted"
           testId="note-notice-deleted"
           level="danger"
-          urgent
           title={t("conflict.deletedBannerTitle")}
           lines={[t("conflict.deletedBannerDescription")]}
           error={deletedRestoreError ? t("conflict.restoreFailed") : null}
@@ -196,13 +191,11 @@ function NoteNoticesOf({
   if (externalConflict && !document.externallyDeleted) {
     notices.push({
       id: "external-change",
-      urgent: true,
       card: (
         <Card
           key="external-change"
           testId="note-notice-external-change"
           level="decision"
-          urgent
           title={t("conflict.pausedAutosaveBannerTitle")}
           lines={[t("conflict.pausedAutosaveBannerDescription")]}
           actions={
@@ -222,13 +215,11 @@ function NoteNoticesOf({
   if (saveFailed) {
     notices.push({
       id: "save-failed",
-      urgent: true,
       card: (
         <Card
           key="save-failed"
           testId="note-notice-save-failed"
           level="danger"
-          urgent
           title={t("noteNotices.saveFailedTitle")}
           lines={[t("noteNotices.saveFailedDescription")]}
           actions={
@@ -254,13 +245,11 @@ function NoteNoticesOf({
   if (propertyFailed) {
     notices.push({
       id: "property-failed",
-      urgent: true,
       card: (
         <Card
           key="property-failed"
           testId="note-notice-property-failed"
           level="danger"
-          urgent
           title={t("noteNotices.properties.saveFailed")}
         />
       ),
@@ -269,13 +258,11 @@ function NoteNoticesOf({
   if (draftOffer) {
     notices.push({
       id: "draft",
-      urgent: true,
       card: (
         <Card
           key="draft"
           testId="note-notice-draft"
           level="decision"
-          urgent
           title={t("noteNotices.draftTitle")}
           lines={[t("noteNotices.draftDescription")]}
           actions={
@@ -293,20 +280,16 @@ function NoteNoticesOf({
     })
   }
   if (warningKey) {
+    // A lost id switches the properties off for good: the person decides what to do. The other
+    // warnings about the header only limit what the note can do.
+    const warningLevel = warningKey === "workspace.identityReadOnly" ? "decision" : "warning"
     notices.push({
       id: `warning:${warningKey}`,
-      // A damaged header or a lost id switches the properties off: the person must know.
-      urgent: [
-        "workspace.invalidFrontmatter",
-        "workspace.unterminatedFrontmatter",
-        "workspace.identityReadOnly",
-      ].includes(warningKey),
       card: (
         <Card
           key="warning"
           testId="note-notice-warning"
-          level="warning"
-          urgent={warningKey !== "workspace.losslessSourceOnly"}
+          level={warningLevel}
           title={t(warningKey)}
         />
       ),
@@ -316,13 +299,11 @@ function NoteNoticesOf({
     const name = (relative.split("/").pop() ?? relative).replace(/\.md$/iu, "")
     notices.push({
       id: "restored",
-      urgent: false,
       card: (
         <Card
           key="restored"
           testId="note-notice-restored"
           level="info"
-          urgent={false}
           title={t("sync.notices.restoredAfterDeletion", { name })}
           actions={
             <Button
@@ -344,7 +325,7 @@ function NoteNoticesOf({
   const [open, setOpen] = React.useState(false)
   const seen = React.useRef<Set<string>>(new Set())
   const urgentKey = notices
-    .filter((notice) => notice.urgent)
+    .filter((notice) => noticeIsUrgent(notice.card.props.level))
     .map((notice) => notice.id)
     .join("\u0000")
   React.useEffect(() => {
@@ -354,7 +335,7 @@ function NoteNoticesOf({
   }, [urgentKey])
 
   if (notices.length === 0) return null
-  const anyUrgent = notices.some((notice) => notice.urgent)
+  const bulbLevel = strongestNoticeLevel(notices.map((notice) => notice.card.props.level))
   return (
     <div
       data-testid="note-notices"
@@ -371,12 +352,13 @@ function NoteNoticesOf({
       <button
         type="button"
         data-testid="note-notices-bulb"
-        data-urgent={anyUrgent}
+        data-urgent={bulbLevel !== null && noticeIsUrgent(bulbLevel)}
+        data-level={bulbLevel ?? undefined}
         aria-label={t("noteNotices.bulbLabel", { count: notices.length })}
         title={t("noteNotices.bulbTitle")}
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="note-notices-bulb pointer-events-auto flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold select-none"
+        className={`note-notices-bulb pointer-events-auto flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold select-none ${noticeBulbClass(bulbLevel)}`}
       >
         <Lightbulb className="size-3.5" aria-hidden="true" />
         <span>{notices.length}</span>

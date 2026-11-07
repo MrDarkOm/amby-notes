@@ -5591,15 +5591,16 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
 
 /* The notices of a note above its bottom bar: a bulb with the number and a stack of cards. */
 .note-notices-bulb {
-  border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border));
-  background: color-mix(in srgb, var(--card) 92%, transparent);
-  color: var(--foreground);
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.12);
   backdrop-filter: blur(8px);
 }
 
-.note-notices-bulb[data-urgent="true"] {
-  border-color: color-mix(in srgb, var(--destructive) 45%, var(--border));
+/* Neutral while the note has only information or good news; with a danger, a decision or a warning the
+   bulb wears the colours of that level (notices/notice-look.ts, tokens --notice-*). */
+.note-notices-bulb:not([data-level]) {
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  color: var(--foreground);
 }
 
 /* The stack is one surface with the floating bar below it (time, words, undo, lock): the same
