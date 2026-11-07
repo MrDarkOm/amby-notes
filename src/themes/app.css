@@ -3817,6 +3817,24 @@ html.dark .amby-activity-button[data-active="true"]:hover {
   --accent-foreground: 222 20% 22%;
   --destructive: 0 72% 52%;
   --destructive-foreground: 0 0% 100%;
+
+  /* The five levels of a notice (docs/notices.md, section 2.1): background, text and icon colour, border. */
+  --notice-danger-bg: #fef2f2;
+  --notice-danger-fg: #b91c1c;
+  --notice-danger-border: #f87171;
+  --notice-decision-bg: #fff7ed;
+  --notice-decision-fg: #c2410c;
+  --notice-decision-border: #fb923c;
+  --notice-warning-bg: #fefce8;
+  --notice-warning-fg: #854d0e;
+  --notice-warning-border: #eab308;
+  --notice-info-bg: #eff6ff;
+  --notice-info-fg: #1d4ed8;
+  --notice-info-border: #60a5fa;
+  --notice-success-bg: #f0fdf4;
+  --notice-success-fg: #15803d;
+  --notice-success-border: #4ade80;
+
   --border: 220 13% 88%;
   --input: 220 13% 85%;
   --ring: 262 83% 58%;
@@ -3925,6 +3943,23 @@ html.dark .amby-activity-button[data-active="true"]:hover {
   --accent-foreground: 0 0% 94%;
   --destructive: 0 64% 56%;
   --destructive-foreground: 0 0% 100%;
+
+  --notice-danger-bg: #2c1618;
+  --notice-danger-fg: #f87171;
+  --notice-danger-border: #b91c1c;
+  --notice-decision-bg: #2d1c10;
+  --notice-decision-fg: #fb923c;
+  --notice-decision-border: #c2410c;
+  --notice-warning-bg: #2a2410;
+  --notice-warning-fg: #facc15;
+  --notice-warning-border: #a16207;
+  --notice-info-bg: #121e30;
+  --notice-info-fg: #60a5fa;
+  --notice-info-border: #1d4ed8;
+  --notice-success-bg: #10261a;
+  --notice-success-fg: #4ade80;
+  --notice-success-border: #15803d;
+
   --border: 0 0% 24%;
   --input: 0 0% 24%;
   --ring: 262 83% 71%;
@@ -5585,9 +5620,8 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
 
-.note-notice-card[data-urgent="true"] {
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--destructive) 55%, transparent);
-}
+/* The stripe and the tint of a card come from its level (notices/notice-level.tsx), not from whether it
+   opens the stack by itself. */
 
 .sync-print-sheet {
   display: none;

@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { AlertTriangle, X } from "lucide-react"
+import { X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { formatSize } from "@/lib/sync/format-size"
@@ -13,6 +13,8 @@ import {
   type SyncPort,
 } from "@/lib/sync/sync-port"
 import { relativeToVault } from "../editor/document-breadcrumbs-utils"
+import { NoticeLevelIcon, NoticeShell } from "../notices/notice-level"
+import { noticeFrameClass } from "../notices/notice-look"
 import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { OPEN_SETTINGS_REQUEST_EVENT } from "../settings-navigation"
 import { useDocStore } from "../use-doc-store"
@@ -238,12 +240,16 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
     <>
       <div className="pointer-events-none fixed bottom-9 right-2 z-50 flex max-w-sm flex-col items-end gap-2">
         {notices.map((notice) => (
-          <div
+          <NoticeShell
             key={notice.key}
-            role="status"
-            className="pointer-events-auto flex items-start gap-2 rounded-lg border border-border bg-popover px-3 py-2 text-[12px] text-popover-foreground shadow-lg"
+            // A note that came back is news; a new conflict waits for the person (docs/notices.md, 2.1).
+            level={notice.kind === "restored" ? "info" : "decision"}
+            className="pointer-events-auto flex items-start gap-2 rounded-lg border px-3 py-2 text-[12px] text-foreground shadow-lg"
           >
-            <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-500" aria-hidden="true" />
+            <NoticeLevelIcon
+              level={notice.kind === "restored" ? "info" : "decision"}
+              className="mt-0.5 size-3.5 shrink-0"
+            />
             <p className="min-w-0 flex-1">
               {notice.kind === "restored"
                 ? t("sync.notices.restoredAfterDeletion", { name: noteName(notice.path) })
@@ -261,17 +267,17 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
             >
               <X className="size-3.5" />
             </button>
-          </div>
+          </NoticeShell>
         ))}
         {shownLimits.map((notice) => (
-          <div
+          <NoticeShell
             key={notice.kind}
-            role="status"
+            level="warning"
             data-testid="sync-limit-notice"
             data-kind={notice.kind}
-            className="pointer-events-auto flex items-start gap-2 rounded-lg border border-border bg-popover px-3 py-2 text-[12px] text-popover-foreground shadow-lg"
+            className="pointer-events-auto flex items-start gap-2 rounded-lg border px-3 py-2 text-[12px] text-foreground shadow-lg"
           >
-            <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-500" aria-hidden="true" />
+            <NoticeLevelIcon level="warning" className="mt-0.5 size-3.5 shrink-0" />
             <div className="min-w-0 flex-1 space-y-1.5">
               <p>
                 {notice.kind === "tooLarge"
@@ -295,7 +301,7 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
             >
               <X className="size-3.5" />
             </button>
-          </div>
+          </NoticeShell>
         ))}
         {listOpen && conflicts.length > 0 && (
           <div
@@ -327,9 +333,11 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
             title={t("sync.notices.badgeTitle")}
             aria-expanded={listOpen}
             onClick={() => setListOpen((open) => !open)}
-            className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-700 shadow-sm hover:bg-amber-500/25 dark:text-amber-300"
+            // Conflicts wait for the person: a decision (docs/notices.md, 2.1).
+            data-level="decision"
+            className={`pointer-events-auto flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold text-foreground shadow-sm hover:brightness-95 ${noticeFrameClass("decision")}`}
           >
-            <AlertTriangle className="size-3" aria-hidden="true" />
+            <NoticeLevelIcon level="decision" className="size-3" />
             <span>{conflicts.length}</span>
           </button>
         )}

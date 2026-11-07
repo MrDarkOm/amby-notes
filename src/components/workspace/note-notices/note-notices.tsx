@@ -1,15 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import {
-  AlertTriangle,
-  ArchiveRestore,
-  FileWarning,
-  GitCompare,
-  Lightbulb,
-  NotebookPen,
-  Save,
-  X,
-} from "lucide-react"
+import { GitCompare, Lightbulb, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { errorType, logger } from "@/lib/logger"
@@ -115,8 +106,8 @@ function NoteNoticesOf({
         <Card
           key="sync-conflict"
           testId="note-notice-sync-conflict"
+          level="decision"
           urgent
-          icon={<AlertTriangle className="size-4" />}
           title={t("noteNotices.syncConflict")}
           lines={[
             found.role === "original"
@@ -149,8 +140,8 @@ function NoteNoticesOf({
         <Card
           key="remote-deleted"
           testId="note-notice-remote-deleted"
+          level="decision"
           urgent
-          icon={<ArchiveRestore className="size-4" />}
           title={t("sync.notices.remoteDeleted")}
           error={remoteRestoreError ? t("sync.notices.restoreFailed") : null}
           actions={
@@ -176,8 +167,8 @@ function NoteNoticesOf({
         <Card
           key="external-deleted"
           testId="note-notice-deleted"
+          level="danger"
           urgent
-          icon={<AlertTriangle className="size-4" />}
           title={t("conflict.deletedBannerTitle")}
           lines={[t("conflict.deletedBannerDescription")]}
           error={deletedRestoreError ? t("conflict.restoreFailed") : null}
@@ -210,8 +201,8 @@ function NoteNoticesOf({
         <Card
           key="external-change"
           testId="note-notice-external-change"
+          level="decision"
           urgent
-          icon={<AlertTriangle className="size-4" />}
           title={t("conflict.pausedAutosaveBannerTitle")}
           lines={[t("conflict.pausedAutosaveBannerDescription")]}
           actions={
@@ -236,8 +227,8 @@ function NoteNoticesOf({
         <Card
           key="save-failed"
           testId="note-notice-save-failed"
+          level="danger"
           urgent
-          icon={<Save className="size-4" />}
           title={t("noteNotices.saveFailedTitle")}
           lines={[t("noteNotices.saveFailedDescription")]}
           actions={
@@ -268,8 +259,8 @@ function NoteNoticesOf({
         <Card
           key="property-failed"
           testId="note-notice-property-failed"
+          level="danger"
           urgent
-          icon={<FileWarning className="size-4" />}
           title={t("noteNotices.properties.saveFailed")}
         />
       ),
@@ -283,8 +274,8 @@ function NoteNoticesOf({
         <Card
           key="draft"
           testId="note-notice-draft"
+          level="decision"
           urgent
-          icon={<NotebookPen className="size-4" />}
           title={t("noteNotices.draftTitle")}
           lines={[t("noteNotices.draftDescription")]}
           actions={
@@ -314,8 +305,8 @@ function NoteNoticesOf({
         <Card
           key="warning"
           testId="note-notice-warning"
+          level="warning"
           urgent={warningKey !== "workspace.losslessSourceOnly"}
-          icon={<FileWarning className="size-4" />}
           title={t(warningKey)}
         />
       ),
@@ -330,8 +321,8 @@ function NoteNoticesOf({
         <Card
           key="restored"
           testId="note-notice-restored"
+          level="info"
           urgent={false}
-          icon={<ArchiveRestore className="size-4" />}
           title={t("sync.notices.restoredAfterDeletion", { name })}
           actions={
             <Button
