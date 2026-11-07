@@ -88,12 +88,15 @@ test("each dock zone switches off only its own buttons, never settings", async (
 test("refresh shows local status and opens sync settings from its menu", async ({ page }) => {
   await seedVault(page, { Note: "Text\n" })
   const refresh = dockButton(page, "refresh")
-  await expect(refresh).toHaveAttribute(
-    "aria-label",
-    `${ru.sync.refresh.action} — ${ru.sync.refresh.local}`,
-  )
+  // The browser build has no sync: the button names the reason instead of the refresh action.
+  await expect(refresh).toHaveAttribute("aria-label", ru.sync.inactive.reason.unavailable)
   await expect(refresh.locator("[data-sync-state='local']")).toBeVisible()
+  // A click opens the menu with the reason and still refreshes files from the disk.
   await refresh.click()
+  await expect(page.getByTestId("sync-inactive-reason")).toHaveText(
+    ru.sync.inactive.reason.unavailable,
+  )
+  await page.getByRole("menuitem", { name: ru.sync.inactive.refreshFiles, exact: true }).click()
   await expect(refresh).toBeEnabled()
   await expect(refresh.locator("[data-sync-state='local']")).toBeVisible()
   await refresh.click({ button: "right" })
