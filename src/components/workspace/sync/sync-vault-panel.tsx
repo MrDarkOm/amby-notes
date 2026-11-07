@@ -27,6 +27,8 @@ import {
   type VaultSyncStatus,
 } from "@/lib/sync/sync-port"
 import { propertyStorageStatus } from "@/lib/properties/property-groups-port"
+import { SyncCompareDialog } from "./sync-compare-dialog"
+import { useSyncNoticesStore } from "./use-sync-notices-store"
 import { ConflictList, StopNotice, UnsyncedList } from "./sync-vault-parts"
 
 export interface SyncVaultPanelProps {
@@ -57,6 +59,10 @@ export function SyncVaultPanel({
   const [errorCode, setErrorCode] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [resolving, setResolving] = React.useState<string | null>(null)
+  // The comparison of the settings is a window of its own: the choice between two versions is made there.
+  const [comparingId, setComparingId] = React.useState<string | null>(null)
+  // What the list said about a choice is not kept when the section is left.
+  React.useEffect(() => () => useSyncNoticesStore.getState().clearListOutcomes(), [])
   const [mode, setMode] = React.useState<Mode>("new")
   const [name, setName] = React.useState("")
   const [spaces, setSpaces] = React.useState<SpaceView[] | null>(null)
@@ -373,6 +379,7 @@ export function SyncVaultPanel({
   }
 
   // ----- switched on -----
+  const comparing = status.conflicts.find((item) => item.id === comparingId)
   const lastSync = status.lastSyncMs === null ? null : new Date(status.lastSyncMs)
   let line: string
   switch (status.phase) {
@@ -475,8 +482,12 @@ export function SyncVaultPanel({
         items={status.conflicts}
         busyId={resolving}
         onResolve={resolve}
+        onCompare={setComparingId}
         groups={groupActions}
       />
+      {comparing && (
+        <SyncCompareDialog port={port} conflict={comparing} onClose={() => setComparingId(null)} />
+      )}
       <UnsyncedList items={status.unsynced} />
 
       {backupInfo && <div className="sync-vault-footer">{backupInfo}</div>}

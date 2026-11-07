@@ -10,6 +10,7 @@ import { listTrash, restoreTrash } from "@/lib/storage"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import { useSyncNoticesStore } from "../sync/use-sync-notices-store"
+import { OPEN_PANEL_REQUEST_EVENT } from "../panel-navigation"
 import { NoteNotices, type NoteNoticesProps } from "./note-notices"
 import { useNoteNoticesStore } from "./use-note-notices-store"
 
@@ -101,7 +102,7 @@ describe("the strip", () => {
     expect(bulb()!.textContent).toContain("+2")
     expect(bulb()!.getAttribute("aria-label")).toMatch(/Уведомления заметки: 3/)
     // the line shows the most serious one: the conflict
-    expect(bulb()!.textContent).toContain("Пришла другая версия заметки")
+    expect(bulb()!.textContent).toContain("«идея» изменили на двух компьютерах")
     cleanup()
     mount({ document: { id: "/vault/Заметки/другая.md", path: "/vault/Заметки/другая.md" } })
     expect(bulb()).toBeNull()
@@ -143,9 +144,7 @@ describe("what opens the stack by itself", () => {
     expect(stack()).toBeNull()
     act(() => useSyncNoticesStore.getState().setConflicts([conflict]))
     expect(stack()).not.toBeNull()
-    expect(
-      within(stack()!).getByText("Пришла другая версия заметки с другого компьютера"),
-    ).toBeTruthy()
+    expect(within(stack()!).getByText("«идея» изменили на двух компьютерах")).toBeTruthy()
   })
 
   it("a conflict that was already there when the note was opened", () => {
@@ -290,13 +289,32 @@ describe("the warnings that used to be strips above the note", () => {
 })
 
 describe("a second version from another computer", () => {
-  it("is a card in the main file and in the copy, with a hint about the other file", () => {
+  it("is a card with a title, one line that the data is safe and one button, in the note and in an old copy", () => {
     useSyncNoticesStore.setState({ conflicts: [conflict] })
     mount()
-    expect(within(stack()!).getByText(`Копия: «${COPY}».`)).toBeTruthy()
+    const card = within(stack()!).getByTestId("note-notice-sync-conflict")
+    expect(within(card).getByText("«идея» изменили на двух компьютерах")).toBeTruthy()
+    expect(within(card).getByText("Обе версии целы")).toBeTruthy()
+    expect(within(card).getAllByRole("button")).toHaveLength(1)
+    expect(within(card).getByRole("button", { name: "Сравнить" })).toBeTruthy()
     cleanup()
     mount({ document: { id: `/vault/${COPY}`, path: `/vault/${COPY}` } })
-    expect(within(stack()!).getByText(`Основной файл: «${ORIGINAL}».`)).toBeTruthy()
+    const copyCard = within(stack()!).getByTestId("note-notice-sync-conflict")
+    expect(within(copyCard).getByText("«идея» изменили на двух компьютерах")).toBeTruthy()
+  })
+
+  it("names no path, no extension and none of the service words", () => {
+    useSyncNoticesStore.setState({ conflicts: [conflict] })
+    mount()
+    const text = within(stack()!).getByTestId("note-notice-sync-conflict").textContent ?? ""
+    expect(text).not.toMatch(/\.md|Заметки\/|conflict|\.amby/)
+    expect(text).not.toMatch(/копи|основн|идентификатор/i)
+  })
+
+  it("says that two notes created at once were created, not edited", () => {
+    useSyncNoticesStore.setState({ conflicts: [{ ...conflict, kind: "bothCreated" }] })
+    mount()
+    expect(within(stack()!).getByText("«идея» создали на двух компьютерах")).toBeTruthy()
   })
 
   it("opens the comparison from the card", () => {
@@ -311,6 +329,84 @@ describe("a second version from another computer", () => {
     mount()
     act(() => useSyncNoticesStore.getState().setConflicts([]))
     await waitFor(() => expect(stack()).toBeNull())
+  })
+})
+
+describe("what was done after a choice in the comparison", () => {
+  const outcome = (choice: "keepOriginal" | "keepCopy" | "keepBoth" | "assembled") => ({
+    conflictId: "0123456789ab",
+    path: ORIGINAL,
+    name: "идея",
+    choice,
+    where: "card" as const,
+  })
+
+  it.each([
+    [
+      "keepOriginal",
+      "Оставлена версия в заметке «идея». Вторая версия — в корзине хранилища.",
+      false,
+    ],
+    ["keepCopy", "В заметке «идея» теперь вторая версия. Прежняя — в истории заметки.", true],
+    ["keepBoth", "Обе версии «идея» сохранены: вторая стала отдельной заметкой.", false],
+    [
+      "assembled",
+      "Заметка «идея» собрана из выбранных частей. Прежняя версия — в истории заметки.",
+      true,
+    ],
+  ] as const)(
+    "%s is an info card that says where the other version went",
+    (choice, text, history) => {
+      useSyncNoticesStore.setState({ outcomes: [outcome(choice)] })
+      mount()
+      fireEvent.click(bulb()!)
+      const card = within(stack()!).getByTestId("note-notice-conflict-outcome")
+      expect(card.getAttribute("data-level")).toBe("info")
+      expect(within(card).getByText(text)).toBeTruthy()
+      // history is offered only where a version really went to the history of the note
+      expect(Boolean(within(card).queryByRole("button", { name: "Открыть историю" }))).toBe(history)
+      expect(within(card).getByRole("button", { name: "Закрыть" })).toBeTruthy()
+      expect(card.textContent).not.toMatch(/\.md|\.amby|копи/)
+    },
+  )
+
+  it("does not open the stack by itself: it is news, not a question", () => {
+    useSyncNoticesStore.setState({ outcomes: [outcome("keepCopy")] })
+    mount()
+    expect(bulb()).not.toBeNull()
+    expect(stack()).toBeNull()
+  })
+
+  it("opens the history panel from the card", () => {
+    const seen = vi.fn()
+    window.addEventListener(OPEN_PANEL_REQUEST_EVENT, seen)
+    useSyncNoticesStore.setState({ outcomes: [outcome("keepCopy")] })
+    mount()
+    fireEvent.click(bulb()!)
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Открыть историю" }))
+    window.removeEventListener(OPEN_PANEL_REQUEST_EVENT, seen)
+    expect((seen.mock.calls[0]![0] as CustomEvent).detail).toEqual({ panelId: "history" })
+  })
+
+  it("is closed with the button, and is only for the note it is about", () => {
+    useSyncNoticesStore.setState({ outcomes: [outcome("keepCopy")] })
+    mount({ document: { id: "/vault/Заметки/другая.md", path: "/vault/Заметки/другая.md" } })
+    expect(bulb()).toBeNull()
+    cleanup()
+    mount()
+    fireEvent.click(bulb()!)
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Закрыть" }))
+    expect(useSyncNoticesStore.getState().outcomes).toEqual([])
+    expect(bulb()).toBeNull()
+  })
+
+  it("sits below a question: a conflict that is still open comes first", () => {
+    useSyncNoticesStore.setState({
+      conflicts: [{ ...conflict, id: "ba9876543210" }],
+      outcomes: [outcome("keepCopy")],
+    })
+    mount()
+    expect(bulb()!.getAttribute("data-level")).toBe("decision")
   })
 })
 

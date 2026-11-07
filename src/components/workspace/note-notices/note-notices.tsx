@@ -1,13 +1,15 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { ChevronDown, ChevronUp, GitCompare } from "lucide-react"
+import { ChevronDown, ChevronUp, GitCompare, History } from "lucide-react"
 import { motion, useReducedMotion } from "motion/react"
 
 import { Button } from "@/components/ui/button"
 import { errorType, logger } from "@/lib/logger"
 import { flushAutosaveGeneration } from "../autosave/autosave-lifecycle"
 import { relativeToVault } from "../editor/document-breadcrumbs-utils"
+import { conflictName } from "../sync/conflict-outcome"
 import { restoreRemoteDeleted } from "../sync/restore-remote-deleted"
+import { requestOpenPanel } from "../panel-navigation"
 import { conflictForPath, useSyncNoticesStore } from "../sync/use-sync-notices-store"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
@@ -59,6 +61,11 @@ function NoteNoticesOf({
   )
   const remoteRestoreFailed = useSyncNoticesStore((state) =>
     relative ? state.restoreFailed.includes(relative) : false,
+  )
+  const outcomes = useSyncNoticesStore((state) => state.outcomes)
+  const dismissOutcome = useSyncNoticesStore((state) => state.dismissOutcome)
+  const conflictOutcomes = outcomes.filter(
+    (item) => item.where === "card" && item.path === relative,
   )
   const externalConflict = useDocStore((state) => state.externalConflicts[document.id])
   const openConflictDialog = useDocStore((state) => state.openConflictDialog)
@@ -115,12 +122,13 @@ function NoteNoticesOf({
           key="sync-conflict"
           testId="note-notice-sync-conflict"
           level="decision"
-          title={t("noteNotices.syncConflict")}
-          lines={[
-            found.role === "original"
-              ? t("sync.notices.bannerHintOriginal", { other: found.conflict.copyPath })
-              : t("sync.notices.bannerHintCopy", { other: found.conflict.originalPath }),
-          ]}
+          title={t(
+            found.conflict.kind === "bothCreated"
+              ? "sync.vault.conflicts.createdTitle"
+              : "sync.vault.conflicts.editedTitle",
+            { name: conflictName(found.conflict.originalPath) },
+          )}
+          lines={[t("sync.vault.conflicts.bothSafe")]}
           actions={
             <Button
               type="button"
@@ -131,6 +139,43 @@ function NoteNoticesOf({
               <GitCompare />
               {t("sync.notices.compare")}
             </Button>
+          }
+        />
+      ),
+    })
+  }
+  // What was done after a choice in the comparison (docs/notices.md, section 10): news, not a question.
+  for (const outcome of conflictOutcomes) {
+    notices.push({
+      id: `conflict-outcome:${outcome.conflictId}`,
+      card: (
+        <Card
+          key={`conflict-outcome:${outcome.conflictId}`}
+          testId="note-notice-conflict-outcome"
+          level="info"
+          title={t(`sync.notices.outcome.${outcome.choice}`, { name: outcome.name })}
+          actions={
+            <>
+              {(outcome.choice === "keepCopy" || outcome.choice === "assembled") && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => requestOpenPanel("history")}
+                >
+                  <History />
+                  {t("sync.notices.openHistory")}
+                </Button>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => dismissOutcome(outcome.conflictId)}
+              >
+                {t("sync.notices.dismiss")}
+              </Button>
+            </>
           }
         />
       ),
