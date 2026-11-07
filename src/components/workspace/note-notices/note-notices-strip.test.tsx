@@ -223,3 +223,71 @@ describe("the strip and the panel of cards", () => {
     expect(classes).toContain("inset-x-0")
   })
 })
+
+describe("the width of the strip", () => {
+  const frame = () => screen.getByTestId("note-notices-frame")
+
+  it("is wide enough folded for a title in one line, and grows to the left, never past the screen", () => {
+    saveFailed()
+    mount()
+    fireEvent.click(strip()) // fold it: a danger opened it by itself
+    const classes = frame().getAttribute("class") ?? ""
+    // about 300px at least, so that an ordinary title is not cut
+    expect(classes).toMatch(/min-w-\[(18\.75rem|300px)\]/)
+    // never wider than the note area can show
+    expect(classes).toMatch(/max-w-\[/)
+    // the right edge stays at the bar: the strip is pushed to the end of its anchor, so it grows leftwards
+    expect(screen.getByTestId("note-notices").getAttribute("class")).toContain("justify-end")
+    expect(classes).toMatch(/shrink-0/)
+  })
+
+  it("keeps the same minimum open, and is wider then", () => {
+    saveFailed()
+    mount()
+    expect(frame().getAttribute("class")).toMatch(/min-w-\[(18\.75rem|300px)\]/)
+    expect(frame().getAttribute("class")).toMatch(/w-\[min\(24rem/)
+  })
+})
+
+describe("the order of the cards in the panel", () => {
+  const order = () =>
+    within(screen.getByTestId("note-notices-stack"))
+      .getAllByTestId(/^note-notice-/)
+      .map((element) => element.getAttribute("data-testid"))
+
+  it("goes by seriousness: danger, decision, warning, information", () => {
+    restored()
+    conflicted()
+    saveFailed()
+    mount({ warningKey: "workspace.invalidFrontmatter" })
+    expect(order()).toEqual([
+      "note-notice-save-failed",
+      "note-notice-sync-conflict",
+      "note-notice-warning",
+      "note-notice-restored",
+    ])
+  })
+
+  it("keeps the old order inside one level", () => {
+    conflicted()
+    useNoteNoticesStore.getState().offerDraft(ABSOLUTE, { accept: vi.fn(), reject: vi.fn() })
+    saveFailed()
+    useNoteNoticesStore.getState().setPropertyFailed(ABSOLUTE, true)
+    mount()
+    expect(order()).toEqual([
+      "note-notice-save-failed",
+      "note-notice-property-failed",
+      "note-notice-sync-conflict",
+      "note-notice-draft",
+    ])
+  })
+
+  it("puts the line of the strip on the most serious card, which is the first of the panel", () => {
+    restored()
+    conflicted()
+    saveFailed()
+    mount()
+    expect(strip().textContent).toContain("Не удалось сохранить заметку")
+    expect(order()[0]).toBe("note-notice-save-failed")
+  })
+})
