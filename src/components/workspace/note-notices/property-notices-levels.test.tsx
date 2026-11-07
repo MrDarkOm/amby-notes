@@ -2,7 +2,7 @@
 // The cards about the properties of a note have a level of docs/notices.md (section 2.1) and are drawn
 // by it (step 1 of the transition). When and how they open stays as it was.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import i18n from "@/lib/i18n"
 import type { PropertyPanel, PropertyStorageStatus } from "@/lib/properties/property-groups-port"
 import { useVaultStore } from "../use-vault-store"
@@ -51,8 +51,11 @@ function mount() {
 }
 
 async function card(testId: string) {
-  const bulb = await screen.findByTestId("note-notices-strip")
-  if (!screen.queryByTestId("note-notices-stack")) fireEvent.click(bulb)
+  const strip = await screen.findByTestId("note-notices-strip")
+  // A danger or a decision opens the panel from an effect right after the strip appears: let it run
+  // before deciding whether a click is needed, or the click would close the panel again.
+  await act(async () => {})
+  if (strip.getAttribute("aria-expanded") !== "true") fireEvent.click(strip)
   return screen.findByTestId(testId)
 }
 

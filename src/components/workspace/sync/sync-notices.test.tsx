@@ -19,7 +19,8 @@ import {
 } from "./fake-sync-port"
 import { NoteNotices } from "../note-notices/note-notices"
 import { SyncNoticesHost } from "./sync-notices-host"
-import { NoticesDock, dockButton } from "./dock-test-harness"
+import { NoticesDock } from "./dock-test-harness"
+import { dockButton } from "./dock-button"
 import { useSyncNoticesStore } from "./use-sync-notices-store"
 
 vi.mock("@/lib/storage", async (importOriginal) => ({
@@ -72,6 +73,9 @@ async function mount(status = vaultStatus()) {
   await waitFor(() => expect(port.vaultStatus).toHaveBeenCalled())
   return { port, ...view }
 }
+
+/** The cards of the panel, not the line of the strip that repeats the title of the most serious one. */
+const stackCards = async () => within(await screen.findByTestId("note-notices-stack"))
 
 const pushStatus = async (status: ReturnType<typeof vaultStatus>) => {
   await act(async () => emitVaultStatus(status))
@@ -160,7 +164,12 @@ describe("the dock button and the list of conflicts", () => {
       })),
       resolveGroupConflict,
     })
-    render(<SyncNoticesHost port={port} />)
+    render(
+      <>
+        <SyncNoticesHost port={port} />
+        <NoticesDock />
+      </>,
+    )
     await screen.findByTestId("notices-dock-count")
     fireEvent.click(dockButton()!)
     const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
@@ -211,9 +220,9 @@ describe("the card of a note that has a second version", () => {
   it("is shown in the main file and in the copy, and not in another note", async () => {
     await mount(vaultStatus({ conflicts: [conflict] }))
     const { rerender } = render(notes(`/vault/${ORIGINAL}`))
-    expect(await screen.findByText(strip)).toBeTruthy()
+    expect(await (await stackCards()).findByText(strip)).toBeTruthy()
     rerender(notes(`/vault/${COPY}`))
-    expect(await screen.findByText(strip)).toBeTruthy()
+    expect(await (await stackCards()).findByText(strip)).toBeTruthy()
     rerender(notes("/vault/Заметки/другая.md"))
     expect(screen.queryByText(strip)).toBeNull()
   })
@@ -221,7 +230,7 @@ describe("the card of a note that has a second version", () => {
   it("goes away when the conflict is resolved", async () => {
     await mount(vaultStatus({ conflicts: [conflict] }))
     render(notes(`/vault/${ORIGINAL}`))
-    await screen.findByText(strip)
+    await (await stackCards()).findByText(strip)
     await pushStatus(vaultStatus({ conflicts: [] }))
     await waitFor(() => expect(screen.queryByText(strip)).toBeNull())
   })
@@ -278,7 +287,7 @@ describe("a note deleted on another computer", () => {
     render(notes(`/vault/${ORIGINAL}`))
     expect(screen.queryByText(message)).toBeNull()
     await act(async () => emitRemoteDeleted([ORIGINAL]))
-    expect(await screen.findByText(message)).toBeTruthy()
+    expect(await (await stackCards()).findByText(message)).toBeTruthy()
     expect(screen.getByRole("button", { name: "Вернуть" })).toBeTruthy()
   })
 
@@ -325,7 +334,7 @@ describe("a note deleted on another computer", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Вернуть" }))
     expect(await screen.findByRole("alert")).toBeTruthy()
     expect(restoreTrash).not.toHaveBeenCalled()
-    expect(screen.getByText(message)).toBeTruthy()
+    expect(within(screen.getByTestId("note-notices-stack")).getByText(message)).toBeTruthy()
   })
 })
 
