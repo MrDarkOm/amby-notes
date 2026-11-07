@@ -309,7 +309,10 @@ describe("what was done after the choice", () => {
     fireEvent.click(await within(dialog).findByRole("button", { name: "Взять вторую версию" }))
     await waitFor(() => expect(port.resolveConflict).toHaveBeenCalled())
     await pushStatus(vaultStatus({ conflicts: [] }))
-    fireEvent.click(await screen.findByTestId("note-notices-strip"))
+    // the stack was open for the question; if it closed with it, the strip opens it again
+    if (!screen.queryByTestId("note-notices-stack")) {
+      fireEvent.click(await screen.findByTestId("note-notices-strip"))
+    }
     const cards = await stackCards()
     expect(
       await cards.findByText("В заметке «идея» теперь вторая версия. Прежняя — в истории заметки."),

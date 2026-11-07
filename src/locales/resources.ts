@@ -1666,7 +1666,6 @@ const ru = {
     stripExpand: "Показать уведомления",
     stripCollapse: "Скрыть уведомления",
     stripMore: "+{{count}}",
-    syncConflict: "Пришла другая версия заметки с другого компьютера",
     saveFailedTitle: "Не удалось сохранить заметку",
     saveFailedDescription:
       "Текст остаётся в редакторе и во временном черновике. Проверьте место на диске и доступ к папке.",
@@ -3884,24 +3883,32 @@ const ru = {
       restoredAfterDeletion: "Заметку «{{name}}» вернули: её правили на другом компьютере.",
       dismiss: "Закрыть",
       compare: "Сравнить",
-      bannerText: "У этой заметки есть вторая версия с другого компьютера",
-      bannerHintOriginal: "Копия: «{{other}}».",
-      bannerHintCopy: "Основной файл: «{{other}}».",
       compareTitle: "Сравнение версий",
-      compareDescription:
-        "Основной файл и копия, сохранённая при синхронизации. Выберите, что оставить: ничего не пропадёт, прежние версии остаются в истории файла или в корзине хранилища.",
-      originalVersion: "Основной файл",
-      copyVersion: "Копия с другого компьютера",
-      loading: "Читаю файлы…",
-      loadFailed: "Не удалось прочитать один из файлов.",
-      resolveFailed: "Не удалось применить выбор. Попробуйте ещё раз.",
+      compareDescription: "«{{name}}»: обе версии целы. Выберите, какую оставить.",
+      foundAt: "Конфликт найден {{when}}",
+      originalVersion: "Версия в заметке",
+      copyVersion: "Вторая версия",
+      keepOriginal: "Оставить версию в заметке",
+      keepCopy: "Взять вторую версию",
+      keepBoth: "Сохранить обе как отдельные заметки",
+      moreChoices: "Другие варианты",
+      outcome: {
+        keepOriginal: "Оставлена версия в заметке «{{name}}». Вторая версия — в корзине хранилища.",
+        keepCopy: "В заметке «{{name}}» теперь вторая версия. Прежняя — в истории заметки.",
+        keepBoth: "Обе версии «{{name}}» сохранены: вторая стала отдельной заметкой.",
+        assembled:
+          "Заметка «{{name}}» собрана из выбранных частей. Прежняя версия — в истории заметки.",
+      },
+      openHistory: "Открыть историю",
+      loading: "Читаю версии…",
+      loadFailed: "Не удалось прочитать одну из версий.",
       remoteDeleted: "Эту заметку удалили на другом компьютере. Она в архиве хранилища",
       restore: "Вернуть",
       restoring: "Возвращаю…",
       restoreFailed: "Не удалось вернуть заметку из архива. Можно восстановить текст кнопкой ниже.",
-      compareDone: "Готово",
-      choiceMine: "Моя",
-      choiceOther: "Другая",
+      compareDone: "Собрать из выбранного",
+      choiceMine: "В заметке",
+      choiceOther: "Вторая",
       choiceBoth: "Обе",
       chooseFor: "Что оставить в этом месте",
       differences: "Отличий: {{count}}",
@@ -3910,7 +3917,7 @@ const ru = {
         "версии показаны в исходном виде: Live-режим не может принять одну из них без потерь",
       notText: "Это не текст: показать нечего",
       propertiesDifference: "Свойства заметки",
-      identityLocked: "У версий разный идентификатор заметки: остаётся мой",
+      identityLocked: "У версий разный внутренний номер заметки: остаётся версия в заметке",
     },
     vault: {
       title: "Это хранилище",
@@ -3988,19 +3995,14 @@ const ru = {
       },
       conflicts: {
         title: "Конфликты ({{count}})",
-        bothEdited:
-          "Файл «{{original}}» изменили на двух компьютерах. Вторая версия сохранена рядом: «{{copy}}».",
-        bothCreated:
-          "Файл «{{original}}» создали на двух компьютерах. Вторая версия сохранена рядом: «{{copy}}».",
-        keepOriginal: "Оставить основной файл",
-        keepCopy: "Заменить копией",
-        keepBoth: "Оставить оба",
+        editedTitle: "«{{name}}» изменили на двух компьютерах",
+        createdTitle: "«{{name}}» создали на двух компьютерах",
+        bothSafe: "Обе версии целы",
         appData: {
           properties:
             "Свойства заметок изменили на двух компьютерах. Пока их нельзя соединить: нужно выбрать одну версию.",
           graph: "Расположение узлов графа изменили на двух компьютерах. Выберите одну версию.",
-          other:
-            "Служебные данные Amby («{{path}}») изменили на двух компьютерах. Выберите одну версию.",
+          other: "Служебные данные Amby изменили на двух компьютерах. Выберите одну версию.",
           keepThis: "Оставить с этого компьютера",
           keepOther: "Взять с другого компьютера",
           group: {
@@ -4025,9 +4027,8 @@ const ru = {
             changed:
               "Пока вы выбирали, свойства снова изменились. Список обновлён, сделайте выбор ещё раз.",
           },
-          hint: "Правки, сделанные на компьютере, версию которого вы не выбрали, пропадут. Невыбранная версия не удаляется сразу: копия уходит в корзину хранилища, а прежний файл остаётся в его истории.",
+          hint: "Правки, сделанные на компьютере, версию которого вы не выбрали, пропадут. Невыбранная версия не удаляется сразу: её можно вернуть из корзины или истории хранилища.",
         },
-        hint: "«Оставить основной файл» убирает копию в корзину хранилища. «Заменить копией» кладёт текст копии в основной файл, а прежняя версия остаётся в истории файла. «Оставить оба» делает копию отдельной заметкой (ей присваивается свой идентификатор) и убирает строку из списка.",
       },
       unsynced: {
         title: "Не синхронизируется ({{count}})",
@@ -5813,7 +5814,6 @@ const en: typeof ru = {
     stripExpand: "Show notices",
     stripCollapse: "Hide notices",
     stripMore: "+{{count}}",
-    syncConflict: "Another version of this note came from another computer",
     saveFailedTitle: "The note could not be saved",
     saveFailedDescription:
       "The text stays in the editor and in a temporary draft. Check the free space and access to the folder.",
@@ -8011,24 +8011,34 @@ const en: typeof ru = {
       restoredAfterDeletion: "The note “{{name}}” came back: it was edited on another computer.",
       dismiss: "Close",
       compare: "Compare",
-      bannerText: "This note has a second version from another computer",
-      bannerHintOriginal: "The copy: “{{other}}”.",
-      bannerHintCopy: "The main file: “{{other}}”.",
       compareTitle: "Compare the versions",
-      compareDescription:
-        "The main file and the copy saved by sync. Choose what to keep: nothing is lost, earlier versions stay in the history of the file or in the trash of the vault.",
-      originalVersion: "Main file",
-      copyVersion: "Copy from another computer",
-      loading: "Reading the files…",
-      loadFailed: "One of the files could not be read.",
-      resolveFailed: "The choice could not be applied. Try again.",
+      compareDescription: "“{{name}}”: both versions are safe. Choose which one to keep.",
+      foundAt: "Conflict found {{when}}",
+      originalVersion: "Version in the note",
+      copyVersion: "Second version",
+      keepOriginal: "Keep the version in the note",
+      keepCopy: "Take the second version",
+      keepBoth: "Save both as separate notes",
+      moreChoices: "More choices",
+      outcome: {
+        keepOriginal:
+          "Kept the version in the note “{{name}}”. The second version is in the trash of the vault.",
+        keepCopy:
+          "The note “{{name}}” now has the second version. The previous one is in the history of the note.",
+        keepBoth: "Both versions of “{{name}}” are saved: the second became a separate note.",
+        assembled:
+          "The note “{{name}}” was put together from the chosen parts. The previous version is in the history of the note.",
+      },
+      openHistory: "Open the history",
+      loading: "Reading the versions…",
+      loadFailed: "One of the versions could not be read.",
       remoteDeleted: "This note was deleted on another computer. It is in the archive of the vault",
       restore: "Restore",
       restoring: "Restoring…",
       restoreFailed: "The note could not be restored from the archive.",
-      compareDone: "Done",
-      choiceMine: "Mine",
-      choiceOther: "Other",
+      compareDone: "Put together from the chosen",
+      choiceMine: "In the note",
+      choiceOther: "Second",
       choiceBoth: "Both",
       chooseFor: "What to keep here",
       differences: "Differences: {{count}}",
@@ -8037,7 +8047,8 @@ const en: typeof ru = {
         "the versions are shown as source: Live Preview cannot take one of them without loss",
       notText: "This is not text: nothing to show",
       propertiesDifference: "Properties of the note",
-      identityLocked: "The versions have different note identifiers: mine stays",
+      identityLocked:
+        "The versions have different internal note numbers: the one in the note stays",
     },
     vault: {
       title: "This vault",
@@ -8115,18 +8126,14 @@ const en: typeof ru = {
       },
       conflicts: {
         title: "Conflicts ({{count}})",
-        bothEdited:
-          "The file “{{original}}” was changed on two computers. The other version was saved beside it: “{{copy}}”.",
-        bothCreated:
-          "The file “{{original}}” was created on two computers. The other version was saved beside it: “{{copy}}”.",
-        keepOriginal: "Keep the main file",
-        keepCopy: "Replace with the copy",
-        keepBoth: "Keep both",
+        editedTitle: "“{{name}}” was changed on two computers",
+        createdTitle: "“{{name}}” was created on two computers",
+        bothSafe: "Both versions are safe",
         appData: {
           properties:
             "The properties of notes were changed on two computers. They cannot be joined yet: choose one version.",
           graph: "The layout of the graph was changed on two computers. Choose one version.",
-          other: "Amby's own data (“{{path}}”) was changed on two computers. Choose one version.",
+          other: "Amby's own data was changed on two computers. Choose one version.",
           keepThis: "Keep this computer's",
           keepOther: "Take the other computer's",
           group: {
@@ -8151,9 +8158,8 @@ const en: typeof ru = {
             changed:
               "The properties changed again while you were choosing. The list is updated; choose once more.",
           },
-          hint: "The changes made on the computer whose version you did not choose are lost. The version you did not choose is not deleted at once: the copy goes to the trash of the vault, and the previous file stays in its history.",
+          hint: "The changes made on the computer whose version you did not choose are lost. The version you did not choose is not deleted at once: you can bring it back from the trash or the history of the vault.",
         },
-        hint: "“Keep the main file” moves the copy to the trash of the vault. “Replace with the copy” puts the text of the copy into the main file, and the previous version stays in the history of the file. “Keep both” makes the copy a note of its own (it gets an identifier of its own) and removes the line from the list.",
       },
       unsynced: {
         title: "Not synchronised ({{count}})",

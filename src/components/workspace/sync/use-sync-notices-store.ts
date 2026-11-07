@@ -1,6 +1,6 @@
 import { create } from "zustand"
 
-import type { VaultSyncStatus } from "@/lib/sync/sync-port"
+import type { ConflictChoice, VaultSyncStatus } from "@/lib/sync/sync-port"
 import { relativeToVault } from "../editor/document-breadcrumbs-utils"
 import type { LimitNotice } from "./limit-notices"
 
@@ -9,7 +9,30 @@ export type SyncConflict = VaultSyncStatus["conflicts"][number]
 /** Which side of a conflict a note is. */
 export type ConflictRole = "original" | "copy"
 
+/** What the person chose; `assembled` is a text put together from the chosen parts of both versions. */
+export type OutcomeChoice = ConflictChoice | "assembled"
+
+/**
+ * What was done after a choice in the comparison (docs/notices.md, section 10: consequences are said after
+ * the action). Until the notification centre keeps a log (step 2), it is a card in the note when the note
+ * is open (`card`) and a line in the list of conflicts, until the list is closed, when it is not (`list`).
+ */
+export interface ConflictOutcome {
+  conflictId: string
+  /** The path of the note in the vault, NFC. */
+  path: string
+  /** The name of the note, without the extension. */
+  name: string
+  choice: OutcomeChoice
+  where: "card" | "list"
+}
+
 interface SyncNoticesState {
+  outcomes: ConflictOutcome[]
+  addOutcome: (outcome: ConflictOutcome) => void
+  dismissOutcome: (conflictId: string) => void
+  /** The list of conflicts is closed: what it said about the choices made is not kept. */
+  clearListOutcomes: () => void
   /** The open conflicts of the vault, as the last status said. */
   conflicts: SyncConflict[]
   /** Paths (in the vault) of notes deleted on another computer while they were open. */
@@ -34,6 +57,22 @@ interface SyncNoticesState {
 }
 
 export const useSyncNoticesStore = create<SyncNoticesState>((set) => ({
+  outcomes: [],
+  addOutcome: (outcome) =>
+    set((state) => ({
+      outcomes: [
+        ...state.outcomes.filter((item) => item.conflictId !== outcome.conflictId),
+        outcome,
+      ],
+    })),
+  dismissOutcome: (conflictId) =>
+    set((state) => ({ outcomes: state.outcomes.filter((item) => item.conflictId !== conflictId) })),
+  clearListOutcomes: () =>
+    set((state) =>
+      state.outcomes.some((item) => item.where === "list")
+        ? { outcomes: state.outcomes.filter((item) => item.where !== "list") }
+        : state,
+    ),
   conflicts: [],
   remoteDeleted: [],
   compareId: null,
@@ -41,8 +80,17 @@ export const useSyncNoticesStore = create<SyncNoticesState>((set) => ({
   limits: [],
   setLimits: (limits) => set({ limits }),
   conflictListOpen: false,
-  toggleConflictList: () => set((state) => ({ conflictListOpen: !state.conflictListOpen })),
-  closeConflictList: () => set({ conflictListOpen: false }),
+  toggleConflictList: () => {
+    if (useSyncNoticesStore.getState().conflictListOpen) {
+      useSyncNoticesStore.getState().closeConflictList()
+    } else {
+      set({ conflictListOpen: true })
+    }
+  },
+  closeConflictList: () => {
+    set({ conflictListOpen: false })
+    useSyncNoticesStore.getState().clearListOutcomes()
+  },
   setRestoreFailed: (path, failed) =>
     set((state) => {
       const rest = state.restoreFailed.filter((item) => item !== path)

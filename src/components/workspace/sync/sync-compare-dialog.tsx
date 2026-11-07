@@ -1,7 +1,15 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 
+import { MoreHorizontal } from "lucide-react"
+
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Dialog,
   DialogContent,
@@ -26,7 +34,8 @@ import {
   type CompareHunk,
   type CompareRow,
 } from "./compare/block-compare"
-import type { SyncConflict } from "./use-sync-notices-store"
+import { conflictName, recordConflictOutcome } from "./conflict-outcome"
+import type { OutcomeChoice, SyncConflict } from "./use-sync-notices-store"
 
 /**
  * The two versions of a conflict side by side (Р7, stage Э4б К4). A note is drawn as a note, read only,
@@ -35,6 +44,12 @@ import type { SyncConflict } from "./use-sync-notices-store"
  * touched stays byte for byte. A version Live Preview cannot take is shown as source; a file that is not
  * a note is chosen as a whole. The window of the external changes of the editor is tied to an open,
  * edited buffer, so this one only reads the versions through the port and resolves through it.
+ *
+ * The two sides are "the version in the note" and "the second version", not "this" and "the other"
+ * computer: by Р7 the path stays with whoever reached the server first, but the engine does not record
+ * whose version the second one is (a repeated pass and the tie of two new files put the server's version
+ * there), so the window does not claim it. Two main buttons keep one side each; keeping both is in the menu.
+ * After the port has answered, the choice is said (`recordConflictOutcome`); nothing is said before it.
  */
 export function SyncCompareDialog({
   port,
@@ -46,7 +61,7 @@ export function SyncCompareDialog({
   vault?: string
   onClose: () => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [loaded, setLoaded] = React.useState<ConflictVersions | null>(null)
   const [loadFailed, setLoadFailed] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
@@ -78,12 +93,13 @@ export function SyncCompareDialog({
     setChoices(plan?.kind === "blocks" ? plan.hunks.map(() => "mine") : [])
   }, [plan])
 
-  const guard = async (action: () => Promise<void>) => {
+  const guard = async (action: () => Promise<void>, outcome: OutcomeChoice) => {
     if (busy) return
     setBusy(true)
     setError(null)
     try {
       await action()
+      recordConflictOutcome(conflict, outcome)
       onClose()
     } catch (caught) {
       setError(syncErrorMessage(caught, t))
@@ -93,22 +109,24 @@ export function SyncCompareDialog({
       setBusy(false)
     }
   }
-  const resolve = (choice: ConflictChoice) => guard(() => port.resolveConflict(conflict.id, choice))
+  const resolve = (choice: ConflictChoice) =>
+    guard(() => port.resolveConflict(conflict.id, choice), choice)
   const finish = (blocks: BlockCompare) =>
-    guard(() =>
-      port.resolveConflictWithText(
-        conflict.id,
-        assembleCompare(blocks, choices),
-        loaded?.stamp ?? "",
-      ),
+    guard(
+      () =>
+        port.resolveConflictWithText(
+          conflict.id,
+          assembleCompare(blocks, choices),
+          loaded?.stamp ?? "",
+        ),
+      "assembled",
     )
 
   const text = (value: string | null | undefined) =>
     value === undefined ? t("sync.notices.loading") : (value ?? t("sync.notices.notText"))
-  const whole = (title: string, path: string, value: string | null | undefined) => (
+  const whole = (title: string, value: string | null | undefined) => (
     <section className="flex min-w-0 flex-col rounded-md border">
       <h3 className="border-b px-3 py-2 text-sm font-medium">{title}</h3>
-      <p className="break-all border-b px-3 py-1 text-[11px] text-muted-foreground">{path}</p>
       <pre className="max-h-72 min-h-24 flex-1 overflow-auto whitespace-pre-wrap p-3 text-xs">
         {loadFailed ? "" : text(value)}
       </pre>
@@ -129,23 +147,33 @@ export function SyncCompareDialog({
       >
         <DialogHeader>
           <DialogTitle>{t("sync.notices.compareTitle")}</DialogTitle>
-          <DialogDescription>{t("sync.notices.compareDescription")}</DialogDescription>
+          <DialogDescription>
+            {t("sync.notices.compareDescription", { name: conflictName(conflict.originalPath) })}
+          </DialogDescription>
+          <p className="text-xs text-muted-foreground">
+            {t("sync.notices.foundAt", {
+              when: new Intl.DateTimeFormat(i18n.language, {
+                dateStyle: "medium",
+                timeStyle: "short",
+              }).format(conflict.createdMs),
+            })}
+          </p>
         </DialogHeader>
 
         {blocks ? (
           <BlockView
             plan={blocks}
-            conflict={conflict}
             choices={choices}
             disabled={busy}
             onChoose={(id, choice) =>
               setChoices((list) => list.map((item, index) => (index === id ? choice : item)))
             }
+            onFinish={() => void finish(blocks)}
           />
         ) : (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {whole(t("sync.notices.originalVersion"), conflict.originalPath, loaded?.original)}
-            {whole(t("sync.notices.copyVersion"), conflict.copyPath, loaded?.copy)}
+            {whole(t("sync.notices.originalVersion"), loaded?.original)}
+            {whole(t("sync.notices.copyVersion"), loaded?.copy)}
           </div>
         )}
 
@@ -160,30 +188,37 @@ export function SyncCompareDialog({
           </p>
         )}
         <div className="flex flex-wrap items-center gap-2">
-          {blocks && (
-            <Button type="button" disabled={busy} onClick={() => void finish(blocks)}>
-              {t("sync.notices.compareDone")}
-            </Button>
-          )}
-          {(
-            [
-              ["keepOriginal", "sync.vault.conflicts.keepOriginal"],
-              ["keepCopy", "sync.vault.conflicts.keepCopy"],
-              ["keepBoth", "sync.vault.conflicts.keepBoth"],
-            ] as const
-          ).map(([choice, key]) => (
-            <Button
-              key={choice}
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={() => void resolve(choice)}
-            >
-              {t(key)}
-            </Button>
-          ))}
+          <Button type="button" disabled={busy} onClick={() => void resolve("keepOriginal")}>
+            {t("sync.notices.keepOriginal")}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={busy}
+            onClick={() => void resolve("keepCopy")}
+          >
+            {t("sync.notices.keepCopy")}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                disabled={busy}
+                aria-label={t("sync.notices.moreChoices")}
+                title={t("sync.notices.moreChoices")}
+              >
+                <MoreHorizontal aria-hidden="true" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onSelect={() => void resolve("keepBoth")}>
+                {t("sync.notices.keepBoth")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
-        <p className="text-xs text-muted-foreground">{t("sync.vault.conflicts.hint")}</p>
       </DialogContent>
     </Dialog>
   )
@@ -191,16 +226,16 @@ export function SyncCompareDialog({
 
 function BlockView({
   plan,
-  conflict,
   choices,
   disabled,
   onChoose,
+  onFinish,
 }: {
   plan: BlockCompare
-  conflict: SyncConflict
   choices: CompareChoice[]
   disabled: boolean
   onChoose: (id: number, choice: CompareChoice) => void
+  onFinish: () => void
 }) {
   const { t } = useTranslation()
   return (
@@ -215,10 +250,6 @@ function BlockView({
         <h3>{t("sync.notices.originalVersion")}</h3>
         <h3>{t("sync.notices.copyVersion")}</h3>
       </div>
-      <p className="grid grid-cols-2 gap-3 break-all text-[11px] text-muted-foreground">
-        <span>{conflict.originalPath}</span>
-        <span>{conflict.copyPath}</span>
-      </p>
       <div className="max-h-[55vh] space-y-2 overflow-y-auto">
         {plan.rows.map((row, index) => (
           <Row
@@ -230,6 +261,11 @@ function BlockView({
             onChoose={onChoose}
           />
         ))}
+      </div>
+      <div className="flex justify-end">
+        <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={onFinish}>
+          {t("sync.notices.compareDone")}
+        </Button>
       </div>
     </div>
   )

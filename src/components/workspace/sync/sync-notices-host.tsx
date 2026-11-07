@@ -77,6 +77,7 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
       compareId: null,
       limits: [],
       conflictListOpen: false,
+      outcomes: [],
     })
     useNoteNoticesStore.setState({ restored: [] })
     let alive = true
@@ -185,6 +186,14 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
         const root = useVaultStore.getState().vault
         const { remoteDeleted, clearRemoteDeleted } = useSyncNoticesStore.getState()
         if (!root) return
+        // The card that says what a choice did goes with the note it was about.
+        for (const outcome of useSyncNoticesStore.getState().outcomes) {
+          if (outcome.where !== "card") continue
+          const stillOpen = Object.values(state.openDocs).some(
+            (item) => relativeToVault(item.path, root).normalize("NFC") === outcome.path,
+          )
+          if (!stillOpen) useSyncNoticesStore.getState().dismissOutcome(outcome.conflictId)
+        }
         for (const path of useNoteNoticesStore.getState().restored) {
           const stillOpen = Object.values(state.openDocs).some(
             (item) => relativeToVault(item.path, root).normalize("NFC") === path,
@@ -207,9 +216,24 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
     return () => window.clearTimeout(timer)
   }, [notices])
 
+  // The list stays while it has news about a choice (the last conflict has just been resolved).
+  const listOutcomes = useSyncNoticesStore((state) =>
+    state.outcomes.some((item) => item.where === "list"),
+  )
   React.useEffect(() => {
-    if (conflicts.length === 0) closeList()
-  }, [conflicts.length, closeList])
+    if (conflicts.length === 0 && !listOutcomes) closeList()
+  }, [conflicts.length, listOutcomes, closeList])
+  // The person came from the list to the comparison, which closed it: it comes back with the news.
+  const fromList = React.useRef<string | null>(null)
+  const newestListOutcome = useSyncNoticesStore((state) =>
+    state.outcomes.filter((item) => item.where === "list").pop(),
+  )
+  React.useEffect(() => {
+    if (newestListOutcome && newestListOutcome.conflictId === fromList.current) {
+      fromList.current = null
+      useSyncNoticesStore.setState({ conflictListOpen: true })
+    }
+  }, [newestListOutcome])
 
   const shownLimits = limitNotices.filter((notice) => !dismissedLimits.includes(notice.kind))
   // The dock button counts the notices of the limits too: it reads them from the store.
@@ -335,7 +359,7 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
           </NoticeShell>
         ))}
       </div>
-      {listOpen && conflicts.length > 0 && (
+      {listOpen && (conflicts.length > 0 || listOutcomes) && (
         <div
           data-testid="sync-conflict-popover"
           style={anchor ?? { right: 8, bottom: 36 }}
@@ -352,6 +376,7 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
             onResolve={resolve}
             groups={groupActions}
             onCompare={(id) => {
+              fromList.current = id
               closeList()
               openCompare(id)
             }}

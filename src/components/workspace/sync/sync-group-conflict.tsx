@@ -203,7 +203,7 @@ function SideCard({
       disabled={disabled}
       onClick={onChoose}
       className={cn(
-        "flex min-w-0 flex-col gap-2 rounded-md border bg-background p-2.5 text-left transition-colors outline-none",
+        "flex min-w-0 flex-col gap-2 rounded-md border bg-background p-2.5 text-left outline-none",
         "hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60",
         checked ? "border-primary ring-1 ring-primary" : "border-border",
       )}

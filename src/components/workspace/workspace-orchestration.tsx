@@ -39,6 +39,7 @@ import { spotlightCreateActions } from "./spotlight-create-actions"
 import type { HelpContext } from "./help-modal"
 import { WorkspaceProfileModal } from "./modules/workspace-profile-modal"
 import type { ProfileId } from "@/lib/modules"
+import { useOpenPanelRequests } from "./panel-navigation"
 import { OPEN_SETTINGS_REQUEST_EVENT, type SettingsNavigationTarget } from "./settings-navigation"
 import { useSettingsStore } from "./use-settings-store"
 import { useLinkSuggestionSources } from "./orchestration/use-link-suggestion-sources"
@@ -530,6 +531,8 @@ export function WorkspaceOrchestration() {
     favoritesPanelPref,
     setPrefs,
   })
+  // A card of a note that says a version went to the history asks for the panel with this event.
+  useOpenPanelRequests(activatePanelAnywhere)
 
   const vaultName = vault?.replace(/\\/g, "/").split("/").pop() ?? undefined
 

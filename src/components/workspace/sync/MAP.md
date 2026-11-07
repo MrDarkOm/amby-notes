@@ -25,7 +25,6 @@ once they have been used, and out of the DOM text. Change password: [change-pass
 A vault that was switched off is resumed ("Switch on again") only when `VaultSyncStatus.resumable`: the link remembers the server address
 and the key of its space, and both must fit the current connection (runtime.rs `link_matches`). Otherwise the panel shows the
 first-time choice (new / existing space); resuming a space that is gone forgets the stale link.
-Setup uses the form; the switch resumes/disables.
 Account choice precedes server setup. Action rows are one per step (`wizard-actions`): primary first,
 secondary outline, links last. The server step offers the Amby server (default, address in `src/lib/sync/amby-server.ts`, no address field) or an own server (address field, guide link).
 
@@ -41,6 +40,8 @@ that does not pass the Live admission is shown as source; a file that is not Mar
 envelope or cannot be tiled is chosen as a whole. A different `amby-id` is never taken over. A deletion from another computer is
 marked only for a note that is open (Р8); the note stays open under the rule for externally deleted documents, with its own card
 and a way back from `.amby/trash/`.
+
+The choice in a conflict and what is said after it: [the notices of a note](../note-notices/MAP.md), [conflict-outcome.ts](conflict-outcome.ts).
 
 Before the first pass Rust creates a verified external copy beside the vault.
 Backup manager: [backup-panel.tsx](../backup/backup-panel.tsx). See [the backup contract](../../../../docs/vault-format.md#backup-and-git-policy).

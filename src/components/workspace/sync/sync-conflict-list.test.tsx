@@ -130,22 +130,15 @@ describe("what was done after a choice", () => {
     expect(screen.queryByTestId("sync-conflict-outcome")).toBeNull()
   })
 
-  it("goes away when the list is closed", () => {
+  it("goes away when the list is closed, and only the lines of the list", () => {
     useSyncNoticesStore.setState({
       outcomes: [
-        {
-          conflictId: "0123456789ab",
-          path: "Заметки/идея.md",
-          name: "идея",
-          choice: "keepBoth",
-          where: "list",
-        },
+        { conflictId: "a", path: "a.md", name: "a", choice: "keepBoth", where: "list" },
+        { conflictId: "b", path: "b.md", name: "b", choice: "keepCopy", where: "card" },
       ],
+      conflictListOpen: true,
     })
-    const { unmount } = render(
-      <ConflictList items={[]} busyId={null} onResolve={() => {}} onCompare={() => {}} />,
-    )
-    unmount()
-    expect(useSyncNoticesStore.getState().outcomes).toEqual([])
+    useSyncNoticesStore.getState().closeConflictList()
+    expect(useSyncNoticesStore.getState().outcomes.map((item) => item.conflictId)).toEqual(["b"])
   })
 })
