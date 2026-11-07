@@ -5590,27 +5590,14 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
 }
 
 /* The notices of a note above its bottom bar: a bulb with the number and a stack of cards. */
-.note-notices-bulb {
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.12);
-  backdrop-filter: blur(8px);
-}
-
-/* Neutral while the note has only information or good news; with a danger, a decision or a warning the
-   bulb wears the colours of that level (notices/notice-look.ts, tokens --notice-*). */
-.note-notices-bulb:not([data-level]) {
-  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
-  background: color-mix(in srgb, var(--card) 92%, transparent);
-  color: var(--foreground);
-}
-
-/* The stack is one surface with the floating bar below it (time, words, undo, lock): the same
-   border, background, blur and shadow; the cards are rows inside it, parted by a line. */
-.note-notices-surface {
-  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  background: color-mix(in srgb, var(--card) 90%, transparent);
+/* The strip of the notices of a note peeks out from behind the floating bar of the note: the surface of
+   the note, a border on three sides, the foot goes under the bar. The cards are rows in its panel,
+   parted by a line. */
+.note-notices-strip {
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+  background: var(--note-surface);
   color: var(--card-foreground);
-  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-  backdrop-filter: blur(12px);
+  box-shadow: 0 -2px 8px -2px rgb(0 0 0 / 0.1);
 }
 
 .note-notice-card {

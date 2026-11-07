@@ -14,7 +14,6 @@ import {
 } from "@/lib/sync/sync-port"
 import { relativeToVault } from "../editor/document-breadcrumbs-utils"
 import { NoticeLevelIcon, NoticeShell } from "../notices/notice-level"
-import { noticeFrameClass } from "../notices/notice-look"
 import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { OPEN_SETTINGS_REQUEST_EVENT } from "../settings-navigation"
 import { useDocStore } from "../use-doc-store"
@@ -54,7 +53,9 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
   const compareId = useSyncNoticesStore((state) => state.compareId)
   const openCompare = useSyncNoticesStore((state) => state.openCompare)
   const closeCompare = useSyncNoticesStore((state) => state.closeCompare)
-  const [listOpen, setListOpen] = React.useState(false)
+  const listOpen = useSyncNoticesStore((state) => state.conflictListOpen)
+  const closeList = useSyncNoticesStore((state) => state.closeConflictList)
+  const [anchor, setAnchor] = React.useState<React.CSSProperties | null>(null)
   const [notices, setNotices] = React.useState<Notice[]>([])
   const [resolving, setResolving] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -70,7 +71,13 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
     seen.current = null
     setLimitNotices([])
     setDismissedLimits([])
-    useSyncNoticesStore.setState({ conflicts: [], remoteDeleted: [], compareId: null })
+    useSyncNoticesStore.setState({
+      conflicts: [],
+      remoteDeleted: [],
+      compareId: null,
+      limits: [],
+      conflictListOpen: false,
+    })
     useNoteNoticesStore.setState({ restored: [] })
     let alive = true
     const unlisten: Array<() => void> = []
@@ -201,8 +208,33 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
   }, [notices])
 
   React.useEffect(() => {
-    if (conflicts.length === 0) setListOpen(false)
-  }, [conflicts.length])
+    if (conflicts.length === 0) closeList()
+  }, [conflicts.length, closeList])
+
+  const shownLimits = limitNotices.filter((notice) => !dismissedLimits.includes(notice.kind))
+  // The dock button counts the notices of the limits too: it reads them from the store.
+  const setLimits = useSyncNoticesStore((state) => state.setLimits)
+  const shownLimitKinds = shownLimits.map((notice) => notice.kind).join(",")
+  React.useEffect(() => {
+    setLimits(shownLimits)
+    // `shownLimits` is derived from the two states that `shownLimitKinds` summarises.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownLimitKinds, setLimits])
+
+  // The list opens beside the notices button of the dock; without a dock (a test, a narrow window) it
+  // keeps the old corner.
+  React.useEffect(() => {
+    if (!listOpen) return
+    const button = document.querySelector('[data-activity-button="notices"]')
+    const rect = button?.getBoundingClientRect()
+    if (!rect || (rect.width === 0 && rect.height === 0)) return setAnchor(null)
+    const bottom = window.innerHeight - rect.bottom
+    setAnchor(
+      rect.left > window.innerWidth / 2
+        ? { right: window.innerWidth - rect.left + 8, bottom }
+        : { left: rect.right + 8, bottom },
+    )
+  }, [listOpen])
 
   const resolve = (id: string, choice: ConflictChoice) => {
     if (resolving !== null) return
@@ -227,7 +259,6 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
     [port, t],
   )
 
-  const shownLimits = limitNotices.filter((notice) => !dismissedLimits.includes(notice.kind))
   const showList = () => {
     window.dispatchEvent(
       new CustomEvent(OPEN_SETTINGS_REQUEST_EVENT, { detail: { section: "sync" } }),
@@ -303,45 +334,30 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
             </button>
           </NoticeShell>
         ))}
-        {listOpen && conflicts.length > 0 && (
-          <div
-            data-testid="sync-conflict-popover"
-            className="pointer-events-auto max-h-[60vh] w-[min(28rem,calc(100vw-1rem))] space-y-2 overflow-auto rounded-lg border border-border bg-popover p-3 shadow-lg"
-          >
-            {error && (
-              <p role="alert" className="text-[12px] text-destructive">
-                {error}
-              </p>
-            )}
-            <ConflictList
-              items={conflicts}
-              busyId={resolving}
-              onResolve={resolve}
-              groups={groupActions}
-              onCompare={(id) => {
-                setListOpen(false)
-                openCompare(id)
-              }}
-            />
-          </div>
-        )}
-        {conflicts.length > 0 && (
-          <button
-            type="button"
-            data-testid="sync-conflict-badge"
-            aria-label={t("sync.notices.badgeLabel", { count: conflicts.length })}
-            title={t("sync.notices.badgeTitle")}
-            aria-expanded={listOpen}
-            onClick={() => setListOpen((open) => !open)}
-            // Conflicts wait for the person: a decision (docs/notices.md, 2.1).
-            data-level="decision"
-            className={`pointer-events-auto flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold text-foreground shadow-sm hover:brightness-95 ${noticeFrameClass("decision")}`}
-          >
-            <NoticeLevelIcon level="decision" className="size-3" />
-            <span>{conflicts.length}</span>
-          </button>
-        )}
       </div>
+      {listOpen && conflicts.length > 0 && (
+        <div
+          data-testid="sync-conflict-popover"
+          style={anchor ?? { right: 8, bottom: 36 }}
+          className="pointer-events-auto fixed z-50 max-h-[60vh] w-[min(28rem,calc(100vw-1rem))] space-y-2 overflow-auto rounded-lg border border-border bg-popover p-3 shadow-lg"
+        >
+          {error && (
+            <p role="alert" className="text-[12px] text-destructive">
+              {error}
+            </p>
+          )}
+          <ConflictList
+            items={conflicts}
+            busyId={resolving}
+            onResolve={resolve}
+            groups={groupActions}
+            onCompare={(id) => {
+              closeList()
+              openCompare(id)
+            }}
+          />
+        </div>
+      )}
       {comparing && vault && (
         <SyncCompareDialog port={port} conflict={comparing} onClose={closeCompare} />
       )}

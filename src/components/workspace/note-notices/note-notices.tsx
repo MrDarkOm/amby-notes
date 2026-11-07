@@ -1,6 +1,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { GitCompare, Lightbulb, X } from "lucide-react"
+import { ChevronDown, ChevronUp, GitCompare } from "lucide-react"
+import { motion, useReducedMotion } from "motion/react"
 
 import { Button } from "@/components/ui/button"
 import { errorType, logger } from "@/lib/logger"
@@ -10,7 +11,9 @@ import { restoreRemoteDeleted } from "../sync/restore-remote-deleted"
 import { conflictForPath, useSyncNoticesStore } from "../sync/use-sync-notices-store"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
-import { noticeBulbClass, noticeIsUrgent, strongestNoticeLevel } from "../notices/notice-look"
+import { NoticeLevelIcon } from "../notices/notice-level"
+import { mostSeriousNoticeLevel, noticeDotClass, noticeIsUrgent } from "../notices/notice-look"
+import { motionTransitions } from "@/lib/motion-config"
 import { Card, type Notice } from "./notice-card"
 import { usePropertyNotices } from "./property-notices"
 import { useNoteNoticesStore } from "./use-note-notices-store"
@@ -322,6 +325,7 @@ function NoteNoticesOf({
 
   notices.push(...propertyNotices)
 
+  const reducedMotion = useReducedMotion()
   const [open, setOpen] = React.useState(false)
   const seen = React.useRef<Set<string>>(new Set())
   const urgentKey = notices
@@ -335,35 +339,56 @@ function NoteNoticesOf({
   }, [urgentKey])
 
   if (notices.length === 0) return null
-  const bulbLevel = strongestNoticeLevel(notices.map((notice) => notice.card.props.level))
+  const topLevel = mostSeriousNoticeLevel(notices.map((notice) => notice.card.props.level))!
+  const top = notices.find((notice) => notice.card.props.level === topLevel)!
+  const more = notices.length - 1
+  const Chevron = open ? ChevronDown : ChevronUp
   return (
     <div
       data-testid="note-notices"
-      className="pointer-events-none absolute bottom-12 right-4 z-20 flex max-w-[calc(100%-2rem)] flex-col items-end gap-1"
+      className="pointer-events-none absolute bottom-9 right-6 z-[9] w-[min(24rem,calc(100%-3rem))]"
     >
-      {open && (
-        <div
-          data-testid="note-notices-stack"
-          className="note-notices-surface pointer-events-auto flex max-h-[60vh] w-[min(26rem,calc(100vw-2rem))] flex-col overflow-y-auto rounded-xl"
+      {/* The strip peeks out from behind the floating bar of the note: rounded at the top, its foot
+          (the padding) goes under the bar. Folded it is one line; open it grows upwards. */}
+      <div className="note-notices-strip pointer-events-auto overflow-hidden rounded-t-xl border border-b-0 pb-2">
+        {open && (
+          <motion.div
+            data-testid="note-notices-stack"
+            className="flex max-h-[min(55vh,24rem)] flex-col overflow-y-auto border-b border-border/60"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            transition={reducedMotion ? motionTransitions.instant : motionTransitions.panel}
+          >
+            {notices.map((notice) => notice.card)}
+          </motion.div>
+        )}
+        <button
+          type="button"
+          data-testid="note-notices-strip"
+          data-urgent={noticeIsUrgent(topLevel)}
+          data-level={topLevel}
+          aria-label={t("noteNotices.stripLabel", { count: notices.length })}
+          title={t(open ? "noteNotices.stripCollapse" : "noteNotices.stripExpand")}
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+          className="flex h-8 w-full items-center gap-2 px-3 text-left text-[12px] select-none hover:bg-accent/40"
         >
-          {notices.map((notice) => notice.card)}
-        </div>
-      )}
-      <button
-        type="button"
-        data-testid="note-notices-bulb"
-        data-urgent={bulbLevel !== null && noticeIsUrgent(bulbLevel)}
-        data-level={bulbLevel ?? undefined}
-        aria-label={t("noteNotices.bulbLabel", { count: notices.length })}
-        title={t("noteNotices.bulbTitle")}
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        className={`note-notices-bulb pointer-events-auto flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold select-none ${noticeBulbClass(bulbLevel)}`}
-      >
-        <Lightbulb className="size-3.5" aria-hidden="true" />
-        <span>{notices.length}</span>
-        {open && <X className="size-3" aria-hidden="true" />}
-      </button>
+          <NoticeLevelIcon level={topLevel} className="size-4 shrink-0" />
+          <span className="min-w-0 flex-1 truncate font-medium">{top.card.props.title}</span>
+          {more > 0 && (
+            <span className="shrink-0 text-[11px] text-muted-foreground">
+              {t("noteNotices.stripMore", { count: more })}
+            </span>
+          )}
+          <span
+            data-testid="note-notices-dot"
+            data-level={topLevel}
+            aria-hidden="true"
+            className={`size-2 shrink-0 rounded-full ${noticeDotClass(topLevel)}`}
+          />
+          <Chevron className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        </button>
+      </div>
     </div>
   )
 }

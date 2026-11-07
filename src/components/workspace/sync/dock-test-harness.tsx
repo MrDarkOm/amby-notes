@@ -21,7 +21,3 @@ export function NoticesDock() {
     />
   )
 }
-
-/** The notices button of the dock. */
-export const dockButton = () =>
-  document.querySelector<HTMLButtonElement>('[data-activity-button="notices"]')

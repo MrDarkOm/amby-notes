@@ -11,32 +11,37 @@ export type NoticeLevel = "danger" | "decision" | "warning" | "info" | "success"
  */
 export const NOTICE_LOOK: Record<
   NoticeLevel,
-  { Icon: React.ComponentType<{ className?: string }>; icon: string; frame: string }
+  { Icon: React.ComponentType<{ className?: string }>; icon: string; frame: string; dot: string }
 > = {
   danger: {
     Icon: OctagonAlert,
     icon: "text-[color:var(--notice-danger-fg)]",
     frame: "bg-[color:var(--notice-danger-bg)] border-[color:var(--notice-danger-border)]",
+    dot: "bg-[color:var(--notice-danger-fg)]",
   },
   decision: {
     Icon: TriangleAlert,
     icon: "text-[color:var(--notice-decision-fg)]",
     frame: "bg-[color:var(--notice-decision-bg)] border-[color:var(--notice-decision-border)]",
+    dot: "bg-[color:var(--notice-decision-fg)]",
   },
   warning: {
     Icon: CircleAlert,
     icon: "text-[color:var(--notice-warning-fg)]",
     frame: "bg-[color:var(--notice-warning-bg)] border-[color:var(--notice-warning-border)]",
+    dot: "bg-[color:var(--notice-warning-fg)]",
   },
   info: {
     Icon: Info,
     icon: "text-[color:var(--notice-info-fg)]",
     frame: "bg-[color:var(--notice-info-bg)] border-[color:var(--notice-info-border)]",
+    dot: "bg-[color:var(--notice-info-fg)]",
   },
   success: {
     Icon: CircleCheck,
     icon: "text-[color:var(--notice-success-fg)]",
     frame: "bg-[color:var(--notice-success-bg)] border-[color:var(--notice-success-border)]",
+    dot: "bg-[color:var(--notice-success-fg)]",
   },
 }
 
@@ -56,20 +61,20 @@ export function noticeIsUrgent(level: NoticeLevel): boolean {
   return level === "danger" || level === "decision"
 }
 
-/**
- * The level that colours the bulb of a note: the most serious one among `danger`, `decision` and
- * `warning`, or null (a neutral bulb) when the note has only information and good news.
- */
-export function strongestNoticeLevel(levels: readonly NoticeLevel[]): NoticeLevel | null {
-  for (const level of ["danger", "decision", "warning"] as const) {
-    if (levels.includes(level)) return level
-  }
-  return null
+const BY_SERIOUSNESS = ["danger", "decision", "warning", "info", "success"] as const
+
+/** The most serious of the levels, or null when there are none (docs/notices.md, section 2.1 order). */
+export function mostSeriousNoticeLevel(levels: readonly NoticeLevel[]): NoticeLevel | null {
+  return BY_SERIOUSNESS.find((level) => levels.includes(level)) ?? null
 }
 
-/** The classes of the bulb of a note: the colours of the strongest level, none while it is neutral. */
-export function noticeBulbClass(level: NoticeLevel | null): string {
-  if (level === null) return ""
+/** The classes of a small number badge of a level: its background, border and text colours. */
+export function noticeBadgeClass(level: NoticeLevel): string {
   const { icon, frame } = NOTICE_LOOK[level]
   return `${frame} ${icon}`
+}
+
+/** The classes of the small dot of a level (the colour of its text, as a fill). */
+export function noticeDotClass(level: NoticeLevel): string {
+  return NOTICE_LOOK[level].dot
 }
