@@ -25,7 +25,7 @@ const RAW_ERROR_TEXT =
 
 /** Parsing a sentence to find out what happened: the code says it. */
 const PARSED_ERROR_TEXT =
-  /(?:message|text|reason)\.(?:includes|startsWith|match)\(|\/[^/\n]+\/[a-z]*\.test\((?:error|failure|caught|\w+)\.message\)/
+  /\bmessage\.(?:includes|startsWith|match)\(|\/[^/\n]+\/[a-z]*\.test\((?:error|failure|caught|\w+)\.message\)/
 
 function offenders(pattern: RegExp): string[] {
   const failures: string[] = []

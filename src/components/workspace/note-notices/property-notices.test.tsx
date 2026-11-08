@@ -29,6 +29,7 @@ vi.mock("@/lib/storage", async (importOriginal) => ({
 import { useDocStore } from "../use-doc-store"
 
 import { NoteNotices } from "./note-notices"
+import { desktopOperationError } from "@/lib/storage/operation-error"
 
 const panel = (overrides: Partial<PropertyPanel> = {}): PropertyPanel => ({
   unreadable: false,
@@ -230,7 +231,7 @@ describe("the notices of the properties", () => {
       migrationId: "M",
       diverged: [{ noteId: "N7", name: "Статус", fileValue: "Идея", headerValue: "Готово" }],
     })
-    port.takePropertyFileValue.mockRejectedValue(new Error("No such property: Статус"))
+    port.takePropertyFileValue.mockRejectedValue(desktopOperationError("No such property: Статус"))
     mount()
     await open()
     fireEvent.click(within(screen.getByTestId("note-notices-stack")).getByText("Отчёт"))

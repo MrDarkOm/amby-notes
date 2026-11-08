@@ -37,7 +37,7 @@ import { ProgressWidget, type CompileState } from "./desk/progress-widget"
 import { useElementWidth } from "./desk/use-element-width"
 import { NotesBoard } from "./pages/notes-board"
 import { SectionGallery } from "./pages/section-gallery"
-import { projectErrorText } from "@/lib/project-errors"
+import { ShownError, projectErrorText, reportOperationError } from "@/lib/operation-errors"
 import { useProjectStore } from "./project-store"
 import { useTextStats } from "./use-text-stats"
 import { orderStoryAnchors, readBindings, type PageBinding } from "./workshop/plot-model"
@@ -300,11 +300,11 @@ export function ProjectDesk({
   const [moveError, setMoveError] = React.useState<string | null>(null)
   const createPage = async (parent: TextNode | null, title: string) => {
     if (!resolvedStory || !text?.databaseId || vaultGeneration === null) {
-      throw new Error(t("creative.workshop.noText"))
+      throw new ShownError(t("creative.workshop.noText"))
     }
     const parentNode = parent ? findNode(roots, parent.noteId) : null
     const levelId = startLevelId(text.levels, parentNode)
-    if (!levelId) throw new Error(t("creative.workshop.noLevels"))
+    if (!levelId) throw new ShownError(t("creative.workshop.noLevels"))
     const formats = text.formats.filter((format) => format.state === "ok")
     const format = formats.find((entry) => entry.kind === "manuscript") ?? formats[0]
     const created = await createTextPage({
@@ -384,9 +384,7 @@ export function ProjectDesk({
       const message =
         error instanceof ManuscriptReadError
           ? t("creative.page.desk.readFailed", { title: error.pageTitle })
-          : error instanceof Error
-            ? error.message
-            : String(error)
+          : reportOperationError(error)
       setCompile({ status: "failed", message })
     }
   }

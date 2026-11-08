@@ -25,13 +25,13 @@ import { StoryTimeline } from "./pages/story-timeline"
 import { StoriesViewSwitch } from "./pages/stories-view-switch"
 import { useStoryEntries } from "./pages/use-story-entries"
 import type { StoriesStats } from "./pages/use-stories-stats"
-import { projectErrorText } from "@/lib/project-errors"
 import { ScopedSection } from "./scoped-section"
 import { useTextStats } from "./use-text-stats"
 import { QuickCreate } from "./workshop/quick-create"
 import type { ScopeData } from "./workshop/use-scope-data"
 import { useViewManualOrder } from "./workshop/use-view-order"
 import type { PanelFilter } from "./workshop/workshop-model"
+import { projectErrorText } from "@/lib/operation-errors"
 
 /** The scopes with a desk of their own: a universe, or the stories that no universe holds. */
 export type DeskScope = Extract<PanelFilter, { kind: "universe" | "standalone" }>

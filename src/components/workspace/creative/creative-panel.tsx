@@ -19,7 +19,6 @@ import { CreateSectionDialog } from "./create-section-dialog"
 import { useCreativeNavStore } from "./creative-nav-store"
 import { useCreativeSettingsStore } from "./creative-settings-store"
 import { readWorkshopPrefs, writeWorkshopPrefs, type WorkshopPrefs } from "./creative-scope-storage"
-import { projectErrorText } from "@/lib/project-errors"
 import { useProjectStore } from "./project-store"
 import { universeTargetId } from "./project-tree-model"
 import { sectionRoleIcon } from "./section-icons"
@@ -32,6 +31,7 @@ import { entityTabs, storySection, worksSectionsFromPrefs } from "./workshop/wor
 import { usePlotEnsurer } from "./workshop/use-ensure-plot"
 import { useUniverses } from "./workshop/use-universes"
 import { WorkshopPane } from "./workshop/workshop-pane"
+import { projectErrorText } from "@/lib/operation-errors"
 
 /** What the card of the universes stores for the stories that no universe holds. */
 const STANDALONE = "standalone"

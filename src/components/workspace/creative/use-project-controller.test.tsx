@@ -14,7 +14,10 @@ const storage = vi.hoisted(() => ({
 const events = vi.hoisted(() => ({
   handler: null as null | ((event: { payload: unknown }) => void),
 }))
-vi.mock("@/lib/storage", () => storage)
+vi.mock("@/lib/storage", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/storage")>()),
+  ...storage,
+}))
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(async (_name: string, handler: (event: { payload: unknown }) => void) => {
     events.handler = handler
@@ -111,7 +114,8 @@ describe("useProjectController", () => {
     await act(async () => {
       await useProjectStore.getState().refresh?.(true)
     })
-    expect(useProjectStore.getState().error).toBe("index busy")
+    expect(useProjectStore.getState().error).toContain("unknown")
+    expect(useProjectStore.getState().error).not.toContain("index busy")
     expect(useProjectStore.getState().catalog?.workshops).toHaveLength(1)
   })
 

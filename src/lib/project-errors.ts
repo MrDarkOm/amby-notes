@@ -49,12 +49,8 @@ export function projectErrorCode(error: ProjectOperationError): string {
  * A message for the user; the Rust payload picks the kind, the interface words it. What the
  * backend wrote in `message` is for the logs and is never shown (docs/notices.md §10).
  */
-export function projectErrorText(t: TFunction, error: unknown): string {
-  if (!(error instanceof ProjectOperationError) || !error.error) {
-    return t("creative.errors.generic", {
-      code: error instanceof ProjectOperationError ? projectErrorCode(error) : "unknown",
-    })
-  }
+export function projectFailureText(t: TFunction, error: ProjectOperationError): string {
+  if (!error.error) return t("creative.errors.generic", { code: projectErrorCode(error) })
   const payload = error.error
   switch (payload.kind) {
     case "invalidName": {

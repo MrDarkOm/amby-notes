@@ -2,6 +2,7 @@ import * as React from "react"
 import { resolveRecordReferences, type RecordReference } from "@/lib/storage"
 import { createBatchResolver, type BatchResolver } from "./batch-resolver"
 import { useDatabaseStore } from "./database-store"
+import { reportOperationError } from "@/lib/operation-errors"
 
 export type ReferenceView =
   | { status: "loading" }
@@ -72,7 +73,7 @@ export function useRecordReferences(noteIds: string[]): Record<string, Reference
         },
         (error) => {
           if (cancelled) return
-          const message = error instanceof Error ? error.message : String(error)
+          const message = reportOperationError(error)
           setViews((current) => ({ ...current, [id]: { status: "error", message } }))
         },
       )

@@ -23,6 +23,7 @@ import { useDatabaseStore } from "./database-store"
 import { placeNewRecordInLane } from "./new-record-lane"
 
 import { createRelationTargetRow } from "./use-property-mutation"
+import { ShownError, operationErrorText, reportOperationError } from "@/lib/operation-errors"
 
 interface UseDatabaseRowActionsParams {
   databaseId: string
@@ -127,16 +128,12 @@ export function useDatabaseRowActions({
       )
       const notices = [...created.warnings]
       if (refreshFailure) {
-        notices.push(
-          refreshFailure.reason instanceof Error
-            ? refreshFailure.reason.message
-            : String(refreshFailure.reason),
-        )
+        notices.push(operationErrorText(refreshFailure.reason))
       }
       setMutationError(notices.length ? notices.join("; ") : null)
     } catch (error) {
       logger.error("database.create_row_failed", { databaseId, title: rowTitle.trim(), error })
-      setMutationError(error instanceof Error ? error.message : String(error))
+      setMutationError(operationErrorText(error))
     } finally {
       setMutationBusy(false)
     }
@@ -175,7 +172,7 @@ export function useDatabaseRowActions({
           title: rowTitleText.trim(),
           error,
         })
-        setMutationError(error instanceof Error ? error.message : String(error))
+        setMutationError(operationErrorText(error))
       } finally {
         setMutationBusy(false)
       }
@@ -205,7 +202,7 @@ export function useDatabaseRowActions({
         setYamlSyncState({
           rowId: row.noteId,
           busy: false,
-          error: error instanceof Error ? error.message : String(error),
+          error: reportOperationError(error),
           result: null,
         })
       }
@@ -244,7 +241,7 @@ export function useDatabaseRowActions({
         setYamlSyncState({
           rowId: row.noteId,
           busy: false,
-          error: error instanceof Error ? error.message : String(error),
+          error: reportOperationError(error),
           result: null,
         })
       }
@@ -262,7 +259,7 @@ export function useDatabaseRowActions({
         !groupProperty ||
         (groupProperty.propertyType !== "select" && groupProperty.propertyType !== "status")
       ) {
-        throw new Error(t("databaseBoard.unsupportedValue"))
+        throw new ShownError(t("databaseBoard.unsupportedValue"))
       }
       // A card without a value (the "No value" lane) has no stored value to copy.
       const typed = { type: groupProperty.propertyType }

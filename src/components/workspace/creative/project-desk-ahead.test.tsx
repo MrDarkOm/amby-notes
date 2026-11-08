@@ -11,6 +11,7 @@ import {
   workshopSummary,
 } from "./project-fixtures.test-support"
 import { ProjectDesk } from "./project-desk"
+import { databaseFailure, projectFailure } from "@/lib/test-utils/errors"
 
 const queryDatabase = vi.fn()
 const createWorkshopEntity = vi.fn()
@@ -213,7 +214,9 @@ describe('the anchors of a story on its desk: marks on the pages and the strip "
   })
 
   it("says why a binding failed", async () => {
-    updateDatabaseRelationValue.mockRejectedValue(new Error("страница изменилась"))
+    updateDatabaseRelationValue.mockRejectedValue(
+      databaseFailure("revision_conflict", "страница изменилась"),
+    )
     mount()
     const region = await strip()
     const data = dragData()
@@ -222,7 +225,9 @@ describe('the anchors of a story on its desk: marks on the pages and the strip "
     const row = pageRow(region, "Глава первая")
     fireEvent.dragOver(row, { dataTransfer: data })
     fireEvent.drop(row, { dataTransfer: data })
-    expect((await within(region).findByRole("alert")).textContent).toContain("страница изменилась")
+    expect((await within(region).findByRole("alert")).textContent).toContain(
+      "изменилась в другом месте",
+    )
   })
 
   it("offers making an anchor of this story, and says why it failed", async () => {
@@ -246,14 +251,14 @@ describe('the anchors of a story on its desk: marks on the pages and the strip "
 
   it("shows why an anchor could not be made", async () => {
     ROWS.db_anch = []
-    createWorkshopEntity.mockRejectedValue(new Error("нет места"))
+    createWorkshopEntity.mockRejectedValue(projectFailure("createPageFailed", "нет места"))
     mount()
     const region = await strip()
     fireEvent.click(within(region).getByRole("button", { name: "Добавить якорь" }))
     const field = within(region).getByLabelText("Название якоря")
     fireEvent.change(field, { target: { value: "Первый" } })
     fireEvent.submit(field.closest("form") as HTMLFormElement)
-    expect((await within(region).findByRole("alert")).textContent).toContain("нет места")
+    expect((await within(region).findByRole("alert")).textContent).toContain("createPageFailed")
   })
 
   it("has no strip in a workshop without an anchors base", async () => {

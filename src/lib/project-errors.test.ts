@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import i18n from "@/lib/i18n"
 import { ProjectOperationError } from "@/lib/storage"
 import type { ProjectError } from "@/lib/bindings"
-import { projectErrorText } from "./project-errors"
+import { projectErrorText } from "./operation-errors"
 
 const t = i18n.t.bind(i18n)
 

@@ -1,6 +1,7 @@
 import * as React from "react"
 import { searchRelationCandidates, type RelationCandidate } from "@/lib/storage"
 import { useDatabaseStore } from "./database-store"
+import { reportOperationError } from "@/lib/operation-errors"
 
 const PAGE_SIZE = 50
 const SEARCH_DELAY_MS = 200
@@ -74,7 +75,7 @@ export function useRelationCandidates({
             setState((current) => ({
               ...current,
               status: "error",
-              error: error instanceof Error ? error.message : String(error),
+              error: reportOperationError(error),
             }))
           },
         )
@@ -117,7 +118,7 @@ export function useRelationCandidates({
         setState((previous) => ({
           ...previous,
           status: "error",
-          error: error instanceof Error ? error.message : String(error),
+          error: reportOperationError(error),
         }))
       },
     )

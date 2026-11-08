@@ -31,6 +31,7 @@ import { ReorderableRow } from "./reorderable-row"
 import { RollupSettings } from "./rollup-settings"
 import type { RollupDraft } from "./rollup-model"
 import { DATE_FORMAT_IDS, dateDisplayOf, formatDateValue } from "./value-format"
+import { reportOperationError, ShownError } from "@/lib/operation-errors"
 
 /** What a settings change sets; the rest of the request is the property's identity. */
 export type PropertyConfigPatch = Omit<
@@ -143,14 +144,14 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
     if (found) {
       const message = t(`databaseOptions.${found.problem}`)
       setProblem(message)
-      throw new Error(message)
+      throw new ShownError(message)
     }
     setProblem(null)
     setBusy(true)
     try {
       await onSave(next)
     } catch (failure) {
-      setProblem(failure instanceof Error ? failure.message : String(failure))
+      setProblem(reportOperationError(failure))
       setOrder(drafts)
       throw failure
     } finally {
@@ -450,7 +451,7 @@ export function PropertyConfigEditor({
     try {
       await change()
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      setError(reportOperationError(failure))
     } finally {
       setBusy(false)
     }

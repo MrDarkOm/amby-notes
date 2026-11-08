@@ -26,6 +26,7 @@ import {
 import type { NotebookActions } from "./use-notebook-actions"
 import { treeIndent } from "./tree-indent"
 import type { StoryLabels, WorkshopDraft } from "./workshop-model"
+import { reportOperationError } from "@/lib/operation-errors"
 
 interface NotesPartProps {
   /** The notebooks and notes the filter lets through; every notebook is in it, empty or not. */
@@ -191,7 +192,7 @@ export function NotesPart({
             onCommit={(name) => {
               setRenaming(null)
               void actions.renameNotebook(node, name).catch((caught: unknown) => {
-                actions.report(caught instanceof Error ? caught.message : String(caught))
+                actions.report(reportOperationError(caught))
               })
             }}
             onCancel={() => setRenaming(null)}
@@ -289,7 +290,7 @@ export function NotesPart({
                   className="gap-2 text-[13px] text-destructive focus:text-destructive"
                   onSelect={() =>
                     void actions.deleteNotebook(node).catch((caught: unknown) => {
-                      actions.report(caught instanceof Error ? caught.message : String(caught))
+                      actions.report(reportOperationError(caught))
                     })
                   }
                 >

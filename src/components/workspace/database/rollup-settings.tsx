@@ -14,6 +14,7 @@ import {
   targetPropertiesFor,
   type RollupDraft,
 } from "./rollup-model"
+import { reportOperationError } from "@/lib/operation-errors"
 
 interface RollupSettingsProps {
   property: DatabasePropertySummary
@@ -66,7 +67,7 @@ export function RollupSettings({
     try {
       await onSave(property, next)
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      setError(reportOperationError(failure))
       setDraft(saved)
     } finally {
       setBusy(false)

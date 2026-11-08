@@ -21,7 +21,6 @@ import type { DatabaseRow, TextLevelSummary, TextPageStat } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { IconValue } from "../../icon-value"
 import { useCreativeNavStore } from "../creative-nav-store"
-import { projectErrorText } from "@/lib/project-errors"
 import { PageMarksView } from "../workshop/page-marks"
 import {
   PLOT_DRAG_TYPE,
@@ -44,6 +43,7 @@ import {
   type TextNode,
 } from "../workshop/text-tree-model"
 import type { PlotBinding } from "../workshop/use-plot-binding"
+import { projectErrorText } from "@/lib/operation-errors"
 
 const MOVE_ITEMS: Array<{ key: ArrangeKey; icon: LucideIcon }> = [
   { key: "up", icon: ArrowUp },
@@ -369,7 +369,7 @@ export function ChaptersWidget({
           )}
           {binding?.error && (
             <p role="alert" className="break-words text-xs text-destructive">
-              {binding.error.message}
+              {binding.error.text}
             </p>
           )}
         </div>

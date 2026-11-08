@@ -6,6 +6,8 @@ import "@/lib/i18n"
 import type { DatabasePropertySummary } from "@/lib/storage"
 import { PropertyConfigEditor } from "./property-config-editor"
 import { hasPropertySettings } from "./property-settings"
+import { ShownError } from "@/lib/operation-errors"
+import i18n from "@/lib/i18n"
 
 const property = (
   propertyType: string,
@@ -126,13 +128,11 @@ describe("PropertyConfigEditor", () => {
   it("shows why a change was refused", async () => {
     editor(property("date", { includeTime: false }), {
       onUpdateConfig: async () => {
-        throw new Error(
-          "Date time and range settings can only change after the existing values are cleared",
-        )
+        throw new ShownError(i18n.t("databaseErrors.dateValues"))
       },
     })
     fireEvent.click(screen.getByRole("switch", { name: "Хранить время" }))
-    expect((await screen.findByRole("alert")).textContent).toContain("existing values are cleared")
+    expect((await screen.findByRole("alert")).textContent).toContain("Хранение времени")
   })
 
   it("edits a formula and does not save it unchanged", async () => {

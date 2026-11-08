@@ -6,6 +6,7 @@ import {
   type DatabasePropertySummary,
 } from "@/lib/storage"
 import { logger } from "@/lib/logger"
+import { reportOperationError } from "@/lib/operation-errors"
 
 /**
  * One write path for a property value, shared by the table, the info panel and
@@ -162,7 +163,7 @@ export function usePropertyMutation({
           revisionOverrides.delete(queueKey)
           setCellErrors((current) => ({
             ...current,
-            [key]: error instanceof Error ? error.message : String(error),
+            [key]: reportOperationError(error),
           }))
           await onSettledRef.current?.({ ok: false })
         })

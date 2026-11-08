@@ -4,6 +4,7 @@ import * as React from "react"
 import { renameDatabase } from "@/lib/storage"
 
 import { normalizeDatabaseIcon } from "./database-icon"
+import { operationErrorText, reportOperationError } from "@/lib/operation-errors"
 
 interface UseDatabaseTitleParams {
   title: string
@@ -59,15 +60,11 @@ export function useDatabaseTitle({
         )
         const notices = [...renamed.warnings]
         if (refreshFailure) {
-          notices.push(
-            refreshFailure.reason instanceof Error
-              ? refreshFailure.reason.message
-              : String(refreshFailure.reason),
-          )
+          notices.push(operationErrorText(refreshFailure.reason))
         }
         setMutationError(notices.length ? notices.join("; ") : null)
       } catch (error) {
-        setMutationError(error instanceof Error ? error.message : String(error))
+        setMutationError(reportOperationError(error))
         setDatabaseTitle(title)
       }
     },

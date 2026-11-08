@@ -6,11 +6,12 @@ import {
   useDatabaseStore,
   type DatabaseHostKind,
 } from "./database-store"
+import { reportOperationError } from "@/lib/operation-errors"
 
 const DEFAULT_PAGE_SIZE = 100
 
 function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  return reportOperationError(error)
 }
 
 function isStaleCursor(error: unknown): boolean {

@@ -19,9 +19,20 @@ import {
   KNOWN_DATABASE_FAILURE_REASONS,
   type SchemaChange,
 } from "./database-errors"
-import { projectErrorCode, projectErrorText } from "./project-errors"
+import { projectErrorCode, projectFailureText } from "./project-errors"
 
 export { KNOWN_DATABASE_FAILURE_REASONS }
+
+/**
+ * A failure whose message is already the text for the person (taken from the dictionary where it
+ * was found), carried through code that shows it later. Never build it from a backend sentence.
+ */
+export class ShownError extends Error {
+  constructor(text: string) {
+    super(text)
+    this.name = "ShownError"
+  }
+}
 
 export interface OperationErrorOptions {
   /** What was being changed; only a refusal because values exist is worded by it. */
@@ -30,6 +41,7 @@ export interface OperationErrorOptions {
 
 /** The stable code of an error: the reason, the kind or the storage code; `unknown` for the rest. */
 export function operationErrorCode(error: unknown): string {
+  if (error instanceof ShownError) return "shown"
   if (error instanceof DatabaseOperationError) return databaseErrorCode(error)
   if (error instanceof ProjectOperationError) return projectErrorCode(error)
   if (error instanceof NoteRevisionConflictError || error instanceof FileRevisionConflictError) {
@@ -45,10 +57,11 @@ export function operationErrorText(
   t: TFunction = i18n.t.bind(i18n),
   options: OperationErrorOptions = {},
 ): string {
+  if (error instanceof ShownError) return error.message
   if (error instanceof DatabaseOperationError) {
     return databaseFailureText(error, t, options.change)
   }
-  if (error instanceof ProjectOperationError) return projectErrorText(t, error)
+  if (error instanceof ProjectOperationError) return projectFailureText(t, error)
   if (error instanceof NoteRevisionConflictError || error instanceof FileRevisionConflictError) {
     return t("operationErrors.revision_conflict")
   }
@@ -65,4 +78,27 @@ export function operationErrorText(
 export function reportOperationError(error: unknown, options: OperationErrorOptions = {}): string {
   logger.warn("operation.failed", { failureCode: operationErrorCode(error), error })
   return operationErrorText(error, undefined, options)
+}
+
+/** The thing the action was about is gone (renamed, deleted, moved) — by reason or by storage code. */
+export function isNotFoundError(error: unknown): boolean {
+  if (error instanceof DatabaseOperationError) return error.reason === "not_found"
+  if (error instanceof ProjectOperationError) {
+    return ["workshopNotFound", "storyNotFound", "sectionNotFound", "pageNotFound"].includes(
+      error.kind,
+    )
+  }
+  return error instanceof StorageOperationError && error.code === "notFound"
+}
+
+/** Another window or computer changed the file first, by reason or by the revision errors. */
+export function isRevisionConflict(error: unknown): boolean {
+  if (error instanceof DatabaseOperationError) return error.reason === "revision_conflict"
+  if (error instanceof ProjectOperationError) return error.kind === "revisionConflict"
+  return error instanceof NoteRevisionConflictError || error instanceof FileRevisionConflictError
+}
+
+/** The text of any failure of a workshop operation (`t` first, as the workshop code calls it). */
+export function projectErrorText(t: TFunction, error: unknown): string {
+  return operationErrorText(error, t)
 }

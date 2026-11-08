@@ -32,6 +32,7 @@ import {
   type OptionDraft,
 } from "./option-model"
 import { createDatabaseOperationId } from "./use-property-mutation"
+import { ShownError, operationErrorText, reportOperationError } from "@/lib/operation-errors"
 
 function relationTargetFromConfig(configJson: string, reciprocalOnly = false): string | undefined {
   try {
@@ -63,7 +64,7 @@ async function expectedRelatedManifestRevisions(
   const summaries = await listDatabases()
   return relatedIds.flatMap((databaseId) => {
     const summary = summaries.find((candidate) => candidate.databaseId === databaseId)
-    if (!summary?.manifestRevision) throw new Error(unavailableMessage)
+    if (!summary?.manifestRevision) throw new ShownError(unavailableMessage)
     return [{ databaseId, revision: summary.manifestRevision }]
   })
 }
@@ -183,11 +184,7 @@ export function useDatabasePropertyActions({
       )
       const notices = [...created.warnings]
       if (refreshFailure) {
-        notices.push(
-          refreshFailure.reason instanceof Error
-            ? refreshFailure.reason.message
-            : String(refreshFailure.reason),
-        )
+        notices.push(operationErrorText(refreshFailure.reason))
       }
       setMutationError(notices.length ? notices.join("; ") : null)
     } catch (error) {
@@ -197,7 +194,7 @@ export function useDatabasePropertyActions({
         propertyType,
         error,
       })
-      setMutationError(error instanceof Error ? error.message : String(error))
+      setMutationError(operationErrorText(error))
     } finally {
       setMutationBusy(false)
     }
@@ -245,16 +242,12 @@ export function useDatabasePropertyActions({
         )
         const notices = [...deleted.warnings]
         if (refreshFailure) {
-          notices.push(
-            refreshFailure.reason instanceof Error
-              ? refreshFailure.reason.message
-              : String(refreshFailure.reason),
-          )
+          notices.push(operationErrorText(refreshFailure.reason))
         }
         setMutationError(notices.length ? notices.join("; ") : null)
       } catch (error) {
         logger.error("database.delete_property_failed", { databaseId, propertyId, error })
-        setMutationError(error instanceof Error ? error.message : String(error))
+        setMutationError(operationErrorText(error))
       } finally {
         setMutationBusy(false)
       }
@@ -305,11 +298,7 @@ export function useDatabasePropertyActions({
         )
         const notices = [...renamed.warnings]
         if (refreshFailure) {
-          notices.push(
-            refreshFailure.reason instanceof Error
-              ? refreshFailure.reason.message
-              : String(refreshFailure.reason),
-          )
+          notices.push(operationErrorText(refreshFailure.reason))
         }
         setMutationError(notices.length ? notices.join("; ") : null)
       } catch (error) {
@@ -319,7 +308,7 @@ export function useDatabasePropertyActions({
           newName: name,
           error,
         })
-        setMutationError(error instanceof Error ? error.message : String(error))
+        setMutationError(operationErrorText(error))
       }
     },
     [
@@ -357,11 +346,7 @@ export function useDatabasePropertyActions({
       )
       const notices = [...warnings]
       if (refreshFailure) {
-        notices.push(
-          refreshFailure.reason instanceof Error
-            ? refreshFailure.reason.message
-            : String(refreshFailure.reason),
-        )
+        notices.push(operationErrorText(refreshFailure.reason))
       }
       setMutationError(notices.length ? notices.join("; ") : null)
     },
@@ -376,7 +361,7 @@ export function useDatabasePropertyActions({
         )
         const revision = manifestRevisionRef.current
         if (vaultGeneration === null || !revision || isDatabaseLocked || !property) {
-          throw new Error(t("databaseOptions.unavailable"))
+          throw new ShownError(t("databaseOptions.unavailable"))
         }
         try {
           const updated = await updateDatabasePropertyOptions({
@@ -415,7 +400,7 @@ export function useDatabasePropertyActions({
       enqueueSchema(async () => {
         const revision = manifestRevisionRef.current
         if (vaultGeneration === null || !revision || isDatabaseLocked) {
-          throw new Error(t("databaseOptions.unavailable"))
+          throw new ShownError(t("databaseOptions.unavailable"))
         }
         try {
           const updated = await updateDatabasePropertyConfig({
@@ -437,7 +422,7 @@ export function useDatabasePropertyActions({
           throw error
         }
       }).catch((error) => {
-        throw new Error(databaseErrorText(error, t, "date"))
+        throw new ShownError(databaseErrorText(error, t, "date"))
       }),
     [databaseId, enqueueSchema, isDatabaseLocked, refreshAfterSchemaEdit, t, vaultGeneration],
   )
@@ -473,7 +458,7 @@ export function useDatabasePropertyActions({
           ])
           return saved[saved.length - 1]?.id ?? null
         } catch (error) {
-          setMutationError(error instanceof Error ? error.message : String(error))
+          setMutationError(reportOperationError(error))
           return null
         }
       },
@@ -492,7 +477,7 @@ export function useDatabasePropertyActions({
             drafts.map((draft) => (draft.id === optionId ? { ...draft, color: hex } : draft)),
           )
         } catch (error) {
-          setMutationError(error instanceof Error ? error.message : String(error))
+          setMutationError(reportOperationError(error))
         }
       },
     }
@@ -553,11 +538,7 @@ export function useDatabasePropertyActions({
         )
         const notices = [...changed.warnings]
         if (refreshFailure) {
-          notices.push(
-            refreshFailure.reason instanceof Error
-              ? refreshFailure.reason.message
-              : String(refreshFailure.reason),
-          )
+          notices.push(operationErrorText(refreshFailure.reason))
         }
         setMutationError(notices.length ? notices.join("; ") : null)
       } catch (error) {
@@ -597,7 +578,7 @@ export function useDatabasePropertyActions({
       enqueueSchema(async () => {
         const revision = manifestRevisionRef.current
         if (vaultGeneration === null || !revision || isDatabaseLocked) {
-          throw new Error(t("databaseOptions.unavailable"))
+          throw new ShownError(t("databaseOptions.unavailable"))
         }
         const operationId = createDatabaseOperationId(
           "schema",
@@ -627,7 +608,7 @@ export function useDatabasePropertyActions({
         manifestRevisionRef.current = changed.manifestRevision
         await refreshAfterSchemaEdit(changed.warnings)
       }).catch((error) => {
-        throw new Error(databaseErrorText(error, t, "relation"))
+        throw new ShownError(databaseErrorText(error, t, "relation"))
       }),
     [databaseId, enqueueSchema, isDatabaseLocked, refreshAfterSchemaEdit, t, vaultGeneration],
   )
@@ -636,7 +617,7 @@ export function useDatabasePropertyActions({
       enqueueSchema(async () => {
         const revision = manifestRevisionRef.current
         if (vaultGeneration === null || !revision || isDatabaseLocked) {
-          throw new Error(t("databaseOptions.unavailable"))
+          throw new ShownError(t("databaseOptions.unavailable"))
         }
         const configured = await configureDatabaseRollup({
           expectedGeneration: vaultGeneration,

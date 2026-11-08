@@ -20,6 +20,7 @@ import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import { Card, type Notice } from "./notice-card"
 import { goneKey, usePropertyMigrationStore } from "./use-property-migration-store"
+import { isNotFoundError, operationErrorCode } from "@/lib/operation-errors"
 
 /**
  * The warnings of the properties of a note as cards of its stack (docs/sync-plan.md, К3, appendix
@@ -116,7 +117,7 @@ export function usePropertyNotices(noteId: string): Notice[] {
       // The person gets a sentence; the words of the backend go to the log.
       logger.error("property.notice_action_failed", {
         errorType: errorType(caught),
-        message: caught instanceof Error ? caught.message : String(caught),
+        failureCode: operationErrorCode(caught),
       })
       setError(t("noteNotices.properties.failedShort"))
     } finally {
@@ -132,10 +133,12 @@ export function usePropertyNotices(noteId: string): Notice[] {
       usePropertyMigrationStore.getState().settle(noteId, fileName)
       setError(null)
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : String(caught)
-      logger.error("property.take_file_value_failed", { errorType: errorType(caught), message })
+      logger.error("property.take_file_value_failed", {
+        errorType: errorType(caught),
+        failureCode: operationErrorCode(caught),
+      })
       // The property was renamed away or deleted since: the card says so and offers nothing.
-      if (/No such property/iu.test(message)) {
+      if (isNotFoundError(caught)) {
         usePropertyMigrationStore.getState().markGone(noteId, fileName)
       } else {
         setError(t("noteNotices.properties.failedShort"))

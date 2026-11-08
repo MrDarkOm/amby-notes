@@ -8,9 +8,9 @@ import {
   type CreatedWorkshop,
   type WorkshopSummary,
 } from "@/lib/storage"
-import { projectErrorText } from "@/lib/project-errors"
 import { projectLabels } from "./project-labels"
 import { useOperationId } from "./use-operation-id"
+import { projectErrorText } from "@/lib/operation-errors"
 
 interface WorkshopInitScreenProps {
   /** The vault-relative folder the workshop will be made in (the setting, or the default). */

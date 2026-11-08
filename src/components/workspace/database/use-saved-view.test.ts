@@ -200,7 +200,7 @@ describe("useSavedView", () => {
     act(() => result.current.update({ wrapped: ["a"] }))
     await act(() => vi.advanceTimersByTimeAsync(500))
     await waitFor(() => expect(result.current.error).not.toBeNull())
-    expect(result.current.error).toMatch(/заблокирован/i)
+    expect(result.current.error).toMatch(/закрыта от изменений/i)
     expect(result.current.error).not.toContain("/Users")
     expect(result.current.error).not.toContain("is locked")
   })
