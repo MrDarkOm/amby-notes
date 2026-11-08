@@ -337,11 +337,9 @@ describe("useMarkdownAutosave", () => {
       useNoticeToastStore.setState(useNoticeToastStore.getInitialState())
     })
 
-    it("does not open a window of the system: it is a record of danger in the centre and a toast", async () => {
-      const dialog = vi.spyOn(storage, "showErrorMessage").mockResolvedValue(undefined)
+    it("does not open a window: it is a record of danger in the centre and a toast", async () => {
       const { result } = mountAutosave()
       await failWhileClosed(result)
-      expect(dialog).not.toHaveBeenCalled()
       expect(useNoteNoticesStore.getState().closedSaveFailed).toEqual({
         "note-1": { name: "идея", path: "Заметки/идея.md" },
       })
@@ -387,7 +385,6 @@ describe("useMarkdownAutosave", () => {
     })
 
     it("leaves a note that is still open to its own card and does not add a record", async () => {
-      const dialog = vi.spyOn(storage, "showErrorMessage").mockResolvedValue(undefined)
       const { result } = mountAutosave()
       vi.spyOn(storage, "writeNote").mockRejectedValue(new Error("disk full"))
       act(() => result.current.handleContentChange(closedDoc.id, "new text"))
@@ -399,7 +396,6 @@ describe("useMarkdownAutosave", () => {
       expect(useNoteNoticesStore.getState().saveFailed[closedDoc.id]).toBe(true)
       expect(useNoteNoticesStore.getState().closedSaveFailed).toEqual({})
       expect(useNoticeToastStore.getState().toasts).toEqual([])
-      expect(dialog).not.toHaveBeenCalled()
       result.current.autosave.cancelGeneration(1)
     })
   })

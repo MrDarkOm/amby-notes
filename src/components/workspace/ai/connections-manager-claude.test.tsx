@@ -16,10 +16,10 @@ vi.mock("@/lib/ai", async (original) => ({
   aiModelCatalog: vi.fn(),
 }))
 const open = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/confirm", () => ({ confirm: vi.fn().mockResolvedValue(true) }))
 vi.mock("@/lib/storage", async (original) => ({
   ...(await original<typeof import("@/lib/storage")>()),
   openWebAddress: open,
-  confirmAction: vi.fn().mockResolvedValue(true),
   deleteUnreferencedAiCredential: vi.fn().mockResolvedValue(undefined),
   storeAiCredential: vi.fn().mockResolvedValue(undefined),
 }))

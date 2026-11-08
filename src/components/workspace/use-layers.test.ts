@@ -4,10 +4,13 @@ import { act, cleanup, renderHook } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { loadNoteLayerContent, useLayers } from "./use-layers"
 import * as storage from "@/lib/storage"
+import { confirm } from "@/lib/confirm"
 import { useViewStateStore } from "./use-view-state-store"
 import { useDocStore } from "./use-doc-store"
 import type { Document } from "./use-doc-store"
 import { registerEditorSerialization } from "./tiptap/editor-serialization-lifecycle"
+
+vi.mock("@/lib/confirm", () => ({ confirm: vi.fn() }))
 
 afterEach(() => {
   cleanup()
@@ -187,5 +190,58 @@ describe("note layer loading", () => {
       calls[1]("# Attached note")
     })
     expect(useDocStore.getState().openDocs[container.id]?.content).toBe("# Attached note")
+  })
+})
+
+describe("deleting a layer asks in the application", () => {
+  const doc: Document = {
+    id: "note-id",
+    title: "План",
+    path: "/vault/План/План.md",
+    content: "",
+    source: "",
+    created: "",
+    modified: "",
+    wordCount: 0,
+  }
+  const layers = { note: true, sketch: false, canvas: true, database: false }
+
+  function setup() {
+    useViewStateStore.setState({ activeLayers: {}, linkedLayersByDoc: {} })
+    vi.spyOn(storage, "noteLayers").mockResolvedValue(layers)
+    vi.spyOn(storage, "deleteLayer").mockResolvedValue({
+      primaryPath: doc.path,
+      pathChanges: [],
+      deletedPaths: [],
+    } as never)
+    return renderHook(() =>
+      useLayers({
+        vault: "/vault",
+        databasesEnabled: false,
+        backendGeneration: 1,
+        currentDoc: doc,
+        treeItems: [],
+        refreshTreePaths: vi.fn().mockResolvedValue([]),
+        applyMutationResult: vi.fn().mockReturnValue(true),
+      }),
+    )
+  }
+
+  it("is a dangerous question that names the note; Cancel deletes nothing", async () => {
+    vi.mocked(confirm).mockResolvedValue(false)
+    const { result } = setup()
+    await act(() => result.current.handleDeleteLayer("canvas"))
+    expect(confirm).toHaveBeenCalledTimes(1)
+    const question = vi.mocked(confirm).mock.calls[0][0]
+    expect(question.destructive).toBe(true)
+    expect(question.title).toContain("План")
+    expect(storage.deleteLayer).not.toHaveBeenCalled()
+  })
+
+  it("deletes the layer after yes", async () => {
+    vi.mocked(confirm).mockResolvedValue(true)
+    const { result } = setup()
+    await act(() => result.current.handleDeleteLayer("canvas"))
+    expect(storage.deleteLayer).toHaveBeenCalledWith("/vault", doc.path, "canvas")
   })
 })

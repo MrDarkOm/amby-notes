@@ -1,14 +1,15 @@
 // @vitest-environment happy-dom
 import { act, renderHook } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import i18n from "@/lib/i18n"
 import type { FsMutationResult, TreeItem } from "@/lib/storage"
+import { confirm } from "@/lib/confirm"
+import { useTreeMessageStore } from "../tree/use-tree-message-store"
 import { useDocumentMutations } from "./use-document-mutations"
 
 const moveItem = vi.fn()
 const previewMoveRefactor = vi.fn()
 const getNoteProperties = vi.fn()
-const confirmAction = vi.fn()
-const showErrorMessage = vi.fn()
 
 vi.mock("@/lib/storage", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/storage")>()
@@ -17,10 +18,9 @@ vi.mock("@/lib/storage", async (importOriginal) => {
     moveItem: (...args: unknown[]) => moveItem(...args),
     previewMoveRefactor: (...args: unknown[]) => previewMoveRefactor(...args),
     getNoteProperties: (...args: unknown[]) => getNoteProperties(...args),
-    confirmAction: (...args: unknown[]) => confirmAction(...args),
-    showErrorMessage: (...args: unknown[]) => showErrorMessage(...args),
   }
 })
+vi.mock("@/lib/confirm", () => ({ confirm: vi.fn() }))
 
 const TREE: TreeItem[] = [
   {
@@ -69,8 +69,8 @@ describe("handleMoveItem reports how the move ended", () => {
     moveItem.mockReset().mockResolvedValue(moved)
     previewMoveRefactor.mockReset().mockResolvedValue({ replacements: 0, notes: 0 })
     getNoteProperties.mockReset().mockResolvedValue({ customProperties: [] })
-    confirmAction.mockReset().mockResolvedValue(true)
-    showErrorMessage.mockReset().mockResolvedValue(undefined)
+    vi.mocked(confirm).mockReset().mockResolvedValue(true)
+    useTreeMessageStore.getState().dismiss()
   })
 
   it("says 'moved' and applies the paths, so an open note stays open at its new place", async () => {
@@ -86,15 +86,22 @@ describe("handleMoveItem reports how the move ended", () => {
     )
   })
 
-  it("says 'failed' when the operation fails, and shows the error", async () => {
-    moveItem.mockRejectedValue(new Error("exists"))
+  it("says 'failed' when the operation fails, and says it under the tree without the raw error", async () => {
+    await i18n.changeLanguage("ru")
+    moveItem.mockRejectedValue(new Error("exists /secret/path"))
     const { hook } = setup()
     let outcome: unknown
     await act(async () => {
       outcome = await hook.result.current.handleMoveItem(["n1"], "/v/B")
     })
     expect(outcome).toBe("failed")
-    expect(showErrorMessage).toHaveBeenCalled()
+    const message = useTreeMessageStore.getState().message
+    expect(message).not.toBeNull()
+    expect(message?.level).toBe("warning")
+    const text = i18n.t(message!.titleKey, message!.params)
+    expect(text).toContain("Идея")
+    expect(text).not.toContain("exists")
+    expect(text).not.toContain("/secret")
   })
 
   it("says 'skipped' when nothing was done: an unknown target, or the link rewrite declined", async () => {
@@ -106,11 +113,28 @@ describe("handleMoveItem reports how the move ended", () => {
     expect(outcome).toBe("skipped")
 
     previewMoveRefactor.mockResolvedValue({ replacements: 2, notes: 1 })
-    confirmAction.mockResolvedValue(false)
+    vi.mocked(confirm).mockResolvedValue(false)
     await act(async () => {
       outcome = await hook.result.current.handleMoveItem(["n1"], "/v/B")
     })
     expect(outcome).toBe("skipped")
     expect(moveItem).not.toHaveBeenCalled()
+    // The question names the number of links and the verb; it is an ordinary question, not a dangerous one.
+    const question = vi.mocked(confirm).mock.calls[0][0]
+    expect(question.description).toContain("2")
+    expect(question.destructive).toBeFalsy()
+    expect(question.confirmLabel).toBe("Переместить")
+  })
+
+  it("moves after 'yes' to the link rewrite", async () => {
+    previewMoveRefactor.mockResolvedValue({ replacements: 2, notes: 1 })
+    vi.mocked(confirm).mockResolvedValue(true)
+    const { hook } = setup()
+    let outcome: unknown
+    await act(async () => {
+      outcome = await hook.result.current.handleMoveItem(["n1"], "/v/B")
+    })
+    expect(outcome).toBe("moved")
+    expect(moveItem).toHaveBeenCalled()
   })
 })
