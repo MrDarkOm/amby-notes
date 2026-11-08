@@ -580,6 +580,25 @@ type DatabaseError =
   | { kind: "failed"; code: string; message: string }
 ```
 
+Что реализовано сейчас. IPC-ошибка баз данных — `moduleDisabled`, `vaultNotOpen`,
+`vaultGenerationConflict` или `failed { code, reason, message }`. `code` называет
+команду, которая не удалась (`databaseRenameFailed`, `projectionReadFailed`) и нужен
+для поддержки и журнала. `reason` — стабильная причина по смыслу для человека
+(`FailureReason`, Specta-перечисление): `revision_conflict`, `locked`, `read_only`,
+`not_found`, `name_taken`, `invalid_name`, `values_not_empty`, `has_dependents`,
+`formula_invalid`, `last_view`, `invalid_config`, `relation_invalid`, `invalid_value`,
+`too_large`, `rolled_back`, `recovery_required`, `stale_cursor`, `yaml_conflict`, `io`,
+`failed` (причина неизвестна). Причину один раз определяет
+`database/failure.rs::classify` по фразе, которую вернул слой записи
+(`Result<_, String>`), а ошибки запросов несут её сами (`QueryFailure::reason`). Новая
+отказная фраза, с которой человек может что-то сделать, получает вариант, шаблон в
+`classify`, текст в `databaseErrors.reason.*` и строку в `failure_test.rs`.
+`message` — фраза для разработчика: интерфейс её не показывает
+(см. [docs/notices.md](notices.md), раздел 10), она годится только для логов. Интерфейс
+выбирает текст по `reason` (`src/lib/database-errors.ts`); неизвестная причина — общий
+текст с кодом команды. Логика, которой нужно знать «конфликт ли это» (повтор записи вида
+после чужой правки), читает `reason`, а не текст.
+
 Пути в ошибках vault-relative. Низкоуровневые OS details уходят в diagnostics
 log, а не становятся пользовательским путем или SQL-текстом. Frontend adapter
 преобразует union в `DatabaseOperationError`, сохраняя `kind` для UI; retry

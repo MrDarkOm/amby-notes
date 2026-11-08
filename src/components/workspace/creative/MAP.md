@@ -27,7 +27,7 @@ and arrive through [project-port.ts](../../../lib/storage/project-port.ts). The 
 | Create story, universe / section        | [create-project-dialog.tsx](create-project-dialog.tsx), [create-section-dialog.tsx](create-section-dialog.tsx) |
 | Text schema of a new story (levels)     | [text-schema-presets.ts](text-schema-presets.ts); chosen in `create-project-dialog.tsx`                        |
 | Names in the active language            | [project-labels.ts](project-labels.ts); `creative.*` keys of `locales/resources.ts`                            |
-| Errors, operation IDs                   | [project-error.ts](project-error.ts), [use-operation-id.ts](use-operation-id.ts)                               |
+| Errors, operation IDs                   | [project-errors.ts](../../../lib/project-errors.ts), [use-operation-id.ts](use-operation-id.ts)                |
 | Dossier of a world page                 | [dossier/](dossier/)                                                                                           |
 | File tree: icons, hiding                | [creative-tree-model.ts](creative-tree-model.ts), [use-creative-tree-items.ts](use-creative-tree-items.ts)     |
 | The workshop folder opens its page      | [use-collection-folder-select.ts](use-collection-folder-select.ts)                                             |
