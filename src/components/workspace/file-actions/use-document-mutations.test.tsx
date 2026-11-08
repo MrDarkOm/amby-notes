@@ -2,12 +2,14 @@
 import { act, renderHook } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
-import type { FsMutationResult, TreeItem } from "@/lib/storage"
+import { StorageOperationError, type FsMutationResult, type TreeItem } from "@/lib/storage"
 import { confirm } from "@/lib/confirm"
 import { useTreeMessageStore } from "../tree/use-tree-message-store"
 import { useDocumentMutations } from "./use-document-mutations"
 
 const moveItem = vi.fn()
+const renameItem = vi.fn()
+const previewRenameRefactor = vi.fn()
 const previewMoveRefactor = vi.fn()
 const getNoteProperties = vi.fn()
 
@@ -16,6 +18,8 @@ vi.mock("@/lib/storage", async (importOriginal) => {
   return {
     ...original,
     moveItem: (...args: unknown[]) => moveItem(...args),
+    renameItem: (...args: unknown[]) => renameItem(...args),
+    previewRenameRefactor: (...args: unknown[]) => previewRenameRefactor(...args),
     previewMoveRefactor: (...args: unknown[]) => previewMoveRefactor(...args),
     getNoteProperties: (...args: unknown[]) => getNoteProperties(...args),
   }
@@ -136,5 +140,62 @@ describe("handleMoveItem reports how the move ended", () => {
     })
     expect(outcome).toBe("moved")
     expect(moveItem).toHaveBeenCalled()
+  })
+})
+
+describe("handleRenameFile reports how the rename ended", () => {
+  beforeEach(() => {
+    renameItem.mockReset().mockResolvedValue({ ...moved, primaryPath: "/v/A/Новое.md" })
+    previewRenameRefactor.mockReset().mockResolvedValue({ replacements: 0, notes: 0 })
+    vi.mocked(confirm).mockReset().mockResolvedValue(true)
+  })
+
+  it("says 'renamed' when the file was renamed", async () => {
+    const { hook } = setup()
+    let outcome: unknown
+    await act(async () => {
+      outcome = await hook.result.current.handleRenameFile("n1", "Новое")
+    })
+    expect(outcome).toEqual({ status: "renamed" })
+  })
+
+  it("says 'skipped' when the person declined the link rewrite", async () => {
+    previewRenameRefactor.mockResolvedValue({ replacements: 2, notes: 1 })
+    vi.mocked(confirm).mockResolvedValue(false)
+    const { hook } = setup()
+    let outcome: unknown
+    await act(async () => {
+      outcome = await hook.result.current.handleRenameFile("n1", "Новое")
+    })
+    expect(outcome).toEqual({ status: "skipped" })
+    expect(renameItem).not.toHaveBeenCalled()
+  })
+
+  it("gives the text for the name field when the name is taken, and never the raw error", async () => {
+    await i18n.changeLanguage("ru")
+    renameItem.mockRejectedValue(
+      new StorageOperationError("alreadyExists", "File already exists: /secret/Новое.md"),
+    )
+    const { hook } = setup()
+    let outcome: unknown
+    await act(async () => {
+      outcome = await hook.result.current.handleRenameFile("n1", "Новое")
+    })
+    expect(outcome).toEqual({ status: "failed", text: i18n.t("operationErrors.alreadyExists") })
+    expect(JSON.stringify(outcome)).not.toContain("/secret")
+  })
+
+  it("gives the general text with a code for an error it does not know", async () => {
+    await i18n.changeLanguage("ru")
+    renameItem.mockRejectedValue(new Error("EIO /secret"))
+    const { hook } = setup()
+    let outcome: unknown
+    await act(async () => {
+      outcome = await hook.result.current.handleRenameFile("n1", "Новое")
+    })
+    expect(outcome).toEqual({
+      status: "failed",
+      text: i18n.t("operationErrors.general", { code: "unknown" }),
+    })
   })
 })
