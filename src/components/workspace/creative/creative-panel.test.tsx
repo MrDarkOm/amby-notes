@@ -22,6 +22,7 @@ import {
 } from "./project-fixtures.test-support"
 import { useCreativeSettingsStore } from "./creative-settings-store"
 import { useProjectStore } from "./project-store"
+import { projectFailure } from "@/lib/test-utils/errors"
 
 const queryDatabase = vi.fn()
 const createDatabaseRow = vi.fn()
@@ -370,7 +371,7 @@ describe("CreativePanel", () => {
       render(<CreativePanel {...props({ onOpenSettings })} />)
       fireEvent.click(screen.getByRole("button", { name: "Инициализировать" }))
       const alert = await screen.findByRole("alert")
-      expect(alert.textContent).toContain("«Мастерская» не пуста")
+      expect(alert.textContent).toContain("не пуста и не является мастерской")
       expect(alert.textContent).toContain("в настройках модуля")
       // Nothing was made, and the button is there to try again.
       expect(screen.getByRole("button", { name: "Инициализировать" })).toBeTruthy()
@@ -544,7 +545,7 @@ describe("CreativePanel", () => {
     })
 
     it("keeps the typed name and shows the failure on the row", async () => {
-      createTextPage.mockRejectedValue(new Error("Диск недоступен"))
+      createTextPage.mockRejectedValue(projectFailure("createPageFailed", "Диск недоступен"))
       render(<CreativePanel {...props()} />)
       await screen.findByText("Книга первая")
       const header = part(/Свернуть: Текст/).parentElement as HTMLElement
@@ -553,7 +554,8 @@ describe("CreativePanel", () => {
       fireEvent.change(field, { target: { value: "Пролог" } })
       fireEvent.keyDown(field, { key: "Enter" })
       const alert = await screen.findByRole("alert")
-      expect(alert.textContent).toContain("Диск недоступен")
+      expect(alert.textContent).toContain("createPageFailed")
+      expect(alert.textContent).not.toContain("Диск недоступен")
       expect((screen.getByRole("textbox", { name: PAGE_FIELD }) as HTMLInputElement).value).toBe(
         "Пролог",
       )

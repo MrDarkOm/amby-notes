@@ -16,6 +16,7 @@ import {
 } from "./project-fixtures.test-support"
 import { ProjectPage } from "./project-page"
 import { useProjectStore } from "./project-store"
+import { databaseFailure, projectFailure } from "@/lib/test-utils/errors"
 
 const queryDatabase = vi.fn()
 const getDatabaseView = vi.fn()
@@ -299,11 +300,14 @@ describe("the events of a universe", () => {
   })
 
   it("shows the failure of that operation and writes no anchor", async () => {
-    ensurePlotLinks.mockReset().mockRejectedValue(new Error("диск полон"))
+    ensurePlotLinks
+      .mockReset()
+      .mockRejectedValue(projectFailure("projectIndexFailed", "диск полон"))
     mountDesk(null)
     const region = await nameEvent("Пожар")
     const alert = await within(region).findByRole("alert")
-    expect(alert.textContent).toContain("диск полон")
+    expect(alert.textContent).toContain("projectIndexFailed")
+    expect(alert.textContent).not.toContain("диск полон")
     expect(createWorkshopEntity).not.toHaveBeenCalled()
   })
 })
@@ -477,7 +481,7 @@ describe("a story made on the page of a universe", () => {
   })
 
   it("keeps the story and says why it is not in the universe when the link fails", async () => {
-    updateDatabaseRelationValue.mockRejectedValue(new Error("диск полон"))
+    updateDatabaseRelationValue.mockRejectedValue(databaseFailure("io", "диск полон"))
     const { onOpenProject } = mountPage("universe:u1")
     fireEvent.click(await screen.findByRole("button", { name: "Новая история" }))
     await act(async () =>
@@ -485,7 +489,8 @@ describe("a story made on the page of a universe", () => {
     )
     const alert = await screen.findByRole("alert")
     expect(alert.textContent).toContain("История создана, но не привязана к вселенной")
-    expect(alert.textContent).toContain("диск полон")
+    expect(alert.textContent).toContain("прочитать или записать")
+    expect(alert.textContent).not.toContain("диск полон")
     expect(onOpenProject).not.toHaveBeenCalled()
   })
 })
@@ -698,14 +703,15 @@ describe("the stories of a universe: order, cards and timeline", () => {
   })
 
   it("says why the order was not saved", async () => {
-    updateDatabaseViewConfig.mockRejectedValue(new Error("диск полон"))
+    updateDatabaseViewConfig.mockRejectedValue(databaseFailure("io", "диск полон"))
     mountPage("universe:u1")
     const region = await timeline()
     await within(region).findByText("MoleHills")
     fireEvent.click(within(region).getByRole("button", { name: "Сдвинуть «MoleHills» позже" }))
     const alert = await within(region).findByRole("alert")
     expect(alert.textContent).toContain("Не удалось сохранить порядок")
-    expect(alert.textContent).toContain("диск полон")
+    expect(alert.textContent).toContain("прочитать или записать")
+    expect(alert.textContent).not.toContain("диск полон")
   })
 
   it("opens a story from the timeline and starts a new one from its end", async () => {

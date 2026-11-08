@@ -24,12 +24,12 @@ import {
 import { cn } from "@/lib/utils"
 import { useDatabaseStore } from "../database/database-store"
 import { IconPickerButton } from "../database/icon-picker-button"
-import { projectErrorText } from "./project-error"
 import { statusLabels } from "./project-labels"
 import { useProjectStore } from "./project-store"
 import { sectionRoleIcon } from "./section-icons"
 import { levelsProblem, MAX_TEXT_LEVELS } from "./text-schema-presets"
 import { useOperationId } from "./use-operation-id"
+import { projectErrorText } from "@/lib/operation-errors"
 
 type SettingsTab = "general" | "sections" | "levels"
 

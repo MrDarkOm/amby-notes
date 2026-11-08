@@ -1279,16 +1279,65 @@ const ru = {
     timeFormats: { "24h": "24 часа", "12h": "12 часов" },
     formula: "Формула",
   },
+  operationErrors: {
+    general: "Не удалось выполнить действие. Повторите; если не получится, сообщите код: {{code}}.",
+    revision_conflict:
+      "Файл изменился в другом месте, пока вы работали. Ваша правка не записана, чужие изменения целы. Повторите действие.",
+    notFound:
+      "Не найдено: возможно, это удалили или перенесли. Ничего не изменено. Обновите список и повторите.",
+    alreadyExists: "Такое название уже занято. Введите другое.",
+    invalidPath:
+      "Название не подходит: в нём недопустимые символы или оно слишком длинное. Введите другое.",
+  },
   databaseErrors: {
     relationValues:
-      "Связь нельзя перенастроить (база, двусторонняя связь), пока у записей есть связанные страницы. Сначала очистите это свойство у записей.",
+      "Связь нельзя перенастроить (база, двусторонняя связь), пока у записей есть связанные страницы. Сначала очистите это свойство у записей. Ничего не изменено.",
     typeValues:
-      "Тип свойства можно сменить, только когда у записей нет его значений. Сначала очистите это свойство у записей.",
+      "Тип свойства можно сменить, только когда у записей нет его значений. Сначала очистите это свойство у записей. Ничего не изменено.",
     dateValues:
-      "Хранение времени в дате можно менять, только пока у свойства нет значений. Сначала очистите это свойство у записей.",
-    changedElsewhere: "База изменилась в другом месте. Повторите действие.",
-    hasDependents:
-      "Тип нельзя менять, пока от свойства зависят другие свойства (формулы или сводки).",
+      "Хранение времени в дате можно менять, только пока у свойства нет значений. Сначала очистите это свойство у записей. Ничего не изменено.",
+    general: "Не удалось выполнить действие. Повторите; если не получится, сообщите код: {{code}}.",
+    writtenWithWarnings:
+      "Изменение записано, но часть связанных данных или список не удалось обновить сразу. Данные целы. Обновите вид; если не поможет, переоткройте хранилище.",
+    computed: {
+      formula:
+        "Формула не вычисляется. Значения записей целы. Проверьте формулу в настройках свойства.",
+      rollup: "Сводка не вычисляется. Значения записей целы. Проверьте связь и настройки сводки.",
+    },
+    moduleDisabled: "Модуль «Базы данных» выключен. Включите его в настройках и повторите.",
+    vaultNotOpen: "Хранилище не открыто. Откройте его и повторите.",
+    vaultChanged: "Хранилище изменилось, пока шло действие. Ничего не записано, повторите.",
+    reason: {
+      revision_conflict:
+        "База изменилась в другом месте, пока вы работали. Ваша правка не записана, чужие изменения целы. Повторите действие.",
+      locked: "База закрыта от изменений. Ничего не изменено. Снимите блокировку и повторите.",
+      read_only:
+        "База или вид сохранены в более новой версии Amby и открыты только для чтения. Ничего не изменено. Обновите Amby.",
+      not_found:
+        "Свойство, вид или запись не найдены: возможно, их удалили или перенесли. Ничего не изменено. Обновите список и повторите.",
+      name_taken: "Такое название уже занято. Введите другое.",
+      invalid_name:
+        "Название не подходит: оно пустое или содержит недопустимые символы. Введите другое.",
+      has_dependents:
+        "Тип нельзя менять, пока от свойства зависят другие свойства (формулы или сводки). Ничего не изменено.",
+      formula_invalid:
+        "Формула записана неверно. Прежняя формула сохранена. Проверьте скобки и названия свойств.",
+      last_view: "Последний вид базы удалить нельзя. Сначала создайте другой.",
+      invalid_config:
+        "Эти настройки не подходят для этого свойства или вида. Ничего не изменено. Выберите другие.",
+      relation_invalid:
+        "Связь настроена неверно или связанная база недоступна. Ничего не изменено. Проверьте связь и повторите.",
+      invalid_value:
+        "Значение не подходит этому свойству. Ничего не изменено. Проверьте введённое.",
+      too_large:
+        "Слишком большой объём данных. Ничего не изменено. Выберите меньший файл или значение.",
+      rolled_back: "Действие не удалось и было отменено: данные остались как были. Повторите.",
+      recovery_required:
+        "Прежняя операция не доведена до конца, поэтому новая остановлена. Закройте и снова откройте хранилище, затем повторите.",
+      stale_cursor: "Список обновился, пока вы его листали. Откройте его заново.",
+      yaml_conflict: "Значение в шапке заметки и в базе разошлись. Выберите, какое оставить.",
+      io: "Не удалось прочитать или записать файл. Проверьте, что хранилище доступно, и повторите.",
+    },
   },
   databaseSettings: {
     title: "Настройки вида",
@@ -3756,22 +3805,32 @@ const ru = {
         tooMany: "Слишком много.",
         tooLarge: "Слишком большое значение.",
       },
-      invalidName: "Недопустимое название: {{reason}}",
-      pathCollision: "«{{path}}» уже существует. Выберите другое название.",
+      invalidName: "Название не подходит. Введите другое.",
+      pathCollision: "«{{name}}» уже существует. Выберите другое название.",
       parentReadOnly:
         "Мастерская «{{path}}» в неизвестном формате: внутри неё ничего нельзя создавать.",
       projectReadOnly: "Мастерская в неизвестном формате открыта только для чтения.",
       projectNotFound: "Мастерская не найдена: возможно, её папку перенесли.",
       revisionConflict: "Файл мастерской изменился. Список обновлён, повторите действие.",
-      rolledBack: "Не удалось создать, изменения отменены: {{message}}",
+      rolledBack:
+        "Не удалось выполнить действие, изменения отменены: хранилище осталось таким, как было. Повторите.",
       recoveryRequired:
-        "Не удалось создать, и часть созданного осталась в хранилище: {{message}}. Уберите лишнее и повторите.",
+        "Действие не завершено, и часть созданного осталась в хранилище. Закройте и снова откройте хранилище — лишнее будет убрано — и повторите.",
       moduleDisabled: "Нужен включённый модуль «Базы данных».",
       vaultChanged: "Хранилище изменилось. Повторите действие.",
       invalidParent: "Папка для мастерской недоступна.",
-      generic: "Не удалось выполнить действие: {{message}}",
+      generic:
+        "Не удалось выполнить действие. Повторите; если не получится, сообщите код: {{code}}.",
+      levelInUse:
+        "Уровень нельзя убрать: он используется на страницах ({{count}}). Сначала перенесите их на другой уровень.",
+      sectionAlreadyExists: "Раздел с таким названием уже есть в мастерской. Введите другое.",
+      interrupted: "Создание прервано, ничего не создано. Повторите.",
+      fileDamaged:
+        "Файл мастерской повреждён или не читается. Ничего не изменено. Проверьте файл в папке мастерской или восстановите его из истории.",
+      journalProblem:
+        "Журнал незавершённой операции не читается. Закройте и снова откройте хранилище, затем повторите; если не помогло, сообщите в поддержку.",
       folderNotEmpty:
-        "Папка «{{path}}» не пуста и не является мастерской. Мастерскую не смешивают с чужими файлами: выберите другую папку в настройках модуля.",
+        "Эта папка не пуста и не является мастерской. Мастерскую не смешивают с чужими файлами: выберите другую папку в настройках модуля.",
       sectionNotFound: "Раздел не найден в мастерской.",
       cannotRemoveTextSection: "Раздел с текстом истории нельзя убрать из мастерской.",
       textNotConfigured: "У истории нет настроенного текста: уровни и форматы не созданы.",
@@ -5583,16 +5642,66 @@ const en: typeof ru = {
     timeFormats: { "24h": "24 hour", "12h": "12 hour" },
     formula: "Formula",
   },
+  operationErrors: {
+    general: "The action failed. Try again; if it keeps failing, report the code: {{code}}.",
+    revision_conflict:
+      "The file changed elsewhere while you worked. Your edit was not written and the other changes are intact. Try again.",
+    notFound:
+      "Not found: it may have been deleted or moved. Nothing was changed. Refresh the list and try again.",
+    alreadyExists: "This name is already taken. Enter another one.",
+    invalidPath:
+      "The name is not allowed: it has forbidden characters or is too long. Enter another one.",
+  },
   databaseErrors: {
     relationValues:
-      "The relation cannot be reconfigured (database, two-way) while records have linked pages. Clear this property in the records first.",
+      "The relation cannot be reconfigured (database, two-way) while records have linked pages. Clear this property in the records first. Nothing was changed.",
     typeValues:
-      "A property's type can only change when no record has a value for it. Clear this property in the records first.",
+      "A property's type can only change when no record has a value for it. Clear this property in the records first. Nothing was changed.",
     dateValues:
-      "Whether a date keeps a time can only change while the property has no values. Clear this property in the records first.",
-    changedElsewhere: "The database was changed elsewhere. Try again.",
-    hasDependents:
-      "The type cannot change while other properties (formulas or rollups) depend on this one.",
+      "Whether a date keeps a time can only change while the property has no values. Clear this property in the records first. Nothing was changed.",
+    general: "The action failed. Try again; if it keeps failing, report the code: {{code}}.",
+    writtenWithWarnings:
+      "The change was saved, but some related data or the list could not be refreshed at once. The data is intact. Refresh the view; if that does not help, reopen the vault.",
+    computed: {
+      formula:
+        "The formula cannot be calculated. The records' values are intact. Check the formula in the property settings.",
+      rollup:
+        "The rollup cannot be calculated. The records' values are intact. Check the relation and the rollup settings.",
+    },
+    moduleDisabled: "The Databases module is off. Turn it on in the settings and try again.",
+    vaultNotOpen: "No vault is open. Open one and try again.",
+    vaultChanged: "The vault changed while the action ran. Nothing was written, try again.",
+    reason: {
+      revision_conflict:
+        "The database changed elsewhere while you worked. Your edit was not written and the other changes are intact. Try again.",
+      locked: "The database is locked against edits. Nothing was changed. Unlock it and try again.",
+      read_only:
+        "The database or view was saved by a newer version of Amby and is read-only. Nothing was changed. Update Amby.",
+      not_found:
+        "The property, view or record was not found: it may have been deleted or moved. Nothing was changed. Refresh the list and try again.",
+      name_taken: "This name is already taken. Enter another one.",
+      invalid_name:
+        "The name is not allowed: it is empty or has forbidden characters. Enter another one.",
+      has_dependents:
+        "The type cannot change while other properties (formulas or rollups) depend on this one. Nothing was changed.",
+      formula_invalid:
+        "The formula is not valid. The previous formula is kept. Check the brackets and property names.",
+      last_view: "The last view of a database cannot be deleted. Create another one first.",
+      invalid_config:
+        "These settings do not fit this property or view. Nothing was changed. Choose other ones.",
+      relation_invalid:
+        "The relation is set up incorrectly or the related database is unavailable. Nothing was changed. Check the relation and try again.",
+      invalid_value:
+        "The value does not fit this property. Nothing was changed. Check what you entered.",
+      too_large: "Too much data. Nothing was changed. Choose a smaller file or value.",
+      rolled_back: "The action failed and was undone: the data is as it was. Try again.",
+      recovery_required:
+        "An earlier operation was not finished, so this one was stopped. Close and reopen the vault, then try again.",
+      stale_cursor: "The list changed while you were scrolling it. Open it again.",
+      yaml_conflict:
+        "The value in the note header and in the database differ. Choose which one to keep.",
+      io: "A file could not be read or written. Check that the vault is available and try again.",
+    },
   },
   databaseSettings: {
     title: "View settings",
@@ -8044,22 +8153,32 @@ const en: typeof ru = {
         tooMany: "Too many.",
         tooLarge: "The value is too large.",
       },
-      invalidName: "Invalid name: {{reason}}",
-      pathCollision: '"{{path}}" already exists. Choose another name.',
+      invalidName: "The name is not allowed. Enter another one.",
+      pathCollision: '"{{name}}" already exists. Choose another name.',
       parentReadOnly:
         'The workshop "{{path}}" has an unknown format: nothing can be created inside it.',
       projectReadOnly: "A workshop with an unknown format is read-only.",
       projectNotFound: "Workshop not found: its folder may have been moved.",
       revisionConflict: "The workshop file changed. The list was refreshed, try again.",
-      rolledBack: "Could not create it, the changes were undone: {{message}}",
+      rolledBack:
+        "The action failed and the changes were undone: the vault is as it was. Try again.",
       recoveryRequired:
-        "Could not create it, and part of what was created is still in the vault: {{message}}. Remove it and try again.",
+        "The action was not finished and part of what was created is still in the vault. Close and reopen the vault — the leftovers will be removed — and try again.",
       moduleDisabled: "The Databases module must be on.",
       vaultChanged: "The vault changed. Try again.",
       invalidParent: "The folder for the workshop is not available.",
-      generic: "The action failed: {{message}}",
+      generic: "The action failed. Try again; if it keeps failing, report the code: {{code}}.",
+      levelInUse:
+        "The level cannot be removed: pages use it ({{count}}). Move them to another level first.",
+      sectionAlreadyExists:
+        "A section with this name is already in the workshop. Enter another one.",
+      interrupted: "Creation was interrupted and nothing was created. Try again.",
+      fileDamaged:
+        "A workshop file is damaged or cannot be read. Nothing was changed. Check the file in the workshop folder or restore it from history.",
+      journalProblem:
+        "The journal of an unfinished operation cannot be read. Close and reopen the vault, then try again; if that does not help, contact support.",
       folderNotEmpty:
-        "The folder “{{path}}” is not empty and is not a workshop. A workshop is not mixed with other files: choose another folder in the module settings.",
+        "This folder is not empty and is not a workshop. A workshop is not mixed with other files: choose another folder in the module settings.",
       sectionNotFound: "The section was not found in the workshop.",
       cannotRemoveTextSection: "The story's text section cannot be removed from the workshop.",
       textNotConfigured: "The story has no text set up: levels and formats were not created.",

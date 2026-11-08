@@ -37,6 +37,24 @@ pub struct QueryFailure {
 }
 
 impl QueryFailure {
+    /// The reason a person is told: the query's own codes are already specific.
+    pub fn reason(&self) -> crate::database::failure::FailureReason {
+        use crate::database::failure::FailureReason;
+        match self.code {
+            "staleCursor" => FailureReason::StaleCursor,
+            "databaseNotFound" | "missingReference" => FailureReason::NotFound,
+            "invalidFilter" | "invalidOperand" | "invalidSort" | "filterTooDeep" => {
+                FailureReason::InvalidConfig
+            }
+            _ => FailureReason::Failed,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn for_test(code: &'static str, message: impl Into<String>) -> Self {
+        Self::new(code, message)
+    }
+
     fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
@@ -1441,6 +1459,7 @@ impl From<QueryFailure> for DatabaseError {
     fn from(error: QueryFailure) -> Self {
         DatabaseError::Failed {
             code: error.code.to_owned(),
+            reason: error.reason(),
             message: error.message,
         }
     }

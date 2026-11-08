@@ -10,6 +10,7 @@ import {
   type CreativeSettingsChangedPayload,
 } from "./creative-settings-store"
 import { useProjectStore } from "./project-store"
+import { reportOperationError } from "@/lib/operation-errors"
 
 interface ProjectControllerOptions {
   enabled: boolean
@@ -19,7 +20,7 @@ interface ProjectControllerOptions {
 const REFRESH_DELAY_MS = 150
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  return reportOperationError(error)
 }
 
 /**

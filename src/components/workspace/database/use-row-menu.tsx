@@ -5,6 +5,7 @@ import { logger } from "@/lib/logger"
 import type { RowMenuModel } from "./row-menu"
 import type { RowReorderConfig } from "./table-view"
 import { moveRowInOrder, type RowDropPlacement } from "./row-order"
+import { operationErrorText } from "@/lib/operation-errors"
 
 /** What the workspace lends a database for the pages it holds: favourites, windows, delete, move. */
 export interface DatabaseRowActions {
@@ -62,7 +63,7 @@ export function useRowMenu({
   const fail = React.useCallback(
     (event: string, error: unknown) => {
       logger.error(event, { databaseId, error })
-      latest.current.onError?.(error instanceof Error ? error.message : String(error))
+      latest.current.onError?.(operationErrorText(error))
     },
     [databaseId],
   )

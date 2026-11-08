@@ -9,10 +9,10 @@ import {
   type WorkshopSummary,
 } from "@/lib/storage"
 import { logger } from "@/lib/logger"
-import { projectErrorText } from "../project-error"
 import type { PlotKind } from "./plot-model"
 import { anchorLinksMissing } from "./plot-views"
 import { relationTargetsOf } from "./workshop-model"
+import { ShownError, projectErrorText } from "@/lib/operation-errors"
 
 /** The operation that makes the missing link properties; it reads the catalog again after it. */
 export type EnsurePlot = (request: {
@@ -27,7 +27,8 @@ export interface PlotBinding {
   /** Takes a binding away; the others stay. */
   unbind: (pageId: string, kind: PlotKind, targetId: string) => Promise<void>
   /** The failure of the last action and the row it belongs to (the page, or the anchor or arc). */
-  error: { rowId: string; message: string } | null
+  /** `text` is already the dictionary text of the failure. */
+  error: { rowId: string; text: string } | null
   clearError: () => void
 }
 
@@ -65,14 +66,16 @@ export function usePlotBinding({
 
   const propertyFor = React.useCallback(
     async (kind: PlotKind): Promise<string> => {
-      if (!workshop || !story) throw new Error(t("creative.plot.unavailable"))
+      if (!workshop || !story) throw new ShownError(t("creative.plot.unavailable"))
       const properties = story.text?.properties
       const known = kind === "anchor" ? properties?.anchors : properties?.arcs
       if (known) return known
       const ensured = await ensure({ target: "story", workshop, story })
       const made = kind === "anchor" ? ensured.anchorsPropertyId : ensured.arcsPropertyId
       if (!made)
-        throw new Error(t(kind === "anchor" ? "creative.plot.noAnchors" : "creative.plot.noArcs"))
+        throw new ShownError(
+          t(kind === "anchor" ? "creative.plot.noAnchors" : "creative.plot.noArcs"),
+        )
       // The anchors' own relations are not needed by a binding: a failure there never stops it,
       // but it is not lost either. It is logged here; the places that need the relations (an
       // event of a universe) make them again and show the failure.
@@ -93,12 +96,12 @@ export function usePlotBinding({
     (pageId: string, kind: PlotKind, targetId: string, add: boolean, rowId: string) => {
       const run = async () => {
         if (!story?.text?.databaseId || vaultGeneration === null) {
-          throw new Error(t("creative.plot.unavailable"))
+          throw new ShownError(t("creative.plot.unavailable"))
         }
         const databaseId = story.text.databaseId
         const propertyId = await propertyFor(kind)
         const row = rows[databaseId]?.find((candidate) => candidate.noteId === pageId)
-        if (!row) throw new Error(t("creative.errors.projectNotFound"))
+        if (!row) throw new ShownError(t("creative.errors.projectNotFound"))
         const current = relationTargetsOf(row.valuesJson, propertyId)
         const next = add
           ? current.includes(targetId)
@@ -124,7 +127,7 @@ export function usePlotBinding({
         .catch(() => undefined)
         .then(run)
         .catch((caught: unknown) => {
-          setError({ rowId, message: projectErrorText(t, caught) })
+          setError({ rowId, text: projectErrorText(t, caught) })
         })
         .finally(onChanged)
       queues.current.set(pageId, task)

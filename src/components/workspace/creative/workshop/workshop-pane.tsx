@@ -9,7 +9,6 @@ import {
   type WorkshopSummary,
 } from "@/lib/storage"
 import type { PanelRenderProps } from "../../panel-registry"
-import { projectErrorText } from "../project-error"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -68,6 +67,7 @@ import {
   type WorkshopTab,
   type WorksSection,
 } from "./workshop-model"
+import { ShownError, projectErrorText } from "@/lib/operation-errors"
 
 interface WorkshopPaneProps {
   catalog: ProjectCatalog
@@ -573,7 +573,7 @@ export function WorkshopPane({
               },
             }
           : undefined,
-      error: binding.error?.rowId === item.noteId ? binding.error.message : null,
+      error: binding.error?.rowId === item.noteId ? binding.error.text : null,
     }
   }
 
@@ -666,13 +666,13 @@ export function WorkshopPane({
     }
     if (draft.kind === "page") {
       const story = scope.stories.find((candidate) => candidate.storyId === draft.storyId)
-      if (!story) throw new Error(t("creative.errors.projectNotFound"))
+      if (!story) throw new ShownError(t("creative.errors.projectNotFound"))
       const text = story.text
-      if (!text?.databaseId) throw new Error(t("creative.workshop.noText"))
+      if (!text?.databaseId) throw new ShownError(t("creative.workshop.noText"))
       const roots = rootsOf(story.storyId)
       const parent = draft.parentId ? findNode(roots, draft.parentId) : null
       const levelId = startLevelId(text.levels, parent)
-      if (!levelId) throw new Error(t("creative.workshop.noLevels"))
+      if (!levelId) throw new ShownError(t("creative.workshop.noLevels"))
       const formats = text.formats.filter((format) => format.state === "ok")
       const format = formats.find((entry) => entry.kind === "manuscript") ?? formats[0]
       const created = await createTextPage({
@@ -704,7 +704,7 @@ export function WorkshopPane({
     }
     // An anchor made while a story is shown belongs to it from the first write.
     const sec = storySection(scope.workshop, "anchors")
-    if (!sec) throw new Error(t("creative.errors.projectNotFound"))
+    if (!sec) throw new ShownError(t("creative.errors.projectNotFound"))
     const storyId = filter.kind === "story" && sec.storiesPropertyId ? filter.storyId : null
     // Made while a universe is shown, an anchor is an event of it from the first write.
     const universeId = filter.kind === "universe" ? filter.universeId : null

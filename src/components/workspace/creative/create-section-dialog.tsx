@@ -16,9 +16,9 @@ import {
   type CreatedWorkshopSectionResult,
   type WorkshopSummary,
 } from "@/lib/storage"
-import { projectErrorText } from "./project-error"
 import { projectLabels } from "./project-labels"
 import { useOperationId } from "./use-operation-id"
+import { projectErrorText } from "@/lib/operation-errors"
 
 const NO_VALUE = "none"
 

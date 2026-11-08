@@ -215,7 +215,7 @@ describe("property edits", () => {
     expect(hook.result.current.propertyError).toContain("Не удалось сохранить")
   })
 
-  it("writes the message of the backend to the log when a property cannot be saved", async () => {
+  it("writes the code of the failure to the log when a property cannot be saved", async () => {
     const error = vi.spyOn(logger, "error").mockImplementation(() => null)
     vi.mocked(storage.upsertCustomProperty).mockRejectedValue(
       new Error("A property named X exists"),
@@ -226,7 +226,7 @@ describe("property edits", () => {
     })
     expect(error).toHaveBeenCalledWith(
       "property.mutation_failed",
-      expect.objectContaining({ message: "A property named X exists" }),
+      expect.objectContaining({ failureCode: "unknown" }),
     )
   })
 })

@@ -109,6 +109,7 @@ export * from "./history-repository"
 export * from "./settings-repository"
 export * from "./debug-repository"
 export * from "./ai-chat-repository"
+export { StorageOperationError } from "./operation-error"
 
 export const isTauri = (): boolean =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window

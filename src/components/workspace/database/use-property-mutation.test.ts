@@ -3,6 +3,7 @@ import { act, cleanup, renderHook } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as storage from "@/lib/storage"
 import type { DatabasePropertySummary } from "@/lib/storage"
+import { databaseFailure } from "@/lib/test-utils/errors"
 import {
   _resetPropertyMutationForTesting,
   cellKey,
@@ -123,13 +124,15 @@ describe("usePropertyMutation", () => {
   it("keeps the failure per cell, drops the cached revision and reports through onSettled", async () => {
     const settled = vi.fn()
     vi.spyOn(storage, "applyDatabaseValueBatch")
-      .mockRejectedValueOnce(new Error("Record revision conflict"))
+      .mockRejectedValueOnce(databaseFailure("revision_conflict", "Record revision conflict"))
       .mockResolvedValueOnce({ operationId: "c", databaseId: "db", revisions: [], warnings: ["w"] })
     const { result } = renderHook(() =>
       usePropertyMutation({ databaseId: "db", vaultGeneration: 3, onSettled: settled }),
     )
     await act(() => result.current.commit(row, textProperty, undefined))
-    expect(result.current.cellErrors[cellKey("n1", "p-text")]).toBe("Record revision conflict")
+    const shown = result.current.cellErrors[cellKey("n1", "p-text")]
+    expect(shown).toMatch(/изменилась/)
+    expect(shown).not.toContain("Record revision conflict")
     expect(settled).toHaveBeenLastCalledWith({ ok: false })
     expect(result.current.pendingCells.size).toBe(0)
 

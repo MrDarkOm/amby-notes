@@ -1,7 +1,6 @@
 import * as React from "react"
 import { listen } from "@tauri-apps/api/event"
 import {
-  DatabaseOperationError,
   getDatabaseModuleState,
   isTauri,
   listDatabases,
@@ -12,6 +11,7 @@ import {
 } from "@/lib/storage"
 import { useDatabaseStore } from "./database-store"
 import { adoptAsyncDisposer } from "@/lib/async-disposable"
+import { reportOperationError } from "@/lib/operation-errors"
 
 interface DatabaseControllerOptions {
   enabled: boolean
@@ -19,8 +19,7 @@ interface DatabaseControllerOptions {
 }
 
 function errorMessage(error: unknown): string {
-  if (error instanceof DatabaseOperationError) return error.message
-  return error instanceof Error ? error.message : String(error)
+  return reportOperationError(error)
 }
 
 /** Owns runtime lifecycle and catalog invalidation; table hosts fetch on demand. */

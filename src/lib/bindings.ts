@@ -2354,7 +2354,12 @@ export type DatabaseAggregateResult = { databaseId: string; groups: DatabaseAggr
 export type DatabaseChangedRequest = { kind: string; path: string; containerPath: string; generation: number; requiresFullRebuild: boolean }
 export type DatabaseCreateMode = "standalone" | "attached"
 export type DatabaseDiagnostic = { code: string; severity: string; path: string; message: string }
-export type DatabaseError = { kind: "moduleDisabled" } | { kind: "vaultNotOpen" } | { kind: "vaultGenerationConflict"; actual_generation: number } | { kind: "failed"; code: string; message: string }
+export type DatabaseError = { kind: "moduleDisabled" } | { kind: "vaultNotOpen" } | { kind: "vaultGenerationConflict"; actual_generation: number } | 
+/**
+ * `code` names the command that failed (for support and logs), `reason` says why in terms a
+ * person can act on; the interface words the reason and never shows `message`.
+ */
+{ kind: "failed"; code: string; reason: FailureReason; message: string }
 export type DatabaseFieldRef = { kind: "system"; field: string } | { kind: "property"; property_id: string }
 export type DatabaseFilterNode = { kind: "group"; operator: string; children: DatabaseFilterNode[] } | { kind: "condition"; field: DatabaseFieldRef; operator: string; value: string | null }
 export type DatabaseHistoryStatus = { databaseId: string; canUndo: boolean; canRedo: boolean }
@@ -2488,6 +2493,90 @@ revision: string;
  * Whether anything was written; `false` when every property that could exist already did.
  */
 changed: boolean; replayed: boolean; warnings: string[] }
+/**
+ * The meaning of a failure for a person, not the internal type that raised it.
+ */
+export type FailureReason = 
+/**
+ * The file changed after it was read (another window, another app, sync).
+ */
+"revision_conflict" | 
+/**
+ * The database is locked by its owner against edits.
+ */
+"locked" | 
+/**
+ * The database or view is in a newer format and is open for reading only.
+ */
+"read_only" | 
+/**
+ * The property, view, row or database is no longer there.
+ */
+"not_found" | 
+/**
+ * The name is already used.
+ */
+"name_taken" | 
+/**
+ * The name or title is empty, too long or not allowed.
+ */
+"invalid_name" | 
+/**
+ * A property type can change only after its values are cleared.
+ */
+"values_not_empty" | 
+/**
+ * Another property is computed from this one.
+ */
+"has_dependents" | 
+/**
+ * The formula does not parse.
+ */
+"formula_invalid" | 
+/**
+ * The last view of a database cannot be deleted.
+ */
+"last_view" | 
+/**
+ * The settings are not allowed for this property or view.
+ */
+"invalid_config" | 
+/**
+ * A relation is not valid: no reciprocal property, wrong target.
+ */
+"relation_invalid" | 
+/**
+ * A value or a file is not valid (a number, a date, a frontmatter value).
+ */
+"invalid_value" | 
+/**
+ * A file is too large or over a limit.
+ */
+"too_large" | 
+/**
+ * The operation failed half-way and was rolled back; nothing changed.
+ */
+"rolled_back" | 
+/**
+ * An earlier interrupted operation must finish first.
+ */
+"recovery_required" | 
+/**
+ * The result list moved on; the caller asks again from the start.
+ */
+"stale_cursor" | 
+/**
+ * The two sources of a value disagree and a person must choose.
+ */
+"yaml_conflict" | 
+/**
+ * A file could not be read or written.
+ */
+"io" | 
+/**
+ * Nothing more specific is known.
+ */
+"failed"
 export type FileMetadata = { created: number | null; modified: number | null; word_count: number }
 /**
  * Read-only view of a single YAML frontmatter entry. The original YAML stays

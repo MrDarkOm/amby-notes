@@ -9,6 +9,7 @@ import {
   type DatabaseFilterNode,
 } from "@/lib/storage"
 import { useDatabaseStore } from "./database-store"
+import { reportOperationError } from "@/lib/operation-errors"
 
 interface ChartViewProps {
   databaseId: string
@@ -54,7 +55,7 @@ export function ChartView({
       if (mine === requestToken.current) setResult(next)
     } catch (reason) {
       if (mine === requestToken.current) {
-        setError(reason instanceof Error ? reason.message : String(reason))
+        setError(reportOperationError(reason))
       }
     } finally {
       if (mine === requestToken.current) setLoading(false)

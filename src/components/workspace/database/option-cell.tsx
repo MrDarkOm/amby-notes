@@ -17,6 +17,7 @@ import {
 import { ReorderableRow } from "./reorderable-row"
 import { StatusBadge } from "./property-value"
 import { missingOptionChip, safeOptionColor, type DisplayChip } from "./value-format"
+import { ShownError, reportOperationError } from "@/lib/operation-errors"
 
 interface OptionCellProps {
   property: DatabasePropertySummary
@@ -91,7 +92,7 @@ export function OptionCell({
   const status = property.propertyType === "status"
   const saveList = async (next: OptionDraft[]) => {
     const found = findDraftProblem(next)
-    if (found) throw new Error(t(`databaseOptions.${found.problem}`))
+    if (found) throw new ShownError(t(`databaseOptions.${found.problem}`))
     setListError(null)
     try {
       await actions?.saveOptions(property.propertyId, next)
@@ -101,9 +102,7 @@ export function OptionCell({
     }
   }
   const saveQuietly = (next: OptionDraft[]) =>
-    void saveList(next).catch((failure) =>
-      setListError(failure instanceof Error ? failure.message : String(failure)),
-    )
+    void saveList(next).catch((failure) => setListError(reportOperationError(failure)))
   const trimmedQuery = query.trim()
   const visibleOptions = trimmedQuery
     ? property.options.filter((option) =>

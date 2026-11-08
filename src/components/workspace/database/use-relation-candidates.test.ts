@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as storage from "@/lib/storage"
 import { useDatabaseStore } from "./database-store"
 import { useRelationCandidates } from "./use-relation-candidates"
+import { databaseFailure } from "@/lib/test-utils/errors"
 
 const candidate = (index: number) => ({
   noteId: `01J${String(index).padStart(23, "0")}`,
@@ -60,13 +61,16 @@ describe("useRelationCandidates", () => {
   it("reports a failure as an error, not as an empty list, and can retry", async () => {
     const search = vi
       .spyOn(storage, "searchRelationCandidates")
-      .mockRejectedValueOnce(new Error("projection unavailable"))
+      .mockRejectedValueOnce(
+        databaseFailure("failed", "projection unavailable", "relationSearchFailed"),
+      )
       .mockResolvedValueOnce({ candidates: [candidate(1)], nextCursor: null })
     const { result } = renderHook(() =>
       useRelationCandidates({ databaseId: "db", query: "", enabled: true }),
     )
     await waitFor(() => expect(result.current.status).toBe("error"))
-    expect(result.current.error).toBe("projection unavailable")
+    expect(result.current.error).toContain("relationSearchFailed")
+    expect(result.current.error).not.toContain("projection unavailable")
     act(() => result.current.retry())
     await waitFor(() => expect(result.current.status).toBe("ready"))
     expect(search).toHaveBeenCalledTimes(2)

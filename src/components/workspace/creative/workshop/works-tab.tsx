@@ -46,7 +46,6 @@ import {
 } from "./plot-model"
 import type { PlotBinding } from "./use-plot-binding"
 import { useCreativeNavStore } from "../creative-nav-store"
-import { projectErrorText } from "../project-error"
 import { standaloneTargetId, universeTargetId } from "../project-tree-model"
 import { formatModified } from "../../workspace-tree-utils"
 import { moveRowInOrder, type RowDropPlacement } from "../../database/row-order"
@@ -71,6 +70,7 @@ import {
   type MovePlan,
   type TextNode,
 } from "./text-tree-model"
+import { projectErrorText } from "@/lib/operation-errors"
 
 interface WorksTabProps {
   workshop: WorkshopSummary
@@ -214,7 +214,7 @@ interface TreeContext {
   /** An anchor or an arc was dropped on a page. */
   onPlotDrop?: (pageId: string, kind: PlotKind, targetId: string) => void
   /** The failure of the last binding, shown under the row it belongs to. */
-  plotError: { rowId: string; message: string } | null
+  plotError: { rowId: string; text: string } | null
 }
 
 function TreeRows({
@@ -353,7 +353,7 @@ function TreeRows({
               </div>
             </ItemMenu>
             {context.plotError?.rowId === node.noteId && (
-              <RowError message={context.plotError.message} indent={treeIndent(depth + 1)} />
+              <RowError message={context.plotError.text} indent={treeIndent(depth + 1)} />
             )}
             {open && (node.children.length > 0 || draftHere) && (
               <>
@@ -707,7 +707,7 @@ function StoryWorks({
     const reorder = pageIds.length === 0 && canWrite
     const over = reorder && anchorDrag?.overId === row.noteId ? anchorDrag.placement : null
     const pageTitles = pageIds.map(pageTitleOf)
-    const error = plot.binding?.error?.rowId === row.noteId ? plot.binding.error.message : null
+    const error = plot.binding?.error?.rowId === row.noteId ? plot.binding.error.text : null
     return (
       <React.Fragment key={row.noteId}>
         <ItemMenu

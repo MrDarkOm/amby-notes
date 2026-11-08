@@ -5,6 +5,7 @@ import * as storage from "@/lib/storage"
 import type { DatabaseRow } from "@/lib/storage"
 import { useDatabaseStore } from "./database-store"
 import { useBoardLanes } from "./use-board-lanes"
+import { databaseFailure } from "@/lib/test-utils/errors"
 
 const options = [
   { optionId: "todo", name: "To do", color: "#94a3b8" },
@@ -151,10 +152,13 @@ describe("useBoardLanes", () => {
   })
 
   it("reports a failed aggregate as an error and stays idle while disabled", async () => {
-    vi.spyOn(storage, "aggregateDatabase").mockRejectedValue(new Error("projection unavailable"))
+    vi.spyOn(storage, "aggregateDatabase").mockRejectedValue(
+      databaseFailure("failed", "projection unavailable", "projectionReadFailed"),
+    )
     const failing = render()
     await waitFor(() => expect(failing.result.current.status).toBe("error"))
-    expect(failing.result.current.error).toBe("projection unavailable")
+    expect(failing.result.current.error).toContain("projectionReadFailed")
+    expect(failing.result.current.error).not.toContain("projection unavailable")
     const idle = render({ enabled: false })
     expect(idle.result.current.status).toBe("idle")
   })

@@ -15,6 +15,7 @@ import {
   workshopSummary,
 } from "./project-fixtures.test-support"
 import { useProjectStore } from "./project-store"
+import { databaseFailure } from "@/lib/test-utils/errors"
 
 const queryDatabase = vi.fn()
 const listTextStats = vi.fn()
@@ -550,11 +551,12 @@ describe("CreativePanel: the stories above the lists, the universes below them",
 
     it("keeps the story and says why when the relation could not be written", async () => {
       chooseMir()
-      updateDatabaseRelationValue.mockRejectedValue(new Error("файл занят"))
+      updateDatabaseRelationValue.mockRejectedValue(databaseFailure("io", "файл занят"))
       const onOpen = await makeStory()
       const alert = await screen.findByRole("alert")
       expect(alert.textContent).toContain("История создана, но не привязана к вселенной")
-      expect(alert.textContent).toContain("файл занят")
+      expect(alert.textContent).toContain("прочитать или записать")
+      expect(alert.textContent).not.toContain("файл занят")
       // The story is not lost: its page opens and it is not selected under the universe.
       expect(onOpen).toHaveBeenCalledWith("fresh", undefined)
       expect(useCreativeNavStore.getState().storyFilter).not.toBe("fresh")

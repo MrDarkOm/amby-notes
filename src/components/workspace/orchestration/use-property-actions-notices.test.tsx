@@ -10,6 +10,7 @@ import { usePropertyMigrationStore } from "../note-notices/use-property-migratio
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import { usePropertyActions } from "./use-property-actions"
+import { desktopOperationError } from "@/lib/storage/operation-error"
 
 vi.mock("@/lib/storage", async (original) => ({
   ...(await original<typeof import("@/lib/storage")>()),
@@ -99,7 +100,9 @@ describe("properties and the notices", () => {
         { id: "p", name: "Статус 2", icon: "", propertyType: "text", value: "", settings: "" },
       ],
     }
-    vi.mocked(storage.renameProperty).mockRejectedValueOnce(new Error("No such property: Статус"))
+    vi.mocked(storage.renameProperty).mockRejectedValueOnce(
+      desktopOperationError("No such property: Статус"),
+    )
     vi.mocked(storage.getNoteProperties).mockResolvedValue(changed)
     const hook = open()
     await act(async () => {

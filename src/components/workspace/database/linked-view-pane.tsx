@@ -53,6 +53,7 @@ import { ViewSortEditor } from "./view-sort-editor"
 import { conditionsToFilter } from "./view-config"
 import { viewLabel } from "./linked-block"
 import { toQueryFilter } from "./view-config"
+import { ShownError, reportOperationError } from "@/lib/operation-errors"
 
 const EMPTY_PROPERTIES: DatabasePropertySummary[] = []
 const EMPTY_ROWS: DatabaseRow[] = []
@@ -296,7 +297,7 @@ export function LinkedViewPane({
         !groupProperty ||
         (groupProperty.propertyType !== "select" && groupProperty.propertyType !== "status")
       ) {
-        throw new Error(t("databaseBoard.unsupportedValue"))
+        throw new ShownError(t("databaseBoard.unsupportedValue"))
       }
       await applyDatabaseValueBatch({
         expectedGeneration: vaultGeneration,
@@ -369,7 +370,7 @@ export function LinkedViewPane({
             })
           }
         } catch (failure) {
-          linkFailure = failure instanceof Error ? failure.message : String(failure)
+          linkFailure = reportOperationError(failure)
         }
       }
       setNotice(
@@ -383,7 +384,7 @@ export function LinkedViewPane({
       )
       useDatabaseStore.getState().invalidateHosts()
     } catch (failure) {
-      setNotice(failure instanceof Error ? failure.message : String(failure))
+      setNotice(reportOperationError(failure))
     } finally {
       setCreating(false)
     }

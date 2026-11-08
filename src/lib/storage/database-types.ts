@@ -1,3 +1,5 @@
+import type { FailureReason } from "@/lib/bindings"
+
 export interface ProjectionVersion {
   epoch: string
   seq: number
@@ -624,13 +626,19 @@ export type DatabaseError =
   | { kind: "moduleDisabled" }
   | { kind: "vaultNotOpen" }
   | { kind: "vaultGenerationConflict"; actual_generation: number }
-  | { kind: "failed"; code: string; message: string }
+  | { kind: "failed"; code: string; reason: FailureReason; message: string }
 
+/**
+ * A refused database operation. `code` names the command, `reason` says why in terms a person can
+ * act on (src-tauri/src/database/failure.rs). `message` is the developer's sentence: it goes to
+ * the logs and never to the screen (docs/notices.md §10).
+ */
 export class DatabaseOperationError extends Error {
   constructor(
     public readonly kind: DatabaseError["kind"],
     message: string,
     public readonly code?: string,
+    public readonly reason?: FailureReason,
   ) {
     super(message)
     this.name = "DatabaseOperationError"

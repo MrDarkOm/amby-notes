@@ -34,6 +34,7 @@ import {
 } from "../note-mutation-queue"
 import { workspaceRelativePath } from "../vault/use-vault-session"
 import type { AttachmentItem } from "../panel-registry"
+import { isNotFoundError, operationErrorCode } from "@/lib/operation-errors"
 
 type OpenDocument = ReturnType<typeof useDocStore.getState>["openDocs"][string]
 
@@ -236,12 +237,10 @@ export function usePropertyActions({
           logger.error("property.mutation_failed", {
             noteId,
             errorType: errorType(error),
-            message: error instanceof Error ? error.message : String(error),
+            failureCode: operationErrorCode(error),
           })
           // The property the person edited is gone under its old name: another computer changed it.
-          const changedElsewhere = /No such property/iu.test(
-            error instanceof Error ? error.message : String(error),
-          )
+          const changedElsewhere = isNotFoundError(error)
           useNoteNoticesStore.getState().setPropertyFailed(currentDoc.id, !changedElsewhere)
           if (isCurrent()) {
             setFailure({ generation, noteId, changedElsewhere })

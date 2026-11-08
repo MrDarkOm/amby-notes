@@ -7,6 +7,7 @@ are in [commands/database.rs](../commands/database.rs); frontend contracts are i
 | Concern                                       | Owner                                                                                                    |
 | --------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | Domain/IPC types                              | [model.rs](model.rs)                                                                                     |
+| Failure reasons (stable codes for the UI)     | [failure.rs](failure.rs): `FailureReason`, `classify`; see docs/database-runtime.md §12                  |
 | Durable parse/validation/discovery            | [format.rs](format.rs), [validation.rs](validation.rs), [discovery.rs](discovery.rs)                     |
 | Schema/value mutations and write coordination | [mutations/](mutations/) (one module per kind, see below), [mutation_state.rs](mutation_state.rs)                                     |
 | Rows (create, duplicate) and attachments      | [rows.rs](rows.rs), [assets.rs](assets.rs)                                                               |

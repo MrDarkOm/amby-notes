@@ -11,6 +11,7 @@ import {
 } from "@/lib/storage"
 import { CreateProjectDialog } from "./create-project-dialog"
 import { workshopSummary } from "./project-fixtures.test-support"
+import {} from "@/lib/test-utils/errors"
 
 const createStory = vi.hoisted(() => vi.fn())
 const createWorkshopSection = vi.hoisted(() => vi.fn())
@@ -242,7 +243,7 @@ describe("CreateProjectDialog", () => {
     mount()
     type("Saga")
     submit()
-    expect((await screen.findByRole("alert")).textContent).toContain("Персонажи: not a directory")
+    expect((await screen.findByRole("alert")).textContent).toContain("часть созданного осталась")
   })
 
   it("sends the names of the base sections in the language that is active", async () => {

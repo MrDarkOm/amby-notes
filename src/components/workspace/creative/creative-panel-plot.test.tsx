@@ -15,6 +15,7 @@ import {
   workshopSummary,
 } from "./project-fixtures.test-support"
 import { useProjectStore } from "./project-store"
+import { databaseFailure } from "@/lib/test-utils/errors"
 
 const queryDatabase = vi.fn()
 const ensurePlotLinks = vi.fn()
@@ -452,11 +453,14 @@ describe("CreativePanel: anchors and arcs bound to the pages of a story", () => 
     })
 
     it("says on the page row why a binding failed, and nothing else changes", async () => {
-      updateDatabaseRelationValue.mockRejectedValue(new Error("The page changed"))
+      updateDatabaseRelationValue.mockRejectedValue(
+        databaseFailure("revision_conflict", "The page changed"),
+      )
       await ready()
       dragOnto(rowButton("Эпилог"), "c2")
       const alert = await screen.findByRole("alert")
-      expect(alert.textContent).toContain("The page changed")
+      expect(alert.textContent).toContain("изменилась в другом месте")
+      expect(alert.textContent).not.toContain("The page changed")
       // It stands under the row of the page it was dropped on.
       expect(pageRow("c2").parentElement?.contains(alert)).toBe(true)
       expect(alert.previousElementSibling?.contains(pageRow("c2"))).toBe(true)
@@ -558,12 +562,13 @@ describe("CreativePanel: anchors and arcs bound to the pages of a story", () => 
     })
 
     it("shows the failure of an unbinding on the anchor's row", async () => {
-      updateDatabaseRelationValue.mockRejectedValue(new Error("Locked"))
+      updateDatabaseRelationValue.mockRejectedValue(databaseFailure("locked", "Locked"))
       await ready()
       await openSubmenu(screen.getByText("Финал"), "Отвязать от страницы")
       fireEvent.click(await screen.findByRole("menuitem", { name: "Глава вторая" }))
       const alert = await screen.findByRole("alert")
-      expect(alert.textContent).toContain("Locked")
+      expect(alert.textContent).toContain("закрыта от изменений")
+      expect(alert.textContent).not.toContain("Locked")
       expect(alert.previousElementSibling?.contains(rowButton("Финал"))).toBe(true)
     })
   })

@@ -1,6 +1,7 @@
 import * as React from "react"
 import { queryDatabase, type DatabaseRow } from "@/lib/storage"
 import { useDatabaseStore } from "../../database/database-store"
+import { reportOperationError } from "@/lib/operation-errors"
 
 const PAGE_SIZE = 200
 const MAX_PAGES = 5
@@ -17,7 +18,7 @@ export interface DatabaseRowsState {
 const IDLE: DatabaseRowsState = { rows: {}, status: "idle", error: null, truncated: false }
 
 function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  return reportOperationError(error)
 }
 
 /**

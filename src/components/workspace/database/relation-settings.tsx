@@ -7,6 +7,7 @@ import type { RelationConfigState } from "./property-settings"
 import { AmbySelect } from "@/components/ui/amby-select"
 import { SettingInlineRow } from "./property-settings-ui"
 import { usePropertyHasValues } from "./use-property-has-values"
+import { reportOperationError } from "@/lib/operation-errors"
 
 interface Stored {
   targetDatabaseId: string
@@ -81,7 +82,7 @@ export function RelationSettings({
         inversePropertyName: twoWay ? currentDatabaseTitle : "",
       })
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      setError(reportOperationError(failure))
     } finally {
       setBusy(false)
     }

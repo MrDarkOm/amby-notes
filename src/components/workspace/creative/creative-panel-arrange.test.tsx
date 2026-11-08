@@ -15,6 +15,7 @@ import {
   workshopSummary,
 } from "./project-fixtures.test-support"
 import { useProjectStore } from "./project-store"
+import { databaseFailure, projectRevisionConflict } from "@/lib/test-utils/errors"
 
 const queryDatabase = vi.fn()
 const moveTextPage = vi.fn()
@@ -327,13 +328,13 @@ describe("CreativePanel: moving pages and anchors without the mouse", () => {
     })
 
     it("says what the backend refused, on the part, and reads the pages again", async () => {
-      moveTextPage.mockRejectedValue(new Error("The page changed"))
+      moveTextPage.mockRejectedValue(projectRevisionConflict())
       await ready()
       const reads = queryDatabase.mock.calls.length
       await openMenu(pageRow("c2"))
       fireEvent.click(entry("Выше")!)
       const alert = await screen.findByRole("alert")
-      expect(alert.textContent).toContain("The page changed")
+      expect(alert.textContent).toContain("Файл мастерской изменился")
       await waitFor(() => expect(queryDatabase.mock.calls.length).toBeGreaterThan(reads))
     })
 
@@ -404,12 +405,15 @@ describe("CreativePanel: moving pages and anchors without the mouse", () => {
     })
 
     it("shows why a save failed on the part", async () => {
-      updateDatabaseViewConfig.mockRejectedValue(new Error("The view changed"))
+      updateDatabaseViewConfig.mockRejectedValue(
+        databaseFailure("revision_conflict", "The view changed"),
+      )
       await ready()
       await openMenu(screen.getByText("Мечта"))
       fireEvent.click(entry("Ниже")!)
       const alert = await screen.findByRole("alert")
-      expect(alert.textContent).toContain("The view changed")
+      expect(alert.textContent).toContain("изменилась в другом месте")
+      expect(alert.textContent).not.toContain("The view changed")
     })
 
     it("offers no order in a workshop that is read-only", async () => {

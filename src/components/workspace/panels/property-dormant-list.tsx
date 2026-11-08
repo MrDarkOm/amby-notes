@@ -7,6 +7,7 @@ import {
   restoreDormantProperty,
   type PropertyPanel,
 } from "@/lib/properties/property-groups-port"
+import { reportOperationError } from "@/lib/operation-errors"
 
 const buttonClass =
   "rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
@@ -40,7 +41,7 @@ export function PropertyDormantList({ noteId }: { noteId: string }) {
       await action()
       setFailure(null)
     } catch (error) {
-      setFailure(error instanceof Error ? error.message : String(error))
+      setFailure(reportOperationError(error))
     } finally {
       setBusy(false)
       await load()
