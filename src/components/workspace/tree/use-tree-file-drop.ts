@@ -1,17 +1,12 @@
 import * as React from "react"
-import { useTranslation } from "react-i18next"
 
-import {
-  importFiles,
-  isTauri,
-  showErrorMessage,
-  type ImportFilesResult,
-  type TreeItem,
-} from "@/lib/storage"
+import i18n from "@/lib/i18n"
+import { importFiles, isTauri, type ImportFilesResult, type TreeItem } from "@/lib/storage"
 import { logger, errorType } from "@/lib/logger"
 import { tauriDropClientPosition } from "../tiptap/media-drop"
 import { findTreeItem } from "../workspace-tree-utils"
 import { ROOT_DROP_TARGET } from "./tree-types"
+import { useTreeMessageStore } from "./use-tree-message-store"
 
 const OVER_CLASS = "tree-file-drop-over"
 
@@ -44,6 +39,32 @@ export function skippedSummary(
   return skipped.map((entry) => `${entry.name} (${reasonText(entry.reason)})`).join("\n")
 }
 
+/** Some of the files could not be copied: the line under the tree names them and the reasons (a warning). */
+export function reportImportOutcome(result: Pick<ImportFilesResult, "skipped">): void {
+  if (result.skipped.length === 0) return
+  useTreeMessageStore.getState().show({
+    id: "import-skipped",
+    level: "warning",
+    titleKey: "notices.tree.importSkipped",
+    params: {
+      list: skippedSummary(result.skipped, (reason) =>
+        i18n.t(`filesPanel.importReason.${reason}`, { defaultValue: reason }),
+      ),
+    },
+  })
+}
+
+/** Nothing was copied: said under the tree in words; the cause stays in the log, not on the screen. */
+export function reportImportFailure(error: unknown): void {
+  logger.error("tree.import_files_failed", { error: errorType(error) })
+  useTreeMessageStore.getState().show({
+    id: "import-failed",
+    level: "warning",
+    titleKey: "filesPanel.importFailed",
+    lineKey: "notices.tree.nothingChanged",
+  })
+}
+
 /**
  * Files and folders dragged from the system onto the file tree are copied into the folder under
  * the pointer (the vault root over empty space). Tauri's webview consumes such drops before the
@@ -58,11 +79,10 @@ export function useTreeFileDrop({
   vault: string | null
   treeItems: TreeItem[]
 }) {
-  const { t } = useTranslation()
-  const latest = React.useRef({ vault, treeItems, t })
+  const latest = React.useRef({ vault, treeItems })
   React.useEffect(() => {
-    latest.current = { vault, treeItems, t }
-  }, [vault, treeItems, t])
+    latest.current = { vault, treeItems }
+  }, [vault, treeItems])
 
   React.useEffect(() => {
     if (!isTauri()) return
@@ -130,25 +150,15 @@ export function useTreeFileDrop({
         if (payload.type !== "drop") return
         clearMark()
         if (!target || !payload.paths?.length) return
-        const { t: translate } = latest.current
         try {
           const result = await importFiles(target.folder ?? null, payload.paths)
           logger.info("tree.import_files", {
             imported: result.imported.length,
             skipped: result.skipped.length,
           })
-          if (result.skipped.length > 0) {
-            await showErrorMessage(
-              `${translate("filesPanel.importSkipped")}\n${skippedSummary(
-                result.skipped,
-                (reason) =>
-                  translate(`filesPanel.importReason.${reason}`, { defaultValue: reason }),
-              )}`,
-            )
-          }
+          reportImportOutcome(result)
         } catch (error) {
-          logger.error("tree.import_files_failed", { error: errorType(error) })
-          await showErrorMessage(translate("filesPanel.importFailed")).catch(() => {})
+          reportImportFailure(error)
         }
       })
       if (disposed) off()

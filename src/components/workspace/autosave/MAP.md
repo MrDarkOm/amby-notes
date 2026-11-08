@@ -27,10 +27,10 @@ Canceling a failed-save confirmation leaves the vault attached. Detached records
 recent history (`VaultRecord.detached`); successful activation reconnects them.
 
 A failed save of an open note sets `saveFailed` in [note-notices](../note-notices/MAP.md) (cleared by the next successful save or a
-new load); the native error dialog stays only for a note that is no longer open. A recovery draft that differs from the disk is
+new load); a note that is no longer open gets a record of danger and a toast (`closedSaveFailed`), never a window of the system. A recovery draft that differs from the disk is
 not asked about in a dialog: `resolveMarkdownRecoveryLoad` returns it as an `offer`, `use-document-loading.ts` registers it as a
 draft offer (accept: draft into the buffer, history snapshot, queued save; reject: drop it from the journal) and the note stays read
-only until the answer. The journal keeps the draft meanwhile. Canvas and sketch still use the confirm dialog.
+only until the answer. The journal keeps the draft meanwhile. Canvas and sketch ask in the window of the application (`confirmations.restoreDraft`): "no" still drops the draft. The question about overwriting a file changed elsewhere ([file-revision-tracker.ts](file-revision-tracker.ts)) and the questions of the vault switch and of the migration of ids ([use-vault-data.ts](../use-vault-data.ts)) are asked the same way.
 
 The save that may first rewrite a block's source asks for a history snapshot through
 [source-rewrite.ts](source-rewrite.ts) (`rewritesSource` on the write).

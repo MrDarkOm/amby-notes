@@ -19,7 +19,11 @@ vi.mock("@tauri-apps/api/event", () => ({
   emit: vi.fn(async () => {}),
 }))
 vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => ({ label: "main" }),
+  getCurrentWindow: () => ({
+    label: "main",
+    onCloseRequested: async () => () => {},
+    onFocusChanged: async () => () => {},
+  }),
 }))
 vi.mock("./autosave/autosave-lifecycle", async (original) => ({
   ...(await original<typeof import("./autosave/autosave-lifecycle")>()),
@@ -55,10 +59,14 @@ async function load(path: string | null = "/new") {
   await act(async () => {
     await hook.result.current.loadVault(path)
   })
+  // Whatever the mount started on its own has finished too.
+  await act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)))
   return hook
 }
 
 beforeEach(async () => {
+  // A vault opened by an earlier test is remembered as the last one and would be reopened on mount.
+  window.localStorage.clear()
   await i18n.changeLanguage("ru")
   vi.mocked(confirm).mockReset()
   vi.mocked(storage.preflightVault).mockReset().mockResolvedValue(clean)

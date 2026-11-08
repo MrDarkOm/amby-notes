@@ -1,11 +1,12 @@
 import * as React from "react"
 import i18n from "@/lib/i18n"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
 import { useViewStateStore, type EditorLayer } from "./use-view-state-store"
 import { useDocStore, type Document } from "./use-doc-store"
 import type { TreeItem } from "./sidebar-tree"
 import type { FsMutationResult, LayerKind, LayerResult } from "@/lib/storage"
 import {
-  confirmAction,
   createDatabase,
   createLayer,
   unlinkLayer,
@@ -405,8 +406,8 @@ export function useLayers({
     if (!currentDoc || !vault) return
     if (layer === "database") return
     if (
-      !(await confirmAction(
-        t("workspace.deleteLayerConfirm", { layer: t(`layer.${layer}`), title: currentDoc.title }),
+      !(await confirm(
+        confirmations.deleteLayer({ layer: t(`layer.${layer}`), title: currentDoc.title }),
       ))
     )
       return

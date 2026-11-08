@@ -7,7 +7,9 @@ import {
   scheduleRecoveryDraft,
   type RecoveryScope,
 } from "@/lib/recovery-drafts"
-import { confirmAction, readFile } from "@/lib/storage"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
+import { readFile } from "@/lib/storage"
 import { recordAutosaveDiagnostic } from "@/lib/debug/autosave"
 import { logger, errorType } from "@/lib/logger"
 import { useDocStore } from "../use-doc-store"
@@ -21,7 +23,11 @@ import { CanvasLoadDeduplicator } from "./canvas-load-dedup"
 type SketchAutosavePayload = { path: string; json: string }
 
 /** Owns Excalidraw sketch buffers and their recovery/autosave lifecycle. */
-export function useSketchWorkspace(generation: number, t: TFunction, recoveryScope: RecoveryScope) {
+export function useSketchWorkspace(
+  generation: number,
+  _t: TFunction,
+  recoveryScope: RecoveryScope,
+) {
   const openSketchesRef = React.useRef<Record<string, string>>({})
   const [, setSketchRevision] = React.useState(0)
   const setOpenSketches = React.useCallback(
@@ -111,7 +117,7 @@ export function useSketchWorkspace(generation: number, t: TFunction, recoverySco
           }
         }
         const restoreConfirmed = recoveryNeedsConfirmation(diskContent, recoveredContent)
-          ? await confirmAction(t("recovery.restorePrompt"))
+          ? await confirm(confirmations.restoreDraft())
           : false
         const resolved = resolveRecoveryContent(diskContent, recoveredContent, restoreConfirmed)
         if (resolved.discardDraft) void discardRecoveryDraft(path, recoveryScope)
@@ -122,7 +128,7 @@ export function useSketchWorkspace(generation: number, t: TFunction, recoverySco
         setOpenSketches((prev) => ({ ...prev, [path]: resolved.content }))
         return resolved.content
       }),
-    [autosave, autosaveKey, generation, recoveryScope, setOpenSketches, t],
+    [autosave, autosaveKey, generation, recoveryScope, setOpenSketches],
   )
 
   const handleSketchSave = React.useCallback(

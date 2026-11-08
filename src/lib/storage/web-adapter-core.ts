@@ -1593,14 +1593,6 @@ export class WebAdapterCore implements StoragePort {
     })
   }
 
-  async confirmAction(message: string): Promise<boolean> {
-    return typeof window !== "undefined" ? window.confirm(message) : false
-  }
-
-  async showErrorMessage(message: string): Promise<void> {
-    if (typeof window !== "undefined") window.alert(message)
-  }
-
   async readGlobalRaw(file: string): Promise<string | null> {
     return withWebStorage(() => metadataStorage.readGlobal(file))
   }

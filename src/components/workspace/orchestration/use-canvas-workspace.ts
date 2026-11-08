@@ -8,7 +8,9 @@ import {
   scheduleRecoveryDraft,
   type RecoveryScope,
 } from "@/lib/recovery-drafts"
-import { confirmAction, readFile } from "@/lib/storage"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
+import { readFile } from "@/lib/storage"
 import { recordAutosaveDiagnostic } from "@/lib/debug/autosave"
 import { logger, errorType } from "@/lib/logger"
 import { useDocStore } from "../use-doc-store"
@@ -22,7 +24,11 @@ import { CanvasLoadDeduplicator } from "./canvas-load-dedup"
 type CanvasAutosavePayload = { path: string; json: string }
 
 /** Owns Obsidian .canvas buffers and their recovery/autosave lifecycle. */
-export function useCanvasWorkspace(generation: number, t: TFunction, recoveryScope: RecoveryScope) {
+export function useCanvasWorkspace(
+  generation: number,
+  _t: TFunction,
+  recoveryScope: RecoveryScope,
+) {
   // Canvas editing already owns a React Flow buffer below. Keep the latest
   // serialized values in a ref so each drag/text checkpoint does not re-render
   // WorkspaceOrchestration and every cached document editor. Explicit buffer
@@ -115,7 +121,7 @@ export function useCanvasWorkspace(generation: number, t: TFunction, recoverySco
           }
         }
         const restoreConfirmed = recoveryNeedsConfirmation(diskContent, recoveredContent)
-          ? await confirmAction(t("recovery.restorePrompt"))
+          ? await confirm(confirmations.restoreDraft())
           : false
         const resolved = resolveRecoveryContent(diskContent, recoveredContent, restoreConfirmed)
         if (resolved.discardDraft) void discardRecoveryDraft(path, recoveryScope)
@@ -126,7 +132,7 @@ export function useCanvasWorkspace(generation: number, t: TFunction, recoverySco
         setOpenCanvases((prev) => ({ ...prev, [path]: resolved.content }))
         return resolved.content
       }),
-    [autosave, autosaveKey, generation, recoveryScope, setOpenCanvases, t],
+    [autosave, autosaveKey, generation, recoveryScope, setOpenCanvases],
   )
 
   const handleCanvasSave = React.useCallback(

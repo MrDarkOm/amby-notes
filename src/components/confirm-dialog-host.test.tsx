@@ -31,6 +31,8 @@ function ask(options: Parameters<typeof confirm>[0]) {
   return result
 }
 const flush = () => act(async () => void (await Promise.resolve()))
+// Radix arms its "click outside" listener and gives the focus back one tick after the window opens or closes.
+const tick = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 30)))
 const dialog = () => screen.queryByRole("alertdialog")
 
 beforeEach(async () => {
@@ -86,8 +88,10 @@ describe("the window", () => {
   it("says no with a click beside the window", async () => {
     render(<ConfirmDialogHost />)
     const result = ask(danger)
-    fireEvent.pointerDown(document.body)
-    await flush()
+    await tick()
+    // happy-dom's PointerEvent does not reach Radix's listener, a plain event of the same name does.
+    document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }))
+    await tick()
     expect(result.answer).toBe(false)
     expect(dialog()).toBeNull()
   })
@@ -164,7 +168,7 @@ describe("the look and the focus", () => {
     ask(danger)
     expect(document.activeElement).not.toBe(opener)
     fireEvent.click(screen.getByRole("button", { name: "Отмена" }))
-    await flush()
+    await tick()
     expect(document.activeElement).toBe(opener)
   })
 })
@@ -192,7 +196,7 @@ describe("over another window", () => {
     const result = ask(danger)
     const box = screen.getByRole("alertdialog")
     // The question comes later in the document than the window below, so it is drawn over it.
-    const below = screen.getByRole("dialog", { name: "Журнал отладки", hidden: true })
+    const below = document.querySelector<HTMLElement>('[role="dialog"]')!
     expect(below.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "Удалить" }))
     await flush()

@@ -1,5 +1,4 @@
 import * as React from "react"
-import { useTranslation } from "react-i18next"
 import { useVaultStore } from "./use-vault-store"
 import { deduplicateVaultRecords, reconcileVaultRecord } from "./vault-records"
 import { useDocStore } from "./use-doc-store"
@@ -15,6 +14,9 @@ import {
   WORKSPACES_SCHEMA_VERSION,
 } from "./app-config"
 import { remapRecoveryDraft } from "@/lib/recovery-drafts"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
+import { useAppNoticesStore } from "./notices/use-app-notices-store"
 import { adoptAsyncDisposer } from "@/lib/async-disposable"
 import { applySessionRemap, reconcileTreeBackedTabTitles } from "./workspace-mutations"
 import {
@@ -42,8 +44,6 @@ import {
   getLinkGraph,
   startVaultWatcher,
   stopVaultWatcher,
-  confirmAction,
-  showErrorMessage,
   type LinkGraph,
   type TreePatch,
 } from "@/lib/storage"
@@ -91,7 +91,6 @@ export interface UseVaultDataOptions {
 const WATCHER_PATH_REFRESH_LIMIT = 200
 
 export function useVaultData(options: UseVaultDataOptions = {}) {
-  const { t } = useTranslation()
   const onExternalChangeRef = React.useRef(options.onExternalChange)
   onExternalChangeRef.current = options.onExternalChange
   const desktop = isTauri()
@@ -277,7 +276,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         } catch (error) {
           logger.warn("vault_switch.autosave_flush_failed", { errorType: errorType(error) })
         }
-        if (!flush.flushed && !(await confirmAction(t("recovery.switchAfterSaveFailure")))) return
+        if (!flush.flushed && !(await confirm(confirmations.switchAfterSaveFailure()))) return
       }
       if (activateBackend && !path) {
         if (currentVault && ownsPersistence) {
@@ -315,15 +314,15 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         let preflight = await preflightVault(path)
         let unfinished = preflight.unfinishedMigrations[0]
         while (unfinished) {
-          const resume = await confirmAction(
-            t("workspace.migrationResumeConfirm", { files: unfinished.files.length }),
+          const resume = await confirm(
+            confirmations.resumeMigration({ files: unfinished.files.length }),
           )
           if (resume) {
             await recoverIdMigration(path, unfinished.journalPath, "resume")
             preflight = await preflightVault(path)
             unfinished = preflight.unfinishedMigrations[0]
           } else {
-            const rollback = await confirmAction(t("workspace.migrationRollbackConfirm"))
+            const rollback = await confirm(confirmations.rollbackMigration())
             if (rollback) {
               await recoverIdMigration(path, unfinished.journalPath, "rollback")
             }
@@ -355,16 +354,19 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         warning.startsWith("recovery:"),
       )
       if (recoveryNotices.length > 0) {
-        // Stuck recovery data was preserved, not applied or deleted; tell the user.
-        void showErrorMessage(
-          t("errors.recoveryNotices", {
-            count: recoveryNotices.length,
-            details: recoveryNotices
-              .slice(0, 3)
-              .map((notice) => notice.replace(/^recovery:/, ""))
-              .join("\n"),
-          }),
-        ).catch(() => undefined)
+        // Stuck recovery data was preserved, not applied or deleted. Nothing is lost and nothing waits for the
+        // person, so it is a warning in the centre (docs/notices.md, section 2.1); the kinds go to the log.
+        logger.warn("vault_open.recovery_notices", {
+          count: recoveryNotices.length,
+          kinds: recoveryNotices.map((notice) => notice.split(":")[1] ?? "unknown"),
+        })
+        useAppNoticesStore.getState().post({
+          id: "recovery-notices",
+          level: "warning",
+          titleKey: "notices.app.recoveryNotices.title",
+          params: { count: recoveryNotices.length },
+          lineKey: "notices.app.recoveryNotices.line",
+        })
       }
       setTreeItems(tree)
       setLinkGraph({ nodes: [], edges: [] })
@@ -434,16 +436,21 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     } catch (err) {
       if (switchRef.current.requestId === requestId) {
         logger.error("vault_switch.activation_failed", { errorType: errorType(err) })
-        const details = err instanceof Error ? err.message : String(err)
-        await showErrorMessage(
-          t(activateBackend && !path ? "errors.vaultCloseFailed" : "errors.vaultOpenFailed", {
-            details,
-          }),
-        ).catch((dialogError) =>
-          logger.warn("vault_switch.error_dialog_failed", {
-            errorType: errorType(dialogError),
-          }),
-        )
+        // The vault did not open (or close). Nothing was lost and the person has to try again or choose another
+        // vault: a decision in the centre, announced by a toast. The cause is in the log, not in the words.
+        useAppNoticesStore.getState().post({
+          id: activateBackend && !path ? "vault-close-failed" : "vault-open-failed",
+          level: "decision",
+          titleKey:
+            activateBackend && !path
+              ? "notices.app.vaultCloseFailed.title"
+              : "notices.app.vaultOpenFailed.title",
+          params: { name: path?.split(/[\\/]/u).filter(Boolean).pop() ?? "" },
+          lineKey:
+            activateBackend && !path
+              ? "notices.app.vaultCloseFailed.line"
+              : "notices.app.vaultOpenFailed.line",
+        })
       }
     } finally {
       if (switchRef.current.requestId === requestId) {

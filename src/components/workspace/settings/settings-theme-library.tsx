@@ -14,7 +14,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { confirmAction, exportTextFile, importTextFile } from "@/lib/storage"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
+import { exportTextFile, importTextFile } from "@/lib/storage"
 import {
   BUILTIN_THEME_FAMILIES,
   BUILTIN_THEMES,
@@ -125,8 +127,7 @@ export function ThemeLibrary({
   }
 
   async function removeTheme(theme: ThemeDefinition) {
-    if (!(await confirmAction(t("settings.appearance.themeRemoveConfirm", { name: theme.name }))))
-      return
+    if (!(await confirm(confirmations.removeTheme({ name: theme.name })))) return
     onThemesChange(themes.filter((item) => item.id !== theme.id))
     if (selectedThemeId === theme.id) onSelect("dark")
   }

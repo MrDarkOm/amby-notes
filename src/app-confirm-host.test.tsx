@@ -44,7 +44,7 @@ afterEach(() => {
 describe("the host of the confirmation window in App", () => {
   it("answers in the main window", async () => {
     const confirm = await mountApp("")
-    expect(screen.getByText("workspace")).toBeTruthy()
+    expect(await screen.findByText("workspace")).toBeTruthy()
     act(() => {
       void confirm({ title: "Удалить «План»?", confirmLabel: "Удалить", destructive: true })
     })

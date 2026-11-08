@@ -18,8 +18,8 @@ const database = {
   databaseId: "db1",
   manifestRevision: "m1",
   views: [
-    { viewId: "v1", name: "Таблица", revision: "r1" },
-    { viewId: "v2", name: "Доска", revision: "r2" },
+    { viewId: "v1", title: "Таблица", revision: "r1" },
+    { viewId: "v2", title: "Доска", revision: "r2" },
   ],
 } as never
 
@@ -76,9 +76,11 @@ describe("deleting a view", () => {
     )
   })
 
-  it("does not ask about a duplicate", async () => {
+  it("does not ask when a view is made the default one", async () => {
     const { hook } = setup()
-    await act(() => hook.result.current.mutateView("default", "v1")).catch(() => {})
+    await act(async () => {
+      await hook.result.current.mutateView("default", "v1")
+    })
     expect(confirm).not.toHaveBeenCalled()
   })
 })

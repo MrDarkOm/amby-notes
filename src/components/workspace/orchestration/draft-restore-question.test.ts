@@ -92,10 +92,10 @@ describe.each([
     expect(drafts.discardRecoveryDraft).toHaveBeenCalledWith(path, scope)
   })
 
-  it("opens the draft on 'yes' and does not drop it", async () => {
+  it("opens the draft on 'yes' and keeps it as a draft until it is saved", async () => {
     vi.mocked(confirm).mockResolvedValue(true)
     expect(await load(path)).toBe(draft)
-    expect(drafts.discardRecoveryDraft).not.toHaveBeenCalled()
+    expect(drafts.scheduleRecoveryDraft).toHaveBeenCalledWith(path, draft, kind, path, scope)
   })
 
   it("does not ask when the draft is the same as the disk", async () => {

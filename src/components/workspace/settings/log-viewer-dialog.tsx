@@ -25,7 +25,9 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { exportTextFile, confirmAction, isTauri } from "@/lib/storage"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
+import { exportTextFile, isTauri } from "@/lib/storage"
 import { flushLogs } from "@/lib/logger"
 import { createDebugReport } from "@/lib/debug/report"
 import { cn } from "@/lib/utils"
@@ -262,7 +264,7 @@ export function LogViewerDialog({ open, onOpenChange }: LogViewerDialogProps) {
     }, t("settings.debug.reportExported"))
 
   const deletePersisted = async () => {
-    if (!(await confirmAction(t("settings.debug.deletePersistedConfirm")))) return
+    if (!(await confirm(confirmations.deleteDebugHistory()))) return
     await withErrorHandling(async () => {
       await store.deletePersistedHistory()
     }, t("settings.debug.persistedDeleted"))

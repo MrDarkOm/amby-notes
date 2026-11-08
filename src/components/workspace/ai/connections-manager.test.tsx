@@ -274,7 +274,7 @@ describe("removing a connection asks in the application", () => {
 
   it("is a dangerous question that names the connection; cancel removes nothing", async () => {
     vi.mocked(confirm).mockResolvedValue(false)
-    const onCommit = vi.fn(async () => {})
+    const onCommit = vi.fn(async (_next: AiConnectionsSettings) => {})
     render(<ConnectionsManager settings={withKey} onCommit={onCommit} />)
     fireEvent.click(await removeButton())
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
@@ -282,21 +282,24 @@ describe("removing a connection asks in the application", () => {
     expect(question.destructive).toBe(true)
     expect(question.title).toContain("Home")
     expect(question.confirmLabel).toBe("Удалить")
-    expect(onCommit).not.toHaveBeenCalled()
+    // (The panel saves the catalog it loads by itself; what must not happen is a save without the connection.)
+    expect(onCommit.mock.calls.some(([next]) => next.connections.length === 0)).toBe(false)
     expect(storage.deleteUnreferencedAiCredential).not.toHaveBeenCalled()
   })
 
   it("removes the connection and its key after yes", async () => {
-    const onCommit = vi.fn(async (next: AiConnectionsSettings) => next)
+    const onCommit = vi.fn(async (_next: AiConnectionsSettings) => {})
     render(<ConnectionsManager settings={withKey} onCommit={onCommit} />)
     fireEvent.click(await removeButton())
-    await waitFor(() => expect(onCommit).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(onCommit.mock.calls.some(([next]) => next.connections.length === 0)).toBe(true),
+    )
     expect(storage.deleteUnreferencedAiCredential).toHaveBeenCalledWith("cred-1")
   })
 
   it("says that the old key stayed in the centre when it could not be deleted: the card is gone", async () => {
     vi.mocked(storage.deleteUnreferencedAiCredential).mockRejectedValue(new Error("keychain"))
-    const onCommit = vi.fn(async (next: AiConnectionsSettings) => next)
+    const onCommit = vi.fn(async (_next: AiConnectionsSettings) => {})
     render(<ConnectionsManager settings={withKey} onCommit={onCommit} />)
     fireEvent.click(await removeButton())
     await waitFor(() => expect(useAppNoticesStore.getState().notices).toHaveLength(1))

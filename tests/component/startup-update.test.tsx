@@ -27,6 +27,7 @@ vi.mock("motion/react", () => ({
 }))
 vi.mock("@/lib/motion", () => ({ MotionPulse: () => <div /> }))
 vi.mock("@/components/ui/tooltip-provider", () => ({ TooltipProvider: () => null }))
+vi.mock("@/components/confirm-dialog-host", () => ({ ConfirmDialogHost: () => null }))
 vi.mock("@/components/workspace/workspace", () => ({
   Workspace: () => <div data-testid="workspace" />,
 }))
