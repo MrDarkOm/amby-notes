@@ -7,6 +7,8 @@ import { ConnectionsManager } from "./connections-manager"
 import type { AiConnectionsSettings } from "./connections"
 import * as ai from "@/lib/ai"
 import * as storage from "@/lib/storage"
+import { confirm } from "@/lib/confirm"
+import { useAppNoticesStore } from "../notices/use-app-notices-store"
 
 vi.mock("@/lib/ai", async (original) => ({
   ...(await original<typeof import("@/lib/ai")>()),
@@ -19,11 +21,13 @@ vi.mock("@/lib/ai", async (original) => ({
 }))
 vi.mock("@/lib/storage", async (original) => ({
   ...(await original<typeof import("@/lib/storage")>()),
-  confirmAction: vi.fn().mockResolvedValue(true),
+  deleteUnreferencedAiCredential: vi.fn().mockResolvedValue(undefined),
   deleteAiCredential: vi.fn().mockResolvedValue(undefined),
   openWebAddress: vi.fn().mockResolvedValue(undefined),
   storeAiCredential: vi.fn().mockResolvedValue(undefined),
 }))
+
+vi.mock("@/lib/confirm", () => ({ confirm: vi.fn().mockResolvedValue(true) }))
 
 const settings: AiConnectionsSettings = {
   version: 1,
@@ -44,6 +48,8 @@ const settings: AiConnectionsSettings = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(confirm).mockResolvedValue(true)
+  useAppNoticesStore.setState(useAppNoticesStore.getInitialState())
   vi.mocked(ai.aiModelCatalog).mockResolvedValue([
     { model: "llama", label: "Llama", supportsTools: null },
   ])
@@ -254,5 +260,51 @@ describe("connection settings", () => {
     fireEvent.click(await screen.findByRole("switch", { name: "Включить модель Llama" }))
     await waitFor(() => expect(star.getAttribute("aria-pressed")).toBe("false"))
     expect((star as HTMLButtonElement).disabled).toBe(true)
+  })
+})
+
+describe("removing a connection asks in the application", () => {
+  const withKey: AiConnectionsSettings = {
+    ...settings,
+    connections: [
+      { ...settings.connections[0], id: "keyed", provider: "openai", credentialId: "cred-1" },
+    ],
+  }
+  const removeButton = () => screen.findByRole("button", { name: "Удалить подключение" })
+
+  it("is a dangerous question that names the connection; cancel removes nothing", async () => {
+    vi.mocked(confirm).mockResolvedValue(false)
+    const onCommit = vi.fn(async (_next: AiConnectionsSettings) => {})
+    render(<ConnectionsManager settings={withKey} onCommit={onCommit} />)
+    fireEvent.click(await removeButton())
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+    const question = vi.mocked(confirm).mock.calls[0][0]
+    expect(question.destructive).toBe(true)
+    expect(question.title).toContain("Home")
+    expect(question.confirmLabel).toBe("Удалить")
+    // (The panel saves the catalog it loads by itself; what must not happen is a save without the connection.)
+    expect(onCommit.mock.calls.some(([next]) => next.connections.length === 0)).toBe(false)
+    expect(storage.deleteUnreferencedAiCredential).not.toHaveBeenCalled()
+  })
+
+  it("removes the connection and its key after yes", async () => {
+    const onCommit = vi.fn(async (_next: AiConnectionsSettings) => {})
+    render(<ConnectionsManager settings={withKey} onCommit={onCommit} />)
+    fireEvent.click(await removeButton())
+    await waitFor(() =>
+      expect(onCommit.mock.calls.some(([next]) => next.connections.length === 0)).toBe(true),
+    )
+    expect(storage.deleteUnreferencedAiCredential).toHaveBeenCalledWith("cred-1")
+  })
+
+  it("says that the old key stayed in the centre when it could not be deleted: the card is gone", async () => {
+    vi.mocked(storage.deleteUnreferencedAiCredential).mockRejectedValue(new Error("keychain"))
+    const onCommit = vi.fn(async (_next: AiConnectionsSettings) => {})
+    render(<ConnectionsManager settings={withKey} onCommit={onCommit} />)
+    fireEvent.click(await removeButton())
+    await waitFor(() => expect(useAppNoticesStore.getState().notices).toHaveLength(1))
+    const notice = useAppNoticesStore.getState().notices[0]
+    expect(notice.level).toBe("warning")
+    expect(JSON.stringify(notice)).not.toContain("keychain")
   })
 })

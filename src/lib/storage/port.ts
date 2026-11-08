@@ -175,8 +175,6 @@ export interface StoragePort extends DatabasePort, ProjectPort {
   toAssetUrl(absPath: string): Promise<string>
   exportTextFile(contents: string, defaultName: string): Promise<string | null>
   importTextFile(): Promise<string | null>
-  confirmAction(message: string): Promise<boolean>
-  showErrorMessage(message: string): Promise<void>
 
   // Tiered Settings & App Data
   readGlobalRaw(file: string): Promise<string | null>

@@ -22,6 +22,7 @@ import { NoticeLevelIcon, NoticeShell } from "./notice-level"
 import { noticeCalmClass } from "./notice-look"
 import { requestOpenNote } from "./note-open-request"
 import { stopTitle } from "./stop-words"
+import { useAppNoticesStore } from "./use-app-notices-store"
 import { useNoticesCentre } from "./use-notices-centre"
 import { useBellAnchor } from "./use-bell-anchor"
 import { useNoticesCentreStore } from "./use-notices-centre-store"
@@ -94,6 +95,12 @@ function entryWords(
         line: t("notices.centre.itemErrorsLine"),
         button: t("notices.centre.show"),
       }
+    case "app-notice":
+      return {
+        title: entry.appNotice ? t(entry.appNotice.titleKey, entry.appNotice.params) : "",
+        line: entry.appNotice ? t(entry.appNotice.lineKey) : "",
+        button: null,
+      }
     default:
       return { title: "", line: "", button: null }
   }
@@ -113,6 +120,7 @@ interface RowContext {
 function EntryCard({ entry, context }: { entry: CentreEntry; context: RowContext }) {
   const { t, i18n } = useTranslation()
   const hide = useNoticesCentreStore((state) => state.hide)
+  const dismissAppNotice = useAppNoticesStore((state) => state.dismiss)
   const openCompare = useSyncNoticesStore((state) => state.openCompare)
   const conflict = entry.conflict
   const appData = conflict ? appDataConflictKind(conflict.originalPath) : null
@@ -157,10 +165,21 @@ function EntryCard({ entry, context }: { entry: CentreEntry; context: RowContext
             <p className="text-[12px] text-muted-foreground">{line}</p>
             <div className="flex flex-wrap gap-2 pt-1">
               {primary}
-              {entry.section === "warning" && (
-                <Button type="button" size="sm" variant="ghost" onClick={() => hide(entry.id)}>
-                  {t("notices.centre.hide")}
+              {entry.kind === "app-notice" && entry.appNotice ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => dismissAppNotice(entry.appNotice!.id)}
+                >
+                  {t("notices.centre.close")}
                 </Button>
+              ) : (
+                entry.section === "warning" && (
+                  <Button type="button" size="sm" variant="ghost" onClick={() => hide(entry.id)}>
+                    {t("notices.centre.hide")}
+                  </Button>
+                )
               )}
             </div>
           </>

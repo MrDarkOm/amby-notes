@@ -5,6 +5,7 @@ import { useSyncNoticesStore } from "../sync/use-sync-notices-store"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import { deriveCentre, liveWarningIds, type Centre, type CentreInput } from "./centre-entries"
+import { useAppNoticesStore } from "./use-app-notices-store"
 import { useNoticesCentreStore } from "./use-notices-centre-store"
 
 /**
@@ -26,6 +27,7 @@ export function useNoticesCentre(): Centre {
   const propertyFailed = useNoteNoticesStore((state) => state.propertyFailed)
   const draftOffers = useNoteNoticesStore((state) => state.draftOffers)
   const closedSaveFailures = useNoteNoticesStore((state) => state.closedSaveFailed)
+  const appNotices = useAppNoticesStore((state) => state.notices)
   const hidden = useNoticesCentreStore((state) => state.hidden)
   const reconcile = useNoticesCentreStore((state) => state.reconcile)
 
@@ -45,6 +47,7 @@ export function useNoticesCentre(): Centre {
       restoreFailed,
       closedSaveFailures,
       hidden,
+      appNotices,
     }),
     [
       vault,
@@ -61,6 +64,7 @@ export function useNoticesCentre(): Centre {
       restoreFailed,
       closedSaveFailures,
       hidden,
+      appNotices,
     ],
   )
   const centre = React.useMemo(() => deriveCentre(input), [input])

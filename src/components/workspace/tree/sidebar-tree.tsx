@@ -22,6 +22,7 @@ import { TreeNode } from "./tree-row"
 import { useTreeKeyboard } from "./use-tree-keyboard"
 import { useTreeDnd } from "./use-tree-dnd"
 import { useStableCallback } from "./use-stable-callback"
+import { TreeMessage } from "./tree-message"
 import { TreeScrollbar } from "./tree-scrollbar"
 
 export function SidebarTree({
@@ -406,6 +407,7 @@ export function SidebarTree({
         </div>
       </div>
       <TreeScrollbar scrollRef={scrollRef} />
+      <TreeMessage />
 
       <AnimatePresence>
         {ptrDrag?.active && (

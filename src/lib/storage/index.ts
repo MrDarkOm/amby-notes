@@ -803,10 +803,6 @@ export const toAssetUrl = (absPath: string): Promise<string> => assetsRepository
 export const exportTextFile = (contents: string, defaultName: string): Promise<string | null> =>
   assetsRepository.exportTextFile(contents, defaultName)
 export const importTextFile = (): Promise<string | null> => assetsRepository.importTextFile()
-export const confirmAction = (message: string): Promise<boolean> =>
-  assetsRepository.confirmAction(message)
-export const showErrorMessage = (message: string): Promise<void> =>
-  assetsRepository.showErrorMessage(message)
 
 // Settings, Vault Metadata & AI Credentials
 export const readGlobalSettingsResult = <T>(file: string): Promise<SettingsReadResult<T>> =>

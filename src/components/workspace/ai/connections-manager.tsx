@@ -28,14 +28,11 @@ import {
   aiLocalAppInstalled,
   aiModelCatalog,
 } from "@/lib/ai"
-import {
-  confirmAction,
-  deleteUnreferencedAiCredential,
-  openWebAddress,
-  showErrorMessage,
-  storeAiCredential,
-} from "@/lib/storage"
+import { deleteUnreferencedAiCredential, openWebAddress, storeAiCredential } from "@/lib/storage"
 import { findProvider, resolveAiConfig } from "../app-config"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
+import { useAppNoticesStore } from "../notices/use-app-notices-store"
 import {
   addLocalAiModel,
   AI_CONNECTION_PROVIDERS,
@@ -510,7 +507,8 @@ function ConnectionCard({
         !next.connections.some((item) => item.credentialId === initial.credentialId)
       )
         await deleteUnreferencedAiCredential(initial.credentialId).catch(() =>
-          showErrorMessage(t("aiConnections.keyError")),
+          // The card is still here, so it says it itself; the connection is saved.
+          setError(t("aiConnections.oldKeyLeft")),
         )
     } catch {
       setError(t("aiConnections.saveError"))
@@ -519,7 +517,14 @@ function ConnectionCard({
     }
   }
   const remove = async () => {
-    if (!(await confirmAction(t("aiConnections.removeConfirm")))) return
+    if (
+      !(await confirm(
+        confirmations.removeAiConnection({
+          name: connection.label || findProvider(connection.provider)?.label || connection.provider,
+        }),
+      ))
+    )
+      return
     try {
       const next = await commit((previous) => ({
         ...previous,
@@ -542,7 +547,13 @@ function ConnectionCard({
         !next.connections.some((item) => item.credentialId === connection.credentialId)
       )
         await deleteUnreferencedAiCredential(connection.credentialId).catch(() =>
-          showErrorMessage(t("aiConnections.keyError")),
+          // The card is gone with the connection, so the old key's leftover is told in the centre.
+          useAppNoticesStore.getState().post({
+            id: `ai-key-left:${connection.credentialId}`,
+            level: "warning",
+            titleKey: "notices.app.aiKeyLeft.title",
+            lineKey: "notices.app.aiKeyLeft.line",
+          }),
         )
     } catch {
       setError(t("aiConnections.saveError"))

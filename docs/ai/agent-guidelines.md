@@ -78,7 +78,7 @@ Anything that tells the person about an error, a warning, a conflict, an event o
   confirmation window only for an irreversible request.
 - Announce only `danger` and `decision`, once: the self-opening note stack or a toast, never both.
 - Show text from `src/locales/resources.ts` keyed by an error code; never render `error.message` or a server string.
-- Do not add `confirmAction`, `showErrorMessage`, `window.confirm` or `window.alert` calls, or new ad-hoc toast hosts.
+- Ask with `confirm()` (a question in [confirmations.ts](../../src/lib/confirmations.ts)); a message goes to its place (the line under the tree, the notification centre by `useAppNoticesStore`). Do not add `confirmAction`, `showErrorMessage`, `window.confirm` or `window.alert` calls (the port no longer has them), or new ad-hoc toast hosts.
 - Take level colours and icons from the theme tokens and the shared level component, not from `amber-*` classes.
 - A swallowed error carries a comment saying why and a `logger` call with its code; never silence a data problem.
 - Test that the notice appears in its place, is announced at most once, does not duplicate and leaves with its cause.

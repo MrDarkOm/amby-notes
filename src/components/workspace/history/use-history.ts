@@ -2,7 +2,6 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import {
   cleanupHistory,
-  confirmAction,
   deleteSnapshot,
   getHistoryStats,
   listSnapshots,
@@ -13,6 +12,8 @@ import {
   type HistoryStats,
   type SnapshotEntry,
 } from "@/lib/storage"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
 import { errorType, logger } from "@/lib/logger"
 import { flushAutosaveGeneration } from "../autosave/autosave-lifecycle"
 import { useDocStore } from "../use-doc-store"
@@ -120,7 +121,7 @@ export function useHistory(path: string | null | undefined, onRestored?: () => P
 
   function restore(entry: SnapshotEntry) {
     return action(async (isCurrent) => {
-      if (!(await confirmAction(t("historyPanel.restoreConfirm"))) || !isCurrent()) return
+      if (!(await confirm(confirmations.restoreVersion())) || !isCurrent()) return
       const result = await flushAutosaveGeneration(useVaultStore.getState().generation)
       if (!isCurrent()) return
       const state = useDocStore.getState()
@@ -153,8 +154,8 @@ export function useHistory(path: string | null | undefined, onRestored?: () => P
         return
       }
       if (
-        !(await confirmAction(
-          t("historyPanel.deleteHistoryConfirm", {
+        !(await confirm(
+          confirmations.cleanHistory({
             count: preview.removedCount,
             size: formatHistorySize(preview.freedBytes, i18n.language),
           }),
@@ -178,7 +179,7 @@ export function useHistory(path: string | null | undefined, onRestored?: () => P
 
   function removeSnapshot(entry: SnapshotEntry) {
     return action(async (isCurrent) => {
-      if (!(await confirmAction(t("historyPanel.deleteVersionConfirm"))) || !isCurrent()) return
+      if (!(await confirm(confirmations.deleteVersion())) || !isCurrent()) return
       await deleteSnapshot(entry.id)
       if (!isCurrent()) return
       void select(null)
@@ -201,8 +202,8 @@ export function useHistory(path: string | null | undefined, onRestored?: () => P
       const preview = await previewHistoryCleanup({ maxSnapshotsPerNote: 0, maxAgeDays: null })
       if (!isCurrent() || !preview.removedCount) return
       if (
-        !(await confirmAction(
-          t("historyPanel.clearAllConfirm", {
+        !(await confirm(
+          confirmations.clearHistory({
             count: preview.removedCount,
             size: formatHistorySize(preview.freedBytes, i18n.language),
           }),

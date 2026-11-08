@@ -41,6 +41,8 @@ import { DocumentTitle } from "./document-title"
 import { DocumentAreaControls } from "./document-area-controls"
 import { LAYER_OPTIONS, type DocumentViewMode, type EditorLayer } from "./use-document-view-mode"
 import { useViewStateStore, isLayerLocked } from "../use-view-state-store"
+import { useHeldDraftGate } from "../held-drafts-store"
+import { canvasLayerPath, sketchLayerPath } from "../workspace-tree-utils"
 import { EDITOR_CONTENT_WIDTH } from "@/lib/themes"
 import { MotionSpinner } from "@/lib/motion"
 import type { ContentWidth } from "../app-config"
@@ -231,8 +233,11 @@ export function DocumentBody({
 
   const viewModes = useViewStateStore((s) => s.viewModes)
   const lockedFileIds = useViewStateStore((s) => s.lockedFileIds)
-  const canvasLocked = isLayerLocked(lockedFileIds, viewModes, docId, "canvas")
-  const sketchLocked = isLayerLocked(lockedFileIds, viewModes, docId, "sketch")
+  // A canvas or sketch whose draft question was closed without an answer is read only until it is answered.
+  const canvasHeld = useHeldDraftGate(canvasLayerPath(docPath), activeLayer === "canvas")
+  const sketchHeld = useHeldDraftGate(sketchLayerPath(docPath), activeLayer === "sketch")
+  const canvasLocked = isLayerLocked(lockedFileIds, viewModes, docId, "canvas") || canvasHeld
+  const sketchLocked = isLayerLocked(lockedFileIds, viewModes, docId, "sketch") || sketchHeld
 
   const activeLayerMeta =
     LAYER_OPTIONS.find((option) => option.id === activeLayer) ?? LAYER_OPTIONS[0]

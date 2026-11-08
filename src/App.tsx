@@ -3,6 +3,7 @@ import { Workspace } from "./components/workspace/workspace"
 import { ExternalConflictDialog } from "./components/workspace/external-conflict-dialog"
 import { ThemeProvider } from "./components/theme-provider"
 import { TooltipProvider } from "./components/ui/tooltip-provider"
+import { ConfirmDialogHost } from "./components/confirm-dialog-host"
 import {
   useApplyPreferences,
   useSettingsStore,
@@ -73,6 +74,8 @@ export default function App() {
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={true}>
       <MotionConfig reducedMotion="user" transition={motionTransitions.default}>
         <PreferencesGate />
+        {/* The questions of the application (docs/notices.md, section 9): in every window and before any vault is open. */}
+        <ConfirmDialogHost />
         <TooltipProvider />
       </MotionConfig>
     </ThemeProvider>

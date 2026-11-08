@@ -5,7 +5,7 @@ import type { Editor } from "@tiptap/react"
 import { Check, ChevronDown, Shapes } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { importAssetBytes, showErrorMessage } from "@/lib/storage"
+import { importAssetBytes } from "@/lib/storage"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import {
@@ -32,6 +32,8 @@ interface ImageCropDialogProps {
   onCancel: () => void
   /** The part to keep, in the picture's own pixels, and whether it is cut to an ellipse. */
   onApply: (crop: CropRect, circle: boolean) => Promise<void>
+  /** What went wrong with the last "Save", in words; the window says it under its own bar (docs/notices.md, section 8). */
+  error?: string | null
 }
 
 /** The shapes the frame can be held to: `ratio` is width over height. */
@@ -53,7 +55,7 @@ const CORNERS = ["nw", "ne", "se", "sw"] as const
 const EDGES = ["n", "e", "s", "w"] as const
 
 /** A picture with a frame over it: what is inside the frame is what stays. */
-export function ImageCropDialog({ src, onCancel, onApply }: ImageCropDialogProps) {
+export function ImageCropDialog({ src, onCancel, onApply, error = null }: ImageCropDialogProps) {
   const { t } = useTranslation()
   const imageRef = React.useRef<HTMLImageElement>(null)
   const [rect, setRect] = React.useState<CropRect | null>(null)
@@ -213,6 +215,11 @@ export function ImageCropDialog({ src, onCancel, onApply }: ImageCropDialogProps
             </Button>
           </div>
         </div>
+        {error && (
+          <p role="alert" className="amby-crop-error px-4 py-2 text-[12px] text-destructive">
+            {error}
+          </p>
+        )}
         <div className="amby-crop-stage">
           {src && (
             <div className="relative inline-block max-w-full select-none">
@@ -297,9 +304,13 @@ export function ImageCropHost({
   onClose: () => void
 }) {
   const { t } = useTranslation()
+  const [error, setError] = React.useState<string | null>(null)
+  // A failure belongs to the try that failed: a new picture, or the next try, starts clean.
+  React.useEffect(() => setError(null), [request])
 
   async function apply(crop: CropRect, circle: boolean) {
     if (!request) return
+    setError(null)
     const context = getAssetContext(editor)
     try {
       if (!context?.vaultPath || !context.notePath) throw new Error("No note to save into")
@@ -320,9 +331,17 @@ export function ImageCropHost({
       })
       onClose()
     } catch {
-      void showErrorMessage(t("editorToolbar.imageFailed"))
+      // The window is still open and the person is in it: it says so itself, nothing in the note changed.
+      setError(t("editorToolbar.imageFailed"))
     }
   }
 
-  return <ImageCropDialog src={request?.shownSrc ?? null} onCancel={onClose} onApply={apply} />
+  return (
+    <ImageCropDialog
+      src={request?.shownSrc ?? null}
+      onCancel={onClose}
+      onApply={apply}
+      error={error}
+    />
+  )
 }

@@ -29,8 +29,9 @@ const resolveDatabaseAssetPaths = vi.fn()
 const listNotebooks = vi.fn()
 const createFolder = vi.fn()
 const deleteItem = vi.fn()
-const confirmAction = vi.fn()
 
+const confirm = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/confirm", () => ({ confirm }))
 vi.mock("@/lib/storage", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/storage")>()
   return {
@@ -42,7 +43,6 @@ vi.mock("@/lib/storage", async (importOriginal) => {
     listNotebooks: (...args: unknown[]) => listNotebooks(...args),
     createFolder: (...args: unknown[]) => createFolder(...args),
     deleteItem: (...args: unknown[]) => deleteItem(...args),
-    confirmAction: (...args: unknown[]) => confirmAction(...args),
   }
 })
 vi.mock("./create-project-dialog", () => ({ CreateProjectDialog: () => null }))
@@ -169,7 +169,7 @@ describe("CreativePanel: notebooks of the notes base", () => {
       return `${parent}/${name}`
     })
     deleteItem.mockReset().mockResolvedValue({ pathChanges: [], deletedPaths: [] })
-    confirmAction.mockReset().mockResolvedValue(true)
+    confirm.mockReset().mockResolvedValue(true)
     useProjectStore.getState().reset()
     useDatabaseStore.setState({
       vaultGeneration: 1,
@@ -402,7 +402,7 @@ describe("CreativePanel: notebooks of the notes base", () => {
         rootItems += 1
         return "moved" as const
       })
-      confirmAction.mockImplementation(async () => {
+      confirm.mockImplementation(async () => {
         calls.push("confirm")
         return true
       })
@@ -420,7 +420,9 @@ describe("CreativePanel: notebooks of the notes base", () => {
       expect(deleteItem.mock.calls[0][1]).toBe(`${BASE}/Архив`)
       // Never a permanent deletion.
       expect(deleteItem.mock.calls[0][2]).not.toBe("permanent")
-      expect(confirmAction.mock.calls[0][0]).toContain("Заметки не удаляются")
+      // The question says the notes stay, and names the notebook; the notebook goes to the bin, so it is not "dangerous".
+      expect(confirm.mock.calls[0][0].title).toContain("Архив")
+      expect(confirm.mock.calls[0][0].description).toContain("Заметки не удаляются")
     })
 
     it("trashes an empty notebook without moving anything", async () => {
@@ -442,7 +444,7 @@ describe("CreativePanel: notebooks of the notes base", () => {
       await deleteFromMenu("Идеи")
       expect((await screen.findByRole("alert")).textContent).toContain("Зарисовка")
       expect(alertText()).toContain("Ничего не изменено")
-      expect(confirmAction).not.toHaveBeenCalled()
+      expect(confirm).not.toHaveBeenCalled()
       expect(onMoveItem).not.toHaveBeenCalled()
       expect(deleteItem).not.toHaveBeenCalled()
     })
@@ -461,12 +463,12 @@ describe("CreativePanel: notebooks of the notes base", () => {
     })
 
     it("does nothing when the author declines", async () => {
-      confirmAction.mockResolvedValue(false)
+      confirm.mockResolvedValue(false)
       const onMoveItem = vi.fn()
       render(<CreativePanel {...props({ onMoveItem })} />)
       await openNotes()
       await deleteFromMenu("Архив")
-      await waitFor(() => expect(confirmAction).toHaveBeenCalledTimes(1))
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
       expect(onMoveItem).not.toHaveBeenCalled()
       expect(deleteItem).not.toHaveBeenCalled()
     })

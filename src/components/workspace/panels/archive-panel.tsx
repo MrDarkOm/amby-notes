@@ -11,7 +11,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { confirmAction, listTrash, purgeTrash, restoreTrash, type TrashEntry } from "@/lib/storage"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
+import { listTrash, purgeTrash, restoreTrash, type TrashEntry } from "@/lib/storage"
 import { dispatchArchiveChanged } from "../use-archive-tree-refresh"
 import { mutationPaths } from "../workspace-mutations"
 import type { PanelRenderProps } from "../panel-registry"
@@ -110,7 +112,7 @@ function ArchiveContents() {
     try {
       if (
         action === "purge" &&
-        !(await confirmAction(t("historyPanel.deleteForeverConfirm", { name: entry.name })))
+        !(await confirm(confirmations.deleteArchived({ name: archiveEntryLabel(entry).title })))
       )
         return
       if (action === "restore") {

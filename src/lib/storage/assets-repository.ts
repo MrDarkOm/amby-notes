@@ -60,12 +60,4 @@ export class AssetsRepository {
   async openInExplorer(path: string): Promise<void> {
     return this.port().openInExplorer(path)
   }
-
-  async confirmAction(message: string): Promise<boolean> {
-    return this.port().confirmAction(message)
-  }
-
-  async showErrorMessage(message: string): Promise<void> {
-    return this.port().showErrorMessage(message)
-  }
 }

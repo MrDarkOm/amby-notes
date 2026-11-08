@@ -1,4 +1,3 @@
-import i18n from "@/lib/i18n"
 import { commands, type DatabaseSummary as BindingDatabaseSummary } from "@/lib/bindings"
 import { unwrapCommand } from "./ipc-result"
 import { desktopOperationError } from "./operation-error"
@@ -136,11 +135,6 @@ import type {
   WriteNoteOutcome,
   ImportFilesResult,
 } from "./types"
-
-async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke: tauriInvoke } = await import("@tauri-apps/api/core")
-  return tauriInvoke<T>(cmd, args)
-}
 
 function reportIndexOutcome(outcome: Pick<MutationOutcome, "indexState" | "warnings">): void {
   if (outcome.indexState === "rebuildRequired" && typeof window !== "undefined") {
@@ -1144,25 +1138,6 @@ export class DesktopAdapter implements StoragePort {
 
   async importTextFile(): Promise<string | null> {
     return unwrapCommand(commands.importTextFile())
-  }
-
-  async confirmAction(message: string): Promise<boolean> {
-    const result = await invoke<string>("plugin:dialog|message", {
-      message,
-      title: i18n.t("app.name"),
-      kind: "warning",
-      buttons: "OkCancel",
-    })
-    return result === "Ok"
-  }
-
-  async showErrorMessage(message: string): Promise<void> {
-    await invoke("plugin:dialog|message", {
-      message,
-      title: i18n.t("app.name"),
-      kind: "error",
-      buttons: "Ok",
-    })
   }
 
   async readGlobalRaw(file: string): Promise<string | null> {

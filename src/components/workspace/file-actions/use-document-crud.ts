@@ -1,11 +1,12 @@
 import * as React from "react"
 import i18n from "@/lib/i18n"
 import { discardRecoveryDraft, saveRecoveryDraft } from "@/lib/recovery-drafts"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
 import {
   attachCanvasToNote,
   attachSketchToNote,
   archiveItem,
-  confirmAction,
   createCanvasFile,
   createSketchFile,
   createFolder,
@@ -13,7 +14,6 @@ import {
   deleteItem,
   getNoteProperties,
   readNote,
-  showErrorMessage,
   type TreeItem,
 } from "@/lib/storage"
 import { createDefaultSketch, serializeSketch } from "@/lib/sketch-format"
@@ -21,6 +21,7 @@ import { loadWorkspaceConfig, saveWorkspaceConfigPatch } from "../app-config"
 import { DeleteConfirmationDialog } from "../delete-confirmation-dialog"
 import { logger } from "@/lib/logger"
 import { useSettingsStore } from "../use-settings-store"
+import { useTreeMessageStore } from "../tree/use-tree-message-store"
 import { useDocStore, type Document } from "../use-doc-store"
 import { useTabsStore } from "../use-tabs-store"
 import { useViewStateStore } from "../use-view-state-store"
@@ -220,13 +221,11 @@ export function useDocumentCrud({
       if (
         mode !== "archive" &&
         deleteMode === "permanent" &&
-        !(await confirmAction(
-          t(
-            targets.length > 1
-              ? "workspace.deletePermanentManyConfirm"
-              : "workspace.deletePermanentConfirm",
-            { count: targets.length, name: targets[0]?.name ?? "" },
-          ),
+        !(await confirm(
+          confirmations.deletePermanent({
+            count: targets.length,
+            name: targets[0]?.name ?? "",
+          }),
         ))
       ) {
         return
@@ -250,7 +249,6 @@ export function useDocumentCrud({
       const finishLocalMutation = beginLocalTreeMutation()
       recordLocalTreePaths(targets.flatMap((target) => [target.path, target.root]))
       let failed = 0
-      let firstFailure = ""
       try {
         for (const target of targets) {
           const targetDocuments = affected.filter(
@@ -287,7 +285,6 @@ export function useDocumentCrud({
           } catch (error) {
             failed += 1
             const reason = error instanceof Error ? error.message : String(error)
-            firstFailure ||= reason
             logger.error("file.delete_failed", { path: target.path, mode: resolution, reason })
             console.error("Failed to delete:", error)
           }
@@ -352,8 +349,14 @@ export function useDocumentCrud({
         }
 
         if (failed > 0) {
-          const summary = t("workspace.deleteManyFailed", { failed, total: targets.length })
-          void showErrorMessage(firstFailure ? `${summary}\n\n${firstFailure}` : summary)
+          // Said under the tree; the reason of the first failure is in the log (docs/notices.md, section 10).
+          useTreeMessageStore.getState().show({
+            id: "delete-failed",
+            level: "warning",
+            titleKey: "workspace.deleteManyFailed",
+            params: { failed, total: targets.length },
+            lineKey: "notices.tree.deleteLine",
+          })
         }
       } finally {
         finishLocalMutation()
@@ -366,7 +369,6 @@ export function useDocumentCrud({
       recoveryScope,
       refreshDatabaseCatalog,
       requestDeleteConfirmation,
-      t,
       treeItems,
       vault,
     ],

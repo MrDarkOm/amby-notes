@@ -1,9 +1,9 @@
 import type { Editor } from "@tiptap/core"
 
-import i18n from "@/lib/i18n"
-import { isTauri, saveAttachmentCopy, showErrorMessage } from "@/lib/storage"
+import { isTauri, saveAttachmentCopy } from "@/lib/storage"
 import { getAssetContext } from "./asset-resolver"
-import { attachmentFilePath, openErrorMessage } from "./external-open"
+import { attachmentFilePath, reportExternalFailure } from "./external-open"
+import { reportImageFailure } from "./image-failure"
 import {
   imageSaveFormat,
   imageSaveName,
@@ -23,7 +23,7 @@ export async function saveNoteImage(editor: Editor, src: string, shownSrc: strin
     try {
       await saveAttachmentCopy(context.notePath, attachmentFilePath(src))
     } catch (error) {
-      void showErrorMessage(openErrorMessage(error))
+      reportExternalFailure(error)
     }
     return
   }
@@ -31,6 +31,6 @@ export async function saveNoteImage(editor: Editor, src: string, shownSrc: strin
     const format = imageSaveFormat(src)
     saveBlobAs(await imageSourceBlob(shownSrc, format), imageSaveName(src, format))
   } catch {
-    void showErrorMessage(i18n.t("editorToolbar.imageFailed"))
+    reportImageFailure()
   }
 }

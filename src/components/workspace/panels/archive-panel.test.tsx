@@ -3,13 +3,13 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
 import {
-  confirmAction,
   listTrash,
   purgeTrash,
   readTrashPreview,
   restoreTrash,
   type TrashEntry,
 } from "@/lib/storage"
+import { confirm } from "@/lib/confirm"
 import { ArchivePanel } from "./archive-panel"
 import type { PanelRenderProps } from "../panel-registry"
 
@@ -18,8 +18,8 @@ vi.mock("@/lib/storage", () => ({
   readTrashPreview: vi.fn(),
   restoreTrash: vi.fn(),
   purgeTrash: vi.fn(),
-  confirmAction: vi.fn(),
 }))
+vi.mock("@/lib/confirm", () => ({ confirm: vi.fn() }))
 const props: PanelRenderProps = {
   treeItems: [],
   selectedId: null,
@@ -168,19 +168,23 @@ describe("archive panel", () => {
   })
 
   it("requires confirmation before permanent deletion", async () => {
-    vi.mocked(confirmAction).mockResolvedValue(false)
+    vi.mocked(confirm).mockResolvedValue(false)
     render(<ArchivePanel {...props} />)
     await screen.findByText("Черновик")
     openActions()
     fireEvent.click(screen.getByRole("menuitem", { name: "Удалить навсегда" }))
-    await waitFor(() =>
-      expect(confirmAction).toHaveBeenCalledWith(expect.stringContaining("Черновик.md")),
-    )
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+    // The question names the note without an extension, says it is dangerous and names the verb.
+    const question = vi.mocked(confirm).mock.calls[0][0]
+    expect(question.title).toContain("Черновик")
+    expect(question.title).not.toContain(".md")
+    expect(question.destructive).toBe(true)
+    expect(question.confirmLabel).toBe("Удалить")
     expect(purgeTrash).not.toHaveBeenCalled()
   })
 
   it("deletes the exact archive entry after confirmation", async () => {
-    vi.mocked(confirmAction).mockResolvedValue(true)
+    vi.mocked(confirm).mockResolvedValue(true)
     vi.mocked(listTrash).mockResolvedValueOnce([entry]).mockResolvedValue([])
     render(<ArchivePanel {...props} />)
     await screen.findByText("Черновик")

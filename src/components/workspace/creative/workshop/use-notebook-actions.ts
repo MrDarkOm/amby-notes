@@ -1,6 +1,8 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { confirmAction, createFolder, deleteItem, type NotebookCatalog } from "@/lib/storage"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
+import { createFolder, deleteItem, type NotebookCatalog } from "@/lib/storage"
 import {
   absolutePathOf,
   moveCollision,
@@ -186,8 +188,8 @@ export function useNotebookActions({
       setError(t("creative.notebooks.errors.unavailable"))
       return
     }
-    const confirmed = await confirmAction(
-      t("creative.notebooks.deleteConfirm", {
+    const confirmed = await confirm(
+      confirmations.deleteNotebook({
         name: node.name,
         count: plan.moves.length,
         where,

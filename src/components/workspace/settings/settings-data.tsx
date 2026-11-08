@@ -11,7 +11,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { confirmAction, isTauri, openInExplorer } from "@/lib/storage"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
+import { isTauri, openInExplorer } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import {
   DEFAULT_PREFS,
@@ -70,7 +72,7 @@ export function DataTab({ vault }: { vault: string | null }) {
           type="button"
           className={btn}
           onClick={async () => {
-            if (await confirmAction(t("settings.data.resetConfirm"))) setPrefs({ ...DEFAULT_PREFS })
+            if (await confirm(confirmations.resetSettings())) setPrefs({ ...DEFAULT_PREFS })
           }}
         >
           <RotateCcw className="size-4" />

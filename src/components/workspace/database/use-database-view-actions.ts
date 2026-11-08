@@ -3,6 +3,8 @@ import * as React from "react"
 
 import { useTranslation } from "react-i18next"
 
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
 import { logger } from "@/lib/logger"
 
 import {
@@ -359,7 +361,10 @@ export function useDatabaseViewActions({
         return
       const target = database.views.find((view) => view.viewId === targetViewId)
       if (!target) return
-      if (action === "delete" && !globalThis.confirm(t("databaseWorkspace.confirmDeleteView")))
+      if (
+        action === "delete" &&
+        !(await confirm(confirmations.deleteDatabaseView({ name: target.title })))
+      )
         return
       setMutationBusy(true)
       setMutationError(null)
@@ -424,7 +429,6 @@ export function useDatabaseViewActions({
       isDatabaseLocked,
       mutationBusy,
       refreshDatabaseViews,
-      t,
       vaultGeneration,
       setMutationBusy,
       setMutationError,

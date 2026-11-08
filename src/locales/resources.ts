@@ -20,12 +20,6 @@ const ru = {
     pathNotFound: "Путь не найден: {{path}}",
     moveTargetNotFound: "Источник или назначение перемещения не найдено.",
     sourceNotFound: "Источник не найден: {{path}}",
-    vaultOpenFailed: "Не удалось открыть хранилище.\n\n{{details}}",
-    vaultCloseFailed: "Не удалось закрыть хранилище.\n\n{{details}}",
-    recoveryNotices:
-      "При открытии хранилища найдено незавершённых операций: {{count}}. Данные сохранены и не изменены или перенесены в карантин (.amby/recovery/…/quarantine), ничего не удалено.\n{{details}}",
-    fileChangedExternally:
-      "Файл изменён вне Amby после открытия. Перезаписать его вашей версией? Если отменить, внешняя версия останется на диске, автосохранение этого файла приостановится, а ваши изменения сохранятся в черновике восстановления.",
     settingsSaveError:
       "Не удалось сохранить настройки. Проверьте права доступа к файлам конфигурации.",
     storageQuotaExceeded:
@@ -169,8 +163,6 @@ const ru = {
       deletePersisted: "Удалить журнал с диска",
       deletePersistedHint:
         "Удаляет сохранённые файлы журнала и очищает текущий поток событий. Запись отчёта продолжится.",
-      deletePersistedConfirm:
-        "Удалить сохранённый журнал событий и его архивы с диска? Текущая запись проблемы продолжится.",
       moreMetrics: "Подробные метрики",
       reportIntro:
         "Запишите короткую последовательность действий, отметьте момент проблемы и экспортируйте отчёт для разбора.",
@@ -491,7 +483,6 @@ const ru = {
       builtinThemes: "Встроенные темы",
       importedThemes: "Импортированные темы",
       themeImportFailed: "Не удалось прочитать файл темы. Проверьте формат .amby-theme.json.",
-      themeRemoveConfirm: "Удалить тему «{{name}}» из библиотеки? Файл на диске не изменится.",
       themeAuthor: "Автор: {{author}}",
       lightSoon: "Светлая тема скоро",
       accent: "Акцентный цвет",
@@ -581,11 +572,126 @@ const ru = {
       location: "Папка настроек",
       openFolder: "Открыть папку",
       reset: "Сбросить настройки",
-      resetConfirm: "Сбросить все настройки до значений по умолчанию?",
       clearRecent: "Очистить список недавних хранилищ",
     },
     common: {
       done: "Готово",
+    },
+  },
+  confirmations: {
+    restoreVersion: {
+      title: "Восстановить эту версию?",
+      description: "Текущая версия сохранится в истории.",
+      confirm: "Восстановить",
+    },
+    deleteVersion: {
+      title: "Удалить эту версию?",
+      description: "Версия исчезнет из истории, вернуть её будет нельзя.",
+      confirm: "Удалить",
+    },
+    cleanHistory: {
+      title: "Очистить историю этой заметки?",
+      description: "Исчезнет версий: {{count}} ({{size}}), вернуть их будет нельзя.",
+      confirm: "Очистить",
+    },
+    clearHistory: {
+      title: "Очистить всю историю хранилища?",
+      description: "Исчезнет версий: {{count}} ({{size}}), вернуть их будет нельзя.",
+      confirm: "Очистить",
+    },
+    deleteArchived: {
+      title: "Удалить «{{name}}» навсегда?",
+      description: "Заметка исчезнет из архива, вернуть её будет нельзя.",
+      confirm: "Удалить",
+    },
+    removeTheme: {
+      title: "Убрать тему «{{name}}» из библиотеки?",
+      description: "Файл темы на диске не изменится, её можно будет добавить снова.",
+      confirm: "Убрать",
+    },
+    resetSettings: {
+      title: "Сбросить все настройки?",
+      description: "Настройки вернутся к значениям по умолчанию, заметки не затрагиваются.",
+      confirm: "Сбросить",
+    },
+    deleteDebugHistory: {
+      title: "Удалить сохранённый журнал событий?",
+      description: "Журнал и его архивы пропадут с диска, текущая запись продолжится.",
+      confirm: "Удалить",
+    },
+    deleteLayer: {
+      title: "Удалить слой «{{layer}}» у заметки «{{title}}»?",
+      description: "Файл слоя попадёт в корзину системы, его можно вернуть оттуда.",
+      confirm: "Удалить",
+    },
+    removeAiConnection: {
+      title: "Удалить подключение «{{name}}»?",
+      description: "Ключ удалится, если им не пользуются другие подключения; беседы сохранятся.",
+      confirm: "Удалить",
+    },
+    deleteNotebook: {
+      title: "Удалить блокнот «{{name}}»?",
+      description:
+        "Заметки не удаляются: все заметки блокнота ({{count}}) переедут в «{{where}}», а пустая папка уйдёт в корзину.",
+      confirm: "Удалить",
+    },
+    renameRefactor: {
+      title: "Переименовать и обновить ссылки?",
+      description: "Ссылок изменится: {{replacements}}, в заметках: {{notes}}.",
+      confirm: "Переименовать",
+    },
+    moveRefactor: {
+      title: "Переместить и обновить ссылки?",
+      description: "Ссылок изменится: {{replacements}}, в заметках: {{notes}}.",
+      confirm: "Переместить",
+    },
+    mergeNotes: {
+      title: "Добавить «{{source}}» в конец «{{target}}»?",
+      description: "Заметка «{{source}}» уйдёт в корзину системы, её можно вернуть оттуда.",
+      confirm: "Добавить",
+    },
+    deletePermanent: {
+      title: "Удалить «{{name}}» навсегда?",
+      description: "Копии не останется, вернуть заметку будет нельзя.",
+      confirm: "Удалить",
+    },
+    deletePermanentMany: {
+      title: "Удалить выбранное ({{count}}) навсегда?",
+      description: "Копий не останется, вернуть заметки будет нельзя.",
+      confirm: "Удалить",
+    },
+    switchAfterSaveFailure: {
+      title: "Переключить хранилище, не дождавшись сохранения?",
+      description: "Часть изменений не сохранилась, но черновики восстановления сохранены.",
+      confirm: "Всё равно переключить",
+    },
+    resumeMigration: {
+      title: "Продолжить незавершённую миграцию ID?",
+      description: "Затронуто файлов: {{files}}. Если отказаться, вас спросят про откат.",
+      confirm: "Продолжить",
+    },
+    rollbackMigration: {
+      title: "Откатить миграцию ID?",
+      description:
+        "Заметки вернутся из резервных копий, поздние внешние правки не тронутся; без ответа хранилище не откроется.",
+      confirm: "Откатить",
+    },
+    restoreDraft: {
+      title: "Восстановить несохранённую версию?",
+      description: "Найдена версия с последнего сбоя; если не восстанавливать, она будет удалена.",
+      confirm: "Восстановить",
+      cancel: "Не восстанавливать",
+    },
+    overwriteExternal: {
+      title: "Перезаписать файл, изменённый вне Amby?",
+      description:
+        "Если отказаться, внешняя версия останется на диске, автосохранение файла приостановится, а ваши правки сохранятся в черновике.",
+      confirm: "Перезаписать",
+    },
+    deleteDatabaseView: {
+      title: "Удалить представление «{{name}}»?",
+      description: "Сама база и её записи не изменятся.",
+      confirm: "Удалить",
     },
   },
   common: {
@@ -856,7 +962,6 @@ const ru = {
     viewLayout: "Тип представления",
     viewCreate: "Создать представление",
     viewNamePlaceholder: "Например, Все персонажи",
-    confirmDeleteView: "Удалить это представление?",
     layout: "Раскладка",
     openMode: "Открывать запись",
     openModes: {
@@ -1412,7 +1517,6 @@ const ru = {
       "У заметки есть {{count}} свойств. Добавьте их вместе со значениями в базу «{{database}}» или сохраните отдельную резервную копию.",
     databasePropertyMoveDatabase: "Добавить в базу",
     databasePropertyMoveBackup: "Сохранить копию",
-    databasePropertyMoveFailed: "Не удалось переместить заметку или её свойства: {{message}}",
     databasePropertyMoveOptionMissing: "Не найден перенесённый вариант свойства «{{property}}».",
     databasePropertyMoveFieldMissing: "Не найдено перенесённое свойство «{{property}}».",
     moveDatabaseProperty: "Переместить свойство",
@@ -1596,9 +1700,6 @@ const ru = {
     cleaning: "Очистка…",
     cleanupConfirm:
       "Удалить {{count}} старых версий и освободить {{size}}? Для каждой заметки останутся {{keep}} последних версий. Это действие нельзя отменить.",
-    deleteHistoryConfirm:
-      "Удалить историю этой заметки: {{count}} версий и {{size}}? Это действие нельзя отменить.",
-    deleteVersionConfirm: "Удалить выбранную версию? Это действие нельзя отменить.",
     versionDeleted: "Версия удалена.",
     versionFromHistory: "Версия из истории",
     currentVersion: "Текущая версия",
@@ -1607,14 +1708,11 @@ const ru = {
     clearAllHistory: "Очистить всю историю",
     searchNotes: "Найти заметку…",
     selectNote: "Выберите заметку",
-    clearAllConfirm:
-      "Удалить всю историю хранилища: {{count}} версий и {{size}}? Это действие нельзя отменить.",
     historyCleared: "Вся история хранилища очищена.",
     openFullHistory: "Открыть полную историю",
     storageVersions: "Версий: {{count}}",
     storageNotes: "Заметок: {{count}}",
     storageSize: "Общий вес: {{size}}",
-    restoreConfirm: "Восстановить эту версию? Текущая версия также будет сохранена в истории.",
     restoreTrashConfirm: "Восстановить «{{name}}» в исходное расположение?",
     openNote: "Откройте заметку, чтобы посмотреть её историю.",
     refresh: "Обновить",
@@ -1627,7 +1725,6 @@ const ru = {
     return: "Вернуть",
     actions: "Действия",
     deleteForever: "Удалить навсегда",
-    deleteForeverConfirm: "Удалить «{{name}}» навсегда? Это действие нельзя отменить.",
   },
   linksPanel: {
     search: "Поиск ссылок",
@@ -1639,6 +1736,34 @@ const ru = {
     wikiLink: "wiki-ссылка",
   },
   notices: {
+    app: {
+      nothingChanged: "Данные не затронуты.",
+      vaultOpenFailed: {
+        title: "Не удалось открыть хранилище «{{name}}»",
+        line: "Заметки не тронуты. Попробуйте ещё раз или выберите другое хранилище.",
+      },
+      vaultCloseFailed: {
+        title: "Не удалось закрыть хранилище",
+        line: "Заметки не тронуты. Попробуйте ещё раз.",
+      },
+      recoveryNotices: {
+        title: "Найдены незавершённые операции: {{count}}",
+        line: "Данные сохранены, ничего не удалено — делать ничего не нужно. Подробности в журнале отладки.",
+      },
+      aiKeyLeft: {
+        title: "Старый ключ остался в связке ключей",
+        line: "Подключение удалено, а ключ можно убрать из связки ключей вручную.",
+      },
+    },
+    tree: {
+      moveFailed: "Не удалось переместить «{{name}}»",
+      moveFailedMany: "Не удалось переместить выбранное ({{count}})",
+      moveKept: "Всё осталось на месте.",
+      movePartial: "Часть уже перенесена, остальное на месте.",
+      deleteLine: "Остальное обработано. Подробности в журнале отладки.",
+      importSkipped: "Не всё удалось скопировать в хранилище:\n{{list}}",
+      nothingChanged: "Ничего не изменилось.",
+    },
     centre: {
       title: "Уведомления",
       decision: "Требует решения",
@@ -1649,6 +1774,7 @@ const ru = {
       journalEmpty: "Пока ничего не происходило",
       clear: "Очистить",
       hide: "Скрыть",
+      close: "Закрыть",
       show: "Показать",
       open: "Открыть",
       openNote: "Открыть заметку",
@@ -1935,11 +2061,9 @@ const ru = {
     addLocal: "Добавить локальную модель",
     modelId: "ID модели",
     remove: "Удалить подключение",
-    removeConfirm:
-      "Удалить подключение и его ключ, если он не используется другими подключениями? История бесед сохранится.",
     saveError: "Не удалось сохранить настройки. Повторите попытку.",
     loadError: "Не удалось загрузить настройки ИИ.",
-    keyError: "Не удалось сохранить ключ.",
+    oldKeyLeft: "Подключение сохранено, но старый ключ остался в связке ключей.",
     catalogError: "Не удалось получить список моделей. Прежний список сохранён.",
     azureHint:
       "Список развёртываний Azure требует доступа к управлению подпиской. Существующие модели сохранены.",
@@ -2115,12 +2239,6 @@ const ru = {
     hoursAgo: "{{n}}ч назад",
     yesterday: "Вчера",
     daysAgo: "{{n}}д назад",
-  },
-  recovery: {
-    restorePrompt:
-      "Найдена несохранённая версия после аварийного завершения. Восстановить её в редакторе?",
-    switchAfterSaveFailure:
-      "Не удалось завершить сохранение всех изменений. Черновики восстановления сохранены. Всё равно переключить хранилище?",
   },
   tree: {
     archive: "В архив",
@@ -2626,7 +2744,6 @@ const ru = {
     clearBg: "Очистить фон",
   },
   filesPanel: {
-    importSkipped: "Не всё удалось скопировать в хранилище:",
     importFailed: "Не удалось скопировать файлы в хранилище.",
     importReason: {
       hidden: "скрытый файл",
@@ -2695,8 +2812,6 @@ const ru = {
     deleteManyConfirm: "Переместить {{count}} файлов в системную корзину?",
     deleteConfirmVault: 'Переместить "{{name}}" в корзину хранилища?',
     deleteManyConfirmVault: "Переместить {{count}} файлов в корзину хранилища?",
-    deletePermanentConfirm: 'Удалить "{{name}}" навсегда? Восстановить файл будет нельзя.',
-    deletePermanentManyConfirm: "Удалить {{count}} файлов навсегда? Восстановить их будет нельзя.",
     archive: "В архив",
     deleteDirtyTitle: "Удалить несохранённый файл?",
     deleteDirtyConfirm:
@@ -2707,19 +2822,9 @@ const ru = {
     deleteDiscard: "Удалить без сохранения",
     deleteManyFailed: "Не удалось переместить в системную корзину {{failed}} из {{total}} файлов.",
     dontAskAgain: "Больше не показывать это подтверждение",
-    deleteLayerConfirm:
-      'Удалить {{layer}} у заметки "{{title}}"? Файл будет перемещён в системную корзину.',
     graphTab: "Граф связей",
     newModel: "Новая модель",
     modelFallback: "Модель",
-    renameRefactorConfirm:
-      "Переименование обновит {{replacements}} ссылок в {{notes}} заметках. Продолжить?",
-    moveRefactorConfirm:
-      "Перемещение обновит {{replacements}} ссылок в {{notes}} заметках. Продолжить?",
-    mergeFilesConfirm:
-      "Добавить содержимое «{{source}}» в конец «{{target}}» и переместить исходный файл в системную корзину?",
-    migrationResumeConfirm:
-      "Обнаружена незавершённая миграция ID ({{files}} файлов). Продолжить её?",
     identityMigrationConfirm:
       "В хранилище {{notes}} заметок. Поле amby-id будет добавлено в {{files}} файлов:\n\n{{preview}}\nЕщё файлов: {{remaining}}.\n\nСначала будут созданы резервные копии и журнал миграции. Существующее поле id останется без изменений; старый канонический ULID будет скопирован в amby-id. Некорректный YAML: {{malformed}}; конфликты ID: {{conflicts}} — эти файлы не изменятся.\n\nПродолжить?",
     identityReadOnly: "Не удалось определить amby-id: исправьте YAML или конфликт ID.",
@@ -2728,8 +2833,6 @@ const ru = {
     invalidFrontmatter: "Некорректный YAML: свойства недоступны, текст можно править.",
     unterminatedFrontmatter:
       "У YAML нет закрывающего «---». Показан исходный файл; свойства недоступны.",
-    migrationRollbackConfirm:
-      "Восстановить заметки из резервных копий незавершённой миграции ID? Несохранённые внешние изменения не будут перезаписаны.",
   },
   help: {
     guide: {
@@ -3180,8 +3283,6 @@ const ru = {
       moveTo: "Переместить в блокнот",
       newPlaceholder: "Название блокнота — Enter, чтобы создать",
       dismiss: "Закрыть сообщение",
-      deleteConfirm:
-        "Удалить блокнот «{{name}}»?\n\nЗаметки не удаляются: все заметки блокнота ({{count}}) переедут в «{{where}}», а пустая папка блокнота уйдёт в корзину — её можно восстановить.",
       errors: {
         duplicate: "Блокнот с таким названием уже есть.",
         unavailable: "Не удалось прочитать список блокнотов. Попробуйте ещё раз.",
@@ -4230,12 +4331,6 @@ const en: typeof ru = {
     pathNotFound: "Path not found: {{path}}",
     moveTargetNotFound: "Move source or target not found.",
     sourceNotFound: "Source not found: {{path}}",
-    vaultOpenFailed: "Could not open the vault.\n\n{{details}}",
-    vaultCloseFailed: "Could not close the vault.\n\n{{details}}",
-    recoveryNotices:
-      "Unfinished operations found while opening the vault: {{count}}. Data was preserved and left unchanged or moved to quarantine (.amby/recovery/…/quarantine); nothing was deleted.\n{{details}}",
-    fileChangedExternally:
-      "The file was changed outside Amby after it was opened. Overwrite it with your version? If you cancel, the external version stays on disk, autosave for this file pauses, and your changes are kept in the recovery draft.",
     settingsSaveError: "Failed to save settings. Check configuration file permissions.",
     storageQuotaExceeded: "Browser storage is full. Free up space and try again.",
     storageUnavailable: "Browser storage is unavailable. Check browser settings and try again.",
@@ -4456,8 +4551,6 @@ const en: typeof ru = {
       deletePersisted: "Delete saved journal",
       deletePersistedHint:
         "Deletes saved log files and clears the current event stream. Problem recording will continue.",
-      deletePersistedConfirm:
-        "Delete the saved event journal and its archives from disk? Current problem recording will continue.",
       persistedDeleted: "Saved journal deleted",
       captureContinues: "Display is paused; event capture continues",
       subsystemFilter: "Subsystem",
@@ -4695,8 +4788,6 @@ const en: typeof ru = {
       builtinThemes: "Built-in themes",
       importedThemes: "Imported themes",
       themeImportFailed: "Could not read the theme file. Check the .amby-theme.json format.",
-      themeRemoveConfirm:
-        "Remove “{{name}}” from the library? The source file will not be changed.",
       themeAuthor: "By {{author}}",
       lightSoon: "Light theme coming soon",
       accent: "Accent color",
@@ -4784,11 +4875,128 @@ const en: typeof ru = {
       location: "Settings folder",
       openFolder: "Open folder",
       reset: "Reset settings",
-      resetConfirm: "Reset all settings to defaults?",
       clearRecent: "Clear recent vaults list",
     },
     common: {
       done: "Done",
+    },
+  },
+  confirmations: {
+    restoreVersion: {
+      title: "Restore this version?",
+      description: "The current version will be saved in the history.",
+      confirm: "Restore",
+    },
+    deleteVersion: {
+      title: "Delete this version?",
+      description: "The version will leave the history and cannot be brought back.",
+      confirm: "Delete",
+    },
+    cleanHistory: {
+      title: "Clean the history of this note?",
+      description: "{{count}} versions ({{size}}) will go and cannot be brought back.",
+      confirm: "Clean",
+    },
+    clearHistory: {
+      title: "Clear the whole history of the vault?",
+      description: "{{count}} versions ({{size}}) will go and cannot be brought back.",
+      confirm: "Clear",
+    },
+    deleteArchived: {
+      title: "Delete “{{name}}” permanently?",
+      description: "The note will leave the archive and cannot be brought back.",
+      confirm: "Delete",
+    },
+    removeTheme: {
+      title: "Remove the theme “{{name}}” from the library?",
+      description: "The theme file on the disk stays as it is; you can add the theme again.",
+      confirm: "Remove",
+    },
+    resetSettings: {
+      title: "Reset all settings?",
+      description: "Settings go back to their defaults; your notes are not touched.",
+      confirm: "Reset",
+    },
+    deleteDebugHistory: {
+      title: "Delete the saved event journal?",
+      description: "The journal and its archives leave the disk; the current recording continues.",
+      confirm: "Delete",
+    },
+    deleteLayer: {
+      title: "Delete the “{{layer}}” layer of the note “{{title}}”?",
+      description: "The layer file goes to the system Recycle Bin; it can be restored from there.",
+      confirm: "Delete",
+    },
+    removeAiConnection: {
+      title: "Delete the connection “{{name}}”?",
+      description: "Its key is deleted unless another connection uses it; chats are kept.",
+      confirm: "Delete",
+    },
+    deleteNotebook: {
+      title: "Delete the notebook “{{name}}”?",
+      description:
+        "No note is deleted: all notes of the notebook ({{count}}) move to “{{where}}”, and the empty folder goes to the trash.",
+      confirm: "Delete",
+    },
+    renameRefactor: {
+      title: "Rename and update the links?",
+      description: "Links to change: {{replacements}}, in notes: {{notes}}.",
+      confirm: "Rename",
+    },
+    moveRefactor: {
+      title: "Move and update the links?",
+      description: "Links to change: {{replacements}}, in notes: {{notes}}.",
+      confirm: "Move",
+    },
+    mergeNotes: {
+      title: "Append “{{source}}” to the end of “{{target}}”?",
+      description:
+        "The note “{{source}}” goes to the system Recycle Bin; it can be restored from there.",
+      confirm: "Append",
+    },
+    deletePermanent: {
+      title: "Delete “{{name}}” permanently?",
+      description: "No copy is left; the note cannot be brought back.",
+      confirm: "Delete",
+    },
+    deletePermanentMany: {
+      title: "Delete the {{count}} selected permanently?",
+      description: "No copies are left; the notes cannot be brought back.",
+      confirm: "Delete",
+    },
+    switchAfterSaveFailure: {
+      title: "Switch the vault without waiting for the save?",
+      description: "Some changes were not saved, but the recovery drafts are kept.",
+      confirm: "Switch anyway",
+    },
+    resumeMigration: {
+      title: "Resume the unfinished ID migration?",
+      description: "Files affected: {{files}}. If you decline, you will be asked about a rollback.",
+      confirm: "Resume",
+    },
+    rollbackMigration: {
+      title: "Roll back the ID migration?",
+      description:
+        "Notes return from their backups and later outside edits are not touched; without an answer the vault does not open.",
+      confirm: "Roll back",
+    },
+    restoreDraft: {
+      title: "Restore the unsaved version?",
+      description:
+        "A version from the last crash was found; if you do not restore it, it is deleted.",
+      confirm: "Restore",
+      cancel: "Do not restore",
+    },
+    overwriteExternal: {
+      title: "Overwrite the file that was changed outside Amby?",
+      description:
+        "If you decline, the outside version stays on the disk, the autosave of the file pauses, and your edits are kept in a draft.",
+      confirm: "Overwrite",
+    },
+    deleteDatabaseView: {
+      title: "Delete the view “{{name}}”?",
+      description: "The database itself and its records are not changed.",
+      confirm: "Delete",
     },
   },
   common: {
@@ -5059,7 +5267,6 @@ const en: typeof ru = {
     viewLayout: "View type",
     viewCreate: "Create view",
     viewNamePlaceholder: "For example, All characters",
-    confirmDeleteView: "Delete this view?",
     layout: "Layout",
     openMode: "Open records",
     openModes: {
@@ -5614,7 +5821,6 @@ const en: typeof ru = {
       "This note has {{count}} properties. Add them and their values to “{{database}}”, or save a separate backup.",
     databasePropertyMoveDatabase: "Add to database",
     databasePropertyMoveBackup: "Save backup",
-    databasePropertyMoveFailed: "Could not move the note or its properties: {{message}}",
     databasePropertyMoveOptionMissing: "The migrated option for “{{property}}” was not found.",
     databasePropertyMoveFieldMissing: "The migrated property “{{property}}” was not found.",
     moveDatabaseProperty: "Move property",
@@ -5796,9 +6002,6 @@ const en: typeof ru = {
     cleaning: "Cleaning…",
     cleanupConfirm:
       "Delete {{count}} older versions and free {{size}}? The latest {{keep}} versions of each note will remain. This cannot be undone.",
-    deleteHistoryConfirm:
-      "Delete this note’s history: {{count}} versions and {{size}}? This cannot be undone.",
-    deleteVersionConfirm: "Delete the selected version? This cannot be undone.",
     versionDeleted: "Version deleted.",
     versionFromHistory: "Version from history",
     currentVersion: "Current version",
@@ -5807,14 +6010,11 @@ const en: typeof ru = {
     clearAllHistory: "Clear all history",
     searchNotes: "Find a note…",
     selectNote: "Select a note",
-    clearAllConfirm:
-      "Delete all vault history: {{count}} versions and {{size}}? This cannot be undone.",
     historyCleared: "All vault history was cleared.",
     openFullHistory: "Open full history",
     storageVersions: "Versions: {{count}}",
     storageNotes: "Notes: {{count}}",
     storageSize: "Total size: {{size}}",
-    restoreConfirm: "Restore this version? The current version will also be saved in history.",
     restoreTrashConfirm: "Restore “{{name}}” to its original location?",
     openNote: "Open a note to view its history.",
     refresh: "Refresh",
@@ -5827,7 +6027,6 @@ const en: typeof ru = {
     return: "Restore",
     actions: "Actions",
     deleteForever: "Delete permanently",
-    deleteForeverConfirm: "Delete “{{name}}” permanently? This cannot be undone.",
   },
   linksPanel: {
     search: "Search links",
@@ -5839,6 +6038,34 @@ const en: typeof ru = {
     wikiLink: "wiki link",
   },
   notices: {
+    app: {
+      nothingChanged: "Your data is not affected.",
+      vaultOpenFailed: {
+        title: "Could not open the vault “{{name}}”",
+        line: "Your notes are untouched. Try again or choose another vault.",
+      },
+      vaultCloseFailed: {
+        title: "Could not close the vault",
+        line: "Your notes are untouched. Try again.",
+      },
+      recoveryNotices: {
+        title: "Unfinished operations found: {{count}}",
+        line: "The data is kept and nothing was deleted — there is nothing to do. Details are in the debug log.",
+      },
+      aiKeyLeft: {
+        title: "The old key stayed in the keychain",
+        line: "The connection is deleted; you can remove the key from the keychain by hand.",
+      },
+    },
+    tree: {
+      moveFailed: "Could not move “{{name}}”",
+      moveFailedMany: "Could not move the {{count}} selected",
+      moveKept: "Everything stayed where it was.",
+      movePartial: "Some are already moved, the rest stayed where they were.",
+      deleteLine: "The rest was handled. Details are in the debug log.",
+      importSkipped: "Not everything could be copied into the vault:\n{{list}}",
+      nothingChanged: "Nothing has changed.",
+    },
     centre: {
       title: "Notifications",
       decision: "Needs a decision",
@@ -5849,6 +6076,7 @@ const en: typeof ru = {
       journalEmpty: "Nothing has happened yet",
       clear: "Clear",
       hide: "Hide",
+      close: "Close",
       show: "Show",
       open: "Open",
       openNote: "Open the note",
@@ -6132,11 +6360,9 @@ const en: typeof ru = {
     addLocal: "Add local model",
     modelId: "Model ID",
     remove: "Remove connection",
-    removeConfirm:
-      "Remove this connection and its key if no other connection uses it? Conversation history is kept.",
     saveError: "Could not save settings. Try again.",
     loadError: "Could not load AI settings.",
-    keyError: "Could not save the key.",
+    oldKeyLeft: "The connection is saved, but the old key stayed in the keychain.",
     catalogError: "Could not load models. The previous list was kept.",
     azureHint:
       "Listing Azure deployments requires subscription management access. Existing models are preserved.",
@@ -6313,11 +6539,6 @@ const en: typeof ru = {
     hoursAgo: "{{n}}h ago",
     yesterday: "Yesterday",
     daysAgo: "{{n}}d ago",
-  },
-  recovery: {
-    restorePrompt: "An unsaved version from a previous crash was found. Restore it in the editor?",
-    switchAfterSaveFailure:
-      "Some changes could not be saved. Recovery drafts are preserved. Switch vaults anyway?",
   },
   tree: {
     archive: "Archive",
@@ -6823,7 +7044,6 @@ const en: typeof ru = {
     clearBg: "Clear background",
   },
   filesPanel: {
-    importSkipped: "Not everything could be copied into the vault:",
     importFailed: "The files could not be copied into the vault.",
     importReason: {
       hidden: "hidden file",
@@ -6892,8 +7112,6 @@ const en: typeof ru = {
     deleteManyConfirm: "Move {{count}} files to the system Recycle Bin?",
     deleteConfirmVault: 'Move "{{name}}" to the vault trash?',
     deleteManyConfirmVault: "Move {{count}} files to the vault trash?",
-    deletePermanentConfirm: 'Delete "{{name}}" permanently? It cannot be restored.',
-    deletePermanentManyConfirm: "Delete {{count}} files permanently? They cannot be restored.",
     archive: "Archive",
     deleteDirtyTitle: "Delete unsaved file?",
     deleteDirtyConfirm:
@@ -6904,17 +7122,9 @@ const en: typeof ru = {
     deleteDiscard: "Discard changes",
     deleteManyFailed: "Could not move {{failed}} of {{total}} files to the system Recycle Bin.",
     dontAskAgain: "Don't show this confirmation again",
-    deleteLayerConfirm:
-      'Delete {{layer}} for note "{{title}}"? The file will be moved to the system Recycle Bin.',
     graphTab: "Link graph",
     newModel: "New model",
     modelFallback: "Model",
-    renameRefactorConfirm:
-      "Renaming will update {{replacements}} links in {{notes}} notes. Continue?",
-    moveRefactorConfirm: "Moving will update {{replacements}} links in {{notes}} notes. Continue?",
-    mergeFilesConfirm:
-      "Append “{{source}}” to “{{target}}” and move the source file to the system Recycle Bin?",
-    migrationResumeConfirm: "An unfinished ID migration was found ({{files}} files). Resume it?",
     identityMigrationConfirm:
       "The vault contains {{notes}} notes. amby-id will be added to {{files}} files:\n\n{{preview}}\nAdditional files: {{remaining}}.\n\nBackups and a migration journal will be created first. Existing id fields remain unchanged; a legacy canonical ULID will be copied to amby-id. Invalid YAML: {{malformed}}; ID conflicts: {{conflicts}} — those files will not be changed.\n\nContinue?",
     identityReadOnly: "Could not determine amby-id: fix the YAML or the ID conflict.",
@@ -6923,8 +7133,6 @@ const en: typeof ru = {
     invalidFrontmatter: "Invalid YAML: properties are unavailable, the text can be edited.",
     unterminatedFrontmatter:
       "The YAML closing “---” is missing. The source is shown; properties are unavailable.",
-    migrationRollbackConfirm:
-      "Restore notes from the unfinished ID migration backups? Later external edits will not be overwritten.",
   },
   help: {
     guide: {
@@ -7370,8 +7578,6 @@ const en: typeof ru = {
       moveTo: "Move to notebook",
       newPlaceholder: "Notebook name — Enter to create",
       dismiss: "Dismiss the message",
-      deleteConfirm:
-        'Delete the notebook "{{name}}"?\n\nNo note is deleted: all notes of the notebook ({{count}}) move to "{{where}}", and the empty folder goes to the trash, where it can be restored.',
       errors: {
         duplicate: "A notebook with this name already exists.",
         unavailable: "Could not read the list of notebooks. Try again.",

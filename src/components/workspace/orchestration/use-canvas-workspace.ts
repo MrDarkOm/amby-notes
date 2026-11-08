@@ -4,11 +4,10 @@ import { serializeCanvas, validateAndSerializeCanvas } from "@/lib/canvas-format
 import {
   discardRecoveryDraft,
   migrateLegacyRecoveryDrafts,
-  readRecoveryDraft,
   scheduleRecoveryDraft,
   type RecoveryScope,
 } from "@/lib/recovery-drafts"
-import { confirmAction, readFile } from "@/lib/storage"
+import { readFile } from "@/lib/storage"
 import { recordAutosaveDiagnostic } from "@/lib/debug/autosave"
 import { logger, errorType } from "@/lib/logger"
 import { useDocStore } from "../use-doc-store"
@@ -16,13 +15,17 @@ import { canvasLayerPath } from "../workspace-tree-utils"
 import { FileConflictPausedError, FileRevisionTracker } from "../autosave/file-revision-tracker"
 import { AutosaveCoordinator, type AutosaveKey } from "../autosave/autosave-coordinator"
 import { registerAutosaveLifecycle } from "../autosave/autosave-lifecycle"
-import { recoveryNeedsConfirmation, resolveRecoveryContent } from "../recovery-restore"
+import { settleLayerDraft } from "./layer-draft"
 import { CanvasLoadDeduplicator } from "./canvas-load-dedup"
 
 type CanvasAutosavePayload = { path: string; json: string }
 
 /** Owns Obsidian .canvas buffers and their recovery/autosave lifecycle. */
-export function useCanvasWorkspace(generation: number, t: TFunction, recoveryScope: RecoveryScope) {
+export function useCanvasWorkspace(
+  generation: number,
+  _t: TFunction,
+  recoveryScope: RecoveryScope,
+) {
   // Canvas editing already owns a React Flow buffer below. Keep the latest
   // serialized values in a ref so each drag/text checkpoint does not re-render
   // WorkspaceOrchestration and every cached document editor. Explicit buffer
@@ -105,28 +108,29 @@ export function useCanvasWorkspace(generation: number, t: TFunction, recoverySco
         } catch {
           diskContent = serializeCanvas({ nodes: [], edges: [] })
         }
-        const recovery = (await readRecoveryDraft(path, recoveryScope))?.content
-        let recoveredContent: string | undefined
-        if (recovery !== undefined) {
-          try {
-            recoveredContent = validateAndSerializeCanvas(recovery)
-          } catch (error) {
-            console.error("Ignoring invalid canvas recovery draft:", error)
-          }
-        }
-        const restoreConfirmed = recoveryNeedsConfirmation(diskContent, recoveredContent)
-          ? await confirmAction(t("recovery.restorePrompt"))
-          : false
-        const resolved = resolveRecoveryContent(diskContent, recoveredContent, restoreConfirmed)
-        if (resolved.discardDraft) void discardRecoveryDraft(path, recoveryScope)
-        if (resolved.restored) {
-          scheduleRecoveryDraft(path, resolved.content, "canvas", path, recoveryScope)
-          autosave.enqueueImmediate(autosaveKey(path), { path, json: resolved.content })
-        }
-        setOpenCanvases((prev) => ({ ...prev, [path]: resolved.content }))
-        return resolved.content
+        return settleLayerDraft({
+          path,
+          recoveryScope,
+          disk: diskContent,
+          validate: validateAndSerializeCanvas,
+          onRestored: (content) => {
+            scheduleRecoveryDraft(path, content, "canvas", path, recoveryScope)
+            autosave.enqueueImmediate(autosaveKey(path), { path, json: content })
+          },
+          readDisk: async () => {
+            try {
+              return validateAndSerializeCanvas(await readFile(path))
+            } catch {
+              return serializeCanvas({ nodes: [], edges: [] })
+            }
+          },
+          setBuffer: (content) => setOpenCanvases((prev) => ({ ...prev, [path]: content })),
+        }).then((content) => {
+          setOpenCanvases((prev) => ({ ...prev, [path]: content }))
+          return content
+        })
       }),
-    [autosave, autosaveKey, generation, recoveryScope, setOpenCanvases, t],
+    [autosave, autosaveKey, generation, recoveryScope, setOpenCanvases],
   )
 
   const handleCanvasSave = React.useCallback(

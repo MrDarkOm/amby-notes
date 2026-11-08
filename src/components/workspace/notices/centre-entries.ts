@@ -3,6 +3,7 @@ import { relativeToVault } from "../editor/document-breadcrumbs-utils"
 import type { LimitNotice } from "../sync/limit-notices"
 import { conflictName } from "../sync/conflict-outcome"
 import { noticeSeverityRank, type NoticeLevel } from "./notice-look"
+import type { AppNotice } from "./use-app-notices-store"
 
 // What the notification centre says now (docs/notices.md, section 5). "Needs a decision" and "Attention"
 // are not kept anywhere: this derives them from the live causes each time, so a record leaves with its cause.
@@ -22,6 +23,7 @@ export type CentreKind =
   | "limit-too-large"
   | "limit-quota-full"
   | "item-errors"
+  | "app-notice"
 
 export interface CentreEntry {
   /** Stable while the cause stays. A copy of a card of an open note has the id of the card. */
@@ -37,6 +39,8 @@ export interface CentreEntry {
   maxBytes?: number
   stop?: CentreStop
   conflict?: CentreConflict
+  /** The notice of the application this entry shows (`app-notice`). */
+  appNotice?: AppNotice
   action: CentreAction
 }
 
@@ -65,6 +69,8 @@ export interface CentreInput {
   closedSaveFailures: Record<string, { name: string; path: string }>
   /** Ids of records of "Attention" the person hid. */
   hidden: string[]
+  /** Notices of the application with no other place (a vault that did not open, a link that did not open). */
+  appNotices?: AppNotice[]
 }
 
 export interface Centre {
@@ -200,6 +206,19 @@ export function deriveCentre(input: CentreInput): Centre {
   }
 
   const warning = warningsOf(input).filter((entry) => !input.hidden.includes(entry.id))
+  // A notice of the application stands until the person closes it, so it is not hidden: it is dismissed.
+  for (const notice of input.appNotices ?? []) {
+    const entry: CentreEntry = {
+      id: `app:${notice.id}`,
+      section: notice.level === "warning" ? "warning" : "decision",
+      level: notice.level,
+      kind: "app-notice",
+      appNotice: notice,
+      action: { kind: "settings" },
+    }
+    if (entry.section === "warning") warning.push(entry)
+    else decision.push(entry)
+  }
   return { decision: bySeriousness(decision), warning }
 }
 

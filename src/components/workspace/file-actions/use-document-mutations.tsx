@@ -3,6 +3,8 @@ import { useDatabaseStore } from "../database/database-store"
 import i18n from "@/lib/i18n"
 import { logger } from "@/lib/logger"
 import { saveRecoveryDraft } from "@/lib/recovery-drafts"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
 import {
   Dialog,
   DialogContent,
@@ -14,7 +16,6 @@ import {
 import {
   applyDatabaseValueBatch,
   backupCustomProperties,
-  confirmAction,
   createDatabaseProperty,
   deleteItem,
   getDatabaseNoteContext,
@@ -24,7 +25,6 @@ import {
   previewRenameRefactor,
   readNote,
   renameItem,
-  showErrorMessage,
   type FsMutationResult,
   type CustomProperty,
   type DatabaseNoteContext,
@@ -32,6 +32,7 @@ import {
 } from "@/lib/storage"
 import { useDocStore } from "../use-doc-store"
 import { useTabsStore } from "../use-tabs-store"
+import { useTreeMessageStore } from "../tree/use-tree-message-store"
 import { findTreeItem } from "../workspace-tree-utils"
 import { moveTreeItemsOptimistically } from "../workspace-mutations"
 import { concatTreePatches } from "../tree-patch"
@@ -240,8 +241,8 @@ export function useDocumentMutations({
         const preview = await previewRenameRefactor(vault ?? "", path, newName)
         if (
           preview.replacements > 0 &&
-          !(await confirmAction(
-            t("workspace.renameRefactorConfirm", {
+          !(await confirm(
+            confirmations.renameRefactor({
               replacements: preview.replacements,
               notes: preview.notes,
             }),
@@ -266,7 +267,7 @@ export function useDocumentMutations({
         finishLocalMutation?.()
       }
     },
-    [handleApplyMutation, patchDoc, setTabs, t, treeItems, vault],
+    [handleApplyMutation, patchDoc, setTabs, treeItems, vault],
   )
   const handleMoveItem = React.useCallback(
     async (sourceIds: string[], targetId: string | null): Promise<MoveOutcome> => {
@@ -355,8 +356,8 @@ export function useDocumentMutations({
           const preview = await previewMoveRefactor(vault, sourceEntries[0].sourcePath, targetPath)
           if (
             preview.replacements > 0 &&
-            !(await confirmAction(
-              t("workspace.moveRefactorConfirm", {
+            !(await confirm(
+              confirmations.moveRefactor({
                 replacements: preview.replacements,
                 notes: preview.notes,
               }),
@@ -442,17 +443,31 @@ export function useDocumentMutations({
           setTreeItems(previousTree)
         }
         console.error("Failed to move item:", error)
-        void showErrorMessage(
-          t("infoPanel.databasePropertyMoveFailed", {
-            message: error instanceof Error ? error.message : String(error),
-          }),
+        // Said under the tree, where the note was dragged; the cause stays in the log (docs/notices.md, section 10).
+        const moved = results.length > 0
+        useTreeMessageStore.getState().show(
+          sourceEntries.length === 1
+            ? {
+                id: "move-failed",
+                level: "warning",
+                titleKey: "notices.tree.moveFailed",
+                params: { name: sourceEntries[0].source.name },
+                lineKey: moved ? "notices.tree.movePartial" : "notices.tree.moveKept",
+              }
+            : {
+                id: "move-failed",
+                level: "warning",
+                titleKey: "notices.tree.moveFailedMany",
+                params: { count: sourceEntries.length },
+                lineKey: moved ? "notices.tree.movePartial" : "notices.tree.moveKept",
+              },
         )
         return "failed"
       } finally {
         finishLocalMutation()
       }
     },
-    [handleApplyMutation, refreshTree, requestPropertyMigration, setTreeItems, t, treeItems, vault],
+    [handleApplyMutation, refreshTree, requestPropertyMigration, setTreeItems, treeItems, vault],
   )
   const handleMergeFile = React.useCallback(
     async (sourceId: string, targetId: string) => {
@@ -462,9 +477,7 @@ export function useDocumentMutations({
       if (
         source?.type !== "file" ||
         target?.type !== "file" ||
-        !(await confirmAction(
-          t("workspace.mergeFilesConfirm", { source: source.name, target: target.name }),
-        ))
+        !(await confirm(confirmations.mergeNotes({ source: source.name, target: target.name })))
       )
         return
       try {
@@ -519,7 +532,6 @@ export function useDocumentMutations({
       markUnsaved,
       patchDoc,
       recoveryScope,
-      t,
       treeItems,
       vault,
     ],
