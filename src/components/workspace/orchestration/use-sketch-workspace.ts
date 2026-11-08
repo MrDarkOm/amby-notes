@@ -3,12 +3,9 @@ import type { TFunction } from "i18next"
 import { validateAndSerializeSketch, defaultSketchJson } from "@/lib/sketch-format"
 import {
   discardRecoveryDraft,
-  readRecoveryDraft,
   scheduleRecoveryDraft,
   type RecoveryScope,
 } from "@/lib/recovery-drafts"
-import { confirm } from "@/lib/confirm"
-import { confirmations } from "@/lib/confirmations"
 import { readFile } from "@/lib/storage"
 import { recordAutosaveDiagnostic } from "@/lib/debug/autosave"
 import { logger, errorType } from "@/lib/logger"
@@ -17,7 +14,7 @@ import { sketchLayerPath } from "../workspace-tree-utils"
 import { FileConflictPausedError, FileRevisionTracker } from "../autosave/file-revision-tracker"
 import { AutosaveCoordinator, type AutosaveKey } from "../autosave/autosave-coordinator"
 import { registerAutosaveLifecycle } from "../autosave/autosave-lifecycle"
-import { recoveryNeedsConfirmation, resolveRecoveryContent } from "../recovery-restore"
+import { settleLayerDraft } from "./layer-draft"
 import { CanvasLoadDeduplicator } from "./canvas-load-dedup"
 
 type SketchAutosavePayload = { path: string; json: string }
@@ -107,26 +104,27 @@ export function useSketchWorkspace(
         } catch {
           diskContent = defaultSketchJson()
         }
-        const recovery = (await readRecoveryDraft(path, recoveryScope))?.content
-        let recoveredContent: string | undefined
-        if (recovery !== undefined) {
-          try {
-            recoveredContent = validateAndSerializeSketch(recovery)
-          } catch (error) {
-            console.error("Ignoring invalid sketch recovery draft:", error)
-          }
-        }
-        const restoreConfirmed = recoveryNeedsConfirmation(diskContent, recoveredContent)
-          ? await confirm(confirmations.restoreDraft())
-          : false
-        const resolved = resolveRecoveryContent(diskContent, recoveredContent, restoreConfirmed)
-        if (resolved.discardDraft) void discardRecoveryDraft(path, recoveryScope)
-        if (resolved.restored) {
-          scheduleRecoveryDraft(path, resolved.content, "sketch", path, recoveryScope)
-          autosave.enqueueImmediate(autosaveKey(path), { path, json: resolved.content })
-        }
-        setOpenSketches((prev) => ({ ...prev, [path]: resolved.content }))
-        return resolved.content
+        return settleLayerDraft({
+          path,
+          recoveryScope,
+          disk: diskContent,
+          validate: validateAndSerializeSketch,
+          onRestored: (content) => {
+            scheduleRecoveryDraft(path, content, "sketch", path, recoveryScope)
+            autosave.enqueueImmediate(autosaveKey(path), { path, json: content })
+          },
+          readDisk: async () => {
+            try {
+              return validateAndSerializeSketch(await readFile(path))
+            } catch {
+              return defaultSketchJson()
+            }
+          },
+          setBuffer: (content) => setOpenSketches((prev) => ({ ...prev, [path]: content })),
+        }).then((content) => {
+          setOpenSketches((prev) => ({ ...prev, [path]: content }))
+          return content
+        })
       }),
     [autosave, autosaveKey, generation, recoveryScope, setOpenSketches],
   )

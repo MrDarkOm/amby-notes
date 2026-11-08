@@ -24,7 +24,7 @@ function ConfirmDialog({ question }: { question: PendingConfirm }) {
   )
 
   return (
-    <Dialog open onOpenChange={(open) => !open && settle(question.id, false)}>
+    <Dialog open onOpenChange={(open) => !open && settle(question.id, "dismissed")}>
       <DialogContent
         role="alertdialog"
         data-destructive={destructive ? "true" : "false"}
@@ -52,7 +52,7 @@ function ConfirmDialog({ question }: { question: PendingConfirm }) {
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => settle(question.id, false)}
+            onClick={() => settle(question.id, "no")}
           >
             {question.cancelLabel ?? t("common.cancel")}
           </Button>
@@ -61,7 +61,7 @@ function ConfirmDialog({ question }: { question: PendingConfirm }) {
             type="button"
             variant={destructive ? "destructive" : "default"}
             size="sm"
-            onClick={() => settle(question.id, true)}
+            onClick={() => settle(question.id, "yes")}
           >
             {question.confirmLabel}
           </Button>

@@ -143,7 +143,8 @@ describe.each([
     expect(confirmChoice).toHaveBeenCalledTimes(2)
     expect(view.buffer(path)).toBe(draft)
     expect(useHeldDraftsStore.getState().held[path]).toBeUndefined()
-    expect(drafts.discardRecoveryDraft).not.toHaveBeenCalled()
+    // The draft is kept as a draft until the restored version is saved.
+    expect(drafts.scheduleRecoveryDraft).toHaveBeenCalledWith(path, draft, kind, path, scope)
   })
 
   it("asked again, 'Do not restore' drops the draft and lets the layer be edited", async () => {
