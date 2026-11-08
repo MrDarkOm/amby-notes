@@ -17,12 +17,9 @@ import {
   databaseErrorCode,
   databaseFailureText,
   writeWarningNotices,
-  KNOWN_DATABASE_FAILURE_REASONS,
   type SchemaChange,
 } from "./database-errors"
 import { projectErrorCode, projectFailureText } from "./project-errors"
-
-export { KNOWN_DATABASE_FAILURE_REASONS }
 
 /**
  * A failure whose message is already the text for the person (taken from the dictionary where it
