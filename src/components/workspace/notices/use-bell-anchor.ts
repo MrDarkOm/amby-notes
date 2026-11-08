@@ -13,11 +13,11 @@ export function useBellAnchor(active: boolean): React.CSSProperties {
       const button = document.querySelector('[data-activity-button="notices"]')
       const rect = button?.getBoundingClientRect()
       if (!rect || (rect.width === 0 && rect.height === 0)) {
-        setAnchor({ left: 56, bottom: 8, maxHeight: window.innerHeight - 16 })
+        setAnchor({ left: 56, bottom: 8, maxHeight: window.innerHeight - 56 })
         return
       }
       const bottom = Math.max(8, window.innerHeight - rect.bottom)
-      const maxHeight = Math.max(160, window.innerHeight - bottom - 8)
+      const maxHeight = Math.max(160, window.innerHeight - bottom - 48)
       setAnchor(
         rect.left > window.innerWidth / 2
           ? { right: window.innerWidth - rect.left + 8, bottom, maxHeight }

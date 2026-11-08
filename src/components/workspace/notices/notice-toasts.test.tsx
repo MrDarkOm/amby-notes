@@ -107,7 +107,7 @@ describe("how a toast looks and where it leads", () => {
       const classes = toast.getAttribute("class") ?? ""
       expect(classes).not.toMatch(/--notice-[a-z]+-bg/)
       expect(classes).not.toMatch(/--notice-[a-z]+-border/)
-      expect(classes).toContain(`border-l-[color:var(--notice-${level}-fg)]`)
+      expect(classes).toContain("border-l-[color:" + "var(--notice-" + level + "-fg)]")
       expect(toast.querySelector("svg")?.getAttribute("class") ?? "").toContain(
         `--notice-${level}-fg`,
       )

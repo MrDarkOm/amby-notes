@@ -97,7 +97,7 @@ describe("the calm look of a card (docs/notices.md, section 11)", () => {
       expect(classes).not.toMatch(/--notice-[a-z]+-border/)
       expect(classes).toContain("bg-card")
       // The stripe on the left is the colour of the level.
-      expect(classes).toContain(`border-l-[color:var(--notice-${level}-fg)]`)
+      expect(classes).toContain("border-l-[color:" + "var(--notice-" + level + "-fg)]")
       expect(card.getAttribute("data-level")).toBe(level)
     },
   )

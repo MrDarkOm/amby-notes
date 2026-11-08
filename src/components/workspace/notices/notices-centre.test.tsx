@@ -441,7 +441,7 @@ describe("the look of the cards of the centre (docs/notices.md, section 11)", ()
       const classes = card.getAttribute("class") ?? ""
       expect(classes, level).not.toMatch(/--notice-[a-z]+-bg/)
       expect(classes, level).not.toMatch(/--notice-[a-z]+-border/)
-      expect(classes, level).toContain(`border-l-[color:var(--notice-${level}-fg)]`)
+      expect(classes, level).toContain("border-l-[color:" + "var(--notice-" + level + "-fg)]")
       expect(card.querySelector("svg")?.getAttribute("class") ?? "", level).toContain(
         `--notice-${level}-fg`,
       )
