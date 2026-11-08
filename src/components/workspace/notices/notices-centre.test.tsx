@@ -134,30 +134,52 @@ describe("how the centre is built into the dock", () => {
     expect(document.activeElement).toBe(dockButton())
   })
 
-  it("stands beside the bell and grows upwards from it, on the side where the dock is", async () => {
+  it("stands beside the bell and grows upwards from it, on the side where the dock is, with a gap from the dock", async () => {
     await mountHost()
-    const rect = (left: number) =>
+    const box = (left: number, width: number, top: number, bottom: number) =>
       ({
         left,
-        right: left + 40,
-        top: 500,
-        bottom: 530,
-        width: 40,
-        height: 30,
+        right: left + width,
+        top,
+        bottom,
+        width,
+        height: bottom - top,
         x: left,
-        y: 500,
+        y: top,
       }) as DOMRect
-    dockButton()!.getBoundingClientRect = () => rect(0)
+    const dock = document.querySelector<HTMLElement>("[data-activity-bar]")!
+    dockButton()!.getBoundingClientRect = () => box(4, 36, 500, 530)
+    dock.getBoundingClientRect = () => box(0, 48, 0, 768)
     const left = await openCentre()
-    expect(left.style.left).toBe("48px")
-    expect(left.style.bottom).toBe(`${window.innerHeight - 530}px`)
+    // 12px from the edge of the dock (not from the button), so no button of the dock is covered.
+    expect(left.style.left).toBe("60px")
+    // The foot of the stack is level with the foot of the bell, never lower.
+    expect(Number.parseInt(left.style.bottom)).toBeGreaterThanOrEqual(window.innerHeight - 530)
     expect(left.style.maxHeight).toBeTruthy()
     fireEvent.click(dockButton()!)
     await waitFor(() => expect(screen.queryByTestId("notices-centre")).toBeNull())
-    dockButton()!.getBoundingClientRect = () => rect(window.innerWidth - 40)
+    const edge = window.innerWidth - 48
+    dockButton()!.getBoundingClientRect = () => box(edge + 8, 36, 500, 530)
+    dock.getBoundingClientRect = () => box(edge, 48, 0, 768)
     const right = await openCentre()
-    expect(right.style.right).toBe(`${window.innerWidth - (window.innerWidth - 40) + 8}px`)
+    expect(right.style.right).toBe("60px")
     expect(right.style.left).toBe("")
+  })
+
+  it("lies on one surface like the other pop-up menus: popover colour, a thin frame, a shadow, rounded, scrolling inside", async () => {
+    await mountHost(vaultStatus({ conflicts: [conflict("aaaaaaaaaaaa")], itemErrors: 1 }))
+    await screen.findByTestId("notices-dock-count")
+    const centre = await openCentre()
+    const classes = centre.getAttribute("class") ?? ""
+    expect(classes).toContain("bg-popover")
+    expect(classes).toMatch(/\bborder\b/)
+    expect(classes).toMatch(/\bshadow-/)
+    expect(classes).toMatch(/\brounded-/)
+    expect(classes).toContain("overflow-y-auto")
+    // The sections and their cards are inside it, and it takes no pointer events away from the window around.
+    expect(centre.contains(screen.getByTestId("notices-section-decision"))).toBe(true)
+    expect(centre.contains(screen.getByTestId("notices-section-warning"))).toBe(true)
+    expect(classes).not.toContain("pointer-events-none")
   })
 
   it("leaves nothing of the old popover of conflicts, of the floating badge or of a side panel", async () => {

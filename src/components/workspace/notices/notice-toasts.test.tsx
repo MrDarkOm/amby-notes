@@ -171,27 +171,68 @@ describe("a toast and the stack of the centre", () => {
     expect(toasts()).toHaveLength(1)
   })
 
-  it("stands on the side of the dock, like the stack", () => {
+  it("stands on the side of the dock, like the stack, 12px from the edge of the dock, and does not cover its buttons", () => {
+    const box = (left: number, width: number, top: number, bottom: number) =>
+      ({
+        left,
+        right: left + width,
+        top,
+        bottom,
+        width,
+        height: bottom - top,
+        x: left,
+        y: top,
+      }) as DOMRect
+    const dock = document.createElement("div")
+    dock.setAttribute("data-activity-bar", "left")
+    dock.getBoundingClientRect = () => box(0, 48, 0, 768)
     const bell = document.createElement("button")
     bell.setAttribute("data-activity-button", "notices")
-    bell.getBoundingClientRect = () =>
-      ({
-        left: 0,
-        right: 40,
-        top: 500,
-        bottom: 530,
-        width: 40,
-        height: 30,
-        x: 0,
-        y: 500,
-      }) as DOMRect
-    document.body.append(bell)
+    bell.getBoundingClientRect = () => box(4, 36, 500, 530)
+    dock.append(bell)
+    document.body.append(dock)
     render(<NoticeToastHost />)
     announce(conflictToast("a"))
     const stack = screen.getByTestId("notice-toasts")
-    expect(stack.style.left).toBe("48px")
-    expect(stack.style.bottom).toBe(`${window.innerHeight - 530}px`)
-    bell.remove()
+    expect(stack.style.left).toBe("60px")
+    expect(Number.parseInt(stack.style.bottom)).toBeGreaterThanOrEqual(window.innerHeight - 530)
+    dock.remove()
+  })
+
+  it("keeps the same gap on the right side when the dock is there", () => {
+    const box = (left: number, width: number, top: number, bottom: number) =>
+      ({
+        left,
+        right: left + width,
+        top,
+        bottom,
+        width,
+        height: bottom - top,
+        x: left,
+        y: top,
+      }) as DOMRect
+    const edge = window.innerWidth - 48
+    const dock = document.createElement("div")
+    dock.setAttribute("data-activity-bar", "right")
+    dock.getBoundingClientRect = () => box(edge, 48, 0, 768)
+    const bell = document.createElement("button")
+    bell.setAttribute("data-activity-button", "notices")
+    bell.getBoundingClientRect = () => box(edge + 8, 36, 500, 530)
+    dock.append(bell)
+    document.body.append(dock)
+    render(<NoticeToastHost />)
+    announce(conflictToast("a"))
+    const stack = screen.getByTestId("notice-toasts")
+    expect(stack.style.right).toBe("60px")
+    expect(stack.style.left).toBe("")
+    dock.remove()
+  })
+
+  it("keeps the 'N more' chip in the same column, inside the gap", () => {
+    render(<NoticeToastHost />)
+    for (const id of ["a", "b", "c", "d"]) announce(conflictToast(id))
+    const stack = screen.getByTestId("notice-toasts")
+    expect(stack.contains(screen.getByTestId("notice-toasts-more"))).toBe(true)
   })
 })
 
