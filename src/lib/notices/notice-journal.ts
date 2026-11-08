@@ -6,18 +6,18 @@
 export const JOURNAL_DAYS = 7
 
 /** The most entries kept: a guard against a runaway source, far above what a week brings. */
-export const JOURNAL_MAX_ENTRIES = 500
+const JOURNAL_MAX_ENTRIES = 500
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const FILE_VERSION = 1
 
-export type JournalLevel = "info" | "success"
+type JournalLevel = "info" | "success"
 
 /**
  * What happened. The text is made from the kind and the params when the journal is read, in the language
  * of the person at that time; an unknown kind (from a newer Amby) is shown with a general text.
  */
-export type JournalKind = "restored" | "conflictOutcome" | "merged" | "backupReady" | "updateFailed"
+type JournalKind = "restored" | "conflictOutcome" | "merged" | "backupReady" | "updateFailed"
 
 export interface JournalEntry {
   id: string
