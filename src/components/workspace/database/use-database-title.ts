@@ -4,7 +4,7 @@ import * as React from "react"
 import { renameDatabase } from "@/lib/storage"
 
 import { normalizeDatabaseIcon } from "./database-icon"
-import { operationErrorText, reportOperationError } from "@/lib/operation-errors"
+import { operationErrorText, reportOperationError, warningNotices } from "@/lib/operation-errors"
 
 interface UseDatabaseTitleParams {
   title: string
@@ -58,7 +58,7 @@ export function useDatabaseTitle({
         const refreshFailure = refreshResults.find(
           (result): result is PromiseRejectedResult => result.status === "rejected",
         )
-        const notices = [...renamed.warnings]
+        const notices = warningNotices(renamed.warnings)
         if (refreshFailure) {
           notices.push(operationErrorText(refreshFailure.reason))
         }

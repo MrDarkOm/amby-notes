@@ -78,3 +78,13 @@ export function databaseFailureText(
   }
   return t(`databaseErrors.reason.${error.reason}`)
 }
+
+/**
+ * What the backend reports beside a write that went through (`warnings`: an index that could not be
+ * refreshed at once, a related value it could not update). The sentences are the developer's and go
+ * to the log; the person gets one text, because the write itself succeeded.
+ */
+export function writeWarningNotices(warnings: readonly string[], t: TFunction): string[] {
+  if (warnings.length === 0) return []
+  return [t("databaseErrors.writtenWithWarnings")]
+}

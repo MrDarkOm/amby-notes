@@ -32,7 +32,12 @@ import {
   type OptionDraft,
 } from "./option-model"
 import { createDatabaseOperationId } from "./use-property-mutation"
-import { ShownError, operationErrorText, reportOperationError } from "@/lib/operation-errors"
+import {
+  ShownError,
+  operationErrorText,
+  reportOperationError,
+  warningNotices,
+} from "@/lib/operation-errors"
 
 function relationTargetFromConfig(configJson: string, reciprocalOnly = false): string | undefined {
   try {
@@ -182,7 +187,7 @@ export function useDatabasePropertyActions({
       const refreshFailure = refreshResults.find(
         (result): result is PromiseRejectedResult => result.status === "rejected",
       )
-      const notices = [...created.warnings]
+      const notices = warningNotices(created.warnings)
       if (refreshFailure) {
         notices.push(operationErrorText(refreshFailure.reason))
       }
@@ -240,7 +245,7 @@ export function useDatabasePropertyActions({
         const refreshFailure = refreshResults.find(
           (result): result is PromiseRejectedResult => result.status === "rejected",
         )
-        const notices = [...deleted.warnings]
+        const notices = warningNotices(deleted.warnings)
         if (refreshFailure) {
           notices.push(operationErrorText(refreshFailure.reason))
         }
@@ -296,7 +301,7 @@ export function useDatabasePropertyActions({
         const refreshFailure = refreshResults.find(
           (result): result is PromiseRejectedResult => result.status === "rejected",
         )
-        const notices = [...renamed.warnings]
+        const notices = warningNotices(renamed.warnings)
         if (refreshFailure) {
           notices.push(operationErrorText(refreshFailure.reason))
         }
@@ -344,7 +349,7 @@ export function useDatabasePropertyActions({
       const refreshFailure = refreshResults.find(
         (result): result is PromiseRejectedResult => result.status === "rejected",
       )
-      const notices = [...warnings]
+      const notices = warningNotices(warnings)
       if (refreshFailure) {
         notices.push(operationErrorText(refreshFailure.reason))
       }
@@ -536,7 +541,7 @@ export function useDatabasePropertyActions({
         const refreshFailure = refreshResults.find(
           (result): result is PromiseRejectedResult => result.status === "rejected",
         )
-        const notices = [...changed.warnings]
+        const notices = warningNotices(changed.warnings)
         if (refreshFailure) {
           notices.push(operationErrorText(refreshFailure.reason))
         }

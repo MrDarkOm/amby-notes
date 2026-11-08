@@ -10,7 +10,7 @@ import {
 } from "@/lib/storage"
 import { databaseFailure } from "@/lib/test-utils/errors"
 import { KNOWN_DATABASE_FAILURE_REASONS } from "./database-errors"
-import { operationErrorCode, operationErrorText } from "./operation-errors"
+import { operationErrorCode, operationErrorText, warningNotices } from "./operation-errors"
 
 const t = i18n.t.bind(i18n)
 
@@ -172,5 +172,22 @@ describe("operationErrorText for the other errors", () => {
 
   it("shows the general text for a thrown string", () => {
     expect(operationErrorText("disk exploded", t)).not.toContain("disk exploded")
+  })
+})
+
+describe("warningNotices", () => {
+  it("is empty without warnings", () => {
+    expect(warningNotices([])).toEqual([])
+  })
+
+  it("is one dictionary text however many sentences the backend sent", () => {
+    const notices = warningNotices([
+      "Incremental projection update required for database 01J0: SQL error",
+      "Previous relation target 01J1 was not found; inverse value could not be updated",
+    ])
+    expect(notices).toHaveLength(1)
+    expect(notices[0]).toMatch(/записано/)
+    expect(notices[0]).not.toContain("projection")
+    expect(notices[0]).not.toContain("01J0")
   })
 })

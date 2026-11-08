@@ -16,6 +16,7 @@ import {
 import {
   databaseErrorCode,
   databaseFailureText,
+  writeWarningNotices,
   KNOWN_DATABASE_FAILURE_REASONS,
   type SchemaChange,
 } from "./database-errors"
@@ -101,4 +102,13 @@ export function isRevisionConflict(error: unknown): boolean {
 /** The text of any failure of a workshop operation (`t` first, as the workshop code calls it). */
 export function projectErrorText(t: TFunction, error: unknown): string {
   return operationErrorText(error, t)
+}
+
+/**
+ * The notices for the warnings that came back with a successful write: one dictionary text, and a
+ * line in the debug log with how many there were.
+ */
+export function warningNotices(warnings: readonly string[]): string[] {
+  if (warnings.length > 0) logger.warn("database.write_warnings", { count: warnings.length })
+  return writeWarningNotices(warnings, i18n.t.bind(i18n))
 }

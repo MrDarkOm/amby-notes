@@ -9,6 +9,7 @@ import * as React from "react"
 
 import { Database, Search, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import i18n from "@/lib/i18n"
 
 import { Button } from "@/components/ui/button"
 
@@ -54,6 +55,7 @@ import { useViewGrouping } from "./use-view-grouping"
 import { useSelectedRow } from "./use-selected-row"
 import { useRowEditing } from "./use-row-editing"
 import { useViewStateStore } from "../use-view-state-store"
+import { warningNotices } from "@/lib/operation-errors"
 
 interface DatabaseWorkspaceProps {
   databaseId: string
@@ -273,8 +275,13 @@ export function DatabaseWorkspace({
   const computedErrors = React.useMemo(() => {
     const errors: { formula?: string; rollup?: string } = {}
     for (const diagnostic of activeHost?.diagnostics ?? []) {
-      if (diagnostic.code === "formulaError") errors.formula ??= diagnostic.message
-      if (diagnostic.code === "rollupError") errors.rollup ??= diagnostic.message
+      // The diagnostic's own sentence is the developer's; the person gets the dictionary text.
+      if (diagnostic.code === "formulaError") {
+        errors.formula ??= i18n.t("databaseErrors.computed.formula")
+      }
+      if (diagnostic.code === "rollupError") {
+        errors.rollup ??= i18n.t("databaseErrors.computed.rollup")
+      }
     }
     return errors
   }, [activeHost?.diagnostics])
@@ -470,7 +477,7 @@ export function DatabaseWorkspace({
     vaultGeneration,
     onSettled: async (outcome) => {
       if (outcome.ok && outcome.result?.warnings.length) {
-        setMutationError(outcome.result.warnings.join("; "))
+        setMutationError(warningNotices(outcome.result.warnings).join("; "))
       }
       await retry()
       if (outcome.ok) useDatabaseStore.getState().invalidateHosts()

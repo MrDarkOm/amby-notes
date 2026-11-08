@@ -62,6 +62,7 @@ const EVENT_CODES = new Set([
   "database.sync_yaml",
   "database.update_view_config",
   "database.view_action_failed",
+  "database.write_warnings",
   "database_projection_rebuild_failed",
   "database_row_index_update_failed",
   "debug.invalid_event",

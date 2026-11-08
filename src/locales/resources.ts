@@ -1297,6 +1297,13 @@ const ru = {
     dateValues:
       "Хранение времени в дате можно менять, только пока у свойства нет значений. Сначала очистите это свойство у записей. Ничего не изменено.",
     general: "Не удалось выполнить действие. Повторите; если не получится, сообщите код: {{code}}.",
+    writtenWithWarnings:
+      "Изменение записано, но часть связанных данных или список не удалось обновить сразу. Данные целы. Обновите вид; если не поможет, переоткройте хранилище.",
+    computed: {
+      formula:
+        "Формула не вычисляется. Значения записей целы. Проверьте формулу в настройках свойства.",
+      rollup: "Сводка не вычисляется. Значения записей целы. Проверьте связь и настройки сводки.",
+    },
     moduleDisabled: "Модуль «Базы данных» выключен. Включите его в настройках и повторите.",
     vaultNotOpen: "Хранилище не открыто. Откройте его и повторите.",
     vaultChanged: "Хранилище изменилось, пока шло действие. Ничего не записано, повторите.",
@@ -5653,6 +5660,14 @@ const en: typeof ru = {
     dateValues:
       "Whether a date keeps a time can only change while the property has no values. Clear this property in the records first. Nothing was changed.",
     general: "The action failed. Try again; if it keeps failing, report the code: {{code}}.",
+    writtenWithWarnings:
+      "The change was saved, but some related data or the list could not be refreshed at once. The data is intact. Refresh the view; if that does not help, reopen the vault.",
+    computed: {
+      formula:
+        "The formula cannot be calculated. The records' values are intact. Check the formula in the property settings.",
+      rollup:
+        "The rollup cannot be calculated. The records' values are intact. Check the relation and the rollup settings.",
+    },
     moduleDisabled: "The Databases module is off. Turn it on in the settings and try again.",
     vaultNotOpen: "No vault is open. Open one and try again.",
     vaultChanged: "The vault changed while the action ran. Nothing was written, try again.",

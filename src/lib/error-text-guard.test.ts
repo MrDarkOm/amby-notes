@@ -21,7 +21,7 @@ const GUARDED = [
 
 /** `error.message`, `x instanceof Error ? x.message : …`, `String(error)` and their kin. */
 const RAW_ERROR_TEXT =
-  /\b(?:error|failure|caught|reason|loadError|reloadFailure|cause|err|e)\.message\b|\binstanceof Error \? \w+\.message\b|\bString\((?:error|failure|caught|reason|loadError|reloadFailure|cause|err|e)\)/
+  /\bdiagnostic\.message\b|\.warnings\.join\(|\[\.\.\.\w+\.warnings\]|\[\.\.\.warnings\]|\b(?:error|failure|caught|reason|loadError|reloadFailure|cause|err|e)\.message\b|\binstanceof Error \? \w+\.message\b|\bString\((?:error|failure|caught|reason|loadError|reloadFailure|cause|err|e)\)/
 
 /** Parsing a sentence to find out what happened: the code says it. */
 const PARSED_ERROR_TEXT =

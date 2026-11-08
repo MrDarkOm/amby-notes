@@ -23,7 +23,12 @@ import { useDatabaseStore } from "./database-store"
 import { placeNewRecordInLane } from "./new-record-lane"
 
 import { createRelationTargetRow } from "./use-property-mutation"
-import { ShownError, operationErrorText, reportOperationError } from "@/lib/operation-errors"
+import {
+  ShownError,
+  operationErrorText,
+  reportOperationError,
+  warningNotices,
+} from "@/lib/operation-errors"
 
 interface UseDatabaseRowActionsParams {
   databaseId: string
@@ -126,7 +131,7 @@ export function useDatabaseRowActions({
       const refreshFailure = refreshResults.find(
         (result): result is PromiseRejectedResult => result.status === "rejected",
       )
-      const notices = [...created.warnings]
+      const notices = warningNotices(created.warnings)
       if (refreshFailure) {
         notices.push(operationErrorText(refreshFailure.reason))
       }
