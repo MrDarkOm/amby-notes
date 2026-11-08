@@ -46,7 +46,7 @@ import {
 } from "./plot-model"
 import type { PlotBinding } from "./use-plot-binding"
 import { useCreativeNavStore } from "../creative-nav-store"
-import { projectErrorText } from "../project-error"
+import { projectErrorText } from "@/lib/project-errors"
 import { standaloneTargetId, universeTargetId } from "../project-tree-model"
 import { formatModified } from "../../workspace-tree-utils"
 import { moveRowInOrder, type RowDropPlacement } from "../../database/row-order"

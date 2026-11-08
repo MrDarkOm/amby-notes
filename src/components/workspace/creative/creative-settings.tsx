@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { openVault, resolveWorkshopFolder } from "@/lib/storage"
 import { Row } from "../settings/settings-common"
-import { projectErrorText } from "./project-error"
+import { projectErrorText } from "@/lib/project-errors"
 import { useCreativeSettingsStore } from "./creative-settings-store"
 
 /** The creative module's page in Settings → Modules. */

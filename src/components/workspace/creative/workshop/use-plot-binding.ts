@@ -9,7 +9,7 @@ import {
   type WorkshopSummary,
 } from "@/lib/storage"
 import { logger } from "@/lib/logger"
-import { projectErrorText } from "../project-error"
+import { projectErrorText } from "@/lib/project-errors"
 import type { PlotKind } from "./plot-model"
 import { anchorLinksMissing } from "./plot-views"
 import { relationTargetsOf } from "./workshop-model"

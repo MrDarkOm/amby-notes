@@ -21,7 +21,7 @@ import type { DatabaseRow, TextLevelSummary, TextPageStat } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { IconValue } from "../../icon-value"
 import { useCreativeNavStore } from "../creative-nav-store"
-import { projectErrorText } from "../project-error"
+import { projectErrorText } from "@/lib/project-errors"
 import { PageMarksView } from "../workshop/page-marks"
 import {
   PLOT_DRAG_TYPE,

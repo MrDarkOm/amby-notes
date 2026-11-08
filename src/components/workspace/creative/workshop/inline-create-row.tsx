@@ -1,7 +1,7 @@
 import * as React from "react"
 import { treeIndent } from "./tree-indent"
 import { useTranslation } from "react-i18next"
-import { projectErrorText } from "../project-error"
+import { projectErrorText } from "@/lib/project-errors"
 
 /**
  * A row starts from a menu or a dialog that is still closing and keeps focus trapped for a moment,

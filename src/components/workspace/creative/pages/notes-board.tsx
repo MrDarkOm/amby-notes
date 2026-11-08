@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next"
 import type { DatabaseRow, Notebook } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { formatModified } from "../../workspace-tree-utils"
-import { projectErrorText } from "../project-error"
+import { projectErrorText } from "@/lib/project-errors"
 import { QuickCreate } from "../workshop/quick-create"
 import type { StoryLabels } from "../workshop/workshop-model"
 import {

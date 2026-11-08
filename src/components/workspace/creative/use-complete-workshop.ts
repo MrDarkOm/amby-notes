@@ -2,7 +2,7 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { completeWorkshop, type CompletedWorkshop, type WorkshopSummary } from "@/lib/storage"
 import { useDatabaseStore } from "../database/database-store"
-import { projectErrorText } from "./project-error"
+import { projectErrorText } from "@/lib/project-errors"
 import { projectLabels } from "./project-labels"
 import { useProjectStore } from "./project-store"
 

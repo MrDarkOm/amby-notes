@@ -115,6 +115,7 @@ const EVENT_CODES = new Set([
   "note_saved",
   "note_write_event_failed",
   "note_written.listen_failed",
+  "operation.failed",
   "note_written.open_document_reload_failed",
   "notices.journal_damaged",
   "notices.journal_unreadable",

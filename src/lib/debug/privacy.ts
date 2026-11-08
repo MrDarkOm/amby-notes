@@ -118,6 +118,7 @@ const ENUM_KEYS = new Set([
   "operation",
   "result",
   "reasoncode",
+  "failurecode",
 ])
 const ERROR_CODES = new Set([
   "UnknownError",
@@ -141,6 +142,7 @@ const ERROR_CODES = new Set([
   "OpenFolderFailed",
   "VaultUnavailable",
 ])
+const FAILURE_CODE = /^[A-Za-z][A-Za-z0-9_]{1,63}$/
 const GENERIC_CODES = new Set([
   "UNKNOWN_ERROR",
   "IO_ERROR",
@@ -206,6 +208,8 @@ function safeString(key: string, value: string): string | undefined {
   )
     return value
   if (normalizedKey === "errorcode") return ERROR_CODES.has(value) ? value : "UnknownError"
+  // The code of a failed operation (lib/operation-errors.ts): a reason, a kind or a command code.
+  if (normalizedKey === "failurecode") return FAILURE_CODE.test(value) ? value : "unknown"
   if ((normalizedKey === "code" || normalizedKey.endsWith("code")) && SAFE_CODE.test(value)) {
     return GENERIC_CODES.has(value) ? value : undefined
   }

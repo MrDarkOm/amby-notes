@@ -9,7 +9,7 @@ import {
   type WorkshopSummary,
 } from "@/lib/storage"
 import type { PanelRenderProps } from "../../panel-registry"
-import { projectErrorText } from "../project-error"
+import { projectErrorText } from "@/lib/project-errors"
 import {
   ContextMenu,
   ContextMenuContent,

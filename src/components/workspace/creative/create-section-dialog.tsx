@@ -16,7 +16,7 @@ import {
   type CreatedWorkshopSectionResult,
   type WorkshopSummary,
 } from "@/lib/storage"
-import { projectErrorText } from "./project-error"
+import { projectErrorText } from "@/lib/project-errors"
 import { projectLabels } from "./project-labels"
 import { useOperationId } from "./use-operation-id"
 
