@@ -266,6 +266,8 @@ export function InfoPanel({
         })
         const refreshed = await getDatabaseNoteContext(context.row.noteId)
         setNoteDatabaseContext(refreshed)
+        // The change is saved; if the catalog of databases is not refreshed, the side list stays
+        // old until the next refresh.
         void refreshDatabaseCatalog().catch(() => {})
         invalidateDatabaseHosts()
       } finally {
@@ -289,6 +291,8 @@ export function InfoPanel({
         })
         const refreshed = await getDatabaseNoteContext(context.row.noteId)
         setNoteDatabaseContext(refreshed)
+        // The change is saved; if the catalog of databases is not refreshed, the side list stays
+        // old until the next refresh.
         void refreshDatabaseCatalog().catch(() => {})
         invalidateDatabaseHosts()
       } finally {
@@ -366,9 +370,12 @@ export function InfoPanel({
               }
             : current,
         )
+        // The change is saved; if the catalog of databases is not refreshed, the side list stays
+        // old until the next refresh.
         void refreshDatabaseCatalog().catch(() => {})
         invalidateDatabaseHosts()
       } catch (error) {
+        // Only a fresher view after the failed change; the original error is thrown right below.
         const refreshed = await getDatabaseNoteContext(context.row.noteId).catch(() => null)
         if (refreshed) setNoteDatabaseContext(refreshed)
         throw error

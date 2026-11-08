@@ -27,7 +27,7 @@ function sourceFiles(dir: string): string[] {
 }
 
 const files = sourceFiles(srcRoot)
-  .map((path) => ({ path, file: relative(root, path).replaceAll("\\", "/") }))
+  .map((path) => ({ path, file: relative(root, path).replace(/\\/gu, "/") }))
   .filter(({ file }) => file !== "src/lib/bindings.ts")
 
 const sources = new Map(files.map(({ path, file }) => [file, readFileSync(path, "utf8")]))
@@ -103,7 +103,7 @@ describe("no window of the system (docs/notices.md §9, §13)", () => {
 
 /** Names under which the code holds a caught or returned failure. */
 const FAILURE_NAME =
-  /^(?:error|err|e|ex|failure|caught|reason|cause|loadError|reloadFailure|lastError|exception|rejection|problem|diagnostic|compile)$/u
+  /^(?:error|err|e|ex|failure|caught|reason|cause|loadError|reloadFailure|lastError|exception|rejection|problem)$/u
 
 /**
  * Places that may read the text of a failure, each with the reason. A file here is not a licence
@@ -111,7 +111,41 @@ const FAILURE_NAME =
  * in a typed error, kept for the debug log or compared with a sentinel. Everything else goes
  * through `operationErrorText` or a dictionary (docs/notices.md §10).
  */
-export const RAW_ERROR_TEXT_EXCEPTIONS: Record<string, string> = {}
+export const RAW_ERROR_TEXT_EXCEPTIONS: Record<string, string> = {
+  // Own text, chosen from the dictionary
+  "src/lib/operation-errors.ts":
+    "`ShownError` carries a text that was already taken from the dictionary where the failure was found.",
+  "src/lib/ai.ts":
+    "`AiRequestError` builds its message from the `ai.errors.*` dictionary in its constructor.",
+  "src/components/workspace/tree/tree-message.tsx":
+    "`state.message` is the line under the tree: keys of the locale, not a failure.",
+  // Reading a code that is in the text
+  "src/components/workspace/app-config.ts":
+    "Reads the codes our own errors carry as their message (`settingsChanged`); free text gives no code.",
+  "src/components/workspace/tiptap/external-open.ts":
+    "The backend puts a code into the message of a refusal; the file maps it to a dictionary sentence and shows only that.",
+  "src/lib/storage/web-storage-error.ts":
+    "Recognises a full or unavailable browser storage by the browser's own error; yields a code.",
+  // Boundary adapters: a backend sentence becomes a typed error, and the interface shows the dictionary text by its code
+  "src/lib/storage/desktop-adapter.ts":
+    "Adapter on the boundary: the backend sentence goes into a typed error (`desktopOperationError`) for the logs.",
+  "src/lib/storage/database-types.ts":
+    "Builds `DatabaseOperationError`; its `message` is for the logs, the interface uses `reason`/`code`.",
+  "src/lib/storage/project-types.ts":
+    "Builds `ProjectOperationError`; its `message` is for the logs, the interface uses the kind and `code`.",
+  "src/lib/storage/settings-repository.ts":
+    "Developer sentence inside the `Error` thrown when a settings file cannot be read; callers show the dictionary text.",
+  "src/lib/storage/storage-contract.ts":
+    "Assertion text of the storage contract cases that run in Vitest and in the native harness; never shown to a person.",
+  // The own diagnostics of a reader
+  "src/components/workspace/canvas/canvas-mermaid-dialog.tsx":
+    "Remarks of our own Mermaid reader (not a library error), shown beside the code being typed. They are English only: tracked as a follow-up.",
+  // Third-party modules: sentences go to the module, and no screen shows them
+  "src/lib/modules/community/sandbox.ts":
+    "RPC between the host and the code of a community module: the sentences are the module's own, no screen shows them (third-party plugins are deferred).",
+  "src/lib/modules/community/isolated-runtime.ts":
+    "Same RPC channel, the worker's side and the answer to `executeCode`; no screen shows it.",
+}
 
 /** Parsing a sentence to find out what happened: the code says it. */
 const PARSED_ERROR_TEXT =
@@ -149,10 +183,11 @@ function rawErrorText(): string[] {
   return failuresOf((source, report) => {
     if (RAW_ERROR_TEXT_EXCEPTIONS[source.fileName]) return
     walk(source, (node) => {
+      // Any `.message`: whatever it is read from, it is the sentence of somebody else's code.
       if (
         ts.isPropertyAccessExpression(node) &&
         node.name.text === "message" &&
-        isFailureName(node.expression) &&
+        node.expression.kind !== ts.SyntaxKind.ThisKeyword &&
         !insideLogger(node)
       ) {
         report(node)

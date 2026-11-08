@@ -374,18 +374,18 @@ export function ProjectDesk({
         readNoteContent: async (noteId) => (await readNote(vaultPath, noteId)).content,
       })
       if (result.pages === 0) {
-        setCompile({ status: "failed", message: t("creative.page.desk.noPages") })
+        setCompile({ status: "failed", text: t("creative.page.desk.noPages") })
         return
       }
       const path = await exportTextFile(result.markdown, fileNameOf(resolvedStory?.name ?? ""))
       // No path: the author closed the save dialog, which is not a failure.
       setCompile(path ? { status: "done", pages: result.pages, path } : { status: "idle" })
     } catch (error) {
-      const message =
+      const text =
         error instanceof ManuscriptReadError
           ? t("creative.page.desk.readFailed", { title: error.pageTitle })
           : reportOperationError(error)
-      setCompile({ status: "failed", message })
+      setCompile({ status: "failed", text })
     }
   }
 

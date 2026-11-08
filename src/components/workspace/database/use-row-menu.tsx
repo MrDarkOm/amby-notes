@@ -93,6 +93,8 @@ export function useRowMenu({
           : undefined,
       onCopyLink: () => {
         const stem = fileStem(row.relativePath) || row.title
+        // Copying to the clipboard is refused by the system: nothing changed, the command can be
+        // repeated.
         void navigator.clipboard?.writeText(`[[${stem}]]`).catch(() => undefined)
       },
       onDuplicate:

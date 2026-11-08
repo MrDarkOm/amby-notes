@@ -7,7 +7,9 @@ import { cn } from "@/lib/utils"
 import { formatSize } from "@/lib/sync/format-size"
 import { syncErrorMessage } from "@/lib/sync/sync-errors"
 import { resolveSyncPort, type AccountOverview, type SyncPort } from "@/lib/sync/sync-port"
+import { NOTICE_LOOK } from "../notices/notice-look"
 import { useVaultStore } from "../use-vault-store"
+import { errorType, logger } from "@/lib/logger"
 
 export interface AccountStorageProps {
   /** The port to use; the application's own by default. */
@@ -25,7 +27,7 @@ function levelOf(used: number, limit: number): Level {
 
 const LEVEL_CLASS: Record<Level, string> = {
   ok: "bg-primary",
-  warn: "bg-amber-500",
+  warn: NOTICE_LOOK.warning.dot,
   full: "bg-destructive",
 }
 
@@ -91,7 +93,10 @@ export function AccountStorage({ port: given, revision = 0 }: AccountStorageProp
         if (alive) unlisten = off
         else off()
       })
-      .catch(() => {})
+      .catch((error: unknown) => {
+        // The status is not pushed to this screen; it is read when the screen opens and on refresh.
+        logger.debug("sync.listen_failed", { errorType: errorType(error) })
+      })
     return () => {
       alive = false
       unlisten?.()

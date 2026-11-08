@@ -265,6 +265,8 @@ export function WorkspaceOrchestration() {
   const updateWindowPrefs = React.useCallback(
     (patch: Partial<WindowPreferences>) => {
       const current = useSettingsStore.getState().prefs.window
+      // The failed save is already reported by the settings window (emitSettingsSaveError); nothing
+      // more to do here.
       void setPrefs({ window: { ...current, ...patch } }).catch(() => {})
     },
     [setPrefs],

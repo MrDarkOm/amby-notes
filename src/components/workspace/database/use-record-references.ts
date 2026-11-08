@@ -8,7 +8,7 @@ export type ReferenceView =
   | { status: "loading" }
   | { status: "ok"; title: string; path: string }
   | { status: "missing" }
-  | { status: "error"; message: string }
+  | { status: "error"; text: string }
 
 const resolvers = new Map<number, BatchResolver<RecordReference>>()
 /** The invalidation each shared resolver was last cleared for (once per change, not per cell). */
@@ -73,8 +73,8 @@ export function useRecordReferences(noteIds: string[]): Record<string, Reference
         },
         (error) => {
           if (cancelled) return
-          const message = reportOperationError(error)
-          setViews((current) => ({ ...current, [id]: { status: "error", message } }))
+          const text = reportOperationError(error)
+          setViews((current) => ({ ...current, [id]: { status: "error", text } }))
         },
       )
     }

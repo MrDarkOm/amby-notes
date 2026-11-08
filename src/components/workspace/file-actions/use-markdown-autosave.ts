@@ -1,5 +1,6 @@
 import * as React from "react"
 import { errorType, logger } from "@/lib/logger"
+import { operationErrorCode } from "@/lib/operation-errors"
 import { recordAutosaveDiagnostic } from "@/lib/debug/autosave"
 import {
   discardRecoveryDraft,
@@ -92,7 +93,13 @@ export function useMarkdownAutosave({
               : snapshot.value.path.replace(/\.(canvas|excalidraw)$/u, ".md")
             await writeFile(savePath, snapshot.value.content)
             const updatedProperties = await getNoteProperties("", snapshot.value.fileId).catch(
-              () => null,
+              (error: unknown) => {
+                // The text is already written; only the properties panel keeps its old view.
+                logger.debug("autosave.properties_read_failed", {
+                  failureCode: operationErrorCode(error),
+                })
+                return null
+              },
             )
             if (
               updatedProperties &&
@@ -142,7 +149,15 @@ export function useMarkdownAutosave({
             // Property loading must not leave watcher reads using an older revision.
             if (snapshot.key.generation !== generationRef.current) return
             useDocStore.getState().patchDoc(snapshot.value.fileId, { revision: outcome.revision })
-            const updatedProperties = await getNoteProperties(activeVault, noteId).catch(() => null)
+            const updatedProperties = await getNoteProperties(activeVault, noteId).catch(
+              (error: unknown) => {
+                // The text is already written; only the properties panel keeps its old view.
+                logger.debug("autosave.properties_read_failed", {
+                  failureCode: operationErrorCode(error),
+                })
+                return null
+              },
+            )
             if (snapshot.key.generation !== generationRef.current) return
             useDocStore.getState().patchDoc(snapshot.value.fileId, {
               ...(updatedProperties &&

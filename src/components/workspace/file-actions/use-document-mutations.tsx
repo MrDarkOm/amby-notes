@@ -2,6 +2,7 @@ import * as React from "react"
 import { useDatabaseStore } from "../database/database-store"
 import i18n from "@/lib/i18n"
 import { logger } from "@/lib/logger"
+import { operationErrorCode } from "@/lib/operation-errors"
 import { saveRecoveryDraft } from "@/lib/recovery-drafts"
 import { confirm } from "@/lib/confirm"
 import { confirmations } from "@/lib/confirmations"
@@ -350,7 +351,15 @@ export function useDocumentMutations({
         const source = sourceEntries.length === 1 ? sourceEntries[0].source : null
         const previousProperties =
           source?.type === "file"
-            ? await getNoteProperties(vault, source.id).catch(() => null)
+            ? await getNoteProperties(vault, source.id).catch((error: unknown) => {
+                // Not read: the move goes on without offering to carry the properties over (it
+                // would not know what to carry). The properties stay in the note; the owner
+                // decides whether this should stop the move instead.
+                logger.warn("file.move_properties_read_failed", {
+                  failureCode: operationErrorCode(error),
+                })
+                return null
+              })
             : null
         if (sourceEntries.length === 1) {
           const preview = await previewMoveRefactor(vault, sourceEntries[0].sourcePath, targetPath)
@@ -412,7 +421,16 @@ export function useDocumentMutations({
         })
 
         if (previousProperties?.customProperties.length && source) {
-          const databaseContext = await getDatabaseNoteContext(source.id).catch(() => null)
+          const databaseContext = await getDatabaseNoteContext(source.id).catch(
+            (error: unknown) => {
+              // Not read: the question "carry the properties over?" is not asked. The properties
+              // stay in the note; the owner decides whether this should stop the move.
+              logger.warn("file.move_database_context_failed", {
+                failureCode: operationErrorCode(error),
+              })
+              return null
+            },
+          )
           if (databaseContext) {
             const choice = await requestPropertyMigration(
               previousProperties.customProperties.length,

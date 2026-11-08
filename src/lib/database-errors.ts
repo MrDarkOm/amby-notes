@@ -88,3 +88,33 @@ export function writeWarningNotices(warnings: readonly string[], t: TFunction): 
   if (warnings.length === 0) return []
   return [t("databaseErrors.writtenWithWarnings")]
 }
+
+const DIAGNOSTIC_CODES = new Set([
+  "brokenManifest",
+  "unsupportedManifest",
+  "invalidManifest",
+  "duplicateDatabaseId",
+  "duplicateDatabaseTitle",
+  "brokenNote",
+  "invalidNoteId",
+  "duplicateNoteId",
+  "duplicateNoteTitle",
+  "brokenShard",
+  "orphanShard",
+  "missingShard",
+  "databaseIdMismatch",
+  "invalidShardFilename",
+  "symlinkEscape",
+  "nestedBoundary",
+])
+
+/**
+ * The text for a remark the backend makes about a database (`DatabaseDiagnostic`): by its code, never its own
+ * sentence. A code without a text gets the general one with the code.
+ */
+export function databaseDiagnosticText(code: string, t: TFunction): string {
+  // The backend writes the code with a capital first letter (`BrokenManifest`).
+  const key = code.charAt(0).toLowerCase() + code.slice(1)
+  if (DIAGNOSTIC_CODES.has(key)) return t(`databaseErrors.diagnostic.${key}`)
+  return t("databaseErrors.diagnostic.general", { code })
+}

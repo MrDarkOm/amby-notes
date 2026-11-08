@@ -139,6 +139,8 @@ function openSettingsWindow(
   const operation = settingsWindowQueue.then(() =>
     openSettingsWindowNow(activeModules, title, vault, target, prewarm),
   )
+  // Keeps the queue going: the failure itself reaches the caller of the previous opening
+  // (`operation`).
   settingsWindowQueue = operation.catch(() => {})
   return operation
 }
@@ -154,6 +156,8 @@ async function openSettingsWindowNow(
     const existing = await WebviewWindow.getByLabel(SETTINGS_WINDOW_LABEL)
     if (existing) {
       if (prewarm) return true
+      // A context update that did not arrive: the window keeps the previous context until the next
+      // one is sent. Nothing is lost.
       await emitTo<SettingsContextPayload>(SETTINGS_WINDOW_LABEL, SETTINGS_CONTEXT_CHANGE_EVENT, {
         activeModules,
         vault,
@@ -208,6 +212,7 @@ async function openSettingsWindowNow(
         .catch(() => settle(false))
     })
     if (!ready) {
+      // Closing a settings window that did not start: nothing else to clean up.
       void child.destroy().catch(() => {})
       return false
     }
@@ -327,8 +332,8 @@ export function SettingsDialog({
 
   React.useEffect(() => {
     const onSaveError = (event: Event) => {
-      const message = (event as CustomEvent<{ message?: unknown }>).detail?.message
-      if (typeof message === "string") setSaveError(message)
+      const text = (event as CustomEvent<{ text?: unknown }>).detail?.text
+      if (typeof text === "string") setSaveError(text)
     }
     window.addEventListener(SETTINGS_SAVE_ERROR_EVENT, onSaveError)
     return () => window.removeEventListener(SETTINGS_SAVE_ERROR_EVENT, onSaveError)
@@ -433,6 +438,8 @@ export function SettingsDialog({
 
   React.useEffect(() => {
     if (standalone || !isTauri()) return
+    // A context update that did not arrive: the window keeps the previous context until the next
+    // one is sent. Nothing is lost.
     void emitTo<SettingsContextPayload>(SETTINGS_WINDOW_LABEL, SETTINGS_CONTEXT_CHANGE_EVENT, {
       activeModules,
       vault,

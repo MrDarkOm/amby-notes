@@ -340,6 +340,8 @@ export function useDatabasePropertyActions({
   const schemaQueueRef = React.useRef<Promise<unknown>>(Promise.resolve())
   const enqueueSchema = React.useCallback(<T,>(task: () => Promise<T>): Promise<T> => {
     const run = schemaQueueRef.current.then(task)
+    // Keeps the queue going: the failure itself reaches the caller of the previous schema change
+    // (`run`).
     schemaQueueRef.current = run.catch(() => undefined)
     return run
   }, [])

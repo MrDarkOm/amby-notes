@@ -71,22 +71,32 @@ export const WORKSPACES_SCHEMA_VERSION = 1
 export const SETTINGS_SAVE_ERROR_EVENT = "amby:settings-save-error"
 export const AI_SETTINGS_CHANGED_EVENT = "amby:ai-settings-changed"
 
+/** The code our own errors carry as their message ("settingsChanged"); `undefined` for any other text. */
+function ownErrorCode(error: unknown): string | undefined {
+  const message = error instanceof Error ? error.message : ""
+  return /^[A-Za-z]{3,40}$/.test(message) ? message : undefined
+}
+
+/** Another window saved the settings first (the file changed under the one this change was built on). */
+export function isSettingsChangedError(error: unknown): boolean {
+  return ownErrorCode(error) === "settingsChanged"
+}
+
 export function emitSettingsSaveError(fileName: string, error: unknown): void {
   const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "")
   logger.error("settings.save_failed", {
     file: safeName,
     errorType: errorType(error),
     // Our own error codes ("settingsChanged", "unsupportedAiVersion"); never free text.
-    code: /^[A-Za-z]{3,40}$/.test((error as Error)?.message ?? "")
-      ? (error as Error).message
-      : undefined,
+    code: ownErrorCode(error),
   })
   if (typeof window !== "undefined") {
     window.dispatchEvent(
       new CustomEvent(SETTINGS_SAVE_ERROR_EVENT, {
         detail: {
           file: safeName,
-          message: i18n.t("errors.settingsSaveError"),
+          // The text for the person, chosen here from the dictionary.
+          text: i18n.t("errors.settingsSaveError"),
         },
       }),
     )
@@ -722,7 +732,7 @@ export function saveSettingsPatch(
   settingsWriteChain = next.catch((err) => {
     // A caller that passes the settings it built on handles a conflict itself (it reloads and
     // repeats the change), so the generic save error would only be noise.
-    if (options?.expectedAi && (err as Error)?.message === "settingsChanged") return
+    if (options?.expectedAi && isSettingsChangedError(err)) return
     emitSettingsSaveError(SETTINGS_FILE, err)
   })
   return next

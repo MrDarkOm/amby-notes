@@ -82,10 +82,14 @@ export function PaneTabBar({
       lastClickTimeRef.current = 0
       getCurrentWindow()
         .toggleMaximize()
+        // Window gesture of the system: if it is refused nothing is lost and the person can repeat
+        // it.
         .catch(() => {})
     } else {
       getCurrentWindow()
         .startDragging()
+        // Window gesture of the system: if it is refused nothing is lost and the person can repeat
+        // it.
         .catch(() => {})
     }
   }

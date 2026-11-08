@@ -110,6 +110,8 @@ export function usePropertyMutation({
       })
       const operationId = createDatabaseOperationId("cell", `${row.noteId}-${property.propertyId}`)
       const task: Promise<void> = prior
+        // Keeps the queue going: the failure itself reaches the caller of the previous cell edit
+        // (`task`).
         .catch(() => {})
         .then(async () => {
           const expectedRevision = revisionOverrides.get(queueKey) ?? row.rowRevision

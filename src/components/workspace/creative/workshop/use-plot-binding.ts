@@ -124,6 +124,8 @@ export function usePlotBinding({
       setError(null)
       const prior = queues.current.get(pageId) ?? Promise.resolve()
       const task = prior
+        // Keeps the queue going: the failure itself reaches the caller of the previous change,
+        // which sets `error` itself.
         .catch(() => undefined)
         .then(run)
         .catch((caught: unknown) => {

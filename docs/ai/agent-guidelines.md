@@ -81,6 +81,7 @@ Anything that tells the person about an error, a warning, a conflict, an event o
 - Ask with `confirm()` (a question in [confirmations.ts](../../src/lib/confirmations.ts)); a message goes to its place (the line under the tree, the notification centre by `useAppNoticesStore`). Do not add `confirmAction`, `showErrorMessage`, `window.confirm` or `window.alert` calls (the port no longer has them), or new ad-hoc toast hosts.
 - Take level colours and icons from the theme tokens and the shared level component, not from `amber-*` classes.
 - A swallowed error carries a comment saying why and a `logger` call with its code; never silence a data problem.
+- `src/lib/notice-rules-guard.test.ts` enforces these over all of `src`: no `.message` / `String(error)` outside `logger` and its short list of exceptions (each with a reason), no system dialogs, no silent `.catch(() => {})` / `catch {}` without a comment, no palette colours in notice places, one toast host. When it fails, follow its message; add an exception only for a boundary adapter or a dictionary of our own, with the reason.
 - Test that the notice appears in its place, is announced at most once, does not duplicate and leaves with its cause.
 
 ## Data-Safety and Compatibility Rules

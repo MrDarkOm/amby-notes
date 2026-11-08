@@ -167,6 +167,8 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
         property.propertyType === "multiSelect",
       ),
     )
+  // The failure is already shown under the element by `save` (setProblem); this only stops the
+  // rejection.
   const changed = (next: OptionDraft[]) => void save(next).catch(() => {})
   const moveBy = (index: number, offset: -1 | 1) => {
     const next = [...orderRef.current]
@@ -197,6 +199,8 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
       },
     ])
       .then(() => setNewName(""))
+      // The failure is already shown under the element by `save` (setProblem); this only stops the
+      // rejection.
       .catch(() => {})
   }
   // A Status is shown by stage: each stage has its own rows, its own "+", and rows are dragged
@@ -233,6 +237,8 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
         setGroupName("")
         setAddingGroup(null)
       })
+      // The failure is already shown under the element by `save` (setProblem); this only stops the
+      // rejection.
       .catch(() => {})
   }
   const moveInGroup = (group: StatusGroup, draft: OptionDraft, offset: -1 | 1) => {

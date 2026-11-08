@@ -46,7 +46,7 @@ export function RelationChip({ view, icon, onOpen, onUnlink, className }: Relati
         view.status === "error" && "text-destructive",
         className,
       )}
-      title={view.status === "error" ? view.message : label}
+      title={view.status === "error" ? view.text : label}
       aria-busy={view.status === "loading" || undefined}
     >
       {ok && onOpen ? (

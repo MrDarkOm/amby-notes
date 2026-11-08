@@ -6,7 +6,7 @@ export type CompileState =
   | { status: "idle" }
   | { status: "working" }
   | { status: "done"; pages: number; path: string }
-  | { status: "failed"; message: string }
+  | { status: "failed"; text: string }
 
 interface ProgressWidgetProps {
   pages: number
@@ -84,7 +84,7 @@ export function ProgressWidget({ pages, words, groups, onCompile, compile }: Pro
       )}
       {compile.status === "failed" && (
         <p role="alert" className="break-words text-xs text-destructive">
-          {t("creative.page.desk.compileFailed", { message: compile.message })}
+          {t("creative.page.desk.compileFailed", { message: compile.text })}
         </p>
       )}
     </div>

@@ -10,6 +10,7 @@ import {
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
+import { databaseDiagnosticText } from "@/lib/database-errors"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -135,7 +136,7 @@ export function DatabasesPanel({
   const diagnosticTooltip = (items: typeof diagnostics) =>
     [
       ...(items.length > 1 ? [t("databasePanel.diagnostics", { count: items.length })] : []),
-      ...items.map((item) => item.message),
+      ...items.map((item) => databaseDiagnosticText(item.code, t)),
     ].join("\n")
 
   return (

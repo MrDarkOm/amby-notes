@@ -11,7 +11,8 @@ import {
 } from "@/lib/storage"
 import { useDatabaseStore } from "./database-store"
 import { adoptAsyncDisposer } from "@/lib/async-disposable"
-import { reportOperationError } from "@/lib/operation-errors"
+import { operationErrorCode, reportOperationError } from "@/lib/operation-errors"
+import { logger } from "@/lib/logger"
 
 interface DatabaseControllerOptions {
   enabled: boolean
@@ -55,7 +56,10 @@ export function useDatabaseController({ enabled, vaultGeneration }: DatabaseCont
 
     if (!enabled || vaultGeneration === null) {
       if (wasEnabled && vaultGeneration !== null) {
-        void setDatabaseModuleEnabled(false, vaultGeneration).catch(() => {})
+        void setDatabaseModuleEnabled(false, vaultGeneration).catch((error: unknown) => {
+          // The screen is already switched off; the backend learns it again on the next open.
+          logger.debug("database.module_disable_failed", { failureCode: operationErrorCode(error) })
+        })
       }
       if (!enabled) setCatalogDisabled()
       return

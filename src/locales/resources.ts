@@ -421,7 +421,29 @@ const ru = {
         installFromFile: "Установить из файла…",
         installing: "Установка…",
         installSuccess: "Модуль {{name}} успешно установлен (версия {{version}})",
-        installError: "Ошибка установки: {{error}}",
+        failures: {
+          CATALOG_ERROR: "Модуль или его прежняя версия не найдены. Ничего не изменено.",
+          INCOMPATIBLE_VERSION:
+            "Модуль не подходит к этой версии Amby, поэтому не установлен. Обновите Amby или возьмите другую версию модуля.",
+          UNSATISFIED_DEPENDENCIES:
+            "Модулю нужны другие модули, которых нет. Установите их и повторите; ничего не изменено.",
+          PATH_TRAVERSAL:
+            "В пакете есть недопустимые пути, поэтому он не установлен. Заметки и модули не затронуты.",
+          CHECKSUM_MISMATCH:
+            "Файлы пакета повреждены (не совпала проверочная сумма). Ничего не установлено; скачайте пакет заново.",
+          INVALID_SIGNATURE:
+            "Подпись пакета не подтверждена, поэтому он не установлен. Берите пакеты только из надёжного источника.",
+          STAGING_FAILED:
+            "Не удалось получить или проверить пакет. Проверьте файл и соединение и повторите; ничего не изменено.",
+          PUBLISH_FAILED:
+            "Пакет проверен, но установить его не удалось. Прежняя версия модуля осталась. Повторите.",
+          UNINSTALL_FAILED:
+            "Не удалось удалить модуль. Ваши заметки и данные модуля целы. Повторите.",
+          INVALID_PACKAGE:
+            "Это не пакет модуля Amby: в файле нет описания модуля. Ничего не установлено.",
+          general:
+            "Не удалось выполнить действие с модулем. Ничего не изменено. Повторите; если не получится, сообщите код: {{code}}.",
+        },
         downloadFromUrl: "Скачать по URL",
         downloadUrlPlaceholder: "https://github.com/.../module.amby-pkg",
         downloadAction: "Скачать и установить",
@@ -1290,6 +1312,26 @@ const ru = {
       "Название не подходит: в нём недопустимые символы или оно слишком длинное. Введите другое.",
   },
   databaseErrors: {
+    diagnostic: {
+      brokenManifest: "Описание базы повреждено или не читается. Записи не тронуты.",
+      unsupportedManifest: "База сохранена в более новой версии Amby и открыта только для чтения.",
+      invalidManifest: "Описание базы неполное или неверное. Записи не тронуты.",
+      duplicateDatabaseId:
+        "Две базы с одним идентификатором: копия папки не считается второй базой.",
+      duplicateDatabaseTitle: "Две базы называются одинаково.",
+      brokenNote: "Заметка записи повреждена или не читается.",
+      invalidNoteId: "У заметки записи неверный идентификатор.",
+      duplicateNoteId: "Две заметки записей с одним идентификатором.",
+      duplicateNoteTitle: "Две записи называются одинаково.",
+      brokenShard: "Часть данных базы повреждена или не читается. Остальное цело.",
+      orphanShard: "В папке базы есть лишний файл данных, на него ничто не ссылается.",
+      missingShard: "Не найдена часть данных базы, которая должна быть.",
+      databaseIdMismatch: "Файл данных принадлежит другой базе.",
+      invalidShardFilename: "У файла данных недопустимое имя.",
+      symlinkEscape: "Ссылка в папке базы ведёт за пределы хранилища, она пропущена.",
+      nestedBoundary: "База лежит внутри другой базы: вложенная не используется.",
+      general: "Замечание по базе. Данные не изменены. Код: {{code}}.",
+    },
     relationValues:
       "Связь нельзя перенастроить (база, двусторонняя связь), пока у записей есть связанные страницы. Сначала очистите это свойство у записей. Ничего не изменено.",
     typeValues:
@@ -4785,7 +4827,29 @@ const en: typeof ru = {
         installFromFile: "Install from file…",
         installing: "Installing…",
         installSuccess: "Module {{name}} installed successfully (version {{version}})",
-        installError: "Installation error: {{error}}",
+        failures: {
+          CATALOG_ERROR: "The module or its previous version was not found. Nothing changed.",
+          INCOMPATIBLE_VERSION:
+            "The module does not fit this version of Amby, so it was not installed. Update Amby or take another version of the module.",
+          UNSATISFIED_DEPENDENCIES:
+            "The module needs other modules that are missing. Install them and try again; nothing changed.",
+          PATH_TRAVERSAL:
+            "The package has paths that are not allowed, so it was not installed. Your notes and modules are untouched.",
+          CHECKSUM_MISMATCH:
+            "The files of the package are damaged (the checksum does not match). Nothing was installed; download the package again.",
+          INVALID_SIGNATURE:
+            "The signature of the package is not confirmed, so it was not installed. Take packages from a trusted source only.",
+          STAGING_FAILED:
+            "The package could not be fetched or checked. Check the file and the connection and try again; nothing changed.",
+          PUBLISH_FAILED:
+            "The package was checked but could not be installed. The previous version of the module stays. Try again.",
+          UNINSTALL_FAILED:
+            "The module could not be removed. Your notes and the data of the module are intact. Try again.",
+          INVALID_PACKAGE:
+            "This is not an Amby module package: the file has no description of a module. Nothing was installed.",
+          general:
+            "The action on the module failed. Nothing changed. Try again; if it fails again, report the code: {{code}}.",
+        },
         downloadFromUrl: "Download from URL",
         downloadUrlPlaceholder: "https://github.com/.../module.amby-pkg",
         downloadAction: "Download & install",
@@ -5653,6 +5717,29 @@ const en: typeof ru = {
       "The name is not allowed: it has forbidden characters or is too long. Enter another one.",
   },
   databaseErrors: {
+    diagnostic: {
+      brokenManifest:
+        "The description of the database is damaged or unreadable. The records are untouched.",
+      unsupportedManifest:
+        "The database was saved by a newer version of Amby and is open read-only.",
+      invalidManifest:
+        "The description of the database is incomplete or wrong. The records are untouched.",
+      duplicateDatabaseId:
+        "Two databases share one identifier: a copied folder does not count as a second database.",
+      duplicateDatabaseTitle: "Two databases have the same name.",
+      brokenNote: "The note of a record is damaged or unreadable.",
+      invalidNoteId: "The note of a record has a wrong identifier.",
+      duplicateNoteId: "Two record notes share one identifier.",
+      duplicateNoteTitle: "Two records have the same name.",
+      brokenShard: "A part of the database data is damaged or unreadable. The rest is intact.",
+      orphanShard: "The database folder has a data file that nothing refers to.",
+      missingShard: "A part of the database data that should exist is missing.",
+      databaseIdMismatch: "A data file belongs to another database.",
+      invalidShardFilename: "A data file has a name that is not allowed.",
+      symlinkEscape: "A link in the database folder leads outside the vault and is skipped.",
+      nestedBoundary: "The database lies inside another database: the nested one is not used.",
+      general: "A remark about the database. The data is unchanged. Code: {{code}}.",
+    },
     relationValues:
       "The relation cannot be reconfigured (database, two-way) while records have linked pages. Clear this property in the records first. Nothing was changed.",
     typeValues:

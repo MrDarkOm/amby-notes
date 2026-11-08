@@ -244,6 +244,8 @@ export function usePropertyActions({
           useNoteNoticesStore.getState().setPropertyFailed(currentDoc.id, !changedElsewhere)
           if (isCurrent()) {
             setFailure({ generation, noteId, changedElsewhere })
+            // The edit failed and `failure` is already set; the original error is thrown right
+            // below. A failed re-read only leaves the old view.
             await reload(mutation.version).catch(() => {})
           }
           throw error

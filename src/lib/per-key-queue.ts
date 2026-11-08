@@ -8,6 +8,8 @@ export class PerKeySerialQueue {
 
   enqueue(key: string, task: () => Promise<void>): Promise<void> {
     const previous = this.pending.get(key) ?? Promise.resolve()
+    // Keeps the queue going: the failure itself reaches the caller of the previous task for this
+    // key.
     const current = previous.catch(() => undefined).then(task)
     this.pending.set(key, current)
     current.then(

@@ -13,6 +13,8 @@ export function handleDragStart(e: React.MouseEvent) {
     e.preventDefault()
     getCurrentWindow()
       .startDragging()
+      // Window gesture of the system: if it is refused nothing is lost and the person can repeat
+      // it.
       .catch(() => {})
   }
 }

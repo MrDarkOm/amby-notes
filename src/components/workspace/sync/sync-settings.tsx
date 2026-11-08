@@ -55,6 +55,8 @@ export function SyncSettings({ port: given, vault: givenVault }: SyncSettingsPro
         caught instanceof SyncPortError &&
         ["token_revoked", "unauthorized"].includes(caught.code)
       ) {
+        // The error above is already shown; an unreadable status stays unknown (`null`) until the
+        // next load.
         setStatus(await port.status().catch(() => null))
       }
     }

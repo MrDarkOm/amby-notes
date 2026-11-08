@@ -36,6 +36,8 @@ export function RowTitleEditor({
     setBox(null)
     const next = draft.trim()
     if (save && next && next !== value)
+      // A failed rename is only logged by the rename itself (handleRenameFile, file.rename_failed);
+      // the cell shows the old title.
       void Promise.resolve(onCommit?.(next)).catch(() => undefined)
     // The label comes back to where the focus was.
     buttonRef.current?.focus({ preventScroll: true })

@@ -28,6 +28,7 @@ interface NoticeJournalState {
 /** Reading and writing go one after another, so a write never overtakes the reading it follows. */
 let chain: Promise<void> = Promise.resolve()
 function enqueue(job: () => Promise<void>): Promise<void> {
+  // Keeps the queue going; each job logs its own failure (notices.journal_*).
   chain = chain.then(job, job).catch(() => undefined)
   return chain
 }

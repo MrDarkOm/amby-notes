@@ -40,7 +40,11 @@ async function rereadOpenNotes(vault: string) {
       .filter((doc) => doc.noteProperties)
       .map(async (doc) => {
         const noteProperties = await getNoteProperties(vault, doc.noteId ?? doc.id).catch(
-          () => null,
+          (error: unknown) => {
+            // The panel of this open note keeps its old view until the next read.
+            logger.debug("property.reread_failed", { failureCode: operationErrorCode(error) })
+            return null
+          },
         )
         if (noteProperties) useDocStore.getState().patchDoc(doc.id, { noteProperties })
       }),
@@ -85,7 +89,11 @@ export function usePropertyNotices(noteId: string): Notice[] {
         const changed = outcome?.state === "migrated" || outcome?.state === "arrivedFromServer"
         return Promise.all([load(), changed ? rereadOpenNotes(vault) : undefined])
       })
-      .catch(() => {})
+      .catch((error: unknown) => {
+        // No result of the migration check, so no notice about it. The properties are not touched
+        // by a check that failed to run; it is tried again when the vault is opened next.
+        logger.warn("property.migration_failed", { failureCode: operationErrorCode(error) })
+      })
   }, [vault, generation, load])
   React.useEffect(() => {
     void load()
@@ -102,7 +110,13 @@ export function usePropertyNotices(noteId: string): Notice[] {
         setConflicts(result.conflicts)
         if (result.hintText) setTransferred(result.hintText)
       })
-      .catch(() => {})
+      .catch((error: unknown) => {
+        // Not checked: edits made in an old version are neither carried over nor reported now.
+        // They stay in the old files; the check runs again the next time the notice is shown.
+        logger.warn("property.old_version_check_failed", {
+          failureCode: operationErrorCode(error),
+        })
+      })
     return () => {
       alive = false
     }

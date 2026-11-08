@@ -1,4 +1,5 @@
 import * as React from "react"
+import { errorType, logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import { UserRound, Server, CircleCheck } from "lucide-react"
 
@@ -57,6 +58,14 @@ function ErrorLine({ message }: { message: string | null }) {
 }
 
 /** The connect wizard: address → create an account / sign in / recover → password → code. */
+/**
+ * The wizard was left or restarted and the prepared account (keys made in memory, nothing sent yet)
+ * could not be forgotten. Nothing was connected and no note is involved; the next attempt replaces it.
+ */
+function dropPendingFailed(error: unknown): void {
+  logger.debug("sync.cancel_pending_failed", { errorType: errorType(error) })
+}
+
 export function ConnectWizard({
   port,
   onConnected,
@@ -100,7 +109,7 @@ export function ConnectWizard({
   }, [prepared])
   React.useEffect(
     () => () => {
-      if (hasPrepared.current) void port.cancelPending().catch(() => {})
+      if (hasPrepared.current) void port.cancelPending().catch(dropPendingFailed)
     },
     [port],
   )
@@ -181,7 +190,7 @@ export function ConnectWizard({
     setEnrollRefused(false)
     setError(null)
     setStep("create")
-    void port.cancelPending().catch(() => {})
+    void port.cancelPending().catch(dropPendingFailed)
   }
 
   const signIn = () =>

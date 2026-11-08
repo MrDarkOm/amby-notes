@@ -934,6 +934,7 @@ fn allowed_event(value: &str) -> bool {
         "apply_database_value_batch",
         "autosave.error_dialog_failed",
         "autosave.failed",
+        "autosave.properties_read_failed",
         "autosave.queue",
         "autosave.rejected_document_mismatch",
         "autosave.save.started",
@@ -1016,6 +1017,10 @@ fn allowed_event(value: &str) -> bool {
         "file.create_sketch",
         "file.create_sketch_failed",
         "file.delete",
+        "file.create_properties_read_failed",
+        "file.delete_failed",
+        "file.move_database_context_failed",
+        "file.move_properties_read_failed",
         "file.move",
         "file.move_failed",
         "file.rename",
@@ -1038,7 +1043,17 @@ fn allowed_event(value: &str) -> bool {
         "notices.journal_damaged",
         "notices.journal_unreadable",
         "notices.journal_write_failed",
+        "operation.failed",
+        "modules.install_failed",
+        "modules.registry_save_failed",
+        "database.module_disable_failed",
+        "editor.diagram_failed",
+        "sync.cancel_pending_failed",
+        "sync.listen_failed",
         "property.delete",
+        "property.migration_failed",
+        "property.old_version_check_failed",
+        "property.reread_failed",
         "property.reorder",
         "property.upsert",
         "read_note",
@@ -1264,10 +1279,35 @@ fn numeric_key(key: &str) -> bool {
 fn code_key(key: &str) -> bool {
     matches!(
         key,
-        "errorCode" | "errorType" | "code" | "kind" | "reason" | "outcome" | "state" | "status"
+        "errorCode"
+            | "errorType"
+            | "failureCode"
+            | "code"
+            | "kind"
+            | "reason"
+            | "outcome"
+            | "state"
+            | "status"
     )
 }
+/// The code of a failed operation (`operationErrorCode` in the interface): a reason, a kind or a
+/// command code, never a sentence.
+fn is_failure_code(value: &str) -> bool {
+    let mut chars = value.chars();
+    (2..=64).contains(&value.len())
+        && chars
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
 fn safe_code(value: &str, key: &str) -> Option<String> {
+    if key == "failureCode" {
+        return Some(if is_failure_code(value) {
+            value.to_owned()
+        } else {
+            "unknown".to_owned()
+        });
+    }
     let allowed = match key {
         "errorCode" => matches!(
             value,
@@ -1539,6 +1579,46 @@ mod tests {
         assert_eq!(metadata.get("title"), None);
         assert_eq!(metadata["errorCode"], "UnknownError");
         assert_eq!(runtime.recent().len(), 0);
+    }
+
+    #[test]
+    fn failure_codes_of_notice_events_reach_the_log_and_free_text_does_not() {
+        // The frontend logs a failed operation as `operation.failed` with a stable code
+        // (docs/notices.md §13); the sentence of the failure itself is never kept.
+        let runtime = DebugRuntime::new();
+        for (index, name) in [
+            "operation.failed",
+            "modules.install_failed",
+            "file.delete_failed",
+            "property.migration_failed",
+            "sync.listen_failed",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut event = sample(LogLevel::Error);
+            event.id = format!("1700000000000-abc12{index}");
+            event.event = name.into();
+            event.metadata.as_mut().unwrap().insert(
+                "failureCode".into(),
+                Value::String("revision_conflict".into()),
+            );
+            let returned = runtime.ingest(event).unwrap();
+            assert_eq!(returned.event, name);
+            assert_eq!(
+                returned.metadata.unwrap()["failureCode"],
+                "revision_conflict"
+            );
+        }
+        let mut event = sample(LogLevel::Error);
+        event.id = "1700000000000-abc129".into();
+        event.event = "operation.failed".into();
+        event.metadata.as_mut().unwrap().insert(
+            "failureCode".into(),
+            Value::String("/Users/alice/Vault/Secret.md could not be written".into()),
+        );
+        let returned = runtime.ingest(event).unwrap();
+        assert_eq!(returned.metadata.unwrap()["failureCode"], "unknown");
     }
 
     #[test]

@@ -486,6 +486,8 @@ export function InfoPanelBody({
                 }
                 const refreshed = await getDatabaseNoteContext(noteDatabaseContext.row.noteId)
                 setNoteDatabaseContext(refreshed)
+                // The change is saved; if the catalog of databases is not refreshed, the side list
+                // stays old until the next refresh.
                 void refreshDatabaseCatalog().catch(() => {})
                 invalidateDatabaseHosts()
               } catch (err) {

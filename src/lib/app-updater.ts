@@ -139,6 +139,7 @@ async function installStartupUpdate(channel: UpdateChannelPref): Promise<Startup
       .record({ kind: "updateFailed", level: "info", subject: "automatic", params: {} })
     return "ready"
   } finally {
+    // Releasing the update handle: a failure changes nothing for the person.
     await update?.close().catch(() => {})
   }
 }

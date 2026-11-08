@@ -1,5 +1,6 @@
 import { globalFileMissing, loadGlobalJSON, saveGlobalJSON } from "@/lib/storage"
 import { MODULE_PACKAGE_CONTROLS_ENABLED } from "./package-manager/controls"
+import { errorType, logger } from "@/lib/logger"
 import {
   MODULES_REGISTRY_FILE,
   MODULES_REGISTRY_VERSION,
@@ -163,7 +164,11 @@ export async function loadGlobalModulesRegistry(): Promise<GlobalModulesRegistry
   }
 
   if (missingBuiltinAdded) {
-    void saveGlobalModulesRegistry(registry).catch(() => {})
+    void saveGlobalModulesRegistry(registry).catch((error: unknown) => {
+      // Only the built-in modules that were missing from the file are added back; the next read
+      // adds them again, so nothing the person chose is lost.
+      logger.warn("modules.registry_save_failed", { errorType: errorType(error) })
+    })
   }
 
   return registry

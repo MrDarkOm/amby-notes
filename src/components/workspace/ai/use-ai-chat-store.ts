@@ -126,6 +126,8 @@ export const useAiChatStore = create<AiChatState>((set, get) => ({
     const snapshot = structuredClone(chat)
     const previous = pending.get(key) ?? Promise.resolve()
     const next = previous
+      // Keeps the queue going: the failure itself reaches the caller of the previous save, whose
+      // `save` sets `error`.
       .catch(() => {})
       .then(async () => {
         const revision = await resolveAiChatRepository().save(

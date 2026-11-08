@@ -20,6 +20,7 @@ import { createDefaultSketch, serializeSketch } from "@/lib/sketch-format"
 import { loadWorkspaceConfig, saveWorkspaceConfigPatch } from "../app-config"
 import { DeleteConfirmationDialog } from "../delete-confirmation-dialog"
 import { logger } from "@/lib/logger"
+import { operationErrorCode } from "@/lib/operation-errors"
 import { useSettingsStore } from "../use-settings-store"
 import { useTreeMessageStore } from "../tree/use-tree-message-store"
 import { useDocStore, type Document } from "../use-doc-store"
@@ -284,8 +285,11 @@ export function useDocumentCrud({
             }
           } catch (error) {
             failed += 1
-            const reason = error instanceof Error ? error.message : String(error)
-            logger.error("file.delete_failed", { path: target.path, mode: resolution, reason })
+            logger.error("file.delete_failed", {
+              path: target.path,
+              mode: resolution,
+              failureCode: operationErrorCode(error),
+            })
             console.error("Failed to delete:", error)
           }
         }
@@ -434,7 +438,13 @@ export function useDocumentCrud({
         if (!id) return
         const [note, noteProperties] = await Promise.all([
           readNote(vault, id),
-          getNoteProperties(vault, id).catch(() => undefined),
+          getNoteProperties(vault, id).catch((error: unknown) => {
+            // The new note opens without its properties panel filled; the note itself is fine.
+            logger.debug("file.create_properties_read_failed", {
+              failureCode: operationErrorCode(error),
+            })
+            return undefined
+          }),
         ])
         if (!stillActive()) return
         const actualTitle = result.primaryPath ? wsPathStem(result.primaryPath) : title

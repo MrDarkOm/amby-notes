@@ -72,6 +72,7 @@ export function OptionEditMenu({ draft, status, onChange, onRemove, onDone }: Op
       <button
         type="button"
         className={ITEM}
+        // The failure is already shown under the element by `run`; this only stops the rejection.
         onClick={() => void run(() => onChange({ isDefault: !draft.isDefault })).catch(() => {})}
       >
         <Star
@@ -103,6 +104,8 @@ export function OptionEditMenu({ draft, status, onChange, onRemove, onDone }: Op
               type="button"
               className={ITEM}
               onClick={() =>
+                // The failure is already shown under the element by `run`; this only stops the
+                // rejection.
                 void run(() => onChange({ group: group as StatusGroup })).catch(() => {})
               }
             >
@@ -121,6 +124,7 @@ export function OptionEditMenu({ draft, status, onChange, onRemove, onDone }: Op
           key={color.id}
           type="button"
           className={ITEM}
+          // The failure is already shown under the element by `run`; this only stops the rejection.
           onClick={() => void run(() => onChange({ color: color.hex })).catch(() => {})}
         >
           <span
