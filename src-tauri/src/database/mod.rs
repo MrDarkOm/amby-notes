@@ -3,6 +3,7 @@
 pub mod assets;
 pub mod discovery;
 pub mod events;
+pub mod failure;
 pub mod filter_operators;
 #[allow(dead_code)]
 pub mod format;

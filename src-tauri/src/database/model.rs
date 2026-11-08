@@ -1,3 +1,4 @@
+use crate::database::failure::FailureReason;
 use serde::{Deserialize, Serialize};
 
 /// Version of the rebuildable database projection. DB-02 does not publish a
@@ -322,6 +323,26 @@ pub struct DatabaseAggregateResult {
 pub enum DatabaseError {
     ModuleDisabled,
     VaultNotOpen,
-    VaultGenerationConflict { actual_generation: u64 },
-    Failed { code: String, message: String },
+    VaultGenerationConflict {
+        actual_generation: u64,
+    },
+    /// `code` names the command that failed (for support and logs), `reason` says why in terms a
+    /// person can act on; the interface words the reason and never shows `message`.
+    Failed {
+        code: String,
+        reason: FailureReason,
+        message: String,
+    },
+}
+
+impl DatabaseError {
+    /// A failure of the command `code`; the reason is read from the sentence.
+    pub fn failed(code: &str, message: impl Into<String>) -> Self {
+        let message = message.into();
+        Self::Failed {
+            code: code.to_owned(),
+            reason: crate::database::failure::classify(&message),
+            message,
+        }
+    }
 }

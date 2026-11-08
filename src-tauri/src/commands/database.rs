@@ -54,10 +54,7 @@ fn active_generation(context: &VaultContext) -> Option<u64> {
 }
 
 fn projection_error(message: String) -> DatabaseError {
-    DatabaseError::Failed {
-        code: "projectionRefreshFailed".to_owned(),
-        message,
-    }
+    DatabaseError::failed("projectionRefreshFailed", message)
 }
 
 #[tauri::command]
@@ -94,19 +91,13 @@ pub fn set_database_module_enabled(
     runtime.set_enabled(actual_generation, true);
     if let Some(projection) =
         crate::database::projection::cached_projection_version(&active.connection, &active.root)
-            .map_err(|message| DatabaseError::Failed {
-                code: "projectionReadFailed".to_owned(),
-                message,
-            })?
+            .map_err(|message| DatabaseError::failed("projectionReadFailed", message))?
     {
         return Ok(runtime.set_projection(actual_generation, Some(projection)));
     }
     let report =
         crate::database::projection::rebuild_database_projection(&active.connection, &active.root)
-            .map_err(|message| DatabaseError::Failed {
-                code: "projectionRebuildFailed".to_owned(),
-                message,
-            })?;
+            .map_err(|message| DatabaseError::failed("projectionRebuildFailed", message))?;
     Ok(runtime.set_projection(
         actual_generation,
         Some(crate::database::model::ProjectionVersion {
@@ -143,10 +134,10 @@ pub fn refresh_database_change(
         "note" => DatabaseChangeKind::Note,
         "container" => DatabaseChangeKind::Container,
         _ => {
-            return Err(DatabaseError::Failed {
-                code: "invalidDatabaseChange".to_owned(),
-                message: "Unknown database watcher change kind".to_owned(),
-            });
+            return Err(DatabaseError::failed(
+                "invalidDatabaseChange",
+                "Unknown database watcher change kind".to_owned(),
+            ));
         }
     };
     if matches!(kind, DatabaseChangeKind::Note) {
@@ -238,10 +229,7 @@ pub fn rebuild_database_projection(
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
     let report =
         crate::database::projection::rebuild_database_projection(&active.connection, &active.root)
-            .map_err(|message| DatabaseError::Failed {
-                code: "projectionRebuildFailed".to_owned(),
-                message,
-            })?;
+            .map_err(|message| DatabaseError::failed("projectionRebuildFailed", message))?;
     Ok(runtime.set_projection(
         actual_generation,
         Some(crate::database::model::ProjectionVersion {
@@ -275,26 +263,17 @@ pub fn create_database(
         .as_deref()
         .map(|path| crate::paths::confine(&active.root, std::path::Path::new(path)))
         .transpose()
-        .map_err(|message| DatabaseError::Failed {
-            code: "invalidParentPath".to_owned(),
-            message,
-        })?
+        .map_err(|message| DatabaseError::failed("invalidParentPath", message))?
         .map(|path| path.to_string_lossy().to_string());
     request.note_path = request
         .note_path
         .as_deref()
         .map(|path| crate::paths::confine(&active.root, std::path::Path::new(path)))
         .transpose()
-        .map_err(|message| DatabaseError::Failed {
-            code: "invalidNotePath".to_owned(),
-            message,
-        })?
+        .map_err(|message| DatabaseError::failed("invalidNotePath", message))?
         .map(|path| path.to_string_lossy().to_string());
     let mut created = crate::database::mutations::create_database(&active.root, &watcher, &request)
-        .map_err(|message| DatabaseError::Failed {
-            code: "databaseCreateFailed".to_owned(),
-            message,
-        })?;
+        .map_err(|message| DatabaseError::failed("databaseCreateFailed", message))?;
     match crate::database::projection::rebuild_database_projection(&active.connection, &active.root)
     {
         Ok(report) => {
@@ -336,10 +315,7 @@ pub fn create_database_property(
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
     let mut created =
         crate::database::mutations::create_database_property(&active.root, &watcher, &request)
-            .map_err(|message| DatabaseError::Failed {
-                code: "databasePropertyCreateFailed".to_owned(),
-                message,
-            })?;
+            .map_err(|message| DatabaseError::failed("databasePropertyCreateFailed", message))?;
     match crate::database::projection::rebuild_database_projection(&active.connection, &active.root)
     {
         Ok(report) => {
@@ -387,9 +363,8 @@ pub fn change_database_property_type(
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
     let mut changed =
         crate::database::mutations::change_database_property_type(&active.root, &watcher, &request)
-            .map_err(|message| DatabaseError::Failed {
-                code: "databasePropertyTypeChangeFailed".to_owned(),
-                message,
+            .map_err(|message| {
+                DatabaseError::failed("databasePropertyTypeChangeFailed", message)
             })?;
     match crate::database::projection::rebuild_database_projection(&active.connection, &active.root)
     {
@@ -438,10 +413,7 @@ pub fn delete_database_property(
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
     let mut deleted =
         crate::database::mutations::delete_database_property(&active.root, &watcher, &request)
-            .map_err(|message| DatabaseError::Failed {
-                code: "databasePropertyDeleteFailed".to_owned(),
-                message,
-            })?;
+            .map_err(|message| DatabaseError::failed("databasePropertyDeleteFailed", message))?;
     match crate::database::projection::rebuild_database_projection(&active.connection, &active.root)
     {
         Ok(report) => {
@@ -488,10 +460,7 @@ pub fn reorder_database_properties(
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
     let mut reordered =
         crate::database::mutations::reorder_database_properties(&active.root, &watcher, &request)
-            .map_err(|message| DatabaseError::Failed {
-            code: "databasePropertiesReorderFailed".to_owned(),
-            message,
-        })?;
+            .map_err(|message| DatabaseError::failed("databasePropertiesReorderFailed", message))?;
     match crate::database::projection::rebuild_database_projection(&active.connection, &active.root)
     {
         Ok(report) => {
@@ -532,10 +501,7 @@ pub fn rename_database(
     let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
     let mut renamed = crate::database::mutations::rename_database(&active.root, &watcher, &request)
-        .map_err(|message| DatabaseError::Failed {
-            code: "databaseRenameFailed".to_owned(),
-            message,
-        })?;
+        .map_err(|message| DatabaseError::failed("databaseRenameFailed", message))?;
     match crate::database::projection::rebuild_database_projection(&active.connection, &active.root)
     {
         Ok(report) => {
@@ -577,10 +543,7 @@ pub fn rename_database_property(
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
     let mut renamed =
         crate::database::mutations::rename_database_property(&active.root, &watcher, &request)
-            .map_err(|message| DatabaseError::Failed {
-                code: "databasePropertyRenameFailed".to_owned(),
-                message,
-            })?;
+            .map_err(|message| DatabaseError::failed("databasePropertyRenameFailed", message))?;
     match crate::database::projection::rebuild_database_projection(&active.connection, &active.root)
     {
         Ok(report) => {
@@ -631,10 +594,7 @@ pub fn update_database_property_config(
         &watcher,
         &request,
     )
-    .map_err(|message| DatabaseError::Failed {
-        code: "databasePropertyConfigFailed".to_owned(),
-        message,
-    })?;
+    .map_err(|message| DatabaseError::failed("databasePropertyConfigFailed", message))?;
     match crate::database::projection::rebuild_database_projection(&active.connection, &active.root)
     {
         Ok(report) => {
@@ -684,10 +644,7 @@ pub fn update_database_property_options(
         &watcher,
         &request,
     )
-    .map_err(|message| DatabaseError::Failed {
-        code: "databasePropertyOptionsFailed".to_owned(),
-        message,
-    })?;
+    .map_err(|message| DatabaseError::failed("databasePropertyOptionsFailed", message))?;
     match crate::database::projection::rebuild_database_projection(&active.connection, &active.root)
     {
         Ok(report) => {
@@ -735,10 +692,7 @@ pub fn configure_database_rollup(
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
     let mut configured =
         crate::database::rollup_config::configure_database_rollup(&active.root, &watcher, &request)
-            .map_err(|message| DatabaseError::Failed {
-                code: "databaseRollupConfigureFailed".to_owned(),
-                message,
-            })?;
+            .map_err(|message| DatabaseError::failed("databaseRollupConfigureFailed", message))?;
     match crate::database::projection::rebuild_database_projection(&active.connection, &active.root)
     {
         Ok(report) => {
@@ -781,10 +735,7 @@ pub fn apply_database_value_batch(
     mutation_state.reset_for_generation(actual_generation);
     let cached = mutation_state
         .get(actual_generation, &request)
-        .map_err(|message| DatabaseError::Failed {
-            code: "databaseValueBatchFailed".to_owned(),
-            message,
-        })?;
+        .map_err(|message| DatabaseError::failed("databaseValueBatchFailed", message))?;
     let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
     let mut result = match cached {
@@ -795,10 +746,7 @@ pub fn apply_database_value_batch(
             &request,
             Some(&history),
         )
-        .map_err(|message| DatabaseError::Failed {
-            code: "databaseValueBatchFailed".to_owned(),
-            message,
-        })?,
+        .map_err(|message| DatabaseError::failed("databaseValueBatchFailed", message))?,
     };
     result
         .warnings
@@ -866,10 +814,7 @@ pub fn update_database_relation_value(
         &request,
         Some(&history),
     )
-    .map_err(|message| DatabaseError::Failed {
-        code: "updateDatabaseRelationValueFailed".to_owned(),
-        message,
-    })?;
+    .map_err(|message| DatabaseError::failed("updateDatabaseRelationValueFailed", message))?;
 
     let projection = crate::database::projection::update_relation_values_incremental(
         &active.connection,
@@ -909,10 +854,7 @@ pub fn undo_database_mutation(
 
     let result = history
         .undo(&active.root, &watcher, &database_id)
-        .map_err(|message| DatabaseError::Failed {
-            code: "undoDatabaseMutationFailed".to_owned(),
-            message,
-        })?;
+        .map_err(|message| DatabaseError::failed("undoDatabaseMutationFailed", message))?;
 
     // Invalidate/update incremental projection for affected notes
     if !result.affected_notes.is_empty() {
@@ -972,10 +914,7 @@ pub fn redo_database_mutation(
 
     let result = history
         .redo(&active.root, &watcher, &database_id)
-        .map_err(|message| DatabaseError::Failed {
-            code: "redoDatabaseMutationFailed".to_owned(),
-            message,
-        })?;
+        .map_err(|message| DatabaseError::failed("redoDatabaseMutationFailed", message))?;
 
     // Invalidate/update incremental projection for affected notes
     if !result.affected_notes.is_empty() {
@@ -1044,10 +983,7 @@ pub fn create_database_row(
     let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
     let mut created = crate::database::rows::create_database_row(&active.root, &watcher, &request)
-        .map_err(|message| DatabaseError::Failed {
-            code: "databaseRowCreateFailed".to_owned(),
-            message,
-        })?;
+        .map_err(|message| DatabaseError::failed("databaseRowCreateFailed", message))?;
     if let Err(error) = crate::database::rows::index_created_database_row(
         &active.connection,
         &active.root,
@@ -1107,12 +1043,8 @@ pub fn duplicate_database_row(
     let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
     let mut created =
-        crate::database::rows::duplicate_database_row(&active.root, &watcher, &request).map_err(
-            |message| DatabaseError::Failed {
-                code: "databaseRowDuplicateFailed".to_owned(),
-                message,
-            },
-        )?;
+        crate::database::rows::duplicate_database_row(&active.root, &watcher, &request)
+            .map_err(|message| DatabaseError::failed("databaseRowDuplicateFailed", message))?;
     if let Err(error) = crate::database::rows::index_created_database_row(
         &active.connection,
         &active.root,
@@ -1171,12 +1103,8 @@ pub fn import_database_asset(
     }
     let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
-    crate::database::assets::import_database_asset(&active.root, &watcher, &request).map_err(
-        |message| DatabaseError::Failed {
-            code: "databaseAssetImportFailed".to_owned(),
-            message,
-        },
-    )
+    crate::database::assets::import_database_asset(&active.root, &watcher, &request)
+        .map_err(|message| DatabaseError::failed("databaseAssetImportFailed", message))
 }
 
 #[tauri::command]
@@ -1195,12 +1123,8 @@ pub fn resolve_database_asset_paths(
     }
     let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
-    crate::database::assets::resolve_database_asset_paths(&active.root, &request).map_err(
-        |message| DatabaseError::Failed {
-            code: "databaseAssetResolveFailed".to_owned(),
-            message,
-        },
-    )
+    crate::database::assets::resolve_database_asset_paths(&active.root, &request)
+        .map_err(|message| DatabaseError::failed("databaseAssetResolveFailed", message))
 }
 
 #[tauri::command]
@@ -1220,10 +1144,7 @@ pub fn search_relation_candidates(
     let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
     crate::database::relation_lookup::search_relation_candidates(&active.connection, &request)
-        .map_err(|message| DatabaseError::Failed {
-            code: "relationSearchFailed".to_owned(),
-            message,
-        })
+        .map_err(|message| DatabaseError::failed("relationSearchFailed", message))
 }
 
 #[tauri::command]
@@ -1243,10 +1164,7 @@ pub fn resolve_record_references(
     let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
     crate::database::relation_lookup::resolve_record_references(&active.connection, &request)
-        .map_err(|message| DatabaseError::Failed {
-            code: "recordReferenceResolveFailed".to_owned(),
-            message,
-        })
+        .map_err(|message| DatabaseError::failed("recordReferenceResolveFailed", message))
 }
 
 #[tauri::command]
@@ -1267,12 +1185,8 @@ pub fn sync_database_yaml(
     }
     let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
-    let result = crate::database::yaml_sync::sync_note(&active.root, &watcher, &request).map_err(
-        |message| DatabaseError::Failed {
-            code: "databaseYamlSyncFailed".to_owned(),
-            message,
-        },
-    )?;
+    let result = crate::database::yaml_sync::sync_note(&active.root, &watcher, &request)
+        .map_err(|message| DatabaseError::failed("databaseYamlSyncFailed", message))?;
     if result.changed {
         match crate::database::projection::rebuild_database_projection(
             &active.connection,
@@ -1313,9 +1227,8 @@ pub fn resolve_database_yaml_conflict(
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
     let result =
         crate::database::yaml_sync::resolve_yaml_conflict(&active.root, &watcher, &request)
-            .map_err(|message| DatabaseError::Failed {
-                code: "databaseYamlConflictResolutionFailed".to_owned(),
-                message,
+            .map_err(|message| {
+                DatabaseError::failed("databaseYamlConflictResolutionFailed", message)
             })?;
     if result.changed {
         match crate::database::projection::rebuild_database_projection(
@@ -1374,12 +1287,8 @@ pub fn get_database_view(
     }
     let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
-    crate::database::views::get_view(&active.root, &request).map_err(|message| {
-        DatabaseError::Failed {
-            code: "databaseViewReadFailed".to_owned(),
-            message,
-        }
-    })
+    crate::database::views::get_view(&active.root, &request)
+        .map_err(|message| DatabaseError::failed("databaseViewReadFailed", message))
 }
 
 #[tauri::command]
@@ -1400,12 +1309,8 @@ pub fn create_database_view(
     }
     let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
-    let result = crate::database::views::create_view(&active.root, &watcher, &request).map_err(
-        |message| DatabaseError::Failed {
-            code: "databaseViewCreateFailed".to_owned(),
-            message,
-        },
-    )?;
+    let result = crate::database::views::create_view(&active.root, &watcher, &request)
+        .map_err(|message| DatabaseError::failed("databaseViewCreateFailed", message))?;
     if let Err(message) =
         refresh_database_view_runtime(&runtime, actual_generation, active, &request.database_id)
     {
@@ -1432,12 +1337,8 @@ pub fn rename_database_view(
     }
     let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
-    let result = crate::database::views::rename_view(&active.root, &watcher, &request).map_err(
-        |message| DatabaseError::Failed {
-            code: "databaseViewRenameFailed".to_owned(),
-            message,
-        },
-    )?;
+    let result = crate::database::views::rename_view(&active.root, &watcher, &request)
+        .map_err(|message| DatabaseError::failed("databaseViewRenameFailed", message))?;
     if let Err(message) =
         refresh_database_view_runtime(&runtime, actual_generation, active, &request.database_id)
     {
@@ -1465,10 +1366,7 @@ pub fn update_database_view_config(
     let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
     let result = crate::database::views::update_view_config(&active.root, &watcher, &request)
-        .map_err(|message| DatabaseError::Failed {
-            code: "databaseViewUpdateFailed".to_owned(),
-            message,
-        })?;
+        .map_err(|message| DatabaseError::failed("databaseViewUpdateFailed", message))?;
     if let Err(message) =
         refresh_database_view_runtime(&runtime, actual_generation, active, &request.database_id)
     {
@@ -1495,12 +1393,8 @@ pub fn duplicate_database_view(
     }
     let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
-    let result = crate::database::views::duplicate_view(&active.root, &watcher, &request).map_err(
-        |message| DatabaseError::Failed {
-            code: "databaseViewDuplicateFailed".to_owned(),
-            message,
-        },
-    )?;
+    let result = crate::database::views::duplicate_view(&active.root, &watcher, &request)
+        .map_err(|message| DatabaseError::failed("databaseViewDuplicateFailed", message))?;
     if let Err(message) =
         refresh_database_view_runtime(&runtime, actual_generation, active, &request.database_id)
     {
@@ -1527,12 +1421,8 @@ pub fn delete_database_view(
     }
     let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
-    let result = crate::database::views::delete_view(&active.root, &watcher, &request).map_err(
-        |message| DatabaseError::Failed {
-            code: "databaseViewDeleteFailed".to_owned(),
-            message,
-        },
-    )?;
+    let result = crate::database::views::delete_view(&active.root, &watcher, &request)
+        .map_err(|message| DatabaseError::failed("databaseViewDeleteFailed", message))?;
     if let Err(message) =
         refresh_database_view_runtime(&runtime, actual_generation, active, &request.database_id)
     {
@@ -1559,12 +1449,8 @@ pub fn reorder_database_views(
     }
     let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
-    let result = crate::database::views::reorder_views(&active.root, &watcher, &request).map_err(
-        |message| DatabaseError::Failed {
-            code: "databaseViewReorderFailed".to_owned(),
-            message,
-        },
-    )?;
+    let result = crate::database::views::reorder_views(&active.root, &watcher, &request)
+        .map_err(|message| DatabaseError::failed("databaseViewReorderFailed", message))?;
     if let Err(message) =
         refresh_database_view_runtime(&runtime, actual_generation, active, &request.database_id)
     {
@@ -1592,10 +1478,7 @@ pub fn set_default_database_view(
     let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
     let result = crate::database::views::set_default_view(&active.root, &watcher, &request)
-        .map_err(|message| DatabaseError::Failed {
-            code: "databaseViewDefaultFailed".to_owned(),
-            message,
-        })?;
+        .map_err(|message| DatabaseError::failed("databaseViewDefaultFailed", message))?;
     if let Err(message) =
         refresh_database_view_runtime(&runtime, actual_generation, active, &request.database_id)
     {
@@ -1620,10 +1503,7 @@ pub fn list_databases(
     let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
     discovery::discover_vault(&active.root)
-        .map_err(|message| DatabaseError::Failed {
-            code: "discoveryFailed".to_owned(),
-            message,
-        })
+        .map_err(|message| DatabaseError::failed("discoveryFailed", message))
         .map(|result| {
             let diagnostics = result.diagnostics;
             result
@@ -1731,10 +1611,10 @@ pub fn get_database_note_context(
     }
     let vault_generation = state.vault_generation.ok_or(DatabaseError::VaultNotOpen)?;
     if ulid::Ulid::from_string(&note_id).is_err() {
-        return Err(DatabaseError::Failed {
-            code: "invalidNoteId".to_owned(),
-            message: "noteId must be a canonical ULID".to_owned(),
-        });
+        return Err(DatabaseError::failed(
+            "invalidNoteId",
+            "noteId must be a canonical ULID".to_owned(),
+        ));
     }
     let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
@@ -1761,10 +1641,7 @@ pub fn get_database_note_context(
             },
         )
         .optional()
-        .map_err(|error| DatabaseError::Failed {
-            code: "databaseNoteContextFailed".to_owned(),
-            message: error.to_string(),
-        })?;
+        .map_err(|error| DatabaseError::failed("databaseNoteContextFailed", error.to_string()))?;
     let Some((
         database_id,
         database_title,
@@ -1785,18 +1662,12 @@ pub fn get_database_note_context(
     let mut statement = active
         .connection
         .prepare("SELECT property_id, canonical_json FROM db_values WHERE database_id = ?1 AND note_id = ?2 ORDER BY property_id")
-        .map_err(|error| DatabaseError::Failed {
-            code: "databaseNoteContextFailed".to_owned(),
-            message: error.to_string(),
-        })?;
+        .map_err(|error| DatabaseError::failed("databaseNoteContextFailed", error.to_string()))?;
     let values = statement
         .query_map([database_id.as_str(), note_id.as_str()], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })
-        .map_err(|error| DatabaseError::Failed {
-            code: "databaseNoteContextFailed".to_owned(),
-            message: error.to_string(),
-        })?
+        .map_err(|error| DatabaseError::failed("databaseNoteContextFailed", error.to_string()))?
         .filter_map(Result::ok)
         .fold(
             serde_json::Map::new(),
@@ -1808,10 +1679,8 @@ pub fn get_database_note_context(
                 values
             },
         );
-    let values_json = serde_json::to_string(&values).map_err(|error| DatabaseError::Failed {
-        code: "databaseNoteContextFailed".to_owned(),
-        message: error.to_string(),
-    })?;
+    let values_json = serde_json::to_string(&values)
+        .map_err(|error| DatabaseError::failed("databaseNoteContextFailed", error.to_string()))?;
     Ok(Some(DatabaseNoteContext {
         vault_generation,
         properties: database_properties(&active.connection, &database_id),
