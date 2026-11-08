@@ -548,7 +548,7 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
     const list = await screen.findByTestId("sync-conflicts")
     expect(list.textContent).toMatch(/Конфликты \(1\)/)
     const row = within(list).getAllByRole("listitem")[0]
-    expect(row.textContent).toMatch(/«идея» изменили на двух компьютерах/)
+    expect(row.textContent).toMatch(/Заметка «идея» изменена на двух компьютерах/)
     expect(row.textContent).toMatch(/Обе версии целы/)
     expect(row.textContent).not.toMatch(/\.md|conflict|Заметки\//)
     expect(within(row).getAllByRole("button")).toHaveLength(1)
@@ -737,7 +737,7 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
   it("words a conflict of two creations differently", async () => {
     await show(vaultStatus({ conflicts: [{ ...conflict, kind: "bothCreated" }] }))
     const list = await screen.findByTestId("sync-conflicts")
-    expect(list.textContent).toMatch(/создали на двух компьютерах/)
+    expect(list.textContent).toMatch(/создана на двух компьютерах/)
   })
 
   it("writes to the journal after the choice where the replaced version went, and only then", async () => {

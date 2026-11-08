@@ -12,7 +12,8 @@ import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { useVaultStore } from "../use-vault-store"
 import { limitNoticesOf } from "./limit-notices"
 import { SyncNoticesHost } from "./sync-notices-host"
-import { NoticesPanel } from "../notices/notices-panel"
+import { NoticesStack } from "../notices/notices-stack"
+import { useNoticesStackStore } from "../notices/use-notices-stack-store"
 import { useNoticesCentreStore } from "../notices/use-notices-centre-store"
 import { SyncVaultPanel } from "./sync-vault-panel"
 import { useSyncNoticesStore } from "./use-sync-notices-store"
@@ -35,6 +36,7 @@ beforeEach(async () => {
   useSyncNoticesStore.setState(useSyncNoticesStore.getInitialState())
   useNoteNoticesStore.setState({ restored: [] })
   useNoticesCentreStore.setState(useNoticesCentreStore.getInitialState())
+  useNoticesStackStore.setState({ isOpen: true })
 })
 afterEach(cleanup)
 
@@ -43,7 +45,7 @@ async function mount(status = vaultStatus()) {
   render(
     <>
       <SyncNoticesHost port={port} />
-      <NoticesPanel port={port} />
+      <NoticesStack port={port} />
     </>,
   )
   await waitFor(() => expect(port.vaultStatus).toHaveBeenCalled())

@@ -10,6 +10,7 @@ import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { useVaultStore } from "../use-vault-store"
 import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
 import { useNoticesCentreStore } from "../notices/use-notices-centre-store"
+import { useNoticesStackStore } from "../notices/use-notices-stack-store"
 import { createFakePort, vaultStatus } from "./fake-sync-port"
 import { NoticesDock } from "./dock-test-harness"
 import { dockButton } from "./dock-button"
@@ -32,6 +33,7 @@ beforeEach(async () => {
   useSyncNoticesStore.setState(useSyncNoticesStore.getInitialState())
   useNoteNoticesStore.setState(useNoteNoticesStore.getInitialState())
   useNoticesCentreStore.setState(useNoticesCentreStore.getInitialState())
+  useNoticesStackStore.setState(useNoticesStackStore.getInitialState())
   useNoticeJournalStore.setState(useNoticeJournalStore.getInitialState())
 })
 afterEach(() => {
@@ -42,7 +44,7 @@ afterEach(() => {
 describe("where the button stands", () => {
   it("is one of the persistent actions of the dock, between help and settings, and opens a panel", () => {
     const def = ACTION_DEFS.find((item) => item.id === "notices")
-    expect(def?.opens).toBe("notices-centre")
+    expect("opens" in (def ?? {})).toBe(false)
     expect(def?.kind).toBe("action")
     expect(def?.persistent).toBe(true)
     const order = (id: string) => PERSISTENT_ACTION_BUTTONS.find((b) => b.defId === id)!.order
@@ -112,12 +114,12 @@ describe("what a click does", () => {
     await screen.findByTestId("notices-dock-count")
   }
 
-  it("opens the notification centre with the conflicts in it, and closes it on the next click", async () => {
+  it("opens the stack of the notification centre with the conflicts in it, and closes it on the next click", async () => {
     await mountBoth()
     expect(screen.queryByTestId("notices-centre")).toBeNull()
     fireEvent.click(dockButton()!)
     expect(await screen.findByTestId("notices-centre")).toBeTruthy()
-    expect(screen.getByTestId("sync-conflicts")).toBeTruthy()
+    expect(screen.getByTestId("notices-entry").getAttribute("data-kind")).toBe("sync-conflict")
     fireEvent.click(dockButton()!)
     await waitFor(() => expect(screen.queryByTestId("notices-centre")).toBeNull())
   })
@@ -131,10 +133,10 @@ describe("what a click does", () => {
     )
     fireEvent.click(dockButton()!)
     expect(await screen.findByTestId("notices-centre")).toBeTruthy()
-    expect(screen.queryByTestId("sync-conflicts")).toBeNull()
+    expect(screen.queryByTestId("notices-entry")).toBeNull()
   })
 
-  it("leaves no floating badge in the corner of the window, and no popover", async () => {
+  it("leaves no floating badge in the corner of the window, and no popover or panel", async () => {
     await mountBoth()
     expect(screen.queryByTestId("sync-conflict-badge")).toBeNull()
     fireEvent.click(dockButton()!)

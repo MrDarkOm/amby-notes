@@ -40,7 +40,7 @@ afterEach(cleanup)
 describe("the line of a conflict of a note", () => {
   it("has a title with the name of the note, one line that the data is safe, and one button", () => {
     const { row } = show()
-    expect(row().getByText("«идея» изменили на двух компьютерах")).toBeTruthy()
+    expect(row().getByText("Заметка «идея» изменена на двух компьютерах")).toBeTruthy()
     expect(row().getByText("Обе версии целы")).toBeTruthy()
     expect(row().getAllByRole("button")).toHaveLength(1)
     expect(row().getByRole("button", { name: "Сравнить" })).toBeTruthy()
@@ -57,7 +57,7 @@ describe("the line of a conflict of a note", () => {
 
   it("words a conflict of two creations differently", () => {
     const { row } = show([{ ...conflict, kind: "bothCreated" }])
-    expect(row().getByText("«идея» создали на двух компьютерах")).toBeTruthy()
+    expect(row().getByText("Заметка «идея» создана на двух компьютерах")).toBeTruthy()
   })
 
   it("opens the comparison and chooses nothing by itself", () => {
@@ -69,7 +69,7 @@ describe("the line of a conflict of a note", () => {
 
   it("names a note by its file name without the folder and the extension", () => {
     const { row } = show([{ ...conflict, originalPath: "Работа/Планы/Годовой план.md" }])
-    expect(row().getByText("«Годовой план» изменили на двух компьютерах")).toBeTruthy()
+    expect(row().getByText("Заметка «Годовой план» изменена на двух компьютерах")).toBeTruthy()
   })
 })
 

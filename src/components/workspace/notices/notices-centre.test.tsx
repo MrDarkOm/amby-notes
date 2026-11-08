@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-// The notification centre (docs/notices.md, section 5, step 2): the bell of the dock opens a side panel with
-// "Needs a decision", "Attention" and the journal; the number on the bell counts the first two.
+// The notification centre (docs/notices.md, section 5, step 2): the bell of the dock opens a floating stack of
+// cards beside it, growing upwards from the button: "Needs a decision", "Attention" and, below, the journal
+// ("Earlier"); the number on the bell counts the first two.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import i18n from "@/lib/i18n"
@@ -18,7 +19,8 @@ import { SyncNoticesHost } from "../sync/sync-notices-host"
 import { useSyncNoticesStore } from "../sync/use-sync-notices-store"
 import { noteNoticeId } from "./centre-entries"
 import { OPEN_NOTE_REQUEST_EVENT } from "./note-open-request"
-import { NoticesPanel } from "./notices-panel"
+import { NoticesStack } from "./notices-stack"
+import { useNoticesStackStore } from "./use-notices-stack-store"
 import { useNoticesCentreStore } from "./use-notices-centre-store"
 
 vi.mock("@/lib/storage", async (importOriginal) => ({
@@ -75,6 +77,7 @@ beforeEach(async () => {
   useNoteNoticesStore.setState(useNoteNoticesStore.getInitialState())
   useNoticesCentreStore.setState(useNoticesCentreStore.getInitialState())
   useNoticeJournalStore.setState(useNoticeJournalStore.getInitialState())
+  useNoticesStackStore.setState(useNoticesStackStore.getInitialState())
 })
 afterEach(() => {
   cleanup()
@@ -82,33 +85,88 @@ afterEach(() => {
 })
 
 describe("how the centre is built into the dock", () => {
-  it("is a panel, opened by the bell, which stays the persistent action between help and settings", () => {
+  it("is opened by the bell, which stays the persistent action between help and settings, and is not a panel", () => {
     const bell = ACTION_DEFS.find((item) => item.id === "notices")
     expect(bell?.kind).toBe("action")
     expect(bell?.persistent).toBe(true)
-    expect(bell?.opens).toBe("notices-centre")
-    expect(PANEL_DEFS.some((item) => item.id === "notices-centre")).toBe(true)
+    expect("opens" in (bell ?? {})).toBe(false)
+    expect(PANEL_DEFS.some((item) => (item.id as string) === "notices-centre")).toBe(false)
     const order = (id: string) => PERSISTENT_ACTION_BUTTONS.find((b) => b.defId === id)!.order
     expect(order("notices")).toBeGreaterThan(order("help"))
     expect(order("notices")).toBeLessThan(order("settings"))
   })
 
-  it("opens on a click, marks the bell as active, and closes on the next click", async () => {
+  it("opens on a click, marks the bell as open, and closes on the next click", async () => {
     await mountHost()
     expect(screen.queryByTestId("notices-centre")).toBeNull()
+    expect(dockButton()!.getAttribute("aria-expanded")).toBe("false")
     await openCentre()
     expect(dockButton()!.getAttribute("data-active")).not.toBeNull()
+    expect(dockButton()!.getAttribute("aria-expanded")).toBe("true")
     fireEvent.click(dockButton()!)
     await waitFor(() => expect(screen.queryByTestId("notices-centre")).toBeNull())
     expect(dockButton()!.getAttribute("data-active")).toBeNull()
   })
 
-  it("leaves nothing of the old popover of conflicts or of the floating badge", async () => {
+  it("closes on a click anywhere else, and not on a click inside", async () => {
+    await mountHost()
+    const centre = await openCentre()
+    fireEvent.pointerDown(centre)
+    expect(screen.getByTestId("notices-centre")).toBeTruthy()
+    fireEvent.pointerDown(document.body)
+    await waitFor(() => expect(screen.queryByTestId("notices-centre")).toBeNull())
+  })
+
+  it("closes on Escape and gives the focus back to the bell", async () => {
+    await mountHost()
+    await openCentre()
+    fireEvent.keyDown(document, { key: "Escape" })
+    await waitFor(() => expect(screen.queryByTestId("notices-centre")).toBeNull())
+    expect(document.activeElement).toBe(dockButton())
+  })
+
+  it("gives the focus back to the bell when it is closed by a click outside, too", async () => {
+    await mountHost()
+    const centre = await openCentre()
+    centre.focus()
+    fireEvent.pointerDown(document.body)
+    await waitFor(() => expect(screen.queryByTestId("notices-centre")).toBeNull())
+    expect(document.activeElement).toBe(dockButton())
+  })
+
+  it("stands beside the bell and grows upwards from it, on the side where the dock is", async () => {
+    await mountHost()
+    const rect = (left: number) =>
+      ({
+        left,
+        right: left + 40,
+        top: 500,
+        bottom: 530,
+        width: 40,
+        height: 30,
+        x: left,
+        y: 500,
+      }) as DOMRect
+    dockButton()!.getBoundingClientRect = () => rect(0)
+    const left = await openCentre()
+    expect(left.style.left).toBe("48px")
+    expect(left.style.bottom).toBe(`${window.innerHeight - 530}px`)
+    expect(left.style.maxHeight).toBeTruthy()
+    fireEvent.click(dockButton()!)
+    await waitFor(() => expect(screen.queryByTestId("notices-centre")).toBeNull())
+    dockButton()!.getBoundingClientRect = () => rect(window.innerWidth - 40)
+    const right = await openCentre()
+    expect(right.style.right).toBe(`${window.innerWidth - (window.innerWidth - 40) + 8}px`)
+    expect(right.style.left).toBe("")
+  })
+
+  it("leaves nothing of the old popover of conflicts, of the floating badge or of a side panel", async () => {
     await mountHost(vaultStatus({ conflicts: [conflict("aaaaaaaaaaaa")] }))
     await screen.findByTestId("notices-dock-count")
     await openCentre()
     expect(screen.queryByTestId("sync-conflict-popover")).toBeNull()
     expect(screen.queryByTestId("sync-conflict-badge")).toBeNull()
+    expect(document.querySelector(".amby-panel-host")).toBeNull()
   })
 })
 
@@ -178,17 +236,16 @@ describe("the number on the bell", () => {
 })
 
 describe("the sections of the centre", () => {
-  it("has the journal, with a sentence for emptiness, and no empty sections of trouble", async () => {
+  it("has only a quiet sentence while nothing has happened", async () => {
     await mountHost()
     const centre = await openCentre()
     expect(within(centre).queryByTestId("notices-section-decision")).toBeNull()
     expect(within(centre).queryByTestId("notices-section-warning")).toBeNull()
-    const journal = within(centre).getByTestId("notices-section-journal")
-    expect(within(journal).getByRole("heading", { name: "Журнал" })).toBeTruthy()
-    expect(within(journal).getByText("Пока ничего не происходило")).toBeTruthy()
+    expect(within(centre).queryByTestId("notices-section-journal")).toBeNull()
+    expect(within(centre).getByText("Пока ничего не происходило")).toBeTruthy()
   })
 
-  it("puts the conflicts into 'Needs a decision', each with the one button 'Compare'", async () => {
+  it("puts the conflicts into 'Needs a decision' as cards of a decision, each with the one button 'Compare'", async () => {
     const port = await mountHost(
       vaultStatus({ conflicts: [conflict("aaaaaaaaaaaa"), conflict("bbbbbbbbbbbb")] }),
     )
@@ -196,14 +253,21 @@ describe("the sections of the centre", () => {
     const centre = await openCentre()
     const section = within(centre).getByTestId("notices-section-decision")
     expect(within(section).getByRole("heading", { name: "Требует решения" })).toBeTruthy()
-    const list = within(section).getByTestId("sync-conflicts")
-    expect(within(list).getAllByRole("listitem")).toHaveLength(2)
-    expect(within(list).getAllByText("«идея» изменили на двух компьютерах")).toHaveLength(2)
-    expect(list.textContent).not.toMatch(/conflict\.md|\.amby|Заметки\//)
-    expect(within(list).getAllByRole("button")).toHaveLength(2)
-    fireEvent.click(within(list).getAllByRole("button", { name: "Сравнить" })[0]!)
+    const cards = within(section).getAllByTestId("notices-entry")
+    expect(cards).toHaveLength(2)
+    for (const card of cards) {
+      expect(card.getAttribute("data-kind")).toBe("sync-conflict")
+      expect(card.getAttribute("data-level")).toBe("decision")
+      expect(card.textContent).toMatch(/Заметка «идея» изменена на двух компьютерах/)
+      expect(card.textContent).toMatch(/Обе версии целы/)
+      expect(card.textContent).not.toMatch(/conflict\.md|\.amby|Заметки\//)
+      expect(within(card).getAllByRole("button")).toHaveLength(1)
+    }
+    fireEvent.click(within(cards[0]!).getByRole("button", { name: "Сравнить" }))
     expect(useSyncNoticesStore.getState().compareId).toBe("aaaaaaaaaaaa")
     expect(port.resolveConflict).not.toHaveBeenCalled()
+    // No separate list of conflicts with its own look.
+    expect(within(centre).queryByTestId("sync-conflicts")).toBeNull()
   })
 
   it("takes a conflict away as soon as it is resolved", async () => {
@@ -263,7 +327,7 @@ describe("the sections of the centre", () => {
     const entry = within(centre).getByTestId("notices-entry")
     expect(entry.getAttribute("data-level")).toBe("danger")
     expect(entry.getAttribute("role")).toBe("alert")
-    expect(entry.textContent).toMatch(/«идея» не сохранилась/)
+    expect(entry.textContent).toMatch(/Заметка «идея» не сохранилась/)
     expect(entry.textContent).toMatch(/Текст в черновике, не потерян/)
     const asked: unknown[] = []
     const listen = (event: Event) => asked.push((event as CustomEvent).detail)
@@ -310,6 +374,86 @@ describe("the sections of the centre", () => {
     fireEvent.click(within(centre).getByRole("button", { name: "Показать" }))
     window.removeEventListener(OPEN_SETTINGS_REQUEST_EVENT, listen)
     expect(seen).toEqual([{ section: "sync" }])
+  })
+
+  it("keeps the order: what needs a decision (danger first), then attention, then the journal", async () => {
+    await mountHost(
+      vaultStatus({
+        conflicts: [conflict("aaaaaaaaaaaa")],
+        itemErrors: 1,
+      }),
+    )
+    act(() => {
+      useDocStore.setState({ openDocs: { n: doc("n") } })
+      useNoteNoticesStore.getState().setSaveFailed("n", true)
+      useNoticeJournalStore.getState().record({
+        kind: "backupReady",
+        level: "success",
+        subject: "backup",
+        params: {},
+      })
+    })
+    await screen.findByTestId("notices-dock-count")
+    const centre = await openCentre()
+    const order = Array.from(
+      centre.querySelectorAll(
+        '[data-testid="notices-entry"], [data-testid="notices-journal-entry"]',
+      ),
+    ).map((node) => node.getAttribute("data-level"))
+    expect(order).toEqual(["danger", "decision", "warning", "success"])
+    const decision = within(centre).getByTestId("notices-section-decision")
+    const warning = within(centre).getByTestId("notices-section-warning")
+    const journal = within(centre).getByTestId("notices-section-journal")
+    const before = (x: Element, y: Element) =>
+      Boolean(x.compareDocumentPosition(y) & Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(before(decision, warning)).toBe(true)
+    expect(before(warning, journal)).toBe(true)
+  })
+})
+
+describe("the look of the cards of the centre (docs/notices.md, section 11)", () => {
+  it("is calm: no fill, no coloured frame, a stripe and the icon of the level, for every card and every line", async () => {
+    await mountHost(
+      vaultStatus({
+        conflicts: [conflict("aaaaaaaaaaaa")],
+        stop: { kind: "vaultMissing" },
+        itemErrors: 1,
+      }),
+    )
+    act(() => {
+      useDocStore.setState({ openDocs: { n: doc("n") } })
+      useNoteNoticesStore.getState().setSaveFailed("n", true)
+      useNoticeJournalStore.getState().record({
+        kind: "backupReady",
+        level: "success",
+        subject: "backup",
+        params: {},
+      })
+    })
+    await screen.findByTestId("notices-dock-count")
+    const centre = await openCentre()
+    const cards = centre.querySelectorAll(
+      '[data-testid="notices-entry"], [data-testid="notices-journal-entry"]',
+    )
+    expect(cards.length).toBe(5)
+    for (const card of Array.from(cards)) {
+      const level = card.getAttribute("data-level")!
+      const classes = card.getAttribute("class") ?? ""
+      expect(classes, level).not.toMatch(/--notice-[a-z]+-bg/)
+      expect(classes, level).not.toMatch(/--notice-[a-z]+-border/)
+      expect(classes, level).toContain(`border-l-[color:var(--notice-${level}-fg)]`)
+      expect(card.querySelector("svg")?.getAttribute("class") ?? "", level).toContain(
+        `--notice-${level}-fg`,
+      )
+    }
+  })
+
+  it("has no buttons with their own purple, and no white list of conflicts", async () => {
+    await mountHost(vaultStatus({ conflicts: [conflict("aaaaaaaaaaaa")] }))
+    await screen.findByTestId("notices-dock-count")
+    const centre = await openCentre()
+    const button = within(centre).getByRole("button", { name: "Сравнить" })
+    expect(button.getAttribute("class")).not.toMatch(/bg-primary(?!-)/)
   })
 })
 
@@ -411,7 +555,9 @@ describe("the copies of the cards of the open notes", () => {
   })
 })
 
-describe("the journal", () => {
+describe("the journal ('Earlier')", () => {
+  beforeEach(() => useNoticesStackStore.setState({ isOpen: true }))
+
   const record = (name: string, subject = `${name}.md`) =>
     useNoticeJournalStore.getState().record({
       kind: "restored",
@@ -428,7 +574,7 @@ describe("the journal", () => {
     vi.setSystemTime(new Date("2026-11-07T11:30:00"))
     record("вторая")
     vi.useRealTimers()
-    render(<NoticesPanel port={createFakePort()} />)
+    render(<NoticesStack port={createFakePort()} />)
     const rows = within(screen.getByTestId("notices-section-journal")).getAllByTestId(
       "notices-journal-entry",
     )
@@ -447,7 +593,7 @@ describe("the journal", () => {
   it("writes a repeated cause once, with its number", () => {
     record("идея")
     record("идея")
-    render(<NoticesPanel port={createFakePort()} />)
+    render(<NoticesStack port={createFakePort()} />)
     const rows = screen.getAllByTestId("notices-journal-entry")
     expect(rows).toHaveLength(1)
     expect(rows[0]!.textContent).toMatch(/×\s?2/)
@@ -461,15 +607,36 @@ describe("the journal", () => {
       params: {},
     })
     record("идея")
-    render(<NoticesPanel port={createFakePort()} />)
+    render(<NoticesStack port={createFakePort()} />)
     const rows = screen.getAllByTestId("notices-journal-entry")
     expect(rows.map((row) => row.getAttribute("data-level")).sort()).toEqual(["info", "success"])
     expect(screen.queryByTestId("notices-section-decision")).toBeNull()
     expect(screen.queryByTestId("notices-section-warning")).toBeNull()
   })
 
+  it("is headed 'Earlier', shows the last three lines, and 'Show all' opens the rest in the same stack", () => {
+    for (let i = 1; i <= 5; i += 1) record(`заметка${i}`)
+    render(<NoticesStack port={createFakePort()} />)
+    const section = screen.getByTestId("notices-section-journal")
+    expect(within(section).getByRole("heading", { name: "Ранее" })).toBeTruthy()
+    expect(within(section).getAllByTestId("notices-journal-entry")).toHaveLength(3)
+    // the newest three
+    expect(section.textContent).toMatch(/заметка5/)
+    expect(section.textContent).not.toMatch(/заметка1/)
+    fireEvent.click(within(section).getByRole("button", { name: /Показать все/ }))
+    expect(within(section).getAllByTestId("notices-journal-entry")).toHaveLength(5)
+    expect(screen.getByTestId("notices-centre").contains(section)).toBe(true)
+    expect(within(section).getByRole("button", { name: "Очистить" })).toBeTruthy()
+  })
+
+  it("has no 'Show all' when three lines or fewer are there", () => {
+    for (let i = 1; i <= 3; i += 1) record(`заметка${i}`)
+    render(<NoticesStack port={createFakePort()} />)
+    expect(screen.queryByRole("button", { name: /Показать все/ })).toBeNull()
+  })
+
   it("is cleared by hand with the button 'Clear', and the button is not there for an empty journal", () => {
-    render(<NoticesPanel port={createFakePort()} />)
+    render(<NoticesStack port={createFakePort()} />)
     expect(screen.queryByRole("button", { name: "Очистить" })).toBeNull()
     act(() => record("идея"))
     fireEvent.click(screen.getByRole("button", { name: "Очистить" }))
@@ -479,7 +646,7 @@ describe("the journal", () => {
 
   it("is written in the language of the person at the time of reading", async () => {
     record("идея")
-    const view = render(<NoticesPanel port={createFakePort()} />)
+    const view = render(<NoticesStack port={createFakePort()} />)
     expect(view.container.textContent).toMatch(/вернули/)
     await act(async () => {
       await i18n.changeLanguage("en")

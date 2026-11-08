@@ -1,21 +1,21 @@
 // @vitest-environment happy-dom
 // The toast (docs/notices.md, section 6): only the announcement of danger or a decision about an object that
-// is not on the screen. Top right, ten seconds each, paused by the pointer, three at most and "N more".
-// It leads to the place; it does not decide anything.
+// is not on the screen. It stands by the bell, the same card as in the stack of the centre, ten seconds
+// each, paused by the pointer, three at most and "N more". A click on it opens the stack; there are no
+// toasts while the stack is open. It leads to the place; it does not decide anything.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import i18n from "@/lib/i18n"
-import { OPEN_PANEL_REQUEST_EVENT } from "../panel-navigation"
 import { OPEN_NOTE_REQUEST_EVENT } from "./note-open-request"
 import { NoticeToastHost } from "./notice-toasts-host"
 import { useNoticeToastStore, type ToastInput } from "./use-notice-toasts-store"
+import { useNoticesStackStore } from "./use-notices-stack-store"
 
 const conflictToast = (id: string, name = "идея"): ToastInput => ({
   id,
   level: "decision",
   titleKey: "sync.vault.conflicts.editedTitle",
   params: { name },
-  actionKey: "notices.toast.open",
   target: { kind: "centre" },
 })
 
@@ -36,6 +36,7 @@ beforeEach(async () => {
   vi.useFakeTimers()
   await i18n.changeLanguage("ru")
   useNoticeToastStore.setState(useNoticeToastStore.getInitialState())
+  useNoticesStackStore.setState(useNoticesStackStore.getInitialState())
 })
 afterEach(() => {
   cleanup()
@@ -70,32 +71,54 @@ describe("what may be announced", () => {
 })
 
 describe("how a toast looks and where it leads", () => {
-  it("stands in the top right corner, is read out by its level, and has one button", () => {
+  it("stands by the bell and grows upwards from it, is read out by its level, and decides nothing", () => {
     render(<NoticeToastHost />)
     announce(saveToast("b"))
     announce(conflictToast("a"))
     const stack = screen.getByTestId("notice-toasts")
-    expect(stack.className).toMatch(/\btop-/)
-    expect(stack.className).toMatch(/\bright-/)
+    expect(stack.style.bottom).not.toBe("")
+    expect(stack.style.top).toBe("")
+    expect(stack.style.left !== "" || stack.style.right !== "").toBe(true)
     const [danger, decision] = toasts()
     expect(danger!.getAttribute("role")).toBe("alert")
     expect(danger!.getAttribute("data-level")).toBe("danger")
     expect(decision!.getAttribute("role")).toBe("status")
     expect(decision!.getAttribute("data-level")).toBe("decision")
-    expect(danger!.textContent).toMatch(/«идея» не сохранилась/)
-    // One way to the place and one way to close it; nothing to decide inside.
-    expect(within(danger!).getAllByRole("button")).toHaveLength(2)
+    expect(danger!.textContent).toMatch(/Заметка «идея» не сохранилась/)
+    // A toast about a note has one short button to it and a way to close; one about the sync has only the way to close.
+    expect(
+      within(danger!)
+        .getAllByRole("button")
+        .map((b) => b.textContent || b.getAttribute("aria-label")),
+    ).toEqual(["Открыть", "Закрыть"])
+    expect(
+      within(decision!)
+        .getAllByRole("button")
+        .map((b) => b.getAttribute("aria-label")),
+    ).toEqual(["Закрыть"])
   })
 
-  it("opens the centre from a toast about the sync, and goes away", () => {
+  it("is the same calm card as in the stack: no fill, a stripe and the icon of the level", () => {
+    render(<NoticeToastHost />)
+    announce(saveToast("b"))
+    announce(conflictToast("a"))
+    for (const toast of toasts()) {
+      const level = toast.getAttribute("data-level")!
+      const classes = toast.getAttribute("class") ?? ""
+      expect(classes).not.toMatch(/--notice-[a-z]+-bg/)
+      expect(classes).not.toMatch(/--notice-[a-z]+-border/)
+      expect(classes).toContain(`border-l-[color:var(--notice-${level}-fg)]`)
+      expect(toast.querySelector("svg")?.getAttribute("class") ?? "").toContain(
+        `--notice-${level}-fg`,
+      )
+    }
+  })
+
+  it("opens the stack when it is clicked, and goes into it", () => {
     render(<NoticeToastHost />)
     announce(conflictToast("a"))
-    const asked: unknown[] = []
-    const listen = (event: Event) => asked.push((event as CustomEvent).detail)
-    window.addEventListener(OPEN_PANEL_REQUEST_EVENT, listen)
-    fireEvent.click(within(toasts()[0]!).getByRole("button", { name: "Открыть центр уведомлений" }))
-    window.removeEventListener(OPEN_PANEL_REQUEST_EVENT, listen)
-    expect(asked).toEqual([{ panelId: "notices-centre" }])
+    fireEvent.click(toasts()[0]!)
+    expect(useNoticesStackStore.getState().isOpen).toBe(true)
     expect(toasts()).toHaveLength(0)
   })
 
@@ -109,6 +132,8 @@ describe("how a toast looks and where it leads", () => {
     window.removeEventListener(OPEN_NOTE_REQUEST_EVENT, listen)
     expect(asked).toEqual([{ id: "note-1" }])
     expect(toasts()).toHaveLength(0)
+    // The button goes to the note; it does not also open the stack.
+    expect(useNoticesStackStore.getState().isOpen).toBe(false)
   })
 
   it("can be closed without going anywhere", () => {
@@ -116,6 +141,57 @@ describe("how a toast looks and where it leads", () => {
     announce(conflictToast("a"))
     fireEvent.click(within(toasts()[0]!).getByRole("button", { name: "Закрыть" }))
     expect(toasts()).toHaveLength(0)
+  })
+})
+
+describe("a toast and the stack of the centre", () => {
+  it("is not shown while the stack is open: the place of the notice is seen already", () => {
+    render(<NoticeToastHost />)
+    act(() => useNoticesStackStore.getState().open())
+    announce(conflictToast("a"))
+    expect(toasts()).toHaveLength(0)
+    expect(useNoticeToastStore.getState().toasts).toEqual([])
+  })
+
+  it("that is hanging when the stack is opened goes into the stack", () => {
+    render(<NoticeToastHost />)
+    announce(conflictToast("a"))
+    announce(saveToast("b"))
+    expect(toasts()).toHaveLength(2)
+    act(() => useNoticesStackStore.getState().open())
+    expect(toasts()).toHaveLength(0)
+    expect(useNoticeToastStore.getState().toasts).toEqual([])
+  })
+
+  it("is announced again as usual once the stack is closed", () => {
+    render(<NoticeToastHost />)
+    act(() => useNoticesStackStore.getState().open())
+    act(() => useNoticesStackStore.getState().close())
+    announce(conflictToast("a"))
+    expect(toasts()).toHaveLength(1)
+  })
+
+  it("stands on the side of the dock, like the stack", () => {
+    const bell = document.createElement("button")
+    bell.setAttribute("data-activity-button", "notices")
+    bell.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        right: 40,
+        top: 500,
+        bottom: 530,
+        width: 40,
+        height: 30,
+        x: 0,
+        y: 500,
+      }) as DOMRect
+    document.body.append(bell)
+    render(<NoticeToastHost />)
+    announce(conflictToast("a"))
+    const stack = screen.getByTestId("notice-toasts")
+    expect(stack.style.left).toBe("48px")
+    expect(stack.style.bottom).toBe(`${window.innerHeight - 530}px`)
+    bell.remove()
   })
 })
 
@@ -165,18 +241,15 @@ describe("how long a toast stays", () => {
 })
 
 describe("how many are seen", () => {
-  it("shows three and folds the rest into 'N more', which leads to the centre", () => {
+  it("shows three and folds the rest into 'N more', which opens the stack", () => {
     render(<NoticeToastHost />)
     for (const id of ["a", "b", "c", "d", "e"]) announce(conflictToast(id))
     expect(toasts()).toHaveLength(3)
     const more = screen.getByTestId("notice-toasts-more")
     expect(more.textContent).toMatch(/ещё 2/)
-    const asked: unknown[] = []
-    const listen = (event: Event) => asked.push((event as CustomEvent).detail)
-    window.addEventListener(OPEN_PANEL_REQUEST_EVENT, listen)
     fireEvent.click(more)
-    window.removeEventListener(OPEN_PANEL_REQUEST_EVENT, listen)
-    expect(asked).toEqual([{ panelId: "notices-centre" }])
+    expect(useNoticesStackStore.getState().isOpen).toBe(true)
+    expect(toasts()).toHaveLength(0)
   })
 
   it("shows the next one when a place is free, with a time of its own", () => {

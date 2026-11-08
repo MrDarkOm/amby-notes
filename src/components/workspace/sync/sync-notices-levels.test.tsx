@@ -11,7 +11,7 @@ import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import { SyncNoticesHost } from "./sync-notices-host"
 import { NoticeToastHost } from "../notices/notice-toasts-host"
-import { NoticesPanel } from "../notices/notices-panel"
+import { useNoticesStackStore } from "../notices/use-notices-stack-store"
 import { useNoticeToastStore } from "../notices/use-notice-toasts-store"
 import { useNoticesCentreStore } from "../notices/use-notices-centre-store"
 import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
@@ -47,8 +47,7 @@ async function mount(status = vaultStatus()) {
     <>
       <SyncNoticesHost port={port} />
       <NoticeToastHost />
-      <NoticesPanel port={port} />
-      <NoticesDock />
+      <NoticesDock port={port} />
     </>,
   )
   await waitFor(() => expect(port.vaultStatus).toHaveBeenCalled())
@@ -63,6 +62,7 @@ beforeEach(async () => {
   useNoteNoticesStore.setState(useNoteNoticesStore.getInitialState())
   useNoticeToastStore.setState(useNoticeToastStore.getInitialState())
   useNoticesCentreStore.setState(useNoticesCentreStore.getInitialState())
+  useNoticesStackStore.setState(useNoticesStackStore.getInitialState())
   useNoticeJournalStore.setState(useNoticeJournalStore.getInitialState())
   vi.mocked(listTrash).mockResolvedValue([])
   vi.mocked(restoreTrash).mockResolvedValue({ changed: [] } as never)
@@ -76,6 +76,7 @@ describe("the level of what the sync host says", () => {
   it("a note that came back after a deletion is information in the journal, not a triangle", async () => {
     await mount()
     await act(async () => emitRestoredAfterDeletion([ORIGINAL]))
+    act(() => useNoticesStackStore.getState().open())
     const row = await screen.findByTestId("notices-journal-entry")
     expect(row.getAttribute("data-level")).toBe("info")
     expect(row.querySelector("svg.lucide-info")).not.toBeNull()
@@ -87,7 +88,7 @@ describe("the level of what the sync host says", () => {
     await mount()
     await act(async () => emitVaultStatus(vaultStatus({ conflicts: [conflict] })))
     const toast = await screen.findByTestId("notice-toast")
-    expect(toast.textContent).toMatch(/изменили на двух компьютерах/)
+    expect(toast.textContent).toMatch(/изменена на двух компьютерах/)
     expect(toast.getAttribute("data-level")).toBe("decision")
     expect(toast.querySelector("svg.lucide-triangle-alert")).not.toBeNull()
   })
@@ -119,6 +120,7 @@ describe("the level of what the sync host says", () => {
         }),
       ),
     )
+    act(() => useNoticesStackStore.getState().open())
     const entries = await screen.findAllByTestId("notices-entry")
     expect(entries).toHaveLength(2)
     for (const entry of entries) {

@@ -21,7 +21,8 @@ import { NoteNotices } from "../note-notices/note-notices"
 import { SyncNoticesHost } from "./sync-notices-host"
 import { NoticesDock } from "./dock-test-harness"
 import { NoticeToastHost } from "../notices/notice-toasts-host"
-import { NoticesPanel } from "../notices/notices-panel"
+import { NoticesStack } from "../notices/notices-stack"
+import { useNoticesStackStore } from "../notices/use-notices-stack-store"
 import { useNoticeToastStore } from "../notices/use-notice-toasts-store"
 import { useNoticesCentreStore } from "../notices/use-notices-centre-store"
 import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
@@ -96,6 +97,7 @@ beforeEach(async () => {
   useSyncNoticesStore.setState(useSyncNoticesStore.getInitialState())
   useNoticeToastStore.setState(useNoticeToastStore.getInitialState())
   useNoticesCentreStore.setState(useNoticesCentreStore.getInitialState())
+  useNoticesStackStore.setState(useNoticesStackStore.getInitialState())
   useNoticeJournalStore.setState(useNoticeJournalStore.getInitialState())
   vi.mocked(listTrash).mockResolvedValue([])
   vi.mocked(restoreTrash).mockResolvedValue({ changed: [] } as never)
@@ -124,22 +126,24 @@ describe("the dock button and the conflicts in the centre", () => {
     const count = await screen.findByTestId("notices-dock-count")
     expect(count.textContent).toContain("2")
     expect(dockButton()!.getAttribute("aria-label")).toMatch(/Уведомления: 2/)
-    expect(screen.queryByTestId("sync-conflicts")).toBeNull()
+    expect(screen.queryByTestId("notices-entry")).toBeNull()
     const centre = await openCentre()
-    const list = within(centre).getByTestId("sync-conflicts")
-    expect(within(list).getAllByRole("listitem")).toHaveLength(2)
-    expect(within(list).getAllByText("«идея» изменили на двух компьютерах")).toHaveLength(2)
-    expect(list.textContent).not.toMatch(/conflict\.md|\.amby|Заметки\//)
+    const cards = within(centre).getAllByTestId("notices-entry")
+    expect(cards).toHaveLength(2)
+    expect(within(centre).getAllByText("Заметка «идея» изменена на двух компьютерах")).toHaveLength(
+      2,
+    )
+    expect(centre.textContent).not.toMatch(/conflict\.md|\.amby|Заметки\//)
   })
 
-  it("takes the number away once the conflict is resolved, and the centre stays open", async () => {
+  it("takes the number away once the conflict is resolved, and the stack stays open", async () => {
     await mount(vaultStatus({ conflicts: [conflict] }))
     await screen.findByTestId("notices-dock-count")
     const centre = await openCentre()
-    await within(centre).findByTestId("sync-conflicts")
+    await within(centre).findByTestId("notices-entry")
     await pushStatus(vaultStatus({ conflicts: [] }))
     await waitFor(() => expect(screen.queryByTestId("notices-dock-count")).toBeNull())
-    expect(screen.queryByTestId("sync-conflicts")).toBeNull()
+    expect(screen.queryByTestId("notices-entry")).toBeNull()
     expect(screen.getByTestId("notices-centre")).toBeTruthy()
     expect(dockButton()).not.toBeNull()
   })
@@ -148,7 +152,7 @@ describe("the dock button and the conflicts in the centre", () => {
     const { port } = await mount(vaultStatus({ conflicts: [conflict] }))
     await screen.findByTestId("notices-dock-count")
     const centre = await openCentre()
-    const list = within(centre).getByTestId("sync-conflicts")
+    const list = within(centre).getByTestId("notices-entry")
     expect(within(list).getAllByRole("button")).toHaveLength(1)
     expect(within(list).queryByRole("button", { name: /Оставить|Взять|Сохранить/ })).toBeNull()
     fireEvent.click(within(list).getByRole("button", { name: "Сравнить" }))
@@ -193,12 +197,13 @@ describe("the dock button and the conflicts in the centre", () => {
     render(
       <>
         <SyncNoticesHost port={port} />
-        <NoticesDock />
-        <NoticesPanel port={port} />
+        <NoticesDock port={port} />
       </>,
     )
     await screen.findByTestId("notices-dock-count")
-    const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+    const centre = await openCentre()
+    const row = within(centre).getAllByTestId("notices-entry")[0]!
+    expect(row.getAttribute("data-kind")).toBe("sync-conflict")
     const notes = await within(row).findByTestId("sync-group-notes")
     expect(notes.textContent).toMatch(/«Идея»/)
     expect(within(row).queryByRole("button", { name: "Взять с другого компьютера" })).toBeNull()
@@ -216,7 +221,7 @@ describe("the notice about a new conflict", () => {
     await mount()
     await pushStatus(vaultStatus({ conflicts: [conflict] }))
     const notice = await screen.findByTestId("notice-toast")
-    expect(notice.textContent).toMatch(/изменили на двух компьютерах/)
+    expect(notice.textContent).toMatch(/изменена на двух компьютерах/)
     expect(notice.textContent).toMatch(/идея/)
     await pushStatus(vaultStatus({ conflicts: [conflict], lastSyncMs: 1_760_000_999_000 }))
     expect(screen.getAllByTestId("notice-toast")).toHaveLength(1)
@@ -251,7 +256,7 @@ describe("the note brought back after a deletion made here", () => {
 })
 
 describe("the card of a note that has a second version", () => {
-  const strip = /«идея» изменили на двух компьютерах/
+  const strip = /Заметка «идея» изменена на двух компьютерах/
 
   it("is shown in the main file and in the copy, and not in another note", async () => {
     await mount(vaultStatus({ conflicts: [conflict] }))

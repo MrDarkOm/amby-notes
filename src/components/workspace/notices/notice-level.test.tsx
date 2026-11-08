@@ -77,3 +77,47 @@ describe("the frame of a level", () => {
     expect(screen.getAllByRole("status")).toHaveLength(4)
   })
 })
+
+describe("the calm look of a card (docs/notices.md, section 11)", () => {
+  it.each(LEVELS)(
+    "%s is an ordinary surface with a stripe of its colour, not a filled frame",
+    (level) => {
+      render(
+        <NoticeShell level={level} variant="calm" data-testid="card">
+          text
+        </NoticeShell>,
+      )
+      const card = screen.getByTestId("card")
+      const classes = card.getAttribute("class") ?? ""
+      // No fill and no coloured frame: the background and the border are the neutral ones.
+      expect(classes).not.toMatch(/--notice-[a-z]+-bg/)
+      expect(classes).not.toMatch(
+        new RegExp(`(?<!border-l-\\[color:)var\\(--notice-${level}-border\\)`),
+      )
+      expect(classes).not.toMatch(/--notice-[a-z]+-border/)
+      expect(classes).toContain("bg-card")
+      // The stripe on the left is the colour of the level.
+      expect(classes).toContain(`border-l-[color:var(--notice-${level}-fg)]`)
+      expect(card.getAttribute("data-level")).toBe(level)
+    },
+  )
+
+  it.each(LEVELS)("%s keeps its role and its icon in the calm look", (level, iconClass, role) => {
+    render(
+      <NoticeShell level={level} variant="calm">
+        <NoticeLevelIcon level={level} />
+        text
+      </NoticeShell>,
+    )
+    expect(screen.getByRole(role).querySelector(`svg.${iconClass}`)).not.toBeNull()
+  })
+
+  it("leaves the default look as it was", () => {
+    render(
+      <NoticeShell level="decision" data-testid="card">
+        text
+      </NoticeShell>,
+    )
+    expect(screen.getByTestId("card").getAttribute("class")).toContain("--notice-decision-bg")
+  })
+})

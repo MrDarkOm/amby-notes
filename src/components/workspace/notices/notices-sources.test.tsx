@@ -24,6 +24,7 @@ import { useVaultStore } from "../use-vault-store"
 import { NoticeToastHost } from "./notice-toasts-host"
 import { useNoticeToastStore } from "./use-notice-toasts-store"
 import { useNoticesCentreStore } from "./use-notices-centre-store"
+import { useNoticesStackStore } from "./use-notices-stack-store"
 
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
@@ -81,6 +82,7 @@ beforeEach(async () => {
   useNoteNoticesStore.setState(useNoteNoticesStore.getInitialState())
   useNoticeToastStore.setState(useNoticeToastStore.getInitialState())
   useNoticesCentreStore.setState(useNoticesCentreStore.getInitialState())
+  useNoticesStackStore.setState(useNoticesStackStore.getInitialState())
   useNoticeJournalStore.setState(useNoticeJournalStore.getInitialState())
   vi.mocked(listTrash).mockResolvedValue([])
   vi.mocked(restoreTrash).mockResolvedValue({ changed: [] } as never)
@@ -96,7 +98,7 @@ describe("a new conflict", () => {
     await push(vaultStatus({ conflicts: [conflict] }))
     expect(toasts()).toHaveLength(1)
     expect(toasts()[0]!.getAttribute("data-level")).toBe("decision")
-    expect(toasts()[0]!.textContent).toMatch(/«идея» изменили на двух компьютерах/)
+    expect(toasts()[0]!.textContent).toMatch(/Заметка «идея» изменена на двух компьютерах/)
     await push(vaultStatus({ conflicts: [conflict], lastSyncMs: 1_760_000_999_000 }))
     expect(toasts()).toHaveLength(1)
   })
