@@ -101,6 +101,7 @@ export function BoardCard({
           <CardTitleInput
             value={row.title}
             className="font-medium"
+            refusalHint
             onCommit={(name) => cardEdit.onRename!(row, name)}
           />
         ) : (

@@ -9,7 +9,7 @@ afterEach(cleanup)
 const TAKEN = "Такое название уже занято. Введите другое."
 
 async function commit(onCommit: (name: string) => unknown, name: string) {
-  render(<CardTitleInput value="Old" onCommit={onCommit as never} />)
+  render(<CardTitleInput value="Old" refusalHint onCommit={onCommit as never} />)
   const input = screen.getByRole("textbox") as HTMLInputElement
   fireEvent.change(input, { target: { value: name } })
   await act(async () => {
@@ -51,6 +51,24 @@ describe("CardTitleInput shows why a title was refused (docs/notices.md, section
     expect(screen.queryByTestId("rename-hint")).toBeNull()
     cleanup()
     await commit(() => undefined, "Also fine")
+    expect(screen.queryByTestId("rename-hint")).toBeNull()
+  })
+})
+
+describe("CardTitleInput without refusalHint keeps its own layout", () => {
+  it("puts the old title back and shows no line", async () => {
+    render(
+      <CardTitleInput
+        value="Old"
+        onCommit={() => Promise.resolve({ status: "failed", text: TAKEN }) as never}
+      />,
+    )
+    const input = screen.getByRole("textbox") as HTMLInputElement
+    fireEvent.change(input, { target: { value: "Taken" } })
+    await act(async () => {
+      fireEvent.blur(input)
+    })
+    expect(input.value).toBe("Old")
     expect(screen.queryByTestId("rename-hint")).toBeNull()
   })
 })
