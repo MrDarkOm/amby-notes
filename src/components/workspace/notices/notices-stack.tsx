@@ -140,7 +140,7 @@ function EntryCard({ entry, context }: { entry: CentreEntry; context: RowContext
       data-testid="notices-entry"
       data-entry-id={entry.id}
       data-kind={entry.kind}
-      className="pointer-events-auto flex items-start gap-2 rounded-lg px-3 py-2.5 text-foreground shadow-lg"
+      className="flex items-start gap-2 rounded-lg px-3 py-2.5 text-foreground"
     >
       <NoticeLevelIcon level={entry.level} className="mt-0.5 size-4 shrink-0" />
       <div className="min-w-0 flex-1 space-y-1">
@@ -212,7 +212,7 @@ function JournalRow({ entry }: { entry: JournalEntry }) {
       data-level={entry.level}
       className={cn(
         noticeCalmClass(entry.level),
-        "pointer-events-auto flex items-start gap-2 rounded-md px-2.5 py-1.5",
+        "flex items-start gap-2 rounded-md px-2.5 py-1.5",
       )}
     >
       <NoticeLevelIcon level={entry.level} className="mt-0.5 size-3.5 shrink-0" />
@@ -329,13 +329,13 @@ function StackBody({ port }: { port: SyncPort }) {
       aria-label={t("notices.centre.title")}
       tabIndex={-1}
       style={anchor}
-      className="pointer-events-none fixed z-50 flex w-[min(22rem,calc(100vw-4rem))] flex-col gap-3 overflow-y-auto p-1 outline-none"
+      className="fixed z-50 flex w-[min(22rem,calc(100vw-5rem))] flex-col gap-3 overflow-y-auto rounded-xl border border-border bg-popover p-2.5 text-popover-foreground shadow-lg outline-none"
     >
       {centre.decision.length > 0 && (
         <section data-testid="notices-section-decision" className="space-y-2">
           <Heading>{t("notices.centre.decision")}</Heading>
           {error && (
-            <p role="alert" className="pointer-events-auto px-1 text-[12px] text-destructive">
+            <p role="alert" className="px-1 text-[12px] text-destructive">
               {error}
             </p>
           )}
@@ -354,7 +354,7 @@ function StackBody({ port }: { port: SyncPort }) {
       )}
       {journal.length > 0 && (
         <section data-testid="notices-section-journal" className="space-y-1.5">
-          <div className="pointer-events-auto flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-2">
             <Heading>{t("notices.centre.earlier")}</Heading>
             <Button type="button" size="sm" variant="ghost" onClick={clearJournal}>
               {t("notices.centre.clear")}
@@ -370,7 +370,6 @@ function StackBody({ port }: { port: SyncPort }) {
               type="button"
               size="sm"
               variant="ghost"
-              className="pointer-events-auto"
               onClick={() => setShowAll((value) => !value)}
             >
               {showAll
@@ -381,10 +380,7 @@ function StackBody({ port }: { port: SyncPort }) {
         </section>
       )}
       {nothing && (
-        <p
-          data-testid="notices-empty"
-          className="pointer-events-auto rounded-lg border border-border/70 bg-card px-3 py-2.5 text-[12px] text-muted-foreground shadow-lg"
-        >
+        <p data-testid="notices-empty" className="px-1 py-1 text-[12px] text-muted-foreground">
           {t("notices.centre.journalEmpty")}
         </p>
       )}
