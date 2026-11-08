@@ -1643,7 +1643,9 @@ const ru = {
       title: "Уведомления",
       decision: "Требует решения",
       warning: "Внимание",
-      journal: "Журнал",
+      earlier: "Ранее",
+      showAll: "Показать все ({{count}})",
+      collapse: "Свернуть",
       journalEmpty: "Пока ничего не происходило",
       clear: "Очистить",
       hide: "Скрыть",
@@ -1655,7 +1657,7 @@ const ru = {
       stopUnknown: "Синхронизация остановилась",
       note: {
         "remote-deleted": {
-          title: "«{{name}}» удалили на другом компьютере",
+          title: "Заметка «{{name}}» удалена на другом компьютере",
           line: "Заметка в архиве хранилища, её можно вернуть.",
         },
         "external-deleted": {
@@ -1663,23 +1665,23 @@ const ru = {
           line: "Текст остался в редакторе, его можно сохранить снова.",
         },
         "external-change": {
-          title: "«{{name}}» изменили вне Amby",
+          title: "Заметка «{{name}}» изменена вне Amby",
           line: "Автосохранение приостановлено, пока вы не решите.",
         },
         "save-failed": {
-          title: "«{{name}}» не сохранилась",
+          title: "Заметка «{{name}}» не сохранилась",
           line: "Текст остался в редакторе и в черновике.",
         },
         "property-failed": {
-          title: "В «{{name}}» не сохранилось свойство",
+          title: "В заметке «{{name}}» не сохранилось свойство",
           line: "Повторите попытку.",
         },
         draft: {
-          title: "У «{{name}}» есть несохранённая версия",
+          title: "У заметки «{{name}}» есть несохранённая версия",
           line: "Решите, взять её или отклонить.",
         },
       },
-      closedSaveFailed: "«{{name}}» не сохранилась",
+      closedSaveFailed: "Заметка «{{name}}» не сохранилась",
       closedSaveFailedLine: "Текст в черновике, не потерян",
       tooLarge: "Файлов не отправлено: {{count}}",
       tooLargeLine:
@@ -1691,7 +1693,6 @@ const ru = {
       itemErrorsLine: "Попробуем снова, ничего не потеряно.",
     },
     toast: {
-      open: "Открыть центр уведомлений",
       openNote: "Открыть",
       more: "ещё {{count}}",
       newConflicts: "Новых конфликтов: {{count}}",
@@ -3943,7 +3944,7 @@ const ru = {
       outcome: {
         keepOriginal: "Оставлена версия в заметке «{{name}}». Вторая версия — в корзине хранилища.",
         keepCopy: "В заметке «{{name}}» теперь вторая версия. Прежняя — в истории заметки.",
-        keepBoth: "Обе версии «{{name}}» сохранены: вторая стала отдельной заметкой.",
+        keepBoth: "Обе версии заметки «{{name}}» сохранены: вторая стала отдельной заметкой.",
         assembled:
           "Заметка «{{name}}» собрана из выбранных частей. Прежняя версия — в истории заметки.",
       },
@@ -4045,8 +4046,8 @@ const ru = {
       },
       conflicts: {
         title: "Конфликты ({{count}})",
-        editedTitle: "«{{name}}» изменили на двух компьютерах",
-        createdTitle: "«{{name}}» создали на двух компьютерах",
+        editedTitle: "Заметка «{{name}}» изменена на двух компьютерах",
+        createdTitle: "Заметка «{{name}}» создана на двух компьютерах",
         bothSafe: "Обе версии целы",
         appData: {
           properties:
@@ -5842,7 +5843,9 @@ const en: typeof ru = {
       title: "Notifications",
       decision: "Needs a decision",
       warning: "Attention",
-      journal: "Journal",
+      earlier: "Earlier",
+      showAll: "Show all ({{count}})",
+      collapse: "Collapse",
       journalEmpty: "Nothing has happened yet",
       clear: "Clear",
       hide: "Hide",
@@ -5854,7 +5857,7 @@ const en: typeof ru = {
       stopUnknown: "Sync has stopped",
       note: {
         "remote-deleted": {
-          title: "“{{name}}” was deleted on another computer",
+          title: "The note “{{name}}” was deleted on another computer",
           line: "The note is in the archive of the vault; it can be brought back.",
         },
         "external-deleted": {
@@ -5862,23 +5865,23 @@ const en: typeof ru = {
           line: "The text is still in the editor; it can be saved again.",
         },
         "external-change": {
-          title: "“{{name}}” was changed outside Amby",
+          title: "The note “{{name}}” was changed outside Amby",
           line: "Autosave is paused until you decide.",
         },
         "save-failed": {
-          title: "“{{name}}” was not saved",
+          title: "The note “{{name}}” was not saved",
           line: "The text is still in the editor and in a draft.",
         },
         "property-failed": {
-          title: "A property of “{{name}}” was not saved",
+          title: "A property of the note “{{name}}” was not saved",
           line: "Try again.",
         },
         draft: {
-          title: "“{{name}}” has an unsaved version",
+          title: "The note “{{name}}” has an unsaved version",
           line: "Decide whether to take it or discard it.",
         },
       },
-      closedSaveFailed: "“{{name}}” was not saved",
+      closedSaveFailed: "The note “{{name}}” was not saved",
       closedSaveFailedLine: "The text is in a draft, not lost",
       tooLarge: "Files not sent: {{count}}",
       tooLargeLine: "Over {{limit}} on your plan. They stay on this computer; nothing is lost.",
@@ -5889,7 +5892,6 @@ const en: typeof ru = {
       itemErrorsLine: "We will try again; nothing is lost.",
     },
     toast: {
-      open: "Open the notification centre",
       openNote: "Open",
       more: "{{count}} more",
       newConflicts: "New conflicts: {{count}}",
@@ -8228,8 +8230,8 @@ const en: typeof ru = {
       },
       conflicts: {
         title: "Conflicts ({{count}})",
-        editedTitle: "“{{name}}” was changed on two computers",
-        createdTitle: "“{{name}}” was created on two computers",
+        editedTitle: "The note “{{name}}” was changed on two computers",
+        createdTitle: "The note “{{name}}” was created on two computers",
         bothSafe: "Both versions are safe",
         appData: {
           properties:

@@ -1,5 +1,7 @@
 import { create } from "zustand"
 
+import { useNoticesStackStore } from "./use-notices-stack-store"
+
 // The toasts (docs/notices.md, section 6): only the announcement of danger or a decision about an object
 // that is not on the screen. The store keeps what is announced; the host draws it and times it.
 
@@ -13,8 +15,11 @@ export interface ToastInput {
   /** The key of the title in the locale, with its words. */
   titleKey: string
   params?: Record<string, unknown>
-  /** The key of the label of the button. */
-  actionKey: string
+  /**
+   * The key of the label of the short button that goes to the note (docs/notices.md, section 6). A toast about
+   * something that lives in the stack has none: a click on the toast opens the stack.
+   */
+  actionKey?: string
   target: ToastTarget
   /** How many causes it stands for (several conflicts in one pass). */
   count?: number
@@ -40,6 +45,8 @@ export const useNoticeToastStore = create<ToastState>((set) => ({
   announce: (input) => {
     // Only danger and a decision are announced; a warning, information or success waits in its own place.
     if (input.level !== "danger" && input.level !== "decision") return
+    // While the stack of the centre is open the place of the notice is in sight: nothing to announce.
+    if (useNoticesStackStore.getState().isOpen) return
     serial += 1
     set((state) => {
       const same = state.toasts.find((toast) => toast.id === input.id)
@@ -58,3 +65,8 @@ export const useNoticeToastStore = create<ToastState>((set) => ({
   dismiss: (id) => set((state) => ({ toasts: state.toasts.filter((toast) => toast.id !== id) })),
   clear: () => set({ toasts: [] }),
 }))
+
+// A toast that hangs when the stack is opened goes into the stack.
+useNoticesStackStore.subscribe((state, previous) => {
+  if (state.isOpen && !previous.isOpen) useNoticeToastStore.getState().clear()
+})

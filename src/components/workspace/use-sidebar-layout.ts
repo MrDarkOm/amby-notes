@@ -369,12 +369,10 @@ export function useSidebarLayout({
   function handleActivate(defId: string) {
     const def = findButtonDef(defId)
     if (!def) return
-    if (def.kind === "action" && !def.opens) {
+    if (def.kind === "action") {
       def.invoke?.(actionContext)
       return
     }
-    // A view opens its own panel; an action that `opens` a panel (the bell) does the same for that panel.
-    const panelId: PanelId = def.kind === "action" ? (def.opens as PanelId) : def.id
     const button = activityButtons.find((b) => b.defId === defId)
     if (!button) return
     const side = button.side
@@ -385,12 +383,12 @@ export function useSidebarLayout({
         ? isOpen && (dockPrefs.leftPinned || isLeftSidebarHover)
         : isOpen && (dockPrefs.rightPinned || isRightSidebarHover)
     // Click on already-active view collapses the panel.
-    if (isVisible && activeBySide[side] === panelId) {
+    if (isVisible && activeBySide[side] === def.id) {
       setOpen(false)
       hideSidebarHoverNow(side)
       return
     }
-    setActiveBySide((prev) => ({ ...prev, [side]: panelId }))
+    setActiveBySide((prev) => ({ ...prev, [side]: def.id }))
     setOpen(true)
     if (!dockPrefs[side === "left" ? "leftPinned" : "rightPinned"]) {
       setSidebarHover(side, true)
@@ -398,13 +396,7 @@ export function useSidebarLayout({
   }
 
   function activatePanelAnywhere(panelId: PanelId) {
-    // A panel without a button of its own (the notification centre) is opened from the action that opens it.
-    const button =
-      activityButtons.find((b) => b.defId === panelId) ??
-      activityButtons.find((b) => {
-        const def = findButtonDef(b.defId)
-        return def?.kind === "action" && def.opens === panelId
-      })
+    const button = activityButtons.find((b) => b.defId === panelId)
     if (!button) return
     if (button.side === "left") setIsLeftSidebarOpen(true)
     else setIsRightSidebarOpen(true)

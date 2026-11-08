@@ -56,6 +56,7 @@ import { syncErrorMessage } from "@/lib/sync/sync-errors"
 import { syncInactiveText } from "./sync/sync-inactive"
 import { SyncInactiveMenu } from "./sync/sync-inactive-menu"
 import { useNoticesDockSummary } from "./sync/use-notices-dock-summary"
+import { useNoticesStackStore } from "./notices/use-notices-stack-store"
 import { noticeBadgeClass } from "./notices/notice-look"
 import type { HelpContext } from "./help-modal"
 import { useSettingsStore } from "./use-settings-store"
@@ -134,6 +135,7 @@ export function ActivityBar({
   const dockWidth = useSettingsStore((state) => (state.prefs.density === "compact" ? 32 : 48))
   const reducedMotion = useReducedMotion()
   const noticesSummary = useNoticesDockSummary()
+  const stackOpen = useNoticesStackStore((state) => state.isOpen)
   const [isAutoHideHover, setIsAutoHideHover] = React.useState(false)
   const isExpanded = pinned || autoHideReveal || isAutoHideHover
   const sideButtons = buttonsForSide(buttons, side)
@@ -338,11 +340,9 @@ export function ActivityBar({
   function renderButton(button: ActivityButton, zone: ActivityZone) {
     const def = findDef(button.defId)
     if (!def) return null
+    // The bell is lit while the stack of the notification centre is open.
     const isActive =
-      isPanelOpen &&
-      (def.kind === "view"
-        ? activeView === def.id
-        : def.opens !== undefined && activeView === def.opens)
+      def.id === "notices" ? stackOpen : def.kind === "view" && isPanelOpen && activeView === def.id
     const isDragging = draggingId === def.id
     const sync = def.id === "refresh" ? refreshSync : undefined
     // While sync does not work the button opens a menu with the reason and the way to fix it.
@@ -371,6 +371,7 @@ export function ActivityBar({
         data-sync-state={sync?.state}
         data-activity-button={def.id}
         data-activity-zone={zone}
+        aria-expanded={def.id === "notices" ? stackOpen : undefined}
         data-active={isActive || undefined}
         data-dragging={isDragging || undefined}
         onPointerDown={(event) => {

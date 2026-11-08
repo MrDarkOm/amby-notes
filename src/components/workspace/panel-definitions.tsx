@@ -24,7 +24,7 @@ import {
 } from "./panel-registry"
 import { ArchivePanel } from "./panels/archive-panel"
 import { moduleHost } from "@/lib/modules/host"
-import { NoticesPanel } from "./notices/notices-panel"
+import { useNoticesStackStore } from "./notices/use-notices-stack-store"
 
 /**
  * Core built-in panels that do not belong to optional modules.
@@ -59,14 +59,6 @@ export const PANEL_DEFS: PanelDef[] = [
     icon: Paperclip,
     kind: "view",
     render: (props) => <AttachmentsPanel {...props} />,
-  },
-  {
-    // Has no button of its own: the bell of the dock (the action `notices`) opens it.
-    id: "notices-centre",
-    labelKey: "notices.centre.title",
-    icon: Bell,
-    kind: "view",
-    render: () => <NoticesPanel />,
   },
 ]
 
@@ -106,13 +98,13 @@ export const ACTION_DEFS: ActionDef[] = [
     invoke: (context) => context.openHelp?.(),
   },
   {
-    // The notification centre (docs/notices.md, section 5): the bell opens its panel.
+    // The notification centre (docs/notices.md, section 5): the bell opens and closes its stack of cards.
     id: "notices",
     labelKey: "actions.notifications",
     icon: Bell,
     kind: "action",
     persistent: true,
-    opens: "notices-centre",
+    invoke: () => useNoticesStackStore.getState().toggle(),
   },
   {
     id: "settings",

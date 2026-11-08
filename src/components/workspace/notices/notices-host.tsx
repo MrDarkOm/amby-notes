@@ -5,11 +5,12 @@ import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import { NoticeToastHost } from "./notice-toasts-host"
+import { NoticesStack } from "./notices-stack"
 import { useNoticeToastStore } from "./use-notice-toasts-store"
 
 /**
  * What the notification centre needs running beside the workspace (docs/notices.md, section 5): the journal of
- * the vault that is open, the cleaning of the records of failed autosaves, and the toasts. The sync side
+ * the vault that is open, the cleaning of the records of failed autosaves, the stack of cards beside the bell and the toasts. The sync side
  * (the status, the events) is [`SyncNoticesHost`](../sync/sync-notices-host.tsx).
  */
 export function NoticesHost() {
@@ -36,5 +37,10 @@ export function NoticesHost() {
     [],
   )
 
-  return <NoticeToastHost />
+  return (
+    <>
+      <NoticesStack />
+      <NoticeToastHost />
+    </>
+  )
 }

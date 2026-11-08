@@ -51,7 +51,6 @@ function announceConflicts(fresh: SyncConflict[], serial: number): void {
           ? "sync.vault.conflicts.createdTitle"
           : "sync.vault.conflicts.editedTitle",
       params: { name: conflictName(only.originalPath) },
-      actionKey: "notices.toast.open",
       target: { kind: "centre" },
     })
     return
@@ -60,7 +59,6 @@ function announceConflicts(fresh: SyncConflict[], serial: number): void {
     id: `sync-conflicts:${serial}`,
     level: "decision",
     titleKey: "notices.toast.newConflicts",
-    actionKey: "notices.toast.open",
     target: { kind: "centre" },
     count: unseen.length,
   })
@@ -132,7 +130,6 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
           level: "decision",
           titleKey: key,
           params,
-          actionKey: "notices.toast.open",
           target: { kind: "centre" },
         })
       }

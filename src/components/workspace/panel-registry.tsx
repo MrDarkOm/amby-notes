@@ -22,8 +22,6 @@ export type PanelId =
   | "links"
   | "ai"
   | "creative"
-  /** The notification centre; opened by the bell of the dock, which is an action and not a view button. */
-  | "notices-centre"
 
 export interface AttachmentItem {
   id: string
@@ -195,8 +193,6 @@ export interface ActionDef {
   kind: "action"
   /** Always available, even when a minimal preset disables optional modules. */
   persistent?: boolean
-  /** The action opens this panel on its dock, like a view button, and closes it when clicked again. */
-  opens?: PanelId
   invoke?: (ctx: ActionContext) => void
 }
 
