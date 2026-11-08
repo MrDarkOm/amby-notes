@@ -56,6 +56,9 @@ export interface RemoteDeletedEvent {
 /** The event for notes that came back after a deletion made on this computer; the payload is the paths. */
 const RESTORED_AFTER_DELETION_EVENT = "sync-restored-after-deletion"
 
+/** The event for notes where a pass merged the edits of two computers; the payload is the paths in the vault. */
+const MERGED_EVENT = "sync-merged"
+
 /** The event for files of `.amby/` that a pass of synchronisation wrote (the watcher does not look there). */
 const AMBY_WRITTEN_EVENT = "sync-amby-written"
 
@@ -180,6 +183,11 @@ export interface SyncPort {
    * another computer edited them (Р7, Д37).
    */
   onRestoredAfterDeletion(listener: (paths: string[]) => void): Promise<() => void>
+  /**
+   * Calls `listener` with the paths (in the vault) of notes where a pass merged the edits of two computers
+   * (К1, Г17а). The earlier version of the note is in its history.
+   */
+  onMerged(listener: (paths: string[]) => void): Promise<() => void>
   /**
    * Calls `listener` with the paths (relative to the vault) of the files in `.amby/` that a pass wrote,
    * such as the groups of note properties (З65). The watcher does not report them.
@@ -308,6 +316,15 @@ export function createDesktopSyncPort(): SyncPort {
         throw new SyncPortError("ipc_failed")
       }
     },
+    onMerged: async (listener) => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event")
+        const unlisten = await listen<string[]>(MERGED_EVENT, (event) => listener(event.payload))
+        return () => unlisten()
+      } catch {
+        throw new SyncPortError("ipc_failed")
+      }
+    },
     onAmbyWritten: async (listener) => {
       try {
         const { listen } = await import("@tauri-apps/api/event")
@@ -383,6 +400,7 @@ export const unavailableSyncPort: SyncPort = {
   onVaultStatus: async () => () => {},
   onRemoteDeleted: async () => () => {},
   onRestoredAfterDeletion: async () => () => {},
+  onMerged: async () => () => {},
   onAmbyWritten: async () => () => {},
 }
 

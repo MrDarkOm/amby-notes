@@ -5,7 +5,7 @@ import { findModule } from "./modules"
 import { GRAPH_TAB_FILE_ID, useTabsStore } from "./use-tabs-store"
 import type { ActionContext } from "./panel-registry"
 import { computeSplitLayout } from "./split-tree"
-import { nextAvailableNoteName } from "./workspace-tree-utils"
+import { flattenFileItems, nextAvailableNoteName } from "./workspace-tree-utils"
 import { parseCreativeFileId } from "./creative/creative-history"
 import { flushEditorSerializations } from "./tiptap/editor-serialization-lifecycle"
 import {
@@ -40,6 +40,8 @@ import type { HelpContext } from "./help-modal"
 import { WorkspaceProfileModal } from "./modules/workspace-profile-modal"
 import type { ProfileId } from "@/lib/modules"
 import { useOpenPanelRequests } from "./panel-navigation"
+import { useOpenNoteRequests } from "./notices/note-open-request"
+import { relativeToVault } from "./editor/document-breadcrumbs-utils"
 import { OPEN_SETTINGS_REQUEST_EVENT, type SettingsNavigationTarget } from "./settings-navigation"
 import { useSettingsStore } from "./use-settings-store"
 import { useLinkSuggestionSources } from "./orchestration/use-link-suggestion-sources"
@@ -856,6 +858,21 @@ export function WorkspaceOrchestration() {
     backendGeneration,
     windowLabel,
     refreshDatabaseCatalog,
+  })
+
+  // The notification centre and its toasts lead to a note by its id (an open note) or by its path in the vault
+  // (the journal remembers only that).
+  useOpenNoteRequests((request) => {
+    if (request.id !== undefined) {
+      void handleSelect(request.id)
+      return
+    }
+    const wanted = request.path.normalize("NFC")
+    const item = flattenFileItems(displayTreeItems).find(
+      (candidate) =>
+        vault !== null && relativeToVault(candidate.path, vault).normalize("NFC") === wanted,
+    )
+    if (item) void handleSelect(item.id)
   })
 
   // Embedded database views open pages and databases through the app, not on their own.

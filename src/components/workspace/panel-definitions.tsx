@@ -24,7 +24,7 @@ import {
 } from "./panel-registry"
 import { ArchivePanel } from "./panels/archive-panel"
 import { moduleHost } from "@/lib/modules/host"
-import { useSyncNoticesStore } from "./sync/use-sync-notices-store"
+import { useNoticesStackStore } from "./notices/use-notices-stack-store"
 
 /**
  * Core built-in panels that do not belong to optional modules.
@@ -98,13 +98,13 @@ export const ACTION_DEFS: ActionDef[] = [
     invoke: (context) => context.openHelp?.(),
   },
   {
-    // The future notification centre (docs/notices.md, section 5); for now it opens the list of conflicts.
+    // The notification centre (docs/notices.md, section 5): the bell opens and closes its stack of cards.
     id: "notices",
     labelKey: "actions.notifications",
     icon: Bell,
     kind: "action",
     persistent: true,
-    invoke: () => useSyncNoticesStore.getState().toggleConflictList(),
+    invoke: () => useNoticesStackStore.getState().toggle(),
   },
   {
     id: "settings",

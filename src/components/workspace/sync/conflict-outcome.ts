@@ -1,3 +1,4 @@
+import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
 import { relativeToVault } from "../editor/document-breadcrumbs-utils"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
@@ -15,23 +16,27 @@ export function conflictName(path: string): string {
 }
 
 /**
- * Says what was done after a choice in the comparison: a card in the note when it is open, a line in the
- * list of conflicts when it is not (the list is opened again if the person came from it). Nothing is said
- * for a failed choice: the caller records an outcome only after the port has answered.
+ * Says what was done after a choice in the comparison: a line in the journal of the notification centre,
+ * and, when the note is open, a card in the note as well. Nothing is said for a failed choice: the caller
+ * records an outcome only after the port has answered.
  */
 export function recordConflictOutcome(conflict: SyncConflict, choice: OutcomeChoice): void {
   const vault = useVaultStore.getState().vault
   const path = conflict.originalPath.normalize("NFC")
+  const name = conflictName(conflict.originalPath)
   const open =
     vault !== null &&
     Object.values(useDocStore.getState().openDocs).some(
       (doc) => relativeToVault(doc.path, vault).normalize("NFC") === path,
     )
-  useSyncNoticesStore.getState().addOutcome({
-    conflictId: conflict.id,
-    path,
-    name: conflictName(conflict.originalPath),
-    choice,
-    where: open ? "card" : "list",
+  if (open) {
+    useSyncNoticesStore.getState().addOutcome({ conflictId: conflict.id, path, name, choice })
+  }
+  useNoticeJournalStore.getState().record({
+    kind: "conflictOutcome",
+    level: "info",
+    subject: conflict.id,
+    params: { name, choice },
+    target: path,
   })
 }

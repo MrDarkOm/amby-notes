@@ -1,7 +1,7 @@
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
-import { NOTICE_LOOK, noticeFrameClass, type NoticeLevel } from "./notice-look"
+import { NOTICE_LOOK, noticeCalmClass, noticeFrameClass, type NoticeLevel } from "./notice-look"
 
 export type { NoticeLevel } from "./notice-look"
 
@@ -18,11 +18,14 @@ export function NoticeLevelIcon({ level, className }: { level: NoticeLevel; clas
  */
 export function NoticeShell({
   level,
+  variant = "tinted",
   className,
   children,
   ...rest
 }: {
   level: NoticeLevel
+  /** `tinted` fills the frame with the colours of the level; `calm` is an ordinary surface with a stripe. */
+  variant?: "tinted" | "calm"
   className?: string
   children?: React.ReactNode
 } & Omit<React.HTMLAttributes<HTMLDivElement>, "role" | "className" | "children">) {
@@ -31,7 +34,10 @@ export function NoticeShell({
       {...rest}
       role={level === "danger" ? "alert" : "status"}
       data-level={level}
-      className={cn(noticeFrameClass(level), className)}
+      className={cn(
+        variant === "calm" ? noticeCalmClass(level) : noticeFrameClass(level),
+        className,
+      )}
     >
       {children}
     </div>

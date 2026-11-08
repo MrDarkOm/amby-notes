@@ -102,7 +102,7 @@ describe("the strip", () => {
     expect(bulb()!.textContent).toContain("+2")
     expect(bulb()!.getAttribute("aria-label")).toMatch(/Уведомления заметки: 3/)
     // the line shows the most serious one: the conflict
-    expect(bulb()!.textContent).toContain("«идея» изменили на двух компьютерах")
+    expect(bulb()!.textContent).toContain("Заметка «идея» изменена на двух компьютерах")
     cleanup()
     mount({ document: { id: "/vault/Заметки/другая.md", path: "/vault/Заметки/другая.md" } })
     expect(bulb()).toBeNull()
@@ -144,7 +144,7 @@ describe("what opens the stack by itself", () => {
     expect(stack()).toBeNull()
     act(() => useSyncNoticesStore.getState().setConflicts([conflict]))
     expect(stack()).not.toBeNull()
-    expect(within(stack()!).getByText("«идея» изменили на двух компьютерах")).toBeTruthy()
+    expect(within(stack()!).getByText("Заметка «идея» изменена на двух компьютерах")).toBeTruthy()
   })
 
   it("a conflict that was already there when the note was opened", () => {
@@ -293,14 +293,14 @@ describe("a second version from another computer", () => {
     useSyncNoticesStore.setState({ conflicts: [conflict] })
     mount()
     const card = within(stack()!).getByTestId("note-notice-sync-conflict")
-    expect(within(card).getByText("«идея» изменили на двух компьютерах")).toBeTruthy()
+    expect(within(card).getByText("Заметка «идея» изменена на двух компьютерах")).toBeTruthy()
     expect(within(card).getByText("Обе версии целы")).toBeTruthy()
     expect(within(card).getAllByRole("button")).toHaveLength(1)
     expect(within(card).getByRole("button", { name: "Сравнить" })).toBeTruthy()
     cleanup()
     mount({ document: { id: `/vault/${COPY}`, path: `/vault/${COPY}` } })
     const copyCard = within(stack()!).getByTestId("note-notice-sync-conflict")
-    expect(within(copyCard).getByText("«идея» изменили на двух компьютерах")).toBeTruthy()
+    expect(within(copyCard).getByText("Заметка «идея» изменена на двух компьютерах")).toBeTruthy()
   })
 
   it("names no path, no extension and none of the service words", () => {
@@ -314,7 +314,7 @@ describe("a second version from another computer", () => {
   it("says that two notes created at once were created, not edited", () => {
     useSyncNoticesStore.setState({ conflicts: [{ ...conflict, kind: "bothCreated" }] })
     mount()
-    expect(within(stack()!).getByText("«идея» создали на двух компьютерах")).toBeTruthy()
+    expect(within(stack()!).getByText("Заметка «идея» создана на двух компьютерах")).toBeTruthy()
   })
 
   it("opens the comparison from the card", () => {
@@ -348,7 +348,7 @@ describe("what was done after a choice in the comparison", () => {
       false,
     ],
     ["keepCopy", "В заметке «идея» теперь вторая версия. Прежняя — в истории заметки.", true],
-    ["keepBoth", "Обе версии «идея» сохранены: вторая стала отдельной заметкой.", false],
+    ["keepBoth", "Обе версии заметки «идея» сохранены: вторая стала отдельной заметкой.", false],
     [
       "assembled",
       "Заметка «идея» собрана из выбранных частей. Прежняя версия — в истории заметки.",

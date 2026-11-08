@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
-// The toasts, the limits and the badge of the sync host have a level of docs/notices.md (section 2.1)
-// and are drawn by it (step 1 of the transition): a note that came back is information, a conflict is a
-// decision, a limit of the plan is a warning. Where they stand and when they go stays as it was.
+// The toasts, the records of the centre and the number on the bell have a level of docs/notices.md (section 2.1)
+// and are drawn by it: a conflict is a decision, a limit of the plan is a warning, a note that came back is
+// information and lives in the journal, never in a toast.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
 import i18n from "@/lib/i18n"
@@ -10,6 +10,11 @@ import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import { SyncNoticesHost } from "./sync-notices-host"
+import { NoticeToastHost } from "../notices/notice-toasts-host"
+import { useNoticesStackStore } from "../notices/use-notices-stack-store"
+import { useNoticeToastStore } from "../notices/use-notice-toasts-store"
+import { useNoticesCentreStore } from "../notices/use-notices-centre-store"
+import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
 import { NoticesDock } from "./dock-test-harness"
 import { useSyncNoticesStore } from "./use-sync-notices-store"
 import {
@@ -23,6 +28,8 @@ vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
   listTrash: vi.fn(),
   restoreTrash: vi.fn(),
+  readGlobalRaw: vi.fn(async () => null),
+  writeGlobalRaw: vi.fn(async () => {}),
 }))
 
 const ORIGINAL = "Заметки/идея.md"
@@ -39,7 +46,8 @@ async function mount(status = vaultStatus()) {
   render(
     <>
       <SyncNoticesHost port={port} />
-      <NoticesDock />
+      <NoticeToastHost />
+      <NoticesDock port={port} />
     </>,
   )
   await waitFor(() => expect(port.vaultStatus).toHaveBeenCalled())
@@ -51,7 +59,11 @@ beforeEach(async () => {
   useVaultStore.setState({ vault: "/vault" })
   useDocStore.setState({ openDocs: {}, externalConflicts: {} })
   useSyncNoticesStore.setState(useSyncNoticesStore.getInitialState())
-  useNoteNoticesStore.setState({ restored: [] })
+  useNoteNoticesStore.setState(useNoteNoticesStore.getInitialState())
+  useNoticeToastStore.setState(useNoticeToastStore.getInitialState())
+  useNoticesCentreStore.setState(useNoticesCentreStore.getInitialState())
+  useNoticesStackStore.setState(useNoticesStackStore.getInitialState())
+  useNoticeJournalStore.setState(useNoticeJournalStore.getInitialState())
   vi.mocked(listTrash).mockResolvedValue([])
   vi.mocked(restoreTrash).mockResolvedValue({ changed: [] } as never)
 })
@@ -60,21 +72,23 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe("the level of the toasts of the sync host", () => {
-  it("a note that came back after a deletion is information, not a triangle", async () => {
+describe("the level of what the sync host says", () => {
+  it("a note that came back after a deletion is information in the journal, not a triangle", async () => {
     await mount()
     await act(async () => emitRestoredAfterDeletion([ORIGINAL]))
-    const toast = await screen.findByRole("status")
-    expect(toast.getAttribute("data-level")).toBe("info")
-    expect(toast.querySelector("svg.lucide-info")).not.toBeNull()
-    expect(toast.querySelector("svg.lucide-triangle-alert")).toBeNull()
+    act(() => useNoticesStackStore.getState().open())
+    const row = await screen.findByTestId("notices-journal-entry")
+    expect(row.getAttribute("data-level")).toBe("info")
+    expect(row.querySelector("svg.lucide-info")).not.toBeNull()
+    expect(row.querySelector("svg.lucide-triangle-alert")).toBeNull()
+    expect(screen.queryByTestId("notice-toast")).toBeNull()
   })
 
-  it("a new conflict is a decision", async () => {
+  it("a new conflict is a decision, in the toast and in the centre", async () => {
     await mount()
     await act(async () => emitVaultStatus(vaultStatus({ conflicts: [conflict] })))
-    const toast = await screen.findByRole("status")
-    expect(toast.textContent).toMatch(/Конфликт синхронизации/)
+    const toast = await screen.findByTestId("notice-toast")
+    expect(toast.textContent).toMatch(/изменена на двух компьютерах/)
     expect(toast.getAttribute("data-level")).toBe("decision")
     expect(toast.querySelector("svg.lucide-triangle-alert")).not.toBeNull()
   })
@@ -88,7 +102,7 @@ describe("the level of the toasts of the sync host", () => {
     expect(screen.queryByTestId("sync-conflict-badge")).toBeNull()
   })
 
-  it("the files over the limit, and the full storage, are warnings", async () => {
+  it("the files over the limit, and the full storage, are warnings of the centre, and no toasts", async () => {
     await mount()
     await act(async () =>
       emitVaultStatus(
@@ -106,16 +120,18 @@ describe("the level of the toasts of the sync host", () => {
         }),
       ),
     )
-    const cards = await screen.findAllByTestId("sync-limit-notice")
-    expect(cards).toHaveLength(2)
-    for (const card of cards) {
-      expect(card.getAttribute("data-level")).toBe("warning")
-      expect(card.getAttribute("role")).toBe("status")
-      expect(card.querySelector("svg.lucide-circle-alert")).not.toBeNull()
+    act(() => useNoticesStackStore.getState().open())
+    const entries = await screen.findAllByTestId("notices-entry")
+    expect(entries).toHaveLength(2)
+    for (const entry of entries) {
+      expect(entry.getAttribute("data-level")).toBe("warning")
+      expect(entry.getAttribute("role")).toBe("status")
+      expect(entry.querySelector("svg.lucide-circle-alert")).not.toBeNull()
     }
+    expect(screen.queryByTestId("notice-toast")).toBeNull()
   })
 
-  it("no toast keeps an amber class", async () => {
+  it("nothing keeps an amber class", async () => {
     await mount()
     await act(async () => emitRestoredAfterDeletion([ORIGINAL]))
     await act(async () =>

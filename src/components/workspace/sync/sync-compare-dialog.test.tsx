@@ -8,6 +8,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { useSyncNoticesStore } from "./use-sync-notices-store"
 import { useVaultStore } from "../use-vault-store"
 import { useDocStore } from "../use-doc-store"
+import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
 import i18n from "@/lib/i18n"
 import { SyncPortError } from "@/lib/sync/sync-port"
 import { createFakePort } from "./fake-sync-port"
@@ -53,6 +54,7 @@ beforeEach(async () => {
   useVaultStore.setState({ vault: "/vault" })
   useDocStore.setState({ openDocs: {} })
   useSyncNoticesStore.setState(useSyncNoticesStore.getInitialState())
+  useNoticeJournalStore.setState(useNoticeJournalStore.getInitialState())
 })
 afterEach(() => {
   cleanup()
@@ -275,7 +277,7 @@ describe("the choice by differences and the main button", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: ASSEMBLE }))
     await waitFor(() => expect(port.resolveConflictWithText).toHaveBeenCalledTimes(1))
     await waitFor(() =>
-      expect(useSyncNoticesStore.getState().outcomes[0]?.choice).toBe("assembled"),
+      expect(useNoticeJournalStore.getState().entries[0]?.params.choice).toBe("assembled"),
     )
     expect(port.resolveConflict).not.toHaveBeenCalled()
   })
@@ -368,16 +370,17 @@ describe("after the choice", () => {
     ["Взять вторую версию", "keepCopy"],
   ]
 
-  it.each(cases)("“%s” leaves a result for the note (%s)", async (label, choice) => {
+  it.each(cases)("“%s” leaves a line in the journal for the note (%s)", async (label, choice) => {
     const { dialog } = await open()
     await waitFor(() => expect(within(dialog).getAllByTestId("compare-hunk").length).toBe(2))
     fireEvent.click(within(dialog).getByRole("button", { name: label }))
-    await waitFor(() => expect(useSyncNoticesStore.getState().outcomes).toHaveLength(1))
-    expect(useSyncNoticesStore.getState().outcomes[0]).toMatchObject({
-      conflictId: "0123456789ab",
-      path: "Заметки/идея.md",
-      name: "идея",
-      choice,
+    await waitFor(() => expect(useNoticeJournalStore.getState().entries).toHaveLength(1))
+    expect(useNoticeJournalStore.getState().entries[0]).toMatchObject({
+      kind: "conflictOutcome",
+      level: "info",
+      subject: "0123456789ab",
+      target: "Заметки/идея.md",
+      params: { name: "идея", choice },
     })
   })
 
@@ -391,7 +394,9 @@ describe("after the choice", () => {
     fireEvent.click(
       await screen.findByRole("menuitem", { name: "Сохранить обе как отдельные заметки" }),
     )
-    await waitFor(() => expect(useSyncNoticesStore.getState().outcomes[0]?.choice).toBe("keepBoth"))
+    await waitFor(() =>
+      expect(useNoticeJournalStore.getState().entries[0]?.params.choice).toBe("keepBoth"),
+    )
   })
 
   it("assembling from blocks leaves a result", async () => {
@@ -400,27 +405,30 @@ describe("after the choice", () => {
     pick(dialog, 0, "Вторая")
     fireEvent.click(within(dialog).getByRole("button", { name: "Собрать из выбранного" }))
     await waitFor(() =>
-      expect(useSyncNoticesStore.getState().outcomes[0]?.choice).toBe("assembled"),
+      expect(useNoticeJournalStore.getState().entries[0]?.params.choice).toBe("assembled"),
     )
   })
 
-  it("is a card when the note is open and a line in the list when it is not", async () => {
+  it("is a card when the note is open, and only a line of the journal when it is not", async () => {
     useDocStore.setState({
       openDocs: { a: { id: "a", path: "/vault/Заметки/идея.md" } as never },
     })
     const first = await open()
     await waitFor(() => expect(within(first.dialog).getAllByTestId("compare-hunk").length).toBe(2))
     fireEvent.click(within(first.dialog).getByRole("button", { name: "Оставить версию в заметке" }))
-    await waitFor(() => expect(useSyncNoticesStore.getState().outcomes[0]?.where).toBe("card"))
+    await waitFor(() => expect(useSyncNoticesStore.getState().outcomes).toHaveLength(1))
     cleanup()
     useSyncNoticesStore.setState(useSyncNoticesStore.getInitialState())
+    useNoticeJournalStore.setState(useNoticeJournalStore.getInitialState())
     useDocStore.setState({ openDocs: {} })
     const second = await open()
     await waitFor(() => expect(within(second.dialog).getAllByTestId("compare-hunk").length).toBe(2))
     fireEvent.click(
       within(second.dialog).getByRole("button", { name: "Оставить версию в заметке" }),
     )
-    await waitFor(() => expect(useSyncNoticesStore.getState().outcomes[0]?.where).toBe("list"))
+    await waitFor(() => expect(useNoticeJournalStore.getState().entries).toHaveLength(1))
+    // a note that is not open has no card
+    expect(useSyncNoticesStore.getState().outcomes).toEqual([])
   })
 
   it("leaves nothing when the choice could not be made", async () => {

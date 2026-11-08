@@ -821,6 +821,8 @@ export const saveVaultJSON = (rel: string, data: unknown): Promise<void> =>
   settingsRepository.saveVaultJSON(rel, data)
 export const readGlobalRaw = (file: string): Promise<string | null> =>
   settingsRepository.readGlobalRaw(file)
+export const writeGlobalRaw = (file: string, contents: string): Promise<void> =>
+  settingsRepository.writeGlobalRaw(file, contents)
 export const compareWriteGlobalRaw = (
   file: string,
   expected: string | null,

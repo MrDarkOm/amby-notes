@@ -20,11 +20,18 @@ import {
 import { NoteNotices } from "../note-notices/note-notices"
 import { SyncNoticesHost } from "./sync-notices-host"
 import { NoticesDock } from "./dock-test-harness"
+import { NoticeToastHost } from "../notices/notice-toasts-host"
+import { useNoticesStackStore } from "../notices/use-notices-stack-store"
+import { useNoticeToastStore } from "../notices/use-notice-toasts-store"
+import { useNoticesCentreStore } from "../notices/use-notices-centre-store"
+import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
 import { dockButton } from "./dock-button"
 import { useSyncNoticesStore } from "./use-sync-notices-store"
 
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
+  readGlobalRaw: vi.fn(async () => null),
+  writeGlobalRaw: vi.fn(async () => {}),
   readFile: vi.fn(),
   getNoteProperties: vi.fn(),
   listTrash: vi.fn(),
@@ -67,6 +74,7 @@ async function mount(status = vaultStatus()) {
   const view = render(
     <>
       <SyncNoticesHost port={port} />
+      <NoticeToastHost />
       <NoticesDock />
     </>,
   )
@@ -86,6 +94,10 @@ beforeEach(async () => {
   useVaultStore.setState({ vault: "/vault" })
   useDocStore.setState({ openDocs: {}, externalConflicts: {} })
   useSyncNoticesStore.setState(useSyncNoticesStore.getInitialState())
+  useNoticeToastStore.setState(useNoticeToastStore.getInitialState())
+  useNoticesCentreStore.setState(useNoticesCentreStore.getInitialState())
+  useNoticesStackStore.setState(useNoticesStackStore.getInitialState())
+  useNoticeJournalStore.setState(useNoticeJournalStore.getInitialState())
   vi.mocked(listTrash).mockResolvedValue([])
   vi.mocked(restoreTrash).mockResolvedValue({ changed: [] } as never)
 })
@@ -94,7 +106,13 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe("the dock button and the list of conflicts", () => {
+/** Opens the notification centre with a click on the bell, as a person does. */
+const openCentre = async () => {
+  fireEvent.click(dockButton()!)
+  return screen.findByTestId("notices-centre")
+}
+
+describe("the dock button and the conflicts in the centre", () => {
   it("shows no number while there is no conflict, and no floating badge", async () => {
     await mount()
     expect(dockButton()).not.toBeNull()
@@ -102,35 +120,38 @@ describe("the dock button and the list of conflicts", () => {
     expect(screen.queryByTestId("sync-conflict-badge")).toBeNull()
   })
 
-  it("shows the number of conflicts on the dock button, and the list on a click", async () => {
+  it("shows the number of conflicts on the dock button, and the list in the centre on a click", async () => {
     await mount(vaultStatus({ conflicts: [conflict, { ...conflict, id: "ba9876543210" }] }))
     const count = await screen.findByTestId("notices-dock-count")
     expect(count.textContent).toContain("2")
     expect(dockButton()!.getAttribute("aria-label")).toMatch(/Уведомления: 2/)
-    expect(screen.queryByTestId("sync-conflicts")).toBeNull()
-    fireEvent.click(dockButton()!)
-    const list = await screen.findByTestId("sync-conflicts")
-    expect(within(list).getAllByRole("listitem")).toHaveLength(2)
-    expect(within(list).getAllByText("«идея» изменили на двух компьютерах")).toHaveLength(2)
-    expect(list.textContent).not.toMatch(/conflict\.md|\.amby|Заметки\//)
+    expect(screen.queryByTestId("notices-entry")).toBeNull()
+    const centre = await openCentre()
+    const cards = within(centre).getAllByTestId("notices-entry")
+    expect(cards).toHaveLength(2)
+    expect(within(centre).getAllByText("Заметка «идея» изменена на двух компьютерах")).toHaveLength(
+      2,
+    )
+    expect(centre.textContent).not.toMatch(/conflict\.md|\.amby|Заметки\//)
   })
 
-  it("takes the number away once the conflict is resolved, and closes the list", async () => {
+  it("takes the number away once the conflict is resolved, and the stack stays open", async () => {
     await mount(vaultStatus({ conflicts: [conflict] }))
     await screen.findByTestId("notices-dock-count")
-    fireEvent.click(dockButton()!)
-    await screen.findByTestId("sync-conflict-popover")
+    const centre = await openCentre()
+    await within(centre).findByTestId("notices-entry")
     await pushStatus(vaultStatus({ conflicts: [] }))
     await waitFor(() => expect(screen.queryByTestId("notices-dock-count")).toBeNull())
-    expect(screen.queryByTestId("sync-conflict-popover")).toBeNull()
+    expect(screen.queryByTestId("notices-entry")).toBeNull()
+    expect(screen.getByTestId("notices-centre")).toBeTruthy()
     expect(dockButton()).not.toBeNull()
   })
 
   it("has one button in a line, and the choice is made in the comparison with the existing command", async () => {
     const { port } = await mount(vaultStatus({ conflicts: [conflict] }))
     await screen.findByTestId("notices-dock-count")
-    fireEvent.click(dockButton()!)
-    const list = await screen.findByTestId("sync-conflicts")
+    const centre = await openCentre()
+    const list = within(centre).getByTestId("notices-entry")
     expect(within(list).getAllByRole("button")).toHaveLength(1)
     expect(within(list).queryByRole("button", { name: /Оставить|Взять|Сохранить/ })).toBeNull()
     fireEvent.click(within(list).getByRole("button", { name: "Сравнить" }))
@@ -175,12 +196,13 @@ describe("the dock button and the list of conflicts", () => {
     render(
       <>
         <SyncNoticesHost port={port} />
-        <NoticesDock />
+        <NoticesDock port={port} />
       </>,
     )
     await screen.findByTestId("notices-dock-count")
-    fireEvent.click(dockButton()!)
-    const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+    const centre = await openCentre()
+    const row = within(centre).getAllByTestId("notices-entry")[0]!
+    expect(row.getAttribute("data-kind")).toBe("sync-conflict")
     const notes = await within(row).findByTestId("sync-group-notes")
     expect(notes.textContent).toMatch(/«Идея»/)
     expect(within(row).queryByRole("button", { name: "Взять с другого компьютера" })).toBeNull()
@@ -194,36 +216,46 @@ describe("the dock button and the list of conflicts", () => {
 })
 
 describe("the notice about a new conflict", () => {
-  it("appears when a conflict appears, once", async () => {
+  it("is a toast that appears when a conflict of a note that is not open appears, once", async () => {
     await mount()
     await pushStatus(vaultStatus({ conflicts: [conflict] }))
-    const notice = await screen.findByRole("status")
-    expect(notice.textContent).toMatch(/Конфликт синхронизации/)
+    const notice = await screen.findByTestId("notice-toast")
+    expect(notice.textContent).toMatch(/изменена на двух компьютерах/)
     expect(notice.textContent).toMatch(/идея/)
     await pushStatus(vaultStatus({ conflicts: [conflict], lastSyncMs: 1_760_000_999_000 }))
-    expect(screen.getAllByRole("status")).toHaveLength(1)
+    expect(screen.getAllByTestId("notice-toast")).toHaveLength(1)
   })
 
   it("is not shown for a conflict that was already there when the screen opened", async () => {
     await mount(vaultStatus({ conflicts: [conflict] }))
     await screen.findByTestId("notices-dock-count")
-    expect(screen.queryByRole("status")).toBeNull()
+    expect(screen.queryByTestId("notice-toast")).toBeNull()
+  })
+
+  it("is not shown for a note that is open: its own strip says it", async () => {
+    useDocStore.setState({ openDocs: { a: doc(`/vault/${ORIGINAL}`) } })
+    await mount()
+    await pushStatus(vaultStatus({ conflicts: [conflict] }))
+    expect(screen.queryByTestId("notice-toast")).toBeNull()
   })
 })
 
-describe("the notice about a note brought back after a deletion made here", () => {
-  it("is shown even when the note is not open, and names it", async () => {
+describe("the note brought back after a deletion made here", () => {
+  it("is in the journal, whether the note is open or not, and names it", async () => {
     await mount()
     await act(async () => emitRestoredAfterDeletion([ORIGINAL]))
-    const notice = await screen.findByRole("status")
-    expect(notice.textContent).toMatch(/Заметку «идея» вернули/)
-    expect(notice.textContent).toMatch(/правили на другом компьютере/)
+    expect(screen.queryByTestId("notice-toast")).toBeNull()
+    expect(screen.queryByRole("status")).toBeNull()
+    const centre = await openCentre()
+    const entry = within(centre).getByTestId("notices-journal-entry")
+    expect(entry.textContent).toMatch(/Заметку «идея» вернули/)
+    expect(entry.textContent).toMatch(/правили на другом компьютере/)
     expect(useDocStore.getState().openDocs).toEqual({})
   })
 })
 
 describe("the card of a note that has a second version", () => {
-  const strip = /«идея» изменили на двух компьютерах/
+  const strip = /Заметка «идея» изменена на двух компьютерах/
 
   it("is shown in the main file and in the copy, and not in another note", async () => {
     await mount(vaultStatus({ conflicts: [conflict] }))
@@ -264,8 +296,8 @@ describe("the comparison of the two versions", () => {
   it("opens from the list too", async () => {
     await mount(vaultStatus({ conflicts: [conflict] }))
     await screen.findByTestId("notices-dock-count")
-    fireEvent.click(dockButton()!)
-    fireEvent.click(await screen.findByRole("button", { name: "Сравнить" }))
+    const centre = await openCentre()
+    fireEvent.click(await within(centre).findByRole("button", { name: "Сравнить" }))
     expect(await screen.findByRole("dialog")).toBeTruthy()
   })
 
@@ -320,33 +352,44 @@ describe("what was done after the choice", () => {
     expect(cards.getByRole("button", { name: "Открыть историю" })).toBeTruthy()
   })
 
-  it("is a line in the list when the note is not open, until the list is closed", async () => {
+  it("is a line of the journal when the note is not open, and no card anywhere", async () => {
     const { port } = await mount(vaultStatus({ conflicts: [conflict] }))
     await screen.findByTestId("notices-dock-count")
-    fireEvent.click(dockButton()!)
-    fireEvent.click(await screen.findByRole("button", { name: "Сравнить" }))
+    const centre = await openCentre()
+    fireEvent.click(await within(centre).findByRole("button", { name: "Сравнить" }))
     const dialog = await screen.findByRole("dialog")
     fireEvent.click(
       await within(dialog).findByRole("button", { name: "Оставить версию в заметке" }),
     )
     await waitFor(() => expect(port.resolveConflict).toHaveBeenCalled())
     await pushStatus(vaultStatus({ conflicts: [] }))
-    // the list stays open for the news although no conflict is left in it
-    const outcome = await screen.findByTestId("sync-conflict-outcome")
-    expect(outcome.textContent).toBe(
+    // The centre stays open and keeps the news, in the journal, as long as the person wants.
+    const entry = await within(screen.getByTestId("notices-centre")).findByTestId(
+      "notices-journal-entry",
+    )
+    expect(entry.textContent).toMatch(
       "Оставлена версия в заметке «идея». Вторая версия — в корзине хранилища.",
     )
-    expect(screen.queryByTestId("sync-conflicts")).toBeNull()
-    fireEvent.click(dockButton()!)
-    await waitFor(() => expect(screen.queryByTestId("sync-conflict-outcome")).toBeNull())
+    expect(screen.queryByTestId("sync-conflict-outcome")).toBeNull()
     expect(useSyncNoticesStore.getState().outcomes).toEqual([])
+  })
+
+  it("is in the journal also when the note is open, besides the card", async () => {
+    useDocStore.setState({ openDocs: { a: doc(`/vault/${ORIGINAL}`) } })
+    const { port } = await mount(vaultStatus({ conflicts: [conflict] }))
+    render(notes(`/vault/${ORIGINAL}`))
+    fireEvent.click(await screen.findByRole("button", { name: "Сравнить" }))
+    const dialog = await screen.findByRole("dialog")
+    fireEvent.click(await within(dialog).findByRole("button", { name: "Взять вторую версию" }))
+    await waitFor(() => expect(port.resolveConflict).toHaveBeenCalled())
+    expect(useNoticeJournalStore.getState().entries.map((entry) => entry.params.choice)).toEqual([
+      "keepCopy",
+    ])
   })
 
   it("is forgotten with the vault it was about", async () => {
     useSyncNoticesStore.setState({
-      outcomes: [
-        { conflictId: "x", path: ORIGINAL, name: "идея", choice: "keepBoth", where: "list" },
-      ],
+      outcomes: [{ conflictId: "x", path: ORIGINAL, name: "идея", choice: "keepBoth" }],
     })
     await mount()
     await waitFor(() => expect(useSyncNoticesStore.getState().outcomes).toEqual([]))

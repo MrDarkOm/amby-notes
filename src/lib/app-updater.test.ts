@@ -183,6 +183,18 @@ describe("silent startup updates", () => {
     })
   })
 
+  it("writes a failed automatic update into the journal of the notification centre", async () => {
+    native.check.mockRejectedValue(new Error("Synthetic network failure"))
+    const { runAutomaticAppUpdate } = await import("./app-updater")
+    const { useNoticeJournalStore } = await import("@/lib/notices/use-notice-journal-store")
+    expect(await runAutomaticAppUpdate()).toBe("ready")
+    const entries = useNoticeJournalStore.getState().entries
+    expect(entries).toHaveLength(1)
+    // Information, not an alarm; the cause is a code, never the text of the error.
+    expect(entries[0]).toMatchObject({ kind: "updateFailed", level: "info" })
+    expect(JSON.stringify(entries)).not.toMatch(/Synthetic/)
+  })
+
   it("opens the existing version if download or signature verification fails", async () => {
     const update = availableUpdate()
     update.downloadAndInstall.mockRejectedValue(new Error("Synthetic rejected update"))

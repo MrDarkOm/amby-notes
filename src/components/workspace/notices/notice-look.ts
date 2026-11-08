@@ -11,37 +11,48 @@ export type NoticeLevel = "danger" | "decision" | "warning" | "info" | "success"
  */
 export const NOTICE_LOOK: Record<
   NoticeLevel,
-  { Icon: React.ComponentType<{ className?: string }>; icon: string; frame: string; dot: string }
+  {
+    Icon: React.ComponentType<{ className?: string }>
+    icon: string
+    frame: string
+    dot: string
+    stripe: string
+  }
 > = {
   danger: {
     Icon: OctagonAlert,
     icon: "text-[color:var(--notice-danger-fg)]",
     frame: "bg-[color:var(--notice-danger-bg)] border-[color:var(--notice-danger-border)]",
     dot: "bg-[color:var(--notice-danger-fg)]",
+    stripe: "border-l-[color:var(--notice-danger-fg)]",
   },
   decision: {
     Icon: TriangleAlert,
     icon: "text-[color:var(--notice-decision-fg)]",
     frame: "bg-[color:var(--notice-decision-bg)] border-[color:var(--notice-decision-border)]",
     dot: "bg-[color:var(--notice-decision-fg)]",
+    stripe: "border-l-[color:var(--notice-decision-fg)]",
   },
   warning: {
     Icon: CircleAlert,
     icon: "text-[color:var(--notice-warning-fg)]",
     frame: "bg-[color:var(--notice-warning-bg)] border-[color:var(--notice-warning-border)]",
     dot: "bg-[color:var(--notice-warning-fg)]",
+    stripe: "border-l-[color:var(--notice-warning-fg)]",
   },
   info: {
     Icon: Info,
     icon: "text-[color:var(--notice-info-fg)]",
     frame: "bg-[color:var(--notice-info-bg)] border-[color:var(--notice-info-border)]",
     dot: "bg-[color:var(--notice-info-fg)]",
+    stripe: "border-l-[color:var(--notice-info-fg)]",
   },
   success: {
     Icon: CircleCheck,
     icon: "text-[color:var(--notice-success-fg)]",
     frame: "bg-[color:var(--notice-success-bg)] border-[color:var(--notice-success-border)]",
     dot: "bg-[color:var(--notice-success-fg)]",
+    stripe: "border-l-[color:var(--notice-success-fg)]",
   },
 }
 
@@ -51,6 +62,15 @@ export const NOTICE_LOOK: Record<
  */
 export function noticeFrameClass(level: NoticeLevel): string {
   return NOTICE_LOOK[level].frame
+}
+
+/**
+ * The calm look of a card (docs/notices.md, section 11): an ordinary surface with a thin neutral frame and a stripe
+ * of the colour of the level on the left. No fill and no coloured frame; the level is said by the stripe and
+ * the icon. The one place that says it, for the cards of the stack, the toasts and the lines of the journal.
+ */
+export function noticeCalmClass(level: NoticeLevel): string {
+  return `border border-border/70 bg-card border-l-[3px] ${NOTICE_LOOK[level].stripe}`
 }
 
 /**
