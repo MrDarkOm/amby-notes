@@ -1,3 +1,4 @@
+import type { RenameOutcome } from "../file-actions/rename-outcome"
 import type { ViewSettings } from "./view-config"
 import type { SettingsPatch } from "./view-config"
 import type { GroupSort } from "./view-config"
@@ -97,7 +98,7 @@ interface DatabaseViewContentProps {
   ) => Promise<void>
   computedErrors: { formula?: string; rollup?: string }
   renderPropertySettings: (property: DatabasePropertySummary) => React.JSX.Element | null
-  onRenameRow: ((rowId: string, name: string) => Promise<void> | void) | undefined
+  onRenameRow: ((rowId: string, name: string) => Promise<RenameOutcome | void> | void) | undefined
   filteredFieldKeys: Set<string>
   setRequestedFilterField: React.Dispatch<React.SetStateAction<string | null>>
   setQueryPanel: React.Dispatch<React.SetStateAction<"sort" | "filter" | null>>

@@ -1,3 +1,4 @@
+import type { RenameOutcome } from "../file-actions/rename-outcome"
 import type { DeleteMode } from "../file-actions/use-document-crud"
 import type { LayerKind } from "../editor/document-actions"
 import type { LinkGraph, PanelId } from "../panel-registry"
@@ -54,7 +55,7 @@ interface UsePaneRenderersParams {
   handleContentDirty: (fileId: string) => void
   handleBack: (key?: unknown) => Promise<void> | undefined
   handleForward: (key?: unknown) => Promise<void> | undefined
-  handleRenameFile: (id: string, newName: string) => Promise<void>
+  handleRenameFile: (id: string, newName: string) => Promise<RenameOutcome>
   currentFileIcon: string | undefined
   iconOverrides: Record<string, string>
   handleSetIcon: (id: string, icon: string) => void
@@ -117,7 +118,7 @@ interface UsePaneRenderersParams {
   handleRenameDatabaseTab: (tabKey: string, title: string) => void
   openDatabaseTab: (databaseId: string, title: string, inNewTab?: boolean) => void
   databaseRowActions: DatabaseRowActions
-  handleRenameDatabaseRow: (rowId: string, name: string) => Promise<void>
+  handleRenameDatabaseRow: (rowId: string, name: string) => Promise<RenameOutcome>
   handleLoadRowDocument: (row: DatabaseRow) => Promise<Document>
   refreshDatabaseCatalog: (signal?: { cancelled: boolean }) => Promise<void>
   refreshTreePaths: (paths: string[]) => Promise<TreeItem[]>

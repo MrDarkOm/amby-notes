@@ -2,7 +2,7 @@ import * as React from "react"
 import { useDatabaseStore } from "../database/database-store"
 import i18n from "@/lib/i18n"
 import { logger } from "@/lib/logger"
-import { operationErrorCode } from "@/lib/operation-errors"
+import { operationErrorCode, operationErrorText } from "@/lib/operation-errors"
 import { saveRecoveryDraft } from "@/lib/recovery-drafts"
 import { confirm } from "@/lib/confirm"
 import { confirmations } from "@/lib/confirmations"
@@ -39,6 +39,7 @@ import { moveTreeItemsOptimistically } from "../workspace-mutations"
 import { concatTreePatches } from "../tree-patch"
 import { beginLocalTreeMutation, recordLocalTreePaths } from "../watcher-tree-reconciliation"
 import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
+import type { RenameOutcome } from "./rename-outcome"
 
 type Params = Pick<
   UseFileActionsParams,
@@ -233,9 +234,9 @@ export function useDocumentMutations({
     })
   }, [])
   const handleRenameFile = React.useCallback(
-    async (id: string, newName: string) => {
+    async (id: string, newName: string): Promise<RenameOutcome> => {
       const item = findTreeItem(treeItems, id)
-      if (!item) return
+      if (!item) return { status: "skipped" }
       let finishLocalMutation: (() => void) | null = null
       try {
         const path = item.path ?? id
@@ -249,7 +250,7 @@ export function useDocumentMutations({
             }),
           ))
         )
-          return
+          return { status: "skipped" }
         finishLocalMutation = beginLocalTreeMutation()
         const result = await renameItem(vault ?? "", path, newName)
         handleApplyMutation(result)
@@ -261,9 +262,11 @@ export function useDocumentMutations({
           previous.map((tab) => (tab.fileId === id ? { ...tab, title: newName } : tab)),
         )
         logger.info("file.rename", { id, oldPath: path, newName, primaryPath: result.primaryPath })
+        return { status: "renamed" }
       } catch (error) {
-        logger.error("file.rename_failed", { id, newName, error })
-        console.error("Failed to rename:", error)
+        // The field the name was typed in shows the reason (RenameHint); the log keeps the code.
+        logger.error("file.rename_failed", { id, failureCode: operationErrorCode(error), error })
+        return { status: "failed", text: operationErrorText(error) }
       } finally {
         finishLocalMutation?.()
       }

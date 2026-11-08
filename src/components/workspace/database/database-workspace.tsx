@@ -1,3 +1,4 @@
+import type { RenameOutcome } from "../file-actions/rename-outcome"
 import { EMPTY_ROWS } from "./empty-collections"
 import { DatabaseTitleHeader } from "./database-title-header"
 import { DatabaseSettingsToggle } from "./database-settings-toggle"
@@ -69,7 +70,7 @@ interface DatabaseWorkspaceProps {
   isLocked?: boolean
   onToggleLock?: () => void
   onOpenRowFullPage?: (row: DatabaseRow) => void
-  onRenameRow?: (rowId: string, name: string) => Promise<void> | void
+  onRenameRow?: (rowId: string, name: string) => Promise<RenameOutcome | void> | void
   onLoadRowDocument?: (row: DatabaseRow) => Promise<Document>
   onRowContentChange?: (fileId: string, content: string) => void
   onCatalogChanged?: () => Promise<void>

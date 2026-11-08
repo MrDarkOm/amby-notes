@@ -40,6 +40,7 @@ import {
   ContextMenuSubContent,
 } from "@/components/ui/context-menu"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { RenameHint } from "../notices/rename-hint"
 import { TreeItemIcon, TreeItemStatusIcon } from "./tree-icons"
 import { treeItemHasChildren, type AttachableLayer, type TreeNodeProps } from "./tree-types"
 
@@ -50,6 +51,7 @@ export const TreeNode = React.memo(
     isOpen,
     onToggleOpen,
     isEditing,
+    renameHint,
     onStartEdit,
     onFinishEdit,
     selectedIds,
@@ -110,14 +112,15 @@ export const TreeNode = React.memo(
     // virtualization/context-menu event handlers.
     React.useEffect(() => {
       if (isEditing) {
-        setEditValue(item.name)
+        // A refused name comes back into the field as it was typed, so it can be fixed.
+        setEditValue(renameHint?.name ?? item.name)
         const timer = window.setTimeout(() => {
           inputRef.current?.focus()
           inputRef.current?.select()
         }, 0)
         return () => window.clearTimeout(timer)
       }
-    }, [isEditing, item.name])
+    }, [isEditing, item.name, renameHint?.name])
 
     React.useLayoutEffect(() => {
       if (isEditing) {
@@ -139,6 +142,10 @@ export const TreeNode = React.memo(
       if (element.parentElement) observer.observe(element.parentElement)
       return () => observer.disconnect()
     }, [isEditing, item.name])
+
+    // The reason stays under the field only while the field holds the name that was refused.
+    const hintText =
+      isEditing && renameHint && editValue.trim() === renameHint.name ? renameHint.text : null
 
     function commitRename() {
       const trimmed = editValue.trim()
@@ -171,15 +178,27 @@ export const TreeNode = React.memo(
       : undefined
 
     const nameNode = isEditing ? (
-      <input
-        ref={inputRef}
-        value={editValue}
-        onChange={(e) => setEditValue(e.target.value)}
-        onBlur={commitRename}
-        onKeyDown={handleKeyDown}
-        onClick={(e) => e.stopPropagation()}
-        className="w-full min-w-0 bg-transparent p-0 text-[13px] text-foreground outline-none selection:bg-primary/25"
-      />
+      <>
+        <input
+          ref={inputRef}
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          // Leaving the field with the refused name still in it gives up, instead of asking again.
+          onBlur={() => (hintText ? onFinishEdit(item.id, null) : commitRename())}
+          onKeyDown={handleKeyDown}
+          onClick={(e) => e.stopPropagation()}
+          aria-invalid={hintText ? true : undefined}
+          aria-describedby={hintText ? `rename-hint-${item.id}` : undefined}
+          className="w-full min-w-0 bg-transparent p-0 text-[13px] text-foreground outline-none selection:bg-primary/25"
+        />
+        {hintText && (
+          <RenameHint
+            id={`rename-hint-${item.id}`}
+            text={hintText}
+            className="absolute inset-x-0 top-full z-30 mt-0.5"
+          />
+        )}
+      </>
     ) : (
       <span
         ref={nameRef}
@@ -512,7 +531,7 @@ export const TreeNode = React.memo(
       "amby-density-inline-padding-left amby-tree-row flex w-full items-center gap-1.5 rounded pl-0 py-1 pr-[23px] text-left text-[13px] hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
       isSelected && "bg-accent",
       isEditing &&
-        "bg-background outline outline-1 -outline-offset-1 outline-primary/60 hover:bg-background",
+        "relative bg-background outline outline-1 -outline-offset-1 outline-primary/60 hover:bg-background",
       isDragSource && "opacity-40",
     )
     const selectedAttr = isSelected ? { "data-tree-selected": "true" } : {}
@@ -707,6 +726,7 @@ export const TreeNode = React.memo(
     prev.isKeyboardFocused === next.isKeyboardFocused &&
     prev.isOpen === next.isOpen &&
     prev.isEditing === next.isEditing &&
+    prev.renameHint === next.renameHint &&
     prev.onToggleOpen === next.onToggleOpen &&
     prev.onStartEdit === next.onStartEdit &&
     prev.onFinishEdit === next.onFinishEdit &&

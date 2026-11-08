@@ -896,8 +896,9 @@ export function WorkspaceOrchestration() {
 
   const handleRenameDatabaseRow = React.useCallback(
     async (rowId: string, name: string) => {
-      await handleRenameFile(rowId, name)
+      const outcome = await handleRenameFile(rowId, name)
       await refreshDatabaseCatalog()
+      return outcome
     },
     [handleRenameFile, refreshDatabaseCatalog],
   )

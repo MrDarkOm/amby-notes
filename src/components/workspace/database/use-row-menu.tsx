@@ -1,3 +1,4 @@
+import type { RenameOutcome } from "../file-actions/rename-outcome"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { duplicateDatabaseRow, type DatabaseRow, type DatabaseSummary } from "@/lib/storage"
@@ -30,7 +31,7 @@ interface UseRowMenuOptions {
   vaultGeneration: number | null
   actions?: DatabaseRowActions
   openRow: (row: DatabaseRow) => void
-  onRenameRow?: (rowId: string, name: string) => Promise<void> | void
+  onRenameRow?: (rowId: string, name: string) => Promise<RenameOutcome | void> | void
   /** Reloads the rows after a page was added, renamed, moved or removed. */
   refresh: () => void
   onError?: (message: string) => void

@@ -1,3 +1,4 @@
+import type { RenameOutcome } from "./file-actions/rename-outcome"
 import * as React from "react"
 import type {
   CustomProperty,
@@ -90,7 +91,7 @@ export interface PanelRenderProps {
   vault: string | null
   onSelect: (id: string) => void
   onOpenVault: () => void
-  onRename?: (id: string, newName: string) => void | Promise<void>
+  onRename?: (id: string, newName: string) => void | Promise<RenameOutcome | void>
   onDelete?: (id: string, mode?: "archive") => void
   onDeleteMany?: (ids: string[]) => void
   onNewFile?: (parentId: string | null) => void

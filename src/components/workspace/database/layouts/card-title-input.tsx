@@ -4,8 +4,11 @@ import { cn } from "@/lib/utils"
 
 interface CardTitleInputProps {
   value: string
-  /** Saves the new title; a rejection puts the old one back. */
-  onCommit: (name: string) => Promise<void> | void
+  /**
+   * Saves the new title; a rejection puts the old one back. What it resolves to is not read here: a
+   * card has no line for a refused name yet, so the old title simply comes back.
+   */
+  onCommit: (name: string) => Promise<unknown> | void
   /** Accessible name; defaults to the record title. */
   label?: string
   inputRef?: React.Ref<HTMLInputElement>

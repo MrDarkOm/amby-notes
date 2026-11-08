@@ -1,3 +1,4 @@
+import type { RenameOutcome } from "../file-actions/rename-outcome"
 import { isTauri } from "@/lib/storage"
 import type { AttachmentItem, LinkGraph, PanelRenderProps } from "../panel-registry"
 import type { CustomProperty, NoteLayers, NoteProperties } from "@/lib/storage/types"
@@ -21,7 +22,7 @@ interface UsePanelRenderPropsParams {
   vault: string | null
   handleTreeSelect: (id: string) => void
   handleOpenVault: () => Promise<void>
-  handleRenameFile: (id: string, newName: string) => Promise<void>
+  handleRenameFile: (id: string, newName: string) => Promise<RenameOutcome>
   handleDeleteFile: (id: string, mode?: DeleteMode) => Promise<void>
   handleDeleteFiles: (ids: string[], mode?: DeleteMode) => Promise<void>
   handleNewFileIn: (

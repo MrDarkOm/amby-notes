@@ -1,3 +1,5 @@
+import { renameFailureText, type RenameOutcome } from "../file-actions/rename-outcome"
+import { RenameHint } from "../notices/rename-hint"
 import * as React from "react"
 import {
   AppWindow,
@@ -39,7 +41,7 @@ export interface RowMenuModel {
   onOpen: () => void
   onOpenInNewTab?: () => void
   onOpenInNewWindow?: () => void
-  onRename?: (name: string) => Promise<void> | void
+  onRename?: (name: string) => Promise<RenameOutcome | void> | void
   onCopyLink?: () => void
   onDuplicate?: () => Promise<void> | void
   onMoveTo?: (databaseId: string) => Promise<void> | void
@@ -401,52 +403,72 @@ function RowHeader({
   onPickIcon,
 }: {
   row: DatabaseRow
-  onRename?: (name: string) => Promise<void> | void
+  onRename?: (name: string) => Promise<RenameOutcome | void> | void
   onPickIcon: () => void
 }) {
   const { t } = useTranslation()
   const [name, setName] = React.useState(row.title)
   // A rename done elsewhere (or this one, once saved) shows up without leaving the menu.
   React.useEffect(() => setName(row.title), [row.title])
+  // The name that was refused and why; the line stays under the field while the field holds that name.
+  const [refused, setRefused] = React.useState<{ name: string; text: string } | null>(null)
+  const inputRef = React.useRef<HTMLInputElement>(null)
   const commit = () => {
     const next = name.trim()
-    if (!next || next === row.title) {
+    // Leaving the field with the refused name still in it gives up, instead of asking again.
+    if (!next || next === row.title || next === refused?.name) {
       setName(row.title)
+      setRefused(null)
       return
     }
-    void Promise.resolve(onRename?.(next)).catch(() => setName(row.title))
+    void Promise.resolve(onRename?.(next))
+      .then((outcome) => {
+        const text = renameFailureText(outcome)
+        if (!text) return
+        setRefused({ name: next, text })
+        // The field takes the person back to fix the name.
+        inputRef.current?.focus()
+      })
+      .catch(() => setName(row.title))
   }
+  const hintText = refused && name.trim() === refused.name ? refused.text : null
   return (
-    <div className="flex items-center gap-1.5 px-0.5 py-1">
-      <button
-        type="button"
-        aria-label={t("databaseCard.changeIcon")}
-        title={t("databaseCard.changeIcon")}
-        className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md border border-border bg-muted/40 outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring"
-        onClick={onPickIcon}
-      >
-        <PageIcon noteId={row.noteId} />
-      </button>
-      <input
-        value={name}
-        disabled={!onRename}
-        aria-label={t("databaseRowMenu.name")}
-        placeholder={t("databaseRowMenu.name")}
-        className="h-8 min-w-0 flex-1 rounded-md border border-border bg-muted/40 px-2.5 text-[13px] font-medium outline-none hover:bg-muted/70 focus:border-ring focus:bg-background disabled:opacity-70"
-        onChange={(event) => setName(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault()
-            event.currentTarget.blur()
-          }
-          if (event.key === "Escape") {
-            event.stopPropagation()
-            setName(row.title)
-            event.currentTarget.blur()
-          }
-        }}
-      />
+    <div className="px-0.5 py-1">
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          aria-label={t("databaseCard.changeIcon")}
+          title={t("databaseCard.changeIcon")}
+          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md border border-border bg-muted/40 outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring"
+          onClick={onPickIcon}
+        >
+          <PageIcon noteId={row.noteId} />
+        </button>
+        <input
+          ref={inputRef}
+          value={name}
+          disabled={!onRename}
+          aria-invalid={hintText ? true : undefined}
+          aria-describedby={hintText ? "row-menu-rename-hint" : undefined}
+          aria-label={t("databaseRowMenu.name")}
+          placeholder={t("databaseRowMenu.name")}
+          className="h-8 min-w-0 flex-1 rounded-md border border-border bg-muted/40 px-2.5 text-[13px] font-medium outline-none hover:bg-muted/70 focus:border-ring focus:bg-background disabled:opacity-70"
+          onChange={(event) => setName(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault()
+              event.currentTarget.blur()
+            }
+            if (event.key === "Escape") {
+              event.stopPropagation()
+              setName(row.title)
+              event.currentTarget.blur()
+            }
+          }}
+        />
+      </div>
+      {hintText && <RenameHint id="row-menu-rename-hint" text={hintText} className="mt-1.5" />}
     </div>
   )
 }

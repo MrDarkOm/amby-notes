@@ -22,6 +22,7 @@ import { TreeNode } from "./tree-row"
 import { useTreeKeyboard } from "./use-tree-keyboard"
 import { useTreeDnd } from "./use-tree-dnd"
 import { useStableCallback } from "./use-stable-callback"
+import { renameFailureText } from "../file-actions/rename-outcome"
 import { TreeMessage } from "./tree-message"
 import { TreeScrollbar } from "./tree-scrollbar"
 
@@ -79,6 +80,11 @@ export function SidebarTree({
   const toggleOpen = useViewStateStore((s) => s.toggleTreeItem)
   const rainbowTree = useSettingsStore((s) => s.prefs.rainbowTree)
   const [editingId, setEditingId] = React.useState<string | null>(null)
+  const [renameHint, setRenameHint] = React.useState<{
+    id: string
+    name: string
+    text: string
+  } | null>(null)
   const [keyboardFocusId, setKeyboardFocusId] = React.useState<string | null>(selectedId)
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() =>
     selectedId ? new Set([selectedId]) : new Set(),
@@ -280,8 +286,20 @@ export function SidebarTree({
   )
   const handleFinishEdit = React.useCallback(
     (id: string, newName: string | null) => {
-      if (newName) stableOnRename?.(id, newName)
       setEditingId(null)
+      setRenameHint(null)
+      if (!newName) return
+      // A refused name opens the field again with the typed name and the reason under it
+      // (docs/notices.md, section 8); any other end leaves the row as it is.
+      void Promise.resolve(stableOnRename?.(id, newName))
+        .then((outcome) => {
+          const text = renameFailureText(outcome)
+          if (!text) return
+          setRenameHint({ id, name: newName, text })
+          setEditingId(id)
+        })
+        // The rename reports its own failure as an outcome; a throw here has nothing to show.
+        .catch(() => undefined)
     },
     [stableOnRename],
   )
@@ -335,6 +353,7 @@ export function SidebarTree({
                   isOpen={!closedIds.has(row.item.id)}
                   onToggleOpen={handleToggleOpen}
                   isEditing={editingId === row.item.id}
+                  renameHint={renameHint?.id === row.item.id ? renameHint : null}
                   onStartEdit={handleStartEdit}
                   onFinishEdit={handleFinishEdit}
                   selectedIds={selectedIds}
