@@ -8,6 +8,7 @@ import { motionTransitions } from "@/lib/motion-config"
 
 import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
 import { IconValue } from "../icon-value"
+import { RenameHint } from "../notices/rename-hint"
 
 interface DatabaseTitleHeaderProps {
   iconTriggerRef: React.RefObject<HTMLButtonElement | null>
@@ -19,8 +20,11 @@ interface DatabaseTitleHeaderProps {
   databaseTitle: string
   editingDatabaseTitle: boolean
   setEditingDatabaseTitle: React.Dispatch<React.SetStateAction<boolean>>
-  setDatabaseTitle: React.Dispatch<React.SetStateAction<string>>
+  setDatabaseTitle: (value: string) => void
   commitDatabaseTitle: () => void
+  cancelDatabaseTitle: () => void
+  /** Why the typed name was refused, to show under the field. */
+  titleHint: string | null
   title: string
 }
 
@@ -36,7 +40,8 @@ export function DatabaseTitleHeader({
   setEditingDatabaseTitle,
   setDatabaseTitle,
   commitDatabaseTitle,
-  title,
+  cancelDatabaseTitle,
+  titleHint,
 }: DatabaseTitleHeaderProps) {
   const { t } = useTranslation()
   return (
@@ -79,11 +84,13 @@ export function DatabaseTitleHeader({
           </div>
         )}
       </div>
-      <div className="flex min-w-0 flex-1 items-center">
+      <div className="relative flex min-w-0 flex-1 items-center">
         <input
           value={databaseTitle}
           readOnly={!editingDatabaseTitle}
           aria-label={t("databaseWorkspace.renameTitle")}
+          aria-invalid={titleHint ? true : undefined}
+          aria-describedby={titleHint ? "database-title-rename-hint" : undefined}
           onFocus={() => {
             if (!editingDatabaseTitle) setEditingDatabaseTitle(true)
           }}
@@ -91,13 +98,17 @@ export function DatabaseTitleHeader({
           onBlur={commitDatabaseTitle}
           onKeyDown={(event) => {
             if (event.key === "Enter") commitDatabaseTitle()
-            if (event.key === "Escape") {
-              setDatabaseTitle(title)
-              setEditingDatabaseTitle(false)
-            }
+            if (event.key === "Escape") cancelDatabaseTitle()
           }}
           className="h-8 min-w-0 w-full cursor-text border-0 bg-transparent p-0 text-2xl font-semibold leading-none tracking-tight text-foreground outline-none sm:h-10 sm:text-3xl"
         />
+        {titleHint && (
+          <RenameHint
+            id="database-title-rename-hint"
+            text={titleHint}
+            className="absolute left-0 top-full z-10 mt-1 max-w-full"
+          />
+        )}
       </div>
     </header>
   )

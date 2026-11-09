@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
+import { databaseFailure } from "@/lib/test-utils/errors"
 import type { DatabaseHostSession } from "./database-store"
 import type { DatabaseRow, DatabaseSummary } from "@/lib/storage"
 
@@ -178,5 +179,51 @@ describe("DatabaseWorkspace", () => {
     useDatabaseStore.getState().setCatalog([])
     renderWorkspace()
     expect(screen.getByText(i18n.t("databaseWorkspace.notFound"))).toBeTruthy()
+  })
+
+  describe("a refusal says why in one place (docs/notices.md, section 8)", () => {
+    const taken = () => i18n.t("databaseErrors.reason.name_taken")
+
+    async function refusePage() {
+      storage.createDatabaseRow.mockRejectedValue(databaseFailure("name_taken"))
+      renderWorkspace()
+      await screen.findByText("Write report")
+      fireEvent.click(screen.getByText(i18n.t("databaseWorkspace.newPage")))
+      const field = await screen.findByRole("textbox", {
+        name: i18n.t("databaseWorkspace.pageTitle"),
+      })
+      fireEvent.change(field, { target: { value: "Plan trip" } })
+      fireEvent.keyDown(field, { key: "Enter" })
+      await waitFor(() => expect(storage.createDatabaseRow).toHaveBeenCalled())
+    }
+
+    it("shows a refused page name in the dialog only, not again above the table", async () => {
+      await refusePage()
+      expect((await screen.findAllByText(taken())).length).toBe(1)
+      expect(screen.queryByRole("alert")).toBeNull()
+    })
+
+    it("leaves nothing behind when the dialog is cancelled", async () => {
+      await refusePage()
+      await screen.findByText(taken())
+      fireEvent.click(screen.getByRole("button", { name: i18n.t("common.cancel") }))
+      await waitFor(() => expect(screen.queryByText(taken())).toBeNull())
+    })
+
+    it("keeps a refused database name in the title field with the reason under it", async () => {
+      storage.renameDatabase.mockRejectedValue(databaseFailure("name_taken"))
+      renderWorkspace()
+      const input = screen.getByRole("textbox", { name: i18n.t("databaseWorkspace.renameTitle") })
+      fireEvent.focus(input)
+      fireEvent.change(input, { target: { value: "Chores" } })
+      fireEvent.keyDown(input, { key: "Enter" })
+      const hint = await screen.findByTestId("rename-hint")
+      expect(hint.textContent).toContain(taken())
+      expect((input as HTMLInputElement).value).toBe("Chores")
+      expect(screen.queryByRole("alert")).toBeNull()
+      fireEvent.keyDown(input, { key: "Escape" })
+      expect(screen.queryByTestId("rename-hint")).toBeNull()
+      expect((input as HTMLInputElement).value).toBe("Tasks")
+    })
   })
 })

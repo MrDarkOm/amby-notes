@@ -531,7 +531,11 @@ export function FilesPanel(props: PanelRenderProps) {
                 <FilePlus className="size-4" />
                 {t("filesPanel.create")}
               </Button>
-              {workspaceSwitcher && <div className="mt-2">{workspaceSwitcher}</div>}
+              {workspaceSwitcher && (
+                <div className="mt-2" data-workspace-switcher="">
+                  {workspaceSwitcher}
+                </div>
+              )}
             </div>
           </div>
         </ContextMenuTrigger>

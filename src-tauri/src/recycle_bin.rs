@@ -64,7 +64,10 @@ fn manifest_path(root: &Path, id: &str) -> PathBuf {
 fn collect_markdown_paths(path: &Path) -> Result<Vec<PathBuf>, String> {
     if path.is_file() {
         return Ok(
-            if path.extension().is_some_and(|extension| extension == "md") {
+            // Notes, and the sketch and canvas files the renderer holds open buffers of.
+            if path.extension().is_some_and(|extension| {
+                matches!(extension.to_str(), Some("md" | "canvas" | "excalidraw"))
+            }) {
                 vec![path.to_path_buf()]
             } else {
                 Vec::new()
@@ -508,6 +511,24 @@ mod tests {
     }
 
     #[test]
+    fn deleting_a_sketch_or_canvas_reports_its_path_as_deleted() {
+        // The renderer drops open buffers and the tree entry by `deleted_paths`.
+        let vault = std::env::temp_dir().join(format!("amby-layer-{}", Ulid::generate()));
+        fs::create_dir_all(&vault).unwrap();
+        let sketch = vault.join("Draw.excalidraw");
+        let canvas = vault.join("Map.canvas");
+        fs::write(&sketch, "{}").unwrap();
+        fs::write(&canvas, "{}").unwrap();
+        let moved = move_to_trash(&vault, &sketch).unwrap();
+        assert_eq!(moved.deleted_paths.len(), 1);
+        assert!(moved.deleted_paths[0].ends_with("Draw.excalidraw"));
+        let removed = delete_permanently(&vault, &canvas).unwrap();
+        assert_eq!(removed.deleted_paths.len(), 1);
+        assert!(removed.deleted_paths[0].ends_with("Map.canvas"));
+        fs::remove_dir_all(&vault).ok();
+    }
+
+    #[test]
     fn permanent_delete_removes_item_without_a_trash_copy() {
         let vault = std::env::temp_dir().join(format!("amby-perm-{}", Ulid::generate()));
         let tree = vault.join("Folder");
@@ -587,7 +608,8 @@ mod tests {
         let deleted = move_to_trash(&vault, &main).unwrap();
 
         assert!(!bundle.exists());
-        assert_eq!(deleted.deleted_paths.len(), 2);
+        // Two notes and the canvas and sketch layers of the bundle.
+        assert_eq!(deleted.deleted_paths.len(), 4);
         let entry = list(&vault).pop().unwrap();
         let restored = restore(&vault, &entry.id).unwrap();
 

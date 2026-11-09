@@ -68,7 +68,7 @@ import { resolveProjectTarget } from "./creative/project-tree-model"
 import { projectTargetIcon } from "./creative/section-icons"
 import { useDatabaseStore } from "./database/database-store"
 import type { DatabaseRowActions } from "./database/use-row-menu"
-import { discardRecoveryDraft, remapRecoveryDraft } from "@/lib/recovery-drafts"
+import { remapRecoveryDraft } from "@/lib/recovery-drafts"
 import { useCanvasWorkspace } from "./orchestration/use-canvas-workspace"
 import { useSketchWorkspace } from "./orchestration/use-sketch-workspace"
 import { usePropertyActions } from "./orchestration/use-property-actions"
@@ -104,6 +104,7 @@ export function WorkspaceOrchestration() {
   const {
     autosave: canvasAutosave,
     autosaveKey: canvasAutosaveKey,
+    discardDeleted: discardDeletedCanvases,
     fileRevisions: canvasRevisions,
     handleCanvasSave,
     loadCanvasBuffer,
@@ -115,6 +116,7 @@ export function WorkspaceOrchestration() {
   const {
     autosave: sketchAutosave,
     autosaveKey: sketchAutosaveKey,
+    discardDeleted: discardDeletedSketches,
     fileRevisions: sketchRevisions,
     handleSketchSave,
     loadSketchBuffer,
@@ -629,15 +631,11 @@ export function WorkspaceOrchestration() {
       }
     }
 
-    const deletedCanvasPaths = new Set(result.deletedPaths)
+    // Deleted by Amby: no later save of the closing editor may reach the missing file.
+    discardDeletedCanvases(result.deletedPaths)
     setOpenCanvases((previous) => {
       const next: Record<string, string> = {}
       for (const [path, json] of Object.entries(previous)) {
-        if (deletedCanvasPaths.has(path)) {
-          canvasAutosave.discard(canvasAutosaveKey(path))
-          void discardRecoveryDraft(path, recoveryScope)
-          continue
-        }
         const nextPath = remapFn(path)
         if (nextPath !== path) {
           canvasAutosave.remapKey(canvasAutosaveKey(path), canvasAutosaveKey(nextPath))
@@ -649,15 +647,10 @@ export function WorkspaceOrchestration() {
       return next
     })
 
-    const deletedSketchPaths = new Set(result.deletedPaths)
+    discardDeletedSketches(result.deletedPaths)
     setOpenSketches((previous) => {
       const next: Record<string, string> = {}
       for (const [path, json] of Object.entries(previous)) {
-        if (deletedSketchPaths.has(path)) {
-          sketchAutosave.discard(sketchAutosaveKey(path))
-          void discardRecoveryDraft(path, recoveryScope)
-          continue
-        }
         const nextPath = remapFn(path)
         if (nextPath !== path) {
           sketchAutosave.remapKey(sketchAutosaveKey(path), sketchAutosaveKey(nextPath))

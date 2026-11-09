@@ -1,5 +1,6 @@
 "use client"
 
+import { RenameHint } from "../notices/rename-hint"
 import { AmbySelect } from "@/components/ui/amby-select"
 import { RollupWizard } from "./rollup-wizard"
 import { isDraftComplete, type RollupDraft } from "./rollup-model"
@@ -97,7 +98,7 @@ export function DatabaseViewDialog({
             />
           </div>
         )}
-        {mutationError && <p className="text-xs text-destructive">{mutationError}</p>}
+        {mutationError && <RenameHint text={mutationError} />}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t("common.cancel")}
@@ -149,7 +150,7 @@ export function DatabaseRowDialog({
             if (event.key === "Enter") void onCreate()
           }}
         />
-        {mutationError && <p className="text-xs text-destructive">{mutationError}</p>}
+        {mutationError && <RenameHint text={mutationError} />}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t("common.cancel")}
@@ -385,7 +386,7 @@ export function DatabasePropertyDialog({
             )}
           </div>
         )}
-        {mutationError && <p className="text-xs text-destructive">{mutationError}</p>}
+        {mutationError && <RenameHint text={mutationError} />}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t("common.cancel")}

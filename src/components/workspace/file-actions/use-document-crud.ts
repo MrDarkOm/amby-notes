@@ -149,6 +149,7 @@ export function useDocumentCrud({
   const [pendingDelete, setPendingDelete] = React.useState<{
     ids: string[]
     name: string
+    kind: TreeItem["type"]
     count: number
     isDirtyOrConflicted: boolean
     resolve: (action: DeleteResolution, dontAskAgain?: boolean) => void
@@ -161,6 +162,7 @@ export function useDocumentCrud({
       ids: string[],
       names: string[],
       isDirtyOrConflicted: boolean,
+      kind: TreeItem["type"] = "file",
     ): Promise<DeleteResolution> => {
       const count = ids.length
       if (isDirtyOrConflicted)
@@ -168,6 +170,7 @@ export function useDocumentCrud({
           setPendingDelete({
             ids,
             name: names[0] ?? ids[0] ?? "",
+            kind,
             count,
             isDirtyOrConflicted: true,
             resolve,
@@ -179,6 +182,7 @@ export function useDocumentCrud({
         setPendingDelete({
           ids,
           name: names[0] ?? ids[0] ?? "",
+          kind,
           count,
           isDirtyOrConflicted: false,
           resolve,
@@ -240,6 +244,7 @@ export function useDocumentCrud({
                 targets.map((target) => target.id),
                 targets.map((target) => target.name),
                 hasDirtyDocuments,
+                targets[0]?.type,
               )
       if (resolution === "cancel") return
       logger.info("file.delete", {
@@ -713,6 +718,7 @@ export function useDocumentCrud({
     deleteConfirmationDialog: pendingDelete
       ? React.createElement(DeleteConfirmationDialog, {
           name: pendingDelete.name,
+          kind: pendingDelete.kind,
           count: pendingDelete.count,
           isDirtyOrConflicted: pendingDelete.isDirtyOrConflicted,
           onCancel: () => settleDeleteConfirmation("cancel"),

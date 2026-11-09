@@ -331,9 +331,7 @@ export function usePaneEditorProps({
       onForward: isPrimary ? handleForward : tab ? () => handleForward(tab.key) : () => {},
       canGoBack: isPrimary ? canGoBack : tabCanGoBack,
       canGoForward: isPrimary ? canGoForward : tabCanGoForward,
-      onRenameTitle: (name: string) => {
-        if (tab) handleRenameFile(tab.fileId, name)
-      },
+      onRenameTitle: (name: string) => (tab ? handleRenameFile(tab.fileId, name) : undefined),
       vault: vault ?? undefined,
       fileIcon: isPrimary
         ? currentFileIcon

@@ -767,6 +767,39 @@ pub fn init_logging() {
     let _ = subscriber.try_init();
 }
 
+/// The event name and dotted target of a backend tracing event. Amby's own events carry an explicit
+/// `event`. A record of a dependency carries none: one bridged from the `log` crate has target `log`
+/// and its real crate in `log.target`, and a dependency's own tracing event has its crate as target.
+/// Both are stored as `dependency.log` (an unknown name would become `diagnostic.invalid_event` and
+/// hide that something happened); the bridge's `log.*` fields are dropped, and the free-text message
+/// never survives metadata sanitizing.
+fn backend_event_name(target: &str, fields: &mut Map<String, Value>) -> (String, String) {
+    let bridged_target = if target == "log" {
+        fields
+            .get("log.target")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    } else {
+        None
+    };
+    fields.retain(|key, _| !key.starts_with("log."));
+    let real_target = bridged_target
+        .as_deref()
+        .unwrap_or(target)
+        .replace("::", ".");
+    let name = match fields
+        .remove("event")
+        .and_then(|value| value.as_str().map(str::to_owned))
+    {
+        Some(name) => name,
+        None if real_target == "amby_notes" || real_target.starts_with("amby_notes.") => {
+            real_target.clone()
+        }
+        None => "dependency.log".to_owned(),
+    };
+    (name, real_target)
+}
+
 struct DiagnosticsLayer(Arc<DebugRuntime>);
 #[derive(Clone)]
 struct CorrelationContext {
@@ -818,11 +851,7 @@ where
         event.record(&mut visitor);
         let metadata = event.metadata();
         let mut fields = visitor.values;
-        let target = metadata.target().replace("::", ".");
-        let event_name = fields
-            .remove("event")
-            .and_then(|v| v.as_str().map(str::to_owned))
-            .unwrap_or_else(|| target.clone());
+        let (event_name, target) = backend_event_name(metadata.target(), &mut fields);
         let operation_id = fields
             .remove("operation_id")
             .and_then(|value| value.as_str().map(str::to_owned))
@@ -940,12 +969,27 @@ fn allowed_event(value: &str) -> bool {
         "autosave.save.started",
         "autosave.start",
         "autosave.success",
+        "backup.focus_failed",
+        "backup.open_failed",
         "canvas.save_failed",
         "change_database_property_type",
         "create_database_property",
         "create_database_row",
         "create_folder",
         "create_note",
+        "creative.plot.anchor_links_failed",
+        "database.copy_view_failed",
+        "database.save_view_failed",
+        "database.write_warnings",
+        "database_batch_journal_quarantined",
+        "database_batch_recovery_failed",
+        "database_container_kind_write_failed",
+        "database_manifest_name_update_failed",
+        "external_open.refused",
+        "file_revision.save_without_baseline",
+        "layer.set_primary",
+        "module_host.installed_module_execution_disabled",
+        "module_host.missing_dependency",
         "note.read",
         "note.write",
         "database.aggregate",
@@ -989,6 +1033,7 @@ fn allowed_event(value: &str) -> bool {
         "database_projection_rebuild_failed",
         "database_row_index_update_failed",
         "debug.invalid_event",
+        "dependency.log",
         "debug.invalid_subsystem",
         "delete_custom_property",
         "delete_database_property",
@@ -1036,6 +1081,7 @@ fn allowed_event(value: &str) -> bool {
         "layer.switch",
         "manual_save.failed",
         "media_drop.import_failed",
+        "note_notice.save_now_failed",
         "note_saved",
         "note_write_event_failed",
         "note_written.listen_failed",
@@ -1048,7 +1094,31 @@ fn allowed_event(value: &str) -> bool {
         "modules.registry_save_failed",
         "database.module_disable_failed",
         "editor.diagram_failed",
+        "project_index_rebuild_failed",
+        "project_journal_quarantined",
+        "project_recovery_failed",
+        "properties.reread_failed",
+        "property.mutation_failed",
+        "property.notice_action_failed",
+        "property.take_file_value_failed",
+        "rename_retitle_failed",
+        "storage.add_story_links",
+        "storage.add_text_status",
+        "storage.complete_workshop",
+        "storage.create_story",
+        "storage.create_text_page",
+        "storage.create_workshop_entity",
+        "storage.create_workshop_section",
+        "storage.ensure_plot_links",
+        "storage.init_workshop",
+        "storage.move_text_page",
+        "storage.remove_workshop_section",
+        "storage.reorder_workshop_sections",
+        "storage.update_text_levels",
+        "storage.update_workshop",
+        "surface_render_error",
         "sync.cancel_pending_failed",
+        "sync.compare_read_failed",
         "sync.listen_failed",
         "property.delete",
         "property.migration_failed",
@@ -1064,6 +1134,23 @@ fn allowed_event(value: &str) -> bool {
         "refresh_vault.failed",
         "refresh_vault.flush_failed",
         "rename_database_property",
+        "sync.restore_remote_deleted_failed",
+        "sync_account_prepared",
+        "sync_activation_failed",
+        "sync_connected",
+        "sync_device_revoked",
+        "sync_pass_failed",
+        "sync_pass_panicked",
+        "sync_password_changed",
+        "sync_signed_out",
+        "system_trash_failed",
+        "tab.split_down",
+        "tab.split_right",
+        "text_page_index_update_failed",
+        "trash_anomaly",
+        "tree.import_files",
+        "tree.import_files_failed",
+        "tree_patch_failed",
         "update_database_property_config",
         "update_database_property_options",
         "rename_item",
@@ -1129,6 +1216,7 @@ fn allowed_event(value: &str) -> bool {
         "updater.automatic_update_failed",
         "updater.version_read_failed",
         "upsert_custom_property",
+        "vault.startup_failed",
         "vault_open.recovery_notices",
         "vault_switch.activation_failed",
         "vault_switch.autosave_flush_failed",
@@ -1156,6 +1244,7 @@ fn allowed_event(value: &str) -> bool {
         "window_state.resize_listen_failed",
         "window_state.restore_failed",
         "window_state.save_failed",
+        "workshop_entity_index_update_failed",
         "write_note",
         "write_note.failed",
         "write_note.started",
@@ -1543,6 +1632,54 @@ mod tests {
 
     fn sample(level: LogLevel) -> DebugEvent {
         DebugEvent { id: "1700000000000-abc123".into(), timestamp: "2026-09-27T00:00:00.000Z".into(), level, event: "note_saved".into(), source: LogSource::Frontend, metadata: Some(serde_json::json!({"path":"/Users/alice/Vault/Secret.md", "count":3, "error":"disk /private/path"}).as_object().unwrap().clone()), session_id: Some("fe_550e8400-e29b-41d4-a716-446655440000".into()), window_id: Some("main".into()), operation_id: Some("op_550e8400-e29b-41d4-a716-446655440000".into()), subsystem: Some("storage".into()), duration_ms: Some(12.0), sequence: None }
+    }
+
+    #[test]
+    fn a_dependency_log_record_keeps_a_known_name_instead_of_becoming_invalid() {
+        // The updater plugin reports a failed update check through the `log` crate: tracing sees
+        // target `log` and the real crate in `log.target`, with no `event` field. Such a record must
+        // be stored as `dependency.log`, never as `diagnostic.invalid_event`, and keep no free text.
+        let mut fields = serde_json::json!({
+            "log.target": "tauri_plugin_updater::updater",
+            "log.module_path": "tauri_plugin_updater::updater",
+            "log.file": "/Users/alice/.cargo/registry/src/tauri-plugin-updater/src/updater.rs",
+            "log.line": 642,
+            "message": "update endpoint did not respond with a successful status code"
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        let (name, target) = backend_event_name("log", &mut fields);
+        assert_eq!(name, "dependency.log");
+        assert_eq!(target, "tauri_plugin_updater.updater");
+        assert!(fields.keys().all(|key| !key.starts_with("log.")));
+
+        let runtime = DebugRuntime::new();
+        let mut event = sample(LogLevel::Error);
+        event.event = name;
+        event.source = LogSource::Backend;
+        event.metadata = Some(sanitize_metadata(fields, "session"));
+        let stored = runtime.ingest(event).unwrap();
+        assert_eq!(stored.event, "dependency.log");
+        assert!(!serde_json::to_string(&stored)
+            .unwrap()
+            .contains("did not respond"));
+
+        // A tracing event of another crate without `event` is a dependency record too.
+        let mut fields = Map::new();
+        assert_eq!(
+            backend_event_name("tao::platform_impl", &mut fields).0,
+            "dependency.log"
+        );
+        // Amby's own events keep their explicit name.
+        let mut fields = serde_json::json!({ "event": "vault.opened" })
+            .as_object()
+            .unwrap()
+            .clone();
+        assert_eq!(
+            backend_event_name("amby_notes::vault", &mut fields).0,
+            "vault.opened"
+        );
     }
 
     #[test]

@@ -31,6 +31,12 @@ How a notice gets into the centre, by who writes it:
   the first pass, a failed automatic update ([app-updater.ts](../../../lib/app-updater.ts)).
 - **Toasts** (only these): a new conflict of a note that is not open, a new stop of the sync, a failed autosave of a note that is
   not open. At the start and at a change of the vault what exists is the starting point and is not announced.
+- **Name refused (`RenameHint`):** besides the tree row and the row, menu and card titles, the line stands under the title of an
+  open note ([document-title.tsx](../editor/document-title.tsx)) and of a database ([database-title-header.tsx](../database/database-title-header.tsx),
+  [use-database-title.ts](../database/use-database-title.ts)), and in the dialogs of a database (new view, page, field:
+  [database-dialogs.tsx](../database/database-dialogs.tsx)); there it is not repeated above the table, and Cancel takes it away.
+- **The place beside the bell** is lifted above the workspace switcher of the sidebar (`data-workspace-switcher` in
+  [files-panel.tsx](../panels/files-panel.tsx)), see [use-bell-anchor.ts](use-bell-anchor.ts).
 
 Tests sit beside the files: [centre-entries.test.ts](centre-entries.test.ts), [notices-centre.test.tsx](notices-centre.test.tsx),
 [notice-toasts.test.tsx](notice-toasts.test.tsx), [notices-sources.test.tsx](notices-sources.test.tsx),
