@@ -341,6 +341,47 @@ pub fn list(vault: &Path) -> Vec<TrashEntry> {
     entries
 }
 
+/// Every file the trash holds with the vault path it came from (a folder gives its files). Only
+/// reads; used to tell what the server could still give back from what the person has (appendix
+/// И, И11).
+pub fn trashed_files(vault: &Path) -> Vec<(String, PathBuf)> {
+    const MAX_FILES: usize = 20_000;
+    fn walk(dir: &Path, prefix: &str, out: &mut Vec<(String, PathBuf)>) {
+        let Ok(read) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in read.flatten() {
+            if out.len() >= MAX_FILES {
+                return;
+            }
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let path = format!("{prefix}/{name}");
+            if kind.is_dir() {
+                walk(&entry.path(), &path, out);
+            } else if kind.is_file() {
+                out.push((path, entry.path()));
+            }
+        }
+    }
+    let trash_root = root(vault);
+    let mut files = Vec::new();
+    for entry in list(vault) {
+        if entry.id.parse::<Ulid>().is_err() {
+            continue;
+        }
+        let payload = trash_root.join(&entry.id).join(&entry.name);
+        match fs::symlink_metadata(&payload) {
+            Ok(meta) if meta.is_file() => files.push((entry.original_path.clone(), payload)),
+            Ok(meta) if meta.is_dir() => walk(&payload, &entry.original_path, &mut files),
+            _ => {}
+        }
+    }
+    files
+}
+
 pub fn restore(vault: &Path, id: &str) -> Result<FsMutationResult, String> {
     if let Some(done) = finish_interrupted_restore(vault, id)? {
         return Ok(done);

@@ -14,7 +14,7 @@ use amby_sync_core::crypto::keys::{BodyId, ItemId, SpaceId, SpaceKey};
 use amby_sync_core::engine::{
     AccountInfo, BlobState, ChangesPage, CommitItem, CommitReply, FsError, Listing, LocalFs,
     NameRules, Remote, RemoteError, RootState, ServerInfo, StagedWrite, StateError, StateLock,
-    StateStore, StateTx, SyncState, TrashReason,
+    StateStore, StateTx, SyncState, TrashReason, VersionEntry,
 };
 
 use crate::vfs::Hash;
@@ -543,6 +543,11 @@ impl Remote for FaultyRemote {
             (result, _) => result,
         };
         self.post(fault, result)
+    }
+
+    /// Not a call of the engine (appendix И): the faults of a pass do not apply to it.
+    fn versions(&mut self, item: &ItemId) -> Result<Vec<VersionEntry>, RemoteError> {
+        self.inner.versions(item)
     }
 
     fn account(&mut self) -> Result<AccountInfo, RemoteError> {

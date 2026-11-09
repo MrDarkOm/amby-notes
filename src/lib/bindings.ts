@@ -1838,6 +1838,61 @@ async syncResolveGroupConflict(id: string, picks: Partial<{ [key in string]: Not
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * The server versions of a note for its history panel (И1–И4, И19).
+ */
+async syncNoteVersions(path: string) : Promise<Result<NoteServerVersions, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_note_versions", { path }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The text of one server version of a note for the preview (И5, И19).
+ */
+async syncReadServerVersion(path: string, itemId: string, version: number) : Promise<Result<ServerVersionText, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_read_server_version", { path, itemId, version }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * "Вернуть" for a server version of a note (И6, И19).
+ */
+async syncRestoreServerVersion(path: string, itemId: string, version: number, expectedHash: string) : Promise<Result<RestoreVersionOutcome, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_restore_server_version", { path, itemId, version, expectedHash }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The "on the server" part of the archive (И9–И13, И19).
+ */
+async syncDeletedFiles() : Promise<Result<DeletedOnServer, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_deleted_files") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * "Вернуть" for deleted files of the server (И15, И17, И19).
+ */
+async syncRestoreDeleted(itemIds: string[]) : Promise<Result<RestoreDeletedOutcome, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_restore_deleted", { itemIds }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async cancelAiRequest(streamId: string) : Promise<Result<boolean, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("cancel_ai_request", { streamId }) };
@@ -2433,6 +2488,58 @@ export type DeleteDatabaseViewRequest = { expectedGeneration: number; databaseId
 export type DeleteMode = "system" | "vault" | "permanent"
 export type DeletedDatabaseProperty = { databaseId: string; propertyId: string; manifestRevision: string; warnings: string[] }
 /**
+ * A deleted file in the "on the server" part of the archive (И10, И12).
+ */
+export type DeletedFileView = { 
+/**
+ * The item on the server, 32 hex digits.
+ */
+itemId: string; 
+/**
+ * Path of the last version with a body.
+ */
+path: string; 
+/**
+ * Size of that content in bytes.
+ */
+sizeBytes: number; 
+/**
+ * When the deletion reached the server, milliseconds.
+ */
+deletedMs: number; 
+/**
+ * Until when the server keeps it, milliseconds (a hint, И12).
+ */
+keptUntilMs: number | null; 
+/**
+ * This computer or another device deleted it.
+ */
+device: VersionDevice; 
+/**
+ * The name of the device when the server knows it.
+ */
+deviceName: string | null }
+/**
+ * The "on the server" part of the archive (И19).
+ */
+export type DeletedOnServer = { 
+/**
+ * Is the server part there? `false` is not an error (И13).
+ */
+available: boolean; 
+/**
+ * Why not.
+ */
+reason: ServerListUnavailable | null; 
+/**
+ * Newest deletion first, at most 500 (И13).
+ */
+files: DeletedFileView[]; 
+/**
+ * There were more than 500 deleted files: only the newest are shown (И13).
+ */
+truncated: boolean }
+/**
  * A device in the list (П19, Ф34).
  */
 export type DeviceView = { 
@@ -2787,6 +2894,27 @@ databaseId: string | null; databaseName: string | null; noteId: string;
  */
 title: string | null }
 /**
+ * The server part of the history list of a note (И19).
+ */
+export type NoteServerVersions = { 
+/**
+ * Is the server part there? `false` is not an error (И4).
+ */
+available: boolean; 
+/**
+ * Why not, when `available` is `false`.
+ */
+reason: ServerListUnavailable | null; 
+/**
+ * Newest first (И2, И3).
+ */
+versions: ServerVersionView[]; 
+/**
+ * BLAKE3 of the note on the disk when this list was made, 64 hex digits: "Вернуть" passes it
+ * back as `expected_hash` so a note that changed meanwhile is not overwritten (И6).
+ */
+currentHash?: string | null }
+/**
  * One notebook: a plain folder inside the notes base (`docs/creative-format.md` §6).
  */
 export type Notebook = { 
@@ -3083,6 +3211,110 @@ export type ResolvedRecordReferences = {
  */
 references: RecordReference[] }
 export type RestoreDeletedNoteRequest = { expectedGeneration: number; noteId: string; path: string; content: string; sourceTemplate: string; originWindow: string }
+/**
+ * The answer to "Вернуть" in the archive (И17): one line under the button.
+ */
+export type RestoreDeletedOutcome = { 
+/**
+ * How many files were asked for.
+ */
+requested: number; 
+/**
+ * How many were written (also under another name).
+ */
+restored: number; 
+/**
+ * How many were damaged on the server.
+ */
+damaged: number; 
+/**
+ * Every file, in the order asked.
+ */
+results: RestoreFileResult[] }
+/**
+ * One row of the answer to a restore of several files (И17).
+ */
+export type RestoreFileResult = { 
+/**
+ * The item asked for.
+ */
+itemId: string; 
+/**
+ * How it went.
+ */
+status: RestoreFileStatus; 
+/**
+ * The path the file has now (relative to the vault), when it was written (И15).
+ */
+finalPath: string | null }
+/**
+ * How one file of a restore went (И15, И17).
+ */
+export type RestoreFileStatus = 
+/**
+ * Written to its own path.
+ */
+"restored" | 
+/**
+ * The path was taken: written next to it under a free name, nothing was replaced.
+ */
+"restoredRenamed" | 
+/**
+ * Damaged on the server: nothing written.
+ */
+"damaged" | 
+/**
+ * Too large: nothing written.
+ */
+"tooLarge" | 
+/**
+ * The server no longer has it, or it is not a deleted file of this vault: nothing written.
+ */
+"gone" | 
+/**
+ * The server could not be reached or the disk refused: nothing written.
+ */
+"failed" | 
+/**
+ * Sync of this vault is off: nothing written (И15).
+ */
+"syncOff"
+/**
+ * The answer to "Вернуть" for a version (И6).
+ */
+export type RestoreVersionOutcome = { 
+/**
+ * How it went.
+ */
+status: RestoreVersionStatus }
+/**
+ * How a restore of a version went (И6). The person reads it under the button (И20).
+ */
+export type RestoreVersionStatus = 
+/**
+ * The bytes of the version are on the disk; the old content is in a `restore` snapshot.
+ */
+"restored" | 
+/**
+ * The file changed since the list was shown: nothing was written, the list is read again.
+ */
+"noteChanged" | 
+/**
+ * The version is damaged: nothing was written.
+ */
+"damaged" | 
+/**
+ * Too large to restore: nothing was written.
+ */
+"tooLarge" | 
+/**
+ * The server could not be reached: nothing was written.
+ */
+"offline" | 
+/**
+ * Sync of this vault is off: nothing was written, no snapshot was made (И6).
+ */
+"syncOff"
 export type RestoredBackup = { path: string }
 export type RollbackModuleResult = { success: boolean; moduleId: string; rolledBackToVersion: string; previousVersion: string; activeInstallPath: string }
 /**
@@ -3131,6 +3363,87 @@ serverVersion: string;
  * `instance_id` (П10).
  */
 instanceId: string }
+/**
+ * Why the server part of a list is not there (И4, И13). Not an error: the person has nothing to
+ * do, the panel shows one calm line.
+ */
+export type ServerListUnavailable = 
+/**
+ * Sync of this vault is off or this device is not signed in: "…when sync is on".
+ */
+"syncOff" | 
+/**
+ * The server could not be reached: "…when there is a connection".
+ */
+"offline"
+/**
+ * What opening a version for a preview gave (И5, И14).
+ */
+export type ServerVersionState = 
+/**
+ * The text is there.
+ */
+"ok" | 
+/**
+ * The body does not match the header: neither shown nor restorable.
+ */
+"damaged" | 
+/**
+ * Bigger than the memory limit (Д71): not downloaded.
+ */
+"tooLarge" | 
+/**
+ * The server could not be reached.
+ */
+"offline"
+/**
+ * The text of a version for the preview, the same as for a snapshot (И5).
+ */
+export type ServerVersionText = { 
+/**
+ * How it went.
+ */
+state: ServerVersionState; 
+/**
+ * The content as text when `state` is `Ok` and it is valid UTF-8.
+ */
+content: string | null }
+/**
+ * One version from the server in the history list of a note (И1).
+ */
+export type ServerVersionView = { 
+/**
+ * The item on the server, 32 hex digits.
+ */
+itemId: string; 
+/**
+ * The version number on the server.
+ */
+version: number; 
+/**
+ * The path this version had; differs from the note's path after a rename (И2-г).
+ */
+path: string; 
+/**
+ * Size of the content in bytes.
+ */
+sizeBytes: number; 
+/**
+ * BLAKE3 of the content, 64 hex digits.
+ */
+contentHash: string; 
+/**
+ * `committed_ms` of the server, for display only (Р3).
+ */
+committedMs: number; 
+/**
+ * This computer or another device.
+ */
+device: VersionDevice; 
+/**
+ * The name of the device when the server knows it.
+ */
+deviceName: string | null }
 /**
  * The result of signing out.
  */
@@ -3597,6 +3910,18 @@ itemErrors: number;
  * What the last pass did.
  */
 last: PassSummary | null }
+/**
+ * Whose change a version is (И1).
+ */
+export type VersionDevice = 
+/**
+ * Made on this computer.
+ */
+"thisDevice" | 
+/**
+ * Made on another device.
+ */
+"otherDevice"
 export type WorkshopSectionSummary = { id: string; role: string; name: string; databaseId: string; 
 /**
  * The relative path recorded in the structure file (a hint).

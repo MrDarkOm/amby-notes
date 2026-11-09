@@ -70,6 +70,8 @@ pub struct SyncRuntime {
     hooks: Arc<dyn SessionHooks>,
     hints: Arc<RenameHints>,
     inner: Mutex<Inner>,
+    /// The list of deleted files of the server, kept until the next pass (appendix И, И13).
+    history_cache: Arc<crate::sync::server_history::ServerHistoryCache>,
     /// Counts the requests to open, close or switch on a vault: an answer that comes after a
     /// newer request is out of date and changes nothing.
     epoch: AtomicU64,
@@ -124,6 +126,7 @@ impl SyncRuntime {
             hooks,
             hints: Arc::new(RenameHints::new()),
             inner: Mutex::new(Inner::default()),
+            history_cache: Arc::default(),
             epoch: AtomicU64::new(0),
         }
     }
@@ -140,6 +143,17 @@ impl SyncRuntime {
 
     fn inner(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The session of the open vault as the history of the server needs it; `None` while sync of
+    /// the vault is not running (appendix И, И4).
+    pub fn history_link(&self) -> Option<crate::sync::server_history::HistoryLink> {
+        self.inner().session.as_ref()?.history_link()
+    }
+
+    /// The cache of the "on the server" list of the archive.
+    pub fn history_cache(&self) -> Arc<crate::sync::server_history::ServerHistoryCache> {
+        self.history_cache.clone()
     }
 
     /// The renames made through Amby, waiting for the next pass (Д70).
@@ -425,6 +439,7 @@ impl SyncRuntime {
     }
 
     fn stop_session(&self) {
+        self.history_cache.invalidate();
         let session = self.inner().session.take();
         if let Some(session) = session {
             session.stop();
@@ -665,6 +680,7 @@ impl SyncRuntime {
 
     /// The vault was closed or another one is opened: stops the session.
     pub fn deactivate_vault(&self) {
+        self.history_cache.invalidate();
         self.next_epoch();
         self.stop_session();
         let mut inner = self.inner();

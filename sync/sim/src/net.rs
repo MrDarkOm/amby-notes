@@ -9,7 +9,7 @@ use amby_sync_conformance::client::{hex16, unhex, Space};
 use amby_sync_core::crypto::keys::{BodyId, ItemId};
 use amby_sync_core::engine::{
     AccountInfo, BlobState, ChangeEntry, ChangesPage, CommitAccepted, CommitItem, CommitReply,
-    Remote, RemoteError, ServerInfo, VersionConflict,
+    Remote, RemoteError, ServerInfo, VersionConflict, VersionEntry,
 };
 use serde_json::{json, Value};
 
@@ -138,6 +138,31 @@ impl Remote for HttpRemote {
             live_bytes: body["usage"]["live_bytes"].as_u64().unwrap_or(0),
             pending_bytes: body["usage"]["pending_bytes"].as_u64().unwrap_or(0),
         })
+    }
+
+    fn versions(&mut self, item: &ItemId) -> Result<Vec<VersionEntry>, RemoteError> {
+        let space = self.space();
+        let resp = retrying(|| space.versions(item));
+        let body = check(&resp, &[200])?;
+        Ok(body["versions"]
+            .as_array()
+            .map(|list| {
+                list.iter()
+                    .map(|v| VersionEntry {
+                        item_id: *item,
+                        version: v["version"].as_u64().unwrap_or(0),
+                        seq: v["seq"].as_u64().unwrap_or(0),
+                        header: unhex(v["header"].as_str().unwrap_or("")),
+                        blob_id: v["blob_id"].as_str().map(|s| BodyId::from_bytes(id16(s))),
+                        blob_size: v["blob_size"].as_u64(),
+                        deleted: v["deleted"].as_bool().unwrap_or(false),
+                        device_id: id16(v["device_id"].as_str().unwrap_or(&"00".repeat(16))),
+                        committed_ms: v["committed_ms"].as_i64().unwrap_or(0),
+                        superseded_ms: v["superseded_ms"].as_i64(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default())
     }
 
     fn blob_start(

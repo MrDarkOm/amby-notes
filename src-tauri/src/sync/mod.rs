@@ -24,6 +24,7 @@ pub mod password;
 pub mod remote;
 pub mod runtime;
 pub mod secrets;
+pub mod server_history;
 pub mod service;
 pub mod session;
 pub mod space;
@@ -111,6 +112,8 @@ mod rules_doc_tests;
 mod runtime_backup_tests;
 #[cfg(test)]
 mod runtime_tests;
+#[cfg(test)]
+mod server_history_tests;
 #[cfg(test)]
 mod service_password_change_tests;
 #[cfg(test)]

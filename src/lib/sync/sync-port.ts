@@ -23,6 +23,14 @@ import type {
   SignOutResult,
   SyncStatus,
   VaultSyncStatus,
+  DeletedOnServer,
+  NoteServerVersions,
+  RestoreDeletedOutcome,
+  RestoreVersionOutcome,
+  RestoreVersionStatus,
+  ServerVersionState,
+  ServerVersionText,
+  ServerVersionView,
 } from "@/lib/bindings"
 
 export type {
@@ -30,12 +38,20 @@ export type {
   ApprovalKind,
   ConflictChoice,
   ConflictVersions,
+  DeletedOnServer,
   DeviceView,
   GroupConflictVersions,
   NotePick,
+  NoteServerVersions,
   PasswordCheck,
   PreparedAccountView,
+  RestoreDeletedOutcome,
+  RestoreVersionOutcome,
+  RestoreVersionStatus,
   ServerCheck,
+  ServerVersionState,
+  ServerVersionText,
+  ServerVersionView,
   SpaceView,
   SyncStatus,
   VaultSyncStatus,
@@ -174,6 +190,23 @@ export interface SyncPort {
    * (`conflict_changed` when a file changed since).
    */
   resolveGroupConflict(id: string, picks: Record<string, NotePick>, stamp: string): Promise<void>
+  // ----- earlier versions and deleted files from the server (appendix И, Э5) -----
+
+  /** The server versions of a note for its history panel (И1–И4). Never throws for "no sync" or "no network": see `available`. */
+  noteVersions(path: string): Promise<NoteServerVersions>
+  /** The text of one server version for the preview (И5). */
+  readServerVersion(path: string, itemId: string, version: number): Promise<ServerVersionText>
+  /** "Вернуть" for a server version (И6); `expectedHash` is the hash of the file when the list was shown. */
+  restoreServerVersion(
+    path: string,
+    itemId: string,
+    version: number,
+    expectedHash: string,
+  ): Promise<RestoreVersionOutcome>
+  /** The "on the server" part of the archive (И9–И13). */
+  deletedFiles(): Promise<DeletedOnServer>
+  /** "Вернуть" for deleted files of the server (И15, И17). */
+  restoreDeleted(itemIds: string[]): Promise<RestoreDeletedOutcome>
   /** Calls `listener` whenever the status changes; returns the function that stops it. */
   onVaultStatus(listener: (status: VaultSyncStatus) => void): Promise<() => void>
   /** Calls `listener` with the vault and the paths (in it) of files deleted on another computer. */
@@ -283,6 +316,13 @@ export function createDesktopSyncPort(): SyncPort {
     resolveGroupConflict: async (id, picks, stamp) => {
       await call(commands.syncResolveGroupConflict(id, picks, stamp))
     },
+    noteVersions: (path) => call(commands.syncNoteVersions(path)),
+    readServerVersion: (path, itemId, version) =>
+      call(commands.syncReadServerVersion(path, itemId, version)),
+    restoreServerVersion: (path, itemId, version, expectedHash) =>
+      call(commands.syncRestoreServerVersion(path, itemId, version, expectedHash)),
+    deletedFiles: () => call(commands.syncDeletedFiles()),
+    restoreDeleted: (itemIds) => call(commands.syncRestoreDeleted(itemIds)),
     onVaultStatus: async (listener) => {
       try {
         const { listen } = await import("@tauri-apps/api/event")
@@ -397,6 +437,11 @@ export const unavailableSyncPort: SyncPort = {
   resolveConflictWithText: unavailable,
   readGroupConflict: unavailable,
   resolveGroupConflict: unavailable,
+  noteVersions: async () => ({ available: false, reason: "syncOff", versions: [] }),
+  readServerVersion: unavailable,
+  restoreServerVersion: unavailable,
+  deletedFiles: async () => ({ available: false, reason: "syncOff", files: [], truncated: false }),
+  restoreDeleted: unavailable,
   onVaultStatus: async () => () => {},
   onRemoteDeleted: async () => () => {},
   onRestoredAfterDeletion: async () => () => {},

@@ -11,6 +11,7 @@ use amby_sync_core::crypto::keys::{BodyId, ItemId};
 use amby_sync_core::engine::{
     AccountInfo, BlobState, ChangesPage, CommitItem, CommitReply, Engine, EngineConfig,
     EngineError, LimitSource, Ports, Remote, RemoteError, ServerInfo, SyncEngine, UnsyncedReason,
+    VersionEntry,
 };
 use amby_sync_sim::world::{World, WorldOptions};
 
@@ -119,6 +120,10 @@ impl Remote for RejectingRemote {
             return Err(self.rejection());
         }
         self.inner.blob_start(blob, size, replaces)
+    }
+
+    fn versions(&mut self, item: &ItemId) -> Result<Vec<VersionEntry>, RemoteError> {
+        self.inner.versions(item)
     }
 
     fn blob_delete(&mut self, blob: &BodyId) -> Result<(), RemoteError> {
