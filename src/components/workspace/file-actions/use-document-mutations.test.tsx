@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, render, renderHook, screen } from "@testing-library/react"
+import { act, cleanup, render, renderHook, screen, waitFor } from "@testing-library/react"
 import * as React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
@@ -247,6 +247,15 @@ describe("the offer to carry the properties of a moved note to the database", ()
       await ref.current!.handleMoveItem(["n1"], "/v/B")
     })
   }
+  // The move waits for the person's answer to the question, so it is started and answered, not awaited at once.
+  const QUESTION = "Перенести свойства заметки?"
+  const answer = async (started: Promise<unknown>, button: string) => {
+    await waitFor(() => expect(screen.getByText(QUESTION)).toBeTruthy())
+    await act(async () => {
+      screen.getByText(button).click()
+      await started
+    })
+  }
 
   beforeEach(async () => {
     await i18n.changeLanguage("ru")
@@ -263,10 +272,12 @@ describe("the offer to carry the properties of a moved note to the database", ()
 
   it("asks once the note is in the database, and writes nothing before the answer", async () => {
     const ref = mountedHarness()
-    await move(ref)
-    expect(screen.getByText("Перенести свойства заметки?")).toBeTruthy()
+    const started = ref.current!.handleMoveItem(["n1"], "/v/B")
+    await waitFor(() => expect(screen.getByText(QUESTION)).toBeTruthy())
     expect(backupCustomProperties).not.toHaveBeenCalled()
     expect(useTreeMessageStore.getState().message).toBeNull()
+    await answer(started, "Сохранить копию")
+    expect(backupCustomProperties).toHaveBeenCalledWith("/v", "n1")
   })
 
   it("does not ask, and says nothing, when the note is not in a database", async () => {
@@ -304,13 +315,7 @@ describe("the offer to carry the properties of a moved note to the database", ()
     const ref = mountedHarness()
     await move(ref)
     const retry = useTreeMessageStore.getState().message!.action!.run
-    await act(async () => {
-      await retry()
-    })
-    expect(screen.getByText("Перенести свойства заметки?")).toBeTruthy()
-    await act(async () => {
-      screen.getByText("Сохранить копию").click()
-    })
+    await answer(retry(), "Сохранить копию")
     expect(backupCustomProperties).toHaveBeenCalledWith("/v", "n1")
     expect(useTreeMessageStore.getState().message).toBeNull()
     expect(usePropertyMoveRetryStore.getState().failed["n1"]).toBeUndefined()
@@ -319,8 +324,8 @@ describe("the offer to carry the properties of a moved note to the database", ()
   it("reads the properties again after the move when the first read failed", async () => {
     getNoteProperties.mockRejectedValueOnce(new Error("busy")).mockResolvedValue(PROPERTIES)
     const ref = mountedHarness()
-    await move(ref)
-    expect(screen.getByText("Перенести свойства заметки?")).toBeTruthy()
+    const started = ref.current!.handleMoveItem(["n1"], "/v/B")
+    await answer(started, "Сохранить копию")
     expect(useTreeMessageStore.getState().message).toBeNull()
   })
 
@@ -335,10 +340,8 @@ describe("the offer to carry the properties of a moved note to the database", ()
   it("says it when the copy of the properties cannot be saved, instead of calling the move failed", async () => {
     backupCustomProperties.mockRejectedValue(new Error("disk"))
     const ref = mountedHarness()
-    await move(ref)
-    await act(async () => {
-      screen.getByText("Сохранить копию").click()
-    })
+    const started = ref.current!.handleMoveItem(["n1"], "/v/B")
+    await answer(started, "Сохранить копию")
     const message = useTreeMessageStore.getState().message
     expect(message?.titleKey).toBe("notices.tree.propertiesKept")
     expect(message?.action).toBeDefined()

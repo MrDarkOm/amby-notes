@@ -30,10 +30,12 @@ import {
   type CustomProperty,
   type DatabaseNoteContext,
   type DatabasePropertySummary,
+  DatabaseOperationError,
 } from "@/lib/storage"
 import { useDocStore } from "../use-doc-store"
 import { useTabsStore } from "../use-tabs-store"
 import { useTreeMessageStore } from "../tree/use-tree-message-store"
+import { usePropertyMoveRetryStore } from "./property-move-retry-store"
 import { findTreeItem } from "../workspace-tree-utils"
 import { moveTreeItemsOptimistically } from "../workspace-mutations"
 import { concatTreePatches } from "../tree-patch"
@@ -233,6 +235,80 @@ export function useDocumentMutations({
       return null
     })
   }, [])
+  /**
+   * After a note went into a database: offer to carry its own properties over, or to save them aside.
+   * It never throws and never writes before the answer. Whatever stops it (the properties or the place
+   * in the database cannot be read, the writing fails) is said under the tree with a button to try again
+   * and as a card of the note; the properties stay in the note then (docs/notices.md, section 8).
+   * `known` is what was read before the move; if that failed, it is read again here.
+   */
+  const offerPropertiesToDatabase = React.useCallback(
+    async (noteId: string, name: string, known: CustomProperty[] | null): Promise<void> => {
+      if (!vault) return
+      const retry = () => offerPropertiesToDatabase(noteId, name, null)
+      const keepInNote = (event: string, error: unknown) => {
+        logger.warn(event, { failureCode: operationErrorCode(error) })
+        usePropertyMoveRetryStore.getState().set(noteId, { name, retry })
+        useTreeMessageStore.getState().show({
+          id: `properties-kept:${noteId}`,
+          level: "warning",
+          titleKey: "notices.tree.propertiesKept",
+          params: { name },
+          lineKey: "notices.tree.propertiesKeptLine",
+          action: { labelKey: "notices.tree.propertiesRetry", run: retry },
+        })
+      }
+      const done = () => {
+        usePropertyMoveRetryStore.getState().clear(noteId)
+        const shown = useTreeMessageStore.getState().message
+        if (shown?.id === `properties-kept:${noteId}`) useTreeMessageStore.getState().dismiss()
+      }
+      let properties = known
+      if (!properties) {
+        try {
+          properties = (await getNoteProperties(vault, noteId)).customProperties
+        } catch (error) {
+          keepInNote("file.move_properties_read_failed", error)
+          return
+        }
+      }
+      if (!properties.length) return done()
+      let databaseContext: DatabaseNoteContext | null
+      try {
+        databaseContext = await getDatabaseNoteContext(noteId)
+      } catch (error) {
+        // The module is off: for the person the note is in no database, so there is nothing to offer.
+        if (error instanceof DatabaseOperationError && error.kind === "moduleDisabled")
+          return done()
+        keepInNote("file.move_database_context_failed", error)
+        return
+      }
+      // Not in a database (it went out of one, or into a plain folder): nothing to carry over.
+      if (!databaseContext) return done()
+      const choice = await requestPropertyMigration(
+        properties.length,
+        databaseContext.databaseTitle,
+      )
+      try {
+        if (choice === "database") {
+          await migratePropertiesToDatabase(vault, databaseContext, properties)
+        } else {
+          await backupCustomProperties(vault, noteId)
+        }
+      } catch (error) {
+        keepInNote("file.move_properties_write_failed", error)
+        return
+      }
+      done()
+      try {
+        await refreshTree()
+      } catch (error) {
+        // The move and the properties are saved; the tree catches up with the next change.
+        logger.warn("file.move_refresh_failed", { failureCode: operationErrorCode(error) })
+      }
+    },
+    [refreshTree, requestPropertyMigration, vault],
+  )
   const handleRenameFile = React.useCallback(
     async (id: string, newName: string): Promise<RenameOutcome> => {
       const item = findTreeItem(treeItems, id)
@@ -352,18 +428,19 @@ export function useDocumentMutations({
       const finishLocalMutation = beginLocalTreeMutation()
       try {
         const source = sourceEntries.length === 1 ? sourceEntries[0].source : null
-        const previousProperties =
+        // Read before the move; if that fails, the offer after the move reads again.
+        const previousProperties: CustomProperty[] | null =
           source?.type === "file"
-            ? await getNoteProperties(vault, source.id).catch((error: unknown) => {
-                // Not read: the move goes on without offering to carry the properties over (it
-                // would not know what to carry). The properties stay in the note; the owner
-                // decides whether this should stop the move instead.
-                logger.warn("file.move_properties_read_failed", {
-                  failureCode: operationErrorCode(error),
-                })
-                return null
-              })
-            : null
+            ? await getNoteProperties(vault, source.id).then(
+                (properties) => properties.customProperties,
+                (error: unknown) => {
+                  logger.debug("file.move_properties_read_failed", {
+                    failureCode: operationErrorCode(error),
+                  })
+                  return null
+                },
+              )
+            : []
         if (sourceEntries.length === 1) {
           const preview = await previewMoveRefactor(vault, sourceEntries[0].sourcePath, targetPath)
           if (
@@ -423,33 +500,10 @@ export function useDocumentMutations({
           pathChangesCount: pathChanges.length,
         })
 
-        if (previousProperties?.customProperties.length && source) {
-          const databaseContext = await getDatabaseNoteContext(source.id).catch(
-            (error: unknown) => {
-              // Not read: the question "carry the properties over?" is not asked. The properties
-              // stay in the note; the owner decides whether this should stop the move.
-              logger.warn("file.move_database_context_failed", {
-                failureCode: operationErrorCode(error),
-              })
-              return null
-            },
-          )
-          if (databaseContext) {
-            const choice = await requestPropertyMigration(
-              previousProperties.customProperties.length,
-              databaseContext.databaseTitle,
-            )
-            if (choice === "database") {
-              await migratePropertiesToDatabase(
-                vault,
-                databaseContext,
-                previousProperties.customProperties,
-              )
-            } else {
-              await backupCustomProperties(vault, source.id)
-            }
-            await refreshTree()
-          }
+        // A single note moved: carry its properties over if it is now in a database. Not awaited for
+        // the person's answer in the outcome of the move: the move itself is done.
+        if (source?.type === "file" && previousProperties?.length !== 0) {
+          await offerPropertiesToDatabase(source.id, source.name, previousProperties)
         }
         return "moved"
       } catch (error) {
@@ -488,7 +542,7 @@ export function useDocumentMutations({
         finishLocalMutation()
       }
     },
-    [handleApplyMutation, refreshTree, requestPropertyMigration, setTreeItems, treeItems, vault],
+    [handleApplyMutation, offerPropertiesToDatabase, setTreeItems, treeItems, vault],
   )
   const handleMergeFile = React.useCallback(
     async (sourceId: string, targetId: string) => {

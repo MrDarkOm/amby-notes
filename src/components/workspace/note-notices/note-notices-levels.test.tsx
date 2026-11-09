@@ -10,6 +10,7 @@ import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import { useSyncNoticesStore } from "../sync/use-sync-notices-store"
 import { NoteNotices, type NoteNoticesProps } from "./note-notices"
+import { usePropertyMoveRetryStore } from "../file-actions/property-move-retry-store"
 import { useNoteNoticesStore } from "./use-note-notices-store"
 
 vi.mock("@/lib/storage", async (importOriginal) => ({
@@ -49,12 +50,34 @@ beforeEach(async () => {
   useDocStore.setState({ openDocs: {}, externalConflicts: {}, activeConflictDialogFileId: null })
   useSyncNoticesStore.setState(useSyncNoticesStore.getInitialState())
   useNoteNoticesStore.setState(useNoteNoticesStore.getInitialState())
+  usePropertyMoveRetryStore.getState().clearAll()
   vi.mocked(listTrash).mockResolvedValue([])
   vi.mocked(restoreTrash).mockResolvedValue({ changed: [] } as never)
 })
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+})
+
+describe("properties that were not carried over to the database", () => {
+  it("is a warning card with a button that asks again, for that note only", async () => {
+    const retry = vi.fn().mockResolvedValue(undefined)
+    act(() => usePropertyMoveRetryStore.getState().set(ABSOLUTE, { name: "идея", retry }))
+    mount()
+    expect(card("note-notice-properties-to-database").getAttribute("data-level")).toBe("warning")
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Перенести" }))
+    })
+    expect(retry).toHaveBeenCalledOnce()
+  })
+
+  it("is not on another note", () => {
+    act(() =>
+      usePropertyMoveRetryStore.getState().set("/vault/other.md", { name: "x", retry: vi.fn() }),
+    )
+    mount()
+    expect(screen.queryByTestId("note-notice-properties-to-database")).toBeNull()
+  })
 })
 
 describe("the level of every card of a note", () => {

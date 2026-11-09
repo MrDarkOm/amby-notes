@@ -1853,6 +1853,9 @@ const ru = {
       deleteLine: "Остальное обработано. Подробности в журнале отладки.",
       importSkipped: "Не всё удалось скопировать в хранилище:\n{{list}}",
       nothingChanged: "Ничего не изменилось.",
+      propertiesKept: "Свойства «{{name}}» не перенесены в базу",
+      propertiesKeptLine: "Они остались в заметке, ничего не потеряно.",
+      propertiesRetry: "Перенести",
     },
     centre: {
       title: "Уведомления",
@@ -1921,6 +1924,12 @@ const ru = {
     },
   },
   noteNotices: {
+    propertiesToDatabase: {
+      title: "Свойства не перенесены в базу",
+      line: "Они остались в заметке, ничего не потеряно.",
+      action: "Перенести",
+      busy: "Переношу…",
+    },
     properties: {
       failed: "Не удалось: {{details}}",
       migrated: "Свойства переведены в новый формат.",
@@ -6264,6 +6273,9 @@ const en: typeof ru = {
       deleteLine: "The rest was handled. Details are in the debug log.",
       importSkipped: "Not everything could be copied into the vault:\n{{list}}",
       nothingChanged: "Nothing has changed.",
+      propertiesKept: "The properties of “{{name}}” were not moved to the database",
+      propertiesKeptLine: "They stayed in the note, nothing is lost.",
+      propertiesRetry: "Move them",
     },
     centre: {
       title: "Notifications",
@@ -6331,6 +6343,12 @@ const en: typeof ru = {
     },
   },
   noteNotices: {
+    propertiesToDatabase: {
+      title: "The properties were not moved to the database",
+      line: "They stayed in the note, nothing is lost.",
+      action: "Move them",
+      busy: "Moving…",
+    },
     properties: {
       failed: "Failed: {{details}}",
       migrated: "Properties moved to the new format.",

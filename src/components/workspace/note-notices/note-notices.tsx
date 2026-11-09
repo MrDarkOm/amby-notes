@@ -23,6 +23,7 @@ import {
 import { motionTransitions } from "@/lib/motion-config"
 import { Card, type Notice } from "./notice-card"
 import { usePropertyNotices } from "./property-notices"
+import { usePropertyMoveRetryStore } from "../file-actions/property-move-retry-store"
 import { useNoteNoticesStore } from "./use-note-notices-store"
 
 export interface NoteNoticesProps {
@@ -77,6 +78,8 @@ function NoteNoticesOf({
     relative ? state.merged.includes(relative) : false,
   )
 
+  const propertyMoveRetry = usePropertyMoveRetryStore((state) => state.failed[document.id])
+  const [retryingPropertyMove, setRetryingPropertyMove] = React.useState(false)
   const [restoringRemote, setRestoringRemote] = React.useState(false)
   const [remoteRestoreError, setRemoteRestoreError] = React.useState(false)
   const [restoringDeleted, setRestoringDeleted] = React.useState(false)
@@ -305,6 +308,37 @@ function NoteNoticesOf({
           testId="note-notice-property-failed"
           level="danger"
           title={t("noteNotices.properties.saveFailed")}
+        />
+      ),
+    })
+  }
+  // The note went into a database and its properties were not carried over: they are still in the note.
+  if (propertyMoveRetry) {
+    notices.push({
+      id: "properties-to-database",
+      card: (
+        <Card
+          key="properties-to-database"
+          testId="note-notice-properties-to-database"
+          level="warning"
+          title={t("noteNotices.propertiesToDatabase.title")}
+          lines={[t("noteNotices.propertiesToDatabase.line")]}
+          actions={
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={retryingPropertyMove}
+              onClick={() => {
+                setRetryingPropertyMove(true)
+                void propertyMoveRetry.retry().finally(() => setRetryingPropertyMove(false))
+              }}
+            >
+              {retryingPropertyMove
+                ? t("noteNotices.propertiesToDatabase.busy")
+                : t("noteNotices.propertiesToDatabase.action")}
+            </Button>
+          }
         />
       ),
     })
