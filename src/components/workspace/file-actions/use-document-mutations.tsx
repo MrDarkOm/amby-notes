@@ -19,6 +19,7 @@ import {
   deleteItem,
   getDatabaseNoteContext,
   getNoteProperties,
+  listDatabases,
   moveItem,
   previewMoveRefactor,
   previewRenameRefactor,
@@ -49,6 +50,21 @@ type Params = Pick<
   "vault" | "treeItems" | "setTreeItems" | "refreshTree" | "backendGeneration"
 > &
   MarkdownAutosaveActions & { handleSelect: (id: string) => Promise<void> }
+
+/**
+ * The app's own writes do not reach the open databases (the watcher skips them): after a note went into
+ * one, or its fields were made, they read their rows and fields again.
+ */
+async function refreshOpenDatabases() {
+  const store = useDatabaseStore.getState()
+  store.invalidateHosts()
+  if (store.catalogStatus === "disabled") return
+  try {
+    useDatabaseStore.getState().setCatalog(await listDatabases())
+  } catch (error) {
+    logger.debug("file.move_databases_refresh_failed", { failureCode: operationErrorCode(error) })
+  }
+}
 
 type PropertyMigrationChoice = "database" | "backup"
 
@@ -160,6 +176,7 @@ export function useDocumentMutations({
         return
       }
       done()
+      await refreshOpenDatabases()
       try {
         await refreshTree()
       } catch (error) {
@@ -360,6 +377,7 @@ export function useDocumentMutations({
           pathChangesCount: pathChanges.length,
         })
 
+        await refreshOpenDatabases()
         // A single note moved: carry its properties over if it is now in a database. Not awaited for
         // the person's answer in the outcome of the move: the move itself is done.
         if (source?.type === "file" && previousProperties?.length !== 0) {

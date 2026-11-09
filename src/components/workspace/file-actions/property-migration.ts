@@ -31,12 +31,19 @@ const sameText = (a: string, b: string) =>
 
 /** What the person would call the properties of the note: those with a look and the plain header keys. */
 export function propertiesToMigrate(note: NoteProperties): MigratingProperty[] {
-  const found: MigratingProperty[] = [...(note.customProperties ?? [])]
+  const found: MigratingProperty[] = (note.customProperties ?? []).map((property) => ({
+    ...property,
+  }))
   for (const property of note.properties ?? []) {
     const key = property.key.trim()
     if (!key || key.toLowerCase().startsWith("amby-") || KEPT_IN_NOTE.has(key.toLowerCase()))
       continue
-    if (found.some((existing) => sameText(existing.name, key))) continue
+    const known = found.find((existing) => sameText(existing.name, key))
+    if (known) {
+      // A look the panel derived for a list carries its items joined; the header has them whole.
+      if (known.propertyType === "list" && !known.items) known.items = property.items
+      continue
+    }
     const propertyType =
       property.valueKind === "number" ||
       property.valueKind === "checkbox" ||
@@ -64,9 +71,10 @@ function listItems(property: MigratingProperty): string[] {
     if (Array.isArray(parsed))
       return parsed.filter((item): item is string => typeof item === "string")
   } catch {
-    // Not a JSON list: the value is one item, below.
+    // Not a JSON list: the items are not known (the value is only their text joined), and the options of
+    // the settings stand for them.
   }
-  return property.value ? [property.value] : []
+  return []
 }
 
 function migratedPropertyType(property: MigratingProperty): string {
