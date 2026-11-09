@@ -767,6 +767,39 @@ pub fn init_logging() {
     let _ = subscriber.try_init();
 }
 
+/// The event name and dotted target of a backend tracing event. Amby's own events carry an explicit
+/// `event`. A record of a dependency carries none: one bridged from the `log` crate has target `log`
+/// and its real crate in `log.target`, and a dependency's own tracing event has its crate as target.
+/// Both are stored as `dependency.log` (an unknown name would become `diagnostic.invalid_event` and
+/// hide that something happened); the bridge's `log.*` fields are dropped, and the free-text message
+/// never survives metadata sanitizing.
+fn backend_event_name(target: &str, fields: &mut Map<String, Value>) -> (String, String) {
+    let bridged_target = if target == "log" {
+        fields
+            .get("log.target")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    } else {
+        None
+    };
+    fields.retain(|key, _| !key.starts_with("log."));
+    let real_target = bridged_target
+        .as_deref()
+        .unwrap_or(target)
+        .replace("::", ".");
+    let name = match fields
+        .remove("event")
+        .and_then(|value| value.as_str().map(str::to_owned))
+    {
+        Some(name) => name,
+        None if real_target == "amby_notes" || real_target.starts_with("amby_notes.") => {
+            real_target.clone()
+        }
+        None => "dependency.log".to_owned(),
+    };
+    (name, real_target)
+}
+
 struct DiagnosticsLayer(Arc<DebugRuntime>);
 #[derive(Clone)]
 struct CorrelationContext {
@@ -818,11 +851,7 @@ where
         event.record(&mut visitor);
         let metadata = event.metadata();
         let mut fields = visitor.values;
-        let target = metadata.target().replace("::", ".");
-        let event_name = fields
-            .remove("event")
-            .and_then(|v| v.as_str().map(str::to_owned))
-            .unwrap_or_else(|| target.clone());
+        let (event_name, target) = backend_event_name(metadata.target(), &mut fields);
         let operation_id = fields
             .remove("operation_id")
             .and_then(|value| value.as_str().map(str::to_owned))
@@ -1004,6 +1033,7 @@ fn allowed_event(value: &str) -> bool {
         "database_projection_rebuild_failed",
         "database_row_index_update_failed",
         "debug.invalid_event",
+        "dependency.log",
         "debug.invalid_subsystem",
         "delete_custom_property",
         "delete_database_property",
@@ -1631,14 +1661,25 @@ mod tests {
         event.metadata = Some(sanitize_metadata(fields, "session"));
         let stored = runtime.ingest(event).unwrap();
         assert_eq!(stored.event, "dependency.log");
-        assert!(!serde_json::to_string(&stored).unwrap().contains("did not respond"));
+        assert!(!serde_json::to_string(&stored)
+            .unwrap()
+            .contains("did not respond"));
 
         // A tracing event of another crate without `event` is a dependency record too.
         let mut fields = Map::new();
-        assert_eq!(backend_event_name("tao::platform_impl", &mut fields).0, "dependency.log");
+        assert_eq!(
+            backend_event_name("tao::platform_impl", &mut fields).0,
+            "dependency.log"
+        );
         // Amby's own events keep their explicit name.
-        let mut fields = serde_json::json!({ "event": "vault.opened" }).as_object().unwrap().clone();
-        assert_eq!(backend_event_name("amby_notes::vault", &mut fields).0, "vault.opened");
+        let mut fields = serde_json::json!({ "event": "vault.opened" })
+            .as_object()
+            .unwrap()
+            .clone();
+        assert_eq!(
+            backend_event_name("amby_notes::vault", &mut fields).0,
+            "vault.opened"
+        );
     }
 
     #[test]

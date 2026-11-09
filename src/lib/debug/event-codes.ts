@@ -110,6 +110,7 @@ const EVENT_CODES = new Set([
   "debug.invalid_subsystem",
   "delete_custom_property",
   "delete_database_property",
+  "dependency.log",
   "delete_item",
   "duplicate_database_row",
   "deleted_note_restore_index_failed",
