@@ -1,5 +1,6 @@
 "use client"
 
+import type { RenameOutcome } from "../file-actions/rename-outcome"
 import * as React from "react"
 
 import type { EditorHandle } from "../tiptap/constants"
@@ -43,7 +44,7 @@ export interface DocumentEditorProps {
   onForward?: () => void
   canGoBack?: boolean
   canGoForward?: boolean
-  onRenameTitle?: (newName: string) => void
+  onRenameTitle?: (newName: string) => Promise<RenameOutcome | void> | void
   vault?: string
   isFocusMode?: boolean
   hideNavigation?: boolean

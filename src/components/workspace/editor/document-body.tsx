@@ -37,6 +37,7 @@ import { IconValue } from "../icon-value"
 import { KNOWN_ICONS } from "../tree/tree-types"
 import type { TreeItem } from "../sidebar-tree"
 import { stripMdExt } from "./document-breadcrumbs-utils"
+import type { RenameOutcome } from "../file-actions/rename-outcome"
 import { DocumentTitle } from "./document-title"
 import { DocumentAreaControls } from "./document-area-controls"
 import { LAYER_OPTIONS, type DocumentViewMode, type EditorLayer } from "./use-document-view-mode"
@@ -69,7 +70,7 @@ export interface DocumentBodyProps {
   onFileIconChange?: (icon: string) => void
   editingTitle: boolean
   onEditingTitleChange: (editing: boolean) => void
-  onRenameTitle?: (newName: string) => void
+  onRenameTitle?: (newName: string) => Promise<RenameOutcome | void> | void
   nestedNotes: TreeItem[]
   nestedNotesPlacement: "top" | "bottom" | "hidden"
   onNestedNotesPlacementChange?: (placement: "top" | "bottom" | "hidden") => void

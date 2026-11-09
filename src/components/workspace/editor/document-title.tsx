@@ -8,6 +8,8 @@ import { motion } from "motion/react"
 import { motionTransitions } from "@/lib/motion-config"
 import { IconValue } from "../icon-value"
 import { KNOWN_ICONS } from "../tree/tree-types"
+import { renameFailureText, type RenameOutcome } from "../file-actions/rename-outcome"
+import { RenameHint } from "../notices/rename-hint"
 import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
 import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "../tiptap/floating-menu-events"
 
@@ -16,7 +18,8 @@ export interface DocumentTitleProps {
   fileIcon?: string
   editingTitle: boolean
   onEditingTitleChange: (editing: boolean) => void
-  onRenameTitle?: (newName: string) => void
+  /** Resolves with how the rename ended; a refused name keeps the field open with the reason under it. */
+  onRenameTitle?: (newName: string) => Promise<RenameOutcome | void> | void
   onFileIconChange?: (icon: string) => void
   onSubmit?: () => void
 }
@@ -35,6 +38,10 @@ export function DocumentTitle({
   const [emojiPickerOpen, setEmojiPickerOpen] = React.useState(false)
   const titleInputRef = React.useRef<HTMLTextAreaElement>(null)
   const emojiSlotRef = React.useRef<HTMLDivElement>(null)
+  const renamingRef = React.useRef(false)
+  // The name just taken: leaving the field after Enter must not hand it over a second time.
+  const settledRef = React.useRef<string | null>(null)
+  const [refused, setRefused] = React.useState<{ name: string; text: string } | null>(null)
 
   React.useEffect(() => {
     setTitleValue(title)
@@ -51,24 +58,62 @@ export function DocumentTitle({
     field.style.height = `${Math.max(field.scrollHeight, 32)}px`
   }, [titleValue])
 
-  function commitTitleRename() {
+  /**
+   * Hand the typed name over and wait for the outcome. `true` when the field may close; `false` when
+   * the name was refused, and then the field stays with the typed name and the reason under it.
+   */
+  async function commitTitleRename(): Promise<boolean> {
     const trimmed = titleValue.trim()
-    if (trimmed && trimmed !== title) onRenameTitle?.(trimmed)
+    if (renamingRef.current) return false
+    if (trimmed && trimmed === settledRef.current) {
+      onEditingTitleChange(false)
+      return true
+    }
+    // Leaving the field with the refused name still in it gives up, instead of asking again.
+    if (!trimmed || trimmed === title || trimmed === refused?.name) {
+      giveUp()
+      return true
+    }
+    renamingRef.current = true
+    try {
+      const outcome = await onRenameTitle?.(trimmed)
+      const text = renameFailureText(outcome)
+      if (text) {
+        setRefused({ name: trimmed, text })
+        return false
+      }
+      setRefused(null)
+      settledRef.current = trimmed
+      onEditingTitleChange(false)
+      return true
+    } catch {
+      // The rename reports its own failure as an outcome; a throw has nothing to show.
+      onEditingTitleChange(false)
+      return true
+    } finally {
+      renamingRef.current = false
+    }
+  }
+
+  function giveUp() {
+    setTitleValue(title)
+    setRefused(null)
     onEditingTitleChange(false)
   }
 
   function handleTitleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter") {
       e.preventDefault()
-      commitTitleRename()
-      titleInputRef.current?.blur()
-      onSubmit?.()
+      void commitTitleRename().then((closed) => {
+        if (!closed) return
+        titleInputRef.current?.blur()
+        onSubmit?.()
+      })
     }
-    if (e.key === "Escape") {
-      setTitleValue(title)
-      onEditingTitleChange(false)
-    }
+    if (e.key === "Escape") giveUp()
   }
+
+  const hintText = refused && titleValue.trim() === refused.name ? refused.text : null
 
   const hasPageEmoji = Boolean(fileIcon && !KNOWN_ICONS.has(fileIcon))
 
@@ -145,14 +190,26 @@ export function DocumentTitle({
         value={titleValue}
         readOnly={!editingTitle}
         aria-label={title}
+        aria-invalid={hintText ? true : undefined}
+        aria-describedby={hintText ? "document-title-rename-hint" : undefined}
         onFocus={() => {
           if (!editingTitle) onEditingTitleChange(true)
         }}
-        onChange={(e) => setTitleValue(e.target.value)}
-        onBlur={commitTitleRename}
+        onChange={(e) => {
+          settledRef.current = null
+          setTitleValue(e.target.value)
+        }}
+        onBlur={() => void commitTitleRename()}
         onKeyDown={handleTitleKeyDown}
         className="min-h-8 min-w-0 flex-1 cursor-text resize-none overflow-hidden whitespace-pre-wrap break-words border-0 bg-transparent p-0 text-2xl font-semibold leading-tight tracking-tight text-foreground outline-none sm:text-3xl"
       />
+      {hintText && (
+        <RenameHint
+          id="document-title-rename-hint"
+          text={hintText}
+          className="absolute left-0 top-full z-10 mt-1 max-w-full"
+        />
+      )}
     </div>
   )
 }
