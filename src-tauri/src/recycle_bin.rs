@@ -64,7 +64,10 @@ fn manifest_path(root: &Path, id: &str) -> PathBuf {
 fn collect_markdown_paths(path: &Path) -> Result<Vec<PathBuf>, String> {
     if path.is_file() {
         return Ok(
-            if path.extension().is_some_and(|extension| extension == "md") {
+            // Notes, and the sketch and canvas files the renderer holds open buffers of.
+            if path.extension().is_some_and(|extension| {
+                matches!(extension.to_str(), Some("md" | "canvas" | "excalidraw"))
+            }) {
                 vec![path.to_path_buf()]
             } else {
                 Vec::new()
@@ -605,7 +608,8 @@ mod tests {
         let deleted = move_to_trash(&vault, &main).unwrap();
 
         assert!(!bundle.exists());
-        assert_eq!(deleted.deleted_paths.len(), 2);
+        // Two notes and the canvas and sketch layers of the bundle.
+        assert_eq!(deleted.deleted_paths.len(), 4);
         let entry = list(&vault).pop().unwrap();
         let restored = restore(&vault, &entry.id).unwrap();
 
