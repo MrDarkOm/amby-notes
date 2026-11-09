@@ -260,7 +260,7 @@ export function useDocumentMutations({
       }
       const done = () => {
         usePropertyMoveRetryStore.getState().clear(noteId)
-        const shown = useTreeMessageStore.getState().message
+        const { message: shown } = useTreeMessageStore.getState()
         if (shown?.id === `properties-kept:${noteId}`) useTreeMessageStore.getState().dismiss()
       }
       let properties = known

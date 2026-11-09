@@ -1065,6 +1065,7 @@ fn allowed_event(value: &str) -> bool {
         "file.create_properties_read_failed",
         "file.delete_failed",
         "file.move_database_context_failed",
+        "file.move_refresh_failed",
         "file.move_properties_read_failed",
         "file.move",
         "file.move_failed",

@@ -16,7 +16,6 @@ interface Case {
 }
 
 const cases: Record<string, Case> = {
-  restoreVersion: { destructive: false, ask: () => confirmations.restoreVersion() },
   deleteVersion: { destructive: true, ask: () => confirmations.deleteVersion() },
   cleanHistory: {
     destructive: true,
@@ -33,11 +32,6 @@ const cases: Record<string, Case> = {
     names: ["Черновик"],
     ask: () => confirmations.deleteArchived({ name: "Черновик" }),
   },
-  removeTheme: {
-    destructive: false,
-    names: ["Закат"],
-    ask: () => confirmations.removeTheme({ name: "Закат" }),
-  },
   resetSettings: { destructive: true, ask: () => confirmations.resetSettings() },
   deleteDebugHistory: { destructive: true, ask: () => confirmations.deleteDebugHistory() },
   deleteLayer: {
@@ -49,11 +43,6 @@ const cases: Record<string, Case> = {
     destructive: true,
     names: ["Домашний"],
     ask: () => confirmations.removeAiConnection({ name: "Домашний" }),
-  },
-  deleteNotebook: {
-    destructive: false,
-    names: ["Архив"],
-    ask: () => confirmations.deleteNotebook({ name: "Архив", count: 3, where: "«Мир»" }),
   },
   renameRefactor: {
     destructive: false,

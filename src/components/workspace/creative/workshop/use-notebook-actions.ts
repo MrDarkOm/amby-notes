@@ -1,7 +1,5 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { confirm } from "@/lib/confirm"
-import { confirmations } from "@/lib/confirmations"
 import { createFolder, deleteItem, type NotebookCatalog } from "@/lib/storage"
 import {
   absolutePathOf,
@@ -189,14 +187,7 @@ export function useNotebookActions({
       setError(t("creative.notebooks.errors.unavailable"))
       return
     }
-    const confirmed = await confirm(
-      confirmations.deleteNotebook({
-        name: node.name,
-        count: plan.moves.length,
-        where,
-      }),
-    )
-    if (!confirmed) return
+    // Not asked: the notes only go up one level, and the empty folder goes to the trash (docs/notices.md, section 9).
 
     // 1. The notes go up, with their links and open tabs, by the tree's own move.
     if (plan.moves.length > 0) {

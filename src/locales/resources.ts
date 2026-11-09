@@ -501,6 +501,8 @@ const ru = {
       importTheme: "Импортировать тему",
       exportTheme: "Экспортировать",
       removeTheme: "Удалить",
+      themeRemoved: "Тема «{{name}}» убрана из библиотеки.",
+      themeUndo: "Вернуть",
       discoverThemes: "Найти темы",
       builtinThemes: "Встроенные темы",
       importedThemes: "Импортированные темы",
@@ -601,11 +603,6 @@ const ru = {
     },
   },
   confirmations: {
-    restoreVersion: {
-      title: "Восстановить эту версию?",
-      description: "Текущая версия сохранится в истории.",
-      confirm: "Восстановить",
-    },
     deleteVersion: {
       title: "Удалить эту версию?",
       description: "Версия исчезнет из истории, вернуть её будет нельзя.",
@@ -626,11 +623,6 @@ const ru = {
       description: "Заметка исчезнет из архива, вернуть её будет нельзя.",
       confirm: "Удалить",
     },
-    removeTheme: {
-      title: "Убрать тему «{{name}}» из библиотеки?",
-      description: "Файл темы на диске не изменится, её можно будет добавить снова.",
-      confirm: "Убрать",
-    },
     resetSettings: {
       title: "Сбросить все настройки?",
       description: "Настройки вернутся к значениям по умолчанию, заметки не затрагиваются.",
@@ -649,12 +641,6 @@ const ru = {
     removeAiConnection: {
       title: "Удалить подключение «{{name}}»?",
       description: "Ключ удалится, если им не пользуются другие подключения; беседы сохранятся.",
-      confirm: "Удалить",
-    },
-    deleteNotebook: {
-      title: "Удалить блокнот «{{name}}»?",
-      description:
-        "Заметки не удаляются: все заметки блокнота ({{count}}) переедут в «{{where}}», а пустая папка уйдёт в корзину.",
       confirm: "Удалить",
     },
     renameRefactor: {
@@ -4933,6 +4919,8 @@ const en: typeof ru = {
       importTheme: "Import theme",
       exportTheme: "Export",
       removeTheme: "Remove",
+      themeRemoved: "The theme “{{name}}” was removed from the library.",
+      themeUndo: "Undo",
       discoverThemes: "Discover themes",
       builtinThemes: "Built-in themes",
       importedThemes: "Imported themes",
@@ -5031,11 +5019,6 @@ const en: typeof ru = {
     },
   },
   confirmations: {
-    restoreVersion: {
-      title: "Restore this version?",
-      description: "The current version will be saved in the history.",
-      confirm: "Restore",
-    },
     deleteVersion: {
       title: "Delete this version?",
       description: "The version will leave the history and cannot be brought back.",
@@ -5056,11 +5039,6 @@ const en: typeof ru = {
       description: "The note will leave the archive and cannot be brought back.",
       confirm: "Delete",
     },
-    removeTheme: {
-      title: "Remove the theme “{{name}}” from the library?",
-      description: "The theme file on the disk stays as it is; you can add the theme again.",
-      confirm: "Remove",
-    },
     resetSettings: {
       title: "Reset all settings?",
       description: "Settings go back to their defaults; your notes are not touched.",
@@ -5079,12 +5057,6 @@ const en: typeof ru = {
     removeAiConnection: {
       title: "Delete the connection “{{name}}”?",
       description: "Its key is deleted unless another connection uses it; chats are kept.",
-      confirm: "Delete",
-    },
-    deleteNotebook: {
-      title: "Delete the notebook “{{name}}”?",
-      description:
-        "No note is deleted: all notes of the notebook ({{count}}) move to “{{where}}”, and the empty folder goes to the trash.",
       confirm: "Delete",
     },
     renameRefactor: {
