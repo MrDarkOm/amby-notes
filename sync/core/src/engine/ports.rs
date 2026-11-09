@@ -257,6 +257,32 @@ pub struct ChangeEntry {
     pub committed_ms: i64,
 }
 
+/// One version of an item as `GET …/items/{item}/versions` lists it (П33, appendix И). The
+/// header is still sealed: [`crate::engine::history::server_history`] opens and checks it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VersionEntry {
+    /// The item.
+    pub item_id: ItemId,
+    /// The version number.
+    pub version: u64,
+    /// Sequence number of the commit that made this version.
+    pub seq: u64,
+    /// The encrypted header envelope (Ф18).
+    pub header: Vec<u8>,
+    /// The body of this version, if any.
+    pub blob_id: Option<BodyId>,
+    /// Size of the sealed body, if any.
+    pub blob_size: Option<u64>,
+    /// The open deletion mark (not trusted, Р6).
+    pub deleted: bool,
+    /// The device that made the commit.
+    pub device_id: [u8; 16],
+    /// When the server accepted it (shown only, Р3).
+    pub committed_ms: i64,
+    /// When a newer version replaced this one; `None` for the latest (П35).
+    pub superseded_ms: Option<i64>,
+}
+
 /// A page of the change feed (П31).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChangesPage {
@@ -381,6 +407,10 @@ pub trait Remote {
     fn blob_complete(&mut self, blob: &BodyId) -> Result<(), RemoteError>;
     /// `GET …/blobs/{id}`: the sealed body as a stream (П24).
     fn blob_download(&mut self, blob: &BodyId) -> Result<Box<dyn Read + '_>, RemoteError>;
+    /// `GET …/items/{item}/versions` (П33): every living version of the item, newest first. An
+    /// item the server does not have (also one removed by the cleanup, П36) is
+    /// `Rejected { status: 404, code: "not_found" }`. Appendix И, И2, И10, И18.
+    fn versions(&mut self, item: &ItemId) -> Result<Vec<VersionEntry>, RemoteError>;
     /// `POST …/commit` (П26–П28).
     fn commit(
         &mut self,

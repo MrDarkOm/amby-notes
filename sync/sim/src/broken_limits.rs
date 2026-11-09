@@ -13,6 +13,7 @@ use amby_sync_core::engine::{
     CycleRequest, Direction, Engine, EngineBuilder, EngineConfig, EngineError, FsError, Listing,
     LocalFs, NameRules, Ports, Remote, RemoteError, RootState, ServerInfo, StagedWrite, StateError,
     StateLock, StateOp, StateStore, StopReason, SyncEngine, SyncState, TrashReason, UnsyncedReason,
+    VersionEntry,
 };
 
 use crate::invariants::Kind;
@@ -164,6 +165,10 @@ impl Remote for RetryingRemote {
     fn blob_download(&mut self, blob: &BodyId) -> Result<Box<dyn Read + '_>, RemoteError> {
         self.inner.blob_download(blob)
     }
+    fn versions(&mut self, item: &ItemId) -> Result<Vec<VersionEntry>, RemoteError> {
+        self.inner.versions(item)
+    }
+
     fn commit(
         &mut self,
         commit_id: &[u8; 16],

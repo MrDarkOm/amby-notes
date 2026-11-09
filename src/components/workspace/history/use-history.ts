@@ -13,6 +13,12 @@ import {
   type HistoryStats,
   type SnapshotEntry,
 } from "@/lib/storage"
+import type {
+  NoteServerVersions,
+  RestoreVersionStatus,
+  ServerVersionState,
+  ServerVersionView,
+} from "@/lib/sync/sync-port"
 import { listen } from "@tauri-apps/api/event"
 import { adoptAsyncDisposer } from "@/lib/async-disposable"
 import { confirm } from "@/lib/confirm"
@@ -243,7 +249,30 @@ export function useHistory(path: string | null | undefined, onRestored?: () => P
     })
   }
 
+  // Stage Э5, appendix И (plan, раздел 6): the server part of the list. Interface only; the
+  // behaviour comes with the implementation, after the tests in `history-server-versions.test.tsx`.
+  const server = null as NoteServerVersions | null
+  const selectedServer = null as ServerVersionView | null
+  const serverPreview = null as ServerVersionState | null
+  const serverRestoreStatus = null as RestoreVersionStatus | null
+  /** Selects a version from the server for the preview (И5); `null` clears the choice. */
+  function selectServer(version: ServerVersionView | null): Promise<void> {
+    void version
+    return Promise.resolve()
+  }
+  /** "Вернуть" for a version from the server (И6). */
+  function restoreServer(version: ServerVersionView): Promise<void> {
+    void version
+    return Promise.resolve()
+  }
+
   return {
+    server,
+    selectedServer,
+    serverPreview,
+    serverRestoreStatus,
+    selectServer,
+    restoreServer,
     snapshots,
     stats,
     loading,

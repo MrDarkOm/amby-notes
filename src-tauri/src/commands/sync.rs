@@ -345,3 +345,59 @@ pub fn sync_resolve_conflict_with_text(
 ) -> Result<(), SyncError> {
     runtime.resolve_conflict_with_text(&id, &text, &stamp)
 }
+
+// ----- earlier versions and deleted files from the server (appendix И, Э5) -----
+//
+// Stubs of stage Э5 (plan, раздел 6): the names and the shapes are final for the tests, the bodies
+// come with the implementation. The flows are in [`crate::sync::server_history`].
+
+use crate::sync::server_history::{
+    DeletedOnServer, NoteServerVersions, RestoreDeletedOutcome, RestoreVersionOutcome,
+    ServerVersionText,
+};
+
+/// The server versions of a note for its history panel (И1–И4, И19).
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_note_versions(_path: String) -> Result<NoteServerVersions, SyncError> {
+    todo!("И19: sync_note_versions")
+}
+
+/// The text of one server version of a note for the preview (И5, И19).
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_read_server_version(
+    _path: String,
+    _item_id: String,
+    _version: u64,
+) -> Result<ServerVersionText, SyncError> {
+    todo!("И19: sync_read_server_version")
+}
+
+/// "Вернуть" for a server version of a note (И6, И19).
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_restore_server_version(
+    _path: String,
+    _item_id: String,
+    _version: u64,
+    _expected_hash: String,
+) -> Result<RestoreVersionOutcome, SyncError> {
+    todo!("И19: sync_restore_server_version")
+}
+
+/// The "on the server" part of the archive (И9–И13, И19).
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_deleted_files() -> Result<DeletedOnServer, SyncError> {
+    todo!("И19: sync_deleted_files")
+}
+
+/// "Вернуть" for deleted files of the server (И15, И17, И19).
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_restore_deleted(
+    _item_ids: Vec<String>,
+) -> Result<RestoreDeletedOutcome, SyncError> {
+    todo!("И19: sync_restore_deleted")
+}

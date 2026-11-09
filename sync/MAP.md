@@ -150,16 +150,17 @@ Stage Э4б (conflicts v2: the merge of a note and the conflict store; strict or
 plan (decisions Г1–Г36). The tests were written first (red run in the report), the code was written against them in another session.
 Report with the red run, the implementation and the open questions: `sync-e4b-report.md` (local archive).
 
-| File                                                                                         | Owns                                                                                                     |
-| -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| [core/src/engine/merge.rs](core/src/engine/merge.rs)                                         | `merge_text`: the three-way merge of a note by lines and Markdown blocks (К1, Г5, Г11–Г15)               |
-| [core/src/engine/conflict_set.rs](core/src/engine/conflict_set.rs)                           | the set of a conflict in `.amby/conflicts/<id>/`: paths, identifier v2, `meta.json` (К2, Г21–Г22)        |
-| `StateStore::base_put / base_get / base_prune` in [ports.rs](core/src/engine/ports.rs)       | the base of the merge on the device, `.amby/sync/bases/` (Г6–Г9)                                         |
-| [sim/src/linemerge.rs](sim/src/linemerge.rs)                                                 | the reference merge of the simulation (independent of the core; the mini-engine and the checks use it)   |
-| [sim/src/conflicts.rs](sim/src/conflicts.rs)                                                 | an independent reader and writer of the layout of a set (Г21–Г23) for the mini-engine and the invariants |
-| [sim/tests/merge_k1.rs](sim/tests/merge_k1.rs), [conflicts_k2.rs](sim/tests/conflicts_k2.rs) | directed scenarios of К1 and К2 against the real engine and the correct mini-engine                      |
-| [core/tests/engine_merge.rs](core/tests/engine_merge.rs) and `engine_merge_props.rs`         | the table of cases and the properties of the merge, bytes included                                       |
-| `core/tests/engine_conflict_set.rs`, `engine_conflict_rules.rs`                              | the layout of a set and the rule of Р4 for `.amby/conflicts/`                                            |
+| File                                                                                         | Owns                                                                                                                                                  |
+| -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [core/src/engine/merge.rs](core/src/engine/merge.rs)                                         | `merge_text`: the three-way merge of a note by lines and Markdown blocks (К1, Г5, Г11–Г15)                                                            |
+| [core/src/engine/history.rs](core/src/engine/history.rs)                                     | earlier versions and deleted files from the server: `server_history`, `open_version_body`, `deleted_files` (appendix И; stubs until the code session) |
+| [core/src/engine/conflict_set.rs](core/src/engine/conflict_set.rs)                           | the set of a conflict in `.amby/conflicts/<id>/`: paths, identifier v2, `meta.json` (К2, Г21–Г22)                                                     |
+| `StateStore::base_put / base_get / base_prune` in [ports.rs](core/src/engine/ports.rs)       | the base of the merge on the device, `.amby/sync/bases/` (Г6–Г9)                                                                                      |
+| [sim/src/linemerge.rs](sim/src/linemerge.rs)                                                 | the reference merge of the simulation (independent of the core; the mini-engine and the checks use it)                                                |
+| [sim/src/conflicts.rs](sim/src/conflicts.rs)                                                 | an independent reader and writer of the layout of a set (Г21–Г23) for the mini-engine and the invariants                                              |
+| [sim/tests/merge_k1.rs](sim/tests/merge_k1.rs), [conflicts_k2.rs](sim/tests/conflicts_k2.rs) | directed scenarios of К1 and К2 against the real engine and the correct mini-engine                                                                   |
+| [core/tests/engine_merge.rs](core/tests/engine_merge.rs) and `engine_merge_props.rs`         | the table of cases and the properties of the merge, bytes included                                                                                    |
+| `core/tests/engine_conflict_set.rs`, `engine_conflict_rules.rs`                              | the layout of a set and the rule of Р4 for `.amby/conflicts/`                                                                                         |
 
 How the engine uses them: `decide.rs` makes the place of the second version (`copy_for`: a set with identifier v2, or the old
 copy beside the file inside `.amby/conflicts/`, Г19), loads nothing itself; `sync.rs` reads the bases of the items that both sides may

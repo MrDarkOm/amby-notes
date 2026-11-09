@@ -9,6 +9,7 @@ use amby_sync_client::{BlobDownload, ClientError, DeviceToken, SyncClient};
 use amby_sync_core::crypto::keys::{BodyId, ItemId};
 use amby_sync_core::engine::{
     AccountInfo, BlobState, ChangesPage, CommitItem, CommitReply, Remote, RemoteError, ServerInfo,
+    VersionEntry,
 };
 
 /// A signed-in device and a space.
@@ -177,6 +178,12 @@ impl Remote for HttpRemote {
             at: 0,
             done: false,
         }))
+    }
+
+    /// Appendix И, И2: the client of the protocol has no `versions` call yet; the implementation
+    /// session adds it (`sync/client`) and answers here.
+    fn versions(&mut self, _item: &ItemId) -> Result<Vec<VersionEntry>, RemoteError> {
+        todo!("И2: GET …/items/{{item}}/versions")
     }
 
     fn commit(

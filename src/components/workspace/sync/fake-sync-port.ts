@@ -293,6 +293,16 @@ export function createFakePort(overrides: Partial<SyncPort> = {}): FakePort {
       throw new SyncPortError("conflict_not_group")
     },
     resolveGroupConflict: async () => {},
+    noteVersions: async () => ({ available: true, reason: null, versions: [] }),
+    readServerVersion: async () => ({ state: "ok", content: "" }),
+    restoreServerVersion: async () => ({ status: "restored" }),
+    deletedFiles: async () => ({ available: true, reason: null, files: [], truncated: false }),
+    restoreDeleted: async (itemIds) => ({
+      requested: itemIds.length,
+      restored: itemIds.length,
+      damaged: 0,
+      results: itemIds.map((itemId) => ({ itemId, status: "restored", finalPath: null })),
+    }),
     onVaultStatus: async (listener) => {
       vaultListeners.add(listener)
       return () => {
