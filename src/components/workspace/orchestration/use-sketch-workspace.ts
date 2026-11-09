@@ -14,6 +14,8 @@ import { sketchLayerPath } from "../workspace-tree-utils"
 import { FileConflictPausedError, FileRevisionTracker } from "../autosave/file-revision-tracker"
 import { AutosaveCoordinator, type AutosaveKey } from "../autosave/autosave-coordinator"
 import { registerAutosaveLifecycle } from "../autosave/autosave-lifecycle"
+import { DeletedPaths } from "../autosave/deleted-paths"
+import { isPathInside } from "../workspace-mutations"
 import { settleLayerDraft } from "./layer-draft"
 import { CanvasLoadDeduplicator } from "./canvas-load-dedup"
 
@@ -41,6 +43,7 @@ export function useSketchWorkspace(
   const openSketches = openSketchesRef.current
   const sketchLoadsRef = React.useRef(new CanvasLoadDeduplicator())
   const revisionsRef = React.useRef(new FileRevisionTracker())
+  const deletedRef = React.useRef(new DeletedPaths())
   const vaultGenerationRef = React.useRef({ generation })
   vaultGenerationRef.current.generation = generation
 
@@ -97,6 +100,7 @@ export function useSketchWorkspace(
   const loadSketchBuffer = React.useCallback(
     (path: string): Promise<string> =>
       sketchLoadsRef.current.run(generation, path, async () => {
+        deletedRef.current.lift(path)
         let diskContent: string
         try {
           await revisionsRef.current.baseline(path)
@@ -138,10 +142,41 @@ export function useSketchWorkspace(
         console.error("Refusing to save invalid sketch:", error)
         return
       }
+      // Deleted by Amby: a closing editor must not queue a write (docs/notices.md, section 9).
+      if (deletedRef.current.covers(path)) return
       if (openSketchesRef.current[path] === normalized) return
       openSketchesRef.current = { ...openSketchesRef.current, [path]: normalized }
       scheduleRecoveryDraft(path, normalized, "sketch", path, recoveryScope)
       autosave.schedule(autosaveKey(path), { path, json: normalized })
+    },
+    [autosave, autosaveKey, recoveryScope],
+  )
+
+  /**
+   * Amby deleted these paths (or folders): forget every sketch buffer under them, with its queued
+   * save, recovery draft and file baseline, and drop later saves for them until the path is opened again.
+   */
+  const discardDeleted = React.useCallback(
+    (deletedPaths: readonly string[]) => {
+      const inside = (path: string) => deletedPaths.some((root) => isPathInside(path, root))
+      const known = new Set<string>(deletedPaths)
+      for (const path of Object.keys(openSketchesRef.current)) if (inside(path)) known.add(path)
+      for (const state of autosave.inspectAll()) {
+        if (state.key.kind === "sketch" && inside(state.key.documentId))
+          known.add(state.key.documentId)
+      }
+      for (const root of deletedPaths) deletedRef.current.add(root)
+      for (const path of known) {
+        autosave.discard(autosaveKey(path))
+        revisionsRef.current.forget(path)
+        void discardRecoveryDraft(path, recoveryScope)
+      }
+      if (Object.keys(openSketchesRef.current).some(inside)) {
+        openSketchesRef.current = Object.fromEntries(
+          Object.entries(openSketchesRef.current).filter(([path]) => !inside(path)),
+        )
+        setSketchRevision((revision) => revision + 1)
+      }
     },
     [autosave, autosaveKey, recoveryScope],
   )
@@ -194,6 +229,7 @@ export function useSketchWorkspace(
   return {
     autosave,
     autosaveKey,
+    discardDeleted,
     fileRevisions: revisionsRef.current,
     handleSketchSave,
     loadSketchBuffer,
