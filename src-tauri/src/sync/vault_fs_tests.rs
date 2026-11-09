@@ -822,3 +822,56 @@ fn a_batch_that_wrote_nothing_in_amby_tells_nothing_about_it() {
         vec!["begin", "end", "begin", "end"]
     );
 }
+
+#[test]
+fn a_batch_reports_property_removals_and_both_sides_of_renames() {
+    let vault = Vault::new();
+    let hooks = Arc::new(WrittenRecorder::default());
+    let mut fs = VaultFs::with_hooks(vault.root.clone(), hooks.clone());
+    vault.put(".amby/properties/removed.jsonl", b"{}");
+    vault.put(".amby/properties/renamed.jsonl", b"{}");
+    fs.batch_begin();
+    fs.move_to_trash(
+        ".amby/properties/removed.jsonl",
+        TrashReason::RemoteDeletion,
+    )
+    .unwrap();
+    fs.rename(
+        ".amby/properties/renamed.jsonl",
+        ".amby/properties/new-name.jsonl",
+    )
+    .unwrap();
+    fs.batch_end();
+
+    assert_eq!(
+        *hooks.0.lock().unwrap(),
+        vec![
+            "begin".to_string(),
+            "written .amby/properties/removed.jsonl,.amby/properties/renamed.jsonl,.amby/properties/new-name.jsonl".to_string(),
+            "end".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn a_batch_reports_a_renamed_properties_directory_and_its_removal() {
+    let vault = Vault::new();
+    let hooks = Arc::new(WrittenRecorder::default());
+    let mut fs = VaultFs::with_hooks(vault.root.clone(), hooks.clone());
+    vault.put(".amby/properties/prop_0.jsonl", b"{}");
+    fs.batch_begin();
+    fs.rename(".amby/properties", ".amby/properties-old")
+        .unwrap();
+    fs.create_dir(".amby/properties").unwrap();
+    assert!(fs.remove_empty_dir(".amby/properties").unwrap());
+    fs.batch_end();
+
+    assert_eq!(
+        *hooks.0.lock().unwrap(),
+        vec![
+            "begin".to_string(),
+            "written .amby/properties,.amby/properties-old".to_string(),
+            "end".to_string(),
+        ]
+    );
+}

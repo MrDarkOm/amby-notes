@@ -4,6 +4,7 @@ import {
   cleanupHistory,
   deleteSnapshot,
   getHistoryStats,
+  isTauri,
   listSnapshots,
   previewHistoryCleanup,
   readFile,
@@ -12,6 +13,8 @@ import {
   type HistoryStats,
   type SnapshotEntry,
 } from "@/lib/storage"
+import { listen } from "@tauri-apps/api/event"
+import { adoptAsyncDisposer } from "@/lib/async-disposable"
 import { confirm } from "@/lib/confirm"
 import { confirmations } from "@/lib/confirmations"
 import { errorType, logger } from "@/lib/logger"
@@ -80,6 +83,29 @@ export function useHistory(path: string | null | undefined, onRestored?: () => P
 
   React.useEffect(() => {
     void refresh()
+  }, [refresh])
+
+  React.useEffect(() => {
+    if (!isTauri()) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const schedule = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => void refresh(), 250)
+    }
+    const disposers = [
+      listen("amby:note-written", schedule),
+      listen("amby:files-changed", schedule),
+      listen("amby:database-written", schedule),
+      listen("vault-file-changed", schedule),
+    ].map((registration) =>
+      adoptAsyncDisposer(registration, (error) =>
+        logger.warn("history.change_listen_failed", { errorType: errorType(error) }),
+      ),
+    )
+    return () => {
+      if (timer) clearTimeout(timer)
+      for (const dispose of disposers) dispose()
+    }
   }, [refresh])
 
   async function select(entry: SnapshotEntry | null) {

@@ -46,3 +46,13 @@ Verification: colocated coordinator/lifecycle/integration tests,
 [document-persistence-stress.test.tsx](../../../../tests/component/document-persistence-stress.test.tsx),
 then targeted browser/native scenarios. Include a failed save, a newer edit during
 an in-flight save, external mutation and a vault/tab transition for relevant changes.
+
+A rename or move can rewrite inbound links in other files. Rust sends `amby:files-changed` with the vault generation and actual rewritten paths; `use-vault-data.ts` queues it through the same clean-buffer reload / dirty-buffer conflict path as external changes, including in the originating window.
+
+`amby:files-changed` also reports structural file actions, file saves in other windows, and snapshot/archive restores. Events carry the vault generation, and file saves identify the originating window. Database writes emit `amby:database-written` with affected note IDs and created paths; these enter the same reconciliation path. `amby:properties-written` rereads open properties with the property-version guard.
+
+When an external tree refresh no longer contains an open canvas or sketch, the tab and buffer remain available: the file revision check on the next save handles the missing or changed path. A tree refresh must not discard a potentially dirty layer.
+
+`remap-layer-autosave.ts` moves a canvas or sketch revision baseline before remapping its queued save and changes the queued payload to the new path.
+
+Recovery remapping checks the local queue for edits that arrive during the move. A draft already present at the destination is left intact along with the source; separate windows can still race and need native verification.

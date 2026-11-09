@@ -1,5 +1,8 @@
 "use client"
 
+import { remapExternalLayers } from "./orchestration/remap-external-layers"
+import { remapLayerAutosave } from "./autosave/remap-layer-autosave"
+
 import { useTagFocusStore } from "./tags/tag-focus-store"
 import { findModule } from "./modules"
 import { GRAPH_TAB_FILE_ID, useTabsStore } from "./use-tabs-store"
@@ -143,6 +146,42 @@ export function WorkspaceOrchestration() {
     [openCanvases, openSketches, reloadExternalCanvas, reloadExternalSketch, vault],
   )
 
+  const onPathsMoved = React.useCallback(
+    (changes: Array<{ oldPath: string; newPath: string }>) => {
+      remapExternalLayers(
+        changes,
+        [
+          {
+            kind: "canvas",
+            setBuffers: setOpenCanvases,
+            autosave: canvasAutosave,
+            key: canvasAutosaveKey,
+            revisions: canvasRevisions,
+          },
+          {
+            kind: "sketch",
+            setBuffers: setOpenSketches,
+            autosave: sketchAutosave,
+            key: sketchAutosaveKey,
+            revisions: sketchRevisions,
+          },
+        ],
+        recoveryScope,
+      )
+    },
+    [
+      setOpenCanvases,
+      canvasAutosave,
+      canvasAutosaveKey,
+      canvasRevisions,
+      setOpenSketches,
+      sketchAutosave,
+      sketchAutosaveKey,
+      sketchRevisions,
+      recoveryScope,
+    ],
+  )
+
   const {
     treeItems,
     setTreeItems,
@@ -155,7 +194,7 @@ export function WorkspaceOrchestration() {
     patchTree,
     reloadVaultData,
     windowLabel,
-  } = useVaultData({ onExternalChange })
+  } = useVaultData({ onExternalChange, onPathsMoved })
   useLinkSuggestionSources(vault, treeItems)
   useRefreshTreeOnArchiveChange(refreshTree, refreshTreePaths)
 
@@ -638,8 +677,12 @@ export function WorkspaceOrchestration() {
       for (const [path, json] of Object.entries(previous)) {
         const nextPath = remapFn(path)
         if (nextPath !== path) {
-          canvasAutosave.remapKey(canvasAutosaveKey(path), canvasAutosaveKey(nextPath))
-          canvasRevisions.rename(path, nextPath)
+          remapLayerAutosave(
+            canvasAutosave,
+            canvasRevisions,
+            canvasAutosaveKey(path),
+            canvasAutosaveKey(nextPath),
+          )
           void remapRecoveryDraft(path, nextPath, "canvas", nextPath, recoveryScope)
         }
         next[nextPath] = json
@@ -653,8 +696,12 @@ export function WorkspaceOrchestration() {
       for (const [path, json] of Object.entries(previous)) {
         const nextPath = remapFn(path)
         if (nextPath !== path) {
-          sketchAutosave.remapKey(sketchAutosaveKey(path), sketchAutosaveKey(nextPath))
-          sketchRevisions.rename(path, nextPath)
+          remapLayerAutosave(
+            sketchAutosave,
+            sketchRevisions,
+            sketchAutosaveKey(path),
+            sketchAutosaveKey(nextPath),
+          )
           void remapRecoveryDraft(path, nextPath, "sketch", nextPath, recoveryScope)
         }
         next[nextPath] = json

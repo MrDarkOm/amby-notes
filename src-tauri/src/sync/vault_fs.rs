@@ -54,6 +54,19 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 const AMBY_SYNCED_FOLDERS: [&str; 4] = ["blocks", "property-backups", "conflicts", "properties"];
 
 impl VaultFs {
+    fn record_amby_change(&self, path: &str) {
+        if !path.starts_with(".amby/") {
+            return;
+        }
+        if let Ok(mut changed) = self.amby_written.lock() {
+            if let Some(list) = changed.as_mut() {
+                if !list.iter().any(|existing| existing == path) {
+                    list.push(path.to_string());
+                }
+            }
+        }
+    }
+
     /// The vault at `root`, with no hooks.
     pub fn new(root: PathBuf) -> Self {
         Self {
@@ -436,7 +449,10 @@ impl LocalFs for VaultFs {
                 if !same {
                     return Err(FsError::AlreadyExists(to.to_string()));
                 }
-                return fs::rename(&source, &target).map_err(|error| map_io(to, &error));
+                fs::rename(&source, &target).map_err(|error| map_io(to, &error))?;
+                self.record_amby_change(from);
+                self.record_amby_change(to);
+                return Ok(());
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(map_io(to, &error)),
@@ -450,6 +466,8 @@ impl LocalFs for VaultFs {
             match frontmatter::publish_prepared_no_replace(&source, &target) {
                 Ok(()) => {
                     fs::remove_file(&source).map_err(|error| map_io(from, &error))?;
+                    self.record_amby_change(from);
+                    self.record_amby_change(to);
                     Ok(())
                 }
                 Err(frontmatter::AtomicCreateError::AlreadyExists) => {
@@ -462,14 +480,20 @@ impl LocalFs for VaultFs {
         } else {
             // A folder has no atomic move that refuses to replace; the target was just found
             // missing, and the system itself refuses to replace a folder that is not empty.
-            fs::rename(&source, &target).map_err(|error| map_io(to, &error))
+            fs::rename(&source, &target).map_err(|error| map_io(to, &error))?;
+            self.record_amby_change(from);
+            self.record_amby_change(to);
+            Ok(())
         }
     }
 
     fn move_to_trash(&mut self, path: &str, _reason: TrashReason) -> Result<(), FsError> {
         let target = self.resolve(path)?;
         fs::symlink_metadata(&target).map_err(|error| map_io(path, &error))?;
-        recycle_bin::move_exact_to_trash(&self.root, &target).map_err(|error| map_io(path, &error))
+        recycle_bin::move_exact_to_trash(&self.root, &target)
+            .map_err(|error| map_io(path, &error))?;
+        self.record_amby_change(path);
+        Ok(())
     }
 
     fn remove_empty_dir(&mut self, path: &str) -> Result<bool, FsError> {
@@ -485,7 +509,10 @@ impl LocalFs for VaultFs {
             return Ok(false);
         }
         match fs::remove_dir(&target) {
-            Ok(()) => Ok(true),
+            Ok(()) => {
+                self.record_amby_change(path);
+                Ok(true)
+            }
             Err(error)
                 if error.kind() == std::io::ErrorKind::NotFound
                     || error.kind() == std::io::ErrorKind::DirectoryNotEmpty =>

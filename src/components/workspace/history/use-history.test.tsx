@@ -18,10 +18,20 @@ const storage = vi.hoisted(() => ({
   readFile: vi.fn(),
   readSnapshotText: vi.fn(),
   restoreSnapshot: vi.fn(),
+  isTauri: vi.fn(() => false),
 }))
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
   ...storage,
+}))
+const events = vi.hoisted(() => new Map<string, () => void>())
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async (name: string, handler: () => void) => {
+    events.set(name, handler)
+    return () => {
+      events.delete(name)
+    }
+  }),
 }))
 vi.mock("@/lib/confirm", () => ({ confirm: vi.fn() }))
 const flush = vi.hoisted(() => vi.fn())
@@ -32,6 +42,8 @@ const ENTRY = { id: "s1", createdAtMs: 1, reason: "note-save", sizeBytes: 3 }
 beforeEach(async () => {
   await i18n.changeLanguage("ru")
   vi.clearAllMocks()
+  events.clear()
+  storage.isTauri.mockReturnValue(false)
   storage.listSnapshots.mockResolvedValue([ENTRY])
   storage.getHistoryStats.mockResolvedValue({ snapshotCount: 1, noteCount: 1, sizeBytes: 3 })
   storage.restoreSnapshot.mockResolvedValue("/v/Note.md")
@@ -60,5 +72,18 @@ describe("restoring a version", () => {
     })
     expect(storage.restoreSnapshot).not.toHaveBeenCalled()
     expect(result.current.error).not.toBe("")
+  })
+})
+
+describe("history updates", () => {
+  it("rereads the list when another operation creates a version", async () => {
+    storage.isTauri.mockReturnValue(true)
+    const { result } = renderHook(() => useHistory("/v/Note.md"))
+    await waitFor(() => expect(result.current.snapshots).toHaveLength(1))
+    await waitFor(() => expect(events.has("amby:note-written")).toBe(true))
+    storage.listSnapshots.mockResolvedValue([ENTRY, { ...ENTRY, id: "s2", createdAtMs: 2 }])
+    act(() => events.get("amby:note-written")!())
+    await waitFor(() => expect(result.current.snapshots).toHaveLength(2))
+    expect(result.current.snapshots[0].id).toBe("s2")
   })
 })

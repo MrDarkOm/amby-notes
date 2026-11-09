@@ -9,7 +9,7 @@ use crate::vault_index;
 use crate::watcher::{self, WatcherState};
 use std::path::Path;
 
-use super::mutations::sync_mutation_result;
+use super::mutations::{mutation_paths, sync_mutation_result};
 
 fn scoped_recovery_root(
     context: &VaultContext,
@@ -84,6 +84,7 @@ pub fn preview_history_cleanup(
 #[tauri::command]
 #[specta::specta]
 pub fn restore_snapshot(
+    app: tauri::AppHandle,
     scope: tauri::State<paths::VaultScope>,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
@@ -91,6 +92,7 @@ pub fn restore_snapshot(
 ) -> Result<String, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let vault = scope.get()?;
+    let generation = db.generation()?;
     let prepared_restore = history::prepare_snapshot_restore(&vault, &snapshot_id)?;
     let prepared_write = watcher_state.prepare_write([(
         &prepared_restore.path,
@@ -106,6 +108,7 @@ pub fn restore_snapshot(
             return Err(error);
         }
     };
+    watcher::notify_published_files(&app, &vault, generation, std::slice::from_ref(&path), None);
     let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     // One note was restored: re-read it and nothing else. Only a case the point update cannot
@@ -225,6 +228,7 @@ pub fn read_trash_preview(
 #[tauri::command]
 #[specta::specta]
 pub fn restore_trash(
+    app: tauri::AppHandle,
     scope: tauri::State<paths::VaultScope>,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
@@ -232,6 +236,7 @@ pub fn restore_trash(
 ) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let vault = scope.get()?;
+    let generation = db.generation()?;
     let preview = recycle_bin::preview_restore(&vault, &trash_id)?;
     let mut writes = vec![(
         (preview.destination.clone()),
@@ -244,6 +249,7 @@ pub fn restore_trash(
             watcher::path_fingerprint(source),
         ))
     }));
+    let mut restored_paths: Vec<_> = writes.iter().map(|(path, _)| path.clone()).collect();
     let prepared = watcher_state.prepare_write(writes);
     let result = match recycle_bin::restore(&vault, &trash_id) {
         Ok(result) => {
@@ -255,7 +261,12 @@ pub fn restore_trash(
             return Err(error);
         }
     };
-    Ok(sync_mutation_result(&db, &vault, result))
+    let outcome = sync_mutation_result(&db, &vault, result);
+    restored_paths.extend(mutation_paths(&outcome.mutation));
+    restored_paths.sort();
+    restored_paths.dedup();
+    watcher::notify_published_files(&app, &vault, generation, &restored_paths, None);
+    Ok(outcome)
 }
 
 #[tauri::command]

@@ -184,3 +184,7 @@ The simulation has two new invariants (`Kind::MergeLoss`, `NotMerged`, `Conflict
 five new broken mini-engines (`MergeDropsLine`, `NeverMerges`, `ConflictCopyInTree`, `MergeWritesMarks`, `MergeWithoutBase`). In the
 application: [conflict_store.rs](../src-tauri/src/sync/conflict_store.rs) is the port of the store of conflicts for the interface of К3 and К4
 (contract: appendix Г, Г.3).
+
+When sync removes or renames files inside `.amby/`, `VaultFs` includes the affected paths in `sync-amby-written` as well as published files; open property panels reread on changes to the properties directory or its children.
+
+Watcher events and their database/project invalidations are emitted together after a sync batch; events retained from an older vault generation are not delivered to the new activation.

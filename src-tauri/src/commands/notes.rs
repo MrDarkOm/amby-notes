@@ -51,6 +51,7 @@ fn file_revision(path: &std::path::Path) -> Result<String, String> {
 #[tauri::command]
 #[specta::specta]
 pub fn write_file(
+    window: tauri::WebviewWindow,
     scope: tauri::State<paths::VaultScope>,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
@@ -59,9 +60,11 @@ pub fn write_file(
     expected_revision: Option<String>,
 ) -> Result<String, crate::model::WriteFileError> {
     use crate::model::WriteFileError;
+    use tauri::Manager;
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(&scope, &path).map_err(WriteFileError::failed)?;
     let vault = scope.get().map_err(WriteFileError::failed)?;
+    let generation = db.generation().map_err(WriteFileError::failed)?;
     if let Some(expected) = &expected_revision {
         let actual = file_revision(&path).map_err(WriteFileError::failed)?;
         if &actual != expected {
@@ -81,6 +84,13 @@ pub fn write_file(
     match result {
         Ok(()) => {
             watcher_state.confirm_prepared_write(&prepared);
+            watcher::notify_published_files(
+                window.app_handle(),
+                &vault,
+                generation,
+                std::slice::from_ref(&path),
+                Some(window.label()),
+            );
             Ok(crate::database::format::raw_revision(&bytes))
         }
         Err(error) => {
@@ -93,6 +103,7 @@ pub fn write_file(
 #[tauri::command]
 #[specta::specta]
 pub fn save_conflict_copy(
+    app: tauri::AppHandle,
     scope: tauri::State<paths::VaultScope>,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
@@ -101,6 +112,8 @@ pub fn save_conflict_copy(
 ) -> Result<String, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let original = paths::guard(&scope, &path)?;
+    let vault = scope.get()?;
+    let generation = db.generation()?;
     let parent = original
         .parent()
         .ok_or_else(|| "Cannot create a copy without a parent directory".to_string())?;
@@ -123,6 +136,13 @@ pub fn save_conflict_copy(
         match frontmatter::atomic_write_new(&candidate, &content) {
             Ok(()) => {
                 watcher_state.confirm_prepared_write(&prepared);
+                watcher::notify_published_files(
+                    &app,
+                    &vault,
+                    generation,
+                    std::slice::from_ref(&candidate),
+                    None,
+                );
                 return Ok(candidate.to_string_lossy().to_string());
             }
             Err(frontmatter::AtomicCreateError::AlreadyExists) => {
@@ -413,6 +433,7 @@ pub fn restore_deleted_note(
         watcher::VaultFileChangedPayload {
             kind: "create".to_string(),
             path: path_string,
+            generation: request.expected_generation,
         },
     ) {
         tracing::warn!(event = "restored_note_tree_event_failed", error = %error);

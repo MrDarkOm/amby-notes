@@ -199,3 +199,62 @@ fn a_moved_note_with_properties_is_carried_over_and_listed_by_the_database() {
         .expect("a note with no recorded properties has nothing to back up, without an error");
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn database_rebuild_indexes_new_watcher_note_before_projecting_rows() {
+    let root =
+        std::env::temp_dir().join(format!("amby-database-pending-{}", ulid::Ulid::generate()));
+    fs::create_dir_all(&root).unwrap();
+    let root = root.canonicalize().unwrap();
+    let context = VaultContext::new();
+    context
+        .activate(root.to_str().unwrap(), |_| Ok(()), |_, _| ())
+        .unwrap();
+    let generation = context.generation().unwrap();
+    let created = create_database(
+        &root,
+        &WatcherState::new(),
+        &CreateDatabaseRequest {
+            expected_generation: generation,
+            mode: DatabaseCreateMode::Standalone,
+            parent_path: Some(root.to_string_lossy().into_owned()),
+            note_path: None,
+            name: "Incoming".to_owned(),
+        },
+    )
+    .unwrap();
+    let note_id = ulid::Ulid::generate().to_string();
+    let path = std::path::Path::new(&created.manifest_path)
+        .parent()
+        .unwrap()
+        .join("Remote.md");
+    fs::write(&path, format!("---\namby-id: {note_id}\n---\n\nRemote\n")).unwrap();
+    context
+        .with_active(|active| {
+            active.index_changes.lock().unwrap().insert(path.clone());
+            rebuild_database_projection(&active.connection, &active.root)?;
+            let before: i64 = active
+                .connection
+                .query_row(
+                    "SELECT COUNT(*) FROM db_members WHERE note_id = ?1",
+                    [&note_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            assert_eq!(before, 0, "projection alone sees no indexed note");
+            crate::database::projection::rebuild_after_pending_index(active)?;
+            let after: i64 = active
+                .connection
+                .query_row(
+                    "SELECT COUNT(*) FROM db_members WHERE note_id = ?1",
+                    [&note_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            assert_eq!(after, 1, "pending note is indexed before projection");
+            Ok(())
+        })
+        .unwrap();
+    drop(context);
+    fs::remove_dir_all(root).unwrap();
+}

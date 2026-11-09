@@ -61,6 +61,7 @@ describe("which written paths concern the properties", () => {
     expect(touchesNoteProperties([".amby/properties/legacy_3.jsonl"])).toBe(true)
     expect(touchesNoteProperties([".amby/properties/layout.json"])).toBe(true)
     expect(touchesNoteProperties([".amby/properties.json"])).toBe(true)
+    expect(touchesNoteProperties([".amby/properties"])).toBe(true)
     expect(touchesNoteProperties([".amby/blocks/n.json", ".amby/properties/prop_0.jsonl"])).toBe(
       true,
     )

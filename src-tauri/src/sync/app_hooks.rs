@@ -8,7 +8,9 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
+
+use crate::lock_util::LockExt;
 
 use crate::sync::session::SessionHooks;
 use crate::sync::vault_fs::FsHooks;
@@ -67,8 +69,17 @@ impl FsHooks for AppHooks {
     }
 
     fn batch_end(&self) {
-        for event in self.batch.end() {
-            let _ = self.app.emit("vault-file-changed", event);
+        let changes = self.batch.end();
+        let context = self.app.state::<crate::vault_context::VaultContext>();
+        let (vault, generation) = {
+            let guard = context.conn.lock_or_recover();
+            let Some(active) = guard.as_ref() else { return };
+            (active.root.clone(), active.generation)
+        };
+        for change in changes {
+            if change.generation == generation {
+                crate::watcher::emit_external_change(&self.app, &vault, generation, change);
+            }
         }
     }
 }

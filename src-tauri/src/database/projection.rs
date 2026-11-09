@@ -97,6 +97,15 @@ struct TypedValueColumns {
 }
 
 /// Rebuild all database tables from the current durable filesystem snapshot.
+/// A watcher can report a database change before its Markdown index update is consumed.
+/// Reconcile pending paths first so newly arrived notes can become database members.
+pub fn rebuild_after_pending_index(
+    active: &crate::vault_context::ActiveVault,
+) -> Result<ProjectionReport, String> {
+    active.refresh_pending_index()?;
+    rebuild_database_projection(&active.connection, &active.root)
+}
+
 pub fn rebuild_database_projection(
     conn: &Connection,
     vault: &Path,

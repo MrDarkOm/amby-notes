@@ -876,6 +876,26 @@ fn a_path_in_a_hidden_folder_changes_nothing_and_one_outside_the_vault_needs_the
 // ── what a rename or a move must still do to the rest of the vault ─────────────────────────
 
 #[test]
+fn rename_reports_rewritten_sources_for_open_windows() {
+    let vault = fixture();
+    let context = activate(&vault.0);
+    let result = rename_item_inner(
+        &context,
+        &DatabaseRuntimeState::default(),
+        &WatcherState::new(),
+        &|_, _| {},
+        vault.string("Projects/Alpha.md"),
+        "Renamed alpha".to_string(),
+    )
+    .unwrap();
+    let (generation, paths) = result.rewritten_notes.expect("rewritten sources reported");
+    assert_eq!(generation, context.generation().unwrap());
+    assert!(paths.contains(&vault.path("Projects/Beta.md")));
+    assert!(paths.contains(&vault.path("Root note.md")));
+    assert!(!paths.contains(&vault.path("Folder/Loose.md")));
+}
+
+#[test]
 fn a_rename_still_rewrites_literal_references_in_notes_and_canvases() {
     let vault = fixture();
     vault.write(

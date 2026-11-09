@@ -200,14 +200,36 @@ macro_rules! with_vault_mutation {
     }};
 }
 
+fn notify_properties_written(app: &tauri::AppHandle, generation: u64) {
+    use tauri::Emitter;
+    if let Err(error) = app.emit("amby:properties-written", generation) {
+        tracing::warn!(event = "properties_written_event_failed", %error);
+    }
+}
+
+// A property edit can write only `.amby`, which the filesystem watcher excludes.
+macro_rules! with_notified_property_mutation {
+    ($db:expr, $app:expr, |$conn:ident| $body:expr) => {{
+        let _mutation_guard = $db.mutation_gate.lock_or_recover();
+        let conn_guard = $db.conn.lock_or_recover();
+        let $conn = conn_guard.as_ref().ok_or("No vault open")?;
+        let result = $body;
+        if result.is_ok() {
+            notify_properties_written(&$app, $conn.generation);
+        }
+        result
+    }};
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn restore_dormant_property(
+    app: tauri::AppHandle,
     db: State<'_, VaultContext>,
     note_id: String,
     name: String,
 ) -> Result<(), String> {
-    with_vault_mutation!(db, |conn| property_groups::restore_dormant(
+    with_notified_property_mutation!(db, app, |conn| property_groups::restore_dormant(
         conn, &conn.root, &note_id, &name
     ))
 }
@@ -215,11 +237,12 @@ pub fn restore_dormant_property(
 #[tauri::command]
 #[specta::specta]
 pub fn purge_dormant_property(
+    app: tauri::AppHandle,
     db: State<'_, VaultContext>,
     note_id: String,
     name: String,
 ) -> Result<(), String> {
-    with_vault_mutation!(db, |conn| property_groups::purge_dormant(
+    with_notified_property_mutation!(db, app, |conn| property_groups::purge_dormant(
         conn, &conn.root, &note_id, &name
     ))
 }
@@ -227,6 +250,7 @@ pub fn purge_dormant_property(
 #[tauri::command]
 #[specta::specta]
 pub fn accept_property_rename_hint(
+    app: tauri::AppHandle,
     db: State<'_, VaultContext>,
     note_id: String,
     hint: RenameHintView,
@@ -235,7 +259,7 @@ pub fn accept_property_rename_hint(
         old_name: hint.old_name,
         new_name: hint.new_name,
     };
-    with_vault_mutation!(db, |conn| property_groups::accept_rename_hint(
+    with_notified_property_mutation!(db, app, |conn| property_groups::accept_rename_hint(
         conn, &conn.root, &note_id, &hint
     ))
 }
@@ -243,6 +267,7 @@ pub fn accept_property_rename_hint(
 #[tauri::command]
 #[specta::specta]
 pub fn dismiss_property_rename_hint(
+    app: tauri::AppHandle,
     db: State<'_, VaultContext>,
     note_id: String,
     hint: RenameHintView,
@@ -251,7 +276,7 @@ pub fn dismiss_property_rename_hint(
         old_name: hint.old_name,
         new_name: hint.new_name,
     };
-    with_vault_mutation!(db, |conn| property_groups::dismiss_rename_hint(
+    with_notified_property_mutation!(db, app, |conn| property_groups::dismiss_rename_hint(
         conn, &conn.root, &note_id, &hint
     ))
 }
@@ -332,17 +357,21 @@ fn sync_context(runtime: &SyncRuntime) -> migration::Context {
 #[tauri::command]
 #[specta::specta]
 pub fn open_vault_properties(
+    app: tauri::AppHandle,
     db: State<'_, VaultContext>,
     runtime: State<'_, SyncRuntime>,
 ) -> Result<OpenPropertiesView, String> {
     let context = sync_context(&runtime);
-    let outcome = with_vault_mutation!(db, |conn| {
+    let (outcome, generation) = with_vault_mutation!(db, |conn| {
         let outcome = migration::open_vault(conn, &conn.root, &context)?;
         if matches!(outcome, migration::OpenOutcome::Migrated(_)) {
             let _ = property_groups::restore_cache_any(conn, &conn.root);
         }
-        outcome
+        (outcome, conn.generation)
     });
+    if matches!(outcome, migration::OpenOutcome::Migrated(_)) {
+        notify_properties_written(&app, generation);
+    }
     let view = |state: &str, reason: Option<&str>| OpenPropertiesView {
         state: state.to_string(),
         reason: reason.map(str::to_string),
@@ -380,12 +409,13 @@ pub fn open_vault_properties(
 #[tauri::command]
 #[specta::specta]
 pub fn take_property_file_value(
+    app: tauri::AppHandle,
     db: State<'_, VaultContext>,
     note_id: String,
     file_name: String,
     name: String,
 ) -> Result<(), String> {
-    with_vault_mutation!(db, |conn| migration::take_file_value_as(
+    with_notified_property_mutation!(db, app, |conn| migration::take_file_value_as(
         conn, &conn.root, &note_id, &file_name, &name
     ))
 }
@@ -395,7 +425,10 @@ pub fn take_property_file_value(
 /// A new property: the key goes into the header, the look into the record if it differs.
 #[tauri::command]
 #[specta::specta]
+// IPC parameters remain separate for compatibility; AppHandle emits the change notification.
+#[allow(clippy::too_many_arguments)]
 pub fn create_note_property(
+    app: tauri::AppHandle,
     db: State<'_, VaultContext>,
     note_id: String,
     name: String,
@@ -404,7 +437,7 @@ pub fn create_note_property(
     settings: String,
     value: String,
 ) -> Result<String, String> {
-    with_vault_mutation!(db, |conn| property_groups::create_property(
+    with_notified_property_mutation!(db, app, |conn| property_groups::create_property(
         conn,
         &conn.root,
         &note_id,
@@ -421,12 +454,13 @@ pub fn create_note_property(
 #[tauri::command]
 #[specta::specta]
 pub fn rename_note_property(
+    app: tauri::AppHandle,
     db: State<'_, VaultContext>,
     note_id: String,
     name: String,
     new_name: String,
 ) -> Result<(), String> {
-    with_vault_mutation!(db, |conn| property_groups::rename_property(
+    with_notified_property_mutation!(db, app, |conn| property_groups::rename_property(
         conn, &conn.root, &note_id, &name, &new_name
     ))
 }
@@ -434,12 +468,13 @@ pub fn rename_note_property(
 #[tauri::command]
 #[specta::specta]
 pub fn change_note_property_type(
+    app: tauri::AppHandle,
     db: State<'_, VaultContext>,
     note_id: String,
     name: String,
     property_type: String,
 ) -> Result<(), String> {
-    with_vault_mutation!(db, |conn| property_groups::change_type(
+    with_notified_property_mutation!(db, app, |conn| property_groups::change_type(
         conn,
         &conn.root,
         &note_id,
@@ -451,13 +486,14 @@ pub fn change_note_property_type(
 #[tauri::command]
 #[specta::specta]
 pub fn set_note_property_appearance(
+    app: tauri::AppHandle,
     db: State<'_, VaultContext>,
     note_id: String,
     name: String,
     icon: Option<String>,
     settings: Option<String>,
 ) -> Result<(), String> {
-    with_vault_mutation!(db, |conn| property_groups::set_appearance_fields(
+    with_notified_property_mutation!(db, app, |conn| property_groups::set_appearance_fields(
         conn,
         &conn.root,
         &note_id,
@@ -470,12 +506,13 @@ pub fn set_note_property_appearance(
 #[tauri::command]
 #[specta::specta]
 pub fn set_note_property_value(
+    app: tauri::AppHandle,
     db: State<'_, VaultContext>,
     note_id: String,
     name: String,
     value: String,
 ) -> Result<(), String> {
-    with_vault_mutation!(db, |conn| property_groups::set_value(
+    with_notified_property_mutation!(db, app, |conn| property_groups::set_value(
         conn, &conn.root, &note_id, &name, &value
     ))
 }
@@ -483,12 +520,13 @@ pub fn set_note_property_value(
 #[tauri::command]
 #[specta::specta]
 pub fn set_note_property_list(
+    app: tauri::AppHandle,
     db: State<'_, VaultContext>,
     note_id: String,
     name: String,
     items: Vec<String>,
 ) -> Result<(), String> {
-    with_vault_mutation!(db, |conn| property_groups::set_list_value(
+    with_notified_property_mutation!(db, app, |conn| property_groups::set_list_value(
         conn, &conn.root, &note_id, &name, &items
     ))
 }
@@ -496,11 +534,12 @@ pub fn set_note_property_list(
 #[tauri::command]
 #[specta::specta]
 pub fn reorder_note_properties(
+    app: tauri::AppHandle,
     db: State<'_, VaultContext>,
     note_id: String,
     names: Vec<String>,
 ) -> Result<(), String> {
-    with_vault_mutation!(db, |conn| property_groups::reorder(
+    with_notified_property_mutation!(db, app, |conn| property_groups::reorder(
         conn, &conn.root, &note_id, &names
     ))
 }
@@ -508,11 +547,12 @@ pub fn reorder_note_properties(
 #[tauri::command]
 #[specta::specta]
 pub fn delete_note_property(
+    app: tauri::AppHandle,
     db: State<'_, VaultContext>,
     note_id: String,
     name: String,
 ) -> Result<(), String> {
-    with_vault_mutation!(db, |conn| property_groups::delete_property(
+    with_notified_property_mutation!(db, app, |conn| property_groups::delete_property(
         conn, &conn.root, &note_id, &name
     ))
 }
@@ -529,14 +569,16 @@ pub struct RollbackView {
 #[tauri::command]
 #[specta::specta]
 pub fn rollback_properties_migration(
+    app: tauri::AppHandle,
     db: State<'_, VaultContext>,
     migration_id: String,
 ) -> Result<RollbackView, String> {
-    let report = with_vault_mutation!(db, |conn| {
+    let (report, generation) = with_vault_mutation!(db, |conn| {
         let report = migration::rollback(conn, &conn.root, &migration_id)?;
         let _ = property_groups::restore_cache_any(conn, &conn.root);
-        report
+        (report, conn.generation)
     });
+    notify_properties_written(&app, generation);
     Ok(RollbackView {
         headers_restored: report.headers_restored,
         not_restored: report.not_restored,
@@ -557,10 +599,13 @@ pub struct OldVersionReport {
 #[tauri::command]
 #[specta::specta]
 pub fn check_old_version_property_edits(
+    app: tauri::AppHandle,
     db: State<'_, VaultContext>,
 ) -> Result<OldVersionReport, String> {
     let mut report =
-        with_vault_mutation!(db, |conn| legacy::check_old_version_edits(conn, &conn.root))?;
+        with_notified_property_mutation!(db, app, |conn| legacy::check_old_version_edits(
+            conn, &conn.root
+        ))?;
     // What the opening of the vault found is told once, together with a fresh check.
     if let Some(earlier) = property_groups::take_pending_old_version_report() {
         report.transferred.extend(earlier.transferred);
@@ -580,6 +625,7 @@ pub fn check_old_version_property_edits(
 #[tauri::command]
 #[specta::specta]
 pub fn resolve_old_version_property_conflict(
+    app: tauri::AppHandle,
     db: State<'_, VaultContext>,
     note_id: String,
     keep_here: bool,
@@ -589,7 +635,7 @@ pub fn resolve_old_version_property_conflict(
     } else {
         legacy::LegacyChoice::TakeOld
     };
-    with_vault_mutation!(db, |conn| legacy::resolve_conflict(
+    with_notified_property_mutation!(db, app, |conn| legacy::resolve_conflict(
         conn, &conn.root, &note_id, choice
     ))
 }
@@ -684,11 +730,12 @@ pub fn list_property_rebind_offers(
 #[tauri::command]
 #[specta::specta]
 pub fn rebind_note_properties(
+    app: tauri::AppHandle,
     db: State<'_, VaultContext>,
     old_id: String,
     new_id: String,
 ) -> Result<(), String> {
-    with_vault_mutation!(db, |conn| property_groups::rebind(
+    with_notified_property_mutation!(db, app, |conn| property_groups::rebind(
         conn, &conn.root, &old_id, &new_id
     ))
 }
@@ -696,10 +743,11 @@ pub fn rebind_note_properties(
 #[tauri::command]
 #[specta::specta]
 pub fn delete_orphan_properties(
+    app: tauri::AppHandle,
     db: State<'_, VaultContext>,
     note_id: String,
 ) -> Result<(), String> {
-    with_vault_mutation!(db, |conn| property_groups::delete_orphan(
+    with_notified_property_mutation!(db, app, |conn| property_groups::delete_orphan(
         conn, &conn.root, &note_id
     ))
 }

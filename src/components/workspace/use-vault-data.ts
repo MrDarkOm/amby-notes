@@ -85,6 +85,7 @@ const VAULT_ACTIVATED_EVENT = "amby:vault-activated"
  */
 export interface UseVaultDataOptions {
   onExternalChange?: (changes: Array<{ kind: string; path: string }>) => Promise<void>
+  onPathsMoved?: (changes: Array<{ oldPath: string; newPath: string }>) => void
 }
 
 /** More watcher events than this in one batch are handled by a full refresh. */
@@ -93,6 +94,8 @@ const WATCHER_PATH_REFRESH_LIMIT = 200
 export function useVaultData(options: UseVaultDataOptions = {}) {
   const onExternalChangeRef = React.useRef(options.onExternalChange)
   onExternalChangeRef.current = options.onExternalChange
+  const onPathsMovedRef = React.useRef(options.onPathsMoved)
+  onPathsMovedRef.current = options.onPathsMoved
   const desktop = isTauri()
   const windowLabel = desktop ? getCurrentWindow().label : MAIN_WINDOW_LABEL
   // Keep the launch target in the URL so a browser note window also retains
@@ -687,6 +690,16 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
               doc.path.endsWith(".canvas") ||
               doc.path.endsWith(".excalidraw")
             if (isSpecial) {
+              // Canvas and sketch buffers have their own autosave/recovery lifecycle.
+              // A missing old path may be an external move; closing here could discard
+              // a dirty buffer before its revision tracker can report the conflict.
+              if (
+                id.endsWith(".canvas") ||
+                id.endsWith(".excalidraw") ||
+                doc.path.endsWith(".canvas") ||
+                doc.path.endsWith(".excalidraw")
+              )
+                continue
               useDocStore.getState().dropDocs([id])
               setTabs((prev) => {
                 const surviving = prev.filter((t) => t.fileId !== id && t.fileId !== doc.path)
@@ -833,13 +846,79 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
       }
     }
 
+    // Own property changes can touch only .amby, which the watcher excludes.
+    const cleanupProperties = adoptAsyncDisposer(
+      listen<number>("amby:properties-written", (event) => {
+        if (event.payload !== useVaultStore.getState().backendGeneration) return
+        void rereadOpenNoteProperties(vault, useVaultStore.getState().generation)
+      }),
+      (error) => logger.warn("watcher.properties_listen_failed", { errorType: errorType(error) }),
+    )
+
+    // Structural actions may rewrite open notes. Even the initiating window
+    // must reconcile their buffers rather than filtering the event as a local echo.
+    const cleanupRewritten = adoptAsyncDisposer(
+      listen<{ generation: number; paths: string[]; originWindow?: string | null }>(
+        "amby:files-changed",
+        (event) => {
+          if (event.payload.generation !== useVaultStore.getState().backendGeneration) return
+          if (event.payload.originWindow === windowLabel) return
+          for (const path of event.payload.paths) {
+            const change = { kind: "modify", path, duringLocalMutation: false }
+            pending.set(`${change.kind}:${normalize(path)}`, change)
+          }
+          if (refreshTimer) clearTimeout(refreshTimer)
+          refreshTimer = setTimeout(() => void flushPendingChanges(), 300)
+        },
+      ),
+      (error) => logger.warn("watcher.rewritten_listen_failed", { errorType: errorType(error) }),
+    )
+
+    const cleanupMoved = adoptAsyncDisposer(
+      listen<{
+        generation: number
+        originWindow: string
+        pathChanges: Array<{ oldPath: string; newPath: string }>
+      }>("amby:paths-moved", (event) => {
+        if (event.payload.generation !== useVaultStore.getState().backendGeneration) return
+        if (event.payload.originWindow === windowLabel) return
+        onPathsMovedRef.current?.(event.payload.pathChanges)
+      }),
+      (error) => logger.warn("watcher.moved_listen_failed", { errorType: errorType(error) }),
+    )
+
+    const cleanupDatabase = adoptAsyncDisposer(
+      listen<{ generation: number; paths: string[]; noteIds: string[]; allNotes?: boolean }>(
+        "amby:database-written",
+        (event) => {
+          if (event.payload.generation !== useVaultStore.getState().backendGeneration) return
+          const paths = new Set(event.payload.paths)
+          const affected = new Set(event.payload.noteIds)
+          for (const doc of Object.values(useDocStore.getState().openDocs)) {
+            if (event.payload.allNotes || affected.has(doc.noteId ?? doc.id)) paths.add(doc.path)
+          }
+          for (const path of paths) {
+            const change = { kind: "modify", path, duringLocalMutation: false }
+            pending.set(`${change.kind}:${normalize(path)}`, change)
+          }
+          if (paths.size === 0) return
+          if (refreshTimer) clearTimeout(refreshTimer)
+          refreshTimer = setTimeout(() => void flushPendingChanges(), 300)
+        },
+      ),
+      (error) => logger.warn("watcher.database_listen_failed", { errorType: errorType(error) }),
+    )
+
     const cleanupListener = adoptAsyncDisposer(
       listen<{ kind: string; path: string }>("vault-file-changed", (event) => {
         const change = {
           ...event.payload,
           duringLocalMutation: hasActiveLocalTreeMutation(),
         }
-        pending.set(`${change.kind}:${normalize(change.path)}`, change)
+        const key = `${change.kind}:${normalize(change.path)}`
+        // Never let a later local watcher echo hide a definite rewritten-note event.
+        if (pending.get(key)?.duringLocalMutation === false) change.duringLocalMutation = false
+        pending.set(key, change)
         logger.debug("watcher.event_received", { count: pending.size })
         if (refreshTimer) clearTimeout(refreshTimer)
         refreshTimer = setTimeout(() => void flushPendingChanges(), 300)
@@ -851,6 +930,10 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
       if (refreshTimer) clearTimeout(refreshTimer)
       pending.clear()
       cleanupListener()
+      cleanupRewritten()
+      cleanupMoved()
+      cleanupProperties()
+      cleanupDatabase()
     }
     // refreshTree is recreated every render but only reads `vault`, which is in the deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps

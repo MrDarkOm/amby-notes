@@ -26,6 +26,10 @@ pub struct MutationOutcome {
     pub mutation: FsMutationResult,
     pub index_state: IndexState,
     pub warnings: Vec<OperationWarning>,
+    /// Vault generation and content paths rewritten as a side effect of a move or rename.
+    #[serde(skip)]
+    #[specta(skip)]
+    pub rewritten_notes: Option<(u64, Vec<std::path::PathBuf>)>,
 }
 
 #[derive(Serialize, specta::Type)]

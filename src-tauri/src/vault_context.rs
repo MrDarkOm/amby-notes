@@ -57,6 +57,14 @@ impl ActiveVault {
         })
     }
 
+    /// Reconcile watcher changes before rebuilding projections that depend on the note index.
+    pub fn refresh_pending_index(&self) -> Result<(), String> {
+        if !self.index_changes.lock_or_recover().is_empty() {
+            self.refresh()?;
+        }
+        Ok(())
+    }
+
     /// Bring the index and the tree up to date for `changed` only. `None` means the change is
     /// not one a point refresh can cover (the vault root, too many paths, an identity clash that
     /// needs the whole picture) and the caller has to run `refresh`.

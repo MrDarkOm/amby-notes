@@ -90,19 +90,14 @@ Relation and ordinary value edits. Each queued action owns one operation ID;
 reuse it only when retrying that same payload. Keep this revision override in the queue; a
 stale query response must not reset the revision of a completed write.
 
-The property-create action reads the target manifest revision through storage
-and gives each reciprocal Relation creation one operation ID. Source and target
-schemas are validated and journaled by Rust; do not publish the inverse property
-from the renderer or create a second schema state owner.
-
-Relation configuration/type conversion likewise owns one operation ID and reads
-the related raw revisions through storage. Keep the current reciprocal target
-and requested target distinct when retargeting; Rust coalesces all schema writes.
-Type/target changes omit limit and two-way overrides to preserve existing settings.
-Unlimited Relation cardinality is an explicit setting, not omission of the current limit.
+Reciprocal Relation schema changes use one operation ID and raw manifest revisions;
+Rust journals source and target together. Retargeting preserves distinct current and
+requested targets; unlimited cardinality is explicit.
 
 Read the relevant sections of [frontend design](../../../../docs/database-frontend.md)
 and [user flows](../../../../docs/database-user-flows.md), checking document status
 against implementation. These design documents include intended behavior; tests
 and current code establish what is available. Use colocated store, query, cell,
 linked-reference, clipboard, layout and editor-lease tests for the changed concern.
+
+Successful database mutations emit `amby:database-written` with the vault generation, affected note IDs and known paths. The controller refreshes its catalog and invalidates hosts; workspace reconciliation rereads affected open notes without overwriting dirty buffers. Watcher `database:changed` events generated during sync are released after the batch.

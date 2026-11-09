@@ -13,7 +13,10 @@ import { useVaultStore } from "../use-vault-store"
 /** Does any of the written paths (relative to the vault) belong to the properties of notes? */
 export function touchesNoteProperties(paths: string[]): boolean {
   return paths.some(
-    (path) => path === ".amby/properties.json" || path.startsWith(".amby/properties/"),
+    (path) =>
+      path === ".amby/properties.json" ||
+      path === ".amby/properties" ||
+      path.startsWith(".amby/properties/"),
   )
 }
 

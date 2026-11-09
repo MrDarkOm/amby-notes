@@ -1,10 +1,21 @@
 import { listen } from "@tauri-apps/api/event"
+import { getCurrentWindow } from "@tauri-apps/api/window"
 import { FileRevisionConflictError, NoteRevisionConflictError } from "../../src/lib/storage/types"
 import { StorageOperationError } from "../../src/lib/storage/operation-error"
 import { joinStoragePath } from "../../src/lib/storage/storage-path"
-import { settingsRepository } from "../../src/lib/storage"
+import {
+  saveRecoveryDraft,
+  scheduleRecoveryDraft,
+  remapRecoveryDraft,
+  flushRecoveryDraft,
+  readRecoveryDraft,
+  discardRecoveryDraft,
+} from "../../src/lib/recovery-drafts"
+import { createDatabase, setStorageAdapter, settingsRepository } from "../../src/lib/storage"
 import type { StorageContractContext } from "../../src/lib/storage/storage-contract"
 import { AutosaveCoordinator } from "../../src/components/workspace/autosave/autosave-coordinator"
+import { FileRevisionTracker } from "../../src/components/workspace/autosave/file-revision-tracker"
+import { remapLayerAutosave } from "../../src/components/workspace/autosave/remap-layer-autosave"
 import { isUnchangedNoteRevision } from "../../src/components/workspace/external-note-reconciliation"
 
 function check(condition: unknown, message: string): asserts condition {
@@ -15,6 +26,68 @@ export const nativeNoteCases: Array<{
   name: string
   run: (context: StorageContractContext) => Promise<void>
 }> = [
+  {
+    name: "native recovery move preserves a newer destination draft",
+    async run({ adapter, vaultPath }) {
+      const loaded = await adapter.loadActiveVaultData()
+      const scope = { vault: vaultPath, generation: loaded.generation }
+      const oldPath = joinStoragePath(vaultPath, "recovery-old.canvas")
+      const newPath = joinStoragePath(vaultPath, "recovery-new.canvas")
+      try {
+        await saveRecoveryDraft(oldPath, "old", "canvas", oldPath, scope)
+        const moving = remapRecoveryDraft(oldPath, newPath, "canvas", newPath, scope)
+        scheduleRecoveryDraft(newPath, "new", "canvas", newPath, scope)
+        await moving
+        await flushRecoveryDraft(newPath, "canvas", scope)
+        check(
+          (await readRecoveryDraft(newPath, scope))?.content === "new",
+          "New recovery content survived",
+        )
+        check(
+          (await readRecoveryDraft(oldPath, scope))?.content === "old",
+          "Old recovery remained available",
+        )
+      } finally {
+        await discardRecoveryDraft(oldPath, scope)
+        await discardRecoveryDraft(newPath, scope)
+      }
+    },
+  },
+  {
+    name: "native delayed canvas save follows the renamed file and keeps its revision",
+    async run({ adapter, vaultPath }) {
+      const loaded = await adapter.loadActiveVaultData()
+      const oldPath = await adapter.createCanvasFile(vaultPath, vaultPath, "Pending Canvas")
+      const draft =
+        '{"nodes":[{"id":"draft","type":"text","text":"new","x":0,"y":0,"width":100,"height":100}],"edges":[]}'
+      setStorageAdapter(adapter)
+      try {
+        const revisions = new FileRevisionTracker()
+        await revisions.baseline(oldPath)
+        const oldKey = {
+          generation: loaded.generation,
+          kind: "canvas" as const,
+          documentId: oldPath,
+        }
+        const queue = new AutosaveCoordinator({
+          delayMs: 60_000,
+          save: ({ value }: { value: { path: string; json: string } }) =>
+            revisions.save(value.path, value.json, undefined, () => {}),
+        })
+        queue.schedule(oldKey, { path: oldPath, json: draft })
+        const renamed = await adapter.renameItem(vaultPath, oldPath, "Moved Canvas")
+        check(renamed.primaryPath, "Renamed canvas has a path")
+        const newPath = renamed.primaryPath
+        const newKey = { ...oldKey, documentId: newPath }
+        remapLayerAutosave(queue, revisions, oldKey, newKey)
+        await queue.flush(newKey)
+        check((await adapter.readFile(newPath)) === draft, "Draft was saved to the renamed canvas")
+        check(!queue.inspect(newKey)?.dirty, "The renamed canvas was marked saved")
+      } finally {
+        setStorageAdapter(null)
+      }
+    },
+  },
   {
     name: "rapid native typing and deletion keep saved revisions distinct from external edits",
     async run({ adapter, vaultPath }) {
@@ -59,6 +132,149 @@ export const nativeNoteCases: Array<{
         !isUnchangedNoteRevision(external.revision, revision, revision),
         "A real external edit remains a conflict",
       )
+    },
+  },
+  {
+    name: "native database writes emit the shared window invalidation",
+    async run({ adapter, vaultPath }) {
+      const loaded = await adapter.loadActiveVaultData()
+      await adapter.setDatabaseModuleEnabled(true, loaded.generation)
+      const seen: Array<{ generation: number; paths: string[] }> = []
+      const stop = await listen<{ generation: number; paths: string[] }>(
+        "amby:database-written",
+        (event) => seen.push(event.payload),
+      )
+      setStorageAdapter(adapter)
+      try {
+        const created = await createDatabase({
+          expectedGeneration: loaded.generation,
+          mode: "standalone",
+          parentPath: vaultPath,
+          name: "Database event",
+        })
+        const deadline = Date.now() + 5000
+        while (
+          !seen.some((event) => event.paths.includes(created.manifestPath)) &&
+          Date.now() < deadline
+        )
+          await new Promise((resolve) => setTimeout(resolve, 20))
+        check(
+          seen.some(
+            (event) =>
+              event.generation === loaded.generation && event.paths.includes(created.manifestPath),
+          ),
+          "Database write notification reached the WebView",
+        )
+      } finally {
+        setStorageAdapter(null)
+        stop()
+      }
+    },
+  },
+  {
+    name: "native own file changes notify windows after publication",
+    async run({ adapter, vaultPath }) {
+      const loaded = await adapter.loadActiveVaultData()
+      const target = await adapter.createNote(vaultPath, vaultPath, "Target")
+      const source = await adapter.createNote(vaultPath, vaultPath, "Source")
+      const before = await adapter.readNote(vaultPath, source.primaryId!)
+      await adapter.writeNote(
+        vaultPath,
+        source.primaryId!,
+        "See [[Target]]",
+        loaded.generation,
+        before.revision,
+        "main",
+      )
+      const seen: Array<{ generation: number; paths: string[]; originWindow?: string }> = []
+      const stop = await listen<{ generation: number; paths: string[]; originWindow?: string }>(
+        "amby:files-changed",
+        (event) => seen.push(event.payload),
+      )
+      const waitForPath = async (path: string) => {
+        const deadline = Date.now() + 5000
+        while (
+          !seen.some(
+            (event) => event.generation === loaded.generation && event.paths.includes(path),
+          ) &&
+          Date.now() < deadline
+        )
+          await new Promise((resolve) => setTimeout(resolve, 20))
+        check(
+          seen.some(
+            (event) => event.generation === loaded.generation && event.paths.includes(path),
+          ),
+          `Published path was not notified: ${path}`,
+        )
+      }
+      const movedEvents: Array<{
+        generation: number
+        originWindow: string
+        pathChanges: Array<{ oldPath: string; newPath: string }>
+      }> = []
+      const stopMoved = await listen<(typeof movedEvents)[number]>("amby:paths-moved", (event) =>
+        movedEvents.push(event.payload),
+      )
+      try {
+        const standalone = await adapter.createNote(vaultPath, vaultPath, "Standalone")
+        await waitForPath(standalone.primaryPath!)
+        seen.length = 0
+        const moved = await adapter.renameItem(
+          vaultPath,
+          standalone.primaryPath!,
+          "Standalone renamed",
+        )
+        await waitForPath(standalone.primaryPath!)
+        await waitForPath(moved.primaryPath!)
+        const deadline = Date.now() + 5000
+        while (
+          !movedEvents.some((event) =>
+            event.pathChanges.some(
+              (change) =>
+                change.oldPath === standalone.primaryPath && change.newPath === moved.primaryPath,
+            ),
+          ) &&
+          Date.now() < deadline
+        )
+          await new Promise((resolve) => setTimeout(resolve, 20))
+        check(
+          movedEvents.some(
+            (event) =>
+              event.generation === loaded.generation &&
+              event.originWindow === getCurrentWindow().label &&
+              event.pathChanges.some(
+                (change) =>
+                  change.oldPath === standalone.primaryPath && change.newPath === moved.primaryPath,
+              ),
+          ),
+          "Move event carries the source window and exact paths",
+        )
+        seen.length = 0
+        await adapter.deleteItem(vaultPath, moved.primaryPath!, "permanent")
+        await waitForPath(moved.primaryPath!)
+        seen.length = 0
+        await adapter.renameItem(vaultPath, target.primaryPath!, "Renamed")
+        await waitForPath(source.primaryPath!)
+        check(
+          (await adapter.readNote(vaultPath, source.primaryId!)).content.includes("Renamed"),
+          "The inbound link was rewritten",
+        )
+        seen.length = 0
+        const canvas = await adapter.createCanvasFile(vaultPath, vaultPath, "Board")
+        await adapter.writeFile(canvas, '{"nodes":[],"edges":[]}')
+        await waitForPath(canvas)
+        seen.length = 0
+        const copy = await adapter.saveConflictCopy(source.primaryPath!, "local version")
+        await waitForPath(copy)
+        seen.length = 0
+        await adapter.deleteItem(vaultPath, source.primaryPath!, "vault")
+        const trash = await adapter.listTrash()
+        await adapter.restoreTrash(trash[0].id)
+        await waitForPath(source.primaryPath!)
+      } finally {
+        stopMoved()
+        stop()
+      }
     },
   },
   {

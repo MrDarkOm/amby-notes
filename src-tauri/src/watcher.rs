@@ -18,6 +18,86 @@ pub const SELF_WRITE_RECORD_TTL: Duration = Duration::from_secs(8);
 pub struct VaultFileChangedPayload {
     pub kind: String, // "create" | "modify" | "remove" | "rename"
     pub path: String,
+    #[serde(skip)]
+    pub generation: u64,
+}
+
+/// Explicit notifications for successful writes hidden by own-write suppression.
+#[derive(serde::Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishedFiles {
+    pub generation: u64,
+    pub paths: Vec<String>,
+    pub origin_window: Option<String>,
+}
+
+pub fn notify_published_files(
+    app: &tauri::AppHandle,
+    vault: &Path,
+    generation: u64,
+    paths: &[PathBuf],
+    origin_window: Option<&str>,
+) {
+    use tauri::Emitter;
+    if paths.is_empty() {
+        return;
+    }
+    let payload = PublishedFiles {
+        generation,
+        paths: paths
+            .iter()
+            .map(|path| path.to_string_lossy().into_owned())
+            .collect(),
+        origin_window: origin_window.map(str::to_owned),
+    };
+    if let Err(error) = app.emit("amby:files-changed", payload) {
+        tracing::warn!(event = "published_files_event_failed", %error);
+    }
+    for path in paths {
+        if let Some(change) = crate::database::events::classify_path(vault, path, generation) {
+            if let Err(error) = app.emit("database:changed", change) {
+                tracing::warn!(event = "database_change_event_failed", %error);
+            }
+        }
+        if let Some(change) =
+            crate::project::events::classify_path(vault, path, "modify", generation)
+        {
+            if let Err(error) = app.emit("project:changed", change) {
+                tracing::warn!(event = "project_change_event_failed", %error);
+            }
+        }
+    }
+}
+
+/// Emit one watcher change and its database/project classifications together.
+/// During a sync batch the caller invokes this only after the batch is released.
+pub fn emit_external_change(
+    app: &tauri::AppHandle,
+    vault: &Path,
+    generation: u64,
+    change: VaultFileChangedPayload,
+) {
+    use tauri::Emitter;
+    let path = Path::new(&change.path);
+    if !path.starts_with(vault) {
+        return;
+    }
+    if let Some(database_change) = crate::database::events::classify_path(vault, path, generation) {
+        let summary = crate::database::events::coalesce(std::iter::once(database_change.clone()));
+        tracing::debug!(
+            changed_paths = summary.changed_paths.len(),
+            containers = summary.containers.len(),
+            requires_full_rebuild = summary.requires_full_rebuild,
+            "database watcher invalidation"
+        );
+        let _ = app.emit("database:changed", database_change);
+    }
+    if let Some(project_change) =
+        crate::project::events::classify_path(vault, path, &change.kind, generation)
+    {
+        let _ = app.emit("project:changed", project_change);
+    }
+    let _ = app.emit("vault-file-changed", change);
 }
 
 pub fn watched_event_kind(kind: &notify::EventKind) -> Option<&'static str> {
@@ -48,6 +128,7 @@ pub fn queue_external_changes(
                 vec![VaultFileChangedPayload {
                     kind: "modify".into(),
                     path: vault.to_string_lossy().into(),
+                    generation,
                 }]
             } else {
                 event
@@ -62,6 +143,7 @@ pub fn queue_external_changes(
                     .map(|path| VaultFileChangedPayload {
                         kind: kind.into(),
                         path: path.to_string_lossy().into(),
+                        generation,
                     })
                     .collect()
             }
@@ -69,6 +151,7 @@ pub fn queue_external_changes(
         _ => vec![VaultFileChangedPayload {
             kind: "modify".into(),
             path: vault.to_string_lossy().into(),
+            generation,
         }],
     };
     index_changes
@@ -127,7 +210,10 @@ impl EventBatch {
         }
         let mut merged: Vec<VaultFileChangedPayload> = Vec::new();
         for event in std::mem::take(&mut state.held) {
-            match merged.iter_mut().find(|seen| seen.path == event.path) {
+            match merged
+                .iter_mut()
+                .find(|seen| seen.path == event.path && seen.generation == event.generation)
+            {
                 Some(seen) => seen.kind = event.kind,
                 None => merged.push(event),
             }
@@ -542,6 +628,7 @@ mod event_batch_tests {
         VaultFileChangedPayload {
             kind: kind.into(),
             path: path.into(),
+            generation: 1,
         }
     }
 
@@ -579,6 +666,17 @@ mod event_batch_tests {
             batch.push(vec![event("modify", "/v/d.md")]),
             vec![event("modify", "/v/d.md")]
         );
+    }
+
+    #[test]
+    fn batch_keeps_events_from_different_vault_generations_separate() {
+        let batch = EventBatch::default();
+        batch.begin();
+        batch.push(vec![event("modify", "/v/a.md")]);
+        let mut newer = event("remove", "/v/a.md");
+        newer.generation = 2;
+        batch.push(vec![newer.clone()]);
+        assert_eq!(batch.end(), vec![event("modify", "/v/a.md"), newer]);
     }
 
     #[test]

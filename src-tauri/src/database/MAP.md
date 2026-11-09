@@ -38,6 +38,10 @@ Read [database format](../../../docs/database-format.md),
 [database runtime](../../../docs/database-runtime.md). Design documents contain
 proposals too; confirm actual durable layout in `format.rs` and its fixtures/tests.
 
+Before a watcher-driven projection refresh or rebuild, pending note-index changes are
+consumed first (`ActiveVault::refresh_pending_index`): projection membership depends on
+the note index and can otherwise omit newly received notes.
+
 Keep durable writes separate from cache health; disabling a module or rebuilding
 SQLite must not discard source data. Preserve unknown fields. Failed formula or
 rollup evaluation must produce diagnostics, not partial numeric results or source
