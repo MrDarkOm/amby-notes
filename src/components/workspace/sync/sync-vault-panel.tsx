@@ -1,5 +1,4 @@
 import * as React from "react"
-import { errorType, logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import {
   RefreshCw,
@@ -30,6 +29,10 @@ import {
 import { propertyStorageStatus } from "@/lib/properties/property-groups-port"
 import { SyncCompareDialog } from "./sync-compare-dialog"
 import { ConflictList, StopNotice, UnsyncedList } from "./sync-vault-parts"
+import { clearSyncListenFailed, reportSyncListenFailed } from "./listen-failure"
+
+const LISTEN_RETRIES = 3
+const LISTEN_RETRY_MS = 10_000
 
 export interface SyncVaultPanelProps {
   /** The port to use. */
@@ -81,9 +84,14 @@ export function SyncVaultPanel({
     }
   }, [lastSyncMs])
 
+  // The status is pushed to this screen. When the subscription fails, the screen cannot tell how sync is
+  // doing, so it says so (instead of the last state it saw) and subscribes again, a few times, later.
+  const [listenFailed, setListenFailed] = React.useState(false)
+  const [listenAttempt, setListenAttempt] = React.useState(0)
   React.useEffect(() => {
     let alive = true
     let unlisten: (() => void) | null = null
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
     port
       .vaultStatus()
       .then((next) => alive && setStatus((current) => current ?? next))
@@ -93,16 +101,25 @@ export function SyncVaultPanel({
       .then((off) => {
         if (alive) unlisten = off
         else off()
+        if (alive) {
+          setListenFailed(false)
+          clearSyncListenFailed()
+        }
       })
       .catch((error: unknown) => {
-        // The status is not pushed to this screen; it is read when the screen opens and on refresh.
-        logger.debug("sync.listen_failed", { errorType: errorType(error) })
+        if (!alive) return
+        reportSyncListenFailed(error)
+        setListenFailed(true)
+        if (listenAttempt < LISTEN_RETRIES) {
+          retryTimer = setTimeout(() => setListenAttempt((count) => count + 1), LISTEN_RETRY_MS)
+        }
       })
     return () => {
       alive = false
+      clearTimeout(retryTimer)
       unlisten?.()
     }
-  }, [port, t])
+  }, [port, t, listenAttempt])
 
   const act = async (action: () => Promise<void>): Promise<void> => {
     if (working.current) return
@@ -398,9 +415,10 @@ export function SyncVaultPanel({
     default:
       line = t("sync.vault.status.idle")
   }
-  const state = refreshSyncState(status)
+  const state = listenFailed ? "unknown" : refreshSyncState(status)
   const StatusIcon = state === "problem" ? TriangleAlert : state === "synced" ? CircleCheck : Cloud
-  if (state === "problem" && status.phase === "idle") line = t("sync.layout.attention")
+  if (state === "unknown") line = t("sync.vault.status.unknown")
+  else if (state === "problem" && status.phase === "idle") line = t("sync.layout.attention")
   if (state === "pending") line = t("sync.refresh.pending")
   return frame(
     <section data-testid="sync-vault" className="sync-vault-card" data-sync-state={state}>

@@ -9,7 +9,7 @@ import { syncErrorMessage } from "@/lib/sync/sync-errors"
 import { resolveSyncPort, type AccountOverview, type SyncPort } from "@/lib/sync/sync-port"
 import { NOTICE_LOOK } from "../notices/notice-look"
 import { useVaultStore } from "../use-vault-store"
-import { errorType, logger } from "@/lib/logger"
+import { reportSyncListenFailed } from "./listen-failure"
 
 export interface AccountStorageProps {
   /** The port to use; the application's own by default. */
@@ -94,8 +94,8 @@ export function AccountStorage({ port: given, revision = 0 }: AccountStorageProp
         else off()
       })
       .catch((error: unknown) => {
-        // The status is not pushed to this screen; it is read when the screen opens and on refresh.
-        logger.debug("sync.listen_failed", { errorType: errorType(error) })
+        // The numbers are not pushed to this screen; they are read when it opens and on refresh. Said in the centre.
+        reportSyncListenFailed(error)
       })
     return () => {
       alive = false

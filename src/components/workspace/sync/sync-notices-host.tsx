@@ -1,3 +1,4 @@
+import { reportSyncListenFailed } from "./listen-failure"
 import * as React from "react"
 
 import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
@@ -171,8 +172,10 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
         takeStatus(status)
       })
       .then((off) => (alive ? unlisten.push(off) : off()))
-      .catch(() => {
-        // Nothing to listen to without the desktop application.
+      .catch((error: unknown) => {
+        // The browser build answers with a listener that never fires, so a refusal is a real failure: the
+        // stops, limits and conflicts of the centre would not be updated. Said once, in the centre.
+        if (alive) reportSyncListenFailed(error)
       })
     port
       .onRemoteDeleted((event) => {

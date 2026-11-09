@@ -1840,6 +1840,18 @@ const ru = {
         title: "Найдены незавершённые операции: {{count}}",
         line: "Данные сохранены, ничего не удалено — делать ничего не нужно. Подробности в журнале отладки.",
       },
+      propertiesCheckFailed: {
+        title: "Не удалось проверить формат свойств",
+        line: "Заметки и свойства не тронуты. Проверка повторится при следующем открытии хранилища.",
+      },
+      propertiesOldVersionCheckFailed: {
+        title: "Не удалось проверить правки из старой версии",
+        line: "Они остались в старых файлах, ничего не потеряно. Проверка повторится позже.",
+      },
+      syncListenFailed: {
+        title: "Состояние синхронизации перестало обновляться",
+        line: "Данные не тронуты, синхронизация идёт как шла. Откройте настройки синхронизации ещё раз или перезапустите Amby.",
+      },
       aiKeyLeft: {
         title: "Старый ключ остался в связке ключей",
         line: "Подключение удалено, а ключ можно убрать из связки ключей вручную.",
@@ -4223,6 +4235,7 @@ const ru = {
         running: "Идёт синхронизация…",
         waiting: "Нет связи с сервером. Повторим через {{wait}}",
         stopped: "Остановлено",
+        unknown: "Состояние неизвестно",
       },
       stop: {
         massIncomingTitle: "Сразу {{count}} файлов будет изменено на этом компьютере",
@@ -6259,6 +6272,18 @@ const en: typeof ru = {
       recoveryNotices: {
         title: "Unfinished operations found: {{count}}",
         line: "The data is kept and nothing was deleted — there is nothing to do. Details are in the debug log.",
+      },
+      propertiesCheckFailed: {
+        title: "Could not check the format of the properties",
+        line: "Notes and properties are untouched. The check runs again when the vault is opened next.",
+      },
+      propertiesOldVersionCheckFailed: {
+        title: "Could not check the edits from an old version",
+        line: "They stayed in the old files, nothing is lost. The check runs again later.",
+      },
+      syncListenFailed: {
+        title: "The sync status stopped updating",
+        line: "Your data is untouched and sync goes on as before. Open the sync settings again or restart Amby.",
       },
       aiKeyLeft: {
         title: "The old key stayed in the keychain",
@@ -8630,6 +8655,7 @@ const en: typeof ru = {
         running: "Synchronising…",
         waiting: "No connection to the server. Trying again in {{wait}}",
         stopped: "Stopped",
+        unknown: "State unknown",
       },
       stop: {
         massIncomingTitle: "{{count}} files are about to change on this computer at once",

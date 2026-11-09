@@ -18,6 +18,7 @@ import { errorType, logger } from "@/lib/logger"
 import { getNoteProperties } from "@/lib/storage"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
+import { useAppNoticesStore } from "../notices/use-app-notices-store"
 import { Card, type Notice } from "./notice-card"
 import { goneKey, usePropertyMigrationStore } from "./use-property-migration-store"
 import { isNotFoundError, operationErrorCode } from "@/lib/operation-errors"
@@ -93,6 +94,12 @@ export function usePropertyNotices(noteId: string): Notice[] {
         // No result of the migration check, so no notice about it. The properties are not touched
         // by a check that failed to run; it is tried again when the vault is opened next.
         logger.warn("property.migration_failed", { failureCode: operationErrorCode(error) })
+        useAppNoticesStore.getState().post({
+          id: "properties-check-failed",
+          level: "warning",
+          titleKey: "notices.app.propertiesCheckFailed.title",
+          lineKey: "notices.app.propertiesCheckFailed.line",
+        })
       })
   }, [vault, generation, load])
   React.useEffect(() => {
@@ -116,6 +123,14 @@ export function usePropertyNotices(noteId: string): Notice[] {
         logger.warn("property.old_version_check_failed", {
           failureCode: operationErrorCode(error),
         })
+        if (alive) {
+          useAppNoticesStore.getState().post({
+            id: "properties-old-version-check-failed",
+            level: "warning",
+            titleKey: "notices.app.propertiesOldVersionCheckFailed.title",
+            lineKey: "notices.app.propertiesOldVersionCheckFailed.line",
+          })
+        }
       })
     return () => {
       alive = false
