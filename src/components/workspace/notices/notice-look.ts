@@ -56,6 +56,11 @@ export const NOTICE_LOOK: Record<
   },
 }
 
+/** The text colour of a level (the token of its icon), for a mark on an element that is not a card. */
+export function noticeTextClass(level: NoticeLevel): string {
+  return NOTICE_LOOK[level].icon
+}
+
 /**
  * The background and border classes of a level, for a control that is not a status region (the badge of
  * the conflicts is a button). Everything else wears `NoticeShell`.

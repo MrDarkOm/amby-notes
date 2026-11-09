@@ -7,6 +7,7 @@ import {
   type DatabasePropertySummary,
 } from "@/lib/storage"
 import type { DocumentProperties } from "../panel-registry"
+import { NoticeLine } from "../notices/notice-line"
 import type { FrontmatterProperty } from "@/lib/storage/types"
 import { type PropertyMutation, cellKey } from "../database/use-property-mutation"
 import { DatabasePropertyRow, PropertyRow } from "./info-database-rows"
@@ -189,11 +190,7 @@ export function InfoPanelBody({
       />
       <ScrollArea className="flex-1">
         <div className="space-y-5 px-4 pb-4">
-          {propertyError && (
-            <p role="alert" className="text-xs text-destructive">
-              {propertyError}
-            </p>
-          )}
+          {propertyError && <NoticeLine text={propertyError} />}
           <PropertyDormantList noteId={properties.id} />
           {hasNoteProperties ? (
             <section>

@@ -1,5 +1,6 @@
 import * as React from "react"
 import { Calculator, Link2, Sigma } from "lucide-react"
+import { NoticeLine } from "../notices/notice-line"
 import { useTranslation } from "react-i18next"
 import type { DatabasePropertySummary, DatabaseSummary } from "@/lib/storage"
 import { AmbySelect } from "@/components/ui/amby-select"
@@ -142,11 +143,7 @@ export function RollupSettings({
           })}
         </p>
       )}
-      {error && (
-        <p role="alert" className="px-1 pt-1 text-xs leading-snug text-destructive">
-          {error}
-        </p>
-      )}
+      {error && <NoticeLine text={error} className="px-1 pt-1" />}
     </div>
   )
 }

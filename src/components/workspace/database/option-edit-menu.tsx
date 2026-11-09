@@ -1,5 +1,6 @@
 import * as React from "react"
 import { Check, Star, Trash2 } from "lucide-react"
+import { NoticeLine } from "../notices/notice-line"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { PickerShell } from "./picker-shell"
@@ -64,11 +65,7 @@ export function OptionEditMenu({ draft, status, onChange, onRemove, onDone }: Op
           if (event.key === "Escape") setName(draft.name)
         }}
       />
-      {error && (
-        <p role="alert" className="px-1 pb-1 text-xs leading-snug text-destructive">
-          {error}
-        </p>
-      )}
+      {error && <NoticeLine text={error} className="px-1 pb-1" />}
       <button
         type="button"
         className={ITEM}

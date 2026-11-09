@@ -24,8 +24,8 @@ export function NoticeShell({
   ...rest
 }: {
   level: NoticeLevel
-  /** `tinted` fills the frame with the colours of the level; `calm` is an ordinary surface with a stripe. */
-  variant?: "tinted" | "calm"
+  /** `tinted` fills the frame with the colours of the level; `calm` is an ordinary surface with a stripe; `plain` has no frame. */
+  variant?: "tinted" | "calm" | "plain"
   className?: string
   children?: React.ReactNode
 } & Omit<React.HTMLAttributes<HTMLDivElement>, "role" | "className" | "children">) {
@@ -35,7 +35,11 @@ export function NoticeShell({
       role={level === "danger" ? "alert" : "status"}
       data-level={level}
       className={cn(
-        variant === "calm" ? noticeCalmClass(level) : noticeFrameClass(level),
+        variant === "plain"
+          ? undefined
+          : variant === "calm"
+            ? noticeCalmClass(level)
+            : noticeFrameClass(level),
         className,
       )}
     >

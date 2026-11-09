@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { NoticeLine } from "../notices/notice-line"
 import { Plus, Star, Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
@@ -148,11 +149,7 @@ export function PropertyOptionsEditor({
         <Plus className="size-3" />
         {t("infoPanel.addOption")}
       </button>
-      {invalid && (
-        <p role="alert" className="text-xs text-destructive">
-          {t("infoPanel.optionsRequired")}
-        </p>
-      )}
+      {invalid && <NoticeLine text={t("infoPanel.optionsRequired")} />}
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
+import { NoticeLine } from "../notices/notice-line"
 import {
   getPropertyPanel,
   propertyStorageStatus,
@@ -77,11 +78,7 @@ export function PropertyDormantList({ noteId }: { noteId: string }) {
           </li>
         ))}
       </ul>
-      {failure && (
-        <p role="alert" className="text-destructive">
-          {failure}
-        </p>
-      )}
+      {failure && <NoticeLine text={failure} />}
     </section>
   )
 }

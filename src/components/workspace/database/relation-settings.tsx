@@ -1,5 +1,6 @@
 import * as React from "react"
 import { ArrowLeftRight, Database, Hash } from "lucide-react"
+import { NoticeLine } from "../notices/notice-line"
 import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
 import type { DatabasePropertySummary, DatabaseSummary } from "@/lib/storage"
@@ -127,11 +128,7 @@ export function RelationSettings({
           />
         </div>
       </SettingInlineRow>
-      {error && (
-        <p role="alert" className="px-1 pt-1 text-xs leading-snug text-destructive">
-          {error}
-        </p>
-      )}
+      {error && <NoticeLine text={error} className="px-1 pt-1" />}
     </div>
   )
 }

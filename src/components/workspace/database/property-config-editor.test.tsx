@@ -132,7 +132,11 @@ describe("PropertyConfigEditor", () => {
       },
     })
     fireEvent.click(screen.getByRole("switch", { name: "Хранить время" }))
-    expect((await screen.findByRole("alert")).textContent).toContain("Хранение времени")
+    const line = await screen.findByTestId("notice-line")
+    expect(line.textContent).toContain("Хранение времени")
+    // A refusal is a line of a level (docs/notices.md, section 8), not a red text.
+    expect(line.getAttribute("data-level")).toBe("warning")
+    expect(line.className).not.toContain("destructive")
   })
 
   it("edits a formula and does not save it unchanged", async () => {
@@ -209,7 +213,7 @@ describe("PropertyConfigEditor", () => {
       const name = await screen.findByLabelText("Название варианта")
       fireEvent.change(name, { target: { value: "done" } })
       fireEvent.blur(name)
-      expect((await screen.findByRole("alert")).textContent).toContain("повторяться")
+      expect((await screen.findByTestId("notice-line")).textContent).toContain("повторяться")
       expect(onSaveOptions).not.toHaveBeenCalled()
     })
 
