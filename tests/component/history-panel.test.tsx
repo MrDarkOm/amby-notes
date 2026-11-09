@@ -215,9 +215,9 @@ describe("history operations", () => {
     expect(onRestored).toHaveBeenCalledTimes(1)
     expect(hook.result.current.notice).toMatch(/Версия восстановлена/)
   })
-  it("does not restore after the user cancels or the vault changes during confirmation", async () => {
-    const confirmation = deferred<boolean>()
-    vi.mocked(confirm).mockReturnValue(confirmation.promise)
+  it("does not restore when the vault changes while the open text is being written", async () => {
+    const flushing = deferred<{ flushed: boolean; participants: number }>()
+    vi.mocked(flushAutosaveGeneration).mockReturnValue(flushing.promise)
     const hook = renderHook(() => useHistory(props.currentDocPath))
     let pending!: Promise<void>
     act(() => {
@@ -225,12 +225,9 @@ describe("history operations", () => {
     })
     act(() => useVaultStore.getState().setVault("/another"))
     await act(async () => {
-      confirmation.resolve(true)
+      flushing.resolve({ flushed: true, participants: 1 })
       await pending
     })
-    expect(storage.restoreSnapshot).not.toHaveBeenCalled()
-    vi.mocked(confirm).mockResolvedValue(false)
-    await act(() => hook.result.current.restore(entries[0]))
     expect(storage.restoreSnapshot).not.toHaveBeenCalled()
   })
   it("previews cleanup, respects cancellation, and reports when nothing can be removed", async () => {
@@ -274,15 +271,11 @@ describe("history operations", () => {
 })
 
 describe("history questions are asked in the application (docs/notices.md, section 9)", () => {
-  it("asks before restoring with a plain verb, and does nothing on cancel", async () => {
-    vi.mocked(confirm).mockResolvedValue(false)
+  it("asks nothing before restoring: the replaced text becomes a version (docs/notices.md, section 9)", async () => {
     const hook = renderHook(() => useHistory(props.currentDocPath))
     await act(() => hook.result.current.restore(entries[0]))
-    expect(confirm).toHaveBeenCalledWith(
-      expect.objectContaining({ title: expect.any(String), confirmLabel: expect.any(String) }),
-    )
-    expect(vi.mocked(confirm).mock.calls[0][0].destructive).toBeFalsy()
-    expect(storage.restoreSnapshot).not.toHaveBeenCalled()
+    expect(confirm).not.toHaveBeenCalled()
+    expect(storage.restoreSnapshot).toHaveBeenCalledWith(entries[0].id)
   })
 
   it("deleting one version is dangerous, cancel keeps it, yes deletes it", async () => {

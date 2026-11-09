@@ -1615,7 +1615,7 @@ pub(crate) fn database_note_context_inner(
     runtime: &DatabaseRuntimeState,
     note_id: String,
 ) -> Result<Option<DatabaseNoteContext>, DatabaseError> {
-    let state = runtime.state(active_generation(&context));
+    let state = runtime.state(active_generation(context));
     if !state.enabled {
         return Err(DatabaseError::ModuleDisabled);
     }
