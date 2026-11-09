@@ -508,6 +508,24 @@ mod tests {
     }
 
     #[test]
+    fn deleting_a_sketch_or_canvas_reports_its_path_as_deleted() {
+        // The renderer drops open buffers and the tree entry by `deleted_paths`.
+        let vault = std::env::temp_dir().join(format!("amby-layer-{}", Ulid::generate()));
+        fs::create_dir_all(&vault).unwrap();
+        let sketch = vault.join("Draw.excalidraw");
+        let canvas = vault.join("Map.canvas");
+        fs::write(&sketch, "{}").unwrap();
+        fs::write(&canvas, "{}").unwrap();
+        let moved = move_to_trash(&vault, &sketch).unwrap();
+        assert_eq!(moved.deleted_paths.len(), 1);
+        assert!(moved.deleted_paths[0].ends_with("Draw.excalidraw"));
+        let removed = delete_permanently(&vault, &canvas).unwrap();
+        assert_eq!(removed.deleted_paths.len(), 1);
+        assert!(removed.deleted_paths[0].ends_with("Map.canvas"));
+        fs::remove_dir_all(&vault).ok();
+    }
+
+    #[test]
     fn permanent_delete_removes_item_without_a_trash_copy() {
         let vault = std::env::temp_dir().join(format!("amby-perm-{}", Ulid::generate()));
         let tree = vault.join("Folder");
