@@ -635,3 +635,93 @@ fn review_future_manifest_prevents_batch_write() {
     assert!(result.is_err());
     let _ = fs::remove_dir_all(vault);
 }
+
+/// Carrying the properties of a note into a database field with the name of its header key writes
+/// nothing new: the value lives in the header of the note and nowhere else, and a value that already
+/// matches leaves the note byte for byte as it was (the migration of a moved note's properties).
+#[test]
+fn migrating_header_values_into_fields_named_like_their_keys_changes_no_byte() {
+    let vault = temp_vault();
+    let watcher = WatcherState::new();
+    let created = create_database(
+        &vault,
+        &watcher,
+        &CreateDatabaseRequest {
+            expected_generation: 1,
+            mode: DatabaseCreateMode::Standalone,
+            parent_path: Some(vault.to_string_lossy().to_string()),
+            note_path: None,
+            name: "Projects".to_owned(),
+        },
+    )
+    .unwrap();
+    let note_id = ulid::Ulid::generate().to_string();
+    let note_path = vault.join("Projects").join("Row.md");
+    let original = format!("---\namby-id: {note_id}\nrating: 5\nstatus: draft\n---\nBody\n");
+    fs::write(&note_path, &original).unwrap();
+
+    let status = create_database_property(
+        &vault,
+        &watcher,
+        &CreateDatabasePropertyRequest {
+            expected_generation: 1,
+            database_id: created.database_id.clone(),
+            expected_manifest_revision: created.manifest_revision.clone(),
+            name: "status".to_owned(),
+            property_type: "select".to_owned(),
+            options: vec!["Idea".to_owned(), "draft".to_owned()],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let rating = create_database_property(
+        &vault,
+        &watcher,
+        &CreateDatabasePropertyRequest {
+            expected_generation: 1,
+            database_id: created.database_id.clone(),
+            expected_manifest_revision: status.manifest_revision.clone(),
+            name: "rating".to_owned(),
+            property_type: "number".to_owned(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let manifest = parse_manifest(&fs::read(&created.manifest_path).unwrap()).unwrap();
+    let option_id = manifest
+        .value
+        .properties
+        .iter()
+        .find(|p| p.id() == Some(status.property_id.as_str()))
+        .and_then(|p| p.find_option_id("draft"))
+        .unwrap()
+        .to_owned();
+    let revision = raw_revision(original.as_bytes());
+    apply_value_batch(
+        &vault,
+        &watcher,
+        &DatabaseValueBatchRequest {
+            expected_generation: 1,
+            database_id: created.database_id,
+            operation_id: ulid::Ulid::generate().to_string(),
+            cells: vec![
+                DatabaseValueMutation {
+                    note_id: note_id.clone(),
+                    property_id: status.property_id,
+                    value_json: Some(format!(r#"{{"type":"select","optionId":"{option_id}"}}"#)),
+                    expected_revision: revision.clone(),
+                },
+                DatabaseValueMutation {
+                    note_id,
+                    property_id: rating.property_id,
+                    value_json: Some(r#"{"type":"number","decimal":"5"}"#.to_owned()),
+                    expected_revision: revision,
+                },
+            ],
+        },
+        None,
+    )
+    .unwrap();
+    assert_eq!(fs::read_to_string(&note_path).unwrap(), original);
+    let _ = fs::remove_dir_all(vault);
+}
