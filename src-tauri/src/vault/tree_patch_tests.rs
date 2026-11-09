@@ -6,6 +6,7 @@
 
 use super::tree::TreeItem;
 use super::tree_patch::{TreePatch, TreePatchOp};
+use crate::commands::database::database_note_context_inner;
 use crate::commands::mutations::{
     create_note_inner, delete_item_inner, move_item_inner, rename_item_inner, sync_mutation_result,
 };
@@ -566,6 +567,31 @@ fn moving_a_note_into_a_database() {
     assert_point_equals_full(&fixture(), |context, vault| {
         move_to(context, vault, "Projects/Beta.md", "Db")
     });
+}
+
+/// The question "carry the properties over?" reads the note's place in the database right after the
+/// move, with the module on: the projection must already list the note then (no race).
+#[test]
+fn a_note_moved_into_a_database_is_listed_by_the_projection_at_once() {
+    let vault = fixture();
+    let note_id = vault.note("Mover.md", "mover");
+    let context = activate(&vault.0);
+    let runtime = DatabaseRuntimeState::default();
+    runtime.set_enabled(context.generation().unwrap(), true);
+    move_item_inner(
+        &context,
+        &runtime,
+        &WatcherState::new(),
+        &|_, _| {},
+        vault.string("Mover.md"),
+        vault.string("Db"),
+    )
+    .unwrap();
+    let found = database_note_context_inner(&context, &runtime, note_id.clone())
+        .expect("the context is readable")
+        .expect("the moved note is a member of the database");
+    assert_eq!(found.row.note_id, note_id);
+    assert_eq!(found.row.relative_path, "Db/Mover.md");
 }
 
 // ── delete ─────────────────────────────────────────────────────────────────────────────────

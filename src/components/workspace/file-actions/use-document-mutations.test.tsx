@@ -1,10 +1,17 @@
 // @vitest-environment happy-dom
-import { act, renderHook } from "@testing-library/react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { act, cleanup, render, renderHook, screen } from "@testing-library/react"
+import * as React from "react"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
-import { StorageOperationError, type FsMutationResult, type TreeItem } from "@/lib/storage"
+import {
+  DatabaseOperationError,
+  StorageOperationError,
+  type FsMutationResult,
+  type TreeItem,
+} from "@/lib/storage"
 import { confirm } from "@/lib/confirm"
 import { useTreeMessageStore } from "../tree/use-tree-message-store"
+import { usePropertyMoveRetryStore } from "./property-move-retry-store"
 import { useDocumentMutations } from "./use-document-mutations"
 
 const moveItem = vi.fn()
@@ -12,6 +19,8 @@ const renameItem = vi.fn()
 const previewRenameRefactor = vi.fn()
 const previewMoveRefactor = vi.fn()
 const getNoteProperties = vi.fn()
+const getDatabaseNoteContext = vi.fn()
+const backupCustomProperties = vi.fn()
 
 vi.mock("@/lib/storage", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/storage")>()
@@ -22,6 +31,8 @@ vi.mock("@/lib/storage", async (importOriginal) => {
     previewRenameRefactor: (...args: unknown[]) => previewRenameRefactor(...args),
     previewMoveRefactor: (...args: unknown[]) => previewMoveRefactor(...args),
     getNoteProperties: (...args: unknown[]) => getNoteProperties(...args),
+    getDatabaseNoteContext: (...args: unknown[]) => getDatabaseNoteContext(...args),
+    backupCustomProperties: (...args: unknown[]) => backupCustomProperties(...args),
   }
 })
 vi.mock("@/lib/confirm", () => ({ confirm: vi.fn() }))
@@ -197,5 +208,139 @@ describe("handleRenameFile reports how the rename ended", () => {
       status: "failed",
       text: i18n.t("operationErrors.general", { code: "unknown" }),
     })
+  })
+})
+
+// The question "carry the properties over to the database?" after a note is moved into one. Whatever
+// stops it from being asked is said under the tree with a way to ask again (docs/notices.md, sections 8, 12);
+// the properties stay in the note, and nothing is written until the person answers.
+describe("the offer to carry the properties of a moved note to the database", () => {
+  const PROPERTIES = { customProperties: [{ id: "p1", name: "Статус", value: "в работе" }] }
+  const CONTEXT = { databaseTitle: "Задачи", databaseId: "d1", row: { noteId: "n1" } }
+
+  function mountedHarness() {
+    const ref: { current: ReturnType<typeof useDocumentMutations> | null } = { current: null }
+    function Harness() {
+      const mutations = useDocumentMutations({
+        vault: "/v",
+        treeItems: TREE,
+        setTreeItems: vi.fn(),
+        refreshTree: vi.fn().mockResolvedValue(TREE),
+        backendGeneration: 1,
+        autosave: {} as never,
+        autosaveKey: (id: string) => id as never,
+        handleApplyMutation: vi.fn(),
+        handleContentChange: vi.fn(),
+        handleContentDirty: vi.fn(),
+        recoveryScope: {} as never,
+        releaseUnusedDocumentBuffers: vi.fn(),
+        handleSelect: vi.fn().mockResolvedValue(undefined),
+      } as never)
+      ref.current = mutations
+      return <>{mutations.propertyMigrationDialog}</>
+    }
+    render(<Harness />)
+    return ref
+  }
+  const move = async (ref: ReturnType<typeof mountedHarness>) => {
+    await act(async () => {
+      await ref.current!.handleMoveItem(["n1"], "/v/B")
+    })
+  }
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("ru")
+    moveItem.mockReset().mockResolvedValue(moved)
+    previewMoveRefactor.mockReset().mockResolvedValue({ replacements: 0, notes: 0 })
+    getNoteProperties.mockReset().mockResolvedValue(PROPERTIES)
+    getDatabaseNoteContext.mockReset().mockResolvedValue(CONTEXT)
+    backupCustomProperties.mockReset().mockResolvedValue("backup")
+    vi.mocked(confirm).mockReset().mockResolvedValue(true)
+    useTreeMessageStore.getState().dismiss()
+    usePropertyMoveRetryStore.getState().clearAll()
+  })
+  afterEach(cleanup)
+
+  it("asks once the note is in the database, and writes nothing before the answer", async () => {
+    const ref = mountedHarness()
+    await move(ref)
+    expect(screen.getByText("Перенести свойства заметки?")).toBeTruthy()
+    expect(backupCustomProperties).not.toHaveBeenCalled()
+    expect(useTreeMessageStore.getState().message).toBeNull()
+  })
+
+  it("does not ask, and says nothing, when the note is not in a database", async () => {
+    getDatabaseNoteContext.mockResolvedValue(null)
+    const ref = mountedHarness()
+    await move(ref)
+    expect(screen.queryByText("Перенести свойства заметки?")).toBeNull()
+    expect(useTreeMessageStore.getState().message).toBeNull()
+  })
+
+  it("does not ask, and says nothing, when the Databases module is off", async () => {
+    getDatabaseNoteContext.mockRejectedValue(new DatabaseOperationError("moduleDisabled", "off"))
+    const ref = mountedHarness()
+    await move(ref)
+    expect(useTreeMessageStore.getState().message).toBeNull()
+  })
+
+  it("says it under the tree when the place in the database cannot be read, and leaves the properties in the note", async () => {
+    getDatabaseNoteContext.mockRejectedValue(new Error("SQLITE_BUSY /secret"))
+    const ref = mountedHarness()
+    await move(ref)
+    const message = useTreeMessageStore.getState().message
+    expect(message?.level).toBe("warning")
+    expect(i18n.t(message!.titleKey, message!.params)).toContain("Идея")
+    expect(i18n.t(message!.titleKey, message!.params)).not.toContain("SQLITE")
+    expect(message?.action?.labelKey).toBe("notices.tree.propertiesRetry")
+    expect(screen.queryByText("Перенести свойства заметки?")).toBeNull()
+    expect(backupCustomProperties).not.toHaveBeenCalled()
+    // The same way back is open from the note itself.
+    expect(usePropertyMoveRetryStore.getState().failed["n1"]).toBeDefined()
+  })
+
+  it("asks again after the retry, and the message and the note's card go once it is answered", async () => {
+    getDatabaseNoteContext.mockRejectedValueOnce(new Error("busy"))
+    const ref = mountedHarness()
+    await move(ref)
+    const retry = useTreeMessageStore.getState().message!.action!.run
+    await act(async () => {
+      await retry()
+    })
+    expect(screen.getByText("Перенести свойства заметки?")).toBeTruthy()
+    await act(async () => {
+      screen.getByText("Сохранить копию").click()
+    })
+    expect(backupCustomProperties).toHaveBeenCalledWith("/v", "n1")
+    expect(useTreeMessageStore.getState().message).toBeNull()
+    expect(usePropertyMoveRetryStore.getState().failed["n1"]).toBeUndefined()
+  })
+
+  it("reads the properties again after the move when the first read failed", async () => {
+    getNoteProperties.mockRejectedValueOnce(new Error("busy")).mockResolvedValue(PROPERTIES)
+    const ref = mountedHarness()
+    await move(ref)
+    expect(screen.getByText("Перенести свойства заметки?")).toBeTruthy()
+    expect(useTreeMessageStore.getState().message).toBeNull()
+  })
+
+  it("says it, with a way to retry, when the properties cannot be read at all", async () => {
+    getNoteProperties.mockRejectedValue(new Error("busy"))
+    const ref = mountedHarness()
+    await move(ref)
+    expect(useTreeMessageStore.getState().message?.action).toBeDefined()
+    expect(backupCustomProperties).not.toHaveBeenCalled()
+  })
+
+  it("says it when the copy of the properties cannot be saved, instead of calling the move failed", async () => {
+    backupCustomProperties.mockRejectedValue(new Error("disk"))
+    const ref = mountedHarness()
+    await move(ref)
+    await act(async () => {
+      screen.getByText("Сохранить копию").click()
+    })
+    const message = useTreeMessageStore.getState().message
+    expect(message?.titleKey).toBe("notices.tree.propertiesKept")
+    expect(message?.action).toBeDefined()
   })
 })
