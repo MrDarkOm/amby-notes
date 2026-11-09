@@ -1111,6 +1111,38 @@ mod tests {
     }
 
     #[test]
+    fn restore_keeps_the_replaced_text_even_when_history_is_switched_off() {
+        // The restore of a version is not asked about because it keeps the current text: that
+        // must hold when the history was switched off after the old version was taken.
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "before").unwrap();
+        let id = snapshot_before_write(&vault, &note, b"after", "note-save")
+            .unwrap()
+            .unwrap();
+        fs::write(&note, "typed since").unwrap();
+        let amby_dir = vault.join(".amby");
+        fs::write(
+            amby_dir.join("workspace.json"),
+            r#"{"profile": {"id": "minimal"}}"#,
+        )
+        .unwrap();
+        assert!(!is_history_enabled(&vault));
+
+        restore_snapshot(&vault, &id).unwrap();
+
+        assert_eq!(fs::read_to_string(&note).unwrap(), "before");
+        let kept = list_snapshots(&vault, &note).unwrap();
+        assert_eq!(kept.len(), 2, "the replaced text must be a version");
+        let replaced = kept.iter().find(|entry| entry.id != id).unwrap();
+        assert_eq!(
+            read_snapshot_text(&vault, &replaced.id).unwrap().content,
+            "typed since"
+        );
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
     fn restores_a_snapshot_and_snapshots_the_replaced_version() {
         let vault = temp_vault();
         let note = vault.join("Note.md");
