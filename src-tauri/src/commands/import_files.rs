@@ -120,7 +120,7 @@ fn skipped(name: &str, reason: &str) -> ImportSkipped {
 }
 
 /// `name`, or `stem 2.ext`, `stem 3.ext`... for the first one that is free in `dir`.
-fn free_path(dir: &Path, name: &str) -> PathBuf {
+pub(crate) fn free_path(dir: &Path, name: &str) -> PathBuf {
     let first = dir.join(name);
     if fs::symlink_metadata(&first).is_err() {
         return first;

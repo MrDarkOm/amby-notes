@@ -114,6 +114,47 @@ async fn another_users_space_is_not_found() {
 }
 
 #[tokio::test]
+async fn the_versions_of_an_item_come_newest_first_and_an_unknown_item_is_not_found() {
+    // П33 (appendix И): every living version with its sealed header, 404 for an unknown item
+    let target = Target::from_env();
+    let account = enroll(&target, "a long enough password 6");
+    let space = account.create_space();
+    let item = new_item();
+    let first = space.file(&item, 0, "Notes/x.md", b"first text");
+    let second = space.file(&item, 1, "Notes/x.md", b"second text");
+    space.commit_ok(std::slice::from_ref(&first));
+    space.commit_ok(std::slice::from_ref(&second));
+    let client = client_of(&target);
+    let token = token_of(&account);
+
+    let versions = client
+        .item_versions(&token, space.id.as_bytes(), &item)
+        .await
+        .unwrap();
+    assert_eq!(versions.len(), 2);
+    assert_eq!(versions[0].version, 2);
+    assert_eq!(versions[1].version, 1);
+    assert_eq!(versions[0].item_id, item);
+    assert_eq!(
+        versions[1].header,
+        unhex(first.json["header"].as_str().unwrap())
+    );
+    assert_eq!(versions[0].blob_id, second.body);
+    assert_eq!(versions[0].superseded_ms, None);
+    assert!(versions[1].superseded_ms.is_some());
+
+    match client
+        .item_versions(&token, space.id.as_bytes(), &new_item())
+        .await
+    {
+        Err(ClientError::Api { status, code, .. }) => {
+            assert_eq!((status, code.as_str()), (404, "not_found"));
+        }
+        other => panic!("expected not_found, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn a_request_without_a_valid_token_is_unauthorized() {
     // П5
     let target = Target::from_env();

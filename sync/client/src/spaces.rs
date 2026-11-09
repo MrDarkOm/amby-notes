@@ -7,6 +7,7 @@ use std::time::Duration;
 use amby_sync_core::crypto::keys::{BodyId, ItemId};
 use amby_sync_core::engine::{
     BlobState, ChangeEntry, ChangesPage, CommitAccepted, CommitItem, CommitReply, VersionConflict,
+    VersionEntry,
 };
 use reqwest::{Method, StatusCode};
 use serde_json::{json, Value};
@@ -324,6 +325,26 @@ fn entry_from(value: &Value) -> Result<ChangeEntry, ClientError> {
     })
 }
 
+fn version_entry_from(value: &Value) -> Result<VersionEntry, ClientError> {
+    let entry = entry_from(value)?;
+    let superseded_ms = match value.get("superseded_ms") {
+        None | Some(Value::Null) => None,
+        Some(_) => Some(signed_field(value, "superseded_ms")?),
+    };
+    Ok(VersionEntry {
+        item_id: entry.item_id,
+        version: entry.version,
+        seq: entry.seq,
+        header: entry.header,
+        blob_id: entry.blob_id,
+        blob_size: entry.blob_size,
+        deleted: entry.deleted,
+        device_id: entry.device_id,
+        committed_ms: entry.committed_ms,
+        superseded_ms,
+    })
+}
+
 fn bool_field(value: &Value, name: &'static str) -> Result<bool, ClientError> {
     value
         .get(name)
@@ -418,6 +439,25 @@ impl SyncClient {
             gap: bool_field(&value, "gap")?,
             changes: list.iter().map(entry_from).collect::<Result<_, _>>()?,
         })
+    }
+
+    /// `GET …/items/{item}/versions` (П33): every living version of an item, newest first.
+    pub async fn item_versions(
+        &self,
+        token: &DeviceToken,
+        space: &[u8; 16],
+        item: &ItemId,
+    ) -> Result<Vec<VersionEntry>, ClientError> {
+        let path = space_path(
+            space,
+            &format!("/items/{}/versions", hex16(item.as_bytes())),
+        );
+        let value = self.send(Method::GET, &path, Some(token), None).await?;
+        let list = value
+            .get("versions")
+            .and_then(Value::as_array)
+            .ok_or_else(|| bad("the list of versions is missing"))?;
+        list.iter().map(version_entry_from).collect()
     }
 
     /// `POST …/blobs` (П21): starts a body or finds out how far it got.

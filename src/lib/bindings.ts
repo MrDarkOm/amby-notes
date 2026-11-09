@@ -2908,7 +2908,12 @@ reason: ServerListUnavailable | null;
 /**
  * Newest first (И2, И3).
  */
-versions: ServerVersionView[] }
+versions: ServerVersionView[]; 
+/**
+ * BLAKE3 of the note on the disk when this list was made, 64 hex digits: "Вернуть" passes it
+ * back as `expected_hash` so a note that changed meanwhile is not overwritten (И6).
+ */
+currentHash?: string | null }
 /**
  * One notebook: a plain folder inside the notes base (`docs/creative-format.md` §6).
  */

@@ -3,6 +3,7 @@ import {
   ArrowLeftRight,
   ChevronDown,
   ChevronRight,
+  Cloud,
   FileText,
   FolderOpen,
   History,
@@ -17,7 +18,12 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { MotionSpinner } from "@/lib/motion"
-import type { TreeItem } from "@/lib/storage"
+import type { SnapshotEntry, TreeItem } from "@/lib/storage"
+import type {
+  NoteServerVersions,
+  RestoreVersionStatus,
+  ServerVersionView,
+} from "@/lib/sync/sync-port"
 import { Input } from "@/components/ui/input"
 import { IconValue } from "../icon-value"
 import { sortTreeItems, type TreeSortDirection, type TreeSortKey } from "../tree-sort"
@@ -40,7 +46,7 @@ export function HistoryPreview({
   onRestored?: (path?: string) => Promise<void>
 }) {
   const [browsedNote, setBrowsedNote] = React.useState<TreeItem | null>(null)
-  if (!history.selected) return null
+  if (!history.selected && !history.selectedServer) return null
   const targetPath = browsedNote?.path ?? path
   const close = () => {
     setBrowsedNote(null)
@@ -52,7 +58,8 @@ export function HistoryPreview({
       key={targetPath}
       path={targetPath}
       name={browsedNote?.name ?? name}
-      initialSnapshotId={browsedNote ? undefined : history.selected.id}
+      initialSnapshotId={browsedNote ? undefined : history.selected?.id}
+      initialServer={browsedNote ? undefined : history.selectedServer}
       treeItems={treeItems}
       onSelect={setBrowsedNote}
       onClose={close}
@@ -68,6 +75,7 @@ function HistoryPreviewContents({
   path,
   name,
   initialSnapshotId,
+  initialServer,
   treeItems,
   onSelect,
   onClose,
@@ -76,6 +84,7 @@ function HistoryPreviewContents({
   path: string | null | undefined
   name: string
   initialSnapshotId?: string
+  initialServer?: ServerVersionView | null
   treeItems: TreeItem[]
   onSelect: (item: TreeItem) => void
   onClose: () => void
@@ -89,23 +98,44 @@ function HistoryPreviewContents({
   const history = useHistory(path, onRestored)
   const opened = React.useRef(false)
   const hadSelection = React.useRef(false)
+  const hasSelection = Boolean(history.selected || history.selectedServer)
   React.useEffect(() => {
-    if (history.selected) hadSelection.current = true
+    if (hasSelection) hadSelection.current = true
     else if (hadSelection.current && !history.busy) onClose()
-  }, [history.selected, history.busy, onClose])
+  }, [hasSelection, history.busy, onClose])
   React.useEffect(() => {
     if (history.loading || opened.current) return
     opened.current = true
+    // A choice that is already made (the server version pressed in the list) is kept.
+    if (history.selected || history.selectedServer) return
+    if (initialServer) {
+      void history.selectServer(initialServer)
+      return
+    }
     const entry =
       history.snapshots.find((entry) => entry.id === initialSnapshotId) ?? history.snapshots[0]
     if (entry) void history.select(entry)
-  }, [history, initialSnapshotId])
+  }, [history, initialSnapshotId, initialServer])
   const { t, i18n } = useTranslation()
   const diff = React.useMemo(
     () => (history.preview ? diffHistory(history.preview.previous, history.preview.current) : null),
     [history.preview],
   )
   const entry = history.selected
+  const chosenServer = history.selectedServer
+  const rows = React.useMemo(
+    () => mergedRows(history.snapshots, history.server),
+    [history.snapshots, history.server],
+  )
+  const serverMessage =
+    history.serverPreview === "damaged"
+      ? t("historyPanel.serverDamaged")
+      : history.serverPreview === "tooLarge"
+        ? t("historyPanel.serverTooLarge")
+        : history.serverPreview === "offline"
+          ? t("historyPanel.serverPreviewOffline")
+          : null
+  const restoreResult = restoreResultKey(history.serverRestoreStatus)
   const [previewMode, setPreviewMode] = React.useState<SnapshotMode>("read")
   const markdown = /\.md$/iu.test(path ?? name)
   const [browseOpen, setBrowseOpen] = React.useState(false)
@@ -200,6 +230,102 @@ function HistoryPreviewContents({
         </React.Fragment>
       )
     })
+  const formatWhen = (ms: number) =>
+    new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" }).format(ms)
+  const serverDeviceLabel = (version: ServerVersionView) =>
+    version.deviceName ??
+    t(
+      version.device === "thisDevice"
+        ? "historyPanel.serverThisDevice"
+        : "historyPanel.serverOtherDevice",
+    )
+  const versionList = (
+    <aside
+      className="max-h-28 min-h-0 overflow-auto rounded-lg border bg-background p-2 sm:max-h-none"
+      aria-label={t("historyPanel.versionHistory")}
+    >
+      <div className="mb-2 flex items-center justify-between px-2 text-xs font-medium text-muted-foreground">
+        <span className="flex items-center gap-2">
+          <FolderOpen className="size-3.5" />
+          {t("historyPanel.versions")}
+        </span>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="size-6 text-muted-foreground"
+          title={t("historyPanel.clearNoteHistory")}
+          aria-label={t("historyPanel.clearNoteHistory")}
+          onClick={() => void history.cleanup()}
+          disabled={history.busy}
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
+      </div>
+      <div className="space-y-1">
+        {rows.map((row) =>
+          row.source === "local" ? (
+            <div key={row.snapshot.id} data-testid="history-row" data-source="local">
+              <button
+                type="button"
+                disabled={history.busy}
+                onClick={() => void history.select(row.snapshot)}
+                className={cn(
+                  "w-full rounded-md px-2 py-2 text-left text-xs hover:bg-muted",
+                  row.snapshot.id === entry?.id && "bg-muted/80 font-medium shadow-none",
+                )}
+              >
+                <span className="block tabular-nums">{formatWhen(row.at)}</span>
+              </button>
+            </div>
+          ) : (
+            <div
+              key={`server-${row.version.itemId}-${row.version.version}`}
+              data-testid="history-row"
+              data-source="server"
+            >
+              <button
+                type="button"
+                disabled={history.busy}
+                onClick={() => void history.selectServer(row.version)}
+                className={cn(
+                  "w-full rounded-md px-2 py-2 text-left text-xs hover:bg-muted",
+                  chosenServer?.itemId === row.version.itemId &&
+                    chosenServer.version === row.version.version &&
+                    "bg-muted/80 font-medium shadow-none",
+                )}
+              >
+                <span className="flex items-center gap-1 tabular-nums">
+                  <Cloud
+                    role="img"
+                    aria-label={t("historyPanel.fromServer")}
+                    className="size-3.5 shrink-0 text-muted-foreground"
+                  />
+                  {formatWhen(row.at)}
+                </span>
+                <span className="block truncate text-[11px] font-normal text-muted-foreground">
+                  {serverDeviceLabel(row.version)}
+                </span>
+                {!sameNote(path, row.version.path) && (
+                  <span className="block truncate text-[11px] font-normal text-muted-foreground">
+                    {t("historyPanel.serverWasNamed", { path: row.version.path })}
+                  </span>
+                )}
+              </button>
+            </div>
+          ),
+        )}
+        {history.server && !history.server.available && (
+          <p className="px-2 py-1 text-[11px] text-muted-foreground">
+            {t(
+              history.server.reason === "syncOff"
+                ? "historyPanel.serverNeedsSync"
+                : "historyPanel.serverOffline",
+            )}
+          </p>
+        )}
+      </div>
+    </aside>
+  )
   return (
     <Dialog
       open
@@ -257,49 +383,7 @@ function HistoryPreviewContents({
         ) : diff && history.preview ? (
           <>
             <div className="mx-3 mt-2 grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-2 sm:grid-cols-[10rem_minmax(0,1fr)] sm:grid-rows-1">
-              <aside
-                className="max-h-28 min-h-0 overflow-auto rounded-lg border bg-background p-2 sm:max-h-none"
-                aria-label={t("historyPanel.versionHistory")}
-              >
-                <div className="mb-2 flex items-center justify-between px-2 text-xs font-medium text-muted-foreground">
-                  <span className="flex items-center gap-2">
-                    <FolderOpen className="size-3.5" />
-                    {t("historyPanel.versions")}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="size-6 text-muted-foreground"
-                    title={t("historyPanel.clearNoteHistory")}
-                    aria-label={t("historyPanel.clearNoteHistory")}
-                    onClick={() => void history.cleanup()}
-                    disabled={history.busy}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </Button>
-                </div>
-                <div className="space-y-1">
-                  {history.snapshots.map((snapshot) => (
-                    <button
-                      key={snapshot.id}
-                      type="button"
-                      disabled={history.busy}
-                      onClick={() => void history.select(snapshot)}
-                      className={cn(
-                        "w-full rounded-md px-2 py-2 text-left text-xs hover:bg-muted",
-                        snapshot.id === entry?.id && "bg-muted/80 font-medium shadow-none",
-                      )}
-                    >
-                      <span className="block tabular-nums">
-                        {new Intl.DateTimeFormat(i18n.language, {
-                          dateStyle: "medium",
-                          timeStyle: "short",
-                        }).format(snapshot.createdAtMs)}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </aside>
+              {versionList}
               <div className="grid min-h-0 min-w-0 grid-cols-1 grid-rows-2 divide-y overflow-hidden rounded-lg border bg-background md:grid-cols-2 md:grid-rows-1 md:divide-x md:divide-y-0">
                 <section className="flex min-h-0 flex-col overflow-hidden">
                   <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2 text-xs font-medium">
@@ -357,6 +441,13 @@ function HistoryPreviewContents({
               </p>
             )}
           </>
+        ) : serverMessage ? (
+          <div className="mx-3 mt-2 grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-2 sm:grid-cols-[10rem_minmax(0,1fr)] sm:grid-rows-1">
+            {versionList}
+            <div className="flex min-h-0 items-center justify-center rounded-lg border bg-background p-4">
+              <p className="text-sm text-muted-foreground">{serverMessage}</p>
+            </div>
+          </div>
         ) : (
           <div className="flex flex-1 items-center justify-center">
             {history.error ? (
@@ -386,24 +477,41 @@ function HistoryPreviewContents({
             className="text-destructive hover:bg-destructive/10 hover:text-destructive"
             title={t("historyPanel.deleteVersion")}
             aria-label={t("historyPanel.deleteVersion")}
-            disabled={history.busy || !history.preview || history.previewLoading}
+            disabled={
+              history.busy || !history.preview || history.previewLoading || Boolean(chosenServer)
+            }
             onClick={() => entry && void history.removeSnapshot(entry)}
           >
             <Trash2 />
           </Button>
-          <Button
-            disabled={history.busy || !history.preview || history.previewLoading}
-            onClick={() => entry && void history.restore(entry)}
-          >
-            {history.busy ? (
-              <MotionSpinner>
-                <Loader2 />
-              </MotionSpinner>
-            ) : (
-              <RotateCcw />
+          <div className="flex flex-col items-end gap-1">
+            <Button
+              disabled={history.busy || !history.preview || history.previewLoading}
+              onClick={() =>
+                chosenServer
+                  ? void history.restoreServer(chosenServer)
+                  : entry && void history.restore(entry)
+              }
+            >
+              {history.busy ? (
+                <MotionSpinner>
+                  <Loader2 />
+                </MotionSpinner>
+              ) : (
+                <RotateCcw />
+              )}
+              {t(history.busy ? "historyPanel.restoring" : "historyPanel.restoreVersion")}
+            </Button>
+            {restoreResult && (
+              <p
+                role="status"
+                data-testid="history-restore-result"
+                className="max-w-72 text-right text-xs text-muted-foreground"
+              >
+                {t(restoreResult)}
+              </p>
             )}
-            {t(history.busy ? "historyPanel.restoring" : "historyPanel.restoreVersion")}
-          </Button>
+          </div>
         </div>
       </DialogContent>
       <Dialog open={browseOpen} onOpenChange={setBrowseOpen}>
@@ -442,4 +550,51 @@ function HistoryPreviewContents({
       </Dialog>
     </Dialog>
   )
+}
+
+type ListRow =
+  | { source: "local"; at: number; snapshot: SnapshotEntry }
+  | { source: "server"; at: number; version: ServerVersionView }
+
+/** One list by time, newest first: local snapshots and versions from the server (И1). */
+function mergedRows(snapshots: SnapshotEntry[], server: NoteServerVersions | null): ListRow[] {
+  const rows: ListRow[] = [
+    ...snapshots.map((snapshot) => ({
+      source: "local" as const,
+      at: snapshot.createdAtMs,
+      snapshot,
+    })),
+    ...(server?.available
+      ? server.versions.map((version) => ({
+          source: "server" as const,
+          at: version.committedMs,
+          version,
+        }))
+      : []),
+  ]
+  return rows.sort((a, b) => b.at - a.at)
+}
+
+/** Is the version saved under the path the note has now? A renamed note has older names (И2-г). */
+function sameNote(notePath: string | null | undefined, versionPath: string): boolean {
+  if (!notePath) return true
+  const note = notePath.replace(/\\/g, "/")
+  return note === versionPath || note.endsWith(`/${versionPath}`)
+}
+
+function restoreResultKey(status: RestoreVersionStatus | null): string | null {
+  switch (status) {
+    case "noteChanged":
+      return "historyPanel.serverNoteChanged"
+    case "offline":
+      return "historyPanel.serverRestoreOffline"
+    case "damaged":
+      return "historyPanel.serverDamaged"
+    case "tooLarge":
+      return "historyPanel.serverTooLarge"
+    case "syncOff":
+      return "historyPanel.serverRestoreSyncOff"
+    default:
+      return null
+  }
 }

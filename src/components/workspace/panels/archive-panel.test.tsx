@@ -18,6 +18,8 @@ vi.mock("@/lib/storage", () => ({
   readTrashPreview: vi.fn(),
   restoreTrash: vi.fn(),
   purgeTrash: vi.fn(),
+  // The "on the server" section asks whether this is the desktop app (no sync in a browser).
+  isTauri: () => false,
 }))
 vi.mock("@/lib/confirm", () => ({ confirm: vi.fn() }))
 const props: PanelRenderProps = {

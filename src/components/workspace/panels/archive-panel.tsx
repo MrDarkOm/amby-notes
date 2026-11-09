@@ -19,6 +19,7 @@ import { mutationPaths } from "../workspace-mutations"
 import type { PanelRenderProps } from "../panel-registry"
 import { TreeIcon } from "../tree/tree-icons"
 import { ArchivePreview } from "./archive-preview"
+import { ArchiveServerSection } from "./archive-server-section"
 import { archiveEntryLabel, groupArchiveEntries } from "./archive-model"
 import { PanelHeader, PanelSearch } from "./panel-header"
 
@@ -305,6 +306,7 @@ function ArchiveContents() {
             </section>
           ))
         )}
+        <ArchiveServerSection />
       </div>
       {previewEntry && (
         <ArchivePreview

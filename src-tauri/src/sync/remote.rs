@@ -180,10 +180,12 @@ impl Remote for HttpRemote {
         }))
     }
 
-    /// Appendix И, И2: the client of the protocol has no `versions` call yet; the implementation
-    /// session adds it (`sync/client`) and answers here.
-    fn versions(&mut self, _item: &ItemId) -> Result<Vec<VersionEntry>, RemoteError> {
-        todo!("И2: GET …/items/{{item}}/versions")
+    /// Appendix И, И2: `GET …/items/{item}/versions` (П33). A `404` is the usual
+    /// [`RemoteError::Rejected`].
+    fn versions(&mut self, item: &ItemId) -> Result<Vec<VersionEntry>, RemoteError> {
+        self.handle
+            .block_on(self.client.item_versions(&self.token, &self.space, item))
+            .map_err(remote_error)
     }
 
     fn commit(

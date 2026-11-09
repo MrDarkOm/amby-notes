@@ -5,13 +5,65 @@
 //! archive. None of them writes to a disk or talks to a server (И18). A restore is an ordinary
 //! local write made by the application; the engine has no path of its own for it (И.0).
 //!
-//! Stage Э5 (plan, раздел 6): interfaces only so far, the bodies are `todo!()` until the tests of
-//! `sync/core/tests/history_server.rs` are reviewed.
-
+use crate::crypto::body::open_body;
+use crate::crypto::error::CryptoError;
+use crate::crypto::header::{header_envelope_epoch, open_header, Header, ItemKind};
 use crate::crypto::keys::{BodyId, ItemId, SpaceId, SpaceKey};
+use crate::crypto::padme::sealed_body_len;
 
+use super::consistency::check_header;
 use super::model::ItemRecord;
 use super::ports::VersionEntry;
+
+/// Opens the header of one listed version and checks it against the entry (Ф14, Ф19, Д65). The
+/// open `deleted` mark of the entry is not believed (Р6).
+fn open_entry(
+    space: &SpaceId,
+    keys: &[SpaceKey],
+    item: &ItemId,
+    entry: &VersionEntry,
+) -> Result<Header, SkipCode> {
+    let epoch = header_envelope_epoch(&entry.header).map_err(|_| SkipCode::Unreadable)?;
+    let key = keys
+        .iter()
+        .find(|key| key.epoch() == epoch)
+        .ok_or(SkipCode::UnknownEpoch)?;
+    let header =
+        open_header(key, space, item, entry.version, &entry.header).map_err(
+            |error| match error {
+                CryptoError::EpochMismatch => SkipCode::UnknownEpoch,
+                _ => SkipCode::Unreadable,
+            },
+        )?;
+    check_header(&header).map_err(|_| SkipCode::Inconsistent)?;
+    if entry.blob_id != header.body_id {
+        return Err(SkipCode::Inconsistent);
+    }
+    if header.body_id.is_some() {
+        let expected = sealed_body_len(header.size).ok();
+        if entry.blob_size.is_none() || entry.blob_size != expected {
+            return Err(SkipCode::Inconsistent);
+        }
+    }
+    Ok(header)
+}
+
+/// A live file header that passed the checks → the fields of a shown version.
+fn as_version(entry: &VersionEntry, header: &Header) -> Option<HistoryVersion> {
+    if header.deleted || header.kind != ItemKind::File {
+        return None;
+    }
+    Some(HistoryVersion {
+        item_id: entry.item_id,
+        version: entry.version,
+        path: header.path.clone(),
+        size: header.size,
+        content_hash: header.content_hash?,
+        body_id: header.body_id?,
+        device_id: entry.device_id,
+        committed_ms: entry.committed_ms,
+    })
+}
 
 /// The largest body that is downloaded for a preview or a restore: the memory limit of Д71
 /// (`EngineConfig::max_file_bytes`). Bigger bodies are "too large to preview" (И5).
@@ -90,8 +142,29 @@ pub fn server_history(
     current_hash: Option<[u8; 32]>,
     snapshot_hashes: &[[u8; 32]],
 ) -> ServerHistory {
-    let _ = (space, keys, entries, current_hash, snapshot_hashes);
-    todo!("И2, И3, И18")
+    let mut history = ServerHistory::default();
+    for entry in entries {
+        match open_entry(space, keys, &entry.item_id, entry) {
+            Ok(header) => {
+                let Some(version) = as_version(entry, &header) else {
+                    continue;
+                };
+                let repeated = current_hash == Some(version.content_hash)
+                    || snapshot_hashes.contains(&version.content_hash);
+                if !repeated {
+                    history.versions.push(version);
+                }
+            }
+            Err(code) => history.skipped.push(SkippedVersion {
+                version: entry.version,
+                code,
+            }),
+        }
+    }
+    history
+        .versions
+        .sort_by_key(|version| std::cmp::Reverse(version.version));
+    history
 }
 
 /// What opening the body of a version gave (И5).
@@ -114,8 +187,21 @@ pub fn open_version_body(
     version: &HistoryVersion,
     sealed: &[u8],
 ) -> OpenedVersion {
-    let _ = (keys, version, sealed);
-    todo!("И5")
+    if version.size > MAX_PREVIEW_BYTES {
+        return OpenedVersion::TooLarge;
+    }
+    keys.iter()
+        .find_map(|key| {
+            open_body(
+                key,
+                &version.body_id,
+                version.size,
+                &version.content_hash,
+                sealed,
+            )
+            .ok()
+        })
+        .map_or(OpenedVersion::Damaged, OpenedVersion::Content)
 }
 
 /// What the server answered for one tombstone: `entries` is `None` when the server has no such
@@ -168,6 +254,59 @@ pub fn deleted_files(
     histories: &[ItemHistory],
     hidden: &[(String, [u8; 32])],
 ) -> Vec<DeletedFile> {
-    let _ = (space, keys, tombstones, histories, hidden);
-    todo!("И10, И11, И18")
+    let mut rows = Vec::new();
+    for tombstone in tombstones {
+        if !tombstone.deleted || tombstone.kind != ItemKind::File {
+            continue;
+        }
+        let Some(entries) = histories
+            .iter()
+            .find(|history| history.item_id == tombstone.item_id)
+            .and_then(|history| history.entries.as_ref())
+        else {
+            continue;
+        };
+        // Only the headers that pass the checks count, newest first.
+        let mut opened: Vec<(&VersionEntry, Header)> = entries
+            .iter()
+            .filter_map(|entry| {
+                open_entry(space, keys, &tombstone.item_id, entry)
+                    .ok()
+                    .map(|header| (entry, header))
+            })
+            .collect();
+        opened.sort_by_key(|(entry, _)| std::cmp::Reverse(entry.version));
+        let Some((deleting, latest)) = opened.first() else {
+            continue;
+        };
+        if !latest.deleted {
+            continue;
+        }
+        let Some(version) = opened
+            .iter()
+            .skip(1)
+            .find_map(|(entry, header)| as_version(entry, header))
+        else {
+            continue;
+        };
+        if hidden
+            .iter()
+            .any(|(path, hash)| *path == version.path && *hash == version.content_hash)
+        {
+            continue;
+        }
+        rows.push(DeletedFile {
+            item_id: tombstone.item_id,
+            path: version.path,
+            size: version.size,
+            version: version.version,
+            body_id: version.body_id,
+            content_hash: version.content_hash,
+            deleted_ms: deleting.committed_ms,
+            deleted_seq: deleting.seq,
+            deleted_by: deleting.device_id,
+        });
+    }
+    rows.sort_by_key(|row| std::cmp::Reverse(row.deleted_seq));
+    rows
 }

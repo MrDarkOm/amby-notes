@@ -353,6 +353,22 @@ impl SyncSession {
         self.shared.snapshot()
     }
 
+    /// What the history of the server needs to talk to it (appendix И). `None` when the identity
+    /// of this device is not a 16-byte id.
+    pub fn history_link(&self) -> Option<crate::sync::server_history::HistoryLink> {
+        let config = &self.shared.config;
+        Some(crate::sync::server_history::HistoryLink {
+            vault: config.vault.clone(),
+            handle: config.handle.clone(),
+            client: config.client.clone(),
+            token: config.token.clone(),
+            account_key: config.account_key.clone(),
+            space_id: config.space_id,
+            vk: config.vk.clone(),
+            device_id: hex::decode(&config.device_id).ok()?.try_into().ok()?,
+        })
+    }
+
     /// Asks for a pass now (no pause) and returns at once.
     pub fn sync_now(&self) {
         {
