@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 import { act, cleanup, render, renderHook, screen, waitFor } from "@testing-library/react"
-import * as React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
 import {
@@ -315,7 +314,7 @@ describe("the offer to carry the properties of a moved note to the database", ()
     const ref = mountedHarness()
     await move(ref)
     const retry = useTreeMessageStore.getState().message!.action!.run
-    await answer(retry(), "Сохранить копию")
+    await answer(Promise.resolve(retry()), "Сохранить копию")
     expect(backupCustomProperties).toHaveBeenCalledWith("/v", "n1")
     expect(useTreeMessageStore.getState().message).toBeNull()
     expect(usePropertyMoveRetryStore.getState().failed["n1"]).toBeUndefined()

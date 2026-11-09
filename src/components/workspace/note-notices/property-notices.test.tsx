@@ -8,6 +8,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import i18n from "@/lib/i18n"
 import type { PropertyPanel, PropertyStorageStatus } from "@/lib/properties/property-groups-port"
 import { useVaultStore } from "../use-vault-store"
+import { useAppNoticesStore } from "../notices/use-app-notices-store"
 import { usePropertyMigrationStore } from "./use-property-migration-store"
 
 const port = vi.hoisted(() => ({
@@ -327,5 +328,29 @@ describe("the notices of the properties", () => {
     expect(
       within(screen.getByTestId("note-notices-stack")).getByText(/нечитаемая строка/),
     ).toBeTruthy()
+  })
+})
+
+// A check that did not run is not "all is well" (docs/notices.md, section 13): the centre says it as a
+// warning, once, without the words of the error; the properties are not touched by a check that failed.
+describe("the checks of the properties that fail", () => {
+  beforeEach(() => useAppNoticesStore.setState({ notices: [] }))
+  const posted = (id: string) => useAppNoticesStore.getState().notices.find((n) => n.id === id)
+
+  it("warn in the centre when the check of the format fails on opening the vault", async () => {
+    port.propertyStorageStatus.mockResolvedValue(groups)
+    port.openVaultProperties.mockRejectedValue(new Error("EIO /secret"))
+    mount()
+    await waitFor(() => expect(posted("properties-check-failed")).toBeDefined())
+    expect(posted("properties-check-failed")?.level).toBe("warning")
+    expect(JSON.stringify(posted("properties-check-failed"))).not.toContain("secret")
+  })
+
+  it("warn in the centre when the check of an old version's edits fails", async () => {
+    port.propertyStorageStatus.mockResolvedValue({ mode: "groups", oldVersionWarning: "старая" })
+    port.checkOldVersionPropertyEdits.mockRejectedValue(new Error("EIO /secret"))
+    mount()
+    await waitFor(() => expect(posted("properties-old-version-check-failed")).toBeDefined())
+    expect(posted("properties-old-version-check-failed")?.level).toBe("warning")
   })
 })

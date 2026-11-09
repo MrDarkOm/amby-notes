@@ -8,6 +8,7 @@ import i18n from "@/lib/i18n"
 import { KNOWN_SYNC_ERROR_CODES, syncErrorKey } from "@/lib/sync/sync-errors"
 import { SyncPortError } from "@/lib/sync/sync-port"
 import type { VaultSyncStatus } from "@/lib/sync/sync-port"
+import { useAppNoticesStore } from "../notices/use-app-notices-store"
 import { SyncVaultPanel } from "./sync-vault-panel"
 import {
   SPACES,
@@ -885,5 +886,61 @@ describe("sync of the open vault: texts", () => {
     expect(document.body.textContent).not.toMatch(/sync\.vault\./)
     await i18n.changeLanguage("ru")
     cleanup()
+  })
+})
+
+// A status that cannot be followed (docs/notices.md, sections 12 and 13): the screen must not go on saying
+// "synced" for a state it can no longer see, and the centre says that the status stopped updating.
+describe("a sync status that cannot be followed", () => {
+  beforeEach(async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    useAppNoticesStore.setState({ notices: [] })
+    await i18n.changeLanguage("ru")
+  })
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
+
+  it("says the state is unknown instead of synced, and warns in the centre", async () => {
+    await show(vaultStatus({ phase: "idle", lastSyncMs: 1_760_000_000_000 }), {
+      onVaultStatus: async () => {
+        throw new Error("listen failed /secret")
+      },
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId("sync-vault").getAttribute("data-sync-state")).toBe("unknown"),
+    )
+    expect(screen.getByTestId("sync-status").textContent).toContain("неизвестно")
+    expect(screen.getByTestId("sync-status").textContent).not.toMatch(/синхронизирован/i)
+    const notice = useAppNoticesStore.getState().notices.find((n) => n.id === "sync-listen-failed")
+    expect(notice?.level).toBe("warning")
+  })
+
+  it("subscribes again, and goes back to the real state and clears the warning when that works", async () => {
+    let attempts = 0
+    let push: ((status: VaultSyncStatus) => void) | null = null
+    await show(vaultStatus({ phase: "idle", lastSyncMs: 1_760_000_000_000 }), {
+      onVaultStatus: async (listener) => {
+        attempts += 1
+        if (attempts === 1) throw new Error("listen failed")
+        push = listener
+        return () => {}
+      },
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId("sync-vault").getAttribute("data-sync-state")).toBe("unknown"),
+    )
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000)
+    })
+    expect(attempts).toBe(2)
+    expect(useAppNoticesStore.getState().notices.some((n) => n.id === "sync-listen-failed")).toBe(
+      false,
+    )
+    act(() => push!(vaultStatus({ phase: "running" })))
+    await waitFor(() =>
+      expect(screen.getByTestId("sync-vault").getAttribute("data-sync-state")).toBe("running"),
+    )
   })
 })
