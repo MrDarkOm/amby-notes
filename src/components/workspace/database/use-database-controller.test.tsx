@@ -48,3 +48,24 @@ it("refreshes open database hosts after a local write from another window", asyn
   expect(state.listDatabases).toHaveBeenCalledTimes(2)
   expect(state.rebuild).not.toHaveBeenCalled()
 })
+
+it("refreshes again when a sync batch keeps writing while a rebuild is running", async () => {
+  let finishFirst: (value: unknown) => void = () => {}
+  const runtime = { enabled: true, vaultGeneration: 7, projection: null }
+  state.rebuild
+    .mockImplementationOnce(() => new Promise((resolve) => (finishFirst = resolve)))
+    .mockResolvedValue(runtime)
+  renderHook(() => useDatabaseController({ enabled: true, vaultGeneration: 7 }))
+  await waitFor(() => expect(state.listeners.has("database:changed")).toBe(true))
+  const change = (path: string) => ({
+    payload: { generation: 7, kind: "manifest", path, requiresFullRebuild: true },
+  })
+  act(() => state.listeners.get("database:changed")!(change("a/Database.md")))
+  await waitFor(() => expect(state.rebuild).toHaveBeenCalledTimes(1))
+  // The batch is still writing: this event arrives while the first rebuild runs.
+  act(() => state.listeners.get("database:changed")!(change("b/Database.md")))
+  await new Promise((resolve) => setTimeout(resolve, 250))
+  expect(state.rebuild).toHaveBeenCalledTimes(1)
+  await act(async () => finishFirst(runtime))
+  await waitFor(() => expect(state.rebuild).toHaveBeenCalledTimes(2))
+})
