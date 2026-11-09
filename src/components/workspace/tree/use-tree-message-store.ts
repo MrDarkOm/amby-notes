@@ -11,6 +11,8 @@ export interface TreeMessage {
   params?: Record<string, unknown>
   /** An optional second line: what happened to the data, or what to do. */
   lineKey?: string
+  /** An optional button that tries the thing again; the line goes away when it is pressed. */
+  action?: { labelKey: string; run: () => void | Promise<void> }
 }
 
 interface TreeMessageState {

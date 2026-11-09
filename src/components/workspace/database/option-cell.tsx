@@ -1,5 +1,7 @@
 import * as React from "react"
 import { Check, MoreHorizontal, Plus } from "lucide-react"
+import { noticeTextClass } from "../notices/notice-look"
+import { NoticeLine } from "../notices/notice-line"
 import { Reorder } from "motion/react"
 import { useTranslation } from "react-i18next"
 import { PickerShell } from "./picker-shell"
@@ -162,7 +164,7 @@ export function OptionCell({
             "flex w-full min-w-0 cursor-pointer items-center gap-1 rounded-md text-left outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60",
             wrap ? "flex-wrap" : "flex-nowrap overflow-hidden",
             compact ? "min-h-7 px-1 py-0.5 hover:bg-accent/40" : "h-full min-h-8 px-2",
-            error && "text-destructive",
+            error && noticeTextClass("warning"),
           )}
           onClick={(event) => event.stopPropagation()}
         >
@@ -300,11 +302,7 @@ export function OptionCell({
             shown.map((draft, index) => renderRow(draft, index, false))
           )
         })()}
-        {listError && (
-          <p role="alert" className="px-2 py-1 text-xs leading-snug text-destructive">
-            {listError}
-          </p>
-        )}
+        {listError && <NoticeLine text={listError} className="px-2 py-1" />}
         {selected.length > 0 && (
           <button
             type="button"

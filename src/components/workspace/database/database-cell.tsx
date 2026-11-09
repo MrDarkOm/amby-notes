@@ -1,5 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
+import { noticeTextClass } from "../notices/notice-look"
 import { Plus } from "lucide-react"
 import type { DatabasePropertySummary } from "@/lib/storage"
 import { useViewStateStore } from "@/components/workspace/use-view-state-store"
@@ -265,7 +266,7 @@ export function DatabaseCell({
         className={cn(
           "flex h-full items-center justify-start truncate px-1 text-left text-sm",
           failed
-            ? "text-destructive"
+            ? noticeTextClass("warning")
             : text === null
               ? "italic text-muted-foreground"
               : "tabular-nums",
@@ -311,7 +312,7 @@ export function DatabaseCell({
             compact
               ? "min-h-7 overflow-hidden rounded-md px-1 py-1 text-xs leading-4 whitespace-pre-wrap break-words"
               : "h-full px-2 py-2 text-sm leading-5",
-            error && "text-destructive",
+            error && noticeTextClass("warning"),
           )}
           onClick={stopRowSelection}
           onChange={(event) => {
@@ -347,7 +348,7 @@ export function DatabaseCell({
         className={cn(
           "min-w-0 w-full max-w-full cursor-pointer rounded-md bg-transparent text-left outline-none focus:cursor-text focus:bg-accent/30 disabled:cursor-default disabled:opacity-60",
           compact ? "h-7 px-1 text-xs" : "h-full min-h-8 px-2 text-sm",
-          error && "text-destructive",
+          error && noticeTextClass("warning"),
         )}
         onClick={stopRowSelection}
         onChange={(event) => setDraft(event.target.value)}

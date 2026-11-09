@@ -414,15 +414,14 @@ describe("CreativePanel: notebooks of the notes base", () => {
       await openNotes()
       await deleteFromMenu("Архив")
       await waitFor(() => expect(deleteItem).toHaveBeenCalledTimes(1))
-      expect(calls).toEqual(["confirm", "move", "trash"])
+      expect(calls).toEqual(["move", "trash"])
       expect(onMoveItem).toHaveBeenCalledWith(["n4"], BASE)
       expect(deleteItem.mock.calls[0][0]).toBe("/v")
       expect(deleteItem.mock.calls[0][1]).toBe(`${BASE}/Архив`)
       // Never a permanent deletion.
       expect(deleteItem.mock.calls[0][2]).not.toBe("permanent")
-      // The question says the notes stay, and names the notebook; the notebook goes to the bin, so it is not "dangerous".
-      expect(confirm.mock.calls[0][0].title).toContain("Архив")
-      expect(confirm.mock.calls[0][0].description).toContain("Заметки не удаляются")
+      // No question: the notes stay (they go up one level) and the empty notebook goes to the bin.
+      expect(confirm).not.toHaveBeenCalled()
     })
 
     it("trashes an empty notebook without moving anything", async () => {
@@ -458,17 +457,6 @@ describe("CreativePanel: notebooks of the notes base", () => {
       await openNotes()
       await deleteFromMenu("Архив")
       expect((await screen.findByRole("alert")).textContent).toContain("не только заметки")
-      expect(onMoveItem).not.toHaveBeenCalled()
-      expect(deleteItem).not.toHaveBeenCalled()
-    })
-
-    it("does nothing when the author declines", async () => {
-      confirm.mockResolvedValue(false)
-      const onMoveItem = vi.fn()
-      render(<CreativePanel {...props({ onMoveItem })} />)
-      await openNotes()
-      await deleteFromMenu("Архив")
-      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
       expect(onMoveItem).not.toHaveBeenCalled()
       expect(deleteItem).not.toHaveBeenCalled()
     })

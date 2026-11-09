@@ -20,23 +20,17 @@ function ask(name: string, params: Words = {}, destructive = false): ConfirmOpti
 }
 
 export const confirmations = {
-  // History
-  /** Reversible: the current version is kept in the history. */
-  restoreVersion: () => ask("restoreVersion"),
+  // History (putting a version back is not asked about: the replaced text becomes a version first)
   deleteVersion: () => ask("deleteVersion", {}, true),
   cleanHistory: (params: { count: number; size: string }) => ask("cleanHistory", params, true),
   clearHistory: (params: { count: number; size: string }) => ask("clearHistory", params, true),
   // Archive, themes, settings, debugging
   deleteArchived: (params: { name: string }) => ask("deleteArchived", params, true),
-  /** Reversible: only the entry of the library goes, the file of the theme stays. */
-  removeTheme: (params: { name: string }) => ask("removeTheme", params),
   resetSettings: () => ask("resetSettings", {}, true),
   deleteDebugHistory: () => ask("deleteDebugHistory", {}, true),
-  // Layers, connections, the workshop
+  // Layers, connections
   deleteLayer: (params: { layer: string; title: string }) => ask("deleteLayer", params, true),
   removeAiConnection: (params: { name: string }) => ask("removeAiConnection", params, true),
-  deleteNotebook: (params: { name: string; count: number; where: string }) =>
-    ask("deleteNotebook", params),
   // Notes: links that change, a merge, a deletion
   renameRefactor: (params: { replacements: number; notes: number }) =>
     ask("renameRefactor", params),

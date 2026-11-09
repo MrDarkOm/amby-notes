@@ -501,6 +501,8 @@ const ru = {
       importTheme: "Импортировать тему",
       exportTheme: "Экспортировать",
       removeTheme: "Удалить",
+      themeRemoved: "Тема «{{name}}» убрана из библиотеки.",
+      themeUndo: "Вернуть",
       discoverThemes: "Найти темы",
       builtinThemes: "Встроенные темы",
       importedThemes: "Импортированные темы",
@@ -601,11 +603,6 @@ const ru = {
     },
   },
   confirmations: {
-    restoreVersion: {
-      title: "Восстановить эту версию?",
-      description: "Текущая версия сохранится в истории.",
-      confirm: "Восстановить",
-    },
     deleteVersion: {
       title: "Удалить эту версию?",
       description: "Версия исчезнет из истории, вернуть её будет нельзя.",
@@ -626,11 +623,6 @@ const ru = {
       description: "Заметка исчезнет из архива, вернуть её будет нельзя.",
       confirm: "Удалить",
     },
-    removeTheme: {
-      title: "Убрать тему «{{name}}» из библиотеки?",
-      description: "Файл темы на диске не изменится, её можно будет добавить снова.",
-      confirm: "Убрать",
-    },
     resetSettings: {
       title: "Сбросить все настройки?",
       description: "Настройки вернутся к значениям по умолчанию, заметки не затрагиваются.",
@@ -649,12 +641,6 @@ const ru = {
     removeAiConnection: {
       title: "Удалить подключение «{{name}}»?",
       description: "Ключ удалится, если им не пользуются другие подключения; беседы сохранятся.",
-      confirm: "Удалить",
-    },
-    deleteNotebook: {
-      title: "Удалить блокнот «{{name}}»?",
-      description:
-        "Заметки не удаляются: все заметки блокнота ({{count}}) переедут в «{{where}}», а пустая папка уйдёт в корзину.",
       confirm: "Удалить",
     },
     renameRefactor: {
@@ -1603,8 +1589,14 @@ const ru = {
     databaseSchema: "Свойства базы",
     databaseSchemaHint: "Настройте свойства прямо в заголовке таблицы.",
     databasePropertyMoveTitle: "Перенести свойства заметки?",
-    databasePropertyMoveDescription:
-      "У заметки есть {{count}} свойств. Добавьте их вместе со значениями в базу «{{database}}» или сохраните отдельную резервную копию.",
+    databasePropertyMoveDescription_one:
+      "В заметке {{count}} свойство. Добавьте его в базу «{{database}}» или сохраните резервную копию.",
+    databasePropertyMoveDescription_few:
+      "В заметке {{count}} свойства. Добавьте их в базу «{{database}}» или сохраните резервную копию.",
+    databasePropertyMoveDescription_many:
+      "В заметке {{count}} свойств. Добавьте их в базу «{{database}}» или сохраните резервную копию.",
+    databasePropertyMoveDescription_other:
+      "В заметке {{count}} свойства. Добавьте их в базу «{{database}}» или сохраните резервную копию.",
     databasePropertyMoveDatabase: "Добавить в базу",
     databasePropertyMoveBackup: "Сохранить копию",
     databasePropertyMoveOptionMissing: "Не найден перенесённый вариант свойства «{{property}}».",
@@ -1840,6 +1832,18 @@ const ru = {
         title: "Найдены незавершённые операции: {{count}}",
         line: "Данные сохранены, ничего не удалено — делать ничего не нужно. Подробности в журнале отладки.",
       },
+      propertiesCheckFailed: {
+        title: "Не удалось проверить формат свойств",
+        line: "Заметки и свойства не тронуты. Проверка повторится при следующем открытии хранилища.",
+      },
+      propertiesOldVersionCheckFailed: {
+        title: "Не удалось проверить правки из старой версии",
+        line: "Они остались в старых файлах, ничего не потеряно. Проверка повторится позже.",
+      },
+      syncListenFailed: {
+        title: "Состояние синхронизации перестало обновляться",
+        line: "Данные не тронуты, синхронизация идёт как шла. Откройте настройки синхронизации ещё раз или перезапустите Amby.",
+      },
       aiKeyLeft: {
         title: "Старый ключ остался в связке ключей",
         line: "Подключение удалено, а ключ можно убрать из связки ключей вручную.",
@@ -1853,6 +1857,9 @@ const ru = {
       deleteLine: "Остальное обработано. Подробности в журнале отладки.",
       importSkipped: "Не всё удалось скопировать в хранилище:\n{{list}}",
       nothingChanged: "Ничего не изменилось.",
+      propertiesKept: "Свойства «{{name}}» не перенесены в базу",
+      propertiesKeptLine: "Они остались в заметке, ничего не потеряно.",
+      propertiesRetry: "Перенести",
     },
     centre: {
       title: "Уведомления",
@@ -1921,6 +1928,12 @@ const ru = {
     },
   },
   noteNotices: {
+    propertiesToDatabase: {
+      title: "Свойства не перенесены в базу",
+      line: "Они остались в заметке, ничего не потеряно.",
+      action: "Перенести",
+      busy: "Переношу…",
+    },
     properties: {
       failed: "Не удалось: {{details}}",
       migrated: "Свойства переведены в новый формат.",
@@ -4215,6 +4228,7 @@ const ru = {
         running: "Идёт синхронизация…",
         waiting: "Нет связи с сервером. Повторим через {{wait}}",
         stopped: "Остановлено",
+        unknown: "Состояние неизвестно",
       },
       stop: {
         massIncomingTitle: "Сразу {{count}} файлов будет изменено на этом компьютере",
@@ -4912,6 +4926,8 @@ const en: typeof ru = {
       importTheme: "Import theme",
       exportTheme: "Export",
       removeTheme: "Remove",
+      themeRemoved: "The theme “{{name}}” was removed from the library.",
+      themeUndo: "Undo",
       discoverThemes: "Discover themes",
       builtinThemes: "Built-in themes",
       importedThemes: "Imported themes",
@@ -5010,11 +5026,6 @@ const en: typeof ru = {
     },
   },
   confirmations: {
-    restoreVersion: {
-      title: "Restore this version?",
-      description: "The current version will be saved in the history.",
-      confirm: "Restore",
-    },
     deleteVersion: {
       title: "Delete this version?",
       description: "The version will leave the history and cannot be brought back.",
@@ -5035,11 +5046,6 @@ const en: typeof ru = {
       description: "The note will leave the archive and cannot be brought back.",
       confirm: "Delete",
     },
-    removeTheme: {
-      title: "Remove the theme “{{name}}” from the library?",
-      description: "The theme file on the disk stays as it is; you can add the theme again.",
-      confirm: "Remove",
-    },
     resetSettings: {
       title: "Reset all settings?",
       description: "Settings go back to their defaults; your notes are not touched.",
@@ -5058,12 +5064,6 @@ const en: typeof ru = {
     removeAiConnection: {
       title: "Delete the connection “{{name}}”?",
       description: "Its key is deleted unless another connection uses it; chats are kept.",
-      confirm: "Delete",
-    },
-    deleteNotebook: {
-      title: "Delete the notebook “{{name}}”?",
-      description:
-        "No note is deleted: all notes of the notebook ({{count}}) move to “{{where}}”, and the empty folder goes to the trash.",
       confirm: "Delete",
     },
     renameRefactor: {
@@ -6017,8 +6017,14 @@ const en: typeof ru = {
     databaseSchema: "Database properties",
     databaseSchemaHint: "Configure properties directly from the table header.",
     databasePropertyMoveTitle: "Move note properties?",
-    databasePropertyMoveDescription:
-      "This note has {{count}} properties. Add them and their values to “{{database}}”, or save a separate backup.",
+    databasePropertyMoveDescription_one:
+      "This note has {{count}} property. Add it to “{{database}}”, or save a backup.",
+    databasePropertyMoveDescription_few:
+      "This note has {{count}} properties. Add them to “{{database}}”, or save a backup.",
+    databasePropertyMoveDescription_many:
+      "This note has {{count}} properties. Add them to “{{database}}”, or save a backup.",
+    databasePropertyMoveDescription_other:
+      "This note has {{count}} properties. Add them to “{{database}}”, or save a backup.",
     databasePropertyMoveDatabase: "Add to database",
     databasePropertyMoveBackup: "Save backup",
     databasePropertyMoveOptionMissing: "The migrated option for “{{property}}” was not found.",
@@ -6252,6 +6258,18 @@ const en: typeof ru = {
         title: "Unfinished operations found: {{count}}",
         line: "The data is kept and nothing was deleted — there is nothing to do. Details are in the debug log.",
       },
+      propertiesCheckFailed: {
+        title: "Could not check the format of the properties",
+        line: "Notes and properties are untouched. The check runs again when the vault is opened next.",
+      },
+      propertiesOldVersionCheckFailed: {
+        title: "Could not check the edits from an old version",
+        line: "They stayed in the old files, nothing is lost. The check runs again later.",
+      },
+      syncListenFailed: {
+        title: "The sync status stopped updating",
+        line: "Your data is untouched and sync goes on as before. Open the sync settings again or restart Amby.",
+      },
       aiKeyLeft: {
         title: "The old key stayed in the keychain",
         line: "The connection is deleted; you can remove the key from the keychain by hand.",
@@ -6265,6 +6283,9 @@ const en: typeof ru = {
       deleteLine: "The rest was handled. Details are in the debug log.",
       importSkipped: "Not everything could be copied into the vault:\n{{list}}",
       nothingChanged: "Nothing has changed.",
+      propertiesKept: "The properties of “{{name}}” were not moved to the database",
+      propertiesKeptLine: "They stayed in the note, nothing is lost.",
+      propertiesRetry: "Move them",
     },
     centre: {
       title: "Notifications",
@@ -6332,6 +6353,12 @@ const en: typeof ru = {
     },
   },
   noteNotices: {
+    propertiesToDatabase: {
+      title: "The properties were not moved to the database",
+      line: "They stayed in the note, nothing is lost.",
+      action: "Move them",
+      busy: "Moving…",
+    },
     properties: {
       failed: "Failed: {{details}}",
       migrated: "Properties moved to the new format.",
@@ -8614,6 +8641,7 @@ const en: typeof ru = {
         running: "Synchronising…",
         waiting: "No connection to the server. Trying again in {{wait}}",
         stopped: "Stopped",
+        unknown: "State unknown",
       },
       stop: {
         massIncomingTitle: "{{count}} files are about to change on this computer at once",

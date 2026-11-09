@@ -1605,7 +1605,17 @@ pub fn get_database_note_context(
     runtime: tauri::State<'_, DatabaseRuntimeState>,
     note_id: String,
 ) -> Result<Option<DatabaseNoteContext>, DatabaseError> {
-    let state = runtime.state(active_generation(&context));
+    database_note_context_inner(&context, &runtime, note_id)
+}
+
+/// The body of `get_database_note_context` without the Tauri state wrappers, so a test can ask it
+/// right after a real move.
+pub(crate) fn database_note_context_inner(
+    context: &VaultContext,
+    runtime: &DatabaseRuntimeState,
+    note_id: String,
+) -> Result<Option<DatabaseNoteContext>, DatabaseError> {
+    let state = runtime.state(active_generation(context));
     if !state.enabled {
         return Err(DatabaseError::ModuleDisabled);
     }

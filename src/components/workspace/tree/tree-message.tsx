@@ -24,6 +24,19 @@ export function TreeMessage() {
       <div className="min-w-0 flex-1 text-[12px]">
         <p className="font-medium whitespace-pre-line">{t(message.titleKey, message.params)}</p>
         {message.lineKey && <p className="text-muted-foreground">{t(message.lineKey)}</p>}
+        {message.action && (
+          <button
+            type="button"
+            className="mt-1 rounded border border-border px-2 py-0.5 text-[12px] hover:bg-accent"
+            onClick={() => {
+              const { run } = message.action!
+              dismiss()
+              void run()
+            }}
+          >
+            {t(message.action.labelKey)}
+          </button>
+        )}
       </div>
       <button
         type="button"

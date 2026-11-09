@@ -485,7 +485,7 @@ pub fn backup_custom_properties(
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    property_groups::backup_and_clear(conn, &conn.root, &note_id)
+    property_groups::backup_if_any(conn, &conn.root, &note_id)
 }
 
 #[tauri::command]

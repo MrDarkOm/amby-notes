@@ -26,3 +26,6 @@ pub mod validation;
 pub mod value_batch_recovery;
 pub mod views;
 pub mod yaml_sync;
+
+#[cfg(test)]
+mod property_migration_flow_test;

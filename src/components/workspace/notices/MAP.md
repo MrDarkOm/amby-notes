@@ -41,3 +41,5 @@ How a notice gets into the centre, by who writes it:
 Tests sit beside the files: [centre-entries.test.ts](centre-entries.test.ts), [notices-centre.test.tsx](notices-centre.test.tsx),
 [notice-toasts.test.tsx](notice-toasts.test.tsx), [notices-sources.test.tsx](notices-sources.test.tsx),
 [notice-journal.test.ts](../../../lib/notices/notice-journal.test.ts).
+
+A refusal under a property editor or in a cell is a [NoticeLine](notice-line.tsx) (`warning`; a cell's mark is `noticeTextClass` in [notice-look.ts](notice-look.ts)). The line under the tree may carry one retry button (`action` of its store).

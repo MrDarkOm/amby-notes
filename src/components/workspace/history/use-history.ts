@@ -121,7 +121,6 @@ export function useHistory(path: string | null | undefined, onRestored?: () => P
 
   function restore(entry: SnapshotEntry) {
     return action(async (isCurrent) => {
-      if (!(await confirm(confirmations.restoreVersion())) || !isCurrent()) return
       const result = await flushAutosaveGeneration(useVaultStore.getState().generation)
       if (!isCurrent()) return
       const state = useDocStore.getState()

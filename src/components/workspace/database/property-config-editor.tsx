@@ -1,5 +1,6 @@
 import * as React from "react"
 import { Reorder } from "motion/react"
+import { NoticeLine } from "../notices/notice-line"
 import { AmbySelect } from "@/components/ui/amby-select"
 import { ChevronRight, Plus } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -325,11 +326,7 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
             </section>
           )
         })}
-        {problem && (
-          <p role="alert" className="text-xs leading-snug text-destructive">
-            {problem}
-          </p>
-        )}
+        {problem && <NoticeLine text={problem} />}
         <p className="pt-1 text-[11px] leading-snug text-muted-foreground">
           {t("databaseOptions.removeHint")}
         </p>
@@ -399,11 +396,7 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
           {t("databaseOptions.addShort")}
         </button>
       </div>
-      {problem && (
-        <p role="alert" className="text-xs leading-snug text-destructive">
-          {problem}
-        </p>
-      )}
+      {problem && <NoticeLine text={problem} />}
       <p className="text-[11px] leading-snug text-muted-foreground">
         {t("databaseOptions.removeHint")}
       </p>
@@ -601,11 +594,7 @@ export function PropertyConfigEditor({
   return (
     <div className={cn("space-y-3.5 text-[13px]", className)}>
       {body}
-      {error && (
-        <p role="alert" className="text-xs leading-snug text-destructive">
-          {error}
-        </p>
-      )}
+      {error && <NoticeLine text={error} />}
     </div>
   )
 }

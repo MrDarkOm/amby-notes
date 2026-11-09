@@ -357,6 +357,50 @@ describe("colours of a notice (docs/notices.md §11)", () => {
   })
 })
 
+/**
+ * Property editors and cells of the databases and of the note panel: a refusal there is a line under the
+ * element (docs/notices.md, section 8) drawn by `NoticeLine` at its level, not a red `text-destructive` text.
+ * A destructive action (a delete item that is red on hover) is not a message and may keep the colour.
+ */
+const PROPERTY_ERROR_PLACES = [
+  "src/components/workspace/database/property-config-editor.tsx",
+  "src/components/workspace/database/relation-settings.tsx",
+  "src/components/workspace/database/rollup-settings.tsx",
+  "src/components/workspace/database/option-edit-menu.tsx",
+  "src/components/workspace/database/option-cell.tsx",
+  "src/components/workspace/database/database-cell.tsx",
+  "src/components/workspace/database/date-cell.tsx",
+  "src/components/workspace/panels/property-editor.tsx",
+  "src/components/workspace/panels/property-options-editor.tsx",
+  "src/components/workspace/panels/property-dormant-list.tsx",
+  "src/components/workspace/panels/info-panel-body.tsx",
+]
+
+describe("refusals of property editors and cells (docs/notices.md §8, §11)", () => {
+  it("are NoticeLine / level tokens, not a red `text-destructive` message", () => {
+    const found: string[] = []
+    for (const file of PROPERTY_ERROR_PLACES) {
+      const text = sources.get(file)
+      expect(text, `${file} is listed in PROPERTY_ERROR_PLACES but does not exist`).toBeDefined()
+      text!.split("\n").forEach((line, index) => {
+        if (
+          /role="alert"[^>]*text-destructive|(?:error|failed)\s*&&\s*"text-destructive"|\?\s*"text-destructive"\s*$/u.test(
+            line,
+          )
+        ) {
+          found.push(`${file}:${index + 1} ${line.trim().slice(0, 90)}`)
+        }
+      })
+    }
+    expect(
+      found,
+      "A refusal under a property editor or in a cell is a `NoticeLine` (notices/notice-line.tsx) at the level " +
+        "`warning`, and a cell's own mark is `noticeTextClass(level)`; the colour is the `--notice-*` token, " +
+        "not `text-destructive` (docs/notices.md §8, §11).",
+    ).toEqual([])
+  })
+})
+
 // ---------------------------------------------------------------------------------------------
 // 5. One host of toasts (docs/notices.md §6)
 // ---------------------------------------------------------------------------------------------

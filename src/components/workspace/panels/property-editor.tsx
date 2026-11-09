@@ -1,6 +1,7 @@
 "use client"
 
 import { AmbySelect } from "@/components/ui/amby-select"
+import { NoticeLine } from "../notices/notice-line"
 import * as React from "react"
 import { Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -143,11 +144,7 @@ export function PropertyEditor({
         <DialogHeader>
           <DialogTitle className="text-sm">{t("infoPanel.propertyEditor")}</DialogTitle>
         </DialogHeader>
-        {error && (
-          <p role="alert" className="text-xs text-destructive">
-            {error}
-          </p>
-        )}
+        {error && <NoticeLine text={error} />}
         <div className="flex items-center gap-2">
           <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
             <PopoverTrigger asChild>
