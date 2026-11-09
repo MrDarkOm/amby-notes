@@ -1605,6 +1605,43 @@ mod tests {
     }
 
     #[test]
+    fn a_dependency_log_record_keeps_a_known_name_instead_of_becoming_invalid() {
+        // The updater plugin reports a failed update check through the `log` crate: tracing sees
+        // target `log` and the real crate in `log.target`, with no `event` field. Such a record must
+        // be stored as `dependency.log`, never as `diagnostic.invalid_event`, and keep no free text.
+        let mut fields = serde_json::json!({
+            "log.target": "tauri_plugin_updater::updater",
+            "log.module_path": "tauri_plugin_updater::updater",
+            "log.file": "/Users/alice/.cargo/registry/src/tauri-plugin-updater/src/updater.rs",
+            "log.line": 642,
+            "message": "update endpoint did not respond with a successful status code"
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        let (name, target) = backend_event_name("log", &mut fields);
+        assert_eq!(name, "dependency.log");
+        assert_eq!(target, "tauri_plugin_updater.updater");
+        assert!(fields.keys().all(|key| !key.starts_with("log.")));
+
+        let runtime = DebugRuntime::new();
+        let mut event = sample(LogLevel::Error);
+        event.event = name;
+        event.source = LogSource::Backend;
+        event.metadata = Some(sanitize_metadata(fields, "session"));
+        let stored = runtime.ingest(event).unwrap();
+        assert_eq!(stored.event, "dependency.log");
+        assert!(!serde_json::to_string(&stored).unwrap().contains("did not respond"));
+
+        // A tracing event of another crate without `event` is a dependency record too.
+        let mut fields = Map::new();
+        assert_eq!(backend_event_name("tao::platform_impl", &mut fields).0, "dependency.log");
+        // Amby's own events keep their explicit name.
+        let mut fields = serde_json::json!({ "event": "vault.opened" }).as_object().unwrap().clone();
+        assert_eq!(backend_event_name("amby_notes::vault", &mut fields).0, "vault.opened");
+    }
+
+    #[test]
     fn sanitizes_before_buffer_and_keeps_frontend_ids() {
         let runtime = DebugRuntime::new();
         runtime.ingest(sample(LogLevel::Error)).unwrap();
