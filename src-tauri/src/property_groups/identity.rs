@@ -70,6 +70,18 @@ pub fn backup_and_clear(conn: &Connection, vault: &Path, note_id: &str) -> Resul
     Ok(copy)
 }
 
+/// Like [`backup_and_clear`], but a note with no recorded look (its properties are plain keys of the
+/// header, which are never touched) has nothing to back up: that is an empty answer, not a failure.
+/// A move into a database asks for this after it carried the properties over.
+pub fn backup_if_any(conn: &Connection, vault: &Path, note_id: &str) -> Result<String, String> {
+    crate::index::identity::ensure_unique_identity(conn, note_id)?;
+    require_groups(vault)?;
+    if read_entry(vault, note_id)?.is_none() {
+        return Ok(String::new());
+    }
+    backup_and_clear(conn, vault, note_id)
+}
+
 fn note_exists(conn: &Connection, id: &str) -> bool {
     conn.query_row("SELECT 1 FROM notes WHERE id = ?1", [id], |_| Ok(()))
         .optional()

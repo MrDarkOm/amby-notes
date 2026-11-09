@@ -10,6 +10,7 @@ import {
 } from "@/lib/storage"
 import { confirm } from "@/lib/confirm"
 import { useTreeMessageStore } from "../tree/use-tree-message-store"
+import { useDatabaseStore } from "../database/database-store"
 import { usePropertyMoveRetryStore } from "./property-move-retry-store"
 import { useDocumentMutations } from "./use-document-mutations"
 
@@ -277,6 +278,22 @@ describe("the offer to carry the properties of a moved note to the database", ()
     expect(useTreeMessageStore.getState().message).toBeNull()
     await answer(started, "Сохранить копию")
     expect(backupCustomProperties).toHaveBeenCalledWith("/v", "n1")
+  })
+
+  it("makes the open databases read their rows and fields again once the note is moved and answered", async () => {
+    const before = useDatabaseStore.getState().invalidationSeq
+    const ref = mountedHarness()
+    const started = ref.current!.handleMoveItem(["n1"], "/v/B")
+    await answer(started, "Сохранить копию")
+    expect(useDatabaseStore.getState().invalidationSeq).toBeGreaterThan(before)
+  })
+
+  it("does the same when the note carries no properties: the database has a new row", async () => {
+    getNoteProperties.mockResolvedValue({ customProperties: [], properties: [] })
+    const before = useDatabaseStore.getState().invalidationSeq
+    const ref = mountedHarness()
+    await move(ref)
+    expect(useDatabaseStore.getState().invalidationSeq).toBeGreaterThan(before)
   })
 
   it("does not ask, and says nothing, when the note is not in a database", async () => {

@@ -114,6 +114,42 @@ describe("which properties are carried over", () => {
   })
 })
 
+describe("a list (multi-select) property", () => {
+  const note = (over: Partial<NoteProperties>): NoteProperties =>
+    ({ hasFrontmatter: true, properties: [], customProperties: [], ...over }) as NoteProperties
+
+  it("takes its items from the header, not the joined text of its value", () => {
+    const [kinds] = propertiesToMigrate(
+      note({
+        // The look the panel derives for a list: its value is the items joined, its settings the options.
+        customProperties: [
+          custom({
+            id: "kinds",
+            name: "kinds",
+            propertyType: "list",
+            value: "one, two",
+            settings: '{"options":["one","two"]}',
+          }),
+        ] as never,
+        properties: [{ key: "kinds", value: "one, two", valueKind: "list", items: ["one", "two"] }],
+      }),
+    )
+    expect(migratedOptions(kinds)).toEqual(["one", "two"])
+  })
+
+  it("never makes the whole joined value an option when the items are not known", () => {
+    expect(
+      migratedOptions(
+        custom({
+          propertyType: "list",
+          value: "one, two",
+          settings: '{"options":["one","two"]}',
+        }) as never,
+      ),
+    ).toEqual(["one", "two"])
+  })
+})
+
 describe("the field made for a property", () => {
   it("is named like the key of the header: the value stays in the header only", async () => {
     storage.getDatabaseNoteContext.mockResolvedValue(

@@ -5,15 +5,16 @@
 
 use crate::commands::database::database_note_context_inner;
 use crate::commands::mutations::move_item_inner;
-use crate::database::format::raw_revision;
 use crate::database::model::{
-    DatabasePageRequest, DatabaseQueryRequest, DatabaseQuerySource, DatabaseQuerySpec,
+    DatabasePageRequest, DatabaseQueryRequest, DatabaseQuerySource,
 };
 use crate::database::mutations::{
     apply_value_batch, create_database, create_database_property, CreateDatabasePropertyRequest,
     CreateDatabaseRequest, DatabaseCreateMode, DatabaseValueBatchRequest, DatabaseValueMutation,
 };
-use crate::database::projection::{rebuild_database_projection, update_database_values_incremental};
+use crate::database::projection::{
+    rebuild_database_projection, update_database_values_incremental,
+};
 use crate::database::query::query_database;
 use crate::database::runtime_state::DatabaseRuntimeState;
 use crate::vault_context::VaultContext;
@@ -30,6 +31,14 @@ fn a_moved_note_with_properties_is_carried_over_and_listed_by_the_database() {
         "---\namby-id: {note_id}\nrating: 5\nstatus: draft\nkinds: [one, two]\n---\n\nBody\n"
     );
     fs::write(root.join("Prop note.md"), &original).unwrap();
+
+    // The vault is in the groups format, as every opened vault is after its first opening.
+    fs::create_dir_all(root.join(".amby/properties")).unwrap();
+    fs::write(
+        root.join(".amby/properties/layout.json"),
+        crate::property_groups::testkit::LAYOUT_V1,
+    )
+    .unwrap();
 
     let context = VaultContext::new();
     context
@@ -54,7 +63,9 @@ fn a_moved_note_with_properties_is_carried_over_and_listed_by_the_database() {
     )
     .unwrap();
     context
-        .with_active(|active| rebuild_database_projection(&active.connection, &active.root).map(|_| ()))
+        .with_active(|active| {
+            rebuild_database_projection(&active.connection, &active.root).map(|_| ())
+        })
         .unwrap();
 
     // The drag of the note into the database folder.
@@ -76,7 +87,11 @@ fn a_moved_note_with_properties_is_carried_over_and_listed_by_the_database() {
     let mut ids = Vec::new();
     for (name, kind, options) in [
         ("status", "select", vec!["draft".to_owned()]),
-        ("kinds", "multiSelect", vec!["one".to_owned(), "two".to_owned()]),
+        (
+            "kinds",
+            "multiSelect",
+            vec!["one".to_owned(), "two".to_owned()],
+        ),
         ("rating", "number", Vec::new()),
     ] {
         let property = create_database_property(
@@ -107,7 +122,11 @@ fn a_moved_note_with_properties_is_carried_over_and_listed_by_the_database() {
     assert_eq!(after.properties.len(), 3, "the context sees the new fields");
 
     // The values, with the revision the interface sends (the row revision of the context).
-    let status = after.properties.iter().find(|p| p.name == "status").unwrap();
+    let status = after
+        .properties
+        .iter()
+        .find(|p| p.name == "status")
+        .unwrap();
     let option = status.options.iter().find(|o| o.name == "draft").unwrap();
     let batch = DatabaseValueBatchRequest {
         expected_generation: generation,
@@ -117,7 +136,10 @@ fn a_moved_note_with_properties_is_carried_over_and_listed_by_the_database() {
             DatabaseValueMutation {
                 note_id: note_id.clone(),
                 property_id: status.property_id.clone(),
-                value_json: Some(format!(r#"{{"type":"select","optionId":"{}"}}"#, option.option_id)),
+                value_json: Some(format!(
+                    r#"{{"type":"select","optionId":"{}"}}"#,
+                    option.option_id
+                )),
                 expected_revision: before.row.row_revision.clone(),
             },
             DatabaseValueMutation {
@@ -154,11 +176,9 @@ fn a_moved_note_with_properties_is_carried_over_and_listed_by_the_database() {
                     search: None,
                     sorts: None,
                     filter: None,
-                    source: DatabaseQuerySource::Inline {
-                        spec: DatabaseQuerySpec {
-                            filter: None,
-                            sorts: Vec::new(),
-                        },
+                    source: DatabaseQuerySource::SavedView {
+                        view_id: created.view_id.clone(),
+                        expected_revision: None,
                     },
                     page: DatabasePageRequest {
                         limit: 50,
@@ -179,6 +199,5 @@ fn a_moved_note_with_properties_is_carried_over_and_listed_by_the_database() {
             crate::property_groups::backup_if_any(&active.connection, &active.root, &note_id)
         })
         .expect("a note with no recorded properties has nothing to back up, without an error");
-    let _ = (created, raw_revision(b""));
     let _ = fs::remove_dir_all(root);
 }

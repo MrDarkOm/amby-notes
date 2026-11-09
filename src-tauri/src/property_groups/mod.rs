@@ -27,7 +27,7 @@ pub mod migration;
 mod panel;
 
 #[cfg(test)]
-mod testkit;
+pub(crate) mod testkit;
 #[cfg(test)]
 mod tests_dormant;
 #[cfg(test)]
