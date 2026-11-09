@@ -142,3 +142,17 @@ describe("the dangerous questions say what Cancel keeps where it is not obvious"
     expect(confirmations.switchAfterSaveFailure().description).toMatch(/черновик/iu)
   })
 })
+
+describe.each(["ru", "en"])("the question about a changed file in %s", (language) => {
+  beforeEach(async () => {
+    await i18n.changeLanguage(language)
+  })
+
+  it("is one short line and does not talk about a file (section 10)", () => {
+    const { title, description } = confirmations.overwriteExternal()
+    expect(description?.length).toBeLessThanOrEqual(80)
+    // One sentence: nothing follows its full stop.
+    expect(description).not.toMatch(/[.!?]\s+\S/u)
+    expect(`${title} ${description}`).not.toMatch(/файл|\bfiles?\b/iu)
+  })
+})
