@@ -5,9 +5,7 @@
 
 use crate::commands::database::database_note_context_inner;
 use crate::commands::mutations::move_item_inner;
-use crate::database::model::{
-    DatabasePageRequest, DatabaseQueryRequest, DatabaseQuerySource,
-};
+use crate::database::model::{DatabasePageRequest, DatabaseQueryRequest, DatabaseQuerySource};
 use crate::database::mutations::{
     apply_value_batch, create_database, create_database_property, CreateDatabasePropertyRequest,
     CreateDatabaseRequest, DatabaseCreateMode, DatabaseValueBatchRequest, DatabaseValueMutation,
