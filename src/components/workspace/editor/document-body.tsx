@@ -364,7 +364,7 @@ export function DocumentBody({
   )
 
   return (
-    <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+    <div data-note-area="" className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
       {/* Editor Layer */}
       <div
         aria-hidden={activeLayer !== "editor"}

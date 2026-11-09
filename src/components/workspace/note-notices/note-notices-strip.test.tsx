@@ -119,6 +119,7 @@ describe("the level of the strip", () => {
     saveFailed()
     conflicted()
     mount({ warningKey: "workspace.invalidFrontmatter" })
+    fireEvent.click(strip()) // a danger opened the panel; fold it into the pill
     const text = strip().textContent ?? ""
     expect(text).toContain("Не удалось сохранить заметку")
     expect(text).toContain("+2")
@@ -326,7 +327,8 @@ describe("the order of the cards in the panel", () => {
     conflicted()
     saveFailed()
     mount()
-    expect(strip().textContent).toContain("Не удалось сохранить заметку")
     expect(order()[0]).toBe("note-notice-save-failed")
+    fireEvent.click(strip())
+    expect(strip().textContent).toContain("Не удалось сохранить заметку")
   })
 })

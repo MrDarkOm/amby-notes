@@ -99,6 +99,7 @@ describe("the strip", () => {
     useSyncNoticesStore.setState({ conflicts: [conflict] })
     useNoteNoticesStore.getState().markRestored(ORIGINAL)
     mount({ warningKey: "workspace.losslessSourceOnly" })
+    fireEvent.click(bulb()!) // the conflict opened the panel; the pill shows the title and the count
     expect(bulb()!.textContent).toContain("+2")
     expect(bulb()!.getAttribute("aria-label")).toMatch(/Уведомления заметки: 3/)
     // the line shows the most serious one: the conflict
@@ -118,13 +119,18 @@ describe("the strip", () => {
   })
 
   it("keeps the number in step as notices come and go", () => {
-    mount()
+    const { rerender } = mount()
     expect(bulb()).toBeNull()
-    act(() => useNoteNoticesStore.getState().setSaveFailed(ABSOLUTE, true))
+    act(() => useNoteNoticesStore.getState().markRestored(ORIGINAL))
     expect(bulb()!.textContent).not.toMatch(/\+\d/)
-    act(() => useSyncNoticesStore.getState().setConflicts([conflict]))
+    rerender(
+      <NoteNotices
+        document={{ id: ABSOLUTE, path: ABSOLUTE }}
+        warningKey="workspace.losslessSourceOnly"
+      />,
+    )
     expect(bulb()!.textContent).toContain("+1")
-    act(() => useNoteNoticesStore.getState().setSaveFailed(ABSOLUTE, false))
+    rerender(<NoteNotices document={{ id: ABSOLUTE, path: ABSOLUTE }} warningKey={null} />)
     expect(bulb()!.textContent).not.toMatch(/\+\d/)
   })
 

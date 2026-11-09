@@ -1,7 +1,7 @@
 # Notices of a note map
 
-The strip of the notices of a note and the panel of cards it opens (docs/sync-plan.md, stage Э4б К3; docs/notices.md, section 7). The
-strip peeks out from behind the top edge of the floating bottom bar of the note, a little narrower than the bar, its foot under it.
+The pill of the notices of a note and the panel of cards it opens (docs/sync-plan.md, stage Э4б К3; docs/notices.md, section 7). The
+pill is its own small element at the right edge of the floating bottom bar of the note, a gap (`bottom-2`) above the bar; it is not as wide as the bar and does not go under it.
 [document-editor.tsx](../editor/document-editor.tsx) hands `NoteNotices` to [document-body.tsx](../editor/document-body.tsx) as `notices`, which
 passes it to [document-area-controls.tsx](../editor/document-area-controls.tsx) and the `above` slot of
 [page-floating-bar.tsx](../page-chrome/page-floating-bar.tsx); there is nothing above the note and no bulb.
@@ -16,17 +16,19 @@ passes it to [document-area-controls.tsx](../editor/document-area-controls.tsx) 
 | Sources read by the cards                                                                                                                                             | external conflicts and deletion: [use-doc-store.ts](../use-doc-store.ts); sync conflicts, remote deletions: [use-sync-notices-store.ts](../sync/use-sync-notices-store.ts); warning key: [note-editing-policy.ts](../editor/note-editing-policy.ts)                                                                                           |
 | Writers                                                                                                                                                               | `saveFailed`: [use-markdown-autosave.ts](../file-actions/use-markdown-autosave.ts); `draftOffers`: [use-document-loading.ts](../file-actions/use-document-loading.ts); `restored`, `merged`: [sync-notices-host.tsx](../sync/sync-notices-host.tsx); `closedSaveFailed`: [use-markdown-autosave.ts](../file-actions/use-markdown-autosave.ts) |
 
-The strip is there only while the note has a notice; folded it is at least about 300px wide and grows to the left of the bar. Folded it is one line and one button (`aria-expanded`): the icon of the most
-serious level, the title of its card cut to one line, "+N" for the other cards, a dot of that level and a chevron; open, it grows
-upwards into the panel of all the cards, most serious first (danger, decision, warning, information; the order inside a level is the order they are collected in) (limited height, scrolls inside; animation by the motion tokens, instant for reduced motion)
-and the line stays at its foot. The level of a card (`danger`, `decision`, `warning`, `info`) says how it looks, how it is announced
+The pill is there only while the note has a notice. Folded it is one button (`aria-expanded`, `data-testid="note-notices-strip"`) that fits its content up to
+about 20rem: the icon of the most serious level, the title of its card cut to one line, "+N" for the other cards and a chevron. Open, the same
+button is the header row of a rounded panel (`note-notices-frame`, popover surface, border, soft shadow, about 24rem, never wider than
+the note area: `data-note-area` in [document-body.tsx](../editor/document-body.tsx) is measured with a `ResizeObserver`): the icon, "Note notices · N",
+a chevron, and under it the cards (`note-notices-stack`) as tiles, most serious first (danger, decision, warning, information; the order inside a level is the order
+they are collected in), with limited height and scrolling inside (animation by the motion tokens, instant for reduced motion). The level of a card (`danger`, `decision`, `warning`, `info`) says how it looks, how it is announced
 and whether it opens the panel by itself: only `danger` and `decision` do, when a new one appears or when the note is opened
 (`noticeIsUrgent` in [notice-look.ts](../notices/notice-look.ts); `data-urgent` on a card is derived from its level). Today these are a
 sync conflict, a note deleted on another computer, a deleted or externally changed file, a failed save of the text or of a property, a
 draft to restore, a lost id (`workspace.identityReadOnly`), properties that are read only, and the choice after an edit made here and
 in an old version. Warnings (a damaged or unterminated header, a file that is only source, a newer format, a bad line, differing
 values after the migration) and information ("returned", "moved", "carried over", a rename hint, an old version) wait for a click on
-the strip. The icon and the dot take the colour of the most serious level among the cards (`data-level` on the strip; `mostSeriousNoticeLevel`). A card goes away when its source stops saying it. The
+the pill. The icon takes the colour of the most serious level among the cards (`data-level` on the strip; `mostSeriousNoticeLevel`). A card goes away when its source stops saying it. The
 remote-deletion card steps in front of the general "file deleted" card until the way back from the archive fails. While a draft
 offer waits, `document-editor.tsx` keeps the note read only so typing cannot overwrite the draft in the journal.
 
