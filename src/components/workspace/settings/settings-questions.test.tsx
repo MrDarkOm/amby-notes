@@ -61,21 +61,21 @@ describe("removing a theme from the library", () => {
     return { onThemesChange, onSelect }
   }
 
-  it("names the theme, says the file stays, and removes nothing on Cancel", async () => {
-    vi.mocked(confirm).mockResolvedValue(false)
-    const { onThemesChange, onSelect } = mount()
-    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
-    const question = vi.mocked(confirm).mock.calls[0][0]
-    expect(question.title).toContain("Закат")
-    expect(question.description).toMatch(/файл/iu)
-    expect(onThemesChange).not.toHaveBeenCalled()
-    expect(onSelect).not.toHaveBeenCalled()
-  })
-
-  it("removes the theme and goes back to the dark one after yes", async () => {
-    vi.mocked(confirm).mockResolvedValue(true)
+  it("asks nothing: removes the theme at once and goes back to the dark one", async () => {
     const { onThemesChange, onSelect } = mount()
     await waitFor(() => expect(onThemesChange).toHaveBeenCalledWith([]))
     expect(onSelect).toHaveBeenCalledWith("dark")
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it("says it under the library and puts the theme back, selected, on 'Вернуть'", async () => {
+    const { onThemesChange, onSelect } = mount()
+    const line = await screen.findByTestId("theme-removed")
+    expect(line.textContent).toContain("Закат")
+    expect(line.getAttribute("data-level")).toBe("info")
+    fireEvent.click(screen.getByRole("button", { name: "Вернуть" }))
+    expect(onThemesChange).toHaveBeenLastCalledWith([theme])
+    expect(onSelect).toHaveBeenLastCalledWith("my-theme")
+    expect(screen.queryByTestId("theme-removed")).toBeNull()
   })
 })

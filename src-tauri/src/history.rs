@@ -421,6 +421,11 @@ pub const SOURCE_REWRITE_REASON: &str = "note-rewrite";
 /// is switched off for the vault: it is the only copy of what the replacement overwrites.
 pub const SYNC_OVERWRITE_REASON: &str = "sync-overwrite";
 
+/// A version of a note is put back. The text it replaces is kept even when the history is switched
+/// off: restoring is not asked about because nothing is lost by it, and that holds only if the current
+/// text becomes a version first.
+pub const RESTORE_REASON: &str = "restore";
+
 fn is_autosave_snapshot(reason: &str) -> bool {
     matches!(reason, "note-save" | "file-save")
 }
@@ -510,6 +515,7 @@ fn snapshot_before_write_at(
 ) -> Result<Option<String>, String> {
     if reason != SOURCE_REWRITE_REASON
         && reason != SYNC_OVERWRITE_REASON
+        && reason != RESTORE_REASON
         && !is_history_enabled(vault)
     {
         return Ok(None);
@@ -866,7 +872,7 @@ pub fn commit_snapshot_restore(
     vault: &Path,
     prepared: PreparedSnapshotRestore,
 ) -> Result<PathBuf, String> {
-    snapshot_before_write(vault, &prepared.path, &prepared.bytes, "restore")?;
+    snapshot_before_write(vault, &prepared.path, &prepared.bytes, RESTORE_REASON)?;
     frontmatter::atomic_write_bytes(&prepared.path, &prepared.bytes)?;
     Ok(prepared.path)
 }
