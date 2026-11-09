@@ -31,6 +31,25 @@ function loggedEvents(): Map<string, string> {
   return events
 }
 
+/** The `event = "name"` of the backend's `tracing::…!` calls, with where they stand. */
+function backendEvents(): Map<string, string> {
+  const call = /tracing::(?:trace|debug|info|warn|error)!\([^;]*?\bevent\s*=\s*"([^"]+)"/gu
+  const events = new Map<string, string>()
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const path = join(dir, name)
+      if (statSync(path).isDirectory()) walk(path)
+      else if (name.endsWith(".rs") && !/test/u.test(name)) {
+        for (const match of readFileSync(path, "utf8").matchAll(call)) {
+          if (!events.has(match[1]!)) events.set(match[1]!, relative(ROOT, path))
+        }
+      }
+    }
+  }
+  walk(join(ROOT, "src-tauri", "src"))
+  return events
+}
+
 function quoted(block: string): string[] {
   return [...block.matchAll(/"([^"]+)"/gu)].map((match) => match[1]!)
 }
@@ -69,6 +88,14 @@ describe("the names of the logged events", () => {
   it("are all allowed by the backend filter (ALLOWED_EVENTS in logging.rs)", () => {
     const allowed = backendFilter()
     const missing = [...events].filter(([name]) => !allowed(name))
+    expect(missing.map(([name, file]) => `${name}  (${file})`)).toEqual([])
+  })
+
+  it("of the backend's own tracing events are allowed by the backend filter too", () => {
+    const allowed = backendFilter()
+    const backend = backendEvents()
+    expect(backend.size).toBeGreaterThan(20)
+    const missing = [...backend].filter(([name]) => !allowed(name))
     expect(missing.map(([name, file]) => `${name}  (${file})`)).toEqual([])
   })
 })
