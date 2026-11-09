@@ -15,9 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  applyDatabaseValueBatch,
   backupCustomProperties,
-  createDatabaseProperty,
   deleteItem,
   getDatabaseNoteContext,
   getNoteProperties,
@@ -27,15 +25,18 @@ import {
   readNote,
   renameItem,
   type FsMutationResult,
-  type CustomProperty,
   type DatabaseNoteContext,
-  type DatabasePropertySummary,
   DatabaseOperationError,
 } from "@/lib/storage"
 import { useDocStore } from "../use-doc-store"
 import { useTabsStore } from "../use-tabs-store"
 import { useTreeMessageStore } from "../tree/use-tree-message-store"
 import { usePropertyMoveRetryStore } from "./property-move-retry-store"
+import {
+  migratePropertiesToDatabase,
+  propertiesToMigrate,
+  type MigratingProperty,
+} from "./property-migration"
 import { findTreeItem } from "../workspace-tree-utils"
 import { moveTreeItemsOptimistically } from "../workspace-mutations"
 import { concatTreePatches } from "../tree-patch"
@@ -62,147 +63,6 @@ interface PendingPropertyMigration {
   count: number
   database: string
   resolve: (choice: PropertyMigrationChoice) => void
-}
-
-function migratedPropertyType(property: CustomProperty): string {
-  if (
-    property.propertyType === "number" &&
-    (!property.value || Number.isFinite(Number(property.value)))
-  )
-    return "number"
-  if (property.propertyType === "checkbox") return "checkbox"
-  if (
-    property.propertyType === "date" &&
-    (!property.value || /^\d{4}-\d{2}-\d{2}/.test(property.value))
-  )
-    return "date"
-  if (property.propertyType === "url") return "url"
-  if (property.propertyType === "select") return "select"
-  return "text"
-}
-
-function migratedOptions(property: CustomProperty): string[] {
-  const options = property.settings
-    .split(",")
-    .map((option) => option.trim())
-    .filter(Boolean)
-  if (
-    property.value &&
-    !options.some(
-      (option) => option.localeCompare(property.value, undefined, { sensitivity: "base" }) === 0,
-    )
-  ) {
-    options.push(property.value)
-  }
-  return options
-}
-
-function migratedValue(
-  property: CustomProperty,
-  propertyType: string,
-  targetProperty: DatabasePropertySummary,
-): string | undefined {
-  if (!property.value) return undefined
-  if (propertyType === "number") {
-    return JSON.stringify({ type: "number", decimal: property.value })
-  }
-  if (propertyType === "checkbox") {
-    return JSON.stringify({ type: "checkbox", checked: property.value === "true" })
-  }
-  if (propertyType === "date") {
-    return JSON.stringify({ type: "date", start: property.value })
-  }
-  if (propertyType === "select") {
-    const option = targetProperty.options.find(
-      (candidate) =>
-        candidate.name.localeCompare(property.value, undefined, { sensitivity: "base" }) === 0,
-    )
-    if (!option) {
-      throw new Error(
-        i18n.t("infoPanel.databasePropertyMoveOptionMissing", { property: property.name }),
-      )
-    }
-    return JSON.stringify({ type: "select", optionId: option.optionId })
-  }
-  return JSON.stringify({ type: propertyType, value: property.value })
-}
-
-async function migratePropertiesToDatabase(
-  vault: string,
-  context: DatabaseNoteContext,
-  properties: CustomProperty[],
-) {
-  let manifestRevision = context.manifestRevision
-  const usedNames = new Set(context.properties.map((property) => property.name.toLocaleLowerCase()))
-  const targetProperties: Array<{ propertyId: string; property: CustomProperty; type: string }> = []
-
-  for (const property of properties) {
-    const type = migratedPropertyType(property)
-    const matching = context.properties.find(
-      (candidate) =>
-        candidate.name.localeCompare(property.name, undefined, { sensitivity: "base" }) === 0 &&
-        candidate.propertyType === type &&
-        (type !== "select" ||
-          !property.value ||
-          candidate.options.some(
-            (option) =>
-              option.name.localeCompare(property.value, undefined, { sensitivity: "base" }) === 0,
-          )),
-    )
-    if (matching) {
-      targetProperties.push({ propertyId: matching.propertyId, property, type })
-      continue
-    }
-    let name = property.name.trim()
-    let suffix = 2
-    while (usedNames.has(name.toLocaleLowerCase())) name = `${property.name.trim()} ${suffix++}`
-    const created = await createDatabaseProperty({
-      expectedGeneration: context.vaultGeneration,
-      databaseId: context.databaseId,
-      expectedManifestRevision: manifestRevision,
-      name,
-      propertyType: type,
-      options: type === "select" ? migratedOptions(property) : undefined,
-    })
-    manifestRevision = created.manifestRevision
-    usedNames.add(name.toLocaleLowerCase())
-    targetProperties.push({ propertyId: created.propertyId, property, type })
-  }
-
-  const refreshedContext = (await getDatabaseNoteContext(context.row.noteId)) ?? context
-  const cells = targetProperties.flatMap(({ propertyId, property, type }) => {
-    const targetProperty = refreshedContext.properties.find(
-      (candidate) => candidate.propertyId === propertyId,
-    )
-    if (!targetProperty) {
-      throw new Error(
-        i18n.t("infoPanel.databasePropertyMoveFieldMissing", { property: property.name }),
-      )
-    }
-    const valueJson = migratedValue(property, type, targetProperty)
-    return valueJson
-      ? [
-          {
-            noteId: context.row.noteId,
-            propertyId,
-            valueJson,
-            expectedRevision: context.row.rowRevision,
-          },
-        ]
-      : []
-  })
-  if (cells.length) {
-    await applyDatabaseValueBatch({
-      expectedGeneration: context.vaultGeneration,
-      databaseId: context.databaseId,
-      operationId:
-        typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? `property-migration-${crypto.randomUUID()}`
-          : `property-migration-${Date.now()}`,
-      cells,
-    })
-  }
-  await backupCustomProperties(vault, context.row.noteId)
 }
 
 export function useDocumentMutations({
@@ -243,7 +103,7 @@ export function useDocumentMutations({
    * `known` is what was read before the move; if that failed, it is read again here.
    */
   const offerPropertiesToDatabase = React.useCallback(
-    async (noteId: string, name: string, known: CustomProperty[] | null): Promise<void> => {
+    async (noteId: string, name: string, known: MigratingProperty[] | null): Promise<void> => {
       if (!vault) return
       const retry = () => offerPropertiesToDatabase(noteId, name, null)
       const keepInNote = (event: string, error: unknown) => {
@@ -266,7 +126,7 @@ export function useDocumentMutations({
       let properties = known
       if (!properties) {
         try {
-          properties = (await getNoteProperties(vault, noteId)).customProperties
+          properties = propertiesToMigrate(await getNoteProperties(vault, noteId))
         } catch (error) {
           keepInNote("file.move_properties_read_failed", error)
           return
@@ -429,10 +289,10 @@ export function useDocumentMutations({
       try {
         const source = sourceEntries.length === 1 ? sourceEntries[0].source : null
         // Read before the move; if that fails, the offer after the move reads again.
-        const previousProperties: CustomProperty[] | null =
+        const previousProperties: MigratingProperty[] | null =
           source?.type === "file"
             ? await getNoteProperties(vault, source.id).then(
-                (properties) => properties.customProperties,
+                (properties) => propertiesToMigrate(properties),
                 (error: unknown) => {
                   logger.debug("file.move_properties_read_failed", {
                     failureCode: operationErrorCode(error),

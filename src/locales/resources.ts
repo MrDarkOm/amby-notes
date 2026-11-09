@@ -1589,8 +1589,14 @@ const ru = {
     databaseSchema: "Свойства базы",
     databaseSchemaHint: "Настройте свойства прямо в заголовке таблицы.",
     databasePropertyMoveTitle: "Перенести свойства заметки?",
-    databasePropertyMoveDescription:
-      "У заметки есть {{count}} свойств. Добавьте их вместе со значениями в базу «{{database}}» или сохраните отдельную резервную копию.",
+    databasePropertyMoveDescription_one:
+      "В заметке {{count}} свойство. Добавьте его в базу «{{database}}» или сохраните резервную копию.",
+    databasePropertyMoveDescription_few:
+      "В заметке {{count}} свойства. Добавьте их в базу «{{database}}» или сохраните резервную копию.",
+    databasePropertyMoveDescription_many:
+      "В заметке {{count}} свойств. Добавьте их в базу «{{database}}» или сохраните резервную копию.",
+    databasePropertyMoveDescription_other:
+      "В заметке {{count}} свойства. Добавьте их в базу «{{database}}» или сохраните резервную копию.",
     databasePropertyMoveDatabase: "Добавить в базу",
     databasePropertyMoveBackup: "Сохранить копию",
     databasePropertyMoveOptionMissing: "Не найден перенесённый вариант свойства «{{property}}».",
@@ -6010,8 +6016,14 @@ const en: typeof ru = {
     databaseSchema: "Database properties",
     databaseSchemaHint: "Configure properties directly from the table header.",
     databasePropertyMoveTitle: "Move note properties?",
-    databasePropertyMoveDescription:
-      "This note has {{count}} properties. Add them and their values to “{{database}}”, or save a separate backup.",
+    databasePropertyMoveDescription_one:
+      "This note has {{count}} property. Add it to “{{database}}”, or save a backup.",
+    databasePropertyMoveDescription_few:
+      "This note has {{count}} properties. Add them to “{{database}}”, or save a backup.",
+    databasePropertyMoveDescription_many:
+      "This note has {{count}} properties. Add them to “{{database}}”, or save a backup.",
+    databasePropertyMoveDescription_other:
+      "This note has {{count}} properties. Add them to “{{database}}”, or save a backup.",
     databasePropertyMoveDatabase: "Add to database",
     databasePropertyMoveBackup: "Save backup",
     databasePropertyMoveOptionMissing: "The migrated option for “{{property}}” was not found.",

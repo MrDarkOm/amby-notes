@@ -47,6 +47,7 @@ function context(properties: unknown[] = []): DatabaseNoteContext {
 beforeEach(async () => {
   await i18n.changeLanguage("ru")
   vi.clearAllMocks()
+  storage.getDatabaseNoteContext.mockReset()
   storage.createDatabaseProperty.mockImplementation(async (request: { name: string }) => ({
     propertyId: `p-${request.name}`,
     manifestRevision: "m2",
@@ -115,6 +116,17 @@ describe("which properties are carried over", () => {
 
 describe("the field made for a property", () => {
   it("is named like the key of the header: the value stays in the header only", async () => {
+    storage.getDatabaseNoteContext.mockResolvedValue(
+      context([
+        { propertyId: "p-rating", name: "rating", propertyType: "number", options: [] },
+        {
+          propertyId: "p-status",
+          name: "status",
+          propertyType: "select",
+          options: [{ optionId: "o1", name: "draft" }],
+        },
+      ]),
+    )
     await migratePropertiesToDatabase("/v", context(), [
       custom({ name: "rating", propertyType: "number", value: "5" }),
       custom({

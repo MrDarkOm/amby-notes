@@ -1,6 +1,7 @@
 import { databasePropertyIcon } from "./info-property-icons"
 import { AmbySelect } from "@/components/ui/amby-select"
 import * as React from "react"
+import { parseOptions } from "../property-options"
 import { Check, GripVertical } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { motion, Reorder, useDragControls } from "motion/react"
@@ -359,10 +360,7 @@ export function PropertyRow({
   const PropertyIcon = databasePropertyIcon(property)
   const [value, setValue] = React.useState(property.value)
   React.useEffect(() => setValue(property.value), [property.value])
-  const options = property.settings
-    .split(",")
-    .map((option) => option.trim())
-    .filter(Boolean)
+  const options = parseOptions(property.settings).options
 
   async function saveValue(next = value) {
     if (next === property.value) return
