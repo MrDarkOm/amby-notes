@@ -57,6 +57,7 @@ import { useSelectedRow } from "./use-selected-row"
 import { useRowEditing } from "./use-row-editing"
 import { useViewStateStore } from "../use-view-state-store"
 import { warningNotices } from "@/lib/operation-errors"
+import { NoticeLevelIcon, NoticeShell } from "../notices/notice-level"
 
 interface DatabaseWorkspaceProps {
   databaseId: string
@@ -306,6 +307,8 @@ export function DatabaseWorkspace({
     editingDatabaseTitle,
     setEditingDatabaseTitle,
     commitDatabaseTitle,
+    cancelDatabaseTitle,
+    titleHint,
   } = useDatabaseTitle({
     title,
     icon,
@@ -524,6 +527,15 @@ export function DatabaseWorkspace({
     )
   }
 
+  // A refusal of a dialog's own action is said in the dialog, under the field, and nowhere else
+  // (docs/notices.md, section 4): the line above the table waits until the dialog is closed.
+  const dialogOpen = viewDialogOpen || rowDialogOpen || propertyDialogOpen
+  // Cancelling a dialog takes its refusal away with it.
+  const closeDialog = (open: boolean, setOpen: (open: boolean) => void) => {
+    if (!open) setMutationError(null)
+    setOpen(open)
+  }
+
   return (
     <OptionActionsProvider value={optionActions}>
       <section
@@ -579,6 +591,8 @@ export function DatabaseWorkspace({
               setEditingDatabaseTitle={setEditingDatabaseTitle}
               setDatabaseTitle={setDatabaseTitle}
               commitDatabaseTitle={commitDatabaseTitle}
+              cancelDatabaseTitle={cancelDatabaseTitle}
+              titleHint={titleHint}
               title={title}
             />
           )}
@@ -681,13 +695,16 @@ export function DatabaseWorkspace({
               )}
             </div>
           )}
-          {mutationError && (
-            <p
-              role="alert"
-              className="my-1 rounded-lg bg-destructive/5 px-3 py-2 text-xs text-destructive"
+          {mutationError && !dialogOpen && (
+            <NoticeShell
+              level="warning"
+              variant="calm"
+              data-testid="database-notice"
+              className="my-1 flex items-start gap-1.5 rounded-lg px-3 py-2 text-xs text-foreground"
             >
-              {mutationError}
-            </p>
+              <NoticeLevelIcon level="warning" className="mt-px size-3.5 shrink-0" />
+              <span className="min-w-0">{mutationError}</span>
+            </NoticeShell>
           )}
           <DatabaseViewContent
             contentAreaRef={contentAreaRef}
@@ -771,7 +788,7 @@ export function DatabaseWorkspace({
         />
         <DatabaseViewDialog
           open={viewDialogOpen}
-          onOpenChange={setViewDialogOpen}
+          onOpenChange={(open) => closeDialog(open, setViewDialogOpen)}
           mode="create"
           viewName={viewName}
           onViewNameChange={setViewName}
@@ -790,7 +807,7 @@ export function DatabaseWorkspace({
         />
         <DatabaseRowDialog
           open={rowDialogOpen}
-          onOpenChange={setRowDialogOpen}
+          onOpenChange={(open) => closeDialog(open, setRowDialogOpen)}
           rowTitle={rowTitle}
           onRowTitleChange={setRowTitle}
           mutationBusy={mutationBusy}
@@ -800,7 +817,7 @@ export function DatabaseWorkspace({
         <DatabasePropertyDialog
           open={propertyDialogOpen}
           onOpenChange={(open) => {
-            setPropertyDialogOpen(open)
+            closeDialog(open, setPropertyDialogOpen)
             if (!open) setPropertyInsertBeforeId(undefined)
           }}
           propertyName={propertyName}
