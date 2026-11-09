@@ -5589,23 +5589,11 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   background: color-mix(in srgb, var(--primary) 10%, transparent);
 }
 
-/* The notices of a note above its bottom bar: a bulb with the number and a stack of cards. */
-/* The strip of the notices of a note peeks out from behind the floating bar of the note: the surface of
-   the note, a border on three sides, the foot goes under the bar. The cards are rows in its panel,
-   parted by a line. */
-.note-notices-strip {
-  border-color: color-mix(in srgb, var(--border) 80%, transparent);
-  background: var(--note-surface);
-  color: var(--card-foreground);
-  box-shadow: 0 -2px 8px -2px rgb(0 0 0 / 0.1);
-}
-
+/* The notices of a note sit near the floating bottom bar, a gap above it. Folded: a small pill with the
+   popover surface. Open: a rounded panel of the same surface and border as the stack at the bell, its
+   cards separate tiles inside it. */
 .note-notice-card {
-  background: transparent;
-}
-
-.note-notice-card + .note-notice-card {
-  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 0.5rem;
 }
 
 /* The stripe and the tint of a card come from its level (notices/notice-level.tsx), not from whether it

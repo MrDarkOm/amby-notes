@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-// The strip of a note's notices (docs/notices.md, section 7) shows the most serious card in one line:
-// its level icon, its title, "+N" for the others, a dot of its level and a chevron. The level is the
+// The strip of a note's notices (docs/notices.md, section 7) is a small pill: the icon of the most serious
+// level, its card's title in one line, "+N" for the others and a chevron. Open, it is a rounded panel with
+// a header row and the cards. The level is the
 // most serious one among the cards (danger, decision, warning, info, success); the colours come from the
 // theme tokens through the shared look of the levels. The strip opens by itself only for a danger or a
 // decision. Behaviour only; how it looks is checked in a browser.
@@ -37,7 +38,6 @@ function mount(props: Partial<NoteNoticesProps> = {}) {
   )
 }
 const strip = () => screen.getByTestId("note-notices-strip")
-const dot = () => within(strip()).getByTestId("note-notices-dot")
 
 const saveFailed = () => useNoteNoticesStore.getState().setSaveFailed(ABSOLUTE, true)
 const conflicted = () => useSyncNoticesStore.setState({ conflicts: [conflict] })
@@ -111,8 +111,7 @@ describe("the level of the strip", () => {
     // the icon of the level stands first in the line, and the dot has the colour of the level
     expect(strip().querySelector("svg")!.classList.contains(`lucide-${icon}`)).toBe(true)
     expect(strip().querySelector("svg")!.getAttribute("class")).toContain(`--notice-${level}-fg`)
-    expect(dot().getAttribute("data-level")).toBe(level)
-    expect(dot().getAttribute("class")).toContain(`--notice-${level}-fg`)
+    expect(within(strip()).queryByTestId("note-notices-dot")).toBeNull()
     expect(strip().outerHTML).not.toMatch(/amber|bulb/)
   })
 
@@ -120,6 +119,7 @@ describe("the level of the strip", () => {
     saveFailed()
     conflicted()
     mount({ warningKey: "workspace.invalidFrontmatter" })
+    fireEvent.click(strip()) // a danger opened the panel; fold it into the pill
     const text = strip().textContent ?? ""
     expect(text).toContain("Не удалось сохранить заметку")
     expect(text).toContain("+2")
@@ -161,7 +161,7 @@ describe("the strip and the panel of cards", () => {
     expect(strip().querySelector("svg.lucide-chevron-up")).toBeNull()
   })
 
-  it("opens the panel above the strip with every card, and the strip stays at the foot", () => {
+  it("opens a panel with a header row first and every card below it", () => {
     saveFailed()
     restored()
     mount({ warningKey: "workspace.invalidFrontmatter" })
@@ -175,9 +175,27 @@ describe("the strip and the panel of cards", () => {
       ),
     ]
     expect(parts.map((part) => part.getAttribute("data-testid"))).toEqual([
-      "note-notices-stack",
       "note-notices-strip",
+      "note-notices-stack",
     ])
+    // the header and the cards are one rounded panel: popover surface, a border and a soft shadow
+    const frame = screen.getByTestId("note-notices-frame")
+    expect(frame.contains(strip())).toBe(true)
+    expect(frame.contains(panel)).toBe(true)
+    const classes = frame.getAttribute("class") ?? ""
+    expect(classes).toMatch(/rounded-xl/)
+    expect(classes).toMatch(/bg-popover/)
+    expect(classes).toMatch(/shadow-/)
+    expect(classes).not.toMatch(/rounded-t-xl|border-b-0/)
+  })
+
+  it("says what the panel is in its header: the note's notices and how many", () => {
+    saveFailed()
+    restored()
+    mount()
+    expect(strip().textContent).toContain("Уведомления заметки · 2")
+    expect(strip().querySelector("svg.lucide-chevron-down")).not.toBeNull()
+    expect(strip().getAttribute("aria-label")).toBe("Уведомления заметки: 2")
   })
 
   it("keeps the panel closed for a warning and for information, and opens it for a danger or a decision", () => {
@@ -224,28 +242,50 @@ describe("the strip and the panel of cards", () => {
   })
 })
 
-describe("the width of the strip", () => {
+describe("the shape of the strip", () => {
   const frame = () => screen.getByTestId("note-notices-frame")
 
-  it("is wide enough folded for a title in one line, and grows to the left, never past the screen", () => {
+  it("is a small pill folded: as wide as its content, capped, not as wide as the bar", () => {
     saveFailed()
     mount()
     fireEvent.click(strip()) // fold it: a danger opened it by itself
     const classes = frame().getAttribute("class") ?? ""
-    // about 300px at least, so that an ordinary title is not cut
-    expect(classes).toMatch(/min-w-\[(18\.75rem|300px)\]/)
-    // never wider than the note area can show
+    expect(classes).toMatch(/w-fit|w-auto/)
     expect(classes).toMatch(/max-w-\[/)
-    // the right edge stays at the bar: the strip is pushed to the end of its anchor, so it grows leftwards
-    expect(screen.getByTestId("note-notices").getAttribute("class")).toContain("justify-end")
+    expect(classes).toMatch(/rounded-full/)
+    expect(classes).not.toMatch(/min-w-\[/)
+    expect(classes).not.toMatch(/w-\[calc\(100%/)
+    // its own element, not tucked under the bar, with a clear gap above it, at the right edge of the bar
+    const root = screen.getByTestId("note-notices")
+    const rootClasses = root.getAttribute("class") ?? ""
+    expect(rootClasses).toMatch(/bottom-2/)
+    expect(rootClasses).not.toMatch(/bottom-\[-/)
+    expect(rootClasses).toContain("justify-end")
+    expect(classes).not.toMatch(/\bmx-/)
     expect(classes).toMatch(/shrink-0/)
   })
 
-  it("keeps the same minimum open, and is wider then", () => {
+  it("truncates a long title in the pill", () => {
     saveFailed()
     mount()
-    expect(frame().getAttribute("class")).toMatch(/min-w-\[(18\.75rem|300px)\]/)
-    expect(frame().getAttribute("class")).toMatch(/w-\[min\(24rem/)
+    fireEvent.click(strip())
+    expect(within(strip()).getByText("Не удалось сохранить заметку").getAttribute("class")).toMatch(
+      /truncate/,
+    )
+  })
+
+  it("is about 24rem wide open and never past the screen", () => {
+    saveFailed()
+    mount()
+    expect(frame().getAttribute("class")).toMatch(/w-\[min\(24rem,calc\(100vw-/)
+    expect(frame().getAttribute("class")).toMatch(/rounded-xl/)
+  })
+
+  it("lets the long text of a card wrap instead of cutting it", () => {
+    saveFailed()
+    mount()
+    const card = screen.getByTestId("note-notice-save-failed")
+    expect(card.querySelector("p")!.getAttribute("class")).not.toMatch(/truncate/)
   })
 })
 
@@ -287,7 +327,8 @@ describe("the order of the cards in the panel", () => {
     conflicted()
     saveFailed()
     mount()
-    expect(strip().textContent).toContain("Не удалось сохранить заметку")
     expect(order()[0]).toBe("note-notice-save-failed")
+    fireEvent.click(strip())
+    expect(strip().textContent).toContain("Не удалось сохранить заметку")
   })
 })

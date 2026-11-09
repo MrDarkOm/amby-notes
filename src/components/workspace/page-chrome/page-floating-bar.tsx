@@ -43,8 +43,8 @@ export interface PageFloatingBarProps {
   lock?: PageBarLock
   settings?: PageBarSettings
   /**
-   * Something that peeks out from behind the top edge of the bar and is as wide as the bar (the strip of
-   * the notices of a note). It stays when the bar itself is hidden.
+   * Something placed above the top edge of the bar, right-aligned to it, with a gap (the pill of the
+   * notices of a note). It stays when the bar itself is hidden.
    */
   above?: React.ReactNode
 }
@@ -69,7 +69,7 @@ export function PageFloatingBar({
   settings,
   above,
 }: PageFloatingBarProps) {
-  // The anchor of `above`: no height, as wide as the bar, so what is put there can be tucked under it.
+  // The anchor of `above`: no height, as wide as the bar, so what is put there can sit at the bar's right edge.
   const peek = above ? <div className="pointer-events-none relative z-0 h-0">{above}</div> : null
   if (hidden) {
     return peek ? (

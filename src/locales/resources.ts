@@ -1946,6 +1946,7 @@ const ru = {
     stripExpand: "Показать уведомления",
     stripCollapse: "Скрыть уведомления",
     stripMore: "+{{count}}",
+    panelTitle: "Уведомления заметки · {{count}}",
     saveFailedTitle: "Не удалось сохранить заметку",
     saveFailedDescription:
       "Текст остаётся в редакторе и во временном черновике. Проверьте место на диске и доступ к папке.",
@@ -6356,6 +6357,7 @@ const en: typeof ru = {
     stripExpand: "Show notices",
     stripCollapse: "Hide notices",
     stripMore: "+{{count}}",
+    panelTitle: "Note notices · {{count}}",
     saveFailedTitle: "The note could not be saved",
     saveFailedDescription:
       "The text stays in the editor and in a temporary draft. Check the free space and access to the folder.",

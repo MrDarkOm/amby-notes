@@ -14,12 +14,7 @@ import { conflictForPath, useSyncNoticesStore } from "../sync/use-sync-notices-s
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import { NoticeLevelIcon } from "../notices/notice-level"
-import {
-  mostSeriousNoticeLevel,
-  noticeDotClass,
-  noticeIsUrgent,
-  noticeSeverityRank,
-} from "../notices/notice-look"
+import { mostSeriousNoticeLevel, noticeIsUrgent, noticeSeverityRank } from "../notices/notice-look"
 import { motionTransitions } from "@/lib/motion-config"
 import { Card, type Notice } from "./notice-card"
 import { usePropertyNotices } from "./property-notices"
@@ -431,61 +426,93 @@ function NoteNoticesOf({
     seen.current = urgent
   }, [urgentKey])
 
+  // The panel never grows wider than the note's own area (a narrow column beside the side panels): the
+  // bar sits 1rem from its right edge, so the room to the left of that edge is the width minus 2rem.
+  const [rootEl, setRootEl] = React.useState<HTMLElement | null>(null)
+  const [room, setRoom] = React.useState<number | null>(null)
+  React.useEffect(() => {
+    const area = rootEl?.closest<HTMLElement>("[data-note-area]")
+    if (!area) return
+    const measure = () => setRoom(Math.max(0, area.clientWidth - 32))
+    measure()
+    if (typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(measure)
+    observer.observe(area)
+    return () => observer.disconnect()
+  }, [rootEl])
+
   if (notices.length === 0) return null
   const topLevel = mostSeriousNoticeLevel(notices.map((notice) => notice.card.props.level))!
   const top = notices.find((notice) => notice.card.props.level === topLevel)!
   const more = notices.length - 1
+  const frameStyle = room === null ? undefined : { maxWidth: `min(${room}px, calc(100vw - 3rem))` }
   const Chevron = open ? ChevronDown : ChevronUp
+  const toggle = {
+    type: "button" as const,
+    "data-testid": "note-notices-strip",
+    "data-urgent": noticeIsUrgent(topLevel),
+    "data-level": topLevel,
+    "aria-label": t("noteNotices.stripLabel", { count: notices.length }),
+    title: t(open ? "noteNotices.stripCollapse" : "noteNotices.stripExpand"),
+    "aria-expanded": open,
+    onClick: () => setOpen((value) => !value),
+  }
   return (
     <div
+      ref={setRootEl}
       data-testid="note-notices"
-      className="pointer-events-none absolute inset-x-0 bottom-[-0.5rem] flex justify-end"
+      className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-end"
     >
-      {/* The strip peeks out from behind the floating bar of the note (the bar draws this inside its own
-          anchor): as wide as the bar, a little narrower, its foot under the bar. Open, it grows upwards
-          and wider, to read the cards. */}
-      <div
-        data-testid="note-notices-frame"
-        className={`note-notices-strip pointer-events-auto overflow-hidden rounded-t-xl border border-b-0 pb-2 ${open ? "w-[min(24rem,calc(100vw-3rem))]" : "w-[calc(100%-1rem)]"} min-w-[18.75rem] max-w-[calc(100vw-3rem)] shrink-0 mx-2`}
-      >
-        {open && (
+      {/* Its own small element at the right edge of the floating bar of the note, a gap above the bar (it
+          never covers the bar's buttons). Folded it is a pill that fits its content; open it is a rounded
+          panel: a header row, then the cards, which scroll when there are many. */}
+      {open ? (
+        <div
+          data-testid="note-notices-frame"
+          style={frameStyle}
+          className="note-notices-panel pointer-events-auto flex w-[min(24rem,calc(100vw-3rem))] max-w-[calc(100vw-3rem)] shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-lg"
+        >
+          <button
+            {...toggle}
+            className="flex h-9 w-full items-center gap-2 px-3 text-left text-[12px] font-medium select-none hover:bg-accent/40"
+          >
+            <NoticeLevelIcon level={topLevel} className="size-4 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">
+              {t("noteNotices.panelTitle", { count: notices.length })}
+            </span>
+            <Chevron className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          </button>
           <motion.div
             data-testid="note-notices-stack"
-            className="flex max-h-[min(55vh,24rem)] flex-col overflow-y-auto border-b border-border/60"
+            className="flex max-h-[min(55vh,24rem)] flex-col gap-2 overflow-y-auto border-t border-border/60 p-2"
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             transition={reducedMotion ? motionTransitions.instant : motionTransitions.panel}
           >
             {notices.map((notice) => notice.card)}
           </motion.div>
-        )}
-        <button
-          type="button"
-          data-testid="note-notices-strip"
-          data-urgent={noticeIsUrgent(topLevel)}
-          data-level={topLevel}
-          aria-label={t("noteNotices.stripLabel", { count: notices.length })}
-          title={t(open ? "noteNotices.stripCollapse" : "noteNotices.stripExpand")}
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-          className="flex h-8 w-full items-center gap-2 px-3 text-left text-[12px] select-none hover:bg-accent/40"
+        </div>
+      ) : (
+        <div
+          data-testid="note-notices-frame"
+          style={frameStyle}
+          className="note-notices-pill pointer-events-auto w-fit max-w-[min(20rem,calc(100vw-3rem))] shrink-0 overflow-hidden rounded-full border border-border bg-popover text-popover-foreground shadow-md"
         >
-          <NoticeLevelIcon level={topLevel} className="size-4 shrink-0" />
-          <span className="min-w-0 flex-1 truncate font-medium">{top.card.props.title}</span>
-          {more > 0 && (
-            <span className="shrink-0 text-[11px] text-muted-foreground">
-              {t("noteNotices.stripMore", { count: more })}
-            </span>
-          )}
-          <span
-            data-testid="note-notices-dot"
-            data-level={topLevel}
-            aria-hidden="true"
-            className={`size-2 shrink-0 rounded-full ${noticeDotClass(topLevel)}`}
-          />
-          <Chevron className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        </button>
-      </div>
+          <button
+            {...toggle}
+            className="flex h-7 w-full items-center gap-1.5 pr-2 pl-2.5 text-left text-[12px] select-none hover:bg-accent/40"
+          >
+            <NoticeLevelIcon level={topLevel} className="size-3.5 shrink-0" />
+            <span className="min-w-0 truncate font-medium">{top.card.props.title}</span>
+            {more > 0 && (
+              <span className="shrink-0 text-[11px] text-muted-foreground">
+                {t("noteNotices.stripMore", { count: more })}
+              </span>
+            )}
+            <Chevron className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }
