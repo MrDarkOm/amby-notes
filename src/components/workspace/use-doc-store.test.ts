@@ -220,3 +220,35 @@ describe("useDocStore external conflicts", () => {
     expect(useDocStore.getState().externalConflicts["doc-1"]).toBeUndefined()
   })
 })
+
+describe("a deleted file asks for no dialog (К12)", () => {
+  const conflict = (fileId: string, externalContent: string | null) => ({
+    fileId,
+    path: `/vault/${fileId}.md`,
+    localContent: "local",
+    externalContent,
+  })
+
+  it("does not open the conflict dialog for a file that is gone; the card in the notices carries it", () => {
+    useDocStore.setState({ externalConflicts: {}, activeConflictDialogFileId: null })
+    useDocStore.getState().setExternalConflict(conflict("gone", null))
+    expect(useDocStore.getState().externalConflicts.gone).toBeDefined()
+    expect(useDocStore.getState().activeConflictDialogFileId).toBeNull()
+  })
+
+  it("still opens the dialog for a change on disk while the note is dirty", () => {
+    useDocStore.setState({ externalConflicts: {}, activeConflictDialogFileId: null })
+    useDocStore.getState().setExternalConflict(conflict("changed", "disk text"))
+    expect(useDocStore.getState().activeConflictDialogFileId).toBe("changed")
+  })
+
+  it("never moves the dialog on to a deleted file when the one before it is decided", () => {
+    useDocStore.setState({ externalConflicts: {}, activeConflictDialogFileId: null })
+    const store = useDocStore.getState()
+    store.setExternalConflict(conflict("changed", "disk text"))
+    store.setExternalConflict(conflict("gone", null))
+    useDocStore.getState().clearExternalConflict("changed")
+    expect(useDocStore.getState().activeConflictDialogFileId).toBeNull()
+    expect(useDocStore.getState().externalConflicts.gone).toBeDefined()
+  })
+})

@@ -68,6 +68,7 @@ import {
 import {
   filterLocalTreeWatcherChanges,
   hasActiveLocalTreeMutation,
+  confirmDeletionAgainstFullTree,
   planOpenDocumentTreeChanges,
   watcherChangeAffectsDocument,
 } from "./watcher-tree-reconciliation"
@@ -677,7 +678,18 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         // reports a move out of the watched vault as `rename`, not `remove`;
         // absence of the stable ID after refresh is therefore the portable
         // external-deletion signal.
-        for (const treeChange of planOpenDocumentTreeChanges(openDocs, tree)) {
+        let treeChanges = planOpenDocumentTreeChanges(openDocs, tree)
+        // A partial refresh can read the old path of a moved note before the new one; look in the
+        // whole vault before calling a note deleted (Д70а).
+        if (
+          changes.length <= WATCHER_PATH_REFRESH_LIMIT &&
+          treeChanges.some((change) => change.kind === "deleted")
+        ) {
+          const fullTree = await refreshTree(vault)
+          if (!isCurrent()) return
+          treeChanges = confirmDeletionAgainstFullTree(treeChanges, openDocs, fullTree)
+        }
+        for (const treeChange of treeChanges) {
           if (!isCurrent()) return
           const id = treeChange.fileId
           const doc = openDocs[id]

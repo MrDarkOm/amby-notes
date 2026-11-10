@@ -49,7 +49,17 @@ const conflict = {
 }
 
 /** The notices of the note at `path`, as the editor wears them. */
-const notes = (path: string) => <NoteNotices document={{ id: path, path }} warningKey={null} />
+const restoreOpenText = vi.fn().mockResolvedValue(undefined)
+const closeOpenTab = vi.fn()
+const notes = (path: string) => (
+  <NoteNotices
+    document={{ id: path, path }}
+    warningKey={null}
+    canRestoreDeleted
+    onRestoreDeleted={restoreOpenText}
+    onCloseTab={closeOpenTab}
+  />
+)
 
 const doc = (path: string): Document => ({
   id: path,
@@ -397,9 +407,9 @@ describe("what was done after the choice", () => {
 })
 
 describe("a note deleted on another computer", () => {
-  const message = /Эту заметку удалили на другом компьютере\. Она в архиве хранилища/
+  const message = /Эту заметку удалили на другом компьютере\. Текст ещё открыт здесь/
 
-  it("is announced when that note is open, with a way back", async () => {
+  it("is announced when that note is open, with two buttons", async () => {
     useDocStore.setState({ openDocs: { a: doc(`/vault/${ORIGINAL}`) } })
     await mount()
     render(notes(`/vault/${ORIGINAL}`))
@@ -407,6 +417,7 @@ describe("a note deleted on another computer", () => {
     await act(async () => emitRemoteDeleted([ORIGINAL]))
     expect(await (await stackCards()).findByText(message)).toBeTruthy()
     expect(screen.getByRole("button", { name: "Вернуть" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Закрыть заметку" })).toBeTruthy()
   })
 
   it("ignores an announcement that belongs to the vault it left behind", async () => {
@@ -430,28 +441,27 @@ describe("a note deleted on another computer", () => {
     expect(screen.queryByRole("alert")).toBeNull()
   })
 
-  it("brings the file back from the archive of the vault", async () => {
+  it("«Вернуть» saves the open text back, not from the archive of the vault", async () => {
     useDocStore.setState({ openDocs: { a: doc(`/vault/${ORIGINAL}`) } })
-    vi.mocked(listTrash).mockResolvedValue([
-      { id: "t0", originalPath: "/vault/Заметки/старая.md", deletedAtMs: 1, name: "старая" },
-      { id: "t1", originalPath: `/vault/${ORIGINAL}`, deletedAtMs: 2, name: "идея" },
-    ])
     await mount()
     render(notes(`/vault/${ORIGINAL}`))
     await act(async () => emitRemoteDeleted([ORIGINAL]))
     fireEvent.click(await screen.findByRole("button", { name: "Вернуть" }))
-    await waitFor(() => expect(restoreTrash).toHaveBeenCalledWith("t1"))
-    await waitFor(() => expect(screen.queryByText(message)).toBeNull())
+    await waitFor(() => expect(restoreOpenText).toHaveBeenCalledTimes(1))
+    expect(listTrash).not.toHaveBeenCalled()
+    expect(restoreTrash).not.toHaveBeenCalled()
   })
 
-  it("keeps the message and shows an error when the archive does not have it", async () => {
+  it("keeps the message and says so when the text cannot be saved back", async () => {
+    restoreOpenText.mockRejectedValueOnce(new Error("disk"))
     useDocStore.setState({ openDocs: { a: doc(`/vault/${ORIGINAL}`) } })
     await mount()
     render(notes(`/vault/${ORIGINAL}`))
     await act(async () => emitRemoteDeleted([ORIGINAL]))
     fireEvent.click(await screen.findByRole("button", { name: "Вернуть" }))
-    expect(await screen.findByRole("alert")).toBeTruthy()
-    expect(restoreTrash).not.toHaveBeenCalled()
+    expect(
+      await within(screen.getByTestId("note-notices-stack")).findByText(/Не удалось вернуть/),
+    ).toBeTruthy()
     expect(within(screen.getByTestId("note-notices-stack")).getByText(message)).toBeTruthy()
   })
 })

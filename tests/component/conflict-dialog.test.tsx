@@ -209,7 +209,7 @@ describe("ExternalConflictDialog component", () => {
     expect(useDocStore.getState().externalConflicts["note-1"]).toBeUndefined()
   })
 
-  it("renders external deletion message when externalContent is null", async () => {
+  it("opens no window for a file that is gone; its card is in the notices of the note (К12)", () => {
     act(() => {
       useDocStore.getState().setExternalConflict({
         fileId: "note-1",
@@ -221,15 +221,9 @@ describe("ExternalConflictDialog component", () => {
 
     render(<ExternalConflictDialog />)
 
-    expect(screen.getByText("Файл был удалён вне Amby")).toBeTruthy()
-    expect(screen.getByText("Оставить вкладку открытой")).toBeTruthy()
-    expect(screen.getByText("Восстановить локальную")).toBeTruthy()
-
-    const keepBtn = screen.getByText("Оставить вкладку открытой")
-    await act(async () => {
-      fireEvent.click(keepBtn)
-    })
-
-    expect(useDocStore.getState().externalConflicts["note-1"]).toBeUndefined()
+    expect(screen.queryByText("Файл был удалён вне Amby")).toBeNull()
+    expect(screen.queryByRole("dialog")).toBeNull()
+    // the conflict stays: autosave stays paused and the text is kept until the person decides
+    expect(useDocStore.getState().externalConflicts["note-1"]).toBeDefined()
   })
 })

@@ -8,7 +8,6 @@ import { errorType, logger } from "@/lib/logger"
 import { flushAutosaveGeneration } from "../autosave/autosave-lifecycle"
 import { relativeToVault } from "../editor/document-breadcrumbs-utils"
 import { conflictName } from "../sync/conflict-outcome"
-import { restoreRemoteDeleted } from "../sync/restore-remote-deleted"
 import { requestOpenPanel } from "../panel-navigation"
 import { conflictForPath, useSyncNoticesStore } from "../sync/use-sync-notices-store"
 import { useDocStore } from "../use-doc-store"
@@ -55,9 +54,6 @@ function NoteNoticesOf({
   const remoteDeleted = useSyncNoticesStore((state) =>
     relative ? state.remoteDeleted.includes(relative) : false,
   )
-  const remoteRestoreFailed = useSyncNoticesStore((state) =>
-    relative ? state.restoreFailed.includes(relative) : false,
-  )
   const outcomes = useSyncNoticesStore((state) => state.outcomes)
   const dismissOutcome = useSyncNoticesStore((state) => state.dismissOutcome)
   const conflictOutcomes = outcomes.filter((item) => item.path === relative)
@@ -75,8 +71,6 @@ function NoteNoticesOf({
 
   const propertyMoveRetry = usePropertyMoveRetryStore((state) => state.failed[document.id])
   const [retryingPropertyMove, setRetryingPropertyMove] = React.useState(false)
-  const [restoringRemote, setRestoringRemote] = React.useState(false)
-  const [remoteRestoreError, setRemoteRestoreError] = React.useState(false)
   const [restoringDeleted, setRestoringDeleted] = React.useState(false)
   const [deletedRestoreError, setDeletedRestoreError] = React.useState(false)
   React.useEffect(() => {
@@ -84,19 +78,6 @@ function NoteNoticesOf({
     setRestoringDeleted(false)
   }, [document.externallyDeleted])
 
-  const restoreRemote = async () => {
-    if (restoringRemote || !relative || !vault) return
-    setRestoringRemote(true)
-    setRemoteRestoreError(false)
-    try {
-      await restoreRemoteDeleted(vault, relative)
-    } catch (error) {
-      logger.warn("sync.restore_remote_deleted_failed", { errorType: errorType(error) })
-      setRemoteRestoreError(true)
-    } finally {
-      setRestoringRemote(false)
-    }
-  }
   const restoreDeleted = async () => {
     if (!onRestoreDeleted || restoringDeleted) return
     setRestoringDeleted(true)
@@ -180,61 +161,38 @@ function NoteNoticesOf({
       ),
     })
   }
-  // The strip for a note deleted on another computer steps in front of the general "deleted" one,
-  // until the way back from the archive has failed.
-  const remoteActive = remoteDeleted && !remoteRestoreFailed
-  if (remoteDeleted) {
+  // The file of the open note is gone (К12): one card, no window. The text is still open and autosave
+  // stays paused until the person decides: "Вернуть" saves it at the old path, "Закрыть заметку" closes
+  // the tab. The reason says which computer did it; a deletion on another one steps in front.
+  if (remoteDeleted || document.externallyDeleted) {
     notices.push({
-      id: "remote-deleted",
+      id: remoteDeleted ? "remote-deleted" : "external-deleted",
       card: (
         <Card
-          key="remote-deleted"
-          testId="note-notice-remote-deleted"
+          key={remoteDeleted ? "remote-deleted" : "external-deleted"}
+          testId={remoteDeleted ? "note-notice-remote-deleted" : "note-notice-deleted"}
           level="decision"
-          title={t("sync.notices.remoteDeleted")}
-          error={remoteRestoreError ? t("sync.notices.restoreFailed") : null}
-          actions={
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={restoringRemote}
-              onClick={() => void restoreRemote()}
-            >
-              {restoringRemote ? t("sync.notices.restoring") : t("sync.notices.restore")}
-            </Button>
-          }
-        />
-      ),
-    })
-  }
-  if (document.externallyDeleted && !remoteActive) {
-    notices.push({
-      id: "external-deleted",
-      card: (
-        <Card
-          key="external-deleted"
-          testId="note-notice-deleted"
-          level="danger"
-          title={t("conflict.deletedBannerTitle")}
-          lines={[t("conflict.deletedBannerDescription")]}
+          title={t(remoteDeleted ? "sync.notices.remoteDeleted" : "conflict.deletedBannerTitle")}
           error={deletedRestoreError ? t("conflict.restoreFailed") : null}
           actions={
-            canRestoreDeleted && onRestoreDeleted ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={restoringDeleted}
-                onClick={() => void restoreDeleted()}
-              >
-                {restoringDeleted ? t("conflict.saving") : t("conflict.restoreDeleted")}
-              </Button>
-            ) : onCloseTab ? (
-              <Button type="button" size="sm" variant="outline" onClick={onCloseTab}>
-                {t("common.close")}
-              </Button>
-            ) : undefined
+            <>
+              {canRestoreDeleted && onRestoreDeleted && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={restoringDeleted}
+                  onClick={() => void restoreDeleted()}
+                >
+                  {restoringDeleted ? t("sync.notices.restoring") : t("sync.notices.restore")}
+                </Button>
+              )}
+              {onCloseTab && (
+                <Button type="button" size="sm" variant="outline" onClick={onCloseTab}>
+                  {t("noteNotices.closeNote")}
+                </Button>
+              )}
+            </>
           }
         />
       ),
