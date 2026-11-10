@@ -1,5 +1,6 @@
 "use client"
 
+import { activateNoteTab } from "./notices/activate-note-tab"
 import { remapExternalLayers } from "./orchestration/remap-external-layers"
 import { remapLayerAutosave } from "./autosave/remap-layer-autosave"
 
@@ -910,7 +911,8 @@ export function WorkspaceOrchestration() {
   // (the journal remembers only that).
   useOpenNoteRequests((request) => {
     if (request.id !== undefined) {
-      void handleSelect(request.id)
+      // An open note has its tab, even when its file is gone and the tree no longer knows it.
+      if (!activateNoteTab(request.id)) void handleSelect(request.id)
       return
     }
     const wanted = request.path.normalize("NFC")

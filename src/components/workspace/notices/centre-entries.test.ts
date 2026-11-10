@@ -18,7 +18,9 @@ const conflict = {
 }
 
 function input(patch: Partial<CentreInput> = {}): CentreInput {
+  // By default every open note has its tab.
   return {
+    tabbedDocIds: Object.keys(patch.openDocs ?? {}),
     vault: "/vault",
     conflicts: [],
     stop: null,
@@ -135,6 +137,18 @@ describe("the copies of the cards of the open notes", () => {
     expect(open.decision.map((entry) => entry.id)).toEqual([noteNoticeId("n", "remote-deleted")])
     const closed = deriveCentre(input({ remoteDeleted: ["Заметки/n.md"] }))
     expect(closed.decision).toEqual([])
+  })
+
+  it("has no copy for a note whose tab is closed, though its text is still kept (no dead cards)", () => {
+    const { decision } = deriveCentre(
+      input({
+        openDocs: { n: doc("n", { externallyDeleted: true }) },
+        tabbedDocIds: [],
+        saveFailed: { n: true },
+        remoteDeleted: ["Заметки/n.md"],
+      }),
+    )
+    expect(decision).toEqual([])
   })
 
   it("has no copy for a card whose note is not open", () => {

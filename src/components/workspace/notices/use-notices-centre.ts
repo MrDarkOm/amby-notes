@@ -2,6 +2,7 @@ import * as React from "react"
 
 import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { useSyncNoticesStore } from "../sync/use-sync-notices-store"
+import { useTabsStore } from "../use-tabs-store"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import { deriveCentre, liveWarningIds, type Centre, type CentreInput } from "./centre-entries"
@@ -22,6 +23,7 @@ export function useNoticesCentre(): Centre {
   const remoteDeleted = useSyncNoticesStore((state) => state.remoteDeleted)
   const restoreFailed = useSyncNoticesStore((state) => state.restoreFailed)
   const openDocs = useDocStore((state) => state.openDocs)
+  const tabs = useTabsStore((state) => state.tabs)
   const externalConflicts = useDocStore((state) => state.externalConflicts)
   const saveFailed = useNoteNoticesStore((state) => state.saveFailed)
   const propertyFailed = useNoteNoticesStore((state) => state.propertyFailed)
@@ -31,6 +33,15 @@ export function useNoticesCentre(): Centre {
   const hidden = useNoticesCentreStore((state) => state.hidden)
   const reconcile = useNoticesCentreStore((state) => state.reconcile)
 
+  const tabbedKey = tabs
+    .filter((tab) => tab.kind === "document")
+    .map((tab) => tab.fileId)
+    .join("\n")
+  const tabbedDocIds = React.useMemo(
+    () => (tabbedKey === "" ? [] : tabbedKey.split("\n")),
+    [tabbedKey],
+  )
+
   const input = React.useMemo<CentreInput>(
     () => ({
       vault,
@@ -39,6 +50,7 @@ export function useNoticesCentre(): Centre {
       limits,
       itemErrors,
       openDocs,
+      tabbedDocIds,
       externalConflicts,
       saveFailed,
       propertyFailed,
@@ -56,6 +68,7 @@ export function useNoticesCentre(): Centre {
       limits,
       itemErrors,
       openDocs,
+      tabbedDocIds,
       externalConflicts,
       saveFailed,
       propertyFailed,
