@@ -132,6 +132,16 @@ describe("the copies of the cards of the open notes", () => {
     })
   })
 
+  it("has a note archived on another computer as one decision, not as a deleted file (К13)", () => {
+    const { decision } = deriveCentre(
+      input({
+        openDocs: { n: doc("n", { externallyDeleted: true, externallyArchived: true }) },
+      }),
+    )
+    expect(decision.map((entry) => entry.id)).toEqual([noteNoticeId("n", "archived-elsewhere")])
+    expect(decision[0]).toMatchObject({ level: "decision", action: { kind: "note", id: "n" } })
+  })
+
   it("has a note deleted on another computer, but only when it is open", () => {
     const open = deriveCentre(input({ openDocs: { n: doc("n") }, remoteDeleted: ["Заметки/n.md"] }))
     expect(open.decision.map((entry) => entry.id)).toEqual([noteNoticeId("n", "remote-deleted")])
