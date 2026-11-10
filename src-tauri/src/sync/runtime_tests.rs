@@ -975,9 +975,14 @@ fn k10_the_old_trash_is_migrated_before_the_first_pass_and_the_archive_reaches_t
         ),
     )
     .unwrap();
-    wait_until("the archived file arrives on the second computer", || {
-        b.text(".amby/archive/Notes/gone.md").as_deref() == Some("deleted long ago")
-    });
+    // Both files are awaited: the pass applies `.amby/…` before `Keep/…` (frozen-test fix).
+    wait_until(
+        "the archived file and the kept one arrive on the second computer",
+        || {
+            b.text(".amby/archive/Notes/gone.md").as_deref() == Some("deleted long ago")
+                && b.text("Keep/k.md").as_deref() == Some("stays")
+        },
+    );
     assert_eq!(b.text("Keep/k.md").as_deref(), Some("stays"));
     assert!(
         b.text("Notes/gone.md").is_none(),

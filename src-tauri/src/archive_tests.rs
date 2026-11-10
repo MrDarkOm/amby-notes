@@ -424,6 +424,11 @@ fn k4_the_three_values_of_the_setting_and_the_old_one() {
     assert!(serde_json::from_str::<DeleteMode>("\"wipe\"").is_err());
 }
 
+const NOTE_DELETED: &[u8] =
+    b"---\namby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\n---\ndeleted into the archive";
+const NOTE_ARCHIVED: &[u8] =
+    b"---\namby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAW\n---\narchived by the command";
+
 fn active(vault: &Vault) -> crate::vault_context::VaultContext {
     let context = crate::vault_context::VaultContext::new();
     context
@@ -436,7 +441,8 @@ fn active(vault: &Vault) -> crate::vault_context::VaultContext {
 fn k4_delete_with_the_archive_setting_does_what_the_archive_action_does() {
     // К4: «Переносить в архив» — «Удалить» делает то же, что «В архив» (К1).
     let vault = Vault::new();
-    vault.put("Notes/a.md", b"deleted into the archive");
+    // The note already has its amby-id, so opening the vault does not add one (frozen-test fix).
+    vault.put("Notes/a.md", NOTE_DELETED);
     let context = active(&vault);
     crate::commands::mutations::delete_item_inner(
         &context,
@@ -448,7 +454,7 @@ fn k4_delete_with_the_archive_setting_does_what_the_archive_action_does() {
     assert!(!vault.exists("Notes/a.md"));
     assert_eq!(
         vault.read(".amby/archive/Notes/a.md").as_deref(),
-        Some(&b"deleted into the archive"[..])
+        Some(NOTE_DELETED)
     );
     assert!(
         recycle_bin::list(&vault.root).is_empty(),
@@ -459,7 +465,8 @@ fn k4_delete_with_the_archive_setting_does_what_the_archive_action_does() {
 #[test]
 fn k1_the_archive_action_of_the_command_writes_the_archive() {
     let vault = Vault::new();
-    vault.put("Notes/a.md", b"archived by the command");
+    // The note already has its amby-id, so opening the vault does not add one (frozen-test fix).
+    vault.put("Notes/a.md", NOTE_ARCHIVED);
     let context = active(&vault);
     crate::commands::mutations::archive_item_inner(
         &context,
@@ -470,7 +477,7 @@ fn k1_the_archive_action_of_the_command_writes_the_archive() {
     assert!(!vault.exists("Notes/a.md"));
     assert_eq!(
         vault.read(".amby/archive/Notes/a.md").as_deref(),
-        Some(&b"archived by the command"[..])
+        Some(NOTE_ARCHIVED)
     );
     assert!(recycle_bin::list(&vault.root).is_empty());
     assert_eq!(
