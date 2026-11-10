@@ -1917,7 +1917,7 @@ const ru = {
       note: {
         "remote-deleted": {
           title: "Заметка «{{name}}» удалена на другом компьютере",
-          line: "Заметка в архиве хранилища, её можно вернуть.",
+          line: "Текст ещё открыт здесь, его можно вернуть.",
         },
         "external-deleted": {
           title: "Файл «{{name}}» удалён",
@@ -6372,7 +6372,7 @@ const en: typeof ru = {
       note: {
         "remote-deleted": {
           title: "The note “{{name}}” was deleted on another computer",
-          line: "The note is in the archive of the vault; it can be brought back.",
+          line: "The text is still open here; it can be brought back.",
         },
         "external-deleted": {
           title: "The file “{{name}}” was deleted",

@@ -58,6 +58,11 @@ export interface CentreInput {
   limits: LimitNotice[]
   itemErrors: number
   openDocs: Record<string, CentreDoc>
+  /**
+   * Ids of the notes that have a tab. A note whose tab was closed stays in `openDocs`, but it has nothing to
+   * decide any more and no card to point at, so it has no copy in the centre.
+   */
+  tabbedDocIds: string[]
   externalConflicts: Record<string, unknown>
   saveFailed: Record<string, true>
   propertyFailed: Record<string, true>
@@ -167,7 +172,8 @@ export function deriveCentre(input: CentreInput): Centre {
     })
   }
 
-  const open = Object.values(input.openDocs)
+  const tabbed = new Set(input.tabbedDocIds)
+  const open = Object.values(input.openDocs).filter((doc) => tabbed.has(doc.id))
   const relativeOf = (doc: CentreDoc) =>
     input.vault ? relativeToVault(doc.path, input.vault).normalize("NFC") : null
   const copy = (doc: CentreDoc, card: string, level: NoticeLevel) =>
@@ -193,7 +199,7 @@ export function deriveCentre(input: CentreInput): Centre {
   }
   for (const [fileId, failure] of Object.entries(input.closedSaveFailures)) {
     // An open note has its own card for this; the record of the closed one would say it twice.
-    if (input.openDocs[fileId]) continue
+    if (tabbed.has(fileId) && input.openDocs[fileId]) continue
     decision.push({
       id: `closed-save-failed:${fileId}`,
       section: "decision",

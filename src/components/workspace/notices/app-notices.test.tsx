@@ -40,6 +40,7 @@ const emptyInput: CentreInput = {
   limits: [],
   itemErrors: 0,
   openDocs: {},
+  tabbedDocIds: [],
   externalConflicts: {},
   saveFailed: {},
   propertyFailed: {},

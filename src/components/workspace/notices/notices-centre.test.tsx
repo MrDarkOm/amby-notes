@@ -11,6 +11,7 @@ import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { NoteNotices } from "../note-notices/note-notices"
 import { OPEN_SETTINGS_REQUEST_EVENT } from "../settings-navigation"
 import { useDocStore, type Document } from "../use-doc-store"
+import { useTabsStore } from "../use-tabs-store"
 import { useVaultStore } from "../use-vault-store"
 import { createFakePort, emitVaultStatus, vaultStatus } from "../sync/fake-sync-port"
 import { NoticesDock } from "../sync/dock-test-harness"
@@ -69,7 +70,25 @@ const push = async (status: ReturnType<typeof vaultStatus>) => {
 }
 const count = () => screen.queryByTestId("notices-dock-count")
 
+// Every open note here has its tab, as in the workspace; a test closes a tab through `useTabsStore`.
+let stopTabs = () => {}
 beforeEach(async () => {
+  useTabsStore.setState(useTabsStore.getInitialState())
+  stopTabs = useDocStore.subscribe((state, previous) => {
+    if (state.openDocs === previous.openDocs) return
+    const known = new Set(useTabsStore.getState().tabs.map((tab) => tab.fileId))
+    const added = Object.keys(state.openDocs)
+      .filter((id) => !known.has(id))
+      .map((id) => ({
+        key: `tab-${id}`,
+        kind: "document" as const,
+        fileId: id,
+        title: id,
+        history: [],
+        historyIndex: 0,
+      }))
+    if (added.length > 0) useTabsStore.getState().setTabs((tabs) => [...tabs, ...added])
+  })
   await i18n.changeLanguage("ru")
   useVaultStore.setState({ vault: "/vault" })
   useDocStore.setState({ openDocs: {}, externalConflicts: {} })
@@ -80,6 +99,7 @@ beforeEach(async () => {
   useNoticesStackStore.setState(useNoticesStackStore.getInitialState())
 })
 afterEach(() => {
+  stopTabs()
   cleanup()
   vi.clearAllMocks()
 })
@@ -562,6 +582,30 @@ describe("the copies of the cards of the open notes", () => {
     fireEvent.click(within(entry).getByRole("button", { name: "Открыть заметку" }))
     window.removeEventListener(OPEN_NOTE_REQUEST_EVENT, listen)
     expect(asked).toEqual([{ id: "n" }])
+  })
+
+  it("leads to the tab of a note whose file is gone, and the copy leaves with the tab (К12)", async () => {
+    await mountHost()
+    act(() => {
+      useDocStore.setState({ openDocs: { n: { ...doc("n"), externallyDeleted: true } } })
+      useTabsStore
+        .getState()
+        .setTabs((tabs) => [
+          ...tabs,
+          { key: "other", kind: "document", fileId: "x", title: "x", history: [], historyIndex: 0 },
+        ])
+      useTabsStore.getState().setActiveTabKey("other")
+    })
+    const centre = await openCentre()
+    const entry = within(centre).getByTestId("notices-entry")
+    expect(entry.getAttribute("data-entry-id")).toBe(noteNoticeId("n", "external-deleted"))
+    // The workspace answers the request with the tab of the note, not with the file tree.
+    const { activateNoteTab } = await import("./activate-note-tab")
+    expect(activateNoteTab("n")).toBe(true)
+    expect(useTabsStore.getState().activeTabKey).toBe("tab-n")
+    act(() => useTabsStore.getState().setTabs((tabs) => tabs.filter((tab) => tab.fileId !== "n")))
+    await waitFor(() => expect(within(centre).queryByTestId("notices-entry")).toBeNull())
+    expect(count()).toBeNull()
   })
 
   it("names the note and does not show a path", async () => {
