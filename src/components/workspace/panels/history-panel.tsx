@@ -67,6 +67,23 @@ function HistoryContents({
         .toLocaleLowerCase(locale)
         .includes(search),
   )
+  const onServerBySnapshot = new Map(
+    (history.server?.available ? (history.server.snapshotsOnServer ?? []) : []).map((mark) => [
+      mark.snapshotId,
+      mark,
+    ]),
+  )
+  const currentOnServer = Boolean(history.server?.available && history.server.currentOnServer)
+  const markLabel = (version: {
+    device: "thisDevice" | "otherDevice"
+    deviceName?: string | null
+  }) =>
+    version.deviceName ??
+    t(
+      version.device === "thisDevice"
+        ? "historyPanel.serverThisDevice"
+        : "historyPanel.serverOtherDevice",
+    )
   function dayLabel(date: Date) {
     const today = new Date()
     const yesterday = new Date(today)
@@ -146,6 +163,15 @@ function HistoryContents({
         className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-4"
         aria-busy={history.loading}
       >
+        {currentOnServer && (
+          <p
+            data-testid="history-current-on-server"
+            className="flex items-center gap-1 px-1 pt-3 text-[11px] text-muted-foreground"
+          >
+            <Cloud className="size-3 shrink-0" aria-hidden />
+            {t("historyPanel.currentOnServer")}
+          </p>
+        )}
         {history.error && !count ? (
           <div className="flex justify-center py-8">
             <Button variant="outline" size="sm" onClick={() => void history.refresh()}>
@@ -209,6 +235,18 @@ function HistoryContents({
                       <p className="mt-1 whitespace-normal break-words text-[11px] leading-4 text-muted-foreground [overflow-wrap:anywhere]">
                         {t(historyReasonKey(entry.reason))}
                       </p>
+                      {onServerBySnapshot.has(entry.id) && (
+                        <p className="mt-1 flex items-center gap-1 text-[11px] leading-4 text-muted-foreground">
+                          <Cloud
+                            role="img"
+                            aria-label={t("historyPanel.onServer")}
+                            className="size-3 shrink-0"
+                          />
+                          <span className="truncate">
+                            {markLabel(onServerBySnapshot.get(entry.id)!)}
+                          </span>
+                        </p>
+                      )}
                     </div>
                     <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/50 group-hover:text-foreground" />
                   </button>
@@ -250,14 +288,7 @@ function HistoryContents({
                         aria-label={t("historyPanel.fromServer")}
                         className="size-3 shrink-0"
                       />
-                      <span className="truncate">
-                        {version.deviceName ??
-                          t(
-                            version.device === "thisDevice"
-                              ? "historyPanel.serverThisDevice"
-                              : "historyPanel.serverOtherDevice",
-                          )}
-                      </span>
+                      <span className="truncate">{markLabel(version)}</span>
                     </p>
                   </div>
                   <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/50 group-hover:text-foreground" />

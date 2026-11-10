@@ -2538,7 +2538,12 @@ files: DeletedFileView[];
 /**
  * There were more than 500 deleted files: only the newest are shown (И13).
  */
-truncated: boolean }
+truncated: boolean; 
+/**
+ * Local trash entries that match a deleted file of the server (И11а): they get a cloud, the
+ * file has no row of its own.
+ */
+trashOnServer?: TrashOnServer[] }
 /**
  * A device in the list (П19, Ф34).
  */
@@ -2913,7 +2918,16 @@ versions: ServerVersionView[];
  * BLAKE3 of the note on the disk when this list was made, 64 hex digits: "Вернуть" passes it
  * back as `expected_hash` so a note that changed meanwhile is not overwritten (И6).
  */
-currentHash?: string | null }
+currentHash?: string | null; 
+/**
+ * Local snapshots whose text is also on the server (И3а): they get a cloud, the matching
+ * version has no row of its own.
+ */
+snapshotsOnServer?: SnapshotOnServer[]; 
+/**
+ * The file on the disk is the newest version on the server (И3а): one calm line.
+ */
+currentOnServer?: boolean }
 /**
  * One notebook: a plain folder inside the notes base (`docs/creative-format.md` §6).
  */
@@ -3454,6 +3468,30 @@ export type SignOutResult = {
  */
 serverNotified: boolean }
 export type SnapshotEntry = { id: string; createdAtMs: number; reason: string; sizeBytes: number }
+/**
+ * A local snapshot that equals a version on the server (И3а).
+ */
+export type SnapshotOnServer = { 
+/**
+ * The local snapshot.
+ */
+snapshotId: string; 
+/**
+ * The newest server version with the same content.
+ */
+version: number; 
+/**
+ * This computer or another device made that version (I1).
+ */
+device: VersionDevice; 
+/**
+ * The name of the device when the server knows it.
+ */
+deviceName: string | null; 
+/**
+ * `committed_ms` of that version, for display only.
+ */
+committedMs: number }
 export type SnapshotText = { sourcePath: string; content: string }
 /**
  * Which space this vault is linked to.
@@ -3704,6 +3742,34 @@ export type TextStatusOptionSummary = { id: string; name: string; color: string;
  */
 group: string }
 export type TrashEntry = { id: string; originalPath: string; deletedAtMs: number; name: string }
+/**
+ * A local trash entry that is also on the server (И11а).
+ */
+export type TrashOnServer = { 
+/**
+ * The trash entry (`list_trash` id).
+ */
+trashId: string; 
+/**
+ * The item on the server, 32 hex digits.
+ */
+itemId: string; 
+/**
+ * When the deletion reached the server, milliseconds.
+ */
+deletedMs: number; 
+/**
+ * Until when the server keeps it (a hint, И12).
+ */
+keptUntilMs: number | null; 
+/**
+ * This computer or another device deleted it.
+ */
+device: VersionDevice; 
+/**
+ * The name of the device when the server knows it.
+ */
+deviceName: string | null }
 export type TrashPreview = { path: string; directory: boolean; text: string | null; children: TrashPreviewItem[]; truncated: boolean }
 export type TrashPreviewItem = { name: string; path: string; directory: boolean }
 export type TreeItem = { id: string; path: string; name: string; type: string; icon: string; created?: number | null; modified?: number | null; children?: TreeItem[] | null }

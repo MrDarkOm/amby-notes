@@ -122,6 +122,12 @@ pub struct ServerHistory {
     /// Versions the journal must mention. Versions that are simply not shown (deleted, same as the
     /// file or a snapshot) are not here.
     pub skipped: Vec<SkippedVersion>,
+    /// Versions that are not shown because their content equals the file on the disk or a local
+    /// snapshot (И3), newest first. The application marks the matching snapshots with a cloud
+    /// (И3а); they never get a row of their own.
+    pub covered: Vec<HistoryVersion>,
+    /// The file on the disk equals the newest version the server has (И3а).
+    pub current_is_latest: bool,
 }
 
 /// Opens, checks and lays out the versions of **one** note (И2, И3, И18).
@@ -143,15 +149,27 @@ pub fn server_history(
     snapshot_hashes: &[[u8; 32]],
 ) -> ServerHistory {
     let mut history = ServerHistory::default();
+    let mut newest: Option<(u64, bool)> = None;
     for entry in entries {
         match open_entry(space, keys, &entry.item_id, entry) {
             Ok(header) => {
-                let Some(version) = as_version(entry, &header) else {
+                let version = as_version(entry, &header);
+                // The newest opened header decides "the file is the latest version" (И3а): a
+                // deletion on top is not a text the file could equal.
+                if newest.is_none_or(|(number, _)| entry.version > number) {
+                    let equal = version
+                        .as_ref()
+                        .is_some_and(|found| current_hash == Some(found.content_hash));
+                    newest = Some((entry.version, equal));
+                }
+                let Some(version) = version else {
                     continue;
                 };
                 let repeated = current_hash == Some(version.content_hash)
                     || snapshot_hashes.contains(&version.content_hash);
-                if !repeated {
+                if repeated {
+                    history.covered.push(version);
+                } else {
                     history.versions.push(version);
                 }
             }
@@ -161,8 +179,12 @@ pub fn server_history(
             }),
         }
     }
+    history.current_is_latest = newest.is_some_and(|(_, equal)| equal);
     history
         .versions
+        .sort_by_key(|version| std::cmp::Reverse(version.version));
+    history
+        .covered
         .sort_by_key(|version| std::cmp::Reverse(version.version));
     history
 }
@@ -254,7 +276,40 @@ pub fn deleted_files(
     histories: &[ItemHistory],
     hidden: &[(String, [u8; 32])],
 ) -> Vec<DeletedFile> {
+    deleted_files_matched(space, keys, tombstones, histories, hidden).rows
+}
+
+/// A deleted file of the server that something in `hidden` covers (И11а).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HiddenMatch {
+    /// Position in the `hidden` list passed in: the application knows what it was (a trash entry
+    /// or a file that lies at its path).
+    pub hidden_index: usize,
+    /// The deleted file on the server.
+    pub file: DeletedFile,
+}
+
+/// [`deleted_files`] and the rows that `hidden` covered (И11а).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DeletedFiles {
+    /// The rows to show, newest deletion first.
+    pub rows: Vec<DeletedFile>,
+    /// Rows left out by `hidden`, one per matching entry of `hidden`, newest deletion first.
+    pub matched: Vec<HiddenMatch>,
+}
+
+/// [`deleted_files`] that also reports which entry of `hidden` covered which deleted file, so the
+/// application can mark the local trash entry with a cloud (И11а). The rows are the same.
+/// Appendix И, И10, И11, И11а, И18.
+pub fn deleted_files_matched(
+    space: &SpaceId,
+    keys: &[SpaceKey],
+    tombstones: &[ItemRecord],
+    histories: &[ItemHistory],
+    hidden: &[(String, [u8; 32])],
+) -> DeletedFiles {
     let mut rows = Vec::new();
+    let mut matched = Vec::new();
     for tombstone in tombstones {
         if !tombstone.deleted || tombstone.kind != ItemKind::File {
             continue;
@@ -289,13 +344,7 @@ pub fn deleted_files(
         else {
             continue;
         };
-        if hidden
-            .iter()
-            .any(|(path, hash)| *path == version.path && *hash == version.content_hash)
-        {
-            continue;
-        }
-        rows.push(DeletedFile {
+        let file = DeletedFile {
             item_id: tombstone.item_id,
             path: version.path,
             size: version.size,
@@ -305,8 +354,23 @@ pub fn deleted_files(
             deleted_ms: deleting.committed_ms,
             deleted_seq: deleting.seq,
             deleted_by: deleting.device_id,
-        });
+        };
+        let covering: Vec<usize> = hidden
+            .iter()
+            .enumerate()
+            .filter(|(_, (path, hash))| *path == file.path && *hash == file.content_hash)
+            .map(|(index, _)| index)
+            .collect();
+        if covering.is_empty() {
+            rows.push(file);
+        } else {
+            matched.extend(covering.into_iter().map(|hidden_index| HiddenMatch {
+                hidden_index,
+                file: file.clone(),
+            }));
+        }
     }
     rows.sort_by_key(|row| std::cmp::Reverse(row.deleted_seq));
-    rows
+    matched.sort_by_key(|found| std::cmp::Reverse(found.file.deleted_seq));
+    DeletedFiles { rows, matched }
 }
