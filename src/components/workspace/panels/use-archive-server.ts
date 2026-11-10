@@ -95,6 +95,7 @@ export function useArchiveServer(
         if (cancelled) stop()
         else unlisten = stop
       })
+      // No status events (a build without sync): the panel keeps the status read above.
       .catch(() => {})
     return () => {
       cancelled = true
