@@ -16,6 +16,11 @@ export interface Document {
   source: string
   /** The stable-ID note is absent from the latest indexed filesystem tree. */
   externallyDeleted?: boolean
+  /**
+   * The file was moved into `.amby/archive/` on another computer (К13). Set together with
+   * `externallyDeleted`: the text stays open and autosave stays paused until the person decides.
+   */
+  externallyArchived?: boolean
   noteProperties?: NoteProperties
   noteId?: string
 }

@@ -8,6 +8,7 @@ import { errorType, logger } from "@/lib/logger"
 import { flushAutosaveGeneration } from "../autosave/autosave-lifecycle"
 import { relativeToVault } from "../editor/document-breadcrumbs-utils"
 import { conflictName } from "../sync/conflict-outcome"
+import { restoreArchivedNote } from "../sync/restore-archived-note"
 import { requestOpenPanel } from "../panel-navigation"
 import { conflictForPath, useSyncNoticesStore } from "../sync/use-sync-notices-store"
 import { useDocStore } from "../use-doc-store"
@@ -21,7 +22,12 @@ import { usePropertyMoveRetryStore } from "../file-actions/property-move-retry-s
 import { useNoteNoticesStore } from "./use-note-notices-store"
 
 export interface NoteNoticesProps {
-  document: { id: string; path: string; externallyDeleted?: boolean }
+  document: {
+    id: string
+    path: string
+    externallyDeleted?: boolean
+    externallyArchived?: boolean
+  }
   /** The key of the warning about the note's properties or Live admission, if any. */
   warningKey: string | null
   /** Whether the open text can be written back after the file was deleted. */
@@ -77,6 +83,22 @@ function NoteNoticesOf({
     setDeletedRestoreError(false)
     setRestoringDeleted(false)
   }, [document.externallyDeleted])
+
+  const [restoringArchived, setRestoringArchived] = React.useState(false)
+  const [archivedRestoreError, setArchivedRestoreError] = React.useState(false)
+  const restoreArchived = async () => {
+    if (restoringArchived || !vault) return
+    setRestoringArchived(true)
+    setArchivedRestoreError(false)
+    try {
+      await restoreArchivedNote(vault, document.id)
+    } catch (error) {
+      logger.warn("sync.restore_remote_deleted_failed", { errorType: errorType(error) })
+      setArchivedRestoreError(true)
+    } finally {
+      setRestoringArchived(false)
+    }
+  }
 
   const restoreDeleted = async () => {
     if (!onRestoreDeleted || restoringDeleted) return
@@ -164,7 +186,42 @@ function NoteNoticesOf({
   // The file of the open note is gone (К12): one card, no window. The text is still open and autosave
   // stays paused until the person decides: "Вернуть" saves it at the old path, "Закрыть заметку" closes
   // the tab. The reason says which computer did it; a deletion on another one steps in front.
-  if (remoteDeleted || document.externallyDeleted) {
+  if (document.externallyArchived) {
+    // К13: the file went into the archive on another computer. The tab keeps the text; "Вернуть из архива"
+    // brings the file back by К6 (no replacing), "Закрыть заметку" closes the tab.
+    notices.push({
+      id: "archived-elsewhere",
+      card: (
+        <Card
+          key="archived-elsewhere"
+          testId="note-notice-archived-elsewhere"
+          level="decision"
+          title={t("sync.notices.archivedElsewhere")}
+          error={archivedRestoreError ? t("sync.notices.restoreArchivedFailed") : null}
+          actions={
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={restoringArchived}
+                onClick={() => void restoreArchived()}
+              >
+                {restoringArchived
+                  ? t("sync.notices.restoring")
+                  : t("sync.notices.restoreArchived")}
+              </Button>
+              {onCloseTab && (
+                <Button type="button" size="sm" variant="outline" onClick={onCloseTab}>
+                  {t("noteNotices.closeNote")}
+                </Button>
+              )}
+            </>
+          }
+        />
+      ),
+    })
+  } else if (remoteDeleted || document.externallyDeleted) {
     notices.push({
       id: remoteDeleted ? "remote-deleted" : "external-deleted",
       card: (

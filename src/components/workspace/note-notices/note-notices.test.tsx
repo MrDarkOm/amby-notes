@@ -592,7 +592,11 @@ describe("a note archived on another computer (К13)", () => {
     vi.mocked(listArchive).mockResolvedValue([
       { id: ORIGINAL, originalPath: ORIGINAL, archivedAtMs: 1, name: "идея.md" },
     ])
-    vi.mocked(restoreArchive).mockResolvedValue({ primaryPath: ABSOLUTE } as never)
+    vi.mocked(restoreArchive).mockResolvedValue({
+      primaryPath: ABSOLUTE,
+      pathChanges: [],
+      deletedPaths: [],
+    } as never)
     vi.mocked(readNote).mockResolvedValue({
       content: "text",
       revision: "r2",
@@ -613,7 +617,11 @@ describe("a note archived on another computer (К13)", () => {
     vi.mocked(listArchive).mockResolvedValue([
       { id: ORIGINAL, originalPath: ORIGINAL, archivedAtMs: 1, name: "идея.md" },
     ])
-    vi.mocked(restoreArchive).mockResolvedValue({ primaryPath: ABSOLUTE } as never)
+    vi.mocked(restoreArchive).mockResolvedValue({
+      primaryPath: ABSOLUTE,
+      pathChanges: [],
+      deletedPaths: [],
+    } as never)
     vi.mocked(readNote).mockResolvedValue({
       content: "old",
       revision: "r2",
