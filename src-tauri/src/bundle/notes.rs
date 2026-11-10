@@ -8,6 +8,27 @@ use super::path_ops::file_stem;
 use super::path_string;
 use super::scan::{is_bundle_main_note, is_supported_document};
 
+/// The move `ensure_bundle_path` would make, without making it: `Name.md` into `Name/Name.md`.
+/// Empty when the note already is a bundle's main note or is not a plain document. Synchronisation
+/// is told about it before the file moves (Д70а), so a super note is a move and not a deletion.
+pub(crate) fn preview_ensure_bundle_path(note_path: &Path) -> Vec<PathChange> {
+    if !note_path.is_file() || !is_supported_document(note_path) || is_bundle_main_note(note_path) {
+        return Vec::new();
+    }
+    let (Ok(stem), Some(parent)) = (file_stem(note_path), note_path.parent()) else {
+        return Vec::new();
+    };
+    let ext = note_path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("md");
+    let new_note = parent.join(&stem).join(format!("{stem}.{ext}"));
+    vec![PathChange {
+        old_path: path_string(note_path),
+        new_path: path_string(&new_note),
+    }]
+}
+
 pub(crate) fn ensure_bundle_path(note_path: &Path) -> Result<(PathBuf, Vec<PathChange>), String> {
     if note_path.is_dir() {
         if let Some(manifest) = crate::database::discovery::find_manifest_path(note_path) {

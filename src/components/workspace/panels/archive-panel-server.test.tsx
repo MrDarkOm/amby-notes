@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // The server list of the archive panel (docs/sync-plan.md, appendix И, И9а–И13, И17, И20). The
-// cloud button "Файлы на сервере" in the header switches the panel to it (И9а); the list is the
+// two-icon switch "Архив / Облако" in the header (И9б) switches the panel to it (И9а); the list is the
 // element `archive-server-section`; its rows are `archive-server-row` with a checkbox; the answer to
 // "Вернуть" is `archive-server-result` and follows the button.
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
@@ -70,10 +70,10 @@ function open(overrides: Parameters<typeof createFakePort>[0] = {}) {
 const section = () => screen.queryByTestId("archive-server-section")
 const serverRows = () => screen.queryAllByTestId("archive-server-row")
 const search = () => screen.getByLabelText("Найти заметку в архиве…")
-const cloudButton = () => screen.queryByRole("button", { name: "Файлы на сервере" })
+const cloudButton = () => screen.queryByRole("button", { name: "Облако" })
 /** Presses the cloud button of the header and waits for the server list (И9а). */
 async function showServer() {
-  fireEvent.click(await screen.findByRole("button", { name: "Файлы на сервере" }, FAST))
+  fireEvent.click(await screen.findByRole("button", { name: "Облако" }, FAST))
   return await screen.findByTestId("archive-server-section", {}, FAST)
 }
 
@@ -83,6 +83,59 @@ beforeEach(async () => {
   vi.mocked(listArchive).mockResolvedValue([local])
 })
 afterEach(cleanup)
+
+describe("И9б: the switch of two icons and the counter of the shown list", () => {
+  const threeDeleted = {
+    vaultStatus: async () => vaultStatus(),
+    deletedFiles: async () => ({
+      available: true,
+      reason: null,
+      files: [deleted(1), deleted(2), deleted(3)],
+      truncated: false,
+    }),
+  }
+  const archiveButton = () => screen.queryByRole("button", { name: "Архив" })
+  const count = () => screen.queryByTestId("archive-count")?.textContent
+
+  it("has two buttons, Архив pressed first, and Облако not pressed, when sync is on", async () => {
+    open(threeDeleted)
+    await screen.findByText("Локальная", {}, FAST)
+    await screen.findByRole("button", { name: "Облако" }, FAST)
+    expect(archiveButton()?.getAttribute("aria-pressed")).toBe("true")
+    expect(cloudButton()?.getAttribute("aria-pressed")).toBe("false")
+  })
+
+  it("presses one at a time", async () => {
+    open(threeDeleted)
+    await screen.findByText("Локальная", {}, FAST)
+    await showServer()
+    expect(archiveButton()?.getAttribute("aria-pressed")).toBe("false")
+    expect(cloudButton()?.getAttribute("aria-pressed")).toBe("true")
+    fireEvent.click(archiveButton() as HTMLElement)
+    expect(await screen.findByText("Локальная", {}, FAST)).toBeTruthy()
+    expect(archiveButton()?.getAttribute("aria-pressed")).toBe("true")
+  })
+
+  it("counts the rows of the archive while it shows and the rows of the server while that shows", async () => {
+    open(threeDeleted)
+    await screen.findByText("Локальная", {}, FAST)
+    expect(count()).toBe("1")
+    await showServer()
+    expect(count()).toBe("3")
+    fireEvent.click(archiveButton() as HTMLElement)
+    await screen.findByText("Локальная", {}, FAST)
+    expect(count()).toBe("1")
+  })
+
+  it("has no switch without sync, and the counter stays that of the archive", async () => {
+    open({ vaultStatus: async () => VAULT_OFF })
+    await screen.findByText("Локальная", {}, FAST)
+    await waitFor(() => expect(port.vaultStatus).toHaveBeenCalled(), FAST)
+    expect(archiveButton()).toBeNull()
+    expect(cloudButton()).toBeNull()
+    expect(count()).toBe("1")
+  })
+})
 
 describe("И9а: the cloud button and the switch", () => {
   const twoDeleted = {
@@ -98,16 +151,16 @@ describe("И9а: the cloud button and the switch", () => {
   it("shows the archive first and no server section under it", async () => {
     open(twoDeleted)
     expect(await screen.findByText("Локальная", {}, FAST)).toBeTruthy()
-    await screen.findByRole("button", { name: "Файлы на сервере" }, FAST)
+    await screen.findByRole("button", { name: "Облако" }, FAST)
     expect(section()).toBeNull()
     expect(serverRows()).toHaveLength(0)
   })
 
   it("has the cloud button, not pressed, when sync of the vault is on", async () => {
     open(twoDeleted)
-    const button = await screen.findByRole("button", { name: "Файлы на сервере" }, FAST)
+    const button = await screen.findByRole("button", { name: "Облако" }, FAST)
     expect(button.getAttribute("aria-pressed")).toBe("false")
-    expect(button.getAttribute("title")).toBe("Файлы на сервере")
+    expect(button.getAttribute("title")).toBe("Облако")
   })
 
   it("switches to the server list, pressed, and back to the archive", async () => {
@@ -118,7 +171,7 @@ describe("И9а: the cloud button and the switch", () => {
     expect(within(part).getByText("Удалённая 1")).toBeTruthy()
     expect(screen.queryByText("Локальная")).toBeNull()
     expect(cloudButton()?.getAttribute("aria-pressed")).toBe("true")
-    fireEvent.click(cloudButton() as HTMLElement)
+    fireEvent.click(screen.getByRole("button", { name: "Архив" }))
     expect(await screen.findByText("Локальная", {}, FAST)).toBeTruthy()
     expect(section()).toBeNull()
     expect(cloudButton()?.getAttribute("aria-pressed")).toBe("false")
@@ -161,7 +214,7 @@ describe("И9а: the cloud button and the switch", () => {
     fireEvent.change(box, { target: { value: "нет такой" } })
     expect(serverRows()).toHaveLength(0)
     expect(screen.getByText("Ничего не найдено")).toBeTruthy()
-    fireEvent.click(cloudButton() as HTMLElement)
+    fireEvent.click(screen.getByRole("button", { name: "Архив" }))
     fireEvent.change(search(), {
       target: { value: "Другая" },
     })

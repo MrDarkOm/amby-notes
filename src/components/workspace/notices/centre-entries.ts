@@ -183,9 +183,8 @@ export function deriveCentre(input: CentreInput): Centre {
   for (const doc of open) {
     const relative = relativeOf(doc)
     const remoteDeleted = relative !== null && input.remoteDeleted.includes(relative)
-    const remoteActive = remoteDeleted && !(input.restoreFailed ?? []).includes(relative)
     if (remoteDeleted) copy(doc, "remote-deleted", "decision")
-    if (doc.externallyDeleted && !remoteActive) copy(doc, "external-deleted", "danger")
+    if (doc.externallyDeleted && !remoteDeleted) copy(doc, "external-deleted", "decision")
     if (input.externalConflicts[doc.id] && !doc.externallyDeleted)
       copy(doc, "external-change", "decision")
     if (input.saveFailed[doc.id]) copy(doc, "save-failed", "danger")

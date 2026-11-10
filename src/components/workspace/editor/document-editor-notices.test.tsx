@@ -102,7 +102,7 @@ describe("DocumentEditor notices", () => {
       <DocumentEditor document={note({ externallyDeleted: true })} onRestoreDeleted={vi.fn()} />,
     )
     const stack = screen.getByTestId("note-notices-stack")
-    expect(within(stack).getByRole("button", { name: "Восстановить файл" })).toBeTruthy()
+    expect(within(stack).getByRole("button", { name: "Вернуть" })).toBeTruthy()
   })
 
   it("shows nothing and no bulb for a note that has nothing to say", () => {

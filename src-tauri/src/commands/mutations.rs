@@ -477,6 +477,74 @@ mod failure_tests {
     }
 
     #[test]
+    fn a_note_made_into_a_super_note_is_noted_as_a_move_before_it_moves() {
+        // Д70а: the hint goes first, so a pass cannot read the move as a deletion and a new file.
+        let root =
+            std::env::temp_dir().join(format!("amby-ensure-bundle-{}", ulid::Ulid::generate()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("Idea.md"), "text of the idea").unwrap();
+        let context = VaultContext::new();
+        context
+            .activate(root.to_str().unwrap(), |_| Ok(()), |_, _| ())
+            .unwrap();
+        let root = context.root().unwrap();
+        let old = root.join("Idea.md");
+        let new = root.join("Idea").join("Idea.md");
+        let seen = std::cell::RefCell::new(Vec::new());
+        let record = |vault: &Path, changes: &[PathChange]| {
+            seen.borrow_mut().push((
+                vault.to_path_buf(),
+                old.is_file() && !new.exists(),
+                changes
+                    .iter()
+                    .map(|change| (change.old_path.clone(), change.new_path.clone()))
+                    .collect::<Vec<_>>(),
+            ));
+        };
+        let outcome =
+            ensure_bundle_inner(&context, &WatcherState::new(), &record, path_string(&old))
+                .unwrap();
+        assert_eq!(outcome.mutation.primary_path, Some(path_string(&new)));
+        assert!(new.is_file() && !old.exists());
+        let seen = seen.into_inner();
+        assert_eq!(seen.len(), 1, "one call with the one change");
+        assert_eq!(seen[0].0, root);
+        assert!(seen[0].1, "the hint is recorded before the file moves");
+        assert_eq!(seen[0].2, vec![(path_string(&old), path_string(&new))]);
+        drop(context);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_note_that_is_already_a_super_note_records_no_hint() {
+        let root =
+            std::env::temp_dir().join(format!("amby-ensure-bundle-{}", ulid::Ulid::generate()));
+        fs::create_dir_all(root.join("Idea")).unwrap();
+        fs::write(root.join("Idea/Idea.md"), "text").unwrap();
+        let context = VaultContext::new();
+        context
+            .activate(root.to_str().unwrap(), |_| Ok(()), |_, _| ())
+            .unwrap();
+        let root = context.root().unwrap();
+        let calls = std::cell::Cell::new(0);
+        let record = |_: &Path, changes: &[PathChange]| {
+            if !changes.is_empty() {
+                calls.set(calls.get() + 1);
+            }
+        };
+        ensure_bundle_inner(
+            &context,
+            &WatcherState::new(),
+            &record,
+            path_string(&root.join("Idea/Idea.md")),
+        )
+        .unwrap();
+        assert_eq!(calls.get(), 0);
+        drop(context);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn failed_index_after_filesystem_success_does_not_relock_vault() {
         let (sender, receiver) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
@@ -513,10 +581,36 @@ pub fn ensure_bundle(
     app: tauri::AppHandle,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
+    sync_runtime: tauri::State<'_, crate::sync::runtime::SyncRuntime>,
+    path: String,
+) -> Result<MutationOutcome, String> {
+    let outcome = ensure_bundle_inner(
+        &db,
+        &watcher_state,
+        &|root, changes| sync_runtime.note_renames(root, changes),
+        path,
+    )?;
+    notify_structural_mutation(&app, &db, &outcome);
+    Ok(outcome)
+}
+
+/// The body of `ensure_bundle` without the Tauri state wrappers (see `rename_item_inner`).
+pub(crate) fn ensure_bundle_inner(
+    db: &VaultContext,
+    watcher_state: &WatcherState,
+    note_renames: &dyn Fn(&Path, &[PathChange]),
     path: String,
 ) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
-    let path = paths::guard(&db, &path)?;
+    let path = paths::guard(db, &path)?;
+    // Synchronisation learns that this is a move, before the file moves (Д70а): a pass that starts
+    // between the move and a later hint would read it as a deletion and a new file.
+    let expected = preview_ensure_bundle_path(&path);
+    if !expected.is_empty() {
+        if let Ok(root) = db.root() {
+            note_renames(&root, &expected);
+        }
+    }
     let (primary, path_changes) = ensure_bundle_path(&path)?;
     let result = FsMutationResult {
         tree_patch: None,
@@ -529,9 +623,8 @@ pub fn ensure_bundle(
     };
     watcher_state.mark_write(mutation_paths(&result));
     let vault = db.root()?;
-    let mut outcome = sync_mutation_result(&db, &vault, result);
+    let mut outcome = sync_mutation_result(db, &vault, result);
     outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
-    notify_structural_mutation(&app, &db, &outcome);
     Ok(outcome)
 }
 

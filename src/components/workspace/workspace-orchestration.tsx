@@ -60,6 +60,7 @@ import {
   watcherChangeAffectsDocument,
 } from "./watcher-tree-reconciliation"
 import { flushAutosaveGeneration } from "./autosave/autosave-lifecycle"
+import { emitAutosaveConflictResolution } from "./autosave/conflict-events"
 import { errorType, logger } from "@/lib/logger"
 import type { TreeItem } from "./sidebar-tree"
 import { useDatabaseController } from "./database/use-database-controller"
@@ -824,8 +825,11 @@ export function WorkspaceOrchestration() {
           source: conflict?.sourceTemplate ?? document.source,
           externallyDeleted: false,
         })
-        markSaved(fileId)
+        // Text typed while the file was being written is still unsaved: autosave takes it up.
+        const hasNewerEdits = useDocStore.getState().openDocs[fileId]?.content !== document.content
+        if (!hasNewerEdits) markSaved(fileId)
         clearExternalConflict(fileId)
+        emitAutosaveConflictResolution(fileId, hasNewerEdits ? "resume" : "discard")
         await refreshTreePaths([document.path], vault)
       } catch (error) {
         logger.warn("document.restore_deleted_failed", { errorType: errorType(error) })

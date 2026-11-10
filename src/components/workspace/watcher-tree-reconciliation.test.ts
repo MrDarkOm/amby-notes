@@ -4,6 +4,7 @@ import {
   filterLocalTreeWatcherChanges,
   hasActiveLocalTreeMutation,
   planOpenDocumentTreeChanges,
+  confirmDeletionAgainstFullTree,
   recordLocalTreeMutation,
   watcherChangeAffectsDocument,
 } from "./watcher-tree-reconciliation"
@@ -169,5 +170,41 @@ describe("planOpenDocumentTreeChanges", () => {
         tree,
       ),
     ).toEqual([])
+  })
+})
+
+describe("confirmDeletionAgainstFullTree (Д70а)", () => {
+  const moved: TreeItem[] = [
+    {
+      id: "note-1",
+      name: "Note",
+      path: "/vault/Note/Note.md",
+      type: "file",
+    },
+  ]
+
+  it("turns a deletion into a relocation when the same note is found at another path", () => {
+    expect(
+      confirmDeletionAgainstFullTree(
+        [{ kind: "deleted", fileId: "note-1" }],
+        { "note-1": document("/vault/Note.md", "Note") },
+        moved,
+      ),
+    ).toEqual([{ kind: "relocated", fileId: "note-1", path: "/vault/Note/Note.md", title: "Note" }])
+  })
+
+  it("keeps a deletion when the note is nowhere in the vault", () => {
+    expect(
+      confirmDeletionAgainstFullTree(
+        [{ kind: "deleted", fileId: "note-2" }],
+        { "note-2": document("/vault/Gone.md", "Gone") },
+        moved,
+      ),
+    ).toEqual([{ kind: "deleted", fileId: "note-2" }])
+  })
+
+  it("leaves relocations as they are", () => {
+    const relocated = { kind: "relocated" as const, fileId: "a", path: "/vault/A.md", title: "A" }
+    expect(confirmDeletionAgainstFullTree([relocated], {}, [])).toEqual([relocated])
   })
 })
