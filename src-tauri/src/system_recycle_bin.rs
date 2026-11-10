@@ -25,6 +25,25 @@ pub fn move_to_system_trash(vault: &Path, path: &Path) -> Result<FsMutationResul
     })
 }
 
+/// The operating system's trash as a port (docs/sync-plan.md, К3, К6): macOS Trash, Windows Recycle
+/// Bin, freedesktop `trash`. Tests inject their own so no test touches the real trash.
+pub trait SystemTrash: Send + Sync {
+    /// Moves the file or folder at the absolute `path` into the system trash. `Err` means the
+    /// trash cannot take it (no such trash, a network volume, a refusal of the system): the caller
+    /// then never destroys the item (К3: a remote deletion falls back to `.amby/trash/`).
+    fn trash(&self, path: &Path) -> Result<(), String>;
+}
+
+/// The real system trash (the code of К3 and К6 uses it; until then nothing does).
+#[allow(dead_code)]
+pub struct OsTrash;
+
+impl SystemTrash for OsTrash {
+    fn trash(&self, path: &Path) -> Result<(), String> {
+        move_path(path)
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn move_path(path: &Path) -> Result<(), String> {
     use std::ptr::{null, null_mut};

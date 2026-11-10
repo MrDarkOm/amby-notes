@@ -85,6 +85,8 @@ pub fn deactivate_for_closed_vault(app: &tauri::AppHandle) {
 #[cfg(test)]
 mod account_overview_tests;
 #[cfg(test)]
+mod archive_sync_tests;
+#[cfg(test)]
 mod backup_boundary_tests;
 #[cfg(test)]
 mod backup_tests;

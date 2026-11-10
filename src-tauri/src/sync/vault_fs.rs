@@ -23,6 +23,7 @@ use amby_sync_core::engine::{
     StagedWrite, TrashReason,
 };
 
+use crate::system_recycle_bin::SystemTrash;
 use crate::{frontmatter, history, recycle_bin};
 
 /// What the application does around a batch of incoming changes (Р8): merge the events of the
@@ -45,6 +46,10 @@ pub struct VaultFs {
     /// The files of `.amby/` written since the batch began (`None` outside a batch), shared with
     /// the writes in flight (З65).
     amby_written: Arc<Mutex<Option<Vec<String>>>>,
+    /// The system trash that takes a deletion that came from another device (К3). `None` until the
+    /// code of К3 is written: the stub never asks it.
+    #[allow(dead_code)]
+    system_trash: Option<Arc<dyn SystemTrash>>,
 }
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -73,6 +78,20 @@ impl VaultFs {
             root,
             hooks: None,
             amby_written: Arc::default(),
+            system_trash: None,
+        }
+    }
+
+    /// The vault at `root` whose remote deletions go to `system_trash` (К3). The code of К3 must
+    /// also give `new` and `with_hooks` the real system trash outside tests (`OsTrash`) and a
+    /// refusing one in `cfg(test)`, so no test ever touches the real trash and the older tests of
+    /// the synchronisation keep seeing the fall-back `.amby/trash/`.
+    ///
+    /// Requirement: К3.
+    pub fn with_system_trash(root: PathBuf, system_trash: Arc<dyn SystemTrash>) -> Self {
+        Self {
+            system_trash: Some(system_trash),
+            ..Self::new(root)
         }
     }
 
@@ -82,6 +101,7 @@ impl VaultFs {
             root,
             hooks: Some(hooks),
             amby_written: Arc::default(),
+            system_trash: None,
         }
     }
 

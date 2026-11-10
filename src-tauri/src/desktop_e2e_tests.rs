@@ -516,7 +516,7 @@ fn report_single_file_actions(context: &VaultContext, root: &Path, count: usize)
         context,
         &watcher_state,
         path_of("日本語 🔥/Note-00005.md"),
-        DeleteMode::Vault,
+        DeleteMode::Archive,
     )
     .unwrap();
     line += &format!(

@@ -310,8 +310,9 @@ export interface EditorPrefs {
   showAreaControls?: boolean
 }
 
-export type DeleteModePref = "system" | "vault" | "permanent"
-export const DELETE_MODES: DeleteModePref[] = ["system", "vault", "permanent"]
+/** К4: `archive` is «Переносить в архив»; the former value `vault` is read as `archive`. */
+export type DeleteModePref = "system" | "archive" | "permanent"
+export const DELETE_MODES: DeleteModePref[] = ["system", "archive", "permanent"]
 export type UpdateChannelPref = "stable" | "beta"
 
 export interface FilePrefs {

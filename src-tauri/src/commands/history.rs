@@ -280,6 +280,53 @@ pub fn purge_trash(
     recycle_bin::purge(&scope.get()?, &trash_id)
 }
 
+/// The files of the archive `.amby/archive/` (docs/sync-plan.md, К6): the panel shows only these.
+#[tauri::command]
+#[specta::specta]
+pub fn list_archive(
+    scope: tauri::State<paths::VaultScope>,
+) -> Result<Vec<crate::archive::ArchiveEntry>, String> {
+    Ok(crate::archive::list(&scope.get()?))
+}
+
+/// A read-only look at an archived file (К6).
+#[tauri::command]
+#[specta::specta]
+pub fn read_archive_preview(
+    scope: tauri::State<paths::VaultScope>,
+    archive_id: String,
+    relative_path: String,
+) -> Result<recycle_bin::TrashPreview, String> {
+    let _mutation_guard = scope.mutation_gate.lock_or_recover();
+    crate::archive::read_preview(&scope.get()?, &archive_id, &relative_path)
+}
+
+/// «Вернуть» from the archive (К6): without replacing, a free name when the path is taken; the
+/// final path is `primary_path` of the mutation.
+#[tauri::command]
+#[specta::specta]
+pub fn restore_archive(
+    _app: tauri::AppHandle,
+    _scope: tauri::State<paths::VaultScope>,
+    _db: tauri::State<'_, VaultContext>,
+    _watcher_state: tauri::State<'_, WatcherState>,
+    _archive_id: String,
+) -> Result<MutationOutcome, String> {
+    todo!("К6: as restore_trash, over archive::restore")
+}
+
+/// «Удалить из архива» (К6) by the setting of К4.
+#[tauri::command]
+#[specta::specta]
+pub fn purge_archive(
+    _scope: tauri::State<paths::VaultScope>,
+    _db: tauri::State<'_, VaultContext>,
+    _archive_id: String,
+    _mode: recycle_bin::DeleteMode,
+) -> Result<(), String> {
+    todo!("К4, К6: over archive::purge with OsTrash")
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn preview_rename_refactor(

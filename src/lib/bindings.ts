@@ -271,6 +271,51 @@ async purgeTrash(trashId: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * The files of the archive `.amby/archive/` (docs/sync-plan.md, К6): the panel shows only these.
+ */
+async listArchive() : Promise<Result<ArchiveEntry[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_archive") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * A read-only look at an archived file (К6).
+ */
+async readArchivePreview(archiveId: string, relativePath: string) : Promise<Result<TrashPreview, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("read_archive_preview", { archiveId, relativePath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * «Вернуть» from the archive (К6): without replacing, a free name when the path is taken; the
+ * final path is `primary_path` of the mutation.
+ */
+async restoreArchive(archiveId: string) : Promise<Result<MutationOutcome, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_archive", { archiveId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * «Удалить из архива» (К6) by the setting of К4.
+ */
+async purgeArchive(archiveId: string, mode: DeleteMode) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("purge_archive", { archiveId, mode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async aiListChats(generation: number) : Promise<Result<ChatEntry[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("ai_list_chats", { generation }) };
@@ -2232,6 +2277,27 @@ export type ApprovalKind =
  * Forget the link with the server and reconcile this vault with it again by content.
  */
 "resync"
+/**
+ * A file of the archive as the panel shows it (К6): one row per file, with its folders.
+ */
+export type ArchiveEntry = { 
+/**
+ * An identifier for `restore` / `purge` / `read_preview`; its form is not part of the contract.
+ */
+id: string; 
+/**
+ * The path in the vault the file is restored to: the path inside `.amby/archive/` (К1).
+ */
+originalPath: string; 
+/**
+ * The time of the move to the archive: `archivedAtMs` of the record, and the time of the file
+ * itself when there is no record (К8).
+ */
+archivedAtMs: number; 
+/**
+ * The name of the file.
+ */
+name: string }
 export type BackupCatalog = { vault: string; generation: number; backups: BackupInfo[] }
 export type BackupCondition = "unchecked" | "verified" | "damaged" | "incomplete" | "missing"
 export type BackupInfo = { id: string; createdMs: number; bytes: number; files: number; status: BackupCondition }
@@ -2481,11 +2547,12 @@ export type DebugEvent = { id: string; timestamp: string; level: LogLevel; event
 export type DeleteDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string }
 export type DeleteDatabaseViewRequest = { expectedGeneration: number; databaseId: string; viewId: string; expectedViewRevision: string; expectedManifestRevision: string }
 /**
- * Where `delete_item` sends an item. `System` is the default; `Vault` keeps a
- * restorable copy under `.amby/trash`; `Permanent` removes the item for good
- * and must only be requested after an explicit user confirmation.
+ * Where `delete_item` sends an item (docs/sync-plan.md, К4). `System` is the default; `Archive`
+ * does what «В архив» does (К1); `Permanent` removes the item for good and must only be requested
+ * after an explicit user confirmation. The former value `vault` («Корзина хранилища») is read as
+ * `Archive` (К4).
  */
-export type DeleteMode = "system" | "vault" | "permanent"
+export type DeleteMode = "system" | "archive" | "permanent"
 export type DeletedDatabaseProperty = { databaseId: string; propertyId: string; manifestRevision: string; warnings: string[] }
 /**
  * A deleted file in the "on the server" part of the archive (И10, И12).

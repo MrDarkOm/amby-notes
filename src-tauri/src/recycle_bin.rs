@@ -13,15 +13,17 @@ const TRASH_DIR: &str = "trash";
 mod preview;
 pub use preview::{read_preview, TrashPreview};
 
-/// Where `delete_item` sends an item. `System` is the default; `Vault` keeps a
-/// restorable copy under `.amby/trash`; `Permanent` removes the item for good
-/// and must only be requested after an explicit user confirmation.
+/// Where `delete_item` sends an item (docs/sync-plan.md, К4). `System` is the default; `Archive`
+/// does what «В архив» does (К1); `Permanent` removes the item for good and must only be requested
+/// after an explicit user confirmation. The former value `vault` («Корзина хранилища») is read as
+/// `Archive` (К4).
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum DeleteMode {
     #[default]
     System,
-    Vault,
+    #[serde(alias = "vault")]
+    Archive,
     Permanent,
 }
 

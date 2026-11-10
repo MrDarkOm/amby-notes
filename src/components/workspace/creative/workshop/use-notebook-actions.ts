@@ -222,7 +222,7 @@ export function useNotebookActions({
       // catalog, so a static import would make a cycle.
       const { useSettingsStore } = await import("../../use-settings-store")
       const chosen = useSettingsStore.getState().prefs.files.deleteMode
-      await deleteItem(vault, current.path, chosen === "permanent" ? "vault" : chosen)
+      await deleteItem(vault, current.path, chosen === "permanent" ? "archive" : chosen)
     } catch (caught) {
       setError(
         t("creative.notebooks.errors.trashFailed", {
