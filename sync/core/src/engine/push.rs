@@ -11,7 +11,7 @@ use crate::crypto::header::{canonical_header_json, seal_header, Header, ItemKind
 use crate::crypto::keys::{BodyId, ItemId};
 use crate::crypto::padme::sealed_body_len;
 
-use super::classify::{classify, Lc};
+use super::classify::{applied_hints, classify, Lc};
 use super::flow::{Flow, Res};
 use super::model::{
     CycleReport, ItemRecord, PassLimits, PendingCommit, PendingUpload, RenameHint, StateOp,
@@ -34,13 +34,23 @@ struct Out {
 }
 
 impl Engine {
+    /// Adds the hints the application recorded while the pass ran (Д70); call it right after a
+    /// scan, before the classification.
+    pub(super) fn absorb_late_hints(&mut self, hints: &mut Vec<RenameHint>) {
+        for hint in self.ports.fs.take_rename_hints() {
+            if !hints.contains(&hint) {
+                hints.push(hint);
+            }
+        }
+    }
+
     /// Sends what differs from the bases. Returns the disk as it was seen, for the list of files
     /// that are not synchronised.
     pub(super) fn push(
         &mut self,
         info: &ServerInfo,
         undelete: &BTreeMap<String, Undelete>,
-        hints: &[RenameHint],
+        hints: &mut Vec<RenameHint>,
         report: &mut CycleReport,
     ) -> Res<Option<Scan>> {
         if self.ports.fs.recovery_pending()? {
@@ -55,7 +65,11 @@ impl Engine {
             self.config.max_file_bytes,
             (report.limits.max_file_bytes, report.limits.max_file_source),
         )?;
+        self.absorb_late_hints(hints);
         let classes = classify(&state.items, &disk, hints);
+        self.ports
+            .fs
+            .rename_hints_applied(&applied_hints(&state.items, &classes, hints));
 
         // Files that were written by us or only touched: remember size and time, so that the next
         // pass does not read them again (Д12).

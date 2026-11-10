@@ -10,7 +10,7 @@ use crate::crypto::keys::{ItemId, SpaceId, SpaceKey};
 use crate::crypto::random::Random;
 
 use super::apply::ApplyCtx;
-use super::classify::{classify, Lc};
+use super::classify::{applied_hints, classify, Lc};
 use super::decide::{decide, Inputs};
 use super::flow::{Flow, Res};
 use super::model::{
@@ -345,7 +345,12 @@ impl Engine {
         }
 
         // Д10 step 6: decisions for everything, nothing written yet.
-        let classes = classify(&state.items, &disk, &request.rename_hints);
+        let mut hints = request.rename_hints.clone();
+        self.absorb_late_hints(&mut hints);
+        let classes = classify(&state.items, &disk, &hints);
+        self.ports
+            .fs
+            .rename_hints_applied(&applied_hints(&state.items, &classes, &hints));
         let bases = self.load_bases(&state, &classes, &feed.items)?;
         let mut plan = decide(
             &Inputs {
@@ -480,7 +485,7 @@ impl Engine {
         let after = if commit_held {
             None
         } else {
-            self.push(&info, &plan.undelete, &request.rename_hints, report)?
+            self.push(&info, &plan.undelete, &mut hints, report)?
         };
         self.prune_bases()?;
 

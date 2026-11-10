@@ -9,7 +9,7 @@ use std::io::Read;
 
 use crate::crypto::keys::{BodyId, ItemId};
 
-use super::model::{StateTx, SyncState};
+use super::model::{RenameHint, StateTx, SyncState};
 
 // ----- clock -----
 
@@ -192,6 +192,17 @@ pub trait LocalFs {
     fn batch_begin(&mut self);
     /// End of the batch; always called after `batch_begin`, also after an error.
     fn batch_end(&mut self);
+    /// Hints of the application about renames (Д70) that it recorded **since the pass began**.
+    /// The engine asks right after it has read the vault: a rename it saw on disk had its hint
+    /// recorded before the rename, so the hint is already here. Taking them any earlier lets a
+    /// rename that happens while the pass runs be read as a deletion and a creation. Nothing by
+    /// default.
+    fn take_rename_hints(&mut self) -> Vec<RenameHint> {
+        Vec::new()
+    }
+    /// Which of the hints the classification used (Д70). Those that are not named here were not
+    /// seen as renames on disk yet; the application may keep them for the next pass.
+    fn rename_hints_applied(&mut self, _applied: &[RenameHint]) {}
 }
 
 // ----- remote server -----

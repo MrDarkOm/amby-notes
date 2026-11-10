@@ -434,6 +434,7 @@ impl Env {
             schedule: Schedule::fast(),
             hooks,
             handle: self.runtime.handle().clone(),
+            hints: Arc::new(crate::sync::hints::RenameHints::new()),
         }
     }
 
