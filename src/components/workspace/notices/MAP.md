@@ -21,7 +21,7 @@ How a notice gets into the centre, by who writes it:
 
 - **Derived (not stored):** sync conflicts, a stop of the sync, the limits of the plan and the files that failed
   (`useSyncNoticesStore`, fed by `SyncNoticesHost` from the status of the sync); the copies of the cards of open notes
-  (`save-failed`, `external-deleted`, `external-change`, `draft`, `property-failed`, `remote-deleted`) with the id
+  (`save-failed`, `external-deleted`, `external-change`, `draft`, `property-failed`, `remote-deleted`, `archived-elsewhere`) with the id
   `noteNoticeId(document id, card)`, so a decision in the strip or in the centre removes both; a failed autosave of a note that
   is no longer open (`closedSaveFailed` of `useNoteNoticesStore`, written by
   [use-markdown-autosave.ts](../file-actions/use-markdown-autosave.ts), cleared by the next successful save or when the note is

@@ -1919,6 +1919,10 @@ const ru = {
           title: "Заметка «{{name}}» удалена на другом компьютере",
           line: "Текст ещё открыт здесь, его можно вернуть.",
         },
+        "archived-elsewhere": {
+          title: "Заметка «{{name}}» перенесена в архив на другом компьютере",
+          line: "Текст ещё открыт здесь, заметку можно вернуть из архива.",
+        },
         "external-deleted": {
           title: "Файл «{{name}}» удалён",
           line: "Текст остался в редакторе, его можно сохранить снова.",
@@ -4202,6 +4206,9 @@ const ru = {
       loading: "Читаю версии…",
       loadFailed: "Не удалось прочитать одну из версий.",
       remoteDeleted: "Эту заметку удалили на другом компьютере. Текст ещё открыт здесь",
+      archivedElsewhere: "Заметку перенесли в архив на другом компьютере",
+      restoreArchived: "Вернуть из архива",
+      restoreArchivedFailed: "Не удалось вернуть заметку из архива. Текст остаётся открытым.",
       restore: "Вернуть",
       restoring: "Возвращаю…",
       compareDone: "Собрать из выбранного",
@@ -6373,6 +6380,10 @@ const en: typeof ru = {
         "remote-deleted": {
           title: "The note “{{name}}” was deleted on another computer",
           line: "The text is still open here; it can be brought back.",
+        },
+        "archived-elsewhere": {
+          title: "The note “{{name}}” was moved to the archive on another computer",
+          line: "The text is still open here; the note can be restored from the archive.",
         },
         "external-deleted": {
           title: "The file “{{name}}” was deleted",
@@ -8643,6 +8654,9 @@ const en: typeof ru = {
       loading: "Reading the versions…",
       loadFailed: "One of the versions could not be read.",
       remoteDeleted: "This note was deleted on another computer. The text is still open here",
+      archivedElsewhere: "This note was moved to the archive on another computer",
+      restoreArchived: "Restore from archive",
+      restoreArchivedFailed: "Could not restore the note from the archive. The text stays open.",
       restore: "Restore",
       restoring: "Restoring…",
       compareDone: "Put together from the chosen",

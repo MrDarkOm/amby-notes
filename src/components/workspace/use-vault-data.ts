@@ -65,6 +65,7 @@ import {
   planVaultStartup,
   type VaultActivatedPayload,
 } from "./windows/vault-window-lifecycle"
+import { findArchivedCopy, isArchivePath } from "./sync/restore-archived-note"
 import {
   filterLocalTreeWatcherChanges,
   hasActiveLocalTreeMutation,
@@ -727,7 +728,34 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
             }
             const latest = useDocStore.getState().openDocs[id] ?? doc
             if (!latest.externallyDeleted) {
-              patchDoc(id, { externallyDeleted: true })
+              // Another computer may have put the note into the archive (К13): the file is then in
+              // `.amby/archive/`, and the card says so. Where the archive cannot be read, it is "deleted".
+              const archived = await findArchivedCopy(vault, latest.path).then(
+                (entry) => Boolean(entry),
+                () => false,
+              )
+              if (!isCurrent()) return
+              patchDoc(
+                id,
+                archived
+                  ? { externallyDeleted: true, externallyArchived: true }
+                  : { externallyDeleted: true },
+              )
+              setExternalConflict({
+                fileId: id,
+                path: latest.path,
+                localContent: latest.content,
+                externalContent: null,
+                sourceTemplate: latest.source,
+              })
+            }
+            continue
+          }
+          if (treeChange.kind === "relocated" && isArchivePath(treeChange.path)) {
+            // К13: the file went into the archive; the tab does not follow it there, it keeps its text.
+            const latest = useDocStore.getState().openDocs[id] ?? doc
+            if (!latest.externallyDeleted) {
+              patchDoc(id, { externallyDeleted: true, externallyArchived: true })
               setExternalConflict({
                 fileId: id,
                 path: latest.path,
@@ -787,7 +815,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
               if (!latest) continue
               const currentConflict = useDocStore.getState().externalConflicts[id]
               if (latest.externallyDeleted || currentConflict?.externalContent === null) {
-                patchDoc(id, { externallyDeleted: false })
+                patchDoc(id, { externallyDeleted: false, externallyArchived: false })
                 if (note.content === latest.content) {
                   patchDoc(id, {
                     revision: note.revision,

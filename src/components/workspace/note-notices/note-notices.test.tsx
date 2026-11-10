@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import i18n from "@/lib/i18n"
-import { listTrash, restoreTrash } from "@/lib/storage"
+import { listArchive, listTrash, readNote, restoreArchive, restoreTrash } from "@/lib/storage"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import { useSyncNoticesStore } from "../sync/use-sync-notices-store"
@@ -19,6 +19,8 @@ vi.mock("@/lib/storage", async (importOriginal) => ({
   readNote: vi.fn(),
   listTrash: vi.fn(),
   restoreTrash: vi.fn(),
+  listArchive: vi.fn(),
+  restoreArchive: vi.fn(),
 }))
 
 const ORIGINAL = "Заметки/идея.md"
@@ -549,5 +551,104 @@ describe("a note that came back after a deletion made here", () => {
     expect(within(stack()!).getByText(/Заметку «идея» вернули/)).toBeTruthy()
     fireEvent.click(within(stack()!).getByRole("button", { name: "Закрыть" }))
     expect(bulb()).toBeNull()
+  })
+})
+
+describe("a note archived on another computer (К13)", () => {
+  const title = "Заметку перенесли в архив на другом компьютере"
+  const archived = {
+    id: ABSOLUTE,
+    path: ABSOLUTE,
+    externallyDeleted: true,
+    externallyArchived: true,
+  }
+  const setDoc = (content = "text") =>
+    useDocStore.getState().setDoc(ABSOLUTE, {
+      id: ABSOLUTE,
+      path: ABSOLUTE,
+      title: "идея",
+      content,
+      source: content,
+      revision: "r1",
+      created: "",
+      modified: "",
+      wordCount: 1,
+      externallyDeleted: true,
+      externallyArchived: true,
+    } as never)
+
+  it("is one decision card with two buttons, opened by itself, instead of the “deleted” card", () => {
+    mount({ document: archived, onCloseTab: vi.fn() })
+    expect(stack()).not.toBeNull()
+    expect(within(stack()!).getByText(title)).toBeTruthy()
+    expect(within(stack()!).queryByText(/Файл удалён вне Amby/)).toBeNull()
+    expect(within(stack()!).getByRole("button", { name: "Вернуть из архива" })).toBeTruthy()
+    expect(within(stack()!).getByRole("button", { name: "Закрыть заметку" })).toBeTruthy()
+    expect(bulb()!.getAttribute("aria-label")).toMatch(/: 1$/)
+  })
+
+  it("«Вернуть из архива» moves the file back by К6 and the note is whole again", async () => {
+    setDoc()
+    vi.mocked(listArchive).mockResolvedValue([
+      { id: ORIGINAL, originalPath: ORIGINAL, archivedAtMs: 1, name: "идея.md" },
+    ])
+    vi.mocked(restoreArchive).mockResolvedValue({
+      primaryPath: ABSOLUTE,
+      pathChanges: [],
+      deletedPaths: [],
+    } as never)
+    vi.mocked(readNote).mockResolvedValue({
+      content: "text",
+      revision: "r2",
+      source: "text",
+    } as never)
+    mount({ document: archived, onCloseTab: vi.fn() })
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Вернуть из архива" }))
+    await waitFor(() => expect(restoreArchive).toHaveBeenCalledWith(ORIGINAL))
+    await waitFor(() => {
+      const doc = useDocStore.getState().openDocs[ABSOLUTE]
+      expect(doc.externallyDeleted).toBe(false)
+      expect(doc.externallyArchived).toBe(false)
+    })
+  })
+
+  it("keeps different unsaved text as the usual conflict, never dropping it", async () => {
+    setDoc("my edits")
+    vi.mocked(listArchive).mockResolvedValue([
+      { id: ORIGINAL, originalPath: ORIGINAL, archivedAtMs: 1, name: "идея.md" },
+    ])
+    vi.mocked(restoreArchive).mockResolvedValue({
+      primaryPath: ABSOLUTE,
+      pathChanges: [],
+      deletedPaths: [],
+    } as never)
+    vi.mocked(readNote).mockResolvedValue({
+      content: "old",
+      revision: "r2",
+      source: "old",
+    } as never)
+    mount({ document: archived, onCloseTab: vi.fn() })
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Вернуть из архива" }))
+    await waitFor(() =>
+      expect(useDocStore.getState().externalConflicts[ABSOLUTE]?.externalContent).toBe("old"),
+    )
+    expect(useDocStore.getState().openDocs[ABSOLUTE].content).toBe("my edits")
+  })
+
+  it("says so and keeps the card when the archive has no such file", async () => {
+    setDoc()
+    vi.mocked(listArchive).mockResolvedValue([])
+    mount({ document: archived, onCloseTab: vi.fn() })
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Вернуть из архива" }))
+    await waitFor(() => expect(listArchive).toHaveBeenCalled())
+    expect(restoreArchive).not.toHaveBeenCalled()
+    expect(within(stack()!).getByText(title)).toBeTruthy()
+  })
+
+  it("«Закрыть заметку» closes the tab", () => {
+    const close = vi.fn()
+    mount({ document: archived, onCloseTab: close })
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Закрыть заметку" }))
+    expect(close).toHaveBeenCalledTimes(1)
   })
 })

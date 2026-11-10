@@ -23,6 +23,9 @@ import {
   loadActiveVaultData,
   loadVaultData,
   readNote,
+  listArchive,
+  writeNote,
+  writeFile,
   getNoteProperties,
   refreshVaultPaths,
   type TreeItem,
@@ -41,6 +44,9 @@ vi.mock("@/lib/storage", async (importOriginal) => ({
   loadActiveVaultData: vi.fn(),
   readFile: vi.fn(async () => ""),
   readNote: vi.fn(),
+  listArchive: vi.fn(async () => []),
+  writeNote: vi.fn(),
+  writeFile: vi.fn(),
   getNoteProperties: vi.fn(),
   refreshVaultPaths: vi.fn(async () => null),
   getLinkGraph: vi.fn(async () => ({ nodes: [], edges: [] })),
@@ -273,6 +279,139 @@ describe("externally moved layers", () => {
       expect(useTabsStore.getState().tabs.some((tab) => tab.fileId === path)).toBe(true)
     },
   )
+})
+
+describe("a note deleted on another computer while open", () => {
+  it.each([
+    ["clean", false, false],
+    ["dirty", true, false],
+    ["clean, patched tree", false, true],
+    ["dirty, patched tree", true, true],
+  ])(
+    "keeps the tab and the text of a %s note and marks it deleted",
+    async (_name, dirty, patched) => {
+      const listeners = new Map<string, (event: { payload: unknown }) => void>()
+      vi.mocked(listen).mockImplementation(async (name, handler) => {
+        listeners.set(name, handler as (event: { payload: unknown }) => void)
+        return () => {
+          listeners.delete(name)
+        }
+      })
+      vi.mocked(isTauri).mockReturnValue(true)
+      vi.mocked(refreshVaultPaths).mockResolvedValue(
+        patched
+          ? {
+              generation: 7,
+              patch: {
+                ops: [
+                  { kind: "remove", parentPath: "/vault/Folder", paths: ["/vault/Folder/Note.md"] },
+                ],
+              },
+            }
+          : null,
+      )
+      vi.mocked(readNote).mockRejectedValue(new Error("gone"))
+      useVaultStore.setState({ vault: "/vault", backendGeneration: 7 })
+      const view = renderHook(() => useVaultData())
+      await waitFor(() => expect(view.result.current.treeItems).toEqual(tree))
+      act(() => {
+        useDocStore.getState().setDoc("note", {
+          id: "note",
+          path: "/vault/Folder/Note.md",
+          title: "Note",
+          content: "open text",
+          source: "open text",
+          revision: "r1",
+          created: "",
+          modified: "",
+          wordCount: 2,
+        })
+        if (dirty) useDocStore.getState().markUnsaved("note")
+        useTabsStore.getState().openItem({ kind: "document", fileId: "note", title: "Note" })
+      })
+      const gone = { ...loaded, tree: [{ ...tree[0], children: [] }] }
+      vi.mocked(loadActiveVaultData).mockResolvedValue(gone)
+      await waitFor(() => expect(listeners.has("vault-file-changed")).toBe(true))
+      act(() =>
+        listeners.get("vault-file-changed")!({
+          payload: { kind: "remove", path: "/vault/Folder/Note.md" },
+        }),
+      )
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      expect(useDocStore.getState().openDocs.note?.content).toBe("open text")
+      expect(useDocStore.getState().openDocs.note?.externallyDeleted).toBe(true)
+      expect(useTabsStore.getState().tabs.some((tab) => tab.fileId === "note")).toBe(true)
+      expect(useDocStore.getState().externalConflicts.note?.externalContent).toBeNull()
+    },
+  )
+})
+
+describe("a note archived on another computer while open (К13)", () => {
+  // The sync moves the file into `.amby/archive/` (К1): the tab stays with its text, the file is not
+  // followed into the hidden archive and nothing is written, neither there nor at the old path.
+  it.each([
+    ["clean, gone from the tree", false, "gone"],
+    ["dirty, gone from the tree", true, "gone"],
+    ["clean, found in the archive by id", false, "found"],
+    ["dirty, found in the archive by id", true, "found"],
+  ])("keeps the tab and the text of a %s note and marks it archived", async (_n, dirty, where) => {
+    const listeners = new Map<string, (event: { payload: unknown }) => void>()
+    vi.mocked(listen).mockImplementation(async (name, handler) => {
+      listeners.set(name, handler as (event: { payload: unknown }) => void)
+      return () => {
+        listeners.delete(name)
+      }
+    })
+    vi.mocked(isTauri).mockReturnValue(true)
+    vi.mocked(refreshVaultPaths).mockResolvedValue(null)
+    vi.mocked(readNote).mockRejectedValue(new Error("gone"))
+    vi.mocked(listArchive).mockResolvedValue([
+      { id: "Folder/Note.md", originalPath: "Folder/Note.md", archivedAtMs: 1, name: "Note.md" },
+    ])
+    useVaultStore.setState({ vault: "/vault", backendGeneration: 7 })
+    const view = renderHook(() => useVaultData())
+    await waitFor(() => expect(view.result.current.treeItems).toEqual(tree))
+    act(() => {
+      useDocStore.getState().setDoc("note", {
+        id: "note",
+        path: "/vault/Folder/Note.md",
+        title: "Note",
+        content: "open text",
+        source: "open text",
+        revision: "r1",
+        created: "",
+        modified: "",
+        wordCount: 2,
+      })
+      if (dirty) useDocStore.getState().markUnsaved("note")
+      useTabsStore.getState().openItem({ kind: "document", fileId: "note", title: "Note" })
+    })
+    const moved = {
+      id: "note",
+      path: "/vault/.amby/archive/Folder/Note.md",
+      name: "Note",
+      type: "file" as const,
+    }
+    vi.mocked(loadActiveVaultData).mockResolvedValue({
+      ...loaded,
+      tree: [{ ...tree[0], children: where === "found" ? [moved] : [] }],
+    })
+    await waitFor(() => expect(listeners.has("vault-file-changed")).toBe(true))
+    act(() =>
+      listeners.get("vault-file-changed")!({
+        payload: { kind: "remove", path: "/vault/Folder/Note.md" },
+      }),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    const doc = useDocStore.getState().openDocs.note
+    expect(doc?.content).toBe("open text")
+    expect(doc?.path).toBe("/vault/Folder/Note.md")
+    expect(doc?.externallyDeleted).toBe(true)
+    expect(doc?.externallyArchived).toBe(true)
+    expect(useTabsStore.getState().tabs.some((tab) => tab.fileId === "note")).toBe(true)
+    expect(writeNote).not.toHaveBeenCalled()
+    expect(writeFile).not.toHaveBeenCalled()
+  })
 })
 
 describe("property changes from another window", () => {

@@ -49,6 +49,7 @@ export interface CentreDoc {
   id: string
   path: string
   externallyDeleted?: boolean
+  externallyArchived?: boolean
 }
 
 export interface CentreInput {
@@ -189,8 +190,9 @@ export function deriveCentre(input: CentreInput): Centre {
   for (const doc of open) {
     const relative = relativeOf(doc)
     const remoteDeleted = relative !== null && input.remoteDeleted.includes(relative)
-    if (remoteDeleted) copy(doc, "remote-deleted", "decision")
-    if (doc.externallyDeleted && !remoteDeleted) copy(doc, "external-deleted", "decision")
+    if (doc.externallyArchived) copy(doc, "archived-elsewhere", "decision")
+    else if (remoteDeleted) copy(doc, "remote-deleted", "decision")
+    else if (doc.externallyDeleted) copy(doc, "external-deleted", "decision")
     if (input.externalConflicts[doc.id] && !doc.externallyDeleted)
       copy(doc, "external-change", "decision")
     if (input.saveFailed[doc.id]) copy(doc, "save-failed", "danger")
