@@ -1344,3 +1344,187 @@ fn i15_without_sync_a_restore_of_deleted_files_answers_sync_off_and_writes_nothi
         .all(|r| r.status == RestoreFileStatus::SyncOff && r.final_path.is_none()));
     assert!(vault.read("Notes/f1.md").is_none());
 }
+
+// ----- И3а, И11а: a cloud mark on what the person already has -----
+
+#[test]
+fn i3a_a_snapshot_equal_to_a_server_version_is_marked_and_the_version_gets_no_row() {
+    let vault = TempVault::new();
+    let note = vault.write("Notes/a.md", b"current");
+    std::fs::write(&note, b"snapshotted").unwrap();
+    let snapshot = history::snapshot_before_write(vault.path(), &note, b"replacement", "note-save")
+        .unwrap()
+        .expect("a snapshot was made");
+    std::fs::write(&note, b"current").unwrap();
+    let server = Server::default();
+    server.add_live(1, 1, "Notes/a.md", b"only on the server", OTHER_DEVICE);
+    server.add_live(1, 2, "Notes/a.md", b"snapshotted", OTHER_DEVICE);
+    let connect = server.connector();
+    let access = access(
+        &connect,
+        state_of(vec![record(1, "Notes/a.md", false, Some(b"current"))]),
+    );
+    let list = note_versions(vault.path(), &note, Some(&access));
+    let listed: Vec<u64> = list.versions.iter().map(|v| v.version).collect();
+    assert_eq!(listed, vec![1], "no separate row for the match (И3)");
+    assert_eq!(list.snapshots_on_server.len(), 1);
+    let mark = &list.snapshots_on_server[0];
+    assert_eq!(mark.snapshot_id, snapshot);
+    assert_eq!(mark.version, 2);
+    assert_eq!(mark.device, VersionDevice::OtherDevice);
+    assert_eq!(mark.device_name.as_deref(), Some("Рабочий ноутбук"));
+    assert_eq!(mark.committed_ms, 1_000_000 + 20 * 1_000);
+    assert!(
+        !list.current_on_server,
+        "the file is not the latest version"
+    );
+}
+
+#[test]
+fn i3a_the_newest_of_several_equal_versions_gives_the_label() {
+    let vault = TempVault::new();
+    let note = vault.write("Notes/a.md", b"current");
+    std::fs::write(&note, b"snapshotted").unwrap();
+    history::snapshot_before_write(vault.path(), &note, b"replacement", "note-save")
+        .unwrap()
+        .unwrap();
+    std::fs::write(&note, b"current").unwrap();
+    let server = Server::default();
+    server.add_live(1, 1, "Notes/a.md", b"snapshotted", THIS_DEVICE);
+    server.add_live(1, 2, "Notes/a.md", b"snapshotted", OTHER_DEVICE);
+    let connect = server.connector();
+    let access = access(
+        &connect,
+        state_of(vec![record(1, "Notes/a.md", false, Some(b"current"))]),
+    );
+    let list = note_versions(vault.path(), &note, Some(&access));
+    assert_eq!(list.snapshots_on_server.len(), 1, "one mark per snapshot");
+    assert_eq!(list.snapshots_on_server[0].version, 2);
+}
+
+#[test]
+fn i3a_the_current_text_equal_to_the_latest_server_version_is_reported() {
+    let vault = TempVault::new();
+    let note = vault.write("Notes/a.md", b"current");
+    let server = Server::default();
+    server.add_live(1, 1, "Notes/a.md", b"older", THIS_DEVICE);
+    server.add_live(1, 2, "Notes/a.md", b"current", THIS_DEVICE);
+    let connect = server.connector();
+    let access = access(
+        &connect,
+        state_of(vec![record(1, "Notes/a.md", false, Some(b"current"))]),
+    );
+    let list = note_versions(vault.path(), &note, Some(&access));
+    assert!(list.current_on_server);
+    assert!(list.snapshots_on_server.is_empty());
+}
+
+#[test]
+fn i3a_without_sync_or_a_connection_there_are_no_marks() {
+    let vault = TempVault::new();
+    let note = vault.write("Notes/a.md", b"current");
+    std::fs::write(&note, b"snapshotted").unwrap();
+    history::snapshot_before_write(vault.path(), &note, b"replacement", "note-save")
+        .unwrap()
+        .unwrap();
+    std::fs::write(&note, b"current").unwrap();
+    let off = note_versions(vault.path(), &note, None);
+    assert!(off.snapshots_on_server.is_empty());
+    assert!(!off.current_on_server);
+    let server = Server::default();
+    server.add_live(1, 1, "Notes/a.md", b"snapshotted", OTHER_DEVICE);
+    server.set_offline(true);
+    let connect = server.connector();
+    let access = access(
+        &connect,
+        state_of(vec![record(1, "Notes/a.md", false, Some(b"current"))]),
+    );
+    let down = note_versions(vault.path(), &note, Some(&access));
+    assert!(!down.available);
+    assert!(down.snapshots_on_server.is_empty());
+    assert!(!down.current_on_server);
+}
+
+#[test]
+fn i11a_a_trash_entry_matching_a_deleted_file_is_marked_and_has_no_row() {
+    let vault = TempVault::new();
+    let path = vault.write("Notes/trashed.md", b"same text");
+    recycle_bin::move_to_trash(vault.path(), &path).unwrap();
+    let trash_id = recycle_bin::list(vault.path())[0].id.clone();
+    let server = Server::default();
+    server.add_deleted_file(1, "Notes/trashed.md", b"same text", 100);
+    let connect = server.connector();
+    let access = access(
+        &connect,
+        state_of(vec![record(1, "Notes/trashed.md", true, None)]),
+    );
+    let list = deleted_files(
+        vault.path(),
+        Some(&access),
+        &ServerHistoryCache::default(),
+        NOW_MS,
+    );
+    assert!(list.files.is_empty(), "no separate row (И11)");
+    assert_eq!(list.trash_on_server.len(), 1);
+    let mark = &list.trash_on_server[0];
+    assert_eq!(mark.trash_id, trash_id);
+    assert_eq!(mark.item_id, item_hex(1));
+    assert_eq!(mark.deleted_ms, 1_000_000 + 100 * 1_000);
+    assert_eq!(
+        mark.kept_until_ms,
+        Some(mark.deleted_ms + u64::from(HISTORY_DAYS) * 86_400_000),
+        "И12"
+    );
+}
+
+#[test]
+fn i11a_a_file_lying_at_its_path_and_a_trash_entry_with_other_content_are_not_marks() {
+    let vault = TempVault::new();
+    vault.write("Notes/back.md", b"same text");
+    let path = vault.write("Notes/a.md", b"a different text in the trash");
+    recycle_bin::move_to_trash(vault.path(), &path).unwrap();
+    let server = Server::default();
+    server.add_deleted_file(1, "Notes/back.md", b"same text", 100);
+    server.add_deleted_file(2, "Notes/a.md", b"the text on the server", 200);
+    let connect = server.connector();
+    let access = access(
+        &connect,
+        state_of(vec![
+            record(1, "Notes/back.md", true, None),
+            record(2, "Notes/a.md", true, None),
+        ]),
+    );
+    let list = deleted_files(
+        vault.path(),
+        Some(&access),
+        &ServerHistoryCache::default(),
+        NOW_MS,
+    );
+    assert_eq!(paths_of(&list), vec!["Notes/a.md"]);
+    assert!(list.trash_on_server.is_empty());
+}
+
+#[test]
+fn i11a_without_sync_or_a_connection_there_are_no_marks() {
+    let vault = TempVault::new();
+    let path = vault.write("Notes/trashed.md", b"same text");
+    recycle_bin::move_to_trash(vault.path(), &path).unwrap();
+    let off = deleted_files(vault.path(), None, &ServerHistoryCache::default(), NOW_MS);
+    assert!(off.trash_on_server.is_empty());
+    let server = Server::default();
+    server.add_deleted_file(1, "Notes/trashed.md", b"same text", 100);
+    server.set_offline(true);
+    let connect = server.connector();
+    let access = access(
+        &connect,
+        state_of(vec![record(1, "Notes/trashed.md", true, None)]),
+    );
+    let down = deleted_files(
+        vault.path(),
+        Some(&access),
+        &ServerHistoryCache::default(),
+        NOW_MS,
+    );
+    assert!(!down.available);
+    assert!(down.trash_on_server.is_empty());
+}

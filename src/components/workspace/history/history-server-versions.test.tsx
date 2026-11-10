@@ -277,3 +277,70 @@ describe("И6, И17, И20: the restore button and the answer under it", () => {
     expect(screen.queryByTestId("history-restore-result")).toBeNull()
   })
 })
+
+describe("И3а: a cloud on a snapshot that is also on the server", () => {
+  const onServer = (overrides = {}) => ({
+    snapshotId: "local-old",
+    version: 2,
+    device: "otherDevice" as const,
+    deviceName: "Рабочий ноутбук",
+    committedMs: at(2, 12),
+    ...overrides,
+  })
+
+  it("marks the snapshot 'есть на сервере' with the device of the server version and adds no row", () => {
+    show(
+      history({
+        server: { ...server([]), snapshotsOnServer: [onServer()] },
+      }),
+    )
+    expect(rows()).toHaveLength(2)
+    const marked = rows().find((row) => within(row).queryByLabelText("Есть на сервере"))
+    expect(marked?.getAttribute("data-source")).toBe("local")
+    expect(within(marked as HTMLElement).getByText(/Рабочий ноутбук/)).toBeTruthy()
+    const other = rows().find((row) => row !== marked) as HTMLElement
+    expect(within(other).queryByLabelText("Есть на сервере")).toBeNull()
+  })
+
+  it("labels this computer when the matching version was saved here", () => {
+    show(
+      history({
+        server: {
+          ...server([]),
+          snapshotsOnServer: [onServer({ device: "thisDevice", deviceName: null })],
+        },
+      }),
+    )
+    const marked = rows().find((row) => within(row).queryByLabelText("Есть на сервере"))
+    expect(within(marked as HTMLElement).getByText("Этот компьютер")).toBeTruthy()
+  })
+
+  it("shows one calm line at the top when the current text is saved on the server", () => {
+    show(history({ server: { ...server([]), currentOnServer: true } }))
+    const line = screen.getByTestId("history-current-on-server")
+    expect(line.textContent).toBe("Текущий текст сохранён на сервере")
+    expect(screen.queryByRole("alert")).toBeNull()
+  })
+
+  it("shows no line and no marks without the field", () => {
+    show(history({ server: server([]) }))
+    expect(screen.queryByTestId("history-current-on-server")).toBeNull()
+    expect(screen.queryByLabelText("Есть на сервере")).toBeNull()
+  })
+
+  it("shows no marks when the server part is not available (И4)", () => {
+    show(
+      history({
+        server: {
+          available: false,
+          reason: "offline",
+          versions: [],
+          snapshotsOnServer: [onServer()],
+          currentOnServer: true,
+        },
+      }),
+    )
+    expect(screen.queryByLabelText("Есть на сервере")).toBeNull()
+    expect(screen.queryByTestId("history-current-on-server")).toBeNull()
+  })
+})
