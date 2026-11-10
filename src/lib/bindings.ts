@@ -306,11 +306,24 @@ async restoreArchive(archiveId: string) : Promise<Result<MutationOutcome, string
 }
 },
 /**
- * «Удалить из архива» (К6) by the setting of К4.
+ * «Удалить из архива» (К6) by the setting of К4: the system trash, or for good.
  */
 async purgeArchive(archiveId: string, mode: DeleteMode) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("purge_archive", { archiveId, mode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Developer command (К9, К11 (е)): puts the entries moved by the migration of the old trash back
+ * into `.amby/trash/` by the journal. Not wired to any button; called by hand from the console of
+ * the developer tools: `invoke("rollback_archive_migration")`.
+ */
+async rollbackArchiveMigration() : Promise<Result<string[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rollback_archive_migration") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };

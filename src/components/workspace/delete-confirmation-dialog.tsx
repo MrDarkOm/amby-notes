@@ -104,7 +104,9 @@ export function DeleteConfirmationDialog({
           </DialogTitle>
           <DialogDescription>
             {t(
-              deleteMode === "archive" ? "workspace.deleteConfirmVault" : "workspace.deleteConfirm",
+              deleteMode === "archive"
+                ? "workspace.deleteConfirmArchive"
+                : "workspace.deleteConfirm",
             )}
           </DialogDescription>
         </DialogHeader>

@@ -178,6 +178,11 @@ impl VaultContext {
             return Err(format!("Vault is not a directory: {}", root.display()));
         }
 
+        // К11 (ж): the old trash moves into the archive when the vault is opened, before the index,
+        // the watcher and the synchronisation look at it. A failure leaves everything in place (the
+        // journal resumes it at the next opening) and does not stop the vault from opening.
+        crate::archive_migration::run_when_opening(&root);
+
         // Preflight is read-only and must complete before the active state can
         // change. Opening the connection verifies schema initialization too.
         let preflight = vault_index::preflight_vault(&root)?;

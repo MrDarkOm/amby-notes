@@ -893,8 +893,10 @@ fn i10_i12_a_row_has_the_path_the_size_the_deleting_device_and_the_keeping_time(
 }
 
 #[test]
-fn i11_a_file_that_is_in_the_local_trash_with_the_same_content_is_not_listed() {
-    // И11: restore it from the trash as before.
+fn k5_a_file_in_the_service_trash_with_the_same_content_still_shows_in_the_server_list() {
+    // К5, К6 (rewritten from И11 by К11 (з)): only the archive hides a server file; the service
+    // `.amby/trash/` is not the archive and the person does not see it, so the server list is
+    // the one place to get that file back.
     let vault = TempVault::new();
     let path = vault.write("Notes/trashed.md", b"same text");
     recycle_bin::move_to_trash(vault.path(), &path).unwrap();
@@ -917,7 +919,9 @@ fn i11_a_file_that_is_in_the_local_trash_with_the_same_content_is_not_listed() {
         &ServerHistoryCache::default(),
         NOW_MS,
     );
-    assert_eq!(paths_of(&list), vec!["Notes/not-in-trash.md"]);
+    let mut paths = paths_of(&list);
+    paths.sort();
+    assert_eq!(paths, vec!["Notes/not-in-trash.md", "Notes/trashed.md"]);
 }
 
 #[test]

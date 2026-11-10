@@ -1340,8 +1340,8 @@ pub(crate) fn delete_item_inner(
     let prepared = watcher_state.prepare_write(writes);
     let removal = match mode {
         recycle_bin::DeleteMode::System => system_recycle_bin::move_to_system_trash(&vault, &path),
-        // STUB (К4): still the old trash until the archive is written.
-        recycle_bin::DeleteMode::Archive => recycle_bin::move_to_trash(&vault, &path),
+        // К4: the setting «Переносить в архив» does what «В архив» does.
+        recycle_bin::DeleteMode::Archive => crate::archive::move_to_archive(&vault, &path),
         recycle_bin::DeleteMode::Permanent => recycle_bin::delete_permanently(&vault, &path),
     };
     let result = match removal {
@@ -1393,8 +1393,7 @@ pub(crate) fn archive_item_inner(
             .map(|path| (path, PathFingerprint::Missing)),
     );
     let prepared = watcher_state.prepare_write(writes);
-    // STUB (К1): still the old trash until the archive is written.
-    let result = match recycle_bin::move_to_trash(&vault, &path) {
+    let result = match crate::archive::move_to_archive(&vault, &path) {
         Ok(result) => {
             watcher_state.confirm_prepared_write(&prepared);
             result

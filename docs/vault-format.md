@@ -109,28 +109,30 @@ that does not say so is not synchronised** (sync plan, Р4): an unknown file nei
 computer nor gets lost. The engine enforces the same list (`sync/core/src/engine/rules.rs`), and a
 test holds the two together.
 
-| Entry                      | Synchronised | Why                                                               |
-| -------------------------- | ------------ | ----------------------------------------------------------------- |
-| `properties.json`          | yes          | user data of the notes, for the old versions                      |
-| `properties/`              | yes          | the look of note properties: groups, marks, layout                |
-| `property-ops/`            | no           | journal of unfinished edits of this device                        |
-| `blocks/`                  | yes          | per-note UI sidecars                                              |
-| `graph-layout.json`        | yes          | user state                                                        |
-| `property-backups/`        | yes          | immutable backups of removed properties                           |
-| `conflicts/`               | yes          | second versions of conflicts, listed and resolved from any device |
-| `notes.db`, `-wal`, `-shm` | no           | rebuildable index                                                 |
-| `history/`                 | no           | each device keeps its own snapshots                               |
-| `ai/`                      | no           | conversations remain on this device                               |
-| `recovery/`                | no           | drafts and journals of this device                                |
-| `trash/`                   | no           | each device keeps its own trash                                   |
-| `migrations/`              | no           | journals of this device                                           |
-| `sync/`                    | no           | state of synchronisation of this device                           |
-| `workspace.json`, others   | no           | not named: the default is "no"                                    |
+| Entry                      | Synchronised | Why                                                                    |
+| -------------------------- | ------------ | ---------------------------------------------------------------------- |
+| `properties.json`          | yes          | user data of the notes, for the old versions                           |
+| `properties/`              | yes          | the look of note properties: groups, marks, layout                     |
+| `property-ops/`            | no           | journal of unfinished edits of this device                             |
+| `blocks/`                  | yes          | per-note UI sidecars                                                   |
+| `graph-layout.json`        | yes          | user state                                                             |
+| `property-backups/`        | yes          | immutable backups of removed properties                                |
+| `conflicts/`               | yes          | second versions of conflicts, listed and resolved from any device      |
+| `notes.db`, `-wal`, `-shm` | no           | rebuildable index                                                      |
+| `history/`                 | no           | each device keeps its own snapshots                                    |
+| `ai/`                      | no           | conversations remain on this device                                    |
+| `recovery/`                | no           | drafts and journals of this device                                     |
+| `archive/`                 | yes          | the archive (К1): files repeat their vault paths; `.meta/` has records |
+| `trash/`                   | no           | service trash of this device (closed conflicts, refused system trash)  |
+| `migrations/`              | no           | journals of this device                                                |
+| `sync/`                    | no           | state of synchronisation of this device                                |
+| `workspace.json`, others   | no           | not named: the default is "no"                                         |
 
 Files written by synchronisation itself follow the rules of the vault: a file that arrives from another
 device replaces the local one only after a history snapshot with the reason `sync-overwrite` (taken
-even when the history is switched off), and a file deleted on another device goes to `.amby/trash/`
-whatever the delete mode (sync plan, Р8). The writes of synchronisation are not registered as
+even when the history is switched off), and a file deleted on another device goes to the system
+trash of this computer, or to `.amby/trash/` when the system trash refuses it or the path is inside
+`.amby/` (sync plan, К3, К11 (б); never destroyed). The writes of synchronisation are not registered as
 writes of the application, so the watcher reports them like changes made by another program.
 
 The directory is application metadata, not an Obsidian configuration directory.
@@ -437,18 +439,28 @@ truth.
 The explicit Delete action follows the application setting `files.deleteMode`
 (`delete_item` takes the mode explicitly). The default `system` moves a note,
 folder, or complete bundle to the operating system's trash; restoration uses
-that system's trash interface and Amby keeps no vault-local copy. `vault` moves
-the item to `.amby/trash/` like Archive. `permanent` removes it with no copy and
-is always confirmed in the UI. A failed system or vault move is reported rather
+that system's trash interface and Amby keeps no vault-local copy. `archive` does what
+Archive does (the old value `vault` is read as `archive`). `permanent` removes it with no copy and
+is always confirmed in the UI. A failed system or archive move is reported rather
 than falling back to permanent deletion.
 
-Archive remains a separate action that moves items to `.amby/trash/`, including
-Canvas, Excalidraw, and database layers, and can be restored inside Amby. After
-a successful delete/archive, queued saves for affected open documents are
-discarded so they cannot recreate the removed files. Unsaved editor text is
+Archive (sync plan, appendix К) moves items to `.amby/archive/<path in the vault>` by renaming:
+the path inside repeats the path of the vault, so "Restore" puts the file back, to a free name
+(`Name 2.md`) when its place is taken. The archive is synchronised like ordinary files. Each file
+has a record `.amby/archive/.meta/<id>.json` `{path, archivedAtMs}` (unknown fields are kept; no
+record means the time of the file). After a successful delete/archive, queued saves for affected
+open documents are discarded so they cannot recreate the removed files. Unsaved editor text is
 retained in recovery drafts when the chosen resolution requires it.
 
-Archive preview reads the selected payload by trash ID and a payload-relative path. It never
+The old `.amby/trash/` is moved into the archive once per vault, when the vault is opened and
+before a synchronisation session: `.amby/migrations/trash-to-archive-v1/` holds `plan.json`
+(the journal: the plan, written before the first rename), `steps/` (one file per finished entry), `manifests/`
+(the old descriptions of the moved entries), `completed.json` (marker and outcome) and, after a
+rollback, `rolled-back-<ms>/`. Entries whose path is inside `.amby/`, without content or with a
+damaged description stay in `.amby/trash/` with a reason code. Nothing is deleted; a rollback by the
+journal is the developer command `rollback_archive_migration`.
+
+Archive preview reads the selected archived file by its archive path. It never
 restores, indexes, or rewrites content. Manifest, payload and child paths reject symlinks and
 traversal; text is capped at 256 KiB and directory listings at 500 entries, with truncation
 reported to the UI. Unsupported or binary files remain restorable without being decoded.

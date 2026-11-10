@@ -34,13 +34,24 @@ pub trait SystemTrash: Send + Sync {
     fn trash(&self, path: &Path) -> Result<(), String>;
 }
 
-/// The real system trash (the code of К3 and К6 uses it; until then nothing does).
-#[allow(dead_code)]
+/// The real system trash (К3, К6).
 pub struct OsTrash;
 
 impl SystemTrash for OsTrash {
     fn trash(&self, path: &Path) -> Result<(), String> {
         move_path(path)
+    }
+}
+
+/// A system trash that refuses everything: what `VaultFs` asks in the tests of the application
+/// (К11 (и)), so no test touches the real trash.
+#[cfg(test)]
+pub struct RefusingTrash;
+
+#[cfg(test)]
+impl SystemTrash for RefusingTrash {
+    fn trash(&self, _path: &Path) -> Result<(), String> {
+        Err("the system trash is not used in tests".to_string())
     }
 }
 

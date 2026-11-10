@@ -751,40 +751,35 @@ fn fetch_histories(access: &ServerAccess<'_>, items: &[ItemId]) -> Result<Vec<It
         .collect())
 }
 
-/// What the person already has, for the paths of `tombstones` only (И11): the local trash and
-/// the files that lie at those paths now.
-///
-/// The second list is parallel to the first: the id of the trash entry, `None` for a file that
-/// lies at its path (И11а marks trash entries only).
-/// `(path, hash)` of what the person already has, and the trash entry id of each (or `None`).
-type HiddenCopies = (Vec<(String, [u8; 32])>, Vec<Option<String>>);
-
-fn hidden_by_local_copies(vault: &Path, tombstones: &[&ItemRecord]) -> HiddenCopies {
+/// What the person already has, for the paths of `tombstones` only (И11, К6): the file in the
+/// archive `.amby/archive/` at the same path and the file that lies at that path now. The list of
+/// the server does not show a deleted file that the person has with the same content.
+/// `(path, hash)` of each.
+fn hidden_by_local_copies(vault: &Path, tombstones: &[&ItemRecord]) -> Vec<(String, [u8; 32])> {
     let wanted: std::collections::HashSet<&str> = tombstones
         .iter()
         .map(|record| record.path.as_str())
         .collect();
     let mut hidden = Vec::new();
-    let mut ids = Vec::new();
-    for (id, path, payload) in crate::recycle_bin::trashed_files_with_ids(vault) {
-        if wanted.contains(path.as_str()) {
-            if let Some(hash) = file_hash(&payload) {
-                hidden.push((path, hash));
-                ids.push(Some(id));
+    let archive = crate::archive::archive_root(vault);
+    for path in &wanted {
+        if crate::archive::is_plain_relative(path) && !path.starts_with(".meta/") {
+            let archived = archive.join(path);
+            if std::fs::symlink_metadata(&archived).is_ok_and(|meta| meta.is_file()) {
+                if let Some(hash) = file_hash(&archived) {
+                    hidden.push(((*path).to_string(), hash));
+                }
             }
         }
-    }
-    for path in &wanted {
         if let Ok(full) = crate::durable::guarded_path(vault, path, "deleted file") {
             if full.is_file() {
                 if let Some(hash) = file_hash(&full) {
                     hidden.push(((*path).to_string(), hash));
-                    ids.push(None);
                 }
             }
         }
     }
-    (hidden, ids)
+    hidden
 }
 
 /// The tombstones of files the person can see: a tombstone of a service path (И10а) is not asked
@@ -850,9 +845,9 @@ pub fn deleted_files(
     let Ok(histories) = fetch_histories(access, &items) else {
         return unavailable(ServerListUnavailable::Offline);
     };
-    let (hidden, trash_ids) = hidden_by_local_copies(vault, &tombstones);
+    let hidden = hidden_by_local_copies(vault, &tombstones);
     let records: Vec<ItemRecord> = tombstones.into_iter().cloned().collect();
-    let core_history::DeletedFiles { mut rows, matched } = core_history::deleted_files_matched(
+    let core_history::DeletedFiles { mut rows, .. } = core_history::deleted_files_matched(
         &access.space,
         &access.keys,
         &records,
@@ -876,35 +871,13 @@ pub fn deleted_files(
         }
     };
     let files = rows.iter().map(view).collect();
-    // И11а: only trash entries get a mark (a file that lies at its path has no id). One mark per
-    // entry; a folder with several covered files keeps the newest deletion.
-    let mut trash_on_server: Vec<TrashOnServer> = Vec::new();
-    for found in &matched {
-        let Some(trash_id) = trash_ids.get(found.hidden_index).and_then(Option::as_ref) else {
-            continue;
-        };
-        if trash_on_server
-            .iter()
-            .any(|mark| mark.trash_id == *trash_id)
-        {
-            continue;
-        }
-        let shown = view(&found.file);
-        trash_on_server.push(TrashOnServer {
-            trash_id: trash_id.clone(),
-            item_id: shown.item_id,
-            deleted_ms: shown.deleted_ms,
-            kept_until_ms: shown.kept_until_ms,
-            device: shown.device,
-            device_name: shown.device_name,
-        });
-    }
     let list = DeletedOnServer {
         available: true,
         reason: None,
         files,
         truncated,
-        trash_on_server,
+        // К6: the archive is synchronised, so its rows carry no mark of the server any more.
+        trash_on_server: Vec::new(),
     };
     *cache
         .deleted

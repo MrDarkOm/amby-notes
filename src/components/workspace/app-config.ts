@@ -491,7 +491,8 @@ export function normalizeAppPreferences(
     },
     files: {
       deleteMode: oneOf<DeleteModePref>(
-        fi.deleteMode,
+        // К4: the old «Корзина хранилища» (`vault`) is read as «Переносить в архив».
+        (fi.deleteMode as string | undefined) === "vault" ? "archive" : fi.deleteMode,
         DELETE_MODES,
         DEFAULT_PREFS.files.deleteMode,
       ),

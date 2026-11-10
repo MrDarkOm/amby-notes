@@ -87,6 +87,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::history::read_archive_preview,
         commands::history::restore_archive,
         commands::history::purge_archive,
+        commands::history::rollback_archive_migration,
         commands::ai_chats::ai_list_chats,
         commands::ai_chats::ai_load_chat,
         commands::ai_chats::ai_save_chat,

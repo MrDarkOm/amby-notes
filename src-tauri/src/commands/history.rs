@@ -211,7 +211,7 @@ pub fn list_recovery(
 pub fn list_trash(
     scope: tauri::State<paths::VaultScope>,
 ) -> Result<Vec<recycle_bin::TrashEntry>, String> {
-    Ok(recycle_bin::list_for_archive(&scope.get()?))
+    Ok(recycle_bin::list(&scope.get()?))
 }
 
 #[tauri::command]
@@ -306,25 +306,67 @@ pub fn read_archive_preview(
 #[tauri::command]
 #[specta::specta]
 pub fn restore_archive(
-    _app: tauri::AppHandle,
-    _scope: tauri::State<paths::VaultScope>,
-    _db: tauri::State<'_, VaultContext>,
-    _watcher_state: tauri::State<'_, WatcherState>,
-    _archive_id: String,
+    app: tauri::AppHandle,
+    scope: tauri::State<paths::VaultScope>,
+    db: tauri::State<'_, VaultContext>,
+    watcher_state: tauri::State<'_, WatcherState>,
+    archive_id: String,
 ) -> Result<MutationOutcome, String> {
-    todo!("К6: as restore_trash, over archive::restore")
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
+    let vault = scope.get()?;
+    let generation = db.generation()?;
+    let (source, target) = crate::archive::restore_places(&vault, &archive_id)?;
+    let writes = vec![(target.clone(), watcher::path_fingerprint(&source))];
+    let mut restored_paths = vec![target];
+    let prepared = watcher_state.prepare_write(writes);
+    let result = match crate::archive::restore(&vault, &archive_id) {
+        Ok(result) => {
+            watcher_state.confirm_prepared_write(&prepared);
+            result
+        }
+        Err(error) => {
+            watcher_state.cancel_prepared_write(&prepared);
+            return Err(error);
+        }
+    };
+    let outcome = sync_mutation_result(&db, &vault, result);
+    restored_paths.extend(mutation_paths(&outcome.mutation));
+    restored_paths.sort();
+    restored_paths.dedup();
+    watcher::notify_published_files(&app, &vault, generation, &restored_paths, None);
+    Ok(outcome)
 }
 
-/// «Удалить из архива» (К6) by the setting of К4.
+/// Developer command (К9, К11 (е)): puts the entries moved by the migration of the old trash back
+/// into `.amby/trash/` by the journal. Not wired to any button; called by hand from the console of
+/// the developer tools: `invoke("rollback_archive_migration")`.
+#[tauri::command]
+#[specta::specta]
+pub fn rollback_archive_migration(
+    scope: tauri::State<paths::VaultScope>,
+    db: tauri::State<'_, VaultContext>,
+) -> Result<Vec<String>, String> {
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
+    let report = crate::archive_migration::rollback(&scope.get()?)?;
+    Ok(report.skipped)
+}
+
+/// «Удалить из архива» (К6) by the setting of К4: the system trash, or for good.
 #[tauri::command]
 #[specta::specta]
 pub fn purge_archive(
-    _scope: tauri::State<paths::VaultScope>,
-    _db: tauri::State<'_, VaultContext>,
-    _archive_id: String,
-    _mode: recycle_bin::DeleteMode,
+    scope: tauri::State<paths::VaultScope>,
+    db: tauri::State<'_, VaultContext>,
+    archive_id: String,
+    mode: recycle_bin::DeleteMode,
 ) -> Result<(), String> {
-    todo!("К4, К6: over archive::purge with OsTrash")
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
+    crate::archive::purge(
+        &scope.get()?,
+        &archive_id,
+        mode,
+        &crate::system_recycle_bin::OsTrash,
+    )
 }
 
 #[tauri::command]

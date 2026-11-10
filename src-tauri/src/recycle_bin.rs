@@ -11,6 +11,7 @@ const TRASH_DIR: &str = "trash";
 
 #[path = "recycle_bin_preview.rs"]
 mod preview;
+pub(crate) use preview::preview_payload;
 pub use preview::{read_preview, TrashPreview};
 
 /// Where `delete_item` sends an item (docs/sync-plan.md, К4). `System` is the default; `Archive`
@@ -61,6 +62,12 @@ fn root(vault: &Path) -> PathBuf {
 
 fn manifest_path(root: &Path, id: &str) -> PathBuf {
     root.join(format!("{id}.json"))
+}
+
+/// Is this file one of those the renderer holds open buffers of (notes, sketches, canvases)?
+pub(crate) fn markdown_like(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|extension| matches!(extension.to_str(), Some("md" | "canvas" | "excalidraw")))
 }
 
 fn collect_markdown_paths(path: &Path) -> Result<Vec<PathBuf>, String> {
@@ -198,6 +205,7 @@ pub fn move_exact_to_trash(vault: &Path, path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 pub fn move_to_trash(vault: &Path, path: &Path) -> Result<FsMutationResult, String> {
     let preview = preview_move_to_trash(vault, path)?;
     let original_path = preview.original_path;
@@ -341,62 +349,6 @@ pub fn list(vault: &Path) -> Vec<TrashEntry> {
         .collect::<Vec<_>>();
     entries.sort_by_key(|entry| std::cmp::Reverse(entry.deleted_at_ms));
     entries
-}
-
-/// The entries the archive panel shows: [`list`] without the service entries (original path inside
-/// `.amby/`, e.g. closed conflict sets, И10а). Display only: the entries stay on disk and
-/// `restore` / `purge` work on them by id as before.
-pub fn list_for_archive(vault: &Path) -> Vec<TrashEntry> {
-    let mut entries = list(vault);
-    entries.retain(|entry| !amby_sync_core::engine::history::is_service_path(&entry.original_path));
-    entries
-}
-
-/// Every file the trash holds with the id of its trash entry and the vault path it came from (a
-/// folder gives its files). Only reads; used to tell what the server could still give back from
-/// what the person has, and to mark entries the server also holds (appendix И, И11, И11а).
-pub fn trashed_files_with_ids(vault: &Path) -> Vec<(String, String, PathBuf)> {
-    const MAX_FILES: usize = 20_000;
-    fn walk(dir: &Path, prefix: &str, out: &mut Vec<(String, PathBuf)>) {
-        let Ok(read) = fs::read_dir(dir) else {
-            return;
-        };
-        for entry in read.flatten() {
-            if out.len() >= MAX_FILES {
-                return;
-            }
-            let Ok(kind) = entry.file_type() else {
-                continue;
-            };
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let path = format!("{prefix}/{name}");
-            if kind.is_dir() {
-                walk(&entry.path(), &path, out);
-            } else if kind.is_file() {
-                out.push((path, entry.path()));
-            }
-        }
-    }
-    let trash_root = root(vault);
-    let mut files = Vec::new();
-    for entry in list(vault) {
-        if entry.id.parse::<Ulid>().is_err() {
-            continue;
-        }
-        let payload = trash_root.join(&entry.id).join(&entry.name);
-        let mut found = Vec::new();
-        match fs::symlink_metadata(&payload) {
-            Ok(meta) if meta.is_file() => found.push((entry.original_path.clone(), payload)),
-            Ok(meta) if meta.is_dir() => walk(&payload, &entry.original_path, &mut found),
-            _ => {}
-        }
-        files.extend(
-            found
-                .into_iter()
-                .map(|(path, payload)| (entry.id.clone(), path, payload)),
-        );
-    }
-    files
 }
 
 pub fn restore(vault: &Path, id: &str) -> Result<FsMutationResult, String> {
@@ -729,38 +681,5 @@ mod tests {
         );
         assert_eq!(list(&vault).len(), 1);
         fs::remove_dir_all(vault).unwrap();
-    }
-
-    #[test]
-    fn the_archive_list_hides_service_entries_but_leaves_them_on_disk() {
-        // И10а: display only; the entries are still restorable and purgeable by id.
-        let vault = std::env::temp_dir().join(format!("amby-archive-list-{}", Ulid::generate()));
-        fs::create_dir_all(vault.join(".amby/conflicts/c1")).unwrap();
-        fs::create_dir_all(vault.join("Notes")).unwrap();
-        let service = vault.join(".amby/conflicts/c1/meta.json");
-        let note = vault.join("Notes/a.md");
-        let nested = vault.join("Notes/.amby-like.md");
-        fs::write(&service, "closed").unwrap();
-        fs::write(&note, "human").unwrap();
-        fs::write(&nested, "human").unwrap();
-        move_exact_to_trash(&vault, &service).unwrap();
-        move_to_trash(&vault, &note).unwrap();
-        move_to_trash(&vault, &nested).unwrap();
-        assert_eq!(list(&vault).len(), 3, "the trash itself keeps everything");
-        let shown: Vec<String> = list_for_archive(&vault)
-            .into_iter()
-            .map(|entry| entry.original_path)
-            .collect();
-        assert_eq!(shown.len(), 2);
-        assert!(shown.iter().all(|path| !path.starts_with(".amby/")));
-        let service_entry = list(&vault)
-            .into_iter()
-            .find(|entry| entry.original_path.starts_with(".amby/"))
-            .unwrap();
-        assert!(root(&vault)
-            .join(&service_entry.id)
-            .join(&service_entry.name)
-            .exists());
-        let _ = fs::remove_dir_all(&vault);
     }
 }

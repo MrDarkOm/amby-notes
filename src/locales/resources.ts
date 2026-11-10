@@ -62,13 +62,13 @@ const ru = {
     general: {
       deleteMode: "Удаление файлов",
       deleteModeOption: {
-        system: "Системная корзина",
-        vault: "Корзина хранилища (.amby/trash)",
+        system: "В системную корзину",
+        archive: "Переносить в архив",
         permanent: "Удалять полностью",
       },
       deleteModeHint: {
         system: "Файлы уходят в корзину операционной системы",
-        vault: "Файлы можно вернуть из корзины Amby внутри хранилища",
+        archive: "«Удалить» делает то же, что «В архив»: файл можно вернуть из архива",
         permanent: "Файлы удаляются без возможности восстановления; подтверждение всегда включено",
       },
       confirmFileDelete: "Подтверждать удаление файлов",
@@ -830,8 +830,6 @@ const ru = {
     serverOffline: "Файлы с сервера появятся, когда будет связь",
     serverTruncated: "Показаны последние {{count}}",
     serverKeptUntil: "хранится до {{until}}",
-    onServerUntil: "есть на сервере до {{until}}",
-    onServerUntilLabel: "Есть на сервере до {{until}}",
     serverDeletedAgo_one: "удалён {{count}} день назад",
     serverDeletedAgo_few: "удалён {{count}} дня назад",
     serverDeletedAgo_many: "удалён {{count}} дней назад",
@@ -865,6 +863,8 @@ const ru = {
     loadFailed: "Не удалось загрузить архив.",
     restoreFailed: "Не удалось восстановить запись.",
     deleteFailed: "Не удалось удалить запись из архива.",
+    deleteFromArchive: "Удалить из архива",
+    restoredAs: "Вернули под именем «{{name}}»: прежнее место занято",
   },
   databasePanel: {
     status: {
@@ -2955,7 +2955,7 @@ const ru = {
     },
     deleteManyTitle: "Удалить выбранное ({{count}})?",
     deleteConfirm: "Попадёт в системную корзину, оттуда можно вернуть.",
-    deleteConfirmVault: "Попадёт в корзину хранилища, оттуда можно вернуть.",
+    deleteConfirmArchive: "Попадёт в архив, оттуда можно вернуть.",
     archive: "В архив",
     deleteDirtyTitle: "Удалить заметку с несохранёнными правками?",
     deleteDirtyConfirm:
@@ -4525,13 +4525,13 @@ const en: typeof ru = {
     general: {
       deleteMode: "File deletion",
       deleteModeOption: {
-        system: "System trash",
-        vault: "Vault trash (.amby/trash)",
+        system: "To the system trash",
+        archive: "Move to the archive",
         permanent: "Delete permanently",
       },
       deleteModeHint: {
         system: "Files go to the operating system trash",
-        vault: "Files can be restored from Amby's trash inside the vault",
+        archive: "“Delete” does what “Archive” does: the file can be restored from the archive",
         permanent: "Files are deleted with no way to restore them; confirmation is always on",
       },
       confirmFileDelete: "Confirm before deleting files",
@@ -5290,8 +5290,6 @@ const en: typeof ru = {
     serverOffline: "Files from the server will appear when there is a connection",
     serverTruncated: "Showing the last {{count}}",
     serverKeptUntil: "kept until {{until}}",
-    onServerUntil: "on the server until {{until}}",
-    onServerUntilLabel: "On the server until {{until}}",
     serverDeletedAgo_one: "deleted {{count}} day ago",
     serverDeletedAgo_few: "deleted {{count}} days ago",
     serverDeletedAgo_many: "deleted {{count}} days ago",
@@ -5325,6 +5323,8 @@ const en: typeof ru = {
     loadFailed: "Could not load the archive.",
     restoreFailed: "Could not restore the item.",
     deleteFailed: "Could not delete the archived item.",
+    deleteFromArchive: "Delete from the archive",
+    restoredAs: "Restored as “{{name}}”: the former place is taken",
   },
   databasePanel: {
     status: {
@@ -7414,7 +7414,7 @@ const en: typeof ru = {
     },
     deleteManyTitle: "Delete the selection ({{count}})?",
     deleteConfirm: "It goes to the system trash and can be restored.",
-    deleteConfirmVault: "It goes to the vault trash and can be restored.",
+    deleteConfirmArchive: "It goes to the archive and can be restored.",
     archive: "Archive",
     deleteDirtyTitle: "Delete the note with unsaved changes?",
     deleteDirtyConfirm:

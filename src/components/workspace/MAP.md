@@ -39,10 +39,9 @@ Markdown and the calm-document views ([message-view.tsx](ai/message-view.tsx),
 [provider-icon.tsx](ai/provider-icon.tsx), [empty-chat.tsx](ai/empty-chat.tsx)). The [storage boundary](../../lib/storage/MAP.md) persists chats and
 consent; Rust owns the read-only tool loop and vault authorization.
 
-Archive: [archive-panel.tsx](panels/archive-panel.tsx) owns actions and errors;
+Archive: [archive-panel.tsx](panels/archive-panel.tsx) lists `.amby/archive/` (`listArchive`, К6) and owns actions and errors;
 [archive-model.ts](panels/archive-model.ts) owns display labels and local-calendar grouping.
 [archive-preview.tsx](panels/archive-preview.tsx) reads archived text and browses directories in a read-only dialog through storage, with stale-result cancellation.
-It keeps original storage names/paths and the existing restore/purge commands unchanged.
 
 Interface help: [help-modal.tsx](help-modal.tsx) composes the modal map;
 [help-targets.ts](help-targets.ts) registers action anchors,
