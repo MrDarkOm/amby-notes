@@ -232,13 +232,20 @@ function HistoryPreviewContents({
     })
   const formatWhen = (ms: number) =>
     new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" }).format(ms)
-  const serverDeviceLabel = (version: ServerVersionView) =>
+  const serverDeviceLabel = (version: Pick<ServerVersionView, "device" | "deviceName">) =>
     version.deviceName ??
     t(
       version.device === "thisDevice"
         ? "historyPanel.serverThisDevice"
         : "historyPanel.serverOtherDevice",
     )
+  const onServerBySnapshot = new Map(
+    (history.server?.available ? (history.server.snapshotsOnServer ?? []) : []).map((mark) => [
+      mark.snapshotId,
+      mark,
+    ]),
+  )
+  const currentOnServer = Boolean(history.server?.available && history.server.currentOnServer)
   const versionList = (
     <aside
       className="max-h-28 min-h-0 overflow-auto rounded-lg border bg-background p-2 sm:max-h-none"
@@ -262,6 +269,14 @@ function HistoryPreviewContents({
         </Button>
       </div>
       <div className="space-y-1">
+        {currentOnServer && (
+          <p
+            data-testid="history-current-on-server"
+            className="px-2 py-1 text-[11px] text-muted-foreground"
+          >
+            {t("historyPanel.currentOnServer")}
+          </p>
+        )}
         {rows.map((row) =>
           row.source === "local" ? (
             <div key={row.snapshot.id} data-testid="history-row" data-source="local">
@@ -275,6 +290,18 @@ function HistoryPreviewContents({
                 )}
               >
                 <span className="block tabular-nums">{formatWhen(row.at)}</span>
+                {onServerBySnapshot.has(row.snapshot.id) && (
+                  <span className="flex items-center gap-1 text-[11px] font-normal text-muted-foreground">
+                    <Cloud
+                      role="img"
+                      aria-label={t("historyPanel.onServer")}
+                      className="size-3 shrink-0"
+                    />
+                    <span className="truncate">
+                      {serverDeviceLabel(onServerBySnapshot.get(row.snapshot.id)!)}
+                    </span>
+                  </span>
+                )}
               </button>
             </div>
           ) : (

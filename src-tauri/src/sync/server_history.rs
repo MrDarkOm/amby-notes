@@ -84,6 +84,29 @@ pub struct NoteServerVersions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub current_hash: Option<String>,
+    /// Local snapshots whose text is also on the server (И3а): they get a cloud, the matching
+    /// version has no row of its own.
+    #[serde(default)]
+    pub snapshots_on_server: Vec<SnapshotOnServer>,
+    /// The file on the disk is the newest version on the server (И3а): one calm line.
+    #[serde(default)]
+    pub current_on_server: bool,
+}
+
+/// A local snapshot that equals a version on the server (И3а).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotOnServer {
+    /// The local snapshot.
+    pub snapshot_id: String,
+    /// The newest server version with the same content.
+    pub version: u64,
+    /// This computer or another device made that version (I1).
+    pub device: VersionDevice,
+    /// The name of the device when the server knows it.
+    pub device_name: Option<String>,
+    /// `committed_ms` of that version, for display only.
+    pub committed_ms: u64,
 }
 
 /// What opening a version for a preview gave (И5, И14).
@@ -168,6 +191,28 @@ pub struct DeletedOnServer {
     pub files: Vec<DeletedFileView>,
     /// There were more than 500 deleted files: only the newest are shown (И13).
     pub truncated: bool,
+    /// Local trash entries that match a deleted file of the server (И11а): they get a cloud, the
+    /// file has no row of its own.
+    #[serde(default)]
+    pub trash_on_server: Vec<TrashOnServer>,
+}
+
+/// A local trash entry that is also on the server (И11а).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TrashOnServer {
+    /// The trash entry (`list_trash` id).
+    pub trash_id: String,
+    /// The item on the server, 32 hex digits.
+    pub item_id: String,
+    /// When the deletion reached the server, milliseconds.
+    pub deleted_ms: u64,
+    /// Until when the server keeps it (a hint, И12).
+    pub kept_until_ms: Option<u64>,
+    /// This computer or another device deleted it.
+    pub device: VersionDevice,
+    /// The name of the device when the server knows it.
+    pub device_name: Option<String>,
 }
 
 /// How one file of a restore went (И15, И17).
@@ -453,6 +498,8 @@ pub fn note_versions(
         reason: Some(reason),
         versions: Vec::new(),
         current_hash: None,
+        snapshots_on_server: Vec::new(),
+        current_on_server: false,
     };
     let Some(access) = access else {
         return unavailable(ServerListUnavailable::SyncOff);
@@ -463,6 +510,8 @@ pub fn note_versions(
         reason: None,
         versions,
         current_hash: current.as_ref().map(hash_hex),
+        snapshots_on_server: Vec::new(),
+        current_on_server: false,
     };
     let Some(record) = relative_of(vault, note).and_then(|rel| record_at(&access.state, &rel))
     else {
@@ -476,12 +525,15 @@ pub fn note_versions(
         Listing::Missing => return available(Vec::new()),
         Listing::Down => return unavailable(ServerListUnavailable::Offline),
     };
-    let snapshot_hashes: Vec<[u8; 32]> = crate::history::list_snapshots(vault, note)
+    let snapshots: Vec<(String, [u8; 32])> = crate::history::list_snapshots(vault, note)
         .unwrap_or_default()
         .iter()
-        .filter_map(|entry| crate::history::prepare_snapshot_restore(vault, &entry.id).ok())
-        .map(|prepared| blake3_hash(&prepared.bytes))
+        .filter_map(|entry| {
+            let prepared = crate::history::prepare_snapshot_restore(vault, &entry.id).ok()?;
+            Some((entry.id.clone(), blake3_hash(&prepared.bytes)))
+        })
         .collect();
+    let snapshot_hashes: Vec<[u8; 32]> = snapshots.iter().map(|(_, hash)| *hash).collect();
     let history = core_history::server_history(
         &access.space,
         &access.keys,
@@ -496,7 +548,25 @@ pub fn note_versions(
             code = ?skipped.code
         );
     }
-    available(
+    // И3а: a snapshot whose text is on the server gets the label of the newest such version.
+    let snapshots_on_server = snapshots
+        .iter()
+        .filter_map(|(snapshot_id, hash)| {
+            let version = history
+                .covered
+                .iter()
+                .find(|version| version.content_hash == *hash)?;
+            let (device, device_name) = device_of(access, &version.device_id);
+            Some(SnapshotOnServer {
+                snapshot_id: snapshot_id.clone(),
+                version: version.version,
+                device,
+                device_name,
+                committed_ms: ms(version.committed_ms),
+            })
+        })
+        .collect();
+    let mut list = available(
         history
             .versions
             .iter()
@@ -514,7 +584,10 @@ pub fn note_versions(
                 }
             })
             .collect(),
-    )
+    );
+    list.snapshots_on_server = snapshots_on_server;
+    list.current_on_server = history.current_is_latest;
+    list
 }
 
 /// The text of one version for the preview (И5): downloads, decrypts in memory, checks BLAKE3
@@ -674,16 +747,24 @@ fn fetch_histories(access: &ServerAccess<'_>, items: &[ItemId]) -> Result<Vec<It
 
 /// What the person already has, for the paths of `tombstones` only (И11): the local trash and
 /// the files that lie at those paths now.
-fn hidden_by_local_copies(vault: &Path, tombstones: &[&ItemRecord]) -> Vec<(String, [u8; 32])> {
+///
+/// The second list is parallel to the first: the id of the trash entry, `None` for a file that
+/// lies at its path (И11а marks trash entries only).
+/// `(path, hash)` of what the person already has, and the trash entry id of each (or `None`).
+type HiddenCopies = (Vec<(String, [u8; 32])>, Vec<Option<String>>);
+
+fn hidden_by_local_copies(vault: &Path, tombstones: &[&ItemRecord]) -> HiddenCopies {
     let wanted: std::collections::HashSet<&str> = tombstones
         .iter()
         .map(|record| record.path.as_str())
         .collect();
     let mut hidden = Vec::new();
-    for (path, payload) in crate::recycle_bin::trashed_files(vault) {
+    let mut ids = Vec::new();
+    for (id, path, payload) in crate::recycle_bin::trashed_files_with_ids(vault) {
         if wanted.contains(path.as_str()) {
             if let Some(hash) = file_hash(&payload) {
                 hidden.push((path, hash));
+                ids.push(Some(id));
             }
         }
     }
@@ -692,11 +773,12 @@ fn hidden_by_local_copies(vault: &Path, tombstones: &[&ItemRecord]) -> Vec<(Stri
             if full.is_file() {
                 if let Some(hash) = file_hash(&full) {
                     hidden.push(((*path).to_string(), hash));
+                    ids.push(None);
                 }
             }
         }
     }
-    hidden
+    (hidden, ids)
 }
 
 fn tombstone_files(state: &SyncState) -> Vec<&ItemRecord> {
@@ -724,6 +806,7 @@ pub fn deleted_files(
         reason: Some(reason),
         files: Vec::new(),
         truncated: false,
+        trash_on_server: Vec::new(),
     };
     let Some(access) = access else {
         return unavailable(ServerListUnavailable::SyncOff);
@@ -741,34 +824,61 @@ pub fn deleted_files(
     let Ok(histories) = fetch_histories(access, &items) else {
         return unavailable(ServerListUnavailable::Offline);
     };
-    let hidden = hidden_by_local_copies(vault, &tombstones);
+    let (hidden, trash_ids) = hidden_by_local_copies(vault, &tombstones);
     let records: Vec<ItemRecord> = tombstones.into_iter().cloned().collect();
-    let mut rows =
-        core_history::deleted_files(&access.space, &access.keys, &records, &histories, &hidden);
+    let core_history::DeletedFiles { mut rows, matched } = core_history::deleted_files_matched(
+        &access.space,
+        &access.keys,
+        &records,
+        &histories,
+        &hidden,
+    );
     let truncated = rows.len() > MAX_DELETED_ROWS;
     rows.truncate(MAX_DELETED_ROWS);
     let keep_ms = u64::from(access.history_days) * DAY_MS;
-    let files = rows
-        .iter()
-        .map(|row| {
-            let (device, device_name) = device_of(access, &row.deleted_by);
-            let deleted_ms = ms(row.deleted_ms);
-            DeletedFileView {
-                item_id: hex::encode(row.item_id.as_bytes()),
-                path: row.path.clone(),
-                size_bytes: row.size,
-                deleted_ms,
-                kept_until_ms: Some(deleted_ms.saturating_add(keep_ms)),
-                device,
-                device_name,
-            }
-        })
-        .collect();
+    let view = |row: &DeletedFile| {
+        let (device, device_name) = device_of(access, &row.deleted_by);
+        let deleted_ms = ms(row.deleted_ms);
+        DeletedFileView {
+            item_id: hex::encode(row.item_id.as_bytes()),
+            path: row.path.clone(),
+            size_bytes: row.size,
+            deleted_ms,
+            kept_until_ms: Some(deleted_ms.saturating_add(keep_ms)),
+            device,
+            device_name,
+        }
+    };
+    let files = rows.iter().map(view).collect();
+    // И11а: only trash entries get a mark (a file that lies at its path has no id). One mark per
+    // entry; a folder with several covered files keeps the newest deletion.
+    let mut trash_on_server: Vec<TrashOnServer> = Vec::new();
+    for found in &matched {
+        let Some(trash_id) = trash_ids.get(found.hidden_index).and_then(Option::as_ref) else {
+            continue;
+        };
+        if trash_on_server
+            .iter()
+            .any(|mark| mark.trash_id == *trash_id)
+        {
+            continue;
+        }
+        let shown = view(&found.file);
+        trash_on_server.push(TrashOnServer {
+            trash_id: trash_id.clone(),
+            item_id: shown.item_id,
+            deleted_ms: shown.deleted_ms,
+            kept_until_ms: shown.kept_until_ms,
+            device: shown.device,
+            device_name: shown.device_name,
+        });
+    }
     let list = DeletedOnServer {
         available: true,
         reason: None,
         files,
         truncated,
+        trash_on_server,
     };
     *cache
         .deleted

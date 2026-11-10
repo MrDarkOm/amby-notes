@@ -341,10 +341,10 @@ pub fn list(vault: &Path) -> Vec<TrashEntry> {
     entries
 }
 
-/// Every file the trash holds with the vault path it came from (a folder gives its files). Only
-/// reads; used to tell what the server could still give back from what the person has (appendix
-/// И, И11).
-pub fn trashed_files(vault: &Path) -> Vec<(String, PathBuf)> {
+/// Every file the trash holds with the id of its trash entry and the vault path it came from (a
+/// folder gives its files). Only reads; used to tell what the server could still give back from
+/// what the person has, and to mark entries the server also holds (appendix И, И11, И11а).
+pub fn trashed_files_with_ids(vault: &Path) -> Vec<(String, String, PathBuf)> {
     const MAX_FILES: usize = 20_000;
     fn walk(dir: &Path, prefix: &str, out: &mut Vec<(String, PathBuf)>) {
         let Ok(read) = fs::read_dir(dir) else {
@@ -373,11 +373,17 @@ pub fn trashed_files(vault: &Path) -> Vec<(String, PathBuf)> {
             continue;
         }
         let payload = trash_root.join(&entry.id).join(&entry.name);
+        let mut found = Vec::new();
         match fs::symlink_metadata(&payload) {
-            Ok(meta) if meta.is_file() => files.push((entry.original_path.clone(), payload)),
-            Ok(meta) if meta.is_dir() => walk(&payload, &entry.original_path, &mut files),
+            Ok(meta) if meta.is_file() => found.push((entry.original_path.clone(), payload)),
+            Ok(meta) if meta.is_dir() => walk(&payload, &entry.original_path, &mut found),
             _ => {}
         }
+        files.extend(
+            found
+                .into_iter()
+                .map(|(path, payload)| (entry.id.clone(), path, payload)),
+        );
     }
     files
 }

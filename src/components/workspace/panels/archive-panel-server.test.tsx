@@ -306,3 +306,62 @@ describe("И17: restoring several files and the answer under the button", () => 
     await waitFor(() => expect(port.deletedFiles).toHaveBeenCalledTimes(2), FAST)
   })
 })
+
+describe("И11а: a cloud on a trash entry that is also on the server", () => {
+  it("marks the entry 'есть на сервере до …' and adds no row to the server section", async () => {
+    const until = Date.now() + 20 * DAY
+    open({
+      vaultStatus: async () => vaultStatus(),
+      deletedFiles: async () => ({
+        available: true,
+        reason: null,
+        files: [],
+        truncated: false,
+        trashOnServer: [
+          {
+            trashId: "local-one",
+            itemId: "01".repeat(16),
+            deletedMs: Date.now() - 10 * DAY,
+            keptUntilMs: until,
+            device: "otherDevice",
+            deviceName: null,
+          },
+        ],
+      }),
+    })
+    const mark = await screen.findByLabelText(/^Есть на сервере до /, {}, FAST)
+    const formatted = new Intl.DateTimeFormat("ru", { dateStyle: "medium" }).format(until)
+    expect(mark.getAttribute("aria-label")).toContain(formatted)
+    expect(serverRows()).toHaveLength(0)
+  })
+
+  it("marks nothing when the server part is not available", async () => {
+    open({
+      vaultStatus: async () => vaultStatus(),
+      deletedFiles: async () => ({
+        available: false,
+        reason: "offline",
+        files: [],
+        truncated: false,
+        trashOnServer: [
+          {
+            trashId: "local-one",
+            itemId: "01".repeat(16),
+            deletedMs: Date.now(),
+            keptUntilMs: Date.now() + DAY,
+            device: "otherDevice",
+            deviceName: null,
+          },
+        ],
+      }),
+    })
+    await screen.findByTestId("archive-server-section", {}, FAST)
+    expect(screen.queryByLabelText(/^Есть на сервере до /)).toBeNull()
+  })
+
+  it("marks nothing when no entry is on the server", async () => {
+    open({ vaultStatus: async () => vaultStatus() })
+    await screen.findByTestId("archive-server-section", {}, FAST)
+    expect(screen.queryByLabelText(/^Есть на сервере до /)).toBeNull()
+  })
+})

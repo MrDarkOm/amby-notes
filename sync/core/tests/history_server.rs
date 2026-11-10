@@ -12,8 +12,8 @@ use amby_sync_core::crypto::padme::sealed_body_len;
 use amby_sync_core::crypto::primitives::blake3_hash;
 use amby_sync_core::crypto::random::OsRandom;
 use amby_sync_core::engine::history::{
-    deleted_files, open_version_body, server_history, DeletedFile, HistoryVersion, ItemHistory,
-    OpenedVersion, SkipCode, MAX_PREVIEW_BYTES,
+    deleted_files, deleted_files_matched, open_version_body, server_history, DeletedFile,
+    HistoryVersion, ItemHistory, OpenedVersion, SkipCode, MAX_PREVIEW_BYTES,
 };
 use amby_sync_core::engine::{ItemRecord, VersionEntry};
 
@@ -357,6 +357,63 @@ fn i3_other_hashes_change_nothing() {
     assert_eq!(versions_of(&entries, current, &snaps), vec![2, 1]);
 }
 
+// ----- И3а: what the repeats are reported as -----
+
+#[test]
+fn i3a_a_version_equal_to_a_snapshot_is_reported_as_covered_not_listed() {
+    let entries = [
+        live_entry(3, "a.md"),
+        live_entry(2, "a.md"),
+        live_entry(1, "a.md"),
+    ];
+    let snaps = [blake3_hash(&content_of(2))];
+    let history = server_history(&space(), &[vk()], &entries, None, &snaps);
+    let listed: Vec<u64> = history.versions.iter().map(|v| v.version).collect();
+    let covered: Vec<u64> = history.covered.iter().map(|v| v.version).collect();
+    assert_eq!(listed, vec![3, 1], "no separate row for the match (И3)");
+    assert_eq!(covered, vec![2]);
+}
+
+#[test]
+fn i3a_every_copy_of_a_repeated_content_is_covered_newest_first() {
+    let mut again = live_header(3, "a.md");
+    again.size = content_of(1).len() as u64;
+    again.content_hash = Some(blake3_hash(&content_of(1)));
+    let entries = [
+        entry_with(&vk(), &item(), &again, false, 30),
+        live_entry(2, "a.md"),
+        live_entry(1, "a.md"),
+    ];
+    let snaps = [blake3_hash(&content_of(1))];
+    let history = server_history(&space(), &[vk()], &entries, None, &snaps);
+    let covered: Vec<u64> = history.covered.iter().map(|v| v.version).collect();
+    assert_eq!(covered, vec![3, 1]);
+}
+
+#[test]
+fn i3a_the_current_file_equal_to_the_latest_version_is_marked() {
+    let entries = [live_entry(2, "a.md"), live_entry(1, "a.md")];
+    let latest = server_history(
+        &space(),
+        &[vk()],
+        &entries,
+        Some(blake3_hash(&content_of(2))),
+        &[],
+    );
+    assert!(latest.current_is_latest);
+    let older = server_history(
+        &space(),
+        &[vk()],
+        &entries,
+        Some(blake3_hash(&content_of(1))),
+        &[],
+    );
+    assert!(!older.current_is_latest, "equal only to an older version");
+    let none = server_history(&space(), &[vk()], &entries, None, &[]);
+    assert!(!none.current_is_latest);
+    assert!(none.covered.is_empty());
+}
+
 // ----- И5: opening a body -----
 
 fn history_version(version: u64) -> HistoryVersion {
@@ -627,4 +684,45 @@ fn i11_the_same_content_under_another_path_stays() {
         rows(&[tombstone("Notes/a.md")], &histories, &hidden).len(),
         1
     );
+}
+
+#[test]
+fn i11a_a_hidden_match_is_reported_with_the_index_of_what_hid_it() {
+    let histories = answer(vec![
+        deleted_entry(3, "Notes/a.md"),
+        live_entry(2, "Notes/a.md"),
+    ]);
+    let hidden = [
+        ("Notes/other.md".to_string(), blake3_hash(&content_of(2))),
+        ("Notes/a.md".to_string(), blake3_hash(&content_of(2))),
+    ];
+    let result = deleted_files_matched(
+        &space(),
+        &[vk()],
+        &[tombstone("Notes/a.md")],
+        &histories,
+        &hidden,
+    );
+    assert!(result.rows.is_empty(), "still no separate row (И11)");
+    assert_eq!(result.matched.len(), 1);
+    assert_eq!(result.matched[0].hidden_index, 1);
+    assert_eq!(result.matched[0].file.path, "Notes/a.md");
+}
+
+#[test]
+fn i11a_a_row_that_nothing_hides_has_no_match() {
+    let histories = answer(vec![
+        deleted_entry(3, "Notes/a.md"),
+        live_entry(2, "Notes/a.md"),
+    ]);
+    let hidden = [("Notes/a.md".to_string(), blake3_hash(b"another text"))];
+    let result = deleted_files_matched(
+        &space(),
+        &[vk()],
+        &[tombstone("Notes/a.md")],
+        &histories,
+        &hidden,
+    );
+    assert_eq!(result.rows.len(), 1);
+    assert!(result.matched.is_empty());
 }

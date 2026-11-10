@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Archive, Eye, Loader2, MoreHorizontal, RotateCcw, Trash2 } from "lucide-react"
+import { Archive, Cloud, Eye, Loader2, MoreHorizontal, RotateCcw, Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { MotionSpinner } from "@/lib/motion"
@@ -19,6 +19,7 @@ import { mutationPaths } from "../workspace-mutations"
 import type { PanelRenderProps } from "../panel-registry"
 import { TreeIcon } from "../tree/tree-icons"
 import { ArchivePreview } from "./archive-preview"
+import type { DeletedOnServer } from "@/lib/sync/sync-port"
 import { ArchiveServerSection } from "./archive-server-section"
 import { archiveEntryLabel, groupArchiveEntries } from "./archive-model"
 import { PanelHeader, PanelSearch } from "./panel-header"
@@ -33,6 +34,17 @@ function ArchiveContents() {
   const [loading, setLoading] = React.useState(true)
   const [busy, setBusy] = React.useState<string | null>(null)
   const [query, setQuery] = React.useState("")
+  // Local entries that are also on the server (И11а): a cloud on the entry, no second row.
+  const [onServer, setOnServer] = React.useState<Map<string, number | null>>(new Map())
+  const onServerList = React.useCallback((list: DeletedOnServer) => {
+    setOnServer(
+      new Map(
+        list.available
+          ? (list.trashOnServer ?? []).map((mark) => [mark.trashId, mark.keptUntilMs ?? null])
+          : [],
+      ),
+    )
+  }, [])
   const [previewEntry, setPreviewEntry] = React.useState<TrashEntry | null>(null)
   const previewOpening = React.useRef(false)
   const [openMenuId, setOpenMenuId] = React.useState<string | null>(null)
@@ -226,6 +238,9 @@ function ArchiveContents() {
                           <span className="min-w-0 flex-1 truncate" title={entry.originalPath}>
                             {parent || t("archivePanel.vaultRoot")}
                           </span>
+                          {onServer.has(entry.id) && (
+                            <OnServerMark until={onServer.get(entry.id)} locale={locale} />
+                          )}
                           <time
                             className="min-w-0 truncate"
                             dateTime={validDate ? date.toISOString() : undefined}
@@ -306,7 +321,7 @@ function ArchiveContents() {
             </section>
           ))
         )}
-        <ArchiveServerSection />
+        <ArchiveServerSection onList={onServerList} />
       </div>
       {previewEntry && (
         <ArchivePreview
@@ -319,5 +334,23 @@ function ArchiveContents() {
         />
       )}
     </div>
+  )
+}
+
+/** The cloud on a local trash entry the server also holds: "есть на сервере до …" (И11а, И12). */
+function OnServerMark({ until, locale }: { until: number | null | undefined; locale: string }) {
+  const { t } = useTranslation()
+  const date = until ? new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(until) : null
+  return (
+    <span className="flex shrink-0 items-center gap-1">
+      <Cloud
+        role="img"
+        aria-label={
+          date ? t("archivePanel.onServerUntilLabel", { until: date }) : t("historyPanel.onServer")
+        }
+        className="size-3 shrink-0"
+      />
+      {date && <span>{t("archivePanel.onServerUntil", { until: date })}</span>}
+    </span>
   )
 }

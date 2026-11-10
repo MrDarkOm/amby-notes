@@ -54,7 +54,12 @@ function resultLine(
  * appendix И, И9–И17). Only when sync of the vault is on; the list is asked for once when the
  * section opens. A restore writes the files through the app and the answer stays under the button.
  */
-export function ArchiveServerSection() {
+export function ArchiveServerSection({
+  onList,
+}: {
+  /** Told about every list that arrives: the local entries get their cloud from it (И11а). */
+  onList?: (list: DeletedOnServer) => void
+}) {
   const { t, i18n } = useTranslation()
   const port = React.useMemo(() => resolveSyncPort(), [])
   const [on, setOn] = React.useState(false)
@@ -74,10 +79,19 @@ export function ArchiveServerSection() {
     } catch (cause) {
       // Not an error for the person (И13): the same calm line as without a connection.
       logger.warn("archive.server_list_failed", { errorType: errorType(cause) })
-      next = { available: false, reason: "offline", files: [], truncated: false }
+      next = {
+        available: false,
+        reason: "offline",
+        files: [],
+        truncated: false,
+        trashOnServer: [],
+      }
     }
-    if (mounted.current && sequence === request.current) setList(next)
-  }, [port])
+    if (mounted.current && sequence === request.current) {
+      setList(next)
+      onList?.(next)
+    }
+  }, [port, onList])
 
   React.useEffect(() => {
     mounted.current = true
