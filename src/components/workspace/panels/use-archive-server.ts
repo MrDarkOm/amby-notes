@@ -12,17 +12,29 @@ export interface ArchiveServer {
   reload: () => Promise<void>
 }
 
+/** How long a burst of sync status events is gathered before the lists are read again. */
+const PASS_SETTLE_MS = 300
+
 /**
- * Follows sync of the vault and asks for the server list once when it is on: the cloud marks of the
+ * Follows sync of the vault and asks for the server list when it is on: the cloud marks of the
  * local entries (И11а) need it even while the trash shows. The status is followed, so the panel can
- * return to the trash when sync goes off (И9а).
+ * return to the trash when sync goes off (И9а). Every status event while sync is on is a pass of
+ * the sync: the list is asked for again and `onPass` is told (the local trash may have changed),
+ * once per burst of events.
  */
-export function useArchiveServer(onList?: (list: DeletedOnServer) => void): ArchiveServer {
+export function useArchiveServer(
+  onList?: (list: DeletedOnServer) => void,
+  onPass?: () => void,
+): ArchiveServer {
   const port = React.useMemo(() => resolveSyncPort(), [])
   const [syncOn, setSyncOn] = React.useState(false)
   const [list, setList] = React.useState<DeletedOnServer | null>(null)
   const mounted = React.useRef(true)
   const request = React.useRef(0)
+  const onPassRef = React.useRef(onPass)
+  React.useEffect(() => {
+    onPassRef.current = onPass
+  }, [onPass])
 
   const reload = React.useCallback(async () => {
     const sequence = ++request.current
@@ -46,10 +58,16 @@ export function useArchiveServer(onList?: (list: DeletedOnServer) => void): Arch
     }
   }, [port, onList])
 
+  const reloadRef = React.useRef(reload)
+  React.useEffect(() => {
+    reloadRef.current = reload
+  }, [reload])
+
   React.useEffect(() => {
     mounted.current = true
     let cancelled = false
     let unlisten: (() => void) | null = null
+    let settle: number | null = null
     const requests = request
     port
       .vaultStatus()
@@ -61,7 +79,17 @@ export function useArchiveServer(onList?: (list: DeletedOnServer) => void): Arch
       })
     port
       .onVaultStatus((status) => {
-        if (!cancelled) setSyncOn(status.enabled && status.linked)
+        if (cancelled) return
+        const on = status.enabled && status.linked
+        setSyncOn(on)
+        if (!on) return
+        if (settle !== null) window.clearTimeout(settle)
+        settle = window.setTimeout(() => {
+          settle = null
+          if (cancelled) return
+          void reloadRef.current()
+          onPassRef.current?.()
+        }, PASS_SETTLE_MS)
       })
       .then((stop) => {
         if (cancelled) stop()
@@ -72,6 +100,7 @@ export function useArchiveServer(onList?: (list: DeletedOnServer) => void): Arch
       cancelled = true
       mounted.current = false
       requests.current++
+      if (settle !== null) window.clearTimeout(settle)
       unlisten?.()
     }
   }, [port])

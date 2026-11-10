@@ -46,7 +46,12 @@ function ArchiveContents() {
       ),
     )
   }, [])
-  const server = useArchiveServer(onServerList)
+  // The trash list is read again after a pass of the sync: it may have moved a file there.
+  const refreshOnPass = React.useCallback(() => {
+    void refreshRef.current()
+  }, [])
+  const refreshRef = React.useRef<() => Promise<void>>(async () => {})
+  const server = useArchiveServer(onServerList, refreshOnPass)
   // The cloud button switches the panel between the trash and the server list (И9а). Not
   // remembered between launches; sync going off ends the server view.
   const [serverView, setServerView] = React.useState(false)
@@ -98,6 +103,9 @@ function ArchiveContents() {
       if (sequence === request.current.sequence) setLoading(false)
     }
   }, [t])
+  React.useEffect(() => {
+    refreshRef.current = refresh
+  }, [refresh])
   React.useEffect(() => {
     const tracker = request.current
     void refresh()
@@ -166,7 +174,11 @@ function ArchiveContents() {
                 title={t("archivePanel.serverButton")}
                 aria-label={t("archivePanel.serverButton")}
                 className={showServer ? "bg-accent text-accent-foreground" : undefined}
-                onClick={() => setServerView((current) => !current)}
+                onClick={() => {
+                  // The list is asked for again on every press: it may be minutes old (И13).
+                  if (!serverView) void server.reload()
+                  setServerView((current) => !current)
+                }}
               >
                 <Cloud className="size-3.5" />
               </Button>
