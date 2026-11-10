@@ -53,6 +53,15 @@ describe("a note named before its verb", () => {
     expect(i18n.t(key, { name: NAME, lng: "en" })).toBe(expected)
   })
 
+  it("says of a note deleted on another computer that its text is still open (К12), not that it is archived", () => {
+    expect(i18n.t("notices.centre.note.remote-deleted.line", { lng: "ru" })).toBe(
+      "Текст ещё открыт здесь, его можно вернуть.",
+    )
+    expect(i18n.t("notices.centre.note.remote-deleted.line", { lng: "en" })).toBe(
+      "The text is still open here; it can be brought back.",
+    )
+  })
+
   it("never starts a sentence of a notice with the bare name followed by a verb, in any language", () => {
     const namespaces = ["notices", "sync.notices", "sync.vault.conflicts", "noteNotices"]
     const offenders: string[] = []
