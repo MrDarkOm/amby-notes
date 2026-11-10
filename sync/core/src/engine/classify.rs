@@ -25,6 +25,25 @@ pub(super) enum Lc {
     Blocked,
 }
 
+/// The hints of the application that the classification used: a base at `from` that went to
+/// `to` (Д70). A hint that is not among them is still waiting for its rename.
+pub(super) fn applied_hints(
+    records: &BTreeMap<[u8; 16], ItemRecord>,
+    classes: &BTreeMap<[u8; 16], Lc>,
+    hints: &[RenameHint],
+) -> Vec<RenameHint> {
+    hints
+        .iter()
+        .filter(|hint| {
+            records.iter().any(|(key, record)| {
+                record.path == hint.from
+                    && matches!(classes.get(key), Some(Lc::Moved { to, .. }) if *to == hint.to)
+            })
+        })
+        .cloned()
+        .collect()
+}
+
 /// Classifies every live base that exists on this disk.
 pub(super) fn classify(
     records: &BTreeMap<[u8; 16], ItemRecord>,

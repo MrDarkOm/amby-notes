@@ -422,6 +422,7 @@ impl SyncRuntime {
             schedule: self.schedule,
             hooks: self.hooks.clone(),
             handle: self.handle.clone(),
+            hints: self.hints.clone(),
         })?;
         let status = session.status();
         let mut inner = self.inner();
@@ -717,11 +718,6 @@ impl SyncRuntime {
             .unwrap_or_else(|| VaultSyncStatus::off(gate::gate_closed()))
     }
 
-    /// Hands the renames waiting in the queue to the session (Д70).
-    fn flush_hints(&self, session: &SyncSession) {
-        session.add_rename_hints(self.hints.take());
-    }
-
     fn with_session<T>(&self, action: impl FnOnce(&SyncSession) -> T) -> Result<T, SyncError> {
         let inner = self.inner();
         let session = inner
@@ -734,7 +730,6 @@ impl SyncRuntime {
     /// A pass now.
     pub fn sync_now(&self) -> Result<(), SyncError> {
         self.with_session(|session| {
-            self.flush_hints(session);
             session.sync_now();
         })
     }
@@ -742,7 +737,6 @@ impl SyncRuntime {
     /// A file changed in the open vault (from the watcher).
     pub fn notify_path(&self, path: &Path) {
         let _ = self.with_session(|session| {
-            self.flush_hints(session);
             session.notify_path(path);
         });
     }
@@ -750,7 +744,6 @@ impl SyncRuntime {
     /// An answer to a stop of Р8.
     pub fn approve(&self, kind: ApprovalKind) -> Result<(), SyncError> {
         self.with_session(|session| {
-            self.flush_hints(session);
             session.approve(kind);
         })
     }

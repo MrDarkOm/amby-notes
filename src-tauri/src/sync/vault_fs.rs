@@ -19,10 +19,11 @@ use std::sync::{Arc, Mutex};
 use std::time::UNIX_EPOCH;
 
 use amby_sync_core::engine::{
-    FsError, Listing, LocalEntry, LocalFs, LocalKind, NameRules, RootState, SnapshotReason,
-    StagedWrite, TrashReason,
+    FsError, Listing, LocalEntry, LocalFs, LocalKind, NameRules, RenameHint, RootState,
+    SnapshotReason, StagedWrite, TrashReason,
 };
 
+use crate::sync::hints::RenameHints;
 use crate::system_recycle_bin::SystemTrash;
 use crate::{frontmatter, history, recycle_bin};
 
@@ -50,6 +51,8 @@ pub struct VaultFs {
     /// run time, a refusing one in the tests of the application (К11 (и)), so no test touches the
     /// trash of the person.
     system_trash: Arc<dyn SystemTrash>,
+    /// The renames the application recorded (Д70), handed to the engine after it read the vault.
+    rename_hints: Option<Arc<RenameHints>>,
 }
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -98,6 +101,7 @@ impl VaultFs {
             hooks: None,
             amby_written: Arc::default(),
             system_trash: default_system_trash(),
+            rename_hints: None,
         }
     }
 
@@ -117,7 +121,15 @@ impl VaultFs {
             hooks: Some(hooks),
             amby_written: Arc::default(),
             system_trash: default_system_trash(),
+            rename_hints: None,
         }
+    }
+
+    /// The queue of renames of the application, which the engine drains after it read the vault
+    /// (Д70).
+    pub fn with_rename_hints(mut self, hints: Arc<RenameHints>) -> Self {
+        self.rename_hints = Some(hints);
+        self
     }
 
     /// The folder of the vault.
@@ -619,6 +631,19 @@ impl LocalFs for VaultFs {
         }
         if let Some(hooks) = &self.hooks {
             hooks.batch_begin();
+        }
+    }
+
+    fn take_rename_hints(&mut self) -> Vec<RenameHint> {
+        self.rename_hints
+            .as_ref()
+            .map(|queue| queue.take_for_pass())
+            .unwrap_or_default()
+    }
+
+    fn rename_hints_applied(&mut self, applied: &[RenameHint]) {
+        if let Some(queue) = &self.rename_hints {
+            queue.mark_applied(applied);
         }
     }
 

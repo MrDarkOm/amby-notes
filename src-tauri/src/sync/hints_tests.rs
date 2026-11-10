@@ -159,3 +159,52 @@ fn the_real_previews_of_rename_and_move_feed_the_hints() {
     hints.record(&root, &moved.path_changes);
     assert_eq!(hints.take(), vec![hint("renamed.md", "Folder/renamed.md")]);
 }
+
+#[test]
+fn hints_taken_for_a_pass_come_back_when_the_pass_did_not_finish() {
+    // Д70: a pass that failed or stopped did not use them; nothing may be lost with it
+    let root = vault();
+    let hints = RenameHints::new();
+    hints.record(&root, &[change(&root, "a.md", "b.md")]);
+    assert_eq!(hints.take_for_pass(), vec![hint("a.md", "b.md")]);
+    assert!(hints.is_empty());
+    hints.record(&root, &[change(&root, "c.md", "d.md")]);
+    hints.finish_pass(false);
+    assert_eq!(
+        hints.take(),
+        vec![hint("a.md", "b.md"), hint("c.md", "d.md")]
+    );
+}
+
+#[test]
+fn hints_of_a_finished_pass_are_used_up_and_later_ones_stay() {
+    // Д70: used once; a hint recorded after the pass took its hints waits for the next pass
+    let root = vault();
+    let hints = RenameHints::new();
+    hints.record(&root, &[change(&root, "a.md", "b.md")]);
+    assert_eq!(hints.take_for_pass().len(), 1);
+    hints.mark_applied(&[hint("a.md", "b.md")]);
+    hints.record(&root, &[change(&root, "c.md", "d.md")]);
+    hints.finish_pass(true);
+    assert_eq!(hints.take(), vec![hint("c.md", "d.md")]);
+}
+
+#[test]
+fn a_hint_the_pass_did_not_use_waits_for_one_more_pass() {
+    // Д70: the hint is recorded before the rename on disk; a pass that read the vault in between
+    // must not eat it
+    let root = vault();
+    let hints = RenameHints::new();
+    hints.record(
+        &root,
+        &[change(&root, "a.md", "b.md"), change(&root, "c.md", "d.md")],
+    );
+    hints.take_for_pass();
+    hints.mark_applied(&[hint("c.md", "d.md")]);
+    hints.finish_pass(true);
+    assert_eq!(hints.len(), 1, "the unused one is carried over");
+    // Once only: a rename that never happens must not keep the hint for ever
+    hints.take_for_pass();
+    hints.finish_pass(true);
+    assert!(hints.is_empty());
+}

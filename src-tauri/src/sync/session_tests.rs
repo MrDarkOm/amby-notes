@@ -1218,6 +1218,62 @@ fn a_rename_together_with_an_edit_stays_one_item() {
     sb.stop();
 }
 
+#[test]
+fn a_hint_that_arrives_while_a_pass_is_running_is_still_honoured() {
+    // Д70: the pass has left the clock (it took its request) but has not read the vault yet;
+    // the person renames and edits a note through Amby, which records the hint first. The pass
+    // must not send the old path as deleted and the new one as created.
+    let env = Env::new();
+    let (a, b) = (TempVault::new("a"), TempVault::new("b"));
+    a.put("keep.md", b"keep");
+    a.put(
+        "old.md",
+        b"the first text of the note, long enough to be itself",
+    );
+    let (sa, _) = env.start(&a, &env.account);
+    let (sb, _) = env.start(&b, &env.another_computer("B"));
+    settle(&sa, &sb);
+
+    let work = sa.hold_work_for_test();
+    sa.sync_now();
+    wait_for(&sa, seconds(10), |_| sa.pass_waits_for_work_for_test()).expect("the pass was taken");
+    sa.add_rename_hints(vec![RenameHint {
+        from: "old.md".into(),
+        to: "new.md".into(),
+    }]);
+    std::fs::rename(a.root.join("old.md"), a.root.join("new.md")).unwrap();
+    a.put("new.md", b"a completely different text after the rename");
+    drop(work);
+    settle(&sa, &sb);
+
+    assert_eq!(
+        b.text("new.md").as_deref(),
+        Some("a completely different text after the rename")
+    );
+    assert!(!b.exists("old.md"));
+    assert!(
+        b.trashed().is_empty(),
+        "one item moved, nothing was deleted"
+    );
+    let page = env
+        .account
+        .get(&format!(
+            "/v1/spaces/{}/changes?since=0",
+            hex::encode(env.space_id)
+        ))
+        .expect(200)
+        .json();
+    let deleted = page["changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|change| change["deleted"] == true)
+        .count();
+    assert_eq!(deleted, 0, "no deletion record");
+    sa.stop();
+    sb.stop();
+}
+
 #[cfg(unix)]
 #[test]
 fn files_that_are_not_synchronised_are_listed_with_their_reason() {

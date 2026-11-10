@@ -29,6 +29,8 @@ use amby_sync_core::engine::{
 };
 use sha2::{Digest, Sha256};
 
+use crate::sync::hints::RenameHints;
+
 use crate::sync::clock::SystemClock;
 use crate::sync::conflict_store::{
     copy_name_id, ConflictEntry, ConflictError, ConflictSource, ConflictStore, FileConflictStore,
@@ -163,6 +165,9 @@ pub struct SessionConfig {
     pub hooks: Arc<dyn SessionHooks>,
     /// The runtime that carries the requests.
     pub handle: tokio::runtime::Handle,
+    /// The renames the person made through Amby (Д70). The pass drains it after it has read the
+    /// vault, so a rename that happens while the pass runs is still read as a rename.
+    pub hints: Arc<RenameHints>,
 }
 
 /// Why the worker should look at the clock again.
@@ -185,7 +190,6 @@ struct Control {
     requested: u64,
     done: u64,
     approvals: Approvals,
-    hints: Vec<RenameHint>,
     shutdown: bool,
 }
 
@@ -324,7 +328,6 @@ impl SyncSession {
                 requested: 0,
                 done: 0,
                 approvals: Approvals::default(),
-                hints: Vec::new(),
                 shutdown: false,
             }),
             changed: Condvar::new(),
@@ -434,17 +437,23 @@ impl SyncSession {
         self.shared.trigger(Trigger::Now);
     }
 
+    /// Test only: holds the worker back after it took a pass off the clock and before the pass
+    /// reads the vault, as a long pass of the server round trips would.
+    #[cfg(test)]
+    pub(crate) fn hold_work_for_test(&self) -> MutexGuard<'_, ()> {
+        self.shared.work.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Test only: a pass was asked for, the worker took it and waits for the work lock.
+    #[cfg(test)]
+    pub(crate) fn pass_waits_for_work_for_test(&self) -> bool {
+        let control = self.shared.control();
+        control.requested > control.done && control.due.is_none()
+    }
+
     /// Renames the person made through Amby since the last pass (Д70).
     pub fn add_rename_hints(&self, hints: Vec<RenameHint>) {
-        if hints.is_empty() {
-            return;
-        }
-        let mut control = self.shared.control();
-        for hint in hints {
-            if !control.hints.contains(&hint) {
-                control.hints.push(hint);
-            }
-        }
+        self.shared.config.hints.restore(hints);
     }
 
     /// Resolves a conflict of the list (Р7): the files are changed as `choice` says, the entry
@@ -930,7 +939,7 @@ fn worker(shared: &Arc<Shared>) {
             control.due = None;
             let request = CycleRequest {
                 approvals: std::mem::take(&mut control.approvals),
-                rename_hints: std::mem::take(&mut control.hints),
+                rename_hints: Vec::new(),
             };
             (control.requested, request)
         };
@@ -1011,7 +1020,10 @@ fn run_pass(shared: &Arc<Shared>, request: &CycleRequest) -> Outcome {
     };
     let fs_hooks: Arc<dyn FsHooks> = config.hooks.clone();
     let ports = Ports {
-        fs: Box::new(VaultFs::with_hooks(config.vault.clone(), fs_hooks)),
+        fs: Box::new(
+            VaultFs::with_hooks(config.vault.clone(), fs_hooks)
+                .with_rename_hints(config.hints.clone()),
+        ),
         remote: Box::new(HttpRemote::new(
             config.handle.clone(),
             config.client.clone(),
@@ -1026,11 +1038,17 @@ fn run_pass(shared: &Arc<Shared>, request: &CycleRequest) -> Outcome {
         ports,
         EngineConfig::new(SpaceId::from_bytes(config.space_id), config.vk.clone()),
     );
-    match catch_unwind(AssertUnwindSafe(|| engine.sync_cycle(request))) {
+    let outcome = match catch_unwind(AssertUnwindSafe(|| engine.sync_cycle(request))) {
         Ok(Ok(report)) => Outcome::Report(Box::new(report)),
         Ok(Err(error)) => Outcome::Failed(error),
         Err(_) => Outcome::Panicked,
-    }
+    };
+    // Д70: a pass that did not run to the end gives its hints back; one that did uses up those
+    // it applied and keeps the others for one more pass (their rename may come after it read
+    // the vault).
+    let done = matches!(&outcome, Outcome::Report(report) if report.outcome == CycleOutcome::Done);
+    config.hints.finish_pass(done);
+    outcome
 }
 
 /// The machine code of a failure of the server.
