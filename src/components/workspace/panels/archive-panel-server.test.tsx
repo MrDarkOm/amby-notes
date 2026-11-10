@@ -140,10 +140,13 @@ describe("И9а: the cloud button and the switch", () => {
     expect(port.deletedFiles).not.toHaveBeenCalled()
   })
 
-  it("asks the server for the list once, not again for the switch", async () => {
+  it("asks the app for the list when the panel opens and again for the switch (И13а)", async () => {
+    // The app answers from its own cache until a tombstone changes, so a press costs no requests
+    // to the server unless something was deleted meanwhile.
     open(twoDeleted)
+    await waitFor(() => expect(port.deletedFiles).toHaveBeenCalledTimes(1), FAST)
     await showServer()
-    expect(port.deletedFiles).toHaveBeenCalledTimes(1)
+    expect(port.deletedFiles).toHaveBeenCalledTimes(2)
   })
 
   it("searches the shown list: the server list while it shows, the trash otherwise", async () => {
@@ -528,5 +531,59 @@ describe("И11а: a cloud on a trash entry that is also on the server", () => {
     open({ vaultStatus: async () => vaultStatus() })
     await waitFor(() => expect(port.deletedFiles).toHaveBeenCalled(), FAST)
     expect(screen.queryByLabelText(/^Есть на сервере до /)).toBeNull()
+  })
+})
+
+describe("И9а, И13: the lists follow the sync while the panel is open", () => {
+  const withList = () => {
+    let files: DeletedFileView[] = []
+    const deletedFiles = vi.fn(async () => ({
+      available: true,
+      reason: null,
+      files,
+      truncated: false,
+      trashOnServer: [],
+    }))
+    return {
+      overrides: { vaultStatus: async () => vaultStatus(), deletedFiles },
+      deletedFiles,
+      set: (next: DeletedFileView[]) => {
+        files = next
+      },
+    }
+  }
+
+  it("asks for the server list again each time the cloud is pressed", async () => {
+    const server = withList()
+    open(server.overrides)
+    await screen.findByText("Локальная", {}, FAST)
+    await waitFor(() => expect(server.deletedFiles).toHaveBeenCalled(), FAST)
+    const before = server.deletedFiles.mock.calls.length
+    server.set([deleted(1)])
+    await showServer()
+    await waitFor(() => expect(serverRows()).toHaveLength(1), FAST)
+    expect(server.deletedFiles.mock.calls.length).toBeGreaterThan(before)
+  })
+
+  it("a pass of the sync brings a file deleted elsewhere into the open server list", async () => {
+    const server = withList()
+    open(server.overrides)
+    await showServer()
+    expect(serverRows()).toHaveLength(0)
+    server.set([deleted(1)])
+    emitVaultStatus(vaultStatus())
+    await waitFor(() => expect(serverRows()).toHaveLength(1), { timeout: 1500 })
+  })
+
+  it("a pass of the sync re-reads the local trash that the sync put a file into", async () => {
+    const server = withList()
+    open(server.overrides)
+    await screen.findByText("Локальная", {}, FAST)
+    vi.mocked(listTrash).mockResolvedValue([
+      local,
+      { id: "from-sync", name: "Танго.md", originalPath: "Танго.md", deletedAtMs: Date.now() },
+    ])
+    emitVaultStatus(vaultStatus())
+    expect(await screen.findByText("Танго", {}, { timeout: 1500 })).toBeTruthy()
   })
 })
