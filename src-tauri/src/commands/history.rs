@@ -211,7 +211,7 @@ pub fn list_recovery(
 pub fn list_trash(
     scope: tauri::State<paths::VaultScope>,
 ) -> Result<Vec<recycle_bin::TrashEntry>, String> {
-    Ok(recycle_bin::list_for_archive(&scope.get()?))
+    Ok(recycle_bin::list(&scope.get()?))
 }
 
 #[tauri::command]
@@ -278,6 +278,95 @@ pub fn purge_trash(
 ) -> Result<(), String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     recycle_bin::purge(&scope.get()?, &trash_id)
+}
+
+/// The files of the archive `.amby/archive/` (docs/sync-plan.md, К6): the panel shows only these.
+#[tauri::command]
+#[specta::specta]
+pub fn list_archive(
+    scope: tauri::State<paths::VaultScope>,
+) -> Result<Vec<crate::archive::ArchiveEntry>, String> {
+    Ok(crate::archive::list(&scope.get()?))
+}
+
+/// A read-only look at an archived file (К6).
+#[tauri::command]
+#[specta::specta]
+pub fn read_archive_preview(
+    scope: tauri::State<paths::VaultScope>,
+    archive_id: String,
+    relative_path: String,
+) -> Result<recycle_bin::TrashPreview, String> {
+    let _mutation_guard = scope.mutation_gate.lock_or_recover();
+    crate::archive::read_preview(&scope.get()?, &archive_id, &relative_path)
+}
+
+/// «Вернуть» from the archive (К6): without replacing, a free name when the path is taken; the
+/// final path is `primary_path` of the mutation.
+#[tauri::command]
+#[specta::specta]
+pub fn restore_archive(
+    app: tauri::AppHandle,
+    scope: tauri::State<paths::VaultScope>,
+    db: tauri::State<'_, VaultContext>,
+    watcher_state: tauri::State<'_, WatcherState>,
+    archive_id: String,
+) -> Result<MutationOutcome, String> {
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
+    let vault = scope.get()?;
+    let generation = db.generation()?;
+    let (source, target) = crate::archive::restore_places(&vault, &archive_id)?;
+    let writes = vec![(target.clone(), watcher::path_fingerprint(&source))];
+    let mut restored_paths = vec![target];
+    let prepared = watcher_state.prepare_write(writes);
+    let result = match crate::archive::restore(&vault, &archive_id) {
+        Ok(result) => {
+            watcher_state.confirm_prepared_write(&prepared);
+            result
+        }
+        Err(error) => {
+            watcher_state.cancel_prepared_write(&prepared);
+            return Err(error);
+        }
+    };
+    let outcome = sync_mutation_result(&db, &vault, result);
+    restored_paths.extend(mutation_paths(&outcome.mutation));
+    restored_paths.sort();
+    restored_paths.dedup();
+    watcher::notify_published_files(&app, &vault, generation, &restored_paths, None);
+    Ok(outcome)
+}
+
+/// Developer command (К9, К11 (е)): puts the entries moved by the migration of the old trash back
+/// into `.amby/trash/` by the journal. Not wired to any button; called by hand from the console of
+/// the developer tools: `invoke("rollback_archive_migration")`.
+#[tauri::command]
+#[specta::specta]
+pub fn rollback_archive_migration(
+    scope: tauri::State<paths::VaultScope>,
+    db: tauri::State<'_, VaultContext>,
+) -> Result<Vec<String>, String> {
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
+    let report = crate::archive_migration::rollback(&scope.get()?)?;
+    Ok(report.skipped)
+}
+
+/// «Удалить из архива» (К6) by the setting of К4: the system trash, or for good.
+#[tauri::command]
+#[specta::specta]
+pub fn purge_archive(
+    scope: tauri::State<paths::VaultScope>,
+    db: tauri::State<'_, VaultContext>,
+    archive_id: String,
+    mode: recycle_bin::DeleteMode,
+) -> Result<(), String> {
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
+    crate::archive::purge(
+        &scope.get()?,
+        &archive_id,
+        mode,
+        &crate::system_recycle_bin::OsTrash,
+    )
 }
 
 #[tauri::command]

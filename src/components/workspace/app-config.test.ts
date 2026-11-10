@@ -401,8 +401,12 @@ describe("app-config & settings storage resilience (WP-19)", () => {
 
   it("defaults the delete mode to the system trash and rejects unknown values", () => {
     expect(normalizeAppPreferences({}).files.deleteMode).toBe("system")
+    // К4 (docs/sync-plan.md): the old «Корзина хранилища» is read as «Переносить в архив».
     expect(normalizeAppPreferences({ files: { deleteMode: "vault" } }).files.deleteMode).toBe(
-      "vault",
+      "archive",
+    )
+    expect(normalizeAppPreferences({ files: { deleteMode: "archive" } }).files.deleteMode).toBe(
+      "archive",
     )
     expect(normalizeAppPreferences({ files: { deleteMode: "permanent" } }).files.deleteMode).toBe(
       "permanent",

@@ -25,6 +25,36 @@ pub fn move_to_system_trash(vault: &Path, path: &Path) -> Result<FsMutationResul
     })
 }
 
+/// The operating system's trash as a port (docs/sync-plan.md, К3, К6): macOS Trash, Windows Recycle
+/// Bin, freedesktop `trash`. Tests inject their own so no test touches the real trash.
+pub trait SystemTrash: Send + Sync {
+    /// Moves the file or folder at the absolute `path` into the system trash. `Err` means the
+    /// trash cannot take it (no such trash, a network volume, a refusal of the system): the caller
+    /// then never destroys the item (К3: a remote deletion falls back to `.amby/trash/`).
+    fn trash(&self, path: &Path) -> Result<(), String>;
+}
+
+/// The real system trash (К3, К6).
+pub struct OsTrash;
+
+impl SystemTrash for OsTrash {
+    fn trash(&self, path: &Path) -> Result<(), String> {
+        move_path(path)
+    }
+}
+
+/// A system trash that refuses everything: what `VaultFs` asks in the tests of the application
+/// (К11 (и)), so no test touches the real trash.
+#[cfg(test)]
+pub struct RefusingTrash;
+
+#[cfg(test)]
+impl SystemTrash for RefusingTrash {
+    fn trash(&self, _path: &Path) -> Result<(), String> {
+        Err("the system trash is not used in tests".to_string())
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn move_path(path: &Path) -> Result<(), String> {
     use std::ptr::{null, null_mut};

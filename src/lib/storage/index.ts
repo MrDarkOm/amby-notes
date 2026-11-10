@@ -87,6 +87,7 @@ import type {
   SettingsReadResult,
   SnapshotEntry,
   SnapshotText,
+  ArchiveEntry,
   TrashEntry,
   TrashPreview,
   VaultPreflight,
@@ -758,6 +759,13 @@ export const listTrash = (): Promise<TrashEntry[]> => historyRepository.listTras
 export const restoreTrash = (trashId: string): Promise<FsMutationResult> =>
   historyRepository.restoreTrash(trashId)
 export const purgeTrash = (trashId: string): Promise<void> => historyRepository.purgeTrash(trashId)
+export const listArchive = (): Promise<ArchiveEntry[]> => historyRepository.listArchive()
+export const readArchivePreview = (archiveId: string, relativePath = ""): Promise<TrashPreview> =>
+  historyRepository.readArchivePreview(archiveId, relativePath)
+export const restoreArchive = (archiveId: string): Promise<FsMutationResult> =>
+  historyRepository.restoreArchive(archiveId)
+export const purgeArchive = (archiveId: string, mode: DeleteMode): Promise<void> =>
+  historyRepository.purgeArchive(archiveId, mode)
 export const previewRenameRefactor = (
   vaultPath: string,
   path: string,

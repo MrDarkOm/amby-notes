@@ -407,7 +407,7 @@ fn trash(context: &VaultContext, vault: &Vault, path: &str) -> FsMutationResult 
             context,
             &WatcherState::new(),
             vault.string(path),
-            DeleteMode::Vault,
+            DeleteMode::Archive,
         )
         .unwrap(),
     )

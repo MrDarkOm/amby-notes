@@ -279,6 +279,11 @@ impl SyncSession {
             Err(fs::TryLockError::Error(_)) => return Err(SyncError::new("storage_error")),
         }
 
+        // К10: the old trash is in the archive before the first pass of a session, whoever started
+        // it (the opening of the vault has done it already; this is for a vault that was never
+        // opened by the application, and a no-op once it is completed).
+        crate::archive_migration::run_when_opening(&config.vault);
+
         // The identity of this device (Р10): a state of another device or of another space is not
         // ours — a vault copied from another computer reconciles again by content instead of
         // posing as the old one. Nothing is deleted by that (Р8, Д56).

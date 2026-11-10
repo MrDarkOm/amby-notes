@@ -103,7 +103,11 @@ export function DeleteConfirmationDialog({
               : t(`workspace.deleteTitle.${kind}`, { name })}
           </DialogTitle>
           <DialogDescription>
-            {t(deleteMode === "vault" ? "workspace.deleteConfirmVault" : "workspace.deleteConfirm")}
+            {t(
+              deleteMode === "archive"
+                ? "workspace.deleteConfirmArchive"
+                : "workspace.deleteConfirm",
+            )}
           </DialogDescription>
         </DialogHeader>
         <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">

@@ -127,6 +127,7 @@ import type {
   SearchResult,
   SnapshotEntry,
   SnapshotText,
+  ArchiveEntry,
   TrashEntry,
   TrashPreview,
   TreeItem,
@@ -1063,6 +1064,22 @@ export class DesktopAdapter implements StoragePort {
   }
   async purgeTrash(trashId: string): Promise<void> {
     await unwrapCommand(commands.purgeTrash(trashId))
+  }
+
+  async listArchive(): Promise<ArchiveEntry[]> {
+    return unwrapCommand(commands.listArchive())
+  }
+
+  async readArchivePreview(archiveId: string, relativePath: string): Promise<TrashPreview> {
+    return unwrapCommand(commands.readArchivePreview(archiveId, relativePath))
+  }
+
+  async restoreArchive(archiveId: string): Promise<FsMutationResult> {
+    return unwrapMutation(commands.restoreArchive(archiveId))
+  }
+
+  async purgeArchive(archiveId: string, mode: DeleteMode): Promise<void> {
+    await unwrapCommand(commands.purgeArchive(archiveId, mode))
   }
 
   async previewRenameRefactor(

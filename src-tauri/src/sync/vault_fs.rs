@@ -23,6 +23,7 @@ use amby_sync_core::engine::{
     StagedWrite, TrashReason,
 };
 
+use crate::system_recycle_bin::SystemTrash;
 use crate::{frontmatter, history, recycle_bin};
 
 /// What the application does around a batch of incoming changes (Р8): merge the events of the
@@ -45,13 +46,36 @@ pub struct VaultFs {
     /// The files of `.amby/` written since the batch began (`None` outside a batch), shared with
     /// the writes in flight (З65).
     amby_written: Arc<Mutex<Option<Vec<String>>>>,
+    /// The system trash that takes a deletion that came from another device (К3): the real one at
+    /// run time, a refusing one in the tests of the application (К11 (и)), so no test touches the
+    /// trash of the person.
+    system_trash: Arc<dyn SystemTrash>,
 }
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Folders of `.amby/` whose files are synchronised (Р4, З14); the rest of `.amby/` is listed by
 /// name only. Must agree with `amby_sync_core::engine::rules::is_excluded_path` (a test holds it).
-const AMBY_SYNCED_FOLDERS: [&str; 4] = ["blocks", "property-backups", "conflicts", "properties"];
+const AMBY_SYNCED_FOLDERS: [&str; 5] = [
+    "blocks",
+    "property-backups",
+    "conflicts",
+    "properties",
+    "archive",
+];
+
+/// The system trash a `VaultFs` asks by default: the real one, and in the tests of the application
+/// one that refuses (К11 (и)), so the older tests see the fall-back `.amby/trash/`.
+fn default_system_trash() -> Arc<dyn SystemTrash> {
+    #[cfg(test)]
+    {
+        Arc::new(crate::system_recycle_bin::RefusingTrash)
+    }
+    #[cfg(not(test))]
+    {
+        Arc::new(crate::system_recycle_bin::OsTrash)
+    }
+}
 
 impl VaultFs {
     fn record_amby_change(&self, path: &str) {
@@ -73,6 +97,16 @@ impl VaultFs {
             root,
             hooks: None,
             amby_written: Arc::default(),
+            system_trash: default_system_trash(),
+        }
+    }
+
+    /// The vault at `root` whose remote deletions go to `system_trash` (К3). `new` and
+    /// `with_hooks` use the real system trash outside tests and a refusing one in `cfg(test)`.
+    pub fn with_system_trash(root: PathBuf, system_trash: Arc<dyn SystemTrash>) -> Self {
+        Self {
+            system_trash,
+            ..Self::new(root)
         }
     }
 
@@ -82,6 +116,7 @@ impl VaultFs {
             root,
             hooks: Some(hooks),
             amby_written: Arc::default(),
+            system_trash: default_system_trash(),
         }
     }
 
@@ -490,8 +525,21 @@ impl LocalFs for VaultFs {
     fn move_to_trash(&mut self, path: &str, _reason: TrashReason) -> Result<(), FsError> {
         let target = self.resolve(path)?;
         fs::symlink_metadata(&target).map_err(|error| map_io(path, &error))?;
-        recycle_bin::move_exact_to_trash(&self.root, &target)
-            .map_err(|error| map_io(path, &error))?;
+        // К3: a file of the person goes to the system trash, decided for each item; a service path
+        // (`.amby/…`, К11 (б)) and a refusal of the system trash go to `.amby/trash/`: a deletion
+        // that came from another device never destroys the local copy.
+        let taken = !amby_sync_core::engine::history::is_service_path(path)
+            && match self.system_trash.trash(&target) {
+                Ok(()) => true,
+                Err(error) => {
+                    tracing::warn!(event = "remote_deletion_system_trash_refused", path = %path, error = %error);
+                    false
+                }
+            };
+        if !taken {
+            recycle_bin::move_exact_to_trash(&self.root, &target)
+                .map_err(|error| map_io(path, &error))?;
+        }
         self.record_amby_change(path);
         Ok(())
     }

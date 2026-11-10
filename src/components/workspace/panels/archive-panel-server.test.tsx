@@ -6,7 +6,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
-import { listTrash, type TrashEntry } from "@/lib/storage"
+import { listArchive, type ArchiveEntry } from "@/lib/storage"
 import type { DeletedFileView } from "@/lib/bindings"
 import { resolveSyncPort } from "@/lib/sync/sync-port"
 import {
@@ -20,10 +20,10 @@ import { ArchivePanel } from "./archive-panel"
 import type { PanelRenderProps } from "../panel-registry"
 
 vi.mock("@/lib/storage", () => ({
-  listTrash: vi.fn(),
-  readTrashPreview: vi.fn(),
-  restoreTrash: vi.fn(),
-  purgeTrash: vi.fn(),
+  listArchive: vi.fn(),
+  readArchivePreview: vi.fn(),
+  restoreArchive: vi.fn(),
+  purgeArchive: vi.fn(),
 }))
 vi.mock("@/lib/confirm", () => ({ confirm: vi.fn() }))
 vi.mock("@/lib/sync/sync-port", async (importOriginal) => ({
@@ -41,11 +41,11 @@ const props: PanelRenderProps = {
 // Short waits: a missing part must fail in a moment, not after the default timeout.
 const FAST = { timeout: 400 }
 const DAY = 24 * 60 * 60 * 1000
-const local: TrashEntry = {
+const local: ArchiveEntry = {
   id: "local-one",
   name: "Локальная.md",
   originalPath: "Мир/Локальная.md",
-  deletedAtMs: Date.now(),
+  archivedAtMs: Date.now(),
 }
 
 function deleted(n: number, overrides: Partial<DeletedFileView> = {}): DeletedFileView {
@@ -80,7 +80,7 @@ async function showServer() {
 beforeEach(async () => {
   vi.resetAllMocks()
   await i18n.changeLanguage("ru")
-  vi.mocked(listTrash).mockResolvedValue([local])
+  vi.mocked(listArchive).mockResolvedValue([local])
 })
 afterEach(cleanup)
 
@@ -95,7 +95,7 @@ describe("И9а: the cloud button and the switch", () => {
     }),
   }
 
-  it("shows the local trash first and no server section under it", async () => {
+  it("shows the archive first and no server section under it", async () => {
     open(twoDeleted)
     expect(await screen.findByText("Локальная", {}, FAST)).toBeTruthy()
     await screen.findByRole("button", { name: "Файлы на сервере" }, FAST)
@@ -110,7 +110,7 @@ describe("И9а: the cloud button and the switch", () => {
     expect(button.getAttribute("title")).toBe("Файлы на сервере")
   })
 
-  it("switches to the server list, pressed, and back to the trash", async () => {
+  it("switches to the server list, pressed, and back to the archive", async () => {
     open(twoDeleted)
     await screen.findByText("Локальная", {}, FAST)
     const part = await showServer()
@@ -149,8 +149,8 @@ describe("И9а: the cloud button and the switch", () => {
     expect(port.deletedFiles).toHaveBeenCalledTimes(2)
   })
 
-  it("searches the shown list: the server list while it shows, the trash otherwise", async () => {
-    vi.mocked(listTrash).mockResolvedValue([local, { ...local, id: "two", name: "Другая.md" }])
+  it("searches the shown list: the server list while it shows, the archive otherwise", async () => {
+    vi.mocked(listArchive).mockResolvedValue([local, { ...local, id: "two", name: "Другая.md" }])
     open(twoDeleted)
     await screen.findByText("Локальная", {}, FAST)
     await showServer()
@@ -169,8 +169,8 @@ describe("И9а: the cloud button and the switch", () => {
     expect(screen.queryByText("Локальная")).toBeNull()
   })
 
-  it("shows the search field for the server list even when the trash is empty", async () => {
-    vi.mocked(listTrash).mockResolvedValue([])
+  it("shows the search field for the server list even when the archive is empty", async () => {
+    vi.mocked(listArchive).mockResolvedValue([])
     open(twoDeleted)
     await showServer()
     expect(search()).toBeTruthy()
@@ -186,7 +186,7 @@ describe("И9а: the cloud button and the switch", () => {
     expect(cloudButton()?.getAttribute("aria-pressed")).toBe("false")
   })
 
-  it("returns to the trash by itself when sync goes off while the server list shows", async () => {
+  it("returns to the archive by itself when sync goes off while the server list shows", async () => {
     open(twoDeleted)
     await showServer()
     emitVaultStatus(VAULT_OFF)
@@ -197,43 +197,6 @@ describe("И9а: the cloud button and the switch", () => {
 })
 
 describe("И10а: no service files", () => {
-  it("shows no row of the trash for a path inside .amby, however it got there", async () => {
-    vi.mocked(listTrash).mockResolvedValue([
-      local,
-      {
-        id: "svc",
-        name: "meta.json",
-        originalPath: ".amby/conflicts/c1/meta.json",
-        deletedAtMs: Date.now(),
-      },
-      {
-        id: "svc2",
-        name: "base",
-        originalPath: ".amby/conflicts/c1/base",
-        deletedAtMs: Date.now(),
-      },
-    ])
-    open({ vaultStatus: async () => VAULT_OFF })
-    expect(await screen.findByText("Локальная", {}, FAST)).toBeTruthy()
-    expect(screen.queryByText("meta.json")).toBeNull()
-    expect(screen.queryByText("base")).toBeNull()
-    expect(screen.queryByText(/\.amby\/conflicts/)).toBeNull()
-  })
-
-  it("counts only the entries it shows and says the trash is empty when only service ones remain", async () => {
-    vi.mocked(listTrash).mockResolvedValue([
-      {
-        id: "svc",
-        name: "meta.json",
-        originalPath: ".amby/conflicts/c1/meta.json",
-        deletedAtMs: Date.now(),
-      },
-    ])
-    open({ vaultStatus: async () => VAULT_OFF })
-    expect(await screen.findByText("Архив пуст", {}, FAST)).toBeTruthy()
-    expect(screen.queryByLabelText("Найти заметку в архиве…")).toBeNull()
-  })
-
   it("lists no server row for a service path even if the list carries one", async () => {
     open({
       vaultStatus: async () => vaultStatus(),
@@ -246,40 +209,6 @@ describe("И10а: no service files", () => {
     })
     await showServer()
     expect(serverRows()).toHaveLength(1)
-  })
-
-  it("puts no cloud on a service entry of the trash", async () => {
-    vi.mocked(listTrash).mockResolvedValue([
-      local,
-      {
-        id: "svc",
-        name: "meta.json",
-        originalPath: ".amby/conflicts/c1/meta.json",
-        deletedAtMs: Date.now(),
-      },
-    ])
-    open({
-      vaultStatus: async () => vaultStatus(),
-      deletedFiles: async () => ({
-        available: true,
-        reason: null,
-        files: [],
-        truncated: false,
-        trashOnServer: [
-          {
-            trashId: "svc",
-            itemId: "01".repeat(16),
-            deletedMs: Date.now(),
-            keptUntilMs: Date.now() + DAY,
-            device: "otherDevice",
-            deviceName: null,
-          },
-        ],
-      }),
-    })
-    await screen.findByText("Локальная", {}, FAST)
-    await waitFor(() => expect(port.deletedFiles).toHaveBeenCalled(), FAST)
-    expect(screen.queryByLabelText(/^Есть на сервере до /)).toBeNull()
   })
 })
 
@@ -475,65 +404,6 @@ describe("И17: restoring several files and the answer under the button", () => 
   })
 })
 
-describe("И11а: a cloud on a trash entry that is also on the server", () => {
-  it("marks the entry 'есть на сервере до …' and adds no row to the server section", async () => {
-    const until = Date.now() + 20 * DAY
-    open({
-      vaultStatus: async () => vaultStatus(),
-      deletedFiles: async () => ({
-        available: true,
-        reason: null,
-        files: [],
-        truncated: false,
-        trashOnServer: [
-          {
-            trashId: "local-one",
-            itemId: "01".repeat(16),
-            deletedMs: Date.now() - 10 * DAY,
-            keptUntilMs: until,
-            device: "otherDevice",
-            deviceName: null,
-          },
-        ],
-      }),
-    })
-    const mark = await screen.findByLabelText(/^Есть на сервере до /, {}, FAST)
-    const formatted = new Intl.DateTimeFormat("ru", { dateStyle: "medium" }).format(until)
-    expect(mark.getAttribute("aria-label")).toContain(formatted)
-    expect(serverRows()).toHaveLength(0)
-  })
-
-  it("marks nothing when the server part is not available", async () => {
-    open({
-      vaultStatus: async () => vaultStatus(),
-      deletedFiles: async () => ({
-        available: false,
-        reason: "offline",
-        files: [],
-        truncated: false,
-        trashOnServer: [
-          {
-            trashId: "local-one",
-            itemId: "01".repeat(16),
-            deletedMs: Date.now(),
-            keptUntilMs: Date.now() + DAY,
-            device: "otherDevice",
-            deviceName: null,
-          },
-        ],
-      }),
-    })
-    await waitFor(() => expect(port.deletedFiles).toHaveBeenCalled(), FAST)
-    expect(screen.queryByLabelText(/^Есть на сервере до /)).toBeNull()
-  })
-
-  it("marks nothing when no entry is on the server", async () => {
-    open({ vaultStatus: async () => vaultStatus() })
-    await waitFor(() => expect(port.deletedFiles).toHaveBeenCalled(), FAST)
-    expect(screen.queryByLabelText(/^Есть на сервере до /)).toBeNull()
-  })
-})
-
 describe("И9а, И13: the lists follow the sync while the panel is open", () => {
   const withList = () => {
     let files: DeletedFileView[] = []
@@ -575,13 +445,13 @@ describe("И9а, И13: the lists follow the sync while the panel is open", () =>
     await waitFor(() => expect(serverRows()).toHaveLength(1), { timeout: 1500 })
   })
 
-  it("a pass of the sync re-reads the local trash that the sync put a file into", async () => {
+  it("a pass of the sync re-reads the archive that the sync put a file into (К1)", async () => {
     const server = withList()
     open(server.overrides)
     await screen.findByText("Локальная", {}, FAST)
-    vi.mocked(listTrash).mockResolvedValue([
+    vi.mocked(listArchive).mockResolvedValue([
       local,
-      { id: "from-sync", name: "Танго.md", originalPath: "Танго.md", deletedAtMs: Date.now() },
+      { id: "from-sync", name: "Танго.md", originalPath: "Танго.md", archivedAtMs: Date.now() },
     ])
     emitVaultStatus(vaultStatus())
     expect(await screen.findByText("Танго", {}, { timeout: 1500 })).toBeTruthy()

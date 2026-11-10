@@ -935,3 +935,70 @@ fn a_retyped_address_does_not_make_a_link_stale() {
         again.runtime.deactivate_vault();
     }
 }
+
+#[test]
+fn k10_the_old_trash_is_migrated_before_the_first_pass_and_the_archive_reaches_the_other_computer()
+{
+    // К10: "Переход идёт до первого прохода синхронизации"; "перенесённые файлы уходят на сервер
+    // как новые файлы архива"; К7: a service entry stays in the service trash and does not leave.
+    let env = Env::new();
+    let first = computer(&env, &env.account);
+    let a = TempVault::new("k10-a");
+    let gone = a.put("Notes/gone.md", b"deleted long ago");
+    crate::recycle_bin::move_to_trash(&a.root, &gone).unwrap();
+    let service = a.put(".amby/conflicts/c1/meta.json", b"closed set");
+    crate::recycle_bin::move_exact_to_trash(&a.root, &service).unwrap();
+    a.put("Keep/k.md", b"stays");
+    let made = run(
+        &env,
+        first.runtime.enable(
+            &a.root,
+            SpaceTarget::New {
+                name: "K10".to_string(),
+            },
+            true,
+        ),
+    )
+    .unwrap();
+    first.runtime.sync_now().unwrap();
+
+    let second = computer(&env, &env.another_computer("Second"));
+    let b = TempVault::new("k10-b");
+    run(
+        &env,
+        second.runtime.enable(
+            &b.root,
+            SpaceTarget::Existing {
+                space_id: made.space_id.clone().unwrap(),
+            },
+            true,
+        ),
+    )
+    .unwrap();
+    // Both files are awaited: the pass applies `.amby/…` before `Keep/…` (frozen-test fix).
+    wait_until(
+        "the archived file and the kept one arrive on the second computer",
+        || {
+            b.text(".amby/archive/Notes/gone.md").as_deref() == Some("deleted long ago")
+                && b.text("Keep/k.md").as_deref() == Some("stays")
+        },
+    );
+    assert_eq!(b.text("Keep/k.md").as_deref(), Some("stays"));
+    assert!(
+        b.text("Notes/gone.md").is_none(),
+        "it arrives as an archived file, not as a live one"
+    );
+    // On the first computer the migration happened: the file is in the archive, not in the trash,
+    // and the service entry is still in the service trash and nowhere else.
+    assert_eq!(
+        a.text(".amby/archive/Notes/gone.md").as_deref(),
+        Some("deleted long ago")
+    );
+    assert_eq!(a.trashed(), vec![".amby/conflicts/c1/meta.json"]);
+    assert!(b.trashed().is_empty());
+    assert!(b
+        .text(".amby/archive/.amby/conflicts/c1/meta.json")
+        .is_none());
+    first.runtime.deactivate_vault();
+    second.runtime.deactivate_vault();
+}

@@ -1,5 +1,7 @@
 mod ai;
 mod app_data;
+mod archive;
+mod archive_migration;
 mod bundle;
 mod commands;
 mod credentials;
@@ -81,6 +83,11 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::history::read_trash_preview,
         commands::history::restore_trash,
         commands::history::purge_trash,
+        commands::history::list_archive,
+        commands::history::read_archive_preview,
+        commands::history::restore_archive,
+        commands::history::purge_archive,
+        commands::history::rollback_archive_migration,
         commands::ai_chats::ai_list_chats,
         commands::ai_chats::ai_load_chat,
         commands::ai_chats::ai_save_chat,

@@ -87,6 +87,9 @@ export interface RefactorPreview {
   replacements: number
 }
 
+/** A file of the hidden archive `.amby/archive/` (docs/sync-plan.md, К6). */
+export type { ArchiveEntry } from "../bindings"
+
 export interface TrashEntry {
   id: string
   originalPath: string
@@ -303,7 +306,7 @@ export interface ImportFilesResult {
 }
 
 /** Where deleting an item sends it; `permanent` keeps no copy at all. */
-export type DeleteMode = "system" | "vault" | "permanent"
+export type DeleteMode = "system" | "archive" | "permanent"
 
 export type SettingsReadResult<T> =
   | { status: "found"; data: T }

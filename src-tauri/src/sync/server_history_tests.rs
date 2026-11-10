@@ -893,8 +893,10 @@ fn i10_i12_a_row_has_the_path_the_size_the_deleting_device_and_the_keeping_time(
 }
 
 #[test]
-fn i11_a_file_that_is_in_the_local_trash_with_the_same_content_is_not_listed() {
-    // И11: restore it from the trash as before.
+fn k5_a_file_in_the_service_trash_with_the_same_content_still_shows_in_the_server_list() {
+    // К5, К6 (rewritten from И11 by К11 (з)): only the archive hides a server file; the service
+    // `.amby/trash/` is not the archive and the person does not see it, so the server list is
+    // the one place to get that file back.
     let vault = TempVault::new();
     let path = vault.write("Notes/trashed.md", b"same text");
     recycle_bin::move_to_trash(vault.path(), &path).unwrap();
@@ -917,7 +919,9 @@ fn i11_a_file_that_is_in_the_local_trash_with_the_same_content_is_not_listed() {
         &ServerHistoryCache::default(),
         NOW_MS,
     );
-    assert_eq!(paths_of(&list), vec!["Notes/not-in-trash.md"]);
+    let mut paths = paths_of(&list);
+    paths.sort();
+    assert_eq!(paths, vec!["Notes/not-in-trash.md", "Notes/trashed.md"]);
 }
 
 #[test]
@@ -1446,11 +1450,12 @@ fn i3a_without_sync_or_a_connection_there_are_no_marks() {
 }
 
 #[test]
-fn i11a_a_trash_entry_matching_a_deleted_file_is_marked_and_has_no_row() {
+fn k6_a_trash_entry_matching_a_deleted_file_has_no_cloud_mark() {
+    // К6 replaces И11а: "Облачка у строк архива (И11а) больше нет". The panel shows the archive
+    // only; the service trash is not on it, so there is nothing to mark.
     let vault = TempVault::new();
     let path = vault.write("Notes/trashed.md", b"same text");
     recycle_bin::move_to_trash(vault.path(), &path).unwrap();
-    let trash_id = recycle_bin::list(vault.path())[0].id.clone();
     let server = Server::default();
     server.add_deleted_file(1, "Notes/trashed.md", b"same text", 100);
     let connect = server.connector();
@@ -1464,17 +1469,66 @@ fn i11a_a_trash_entry_matching_a_deleted_file_is_marked_and_has_no_row() {
         &ServerHistoryCache::default(),
         NOW_MS,
     );
-    assert!(list.files.is_empty(), "no separate row (И11)");
-    assert_eq!(list.trash_on_server.len(), 1);
-    let mark = &list.trash_on_server[0];
-    assert_eq!(mark.trash_id, trash_id);
-    assert_eq!(mark.item_id, item_hex(1));
-    assert_eq!(mark.deleted_ms, 1_000_000 + 100 * 1_000);
-    assert_eq!(
-        mark.kept_until_ms,
-        Some(mark.deleted_ms + u64::from(HISTORY_DAYS) * 86_400_000),
-        "И12"
+    assert!(list.available);
+    assert!(list.trash_on_server.is_empty(), "К6: no marks any more");
+}
+
+#[test]
+fn k6_a_file_in_the_archive_with_the_same_content_is_not_in_the_server_list() {
+    // К6: "файл, который лежит в архиве с тем же содержимым, в списке сервера не показывается".
+    let vault = TempVault::new();
+    vault.write(".amby/archive/Notes/archived.md", b"same text");
+    vault.write(".amby/archive/Proj/sub/deep.md", b"deep text");
+    vault.write(
+        ".amby/archive/Notes/changed.md",
+        b"the archived version differs",
     );
+    let server = Server::default();
+    server.add_deleted_file(1, "Notes/archived.md", b"same text", 100);
+    server.add_deleted_file(2, "Proj/sub/deep.md", b"deep text", 110);
+    server.add_deleted_file(3, "Notes/changed.md", b"the text on the server", 120);
+    server.add_deleted_file(4, "Notes/not-archived.md", b"never archived", 130);
+    let connect = server.connector();
+    let access = access(
+        &connect,
+        state_of(vec![
+            record(1, "Notes/archived.md", true, None),
+            record(2, "Proj/sub/deep.md", true, None),
+            record(3, "Notes/changed.md", true, None),
+            record(4, "Notes/not-archived.md", true, None),
+        ]),
+    );
+    let list = deleted_files(
+        vault.path(),
+        Some(&access),
+        &ServerHistoryCache::default(),
+        NOW_MS,
+    );
+    let mut paths = paths_of(&list);
+    paths.sort();
+    assert_eq!(paths, vec!["Notes/changed.md", "Notes/not-archived.md"]);
+    assert!(list.trash_on_server.is_empty());
+}
+
+#[test]
+fn k6_the_archive_hides_a_server_file_only_at_the_same_path() {
+    // К6, И11: the same content at another path does not hide the file of the server.
+    let vault = TempVault::new();
+    vault.write(".amby/archive/Other/place.md", b"same text");
+    let server = Server::default();
+    server.add_deleted_file(1, "Notes/a.md", b"same text", 100);
+    let connect = server.connector();
+    let access = access(
+        &connect,
+        state_of(vec![record(1, "Notes/a.md", true, None)]),
+    );
+    let list = deleted_files(
+        vault.path(),
+        Some(&access),
+        &ServerHistoryCache::default(),
+        NOW_MS,
+    );
+    assert_eq!(paths_of(&list), vec!["Notes/a.md"]);
 }
 
 #[test]

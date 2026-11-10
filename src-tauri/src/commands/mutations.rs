@@ -1340,7 +1340,8 @@ pub(crate) fn delete_item_inner(
     let prepared = watcher_state.prepare_write(writes);
     let removal = match mode {
         recycle_bin::DeleteMode::System => system_recycle_bin::move_to_system_trash(&vault, &path),
-        recycle_bin::DeleteMode::Vault => recycle_bin::move_to_trash(&vault, &path),
+        // К4: the setting «Переносить в архив» does what «В архив» does.
+        recycle_bin::DeleteMode::Archive => crate::archive::move_to_archive(&vault, &path),
         recycle_bin::DeleteMode::Permanent => recycle_bin::delete_permanently(&vault, &path),
     };
     let result = match removal {
@@ -1367,8 +1368,20 @@ pub fn archive_item(
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
 ) -> Result<MutationOutcome, String> {
+    let outcome = archive_item_inner(&db, &watcher_state, path)?;
+    notify_structural_mutation(&app, &db, &outcome);
+    Ok(outcome)
+}
+
+/// The body of `archive_item` without the Tauri state wrappers (see `delete_item_inner`): «В архив»
+/// (docs/sync-plan.md, К1).
+pub(crate) fn archive_item_inner(
+    db: &VaultContext,
+    watcher_state: &WatcherState,
+    path: String,
+) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
-    let path = paths::guard(&db, &path)?;
+    let path = paths::guard(db, &path)?;
     let vault = db.root()?;
     let preview = recycle_bin::preview_move_to_trash(&vault, &path)?;
     let mut writes = vec![(preview.original_path.clone(), PathFingerprint::Missing)];
@@ -1380,7 +1393,7 @@ pub fn archive_item(
             .map(|path| (path, PathFingerprint::Missing)),
     );
     let prepared = watcher_state.prepare_write(writes);
-    let result = match recycle_bin::move_to_trash(&vault, &path) {
+    let result = match crate::archive::move_to_archive(&vault, &path) {
         Ok(result) => {
             watcher_state.confirm_prepared_write(&prepared);
             result
@@ -1391,8 +1404,7 @@ pub fn archive_item(
         }
     };
     let vault = db.root()?;
-    let mut outcome = sync_mutation_result(&db, &vault, result);
+    let mut outcome = sync_mutation_result(db, &vault, result);
     outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
-    notify_structural_mutation(&app, &db, &outcome);
     Ok(outcome)
 }

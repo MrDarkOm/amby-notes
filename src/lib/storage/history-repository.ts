@@ -8,6 +8,8 @@ import type {
   RefactorPreview,
   SnapshotEntry,
   SnapshotText,
+  ArchiveEntry,
+  DeleteMode,
   TrashEntry,
   TrashPreview,
 } from "./types"
@@ -62,6 +64,22 @@ export class HistoryRepository {
   }
   async purgeTrash(trashId: string): Promise<void> {
     return this.port().purgeTrash(trashId)
+  }
+
+  async listArchive(): Promise<ArchiveEntry[]> {
+    return this.port().listArchive()
+  }
+
+  async readArchivePreview(archiveId: string, relativePath: string): Promise<TrashPreview> {
+    return this.port().readArchivePreview(archiveId, relativePath)
+  }
+
+  async restoreArchive(archiveId: string): Promise<FsMutationResult> {
+    return this.port().restoreArchive(archiveId)
+  }
+
+  async purgeArchive(archiveId: string, mode: DeleteMode): Promise<void> {
+    return this.port().purgeArchive(archiveId, mode)
   }
 
   async previewRenameRefactor(

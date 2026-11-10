@@ -46,6 +46,8 @@ import type {
   SearchResult,
   SnapshotEntry,
   SnapshotText,
+  ArchiveEntry,
+  DeleteMode,
   TrashEntry,
   TrashPreview,
   TreeItem,
@@ -1498,6 +1500,22 @@ export class WebAdapterCore implements StoragePort {
   }
 
   async purgeTrash(_trashId: string): Promise<void> {
+    return webTrashUnavailable()
+  }
+
+  async listArchive(): Promise<ArchiveEntry[]> {
+    return []
+  }
+
+  async readArchivePreview(_archiveId: string, _relativePath: string): Promise<TrashPreview> {
+    return webTrashUnavailable()
+  }
+
+  async restoreArchive(_archiveId: string): Promise<FsMutationResult> {
+    return webTrashUnavailable()
+  }
+
+  async purgeArchive(_archiveId: string, _mode: DeleteMode): Promise<void> {
     return webTrashUnavailable()
   }
 

@@ -13,16 +13,16 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { confirm } from "@/lib/confirm"
 import { confirmations } from "@/lib/confirmations"
-import { listTrash, purgeTrash, restoreTrash, type TrashEntry } from "@/lib/storage"
+import { listArchive, purgeArchive, restoreArchive, type ArchiveEntry } from "@/lib/storage"
 import { dispatchArchiveChanged } from "../use-archive-tree-refresh"
 import { mutationPaths } from "../workspace-mutations"
 import type { PanelRenderProps } from "../panel-registry"
 import { TreeIcon } from "../tree/tree-icons"
 import { ArchivePreview } from "./archive-preview"
-import type { DeletedOnServer } from "@/lib/sync/sync-port"
 import { ArchiveServerSection } from "./archive-server-section"
 import { useArchiveServer } from "./use-archive-server"
-import { archiveEntryLabel, groupArchiveEntries, isServicePath } from "./archive-model"
+import { useSettingsStore } from "../use-settings-store"
+import { archiveEntryLabel, groupArchiveEntries } from "./archive-model"
 import { PanelHeader, PanelSearch } from "./panel-header"
 
 export function ArchivePanel({ vault }: PanelRenderProps) {
@@ -31,35 +31,24 @@ export function ArchivePanel({ vault }: PanelRenderProps) {
 
 function ArchiveContents() {
   const { t, i18n } = useTranslation()
-  const [entries, setEntries] = React.useState<TrashEntry[]>([])
+  const [entries, setEntries] = React.useState<ArchiveEntry[]>([])
   const [loading, setLoading] = React.useState(true)
   const [busy, setBusy] = React.useState<string | null>(null)
   const [query, setQuery] = React.useState("")
-  // Local entries that are also on the server (И11а): a cloud on the entry, no second row.
-  const [onServer, setOnServer] = React.useState<Map<string, number | null>>(new Map())
-  const onServerList = React.useCallback((list: DeletedOnServer) => {
-    setOnServer(
-      new Map(
-        list.available
-          ? (list.trashOnServer ?? []).map((mark) => [mark.trashId, mark.keptUntilMs ?? null])
-          : [],
-      ),
-    )
-  }, [])
-  // The trash list is read again after a pass of the sync: it may have moved a file there.
+  // The archive is read again after a pass of the sync: it may have brought or moved a file (К1).
   const refreshOnPass = React.useCallback(() => {
     void refreshRef.current()
   }, [])
   const refreshRef = React.useRef<() => Promise<void>>(async () => {})
-  const server = useArchiveServer(onServerList, refreshOnPass)
-  // The cloud button switches the panel between the trash and the server list (И9а). Not
+  const server = useArchiveServer(undefined, refreshOnPass)
+  // The cloud button switches the panel between the archive and the server list (И9а). Not
   // remembered between launches; sync going off ends the server view.
   const [serverView, setServerView] = React.useState(false)
   const showServer = serverView && server.syncOn
   React.useEffect(() => {
     if (!server.syncOn) setServerView(false)
   }, [server.syncOn])
-  const [previewEntry, setPreviewEntry] = React.useState<TrashEntry | null>(null)
+  const [previewEntry, setPreviewEntry] = React.useState<ArchiveEntry | null>(null)
   const previewOpening = React.useRef(false)
   const [openMenuId, setOpenMenuId] = React.useState<string | null>(null)
   // Close autofocus runs after a menu unmounts; it must see the newest target.
@@ -73,7 +62,7 @@ function ArchiveContents() {
       setOpenMenuId(null)
     }
   }
-  function showPreview(entry: TrashEntry) {
+  function showPreview(entry: ArchiveEntry) {
     setError(null)
     previewOpening.current = true
     menuTarget.current = null
@@ -91,10 +80,9 @@ function ArchiveContents() {
   const refresh = React.useCallback(async () => {
     const sequence = ++request.current.sequence
     try {
-      const next = await listTrash()
+      const next = await listArchive()
       if (sequence === request.current.sequence) {
-        // The service entries are never shown (И10a); they stay on disk.
-        setEntries(next.filter((entry) => !isServicePath(entry.originalPath)))
+        setEntries(next)
         setError(null)
       }
     } catch {
@@ -109,11 +97,11 @@ function ArchiveContents() {
   React.useEffect(() => {
     const tracker = request.current
     void refresh()
-    const handleTrashChanged = () => void refresh()
-    window.addEventListener("amby:archive-changed", handleTrashChanged)
+    const handleArchiveChanged = () => void refresh()
+    window.addEventListener("amby:archive-changed", handleArchiveChanged)
     return () => {
       tracker.sequence++
-      window.removeEventListener("amby:archive-changed", handleTrashChanged)
+      window.removeEventListener("amby:archive-changed", handleArchiveChanged)
     }
   }, [refresh])
   React.useEffect(() => {
@@ -133,24 +121,32 @@ function ArchiveContents() {
   const timeFormat = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" })
   const dateFormat = new Intl.DateTimeFormat(locale, { day: "numeric", month: "short" })
   const fullDateFormat = new Intl.DateTimeFormat(locale, { dateStyle: "long", timeStyle: "short" })
-  async function runAction(entry: TrashEntry, action: "restore" | "purge") {
+  const deleteMode = useSettingsStore((state) => state.prefs.files.deleteMode)
+  const [restoredAs, setRestoredAs] = React.useState<string | null>(null)
+  async function runAction(entry: ArchiveEntry, action: "restore" | "purge") {
     if (actionInFlight.current) return
     actionInFlight.current = true
     menuTarget.current = null
     setOpenMenuId(null)
     setBusy(entry.id)
     setError(null)
+    setRestoredAs(null)
     try {
+      // К4: only a permanent deletion asks; the system trash keeps the file for the person.
       if (
         action === "purge" &&
+        deleteMode === "permanent" &&
         !(await confirm(confirmations.deleteArchived({ name: archiveEntryLabel(entry).title })))
       )
         return
       if (action === "restore") {
-        const restored = await restoreTrash(entry.id)
+        const restored = await restoreArchive(entry.id)
         // The note is back: the tree shows it without reloading the vault.
         dispatchArchiveChanged({ paths: mutationPaths(restored) })
-      } else await purgeTrash(entry.id)
+        // К6: a taken place gives a free name; the person is told the final one.
+        const finalName = restored.primaryPath?.replace(/\\/g, "/").split("/").pop()
+        if (finalName && finalName !== entry.name) setRestoredAs(finalName)
+      } else await purgeArchive(entry.id, deleteMode)
       closePreview()
       await refresh()
     } catch {
@@ -199,6 +195,11 @@ function ArchiveContents() {
           placeholder={t("historyPanel.searchArchive")}
         />
       )}
+      {restoredAs && (
+        <p role="status" className="px-4 pb-2 text-xs text-muted-foreground">
+          {t("archivePanel.restoredAs", { name: restoredAs })}
+        </p>
+      )}
       {error && (
         <div role="alert" className="px-4 pb-3 text-xs text-destructive">
           <p>{error}</p>
@@ -236,7 +237,7 @@ function ArchiveContents() {
               <div className="space-y-0.5">
                 {group.entries.map((entry) => {
                   const { title, parent, icon } = archiveEntryLabel(entry)
-                  const date = new Date(entry.deletedAtMs)
+                  const date = new Date(entry.archivedAtMs)
                   const validDate = Number.isFinite(date.getTime())
                   const fullDate = validDate
                     ? fullDateFormat.format(date)
@@ -279,9 +280,6 @@ function ArchiveContents() {
                           <span className="min-w-0 flex-1 truncate" title={entry.originalPath}>
                             {parent || t("archivePanel.vaultRoot")}
                           </span>
-                          {onServer.has(entry.id) && (
-                            <OnServerMark until={onServer.get(entry.id)} locale={locale} />
-                          )}
                           <time
                             className="min-w-0 truncate"
                             dateTime={validDate ? date.toISOString() : undefined}
@@ -351,7 +349,7 @@ function ArchiveContents() {
                             onSelect={() => void runAction(entry, "purge")}
                           >
                             <Trash2 />
-                            {t("historyPanel.deleteForever")}
+                            {t("archivePanel.deleteFromArchive")}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -374,23 +372,5 @@ function ArchiveContents() {
         />
       )}
     </div>
-  )
-}
-
-/** The cloud on a local trash entry the server also holds: "есть на сервере до …" (И11а, И12). */
-function OnServerMark({ until, locale }: { until: number | null | undefined; locale: string }) {
-  const { t } = useTranslation()
-  const date = until ? new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(until) : null
-  return (
-    <span className="flex shrink-0 items-center gap-1">
-      <Cloud
-        role="img"
-        aria-label={
-          date ? t("archivePanel.onServerUntilLabel", { until: date }) : t("historyPanel.onServer")
-        }
-        className="size-3 shrink-0"
-      />
-      {date && <span>{t("archivePanel.onServerUntil", { until: date })}</span>}
-    </span>
   )
 }
