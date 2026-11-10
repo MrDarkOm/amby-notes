@@ -275,6 +275,71 @@ describe("externally moved layers", () => {
   )
 })
 
+describe("a note deleted on another computer while open", () => {
+  it.each([
+    ["clean", false, false],
+    ["dirty", true, false],
+    ["clean, patched tree", false, true],
+    ["dirty, patched tree", true, true],
+  ])(
+    "keeps the tab and the text of a %s note and marks it deleted",
+    async (_name, dirty, patched) => {
+      const listeners = new Map<string, (event: { payload: unknown }) => void>()
+      vi.mocked(listen).mockImplementation(async (name, handler) => {
+        listeners.set(name, handler as (event: { payload: unknown }) => void)
+        return () => {
+          listeners.delete(name)
+        }
+      })
+      vi.mocked(isTauri).mockReturnValue(true)
+      vi.mocked(refreshVaultPaths).mockResolvedValue(
+        patched
+          ? {
+              generation: 7,
+              patch: {
+                ops: [
+                  { kind: "remove", parentPath: "/vault/Folder", paths: ["/vault/Folder/Note.md"] },
+                ],
+              },
+            }
+          : null,
+      )
+      vi.mocked(readNote).mockRejectedValue(new Error("gone"))
+      useVaultStore.setState({ vault: "/vault", backendGeneration: 7 })
+      const view = renderHook(() => useVaultData())
+      await waitFor(() => expect(view.result.current.treeItems).toEqual(tree))
+      act(() => {
+        useDocStore.getState().setDoc("note", {
+          id: "note",
+          path: "/vault/Folder/Note.md",
+          title: "Note",
+          content: "open text",
+          source: "open text",
+          revision: "r1",
+          created: "",
+          modified: "",
+          wordCount: 2,
+        })
+        if (dirty) useDocStore.getState().markUnsaved("note")
+        useTabsStore.getState().openItem({ kind: "document", fileId: "note", title: "Note" })
+      })
+      const gone = { ...loaded, tree: [{ ...tree[0], children: [] }] }
+      vi.mocked(loadActiveVaultData).mockResolvedValue(gone)
+      await waitFor(() => expect(listeners.has("vault-file-changed")).toBe(true))
+      act(() =>
+        listeners.get("vault-file-changed")!({
+          payload: { kind: "remove", path: "/vault/Folder/Note.md" },
+        }),
+      )
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      expect(useDocStore.getState().openDocs.note?.content).toBe("open text")
+      expect(useDocStore.getState().openDocs.note?.externallyDeleted).toBe(true)
+      expect(useTabsStore.getState().tabs.some((tab) => tab.fileId === "note")).toBe(true)
+      expect(useDocStore.getState().externalConflicts.note?.externalContent).toBeNull()
+    },
+  )
+})
+
 describe("property changes from another window", () => {
   it("rereads open properties without replacing the note text", async () => {
     const listeners = new Map<string, (event: { payload: unknown }) => void>()
