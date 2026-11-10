@@ -120,13 +120,13 @@ describe("the copies of the cards of the open notes", () => {
     })
   })
 
-  it("has a note whose file was deleted as danger", () => {
+  it("has a note whose file was deleted as a decision (К12)", () => {
     const { decision } = deriveCentre(
       input({ openDocs: { n: doc("n", { externallyDeleted: true }) } }),
     )
     expect(decision[0]).toMatchObject({
       id: noteNoticeId("n", "external-deleted"),
-      level: "danger",
+      level: "decision",
     })
   })
 

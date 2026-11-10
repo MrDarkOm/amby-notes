@@ -127,19 +127,25 @@ export const useDocStore = create<DocStore>((set) => ({
       }
     }),
 
+  // A file that is gone is shown as a card in the notices of the note, never as a window (К12): only
+  // a change on disk while the note is dirty opens the conflict dialog.
   setExternalConflict: (conflict) =>
     set((s) => ({
       externalConflicts: { ...s.externalConflicts, [conflict.fileId]: conflict },
       activeConflictDialogFileId:
         s.activeConflictDialogFileId ??
-        (s.externalConflicts[conflict.fileId] ? null : conflict.fileId),
+        (s.externalConflicts[conflict.fileId] || conflict.externalContent === null
+          ? null
+          : conflict.fileId),
     })),
 
   clearExternalConflict: (fileId) =>
     set((s) => {
       if (!s.externalConflicts[fileId]) return {}
       const { [fileId]: _cleared, ...externalConflicts } = s.externalConflicts
-      const remainingKeys = Object.keys(externalConflicts)
+      const remainingKeys = Object.keys(externalConflicts).filter(
+        (key) => externalConflicts[key].externalContent !== null,
+      )
       const nextActiveId =
         s.activeConflictDialogFileId === fileId
           ? (remainingKeys[0] ?? null)

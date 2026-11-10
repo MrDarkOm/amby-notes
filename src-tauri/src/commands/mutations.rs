@@ -479,7 +479,8 @@ mod failure_tests {
     #[test]
     fn a_note_made_into_a_super_note_is_noted_as_a_move_before_it_moves() {
         // Д70а: the hint goes first, so a pass cannot read the move as a deletion and a new file.
-        let root = std::env::temp_dir().join(format!("amby-ensure-bundle-{}", ulid::Ulid::generate()));
+        let root =
+            std::env::temp_dir().join(format!("amby-ensure-bundle-{}", ulid::Ulid::generate()));
         fs::create_dir_all(&root).unwrap();
         fs::write(root.join("Idea.md"), "text of the idea").unwrap();
         let context = VaultContext::new();
@@ -500,13 +501,9 @@ mod failure_tests {
                     .collect::<Vec<_>>(),
             ));
         };
-        let outcome = ensure_bundle_inner(
-            &context,
-            &WatcherState::new(),
-            &record,
-            path_string(&old),
-        )
-        .unwrap();
+        let outcome =
+            ensure_bundle_inner(&context, &WatcherState::new(), &record, path_string(&old))
+                .unwrap();
         assert_eq!(outcome.mutation.primary_path, Some(path_string(&new)));
         assert!(new.is_file() && !old.exists());
         let seen = seen.into_inner();
@@ -520,7 +517,8 @@ mod failure_tests {
 
     #[test]
     fn a_note_that_is_already_a_super_note_records_no_hint() {
-        let root = std::env::temp_dir().join(format!("amby-ensure-bundle-{}", ulid::Ulid::generate()));
+        let root =
+            std::env::temp_dir().join(format!("amby-ensure-bundle-{}", ulid::Ulid::generate()));
         fs::create_dir_all(root.join("Idea")).unwrap();
         fs::write(root.join("Idea/Idea.md"), "text").unwrap();
         let context = VaultContext::new();
@@ -605,6 +603,14 @@ pub(crate) fn ensure_bundle_inner(
 ) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(db, &path)?;
+    // Synchronisation learns that this is a move, before the file moves (Д70а): a pass that starts
+    // between the move and a later hint would read it as a deletion and a new file.
+    let expected = preview_ensure_bundle_path(&path);
+    if !expected.is_empty() {
+        if let Ok(root) = db.root() {
+            note_renames(&root, &expected);
+        }
+    }
     let (primary, path_changes) = ensure_bundle_path(&path)?;
     let result = FsMutationResult {
         tree_patch: None,

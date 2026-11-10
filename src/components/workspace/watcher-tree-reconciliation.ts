@@ -145,3 +145,25 @@ export function planOpenDocumentTreeChanges(
   }
   return changes
 }
+
+/**
+ * A refresh of a few paths can miss where a note went: the old path is read and the new one is not
+ * yet. Before a note is called deleted, its id is looked for in the whole vault (Д70а); a note found
+ * at another path moved, and the tab follows it with no notice of deletion.
+ */
+export function confirmDeletionAgainstFullTree(
+  changes: OpenDocumentTreeChange[],
+  openDocs: Record<string, OpenDocumentLocation>,
+  fullTree: TreeItem[],
+): OpenDocumentTreeChange[] {
+  const result: OpenDocumentTreeChange[] = []
+  for (const change of changes) {
+    const document = change.kind === "deleted" ? openDocs[change.fileId] : undefined
+    if (!document) {
+      result.push(change)
+      continue
+    }
+    result.push(...planOpenDocumentTreeChanges({ [change.fileId]: document }, fullTree))
+  }
+  return result
+}

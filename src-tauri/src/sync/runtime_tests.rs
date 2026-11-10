@@ -561,13 +561,9 @@ fn a_note_made_into_a_super_note_moves_on_the_other_computer_and_is_not_trashed(
     wait_until("the vault arrives", || b.bytes("Idea.md").is_some());
 
     let old = a.root.join("Idea.md");
-    let (primary, changes) = (
-        a.root.join("Idea").join("Idea.md"),
-        vec![PathChange {
-            old_path: old.to_string_lossy().into_owned(),
-            new_path: a.root.join("Idea").join("Idea.md").to_string_lossy().into_owned(),
-        }],
-    );
+    let primary = a.root.join("Idea").join("Idea.md");
+    let changes = crate::bundle::preview_ensure_bundle_path(&old);
+    assert_eq!(changes.len(), 1);
     first.runtime.note_renames(&a.root, &changes);
     let (moved_to, real_changes) = crate::bundle::ensure_bundle_path(&old).unwrap();
     assert_eq!(moved_to, primary);

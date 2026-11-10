@@ -229,8 +229,8 @@ describe("the warnings that used to be strips above the note", () => {
       canRestoreDeleted: true,
       onRestoreDeleted,
     })
-    expect(within(stack()!).getByText("Файл удалён")).toBeTruthy()
-    fireEvent.click(within(stack()!).getByRole("button", { name: "Восстановить файл" }))
+    expect(within(stack()!).getByText("Файл удалён вне Amby. Текст ещё открыт здесь")).toBeTruthy()
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Вернуть" }))
     await waitFor(() => expect(onRestoreDeleted).toHaveBeenCalledTimes(1))
   })
 
@@ -240,9 +240,11 @@ describe("the warnings that used to be strips above the note", () => {
       canRestoreDeleted: true,
       onRestoreDeleted: vi.fn().mockRejectedValue(new Error("no")),
     })
-    fireEvent.click(within(stack()!).getByRole("button", { name: "Восстановить файл" }))
-    expect(await within(stack()!).findByText("Не удалось восстановить файл.")).toBeTruthy()
-    expect(within(stack()!).getByText("Файл удалён")).toBeTruthy()
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Вернуть" }))
+    expect(
+      await within(stack()!).findByText("Не удалось вернуть заметку. Текст остаётся открытым."),
+    ).toBeTruthy()
+    expect(within(stack()!).getByText("Файл удалён вне Amby. Текст ещё открыт здесь")).toBeTruthy()
   })
 
   it("offers to close the tab when the deleted file cannot be restored", () => {
@@ -252,7 +254,7 @@ describe("the warnings that used to be strips above the note", () => {
       canRestoreDeleted: false,
       onCloseTab,
     })
-    fireEvent.click(within(stack()!).getByRole("button", { name: "Закрыть" }))
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Закрыть заметку" }))
     expect(onCloseTab).toHaveBeenCalledTimes(1)
   })
 
@@ -290,7 +292,7 @@ describe("the warnings that used to be strips above the note", () => {
     })
     mount({ document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true } })
     expect(within(stack()!).queryByText("Автосохранение приостановлено")).toBeNull()
-    expect(within(stack()!).getByText("Файл удалён")).toBeTruthy()
+    expect(within(stack()!).getByText("Файл удалён вне Amby. Текст ещё открыт здесь")).toBeTruthy()
   })
 })
 

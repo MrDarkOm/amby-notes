@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Archive, Cloud, Eye, Loader2, MoreHorizontal, RotateCcw, Trash2 } from "lucide-react"
+import { Archive, Eye, Loader2, MoreHorizontal, RotateCcw, Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { MotionSpinner } from "@/lib/motion"
@@ -20,9 +20,10 @@ import type { PanelRenderProps } from "../panel-registry"
 import { TreeIcon } from "../tree/tree-icons"
 import { ArchivePreview } from "./archive-preview"
 import { ArchiveServerSection } from "./archive-server-section"
+import { ArchiveViewSwitch } from "./archive-view-switch"
 import { useArchiveServer } from "./use-archive-server"
 import { useSettingsStore } from "../use-settings-store"
-import { archiveEntryLabel, groupArchiveEntries } from "./archive-model"
+import { archiveEntryLabel, groupArchiveEntries, isServicePath } from "./archive-model"
 import { PanelHeader, PanelSearch } from "./panel-header"
 
 export function ArchivePanel({ vault }: PanelRenderProps) {
@@ -117,6 +118,10 @@ function ArchiveContents() {
     `${entry.name} ${entry.originalPath}`.toLocaleLowerCase().includes(normalizedQuery),
   )
   const groups = groupArchiveEntries(visibleEntries, now)
+  // The counter of the header is the number of rows of the list that shows (И9б).
+  const shownCount = showServer
+    ? (server.list?.files ?? []).filter((file) => !isServicePath(file.path)).length
+    : entries.length
   const locale = i18n.resolvedLanguage ?? i18n.language
   const timeFormat = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" })
   const dateFormat = new Intl.DateTimeFormat(locale, { day: "numeric", month: "short" })
@@ -163,25 +168,21 @@ function ArchiveContents() {
         actions={
           <>
             {server.syncOn && (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-pressed={showServer}
-                title={t("archivePanel.serverButton")}
-                aria-label={t("archivePanel.serverButton")}
-                className={showServer ? "bg-accent text-accent-foreground" : undefined}
-                onClick={() => {
-                  // The list is asked for again on every press: it may be minutes old (И13).
-                  if (!serverView) void server.reload()
-                  setServerView((current) => !current)
+              <ArchiveViewSwitch
+                cloud={showServer}
+                onChange={(cloud) => {
+                  // The list is asked for again on every switch to it: it may be minutes old (И13).
+                  if (cloud && !serverView) void server.reload()
+                  setServerView(cloud)
                 }}
-              >
-                <Cloud className="size-3.5" />
-              </Button>
+              />
             )}
-            {!loading && !showServer && (
-              <span className="text-[10px] font-normal text-muted-foreground">
-                {entries.length}
+            {(showServer ? server.list?.available : !loading) && (
+              <span
+                data-testid="archive-count"
+                className="text-[10px] font-normal text-muted-foreground"
+              >
+                {shownCount}
               </span>
             )}
           </>
