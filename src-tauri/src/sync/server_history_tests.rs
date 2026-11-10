@@ -1528,3 +1528,165 @@ fn i11a_without_sync_or_a_connection_there_are_no_marks() {
     assert!(!down.available);
     assert!(down.trash_on_server.is_empty());
 }
+
+// ----- И10а, И10б: service files, one row per path, a fresh tombstone -----
+
+#[test]
+fn i10a_service_files_get_no_row_and_no_cloud_mark() {
+    let vault = TempVault::new();
+    let service = ".amby/conflicts/c1/meta.json";
+    let path = vault.write(service, b"closed set");
+    recycle_bin::move_exact_to_trash(vault.path(), &path).unwrap();
+    let server = Server::default();
+    server.add_deleted_file(1, service, b"closed set", 100);
+    server.add_deleted_file(2, ".amby/properties/prop_01.jsonl", b"{}", 110);
+    server.add_deleted_file(3, "Notes/a.md", b"human text", 120);
+    let connect = server.connector();
+    let access = access(
+        &connect,
+        state_of(vec![
+            record(1, service, true, None),
+            record(2, ".amby/properties/prop_01.jsonl", true, None),
+            record(3, "Notes/a.md", true, None),
+        ]),
+    );
+    let list = deleted_files(
+        vault.path(),
+        Some(&access),
+        &ServerHistoryCache::default(),
+        NOW_MS,
+    );
+    assert!(list.available);
+    assert_eq!(paths_of(&list), vec!["Notes/a.md"]);
+    assert!(list.trash_on_server.is_empty(), "no cloud on a service entry");
+    assert!(vault.read(service).is_none());
+    assert_eq!(recycle_bin::list(vault.path()).len(), 1, "the entry stays on disk");
+}
+
+#[test]
+fn i10a_a_service_file_is_never_restored_even_when_asked_for() {
+    let vault = TempVault::new();
+    let server = Server::default();
+    server.add_deleted_file(1, ".amby/properties/prop_01.jsonl", b"{}", 100);
+    // A tombstone whose last body sits under a service path, though the record says otherwise.
+    server.add_deleted_file(2, ".amby/conflicts/c1/base", b"base", 110);
+    let connect = server.connector();
+    let access = access(
+        &connect,
+        state_of(vec![
+            record(1, ".amby/properties/prop_01.jsonl", true, None),
+            record(2, "Notes/innocent.md", true, None),
+        ]),
+    );
+    let outcome = restore_deleted(
+        vault.path(),
+        Some(&access),
+        &[item_hex(1), item_hex(2)],
+    )
+    .unwrap();
+    assert_eq!(outcome.restored, 0);
+    assert_eq!(outcome.results.len(), 2);
+    for result in &outcome.results {
+        assert_eq!(result.status, RestoreFileStatus::NotRestorable);
+        assert!(result.final_path.is_none());
+    }
+    assert!(vault.read(".amby/properties/prop_01.jsonl").is_none());
+    assert!(vault.read(".amby/conflicts/c1/base").is_none());
+    assert!(vault.read("Notes/innocent.md").is_none());
+    assert_eq!(server.download_calls(), 0, "nothing was even downloaded");
+}
+
+#[test]
+fn i10b_a_note_deleted_and_restored_three_times_is_one_row_for_the_newest_deletion() {
+    let vault = TempVault::new();
+    let server = Server::default();
+    server.add_deleted_file(1, "Notes/again.md", b"text", 100);
+    server.add_deleted_file(2, "Notes/again.md", b"text", 300);
+    server.add_deleted_file(3, "Notes/again.md", b"text", 200);
+    let connect = server.connector();
+    let access = access(
+        &connect,
+        state_of(vec![
+            record(1, "Notes/again.md", true, None),
+            record(2, "Notes/again.md", true, None),
+            record(3, "Notes/again.md", true, None),
+        ]),
+    );
+    let list = deleted_files(
+        vault.path(),
+        Some(&access),
+        &ServerHistoryCache::default(),
+        NOW_MS,
+    );
+    assert_eq!(list.files.len(), 1);
+    assert_eq!(list.files[0].item_id, item_hex(2));
+    assert_eq!(list.files[0].deleted_ms, 1_000_000 + 300 * 1_000);
+}
+
+#[test]
+fn i13_a_new_tombstone_in_the_state_ends_the_life_of_a_cached_list() {
+    // An own push does not move the cursor until the next pass: the cache must notice a local
+    // delete by the tombstones of the state.
+    let vault = TempVault::new();
+    let server = Server::default();
+    server.add_deleted_file(1, "Notes/first.md", b"one", 100);
+    server.add_deleted_file(2, "Notes/second.md", b"two", 200);
+    let connect = server.connector();
+    let before = access(
+        &connect,
+        state_of(vec![record(1, "Notes/first.md", true, None)]),
+    );
+    let cache = ServerHistoryCache::default();
+    let first = deleted_files(vault.path(), Some(&before), &cache, NOW_MS);
+    assert_eq!(paths_of(&first), vec!["Notes/first.md"]);
+    let after = access(
+        &connect,
+        state_of(vec![
+            record(1, "Notes/first.md", true, None),
+            record(2, "Notes/second.md", true, None),
+        ]),
+    );
+    let second = deleted_files(vault.path(), Some(&after), &cache, NOW_MS);
+    assert_eq!(paths_of(&second), vec!["Notes/second.md", "Notes/first.md"]);
+}
+
+#[test]
+fn i13_a_tombstone_that_came_back_to_life_ends_the_life_of_a_cached_list() {
+    let vault = TempVault::new();
+    let server = Server::default();
+    server.add_deleted_file(1, "Notes/first.md", b"one", 100);
+    let connect = server.connector();
+    let before = access(
+        &connect,
+        state_of(vec![record(1, "Notes/first.md", true, None)]),
+    );
+    let cache = ServerHistoryCache::default();
+    assert_eq!(
+        deleted_files(vault.path(), Some(&before), &cache, NOW_MS).files.len(),
+        1
+    );
+    // The same item is alive again: its record is no tombstone any more.
+    let after = access(
+        &connect,
+        state_of(vec![record(1, "Notes/first.md", false, Some(b"one"))]),
+    );
+    assert!(deleted_files(vault.path(), Some(&after), &cache, NOW_MS)
+        .files
+        .is_empty());
+}
+
+#[test]
+fn i13_an_unchanged_state_keeps_using_the_cache() {
+    let vault = TempVault::new();
+    let server = Server::default();
+    server.add_deleted_file(1, "Notes/first.md", b"one", 100);
+    let connect = server.connector();
+    let cache = ServerHistoryCache::default();
+    let state = || state_of(vec![record(1, "Notes/first.md", true, None)]);
+    let first = access(&connect, state());
+    let _ = deleted_files(vault.path(), Some(&first), &cache, NOW_MS);
+    let calls = server.version_calls();
+    let again = access(&connect, state());
+    let _ = deleted_files(vault.path(), Some(&again), &cache, NOW_MS);
+    assert_eq!(server.version_calls(), calls);
+}
