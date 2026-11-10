@@ -151,8 +151,8 @@ describe("И9а: the cloud button and the switch", () => {
     open(twoDeleted)
     await screen.findByText("Локальная", {}, FAST)
     await showServer()
-    const search = screen.getByRole("searchbox", {}) as HTMLInputElement
-    fireEvent.change(search, { target: { value: "Удалённая 2" } })
+    const box = search() as HTMLInputElement
+    fireEvent.change(box, { target: { value: "Удалённая 2" } })
     expect(serverRows()).toHaveLength(1)
     expect(screen.getByText("Удалённая 2")).toBeTruthy()
     fireEvent.change(box, { target: { value: "нет такой" } })
@@ -291,6 +291,7 @@ describe("И10, И12: a row", () => {
         truncated: false,
       }),
     })
+    await showServer()
     const row = await screen.findByTestId("archive-server-row", {}, FAST)
     expect(within(row).getByText("Удалённая 1")).toBeTruthy()
     expect(within(row).getByText(/удалён 3 дня назад/)).toBeTruthy()

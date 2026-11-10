@@ -1558,9 +1558,16 @@ fn i10a_service_files_get_no_row_and_no_cloud_mark() {
     );
     assert!(list.available);
     assert_eq!(paths_of(&list), vec!["Notes/a.md"]);
-    assert!(list.trash_on_server.is_empty(), "no cloud on a service entry");
+    assert!(
+        list.trash_on_server.is_empty(),
+        "no cloud on a service entry"
+    );
     assert!(vault.read(service).is_none());
-    assert_eq!(recycle_bin::list(vault.path()).len(), 1, "the entry stays on disk");
+    assert_eq!(
+        recycle_bin::list(vault.path()).len(),
+        1,
+        "the entry stays on disk"
+    );
 }
 
 #[test]
@@ -1578,12 +1585,8 @@ fn i10a_a_service_file_is_never_restored_even_when_asked_for() {
             record(2, "Notes/innocent.md", true, None),
         ]),
     );
-    let outcome = restore_deleted(
-        vault.path(),
-        Some(&access),
-        &[item_hex(1), item_hex(2)],
-    )
-    .unwrap();
+    let outcome =
+        restore_deleted(vault.path(), Some(&access), &[item_hex(1), item_hex(2)]).unwrap();
     assert_eq!(outcome.restored, 0);
     assert_eq!(outcome.results.len(), 2);
     for result in &outcome.results {
@@ -1662,7 +1665,9 @@ fn i13_a_tombstone_that_came_back_to_life_ends_the_life_of_a_cached_list() {
     );
     let cache = ServerHistoryCache::default();
     assert_eq!(
-        deleted_files(vault.path(), Some(&before), &cache, NOW_MS).files.len(),
+        deleted_files(vault.path(), Some(&before), &cache, NOW_MS)
+            .files
+            .len(),
         1
     );
     // The same item is alive again: its record is no tombstone any more.

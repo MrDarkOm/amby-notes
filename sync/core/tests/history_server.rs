@@ -819,6 +819,9 @@ fn i10b_other_paths_keep_their_own_rows_and_the_order() {
     let (t2, h2) = history_of(2, "Notes/b.md", 300);
     let (t3, h3) = history_of(3, "Notes/a.md", 200);
     let list = rows(&[t1, t2, t3], &[h1, h2, h3], &[]);
-    let seen: Vec<(&str, u64)> = list.iter().map(|r| (r.path.as_str(), r.deleted_seq)).collect();
+    let seen: Vec<(&str, u64)> = list
+        .iter()
+        .map(|r| (r.path.as_str(), r.deleted_seq))
+        .collect();
     assert_eq!(seen, vec![("Notes/b.md", 300), ("Notes/a.md", 200)]);
 }

@@ -341,6 +341,15 @@ pub fn list(vault: &Path) -> Vec<TrashEntry> {
     entries
 }
 
+/// The entries the archive panel shows: [`list`] without the service entries (original path inside
+/// `.amby/`, e.g. closed conflict sets, И10а). Display only: the entries stay on disk and
+/// `restore` / `purge` work on them by id as before.
+pub fn list_for_archive(vault: &Path) -> Vec<TrashEntry> {
+    let mut entries = list(vault);
+    entries.retain(|entry| !amby_sync_core::engine::history::is_service_path(&entry.original_path));
+    entries
+}
+
 /// Every file the trash holds with the id of its trash entry and the vault path it came from (a
 /// folder gives its files). Only reads; used to tell what the server could still give back from
 /// what the person has, and to mark entries the server also holds (appendix И, И11, И11а).
