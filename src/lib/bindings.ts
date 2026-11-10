@@ -3292,7 +3292,12 @@ export type RestoreFileStatus =
 /**
  * Sync of this vault is off: nothing written (И15).
  */
-"syncOff"
+"syncOff" | 
+/**
+ * A service file (inside `.amby/`): never restored, even when asked for; nothing written
+ * (И10а).
+ */
+"notRestorable"
 /**
  * The answer to "Вернуть" for a version (И6).
  */

@@ -825,6 +825,8 @@ const ru = {
   },
   archivePanel: {
     serverSection: "На сервере",
+    serverButton: "Файлы на сервере",
+    serverEmpty: "На сервере нет удалённых файлов",
     serverOffline: "Файлы с сервера появятся, когда будет связь",
     serverTruncated: "Показаны последние {{count}}",
     serverKeptUntil: "хранится до {{until}}",
@@ -5283,6 +5285,8 @@ const en: typeof ru = {
   },
   archivePanel: {
     serverSection: "On the server",
+    serverButton: "Files on the server",
+    serverEmpty: "No deleted files on the server",
     serverOffline: "Files from the server will appear when there is a connection",
     serverTruncated: "Showing the last {{count}}",
     serverKeptUntil: "kept until {{until}}",

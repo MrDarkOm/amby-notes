@@ -259,6 +259,63 @@ pub struct DeletedFile {
     pub deleted_by: [u8; 16],
 }
 
+/// Is `path` inside the service folder `.amby/` of the vault (conflict sets, property group files,
+/// layout and the rest)? Such files are never shown to the person and never restored (И10а). The
+/// folder is the first component of a vault path; the comparison ignores case because the disk of
+/// a Mac or a Windows machine does.
+pub fn is_service_path(path: &str) -> bool {
+    let normalized = path.replace('\\', "/");
+    normalized
+        .trim_start_matches('/')
+        .split('/')
+        .next()
+        .is_some_and(|first| first.eq_ignore_ascii_case(".amby"))
+}
+
+/// The deleted file one tombstone stands for, with **no** filtering by path (И10): the caller of a
+/// restore uses it to find out what was asked for and refuse a service path itself (И10а).
+/// `None` when the latest version that passes the checks is not a deletion, or no earlier version
+/// has a body.
+pub fn locate_deleted_file(
+    space: &SpaceId,
+    keys: &[SpaceKey],
+    tombstone: &ItemRecord,
+    entries: &[VersionEntry],
+) -> Option<DeletedFile> {
+    if !tombstone.deleted || tombstone.kind != ItemKind::File {
+        return None;
+    }
+    // Only the headers that pass the checks count, newest first.
+    let mut opened: Vec<(&VersionEntry, Header)> = entries
+        .iter()
+        .filter_map(|entry| {
+            open_entry(space, keys, &tombstone.item_id, entry)
+                .ok()
+                .map(|header| (entry, header))
+        })
+        .collect();
+    opened.sort_by_key(|(entry, _)| std::cmp::Reverse(entry.version));
+    let (deleting, latest) = opened.first()?;
+    if !latest.deleted {
+        return None;
+    }
+    let version = opened
+        .iter()
+        .skip(1)
+        .find_map(|(entry, header)| as_version(entry, header))?;
+    Some(DeletedFile {
+        item_id: tombstone.item_id,
+        path: version.path,
+        size: version.size,
+        version: version.version,
+        body_id: version.body_id,
+        content_hash: version.content_hash,
+        deleted_ms: deleting.committed_ms,
+        deleted_seq: deleting.seq,
+        deleted_by: deleting.device_id,
+    })
+}
+
 /// Lays out the deleted files of the server (И10, И11, И18).
 ///
 /// A row for every tombstone in `tombstones` that is a file (not a folder, Д3) and whose `history`
@@ -268,7 +325,8 @@ pub struct DeletedFile {
 /// for one whose latest version is alive. `hidden` lists `(path, content_hash)` of what the
 /// person already has — the local trash and the files that lie at their path now (И11): a row
 /// with the same path and the same hash is dropped. Newest deletion first (`deleted_seq`
-/// descending). Appendix И, И10, И11, И18.
+/// descending). A path inside `.amby/` never gets a row (И10а); a path deleted several times gets one
+/// row, for the newest deletion (И10б). Appendix И, И10, И10а, И10б, И11, И18.
 pub fn deleted_files(
     space: &SpaceId,
     keys: &[SpaceKey],
@@ -308,12 +366,8 @@ pub fn deleted_files_matched(
     histories: &[ItemHistory],
     hidden: &[(String, [u8; 32])],
 ) -> DeletedFiles {
-    let mut rows = Vec::new();
-    let mut matched = Vec::new();
+    let mut files: Vec<DeletedFile> = Vec::new();
     for tombstone in tombstones {
-        if !tombstone.deleted || tombstone.kind != ItemKind::File {
-            continue;
-        }
         let Some(entries) = histories
             .iter()
             .find(|history| history.item_id == tombstone.item_id)
@@ -321,55 +375,38 @@ pub fn deleted_files_matched(
         else {
             continue;
         };
-        // Only the headers that pass the checks count, newest first.
-        let mut opened: Vec<(&VersionEntry, Header)> = entries
-            .iter()
-            .filter_map(|entry| {
-                open_entry(space, keys, &tombstone.item_id, entry)
-                    .ok()
-                    .map(|header| (entry, header))
-            })
-            .collect();
-        opened.sort_by_key(|(entry, _)| std::cmp::Reverse(entry.version));
-        let Some((deleting, latest)) = opened.first() else {
-            continue;
-        };
-        if !latest.deleted {
-            continue;
+        // Service files (И10а) are not the person's: no row, no cloud mark.
+        if let Some(file) = locate_deleted_file(space, keys, tombstone, entries)
+            .filter(|file| !is_service_path(&file.path))
+        {
+            files.push(file);
         }
-        let Some(version) = opened
-            .iter()
-            .skip(1)
-            .find_map(|(entry, header)| as_version(entry, header))
-        else {
-            continue;
-        };
-        let file = DeletedFile {
-            item_id: tombstone.item_id,
-            path: version.path,
-            size: version.size,
-            version: version.version,
-            body_id: version.body_id,
-            content_hash: version.content_hash,
-            deleted_ms: deleting.committed_ms,
-            deleted_seq: deleting.seq,
-            deleted_by: deleting.device_id,
-        };
-        let covering: Vec<usize> = hidden
+    }
+    let covering = |file: &DeletedFile| -> Vec<usize> {
+        hidden
             .iter()
             .enumerate()
             .filter(|(_, (path, hash))| *path == file.path && *hash == file.content_hash)
             .map(|(index, _)| index)
-            .collect();
-        if covering.is_empty() {
-            rows.push(file);
-        } else {
-            matched.extend(covering.into_iter().map(|hidden_index| HiddenMatch {
-                hidden_index,
-                file: file.clone(),
-            }));
+            .collect()
+    };
+    let mut matched = Vec::new();
+    for file in &files {
+        matched.extend(covering(file).into_iter().map(|hidden_index| HiddenMatch {
+            hidden_index,
+            file: file.clone(),
+        }));
+    }
+    // И10б: one row per path, for the newest deletion.
+    let mut rows: Vec<DeletedFile> = Vec::new();
+    for file in files {
+        match rows.iter_mut().find(|row| row.path == file.path) {
+            Some(row) if row.deleted_seq >= file.deleted_seq => {}
+            Some(row) => *row = file,
+            None => rows.push(file),
         }
     }
+    rows.retain(|row| covering(row).is_empty());
     rows.sort_by_key(|row| std::cmp::Reverse(row.deleted_seq));
     matched.sort_by_key(|found| std::cmp::Reverse(found.file.deleted_seq));
     DeletedFiles { rows, matched }

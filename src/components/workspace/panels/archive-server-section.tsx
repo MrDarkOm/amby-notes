@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Cloud, Loader2, RotateCcw } from "lucide-react"
+import { Loader2, RotateCcw } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { logger, errorType } from "@/lib/logger"
@@ -12,6 +12,7 @@ import {
   type DeletedOnServer,
   type RestoreDeletedOutcome,
 } from "@/lib/sync/sync-port"
+import { isServicePath } from "./archive-model"
 
 const DAY_MS = 24 * 60 * 60 * 1000
 /** The server list is cut to the newest 500 (И13, `MAX_DELETED_ROWS`). */
@@ -50,75 +51,38 @@ function resultLine(
 }
 
 /**
- * "На сервере": files that were deleted but that the server still keeps (docs/sync-plan.md,
- * appendix И, И9–И17). Only when sync of the vault is on; the list is asked for once when the
- * section opens. A restore writes the files through the app and the answer stays under the button.
+ * The server list that the cloud button of the header switches the archive panel to: files that
+ * were deleted but that the server still keeps (docs/sync-plan.md, appendix И, И9а–И17). Service
+ * files are never listed (И10а). The panel search filters it. A restore writes the files through the
+ * app and the answer stays under the button.
  */
 export function ArchiveServerSection({
-  onList,
+  list,
+  query,
+  reload,
 }: {
-  /** Told about every list that arrives: the local entries get their cloud from it (И11а). */
-  onList?: (list: DeletedOnServer) => void
+  list: DeletedOnServer | null
+  /** The text of the panel search, already trimmed and lower-cased. */
+  query: string
+  reload: () => Promise<void>
 }) {
   const { t, i18n } = useTranslation()
   const port = React.useMemo(() => resolveSyncPort(), [])
-  const [on, setOn] = React.useState(false)
-  const [list, setList] = React.useState<DeletedOnServer | null>(null)
   const [ticked, setTicked] = React.useState<Set<string>>(new Set())
   const [busy, setBusy] = React.useState(false)
   const [result, setResult] = React.useState<string | null>(null)
   const mounted = React.useRef(true)
-  const request = React.useRef(0)
   const locale = i18n.resolvedLanguage ?? i18n.language
-
-  const load = React.useCallback(async () => {
-    const sequence = ++request.current
-    let next: DeletedOnServer
-    try {
-      next = await port.deletedFiles()
-    } catch (cause) {
-      // Not an error for the person (И13): the same calm line as without a connection.
-      logger.warn("archive.server_list_failed", { errorType: errorType(cause) })
-      next = {
-        available: false,
-        reason: "offline",
-        files: [],
-        truncated: false,
-        trashOnServer: [],
-      }
-    }
-    if (mounted.current && sequence === request.current) {
-      setList(next)
-      onList?.(next)
-    }
-  }, [port, onList])
 
   React.useEffect(() => {
     mounted.current = true
-    let cancelled = false
-    port
-      .vaultStatus()
-      .then((status) => {
-        if (!cancelled) setOn(status.enabled && status.linked)
-      })
-      .catch(() => {
-        if (!cancelled) setOn(false)
-      })
-    const requests = request
     return () => {
-      cancelled = true
       mounted.current = false
-      requests.current++
     }
-  }, [port])
+  }, [])
 
-  React.useEffect(() => {
-    if (on) void load()
-  }, [on, load])
-
-  if (!on) return null
-
-  const files = list?.files ?? []
+  const all = (list?.files ?? []).filter((file) => !isServicePath(file.path))
+  const files = all.filter((file) => file.path.toLocaleLowerCase().includes(query))
   const now = Date.now()
 
   function toggle(file: DeletedFileView) {
@@ -139,7 +103,7 @@ export function ArchiveServerSection({
       if (!mounted.current) return
       setResult(resultLine(outcome, t))
       setTicked(new Set())
-      await load()
+      await reload()
     } catch (cause) {
       logger.warn("archive.server_restore_failed", { errorType: errorType(cause) })
       if (mounted.current) setResult(t("archivePanel.restoreFailed"))
@@ -156,17 +120,23 @@ export function ArchiveServerSection({
   }
 
   return (
-    <section
-      data-testid="archive-server-section"
-      className="mb-3"
-      aria-label={t("archivePanel.serverSection")}
-    >
-      <h3 className="flex items-center gap-1 px-2 pb-1 pt-2 text-[10px] font-medium text-muted-foreground">
-        <Cloud className="size-3" aria-hidden />
-        {t("archivePanel.serverSection")}
-      </h3>
+    <section data-testid="archive-server-section" aria-label={t("archivePanel.serverSection")}>
       {list && !list.available ? (
         <p className="px-2 py-1 text-xs text-muted-foreground">{t("archivePanel.serverOffline")}</p>
+      ) : !list ? (
+        <p className="flex justify-center py-10 text-muted-foreground">
+          <MotionSpinner>
+            <Loader2 className="size-4" />
+          </MotionSpinner>
+        </p>
+      ) : all.length === 0 ? (
+        <p className="py-10 text-center text-xs text-muted-foreground">
+          {t("archivePanel.serverEmpty")}
+        </p>
+      ) : files.length === 0 ? (
+        <p className="py-10 text-center text-xs text-muted-foreground">
+          {t("historyPanel.noResults")}
+        </p>
       ) : (
         <>
           <div className="space-y-0.5">
@@ -227,18 +197,18 @@ export function ArchiveServerSection({
                 )}
                 {t("archivePanel.serverRestore")}
               </Button>
-              {result && (
-                <p
-                  role="status"
-                  data-testid="archive-server-result"
-                  className="text-xs text-muted-foreground"
-                >
-                  {result}
-                </p>
-              )}
             </div>
           )}
         </>
+      )}
+      {result && (
+        <p
+          role="status"
+          data-testid="archive-server-result"
+          className="px-2 pt-1 text-xs text-muted-foreground"
+        >
+          {result}
+        </p>
       )}
     </section>
   )

@@ -341,6 +341,15 @@ pub fn list(vault: &Path) -> Vec<TrashEntry> {
     entries
 }
 
+/// The entries the archive panel shows: [`list`] without the service entries (original path inside
+/// `.amby/`, e.g. closed conflict sets, И10а). Display only: the entries stay on disk and
+/// `restore` / `purge` work on them by id as before.
+pub fn list_for_archive(vault: &Path) -> Vec<TrashEntry> {
+    let mut entries = list(vault);
+    entries.retain(|entry| !amby_sync_core::engine::history::is_service_path(&entry.original_path));
+    entries
+}
+
 /// Every file the trash holds with the id of its trash entry and the vault path it came from (a
 /// folder gives its files). Only reads; used to tell what the server could still give back from
 /// what the person has, and to mark entries the server also holds (appendix И, И11, И11а).
@@ -718,5 +727,38 @@ mod tests {
         );
         assert_eq!(list(&vault).len(), 1);
         fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn the_archive_list_hides_service_entries_but_leaves_them_on_disk() {
+        // И10а: display only; the entries are still restorable and purgeable by id.
+        let vault = std::env::temp_dir().join(format!("amby-archive-list-{}", Ulid::generate()));
+        fs::create_dir_all(vault.join(".amby/conflicts/c1")).unwrap();
+        fs::create_dir_all(vault.join("Notes")).unwrap();
+        let service = vault.join(".amby/conflicts/c1/meta.json");
+        let note = vault.join("Notes/a.md");
+        let nested = vault.join("Notes/.amby-like.md");
+        fs::write(&service, "closed").unwrap();
+        fs::write(&note, "human").unwrap();
+        fs::write(&nested, "human").unwrap();
+        move_exact_to_trash(&vault, &service).unwrap();
+        move_to_trash(&vault, &note).unwrap();
+        move_to_trash(&vault, &nested).unwrap();
+        assert_eq!(list(&vault).len(), 3, "the trash itself keeps everything");
+        let shown: Vec<String> = list_for_archive(&vault)
+            .into_iter()
+            .map(|entry| entry.original_path)
+            .collect();
+        assert_eq!(shown.len(), 2);
+        assert!(shown.iter().all(|path| !path.starts_with(".amby/")));
+        let service_entry = list(&vault)
+            .into_iter()
+            .find(|entry| entry.original_path.starts_with(".amby/"))
+            .unwrap();
+        assert!(root(&vault)
+            .join(&service_entry.id)
+            .join(&service_entry.name)
+            .exists());
+        let _ = fs::remove_dir_all(&vault);
     }
 }

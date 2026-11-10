@@ -233,6 +233,9 @@ pub enum RestoreFileStatus {
     Failed,
     /// Sync of this vault is off: nothing written (И15).
     SyncOff,
+    /// A service file (inside `.amby/`): never restored, even when asked for; nothing written
+    /// (И10а).
+    NotRestorable,
 }
 
 /// One row of the answer to a restore of several files (И17).
@@ -286,10 +289,13 @@ pub const MAX_PARALLEL_VERSION_REQUESTS: usize = 8;
 /// The most deleted files in a list (И13).
 pub const MAX_DELETED_ROWS: usize = 500;
 
-/// A cache of the lists of deleted files, kept in memory until the next pass of the sync (И13).
+/// A cache of the lists of deleted files, kept in memory until the next pass of the sync (И13) or
+/// until the tombstones of the state change: an own push does not move the cursor of the feed
+/// until the next pass, so a local delete must end the life of the list by itself.
 #[derive(Default)]
 pub struct ServerHistoryCache {
-    deleted: Mutex<Option<DeletedOnServer>>,
+    /// The list and the fingerprint of the tombstones it was built from.
+    deleted: Mutex<Option<(u64, DeletedOnServer)>>,
     cursor: Mutex<Option<u64>>,
 }
 
@@ -781,14 +787,32 @@ fn hidden_by_local_copies(vault: &Path, tombstones: &[&ItemRecord]) -> HiddenCop
     (hidden, ids)
 }
 
+/// The tombstones of files the person can see: a tombstone of a service path (И10а) is not asked
+/// for at all.
 fn tombstone_files(state: &SyncState) -> Vec<&ItemRecord> {
     state
         .items
         .values()
         .filter(|record| {
-            record.deleted && record.kind == amby_sync_core::crypto::header::ItemKind::File
+            record.deleted
+                && record.kind == amby_sync_core::crypto::header::ItemKind::File
+                && !core_history::is_service_path(&record.path)
         })
         .collect()
+}
+
+/// A number that changes when a tombstone appears, goes or is replaced by a newer version (the
+/// cache key of the list besides the cursor).
+fn tombstone_fingerprint(tombstones: &[&ItemRecord]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut keys: Vec<([u8; 16], u64)> = tombstones
+        .iter()
+        .map(|record| (*record.item_id.as_bytes(), record.version))
+        .collect();
+    keys.sort_unstable();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    keys.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// The "on the server" part of the archive (И9–И13): one `versions` request per tombstone, at most
@@ -811,15 +835,17 @@ pub fn deleted_files(
     let Some(access) = access else {
         return unavailable(ServerListUnavailable::SyncOff);
     };
-    if let Some(cached) = cache
+    let tombstones = tombstone_files(&access.state);
+    let fingerprint = tombstone_fingerprint(&tombstones);
+    if let Some((_, cached)) = cache
         .deleted
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clone()
+        .filter(|(seen, _)| *seen == fingerprint)
     {
         return cached;
     }
-    let tombstones = tombstone_files(&access.state);
     let items: Vec<ItemId> = tombstones.iter().map(|record| record.item_id).collect();
     let Ok(histories) = fetch_histories(access, &items) else {
         return unavailable(ServerListUnavailable::Offline);
@@ -883,7 +909,7 @@ pub fn deleted_files(
     *cache
         .deleted
         .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(list.clone());
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((fingerprint, list.clone()));
     list
 }
 
@@ -911,6 +937,10 @@ fn restore_one(
     }) else {
         return none(RestoreFileStatus::Gone);
     };
+    // И10а: a service file is refused before anything is asked of the server.
+    if core_history::is_service_path(&record.path) {
+        return none(RestoreFileStatus::NotRestorable);
+    }
     let entries = match list_versions(remote, &item) {
         Listing::Entries(entries) => entries,
         Listing::Missing => return none(RestoreFileStatus::Gone),
@@ -920,16 +950,16 @@ fn restore_one(
         item_id: item,
         entries: Some(entries),
     }];
-    let rows = core_history::deleted_files(
-        &access.space,
-        &access.keys,
-        std::slice::from_ref(record),
-        &histories,
-        &[],
-    );
-    let Some(row) = rows.first() else {
+    let Some(row) = histories[0].entries.as_deref().and_then(|entries| {
+        core_history::locate_deleted_file(&access.space, &access.keys, record, entries)
+    }) else {
         return none(RestoreFileStatus::Gone);
     };
+    // И10а again, by the path of the version that would be written.
+    if core_history::is_service_path(&row.path) {
+        return none(RestoreFileStatus::NotRestorable);
+    }
+    let row = &row;
     let version = as_history_version(row);
     let bytes = match fetch_body(access, remote, &version) {
         Fetched::Content(bytes) => bytes,

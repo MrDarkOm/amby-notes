@@ -40,3 +40,13 @@ export function archiveEntryLabel(entry: TrashEntry) {
           : null
   return { title, parent: parent.split("/").filter(Boolean).join(" / "), icon }
 }
+
+/**
+ * A path inside the service folder `.amby/` of the vault (conflict sets, property group files,
+ * layout…). It is never shown in the archive (docs/sync-plan.md, И10а); the backend filters too,
+ * this is the second guard for what the panel is handed. Case-insensitive like the disk.
+ */
+export function isServicePath(path: string): boolean {
+  const first = path.replace(/\\/g, "/").replace(/^\/+/, "").split("/")[0]
+  return first.toLowerCase() === ".amby"
+}

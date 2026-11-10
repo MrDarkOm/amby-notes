@@ -211,7 +211,7 @@ pub fn list_recovery(
 pub fn list_trash(
     scope: tauri::State<paths::VaultScope>,
 ) -> Result<Vec<recycle_bin::TrashEntry>, String> {
-    Ok(recycle_bin::list(&scope.get()?))
+    Ok(recycle_bin::list_for_archive(&scope.get()?))
 }
 
 #[tauri::command]

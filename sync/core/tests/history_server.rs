@@ -12,8 +12,9 @@ use amby_sync_core::crypto::padme::sealed_body_len;
 use amby_sync_core::crypto::primitives::blake3_hash;
 use amby_sync_core::crypto::random::OsRandom;
 use amby_sync_core::engine::history::{
-    deleted_files, deleted_files_matched, open_version_body, server_history, DeletedFile,
-    HistoryVersion, ItemHistory, OpenedVersion, SkipCode, MAX_PREVIEW_BYTES,
+    deleted_files, deleted_files_matched, is_service_path, locate_deleted_file, open_version_body,
+    server_history, DeletedFile, HistoryVersion, ItemHistory, OpenedVersion, SkipCode,
+    MAX_PREVIEW_BYTES,
 };
 use amby_sync_core::engine::{ItemRecord, VersionEntry};
 
@@ -725,4 +726,102 @@ fn i11a_a_row_that_nothing_hides_has_no_match() {
     );
     assert_eq!(result.rows.len(), 1);
     assert!(result.matched.is_empty());
+}
+
+// ----- И10а: service files are never shown; И10б: one row per path -----
+
+fn item_n(n: u8) -> ItemId {
+    ItemId::from_bytes([n; 16])
+}
+
+/// A deleted file of item `n` at `path`: a live version, then a deletion at `delete_seq`.
+fn history_of(n: u8, path: &str, delete_seq: u64) -> (ItemRecord, ItemHistory) {
+    let id = item_n(n);
+    let mut record = tombstone(path);
+    record.item_id = id;
+    let live = entry_with(&vk(), &id, &live_header(1, path), false, 5);
+    let deleted = entry_with(&vk(), &id, &deleted_header(2, path), true, delete_seq);
+    (
+        record,
+        ItemHistory {
+            item_id: id,
+            entries: Some(vec![deleted, live]),
+        },
+    )
+}
+
+#[test]
+fn i10a_a_path_inside_amby_is_a_service_path() {
+    for path in [
+        ".amby/conflicts/c1/meta.json",
+        ".amby/properties/prop_01.jsonl",
+        ".amby/layout.json",
+        ".amby",
+        ".AMBY/conflicts/x",
+    ] {
+        assert!(is_service_path(path), "{path}");
+    }
+    for path in [
+        "Notes/a.md",
+        "Notes/.amby/a.md",
+        ".ambyx/a.md",
+        "amby/a.md",
+        "",
+    ] {
+        assert!(!is_service_path(path), "{path}");
+    }
+}
+
+#[test]
+fn i10a_service_files_get_no_row() {
+    let (t1, h1) = history_of(1, ".amby/conflicts/c1/meta.json", 100);
+    let (t2, h2) = history_of(2, ".amby/properties/prop_01.jsonl", 110);
+    let (t3, h3) = history_of(3, "Notes/a.md", 120);
+    let list = rows(&[t1, t2, t3], &[h1, h2, h3], &[]);
+    let paths: Vec<&str> = list.iter().map(|r| r.path.as_str()).collect();
+    assert_eq!(paths, vec!["Notes/a.md"]);
+}
+
+#[test]
+fn i10a_a_service_file_is_not_a_cloud_match_either() {
+    // И3а, И11а: not as a mark on a local trash entry.
+    let path = ".amby/conflicts/c1/meta.json";
+    let (t1, h1) = history_of(1, path, 100);
+    let hidden = [(path.to_string(), blake3_hash(&content_of(1)))];
+    let result = deleted_files_matched(&space(), &[vk()], &[t1], &[h1], &hidden);
+    assert!(result.rows.is_empty());
+    assert!(result.matched.is_empty());
+}
+
+#[test]
+fn i10a_the_restore_layout_still_finds_the_file_so_that_the_caller_can_refuse_it() {
+    let path = ".amby/properties/prop_01.jsonl";
+    let (t1, h1) = history_of(1, path, 100);
+    let found = locate_deleted_file(&space(), &[vk()], &t1, h1.entries.as_deref().unwrap());
+    assert_eq!(found.map(|file| file.path), Some(path.to_string()));
+}
+
+#[test]
+fn i10b_a_path_deleted_several_times_gives_one_row_for_the_newest_deletion() {
+    // И16: each return is a new item, so the same path is deleted again under another item.
+    let (t1, h1) = history_of(1, "Notes/a.md", 100);
+    let (t2, h2) = history_of(2, "Notes/a.md", 300);
+    let (t3, h3) = history_of(3, "Notes/a.md", 200);
+    let list = rows(&[t1, t2, t3], &[h1, h2, h3], &[]);
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].item_id, item_n(2));
+    assert_eq!(list[0].deleted_seq, 300);
+}
+
+#[test]
+fn i10b_other_paths_keep_their_own_rows_and_the_order() {
+    let (t1, h1) = history_of(1, "Notes/a.md", 100);
+    let (t2, h2) = history_of(2, "Notes/b.md", 300);
+    let (t3, h3) = history_of(3, "Notes/a.md", 200);
+    let list = rows(&[t1, t2, t3], &[h1, h2, h3], &[]);
+    let seen: Vec<(&str, u64)> = list
+        .iter()
+        .map(|r| (r.path.as_str(), r.deleted_seq))
+        .collect();
+    assert_eq!(seen, vec![("Notes/b.md", 300), ("Notes/a.md", 200)]);
 }

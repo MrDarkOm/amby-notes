@@ -21,7 +21,8 @@ import { TreeIcon } from "../tree/tree-icons"
 import { ArchivePreview } from "./archive-preview"
 import type { DeletedOnServer } from "@/lib/sync/sync-port"
 import { ArchiveServerSection } from "./archive-server-section"
-import { archiveEntryLabel, groupArchiveEntries } from "./archive-model"
+import { useArchiveServer } from "./use-archive-server"
+import { archiveEntryLabel, groupArchiveEntries, isServicePath } from "./archive-model"
 import { PanelHeader, PanelSearch } from "./panel-header"
 
 export function ArchivePanel({ vault }: PanelRenderProps) {
@@ -45,6 +46,14 @@ function ArchiveContents() {
       ),
     )
   }, [])
+  const server = useArchiveServer(onServerList)
+  // The cloud button switches the panel between the trash and the server list (И9а). Not
+  // remembered between launches; sync going off ends the server view.
+  const [serverView, setServerView] = React.useState(false)
+  const showServer = serverView && server.syncOn
+  React.useEffect(() => {
+    if (!server.syncOn) setServerView(false)
+  }, [server.syncOn])
   const [previewEntry, setPreviewEntry] = React.useState<TrashEntry | null>(null)
   const previewOpening = React.useRef(false)
   const [openMenuId, setOpenMenuId] = React.useState<string | null>(null)
@@ -79,7 +88,8 @@ function ArchiveContents() {
     try {
       const next = await listTrash()
       if (sequence === request.current.sequence) {
-        setEntries(next)
+        // The service entries are never shown (И10a); they stay on disk.
+        setEntries(next.filter((entry) => !isServicePath(entry.originalPath)))
         setError(null)
       }
     } catch {
@@ -147,12 +157,29 @@ function ArchiveContents() {
       <PanelHeader
         title={t("panels.archive")}
         actions={
-          !loading && (
-            <span className="text-[10px] font-normal text-muted-foreground">{entries.length}</span>
-          )
+          <>
+            {server.syncOn && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-pressed={showServer}
+                title={t("archivePanel.serverButton")}
+                aria-label={t("archivePanel.serverButton")}
+                className={showServer ? "bg-accent text-accent-foreground" : undefined}
+                onClick={() => setServerView((current) => !current)}
+              >
+                <Cloud className="size-3.5" />
+              </Button>
+            )}
+            {!loading && !showServer && (
+              <span className="text-[10px] font-normal text-muted-foreground">
+                {entries.length}
+              </span>
+            )}
+          </>
         }
       />
-      {entries.length > 0 && (
+      {(showServer || entries.length > 0) && (
         <PanelSearch
           value={query}
           onChange={setQuery}
@@ -169,7 +196,9 @@ function ArchiveContents() {
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-        {loading ? (
+        {showServer ? (
+          <ArchiveServerSection list={server.list} query={normalizedQuery} reload={server.reload} />
+        ) : loading ? (
           <p className="flex justify-center py-10 text-muted-foreground">
             <MotionSpinner>
               <Loader2 className="size-4" />
@@ -321,7 +350,6 @@ function ArchiveContents() {
             </section>
           ))
         )}
-        <ArchiveServerSection onList={onServerList} />
       </div>
       {previewEntry && (
         <ArchivePreview
