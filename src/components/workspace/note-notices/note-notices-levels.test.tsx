@@ -93,9 +93,9 @@ describe("the level of every card of a note", () => {
     expect(card("note-notice-remote-deleted").getAttribute("data-level")).toBe("decision")
   })
 
-  it("a file deleted outside Amby is a danger", () => {
+  it("a file deleted outside Amby is a decision: the text is still open, nothing is lost (К12)", () => {
     mount({ document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true } })
-    expect(card("note-notice-deleted").getAttribute("data-level")).toBe("danger")
+    expect(card("note-notice-deleted").getAttribute("data-level")).toBe("decision")
   })
 
   it("a change outside Amby with unsaved edits is a decision", () => {
@@ -165,7 +165,7 @@ describe("the level of every card of a note", () => {
     card("note-notice-sync-conflict")
     const icons: Record<string, string> = {
       "note-notice-sync-conflict": "lucide-triangle-alert",
-      "note-notice-deleted": "lucide-octagon-alert",
+      "note-notice-deleted": "lucide-triangle-alert",
       "note-notice-warning": "lucide-circle-alert",
       "note-notice-restored": "lucide-info",
     }
@@ -179,8 +179,9 @@ describe("the level of every card of a note", () => {
 
   it("danger is said as an alert and the rest as a status", () => {
     useSyncNoticesStore.setState({ conflicts: [conflict] })
-    mount({ document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true } })
-    expect(card("note-notice-deleted").getAttribute("role")).toBe("alert")
+    useNoteNoticesStore.getState().setSaveFailed(ABSOLUTE, true)
+    mount()
+    expect(card("note-notice-save-failed").getAttribute("role")).toBe("alert")
     expect(card("note-notice-sync-conflict").getAttribute("role")).toBe("status")
   })
 })
@@ -261,7 +262,7 @@ describe("what opens the stack by itself follows the level (docs/notices.md, 2.1
       none,
       { document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true } },
       "note-notice-deleted",
-      "danger",
+      "decision",
     ],
     [
       "a change outside Amby",

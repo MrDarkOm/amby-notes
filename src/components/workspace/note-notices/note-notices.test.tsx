@@ -416,39 +416,82 @@ describe("what was done after a choice in the comparison", () => {
   })
 })
 
-describe("a note deleted on another computer", () => {
-  const message = "Эту заметку удалили на другом компьютере. Она в архиве хранилища"
+describe("a note deleted on another computer (К12)", () => {
+  const message = "Эту заметку удалили на другом компьютере. Текст ещё открыт здесь"
 
-  it("is a card with a way back, and it steps in front of the general “deleted” card", () => {
-    act(() => useSyncNoticesStore.getState().markRemoteDeleted(ORIGINAL))
-    mount({ document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true } })
-    expect(within(stack()!).getByText(message)).toBeTruthy()
-    expect(within(stack()!).queryByText("Файл удалён")).toBeNull()
-    expect(bulb()!.getAttribute("aria-label")).toMatch(/: 1$/)
-  })
-
-  it("brings the file back from the archive of the vault and the card goes away", async () => {
-    vi.mocked(listTrash).mockResolvedValue([
-      { id: "t1", originalPath: ABSOLUTE, deletedAtMs: 2, name: "идея" },
-    ] as never)
-    act(() => useSyncNoticesStore.getState().markRemoteDeleted(ORIGINAL))
-    mount({ document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true } })
-    fireEvent.click(within(stack()!).getByRole("button", { name: "Вернуть" }))
-    await waitFor(() => expect(restoreTrash).toHaveBeenCalledWith("t1"))
-    await waitFor(() => expect(screen.queryByText(message)).toBeNull())
-  })
-
-  it("keeps the card and shows an error when the archive does not have it, and the general card returns", async () => {
+  it("is a card with two buttons, and it steps in front of the general “deleted” card", () => {
     act(() => useSyncNoticesStore.getState().markRemoteDeleted(ORIGINAL))
     mount({
       document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true },
       canRestoreDeleted: true,
       onRestoreDeleted: vi.fn(),
+      onCloseTab: vi.fn(),
+    })
+    expect(within(stack()!).getByText(message)).toBeTruthy()
+    expect(within(stack()!).queryByText(/в архиве хранилища/)).toBeNull()
+    expect(within(stack()!).queryByText(/Файл удалён вне Amby/)).toBeNull()
+    expect(within(stack()!).getByRole("button", { name: "Вернуть" })).toBeTruthy()
+    expect(within(stack()!).getByRole("button", { name: "Закрыть заметку" })).toBeTruthy()
+    expect(bulb()!.getAttribute("aria-label")).toMatch(/: 1$/)
+  })
+
+  it("«Вернуть» saves the open text at the old path and does not touch the archive", async () => {
+    const restore = vi.fn().mockResolvedValue(undefined)
+    act(() => useSyncNoticesStore.getState().markRemoteDeleted(ORIGINAL))
+    mount({
+      document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true },
+      canRestoreDeleted: true,
+      onRestoreDeleted: restore,
+      onCloseTab: vi.fn(),
     })
     fireEvent.click(within(stack()!).getByRole("button", { name: "Вернуть" }))
-    expect(await within(stack()!).findByText(/Не удалось вернуть заметку из архива/)).toBeTruthy()
+    await waitFor(() => expect(restore).toHaveBeenCalledTimes(1))
+    expect(listTrash).not.toHaveBeenCalled()
     expect(restoreTrash).not.toHaveBeenCalled()
-    await waitFor(() => expect(within(stack()!).getByText("Файл удалён")).toBeTruthy())
+  })
+
+  it("«Закрыть заметку» closes the tab", () => {
+    const close = vi.fn()
+    act(() => useSyncNoticesStore.getState().markRemoteDeleted(ORIGINAL))
+    mount({
+      document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true },
+      canRestoreDeleted: true,
+      onRestoreDeleted: vi.fn(),
+      onCloseTab: close,
+    })
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Закрыть заметку" }))
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps the card and says so when the text cannot be saved back", async () => {
+    act(() => useSyncNoticesStore.getState().markRemoteDeleted(ORIGINAL))
+    mount({
+      document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true },
+      canRestoreDeleted: true,
+      onRestoreDeleted: vi.fn().mockRejectedValue(new Error("disk")),
+      onCloseTab: vi.fn(),
+    })
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Вернуть" }))
+    expect(await within(stack()!).findByText(/Не удалось вернуть заметку/)).toBeTruthy()
+    expect(within(stack()!).getByText(message)).toBeTruthy()
+  })
+})
+
+describe("a file deleted outside Amby (К12)", () => {
+  it("is one card with the same two buttons, no dialog is needed", () => {
+    const close = vi.fn()
+    const restore = vi.fn().mockResolvedValue(undefined)
+    mount({
+      document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true },
+      canRestoreDeleted: true,
+      onRestoreDeleted: restore,
+      onCloseTab: close,
+    })
+    expect(within(stack()!).getByText("Файл удалён вне Amby. Текст ещё открыт здесь")).toBeTruthy()
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Закрыть заметку" }))
+    expect(close).toHaveBeenCalledTimes(1)
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Вернуть" }))
+    expect(restore).toHaveBeenCalledTimes(1)
   })
 })
 
