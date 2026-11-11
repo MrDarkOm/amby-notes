@@ -247,12 +247,8 @@ async fn device_rename_validates_without_network_and_does_not_allow_a_foreign_de
     let target = Target::from_env();
     let first = Device::new();
     let second = Device::new();
-    let created = create_account(&first, &target).await;
-    second
-        .service
-        .sign_in(sign_in_request(&target, &created.username, "Windows PC"))
-        .await
-        .unwrap();
+    create_account(&first, &target).await;
+    create_account(&second, &target).await;
     let foreign_id = second.connection.load().unwrap().unwrap().device_id;
     assert_eq!(
         code_of(first.service.rename_device(&foreign_id, "Not mine")).await,
