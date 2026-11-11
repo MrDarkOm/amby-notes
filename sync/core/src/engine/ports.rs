@@ -179,6 +179,18 @@ pub trait LocalFs {
     /// Moves a file to the trash of the vault (Р8, О4, Д52). The only way the engine removes a
     /// file.
     fn move_to_trash(&mut self, path: &str, reason: TrashReason) -> Result<(), FsError>;
+    /// К3а: moves the folder `dir` to the trash **as one item** when the files it holds are exactly
+    /// `files` (paths relative to the vault, all of them deleted by this pass). `Ok(false)` means
+    /// nothing was moved (the folder holds anything else, or the port does not group): the caller
+    /// then trashes the files one by one. Nothing is ever erased.
+    fn move_dir_to_trash(
+        &mut self,
+        _dir: &str,
+        _files: &[String],
+        _reason: TrashReason,
+    ) -> Result<bool, FsError> {
+        Ok(false)
+    }
     /// Removes a folder when it is empty; answers whether it did.
     fn remove_empty_dir(&mut self, path: &str) -> Result<bool, FsError>;
     /// Is there an unfinished journal of a multi-file operation (`.amby/recovery/`, Р8, Д59)?

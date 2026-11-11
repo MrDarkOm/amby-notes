@@ -49,8 +49,10 @@ const local: ArchiveEntry = {
 }
 
 function deleted(n: number, overrides: Partial<DeletedFileView> = {}): DeletedFileView {
+  const itemId = String(n).padStart(2, "0").repeat(16)
   return {
-    itemId: String(n).padStart(2, "0").repeat(16),
+    itemId,
+    itemIds: [itemId],
     path: `Заметки/Удалённая ${n}.md`,
     sizeBytes: 1200,
     deletedMs: Date.now() - 3 * DAY,
@@ -508,5 +510,52 @@ describe("И9а, И13: the lists follow the sync while the panel is open", () =>
     ])
     emitVaultStatus(vaultStatus())
     expect(await screen.findByText("Танго", {}, { timeout: 1500 })).toBeTruthy()
+  })
+})
+
+describe('И10в: a super note is one row and "Вернуть" returns all its files together', () => {
+  const bundle = deleted(1, {
+    path: "Без названия/Без названия.md",
+    itemIds: [1, 2, 3, 4, 5].map((n) => String(n).padStart(2, "0").repeat(16)),
+  })
+
+  it("shows the super note as one row named after the note", async () => {
+    open({
+      vaultStatus: async () => vaultStatus(),
+      deletedFiles: async () => ({
+        available: true,
+        reason: null,
+        files: [bundle],
+        truncated: false,
+      }),
+    })
+    await showServer()
+    expect(serverRows()).toHaveLength(1)
+    expect(within(serverRows()[0]).getAllByText("Без названия")).toBeTruthy()
+  })
+
+  it("sends every item of the row when the row is restored", async () => {
+    open({
+      vaultStatus: async () => vaultStatus(),
+      deletedFiles: async () => ({
+        available: true,
+        reason: null,
+        files: [bundle],
+        truncated: false,
+      }),
+      restoreDeleted: async (ids) => ({
+        requested: ids.length,
+        restored: ids.length,
+        damaged: 0,
+        results: ids.map((itemId) => ({ itemId, status: "restored", finalPath: null })),
+      }),
+    })
+    await showServer()
+    fireEvent.click(within(serverRows()[0]).getByRole("checkbox"))
+    fireEvent.click(screen.getByRole("button", { name: "Вернуть" }))
+    await waitFor(() => expect(port.restoreDeleted).toHaveBeenCalledTimes(1), FAST)
+    expect([...vi.mocked(port.restoreDeleted).mock.calls[0][0]].sort()).toEqual(
+      [...bundle.itemIds].sort(),
+    )
   })
 })

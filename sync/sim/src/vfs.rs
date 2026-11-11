@@ -548,6 +548,11 @@ impl Vfs {
         self.0.borrow().trash.clone()
     }
 
+    /// The folders that went to the trash as one item (К3a): the folder and its files.
+    pub fn dir_trashes(&self) -> Vec<(String, Vec<String>)> {
+        Vec::new()
+    }
+
     pub fn events(&self) -> Vec<FsEvent> {
         self.0.borrow().events.clone()
     }

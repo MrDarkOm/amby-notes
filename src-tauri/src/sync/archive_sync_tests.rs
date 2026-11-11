@@ -214,3 +214,120 @@ fn k11b_a_remote_deletion_of_a_service_path_goes_to_the_service_trash_not_the_sy
     assert_eq!(entries.len(), 1, "{entries:?}");
     assert_eq!(entries[0].original_path, ".amby/properties/prop_1.jsonl");
 }
+
+// ----- К3а: a whole super note goes to the trash as one folder -----
+
+fn super_note(vault: &Vault) -> Vec<String> {
+    let files = [
+        "Note/Note.md",
+        "Note/Note.canvas",
+        "Note/ambd.json",
+        "Note/.ambd/views/01M2D4.json",
+    ];
+    for file in files {
+        vault.put(file, file.as_bytes());
+    }
+    files.iter().map(|file| (*file).to_string()).collect()
+}
+
+#[test]
+fn k3a_a_folder_of_exactly_the_deleted_files_goes_to_the_system_trash_as_one_item() {
+    let vault = Vault::new();
+    let files = super_note(&vault);
+    let trash = Arc::new(FakeTrash::taking());
+    let mut fs = fs_with(&vault, &trash);
+    let moved = fs
+        .move_dir_to_trash("Note", &files, TrashReason::RemoteDeletion)
+        .unwrap();
+    assert!(moved);
+    assert_eq!(
+        trash.asked(),
+        vec![vault.path("Note")],
+        "the folder, not each file"
+    );
+    assert!(!vault.exists("Note"));
+    assert!(
+        recycle_bin::list(&vault.root).is_empty(),
+        "К3: not `.amby/trash/`"
+    );
+}
+
+#[test]
+fn k3a_a_folder_that_holds_anything_else_is_not_moved() {
+    let vault = Vault::new();
+    let files = super_note(&vault);
+    vault.put("Note/mine.md", b"my own text");
+    let trash = Arc::new(FakeTrash::taking());
+    let mut fs = fs_with(&vault, &trash);
+    let moved = fs
+        .move_dir_to_trash("Note", &files, TrashReason::RemoteDeletion)
+        .unwrap();
+    assert!(!moved, "the caller goes on per file");
+    assert!(trash.asked().is_empty());
+    for file in &files {
+        assert!(vault.exists(file), "{file} is untouched");
+    }
+    assert_eq!(
+        vault.read("Note/mine.md").as_deref(),
+        Some(&b"my own text"[..])
+    );
+}
+
+#[test]
+fn k3a_a_hidden_file_of_the_system_in_the_folder_is_not_moved_with_it() {
+    let vault = Vault::new();
+    let files = super_note(&vault);
+    vault.put("Note/.DS_Store", b"finder");
+    let trash = Arc::new(FakeTrash::taking());
+    let mut fs = fs_with(&vault, &trash);
+    let moved = fs
+        .move_dir_to_trash("Note", &files, TrashReason::RemoteDeletion)
+        .unwrap();
+    assert!(!moved);
+    assert!(trash.asked().is_empty());
+}
+
+#[test]
+fn k3a_a_refusing_system_trash_puts_the_whole_folder_into_the_service_trash() {
+    let vault = Vault::new();
+    let files = super_note(&vault);
+    let trash = Arc::new(FakeTrash::refusing());
+    let mut fs = fs_with(&vault, &trash);
+    let moved = fs
+        .move_dir_to_trash("Note", &files, TrashReason::RemoteDeletion)
+        .unwrap();
+    assert!(moved);
+    assert_eq!(trash.asked(), vec![vault.path("Note")]);
+    assert!(!vault.exists("Note"));
+    let entries = recycle_bin::list(&vault.root);
+    assert_eq!(entries.len(), 1, "{entries:?}");
+    assert_eq!(entries[0].original_path, "Note");
+    recycle_bin::restore(&vault.root, &entries[0].id).unwrap();
+    for file in &files {
+        assert_eq!(
+            vault.read(file).as_deref(),
+            Some(file.as_bytes()),
+            "{file} came back"
+        );
+    }
+}
+
+#[test]
+fn k3a_a_path_outside_the_vault_or_a_service_folder_is_refused_without_moving_anything() {
+    let vault = Vault::new();
+    vault.put(".amby/archive/a.md", b"service");
+    let trash = Arc::new(FakeTrash::taking());
+    let mut fs = fs_with(&vault, &trash);
+    assert!(fs
+        .move_dir_to_trash("../outside", &[], TrashReason::RemoteDeletion)
+        .is_err());
+    let moved = fs
+        .move_dir_to_trash(
+            ".amby/archive",
+            &[".amby/archive/a.md".to_string()],
+            TrashReason::RemoteDeletion,
+        )
+        .unwrap();
+    assert!(!moved, "a service folder is never grouped");
+    assert!(vault.exists(".amby/archive/a.md"));
+}
