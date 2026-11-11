@@ -3,7 +3,7 @@
 
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, post, put};
+use axum::routing::{get, post, put};
 use axum::Router;
 use serde_json::json;
 
@@ -21,6 +21,7 @@ pub const ROUTES: &[&str] = &[
     "/v1/devices",
     "/v1/devices/{device_id}",
     "/v1/account",
+    "/v1/account/username",
     "/v1/spaces",
     "/v1/spaces/{space_id}/changes",
     "/v1/spaces/{space_id}/events",
@@ -57,8 +58,15 @@ pub fn build_app(state: AppState) -> Router {
         .route("/v1/auth/recover", post(account::recover))
         .route("/v1/keys", get(account::keys_get).put(account::keys_put))
         .route("/v1/devices", get(account::devices_list))
-        .route("/v1/devices/{device_id}", delete(account::device_delete))
+        .route(
+            "/v1/devices/{device_id}",
+            put(account::device_rename).delete(account::device_delete),
+        )
         .route("/v1/account", get(account::overview))
+        .route(
+            "/v1/account/username",
+            get(account::username_get).put(account::username_rename),
+        )
         .route("/v1/spaces", get(spaces::list).post(spaces::create))
         .route("/v1/spaces/{space_id}/changes", get(feed::changes))
         .route("/v1/spaces/{space_id}/events", get(events::events))

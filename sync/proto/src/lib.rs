@@ -68,4 +68,8 @@ pub mod error_code {
     pub const INTERNAL: &str = "internal";
     /// A stub: the handler is not written yet (plan, раздел 6, шаг 1).
     pub const NOT_IMPLEMENTED: &str = "not_implemented";
+    /// A requested account name is already used.
+    pub const USERNAME_TAKEN: &str = "username_taken";
+    /// The account name changed since the client last read it.
+    pub const USERNAME_CONFLICT: &str = "username_conflict";
 }

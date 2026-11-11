@@ -271,12 +271,11 @@ export function createDesktopSyncPort(): SyncPort {
       call(commands.syncSignIn(url, allowHttp, username, password, deviceName)),
     recover: ({ url, allowHttp, username, recoveryCode, newPassword, deviceName }) =>
       call(commands.syncRecover(url, allowHttp, username, recoveryCode, newPassword, deviceName)),
-    renameDevice: async () => {
-      throw new SyncPortError("unsupported_server")
+    renameDevice: async (deviceId, name) => {
+      await call(commands.syncRenameDevice(deviceId, name))
     },
-    renameAccount: async () => {
-      throw new SyncPortError("unsupported_server")
-    },
+    renameAccount: (username, currentPassword) =>
+      call(commands.syncRenameAccount(username, currentPassword)),
     listDevices: () => call(commands.syncListDevices()),
     disconnectDevice: async (deviceId) => {
       await call(commands.syncDisconnectDevice(deviceId))

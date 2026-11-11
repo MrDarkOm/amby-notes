@@ -62,7 +62,7 @@ Inside [server/src/](server/src/lib.rs):
 | [config.rs](server/src/config.rs)               | `AMBY_SYNC_*` variables, the HTTPS rule                                                                       |
 | [app.rs](server/src/app.rs)                     | the router; unknown path and wrong method answer in JSON                                                      |
 | [http/util.rs](server/src/http/util.rs)         | errors (П4), strict hex (П2), reading a body with a limit (П8), token check (П5), client address (П16)        |
-| [http/account.rs](server/src/http/account.rs)   | prelogin, enrol, login, recover, keys, devices (П11–П19)                                                      |
+| [http/account.rs](server/src/http/account.rs)   | prelogin, enrol, login, recover, keys, device/account renames (П11–П19)                                       |
 | [http/throttle.rs](server/src/http/throttle.rs) | the two failure counters (П16)                                                                                |
 | [http/spaces.rs](server/src/http/spaces.rs)     | spaces and the ownership lookup (П6, П20)                                                                     |
 | [http/blobs.rs](server/src/http/blobs.rs)       | bodies in parts, resume, ranges, quota (П21–П25, П42)                                                         |
@@ -191,3 +191,5 @@ When sync removes or renames files inside `.amby/`, `VaultFs` includes the affec
 Watcher events and their database/project invalidations are emitted together after a sync batch; events retained from an older vault generation are not delivered to the new activation.
 
 Open signup (Рег1–Рег4): `server/src/http/account.rs`, `throttle.rs` and `config.rs`; opt-in `AMBY_SYNC_OPEN_REGISTRATION`, advertised by `/v1/info.registration.open`. Invitation names stay reserved; signup attempts share an IP budget. Tests: `conformance/tests/auth.rs`, `info.rs`, `server/tests/config.rs`. App raw-file policy: 30,000,000 bytes in `EngineConfig`.
+
+Account login rename uses password proof and a base username at `/v1/account/username`; device PUT replaces only the fixed sealed name. Client flows preserve AK/tokens, while the app refreshes remote login names when listing devices.

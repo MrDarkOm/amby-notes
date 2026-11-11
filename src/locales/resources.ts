@@ -4015,6 +4015,15 @@ const ru = {
       oldWrong: "Старый пароль не подошёл.",
       hint: "Другие устройства продолжат работать, код восстановления не изменится.",
     },
+    identity: {
+      renameAccount: "Изменить имя аккаунта",
+      renameDevice: "Переименовать устройство «{{name}}»",
+      newUsername: "Новое имя пользователя",
+      currentPassword: "Текущий пароль",
+      deviceName: "Имя устройства",
+      save: "Сохранить",
+      cancel: "Отмена",
+    },
     layout: {
       zoneAccount: "Аккаунт",
       zoneStorage: "Хранилище",
@@ -4106,6 +4115,9 @@ const ru = {
       enroll_code_expired:
         "Срок кода приглашения истёк. Попросите администратора сервера выдать новый.",
       invalid_proof: "Старый пароль или код восстановления не подошёл.",
+      username_taken: "Это имя аккаунта уже занято.",
+      username_conflict:
+        "Имя аккаунта уже изменено на другом устройстве. Обновите данные и попробуйте снова.",
       not_found: "Сервер не нашёл то, что нужно. Возможно, устройство уже отключено.",
       keys_conflict: "Ключи были изменены с другого устройства. Попробуйте ещё раз.",
       payload_too_large: "Запрос слишком велик для этого сервера.",
@@ -8480,6 +8492,15 @@ const en: typeof ru = {
       oldWrong: "The old password is wrong.",
       hint: "Other devices keep working; the recovery code does not change.",
     },
+    identity: {
+      renameAccount: "Change account name",
+      renameDevice: "Rename device “{{name}}”",
+      newUsername: "New user name",
+      currentPassword: "Current password",
+      deviceName: "Device name",
+      save: "Save",
+      cancel: "Cancel",
+    },
     layout: {
       zoneAccount: "Account",
       zoneStorage: "Storage",
@@ -8568,6 +8589,8 @@ const en: typeof ru = {
       enroll_code_expired:
         "The invitation code has expired. Ask the server administrator for a new one.",
       invalid_proof: "The old password or the recovery code did not fit.",
+      username_taken: "That account name is already taken.",
+      username_conflict: "The account name changed on another device. Refresh and try again.",
       not_found:
         "The server could not find what is needed. The device may already be disconnected.",
       keys_conflict: "The keys were changed from another device. Try again.",

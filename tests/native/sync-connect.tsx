@@ -89,8 +89,18 @@ async function press(name: string) {
   target.click()
 }
 
+const progressAdapter = new DesktopAdapter()
+let progressReady = false
 async function step(name: string, run: () => Promise<void>) {
   try {
+    if (!progressReady) {
+      await progressAdapter.loadVaultData(root)
+      progressReady = true
+    }
+    await progressAdapter.writeFile(
+      joinStoragePath(root, "progress.json"),
+      JSON.stringify({ running: name, completed: results }),
+    )
     await run()
     results.push({ name, passed: true })
   } catch (error) {
@@ -246,6 +256,49 @@ try {
     await press("Войти")
     await waitFor("the connection", () => /Подключено к/.test(text()))
     await waitFor("one device", () => text().includes("Это устройство"))
+  })
+
+  await step("the current device can be renamed without replacing its session", async () => {
+    const current = (await port.listDevices()).find((device) => device.current)!
+    const before = await port.status()
+    await press(`Переименовать устройство «${current.name}»`)
+    type("Имя устройства", "Mac native renamed")
+    await press("Сохранить")
+    await waitFor(
+      "the updated device name",
+      () => text().includes("Mac native renamed") && !field("Имя устройства"),
+    )
+    const after = await port.status()
+    if (after.deviceId !== before.deviceId || !after.connected)
+      throw new Error("device identity was replaced")
+  })
+
+  const renamedUsername = `${config.username}-renamed`
+  await step("the account login can be renamed with the current password", async () => {
+    await press("Изменить имя аккаунта")
+    type("Новое имя пользователя", renamedUsername)
+    type("Текущий пароль", NEW_PASSWORD)
+    await press("Сохранить")
+    await waitFor(
+      "the updated account name",
+      () => text().includes(renamedUsername) && !field("Текущий пароль"),
+    )
+    const status = await port.status()
+    if (!status.connected || status.username !== renamedUsername)
+      throw new Error("account rename did not persist")
+  })
+
+  await step("the new account name signs in with the existing password", async () => {
+    await press("Выйти на этом устройстве")
+    await waitFor("the wizard", () => serverChoice())
+    await checkServer()
+    type("Имя пользователя", renamedUsername)
+    type("Пароль", NEW_PASSWORD)
+    await press("Войти")
+    await waitFor(
+      "the renamed connection",
+      () => /Подключено к/.test(text()) && text().includes(renamedUsername),
+    )
   })
 
   await step("the final sign-out leaves nothing behind", async () => {

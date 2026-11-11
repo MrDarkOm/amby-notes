@@ -604,6 +604,56 @@ impl SyncClient {
             .collect()
     }
 
+    /// Current login name by authenticated identity; no password or keys in the response.
+    pub async fn account_username(&self, token: &DeviceToken) -> Result<String, ClientError> {
+        let value = self
+            .send(Method::GET, "/v1/account/username", Some(token), None)
+            .await?;
+        let username = string_field(&value, "username")?;
+        if !crate::flows::validate_username(username) {
+            return Err(bad("invalid account username"));
+        }
+        Ok(username.to_string())
+    }
+
+    /// Renames only the login, with password proof and a base name for concurrent edits.
+    pub async fn rename_account(
+        &self,
+        token: &DeviceToken,
+        base: &str,
+        username: &str,
+        auth_key: &AuthKey,
+    ) -> Result<(), ClientError> {
+        self.send(Method::PUT, "/v1/account/username", Some(token), Some(json!({
+            "username": username, "base_username": base, "auth_key": hex::encode(auth_key.as_bytes()),
+        }))).await?;
+        Ok(())
+    }
+
+    /// Replaces a device's sealed label, preserving its identity and token.
+    pub async fn rename_device(
+        &self,
+        token: &DeviceToken,
+        device_id: &str,
+        name_enc: &[u8],
+    ) -> Result<(), ClientError> {
+        if device_id.len() != 32 || !device_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(ClientError::Api {
+                status: 404,
+                code: "not_found".to_string(),
+                retry_after_secs: None,
+            });
+        }
+        self.send(
+            Method::PUT,
+            &format!("/v1/devices/{device_id}"),
+            Some(token),
+            Some(json!({"name_enc": hex::encode(name_enc)})),
+        )
+        .await?;
+        Ok(())
+    }
+
     /// `DELETE /v1/devices/{id}` (П19).
     pub async fn delete_device(
         &self,

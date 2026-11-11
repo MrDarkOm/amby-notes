@@ -548,6 +548,143 @@ pub(crate) async fn devices_list(
     ))
 }
 
+/// `GET /v1/account/username`: returns the current login for an authenticated device.
+pub(crate) async fn username_get(
+    State(state): State<AppState>,
+    request: Request,
+) -> ApiResult<Response> {
+    let (parts, _) = split(request);
+    let auth = authenticate(&state, &parts)?;
+    Ok(json_response(
+        StatusCode::OK,
+        &json!({ "username": auth.username }),
+    ))
+}
+
+/// `PUT /v1/account/username`: changes only the login name after proving the current password.
+pub(crate) async fn username_rename(
+    State(state): State<AppState>,
+    request: Request,
+) -> ApiResult<Response> {
+    let (parts, body) = split(request);
+    let auth = authenticate(&state, &parts)?;
+    let request = read_json(&state, &parts, body).await?;
+    let username = field_str(&request, "username")?.to_string();
+    let base_username = field_str(&request, "base_username")?.to_string();
+    let proof = field_hex::<32>(&request, "auth_key")?;
+    if !crate::admin::valid_username(&username) {
+        return Err(ApiError::bad_request("`username` is invalid"));
+    }
+    let addr = client_addr(&state, &parts);
+    let now = state.clock.now_ms();
+    let config = state.config.clone();
+    let result = state.db.write(|tx| -> rusqlite::Result<ApiResult<()>> {
+        let current: String = tx.query_row(
+            "SELECT username FROM users WHERE id = ?1",
+            [auth.user_id],
+            |row| row.get(0),
+        )?;
+        if let Some(seconds) = throttle::locked_for(tx, &config, now, &current, &addr)? {
+            return Ok(Err(ApiError::rate_limited(seconds)));
+        }
+        let stored: Vec<u8> = tx.query_row(
+            "SELECT auth_hash FROM users WHERE id = ?1",
+            [auth.user_id],
+            |row| row.get(0),
+        )?;
+        if !ct_eq(&stored, &sha256(&proof)) {
+            throttle::record_failure(tx, now, &current, &addr)?;
+            return Ok(Err(ApiError::new(
+                StatusCode::FORBIDDEN,
+                code::INVALID_PROOF,
+                "the proof is not valid",
+            )));
+        }
+        if username == current {
+            throttle::clear_pair(tx, &current, &addr)?;
+            return Ok(Ok(()));
+        }
+        if base_username != current {
+            return Ok(Err(ApiError::new(
+                StatusCode::CONFLICT,
+                code::USERNAME_CONFLICT,
+                "the account name changed in the meantime",
+            )));
+        }
+        let taken: Option<i64> = tx
+            .query_row(
+                "SELECT id FROM users WHERE username = ?1",
+                [&username],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if taken.is_some() {
+            return Ok(Err(ApiError::new(
+                StatusCode::CONFLICT,
+                code::USERNAME_TAKEN,
+                "that account name is already in use",
+            )));
+        }
+        tx.execute(
+            "UPDATE users SET username = ?2 WHERE id = ?1",
+            params![auth.user_id, username],
+        )?;
+        throttle::clear_pair(tx, &current, &addr)?;
+        Ok(Ok(()))
+    })?;
+    result?;
+    Response::builder()
+        .status(StatusCode::NO_CONTENT)
+        .body(axum::body::Body::empty())
+        .map_err(ApiError::internal)
+}
+
+/// `PUT /v1/devices/{device_id}`: replace only the sealed display name of an owned device.
+pub(crate) async fn device_rename(
+    State(state): State<AppState>,
+    params: Params,
+    request: Request,
+) -> ApiResult<Response> {
+    let (parts, body) = split(request);
+    let auth = authenticate(&state, &parts)?;
+    let target = params
+        .0
+        .get("device_id")
+        .and_then(|text| unhex_array::<16>(text))
+        .ok_or_else(ApiError::not_found)?;
+    let owned = state.db.call(|conn| -> rusqlite::Result<bool> {
+        conn.query_row(
+            "SELECT 1 FROM devices WHERE device_id = ?1 AND user_id = ?2",
+            params![target.as_slice(), auth.user_id],
+            |_| Ok(true),
+        )
+        .optional()
+        .map(|value| value.is_some())
+    })?;
+    if !owned {
+        return Err(ApiError::not_found());
+    }
+    let request = read_json(&state, &parts, body).await?;
+    let name_enc = field_hex_vec(&request, "name_enc", NAME_ENVELOPE_LEN)?;
+    if name_enc.first() != Some(&1) {
+        return Err(ApiError::bad_request("`name_enc` is missing or malformed"));
+    }
+    let changed = state.db.write(|tx| -> rusqlite::Result<bool> {
+        let count = tx.execute(
+            "UPDATE devices SET name_enc = ?1 WHERE device_id = ?2 AND user_id = ?3",
+            params![name_enc, target.as_slice(), auth.user_id],
+        )?;
+        Ok(count == 1)
+    })?;
+    if !changed {
+        return Err(ApiError::not_found());
+    }
+    Response::builder()
+        .status(StatusCode::NO_CONTENT)
+        .body(axum::body::Body::empty())
+        .map_err(ApiError::internal)
+}
+
 /// `DELETE /v1/devices/{device_id}` (П19): the token stops working at once, and the open event
 /// streams of the device end (П34).
 pub(crate) async fn device_delete(

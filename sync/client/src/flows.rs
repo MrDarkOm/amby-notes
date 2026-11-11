@@ -396,6 +396,54 @@ pub async fn change_password(
         .await
 }
 
+/// Renames a login under proof of the current password, without rewrapping any key.
+pub async fn rename_account(
+    client: &SyncClient,
+    token: &DeviceToken,
+    base: &str,
+    username: &str,
+    password: &str,
+) -> Result<(), ClientError> {
+    if !validate_username(username) {
+        return Err(ClientError::InvalidUsername);
+    }
+    let keys = client.keys(token).await?;
+    keys.params.validate()?;
+    let password = zeroize::Zeroizing::new(password.to_string());
+    let derived = blocking(move || {
+        let derived = derive_password_keys(&password, &keys.salt, &keys.params)?;
+        // Detect a wrong password without sending a rename request.
+        unwrap_account_key(&derived.kek, &keys.wrapped_ak)?;
+        Ok(derived)
+    })
+    .await
+    .map_err(|error| match error {
+        ClientError::Crypto(CryptoError::Authentication) => ClientError::Api {
+            status: 403,
+            code: "invalid_proof".to_string(),
+            retry_after_secs: None,
+        },
+        other => other,
+    })?;
+    client
+        .rename_account(token, base, username, &derived.auth_key)
+        .await
+}
+
+/// Seals a mutable device label with the same account key as the original name.
+pub async fn rename_device(
+    client: &SyncClient,
+    token: &DeviceToken,
+    account_key: &AccountKey,
+    device_id: &str,
+    name: &str,
+) -> Result<(), ClientError> {
+    check_device_name(name)?;
+    client
+        .rename_device(token, device_id, &sealed_name(account_key, name)?)
+        .await
+}
+
 /// The devices of the account with their names opened by AK (П19, Ф34).
 pub async fn list_devices(
     client: &SyncClient,

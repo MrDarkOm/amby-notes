@@ -107,6 +107,7 @@ pub struct SyncService {
     secrets: Arc<dyn SecretStore>,
     connection: Arc<dyn ConnectionStore>,
     pending: Mutex<Option<Arc<Pending>>>,
+    identity: tokio::sync::Mutex<()>,
 }
 
 impl From<SecretError> for SyncError {
@@ -196,6 +197,7 @@ impl SyncService {
             secrets,
             connection,
             pending: Mutex::new(None),
+            identity: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -535,25 +537,100 @@ impl SyncService {
         }
     }
 
-    /// The devices of the account (П19). A revoked token (`token_revoked`) signs this device out
-    /// locally and is reported as such.
     /// Renames an encrypted device label without changing its session.
-    pub async fn rename_device(&self, _device_id: &str, _name: &str) -> Result<(), SyncError> {
-        todo!("identity rename: tests first")
+    pub async fn rename_device(&self, device_id: &str, name: &str) -> Result<(), SyncError> {
+        let name = name.trim();
+        if name.is_empty() || name.chars().any(char::is_control) {
+            return Err(SyncError::new("invalid_device_name"));
+        }
+        Self::require_device_name(name)?;
+        let _identity = self.identity.lock().await;
+        let session = self.session()?;
+        let client = Self::client_of_record(&session.record)?;
+        match amby_sync_client::rename_device(
+            &client,
+            &session.token,
+            &session.account_key,
+            device_id,
+            name,
+        )
+        .await
+        {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.forget_if_revoked(&error);
+                Err(error.into())
+            }
+        }
     }
 
     /// Changes the login with current-password proof and preserves account keys.
     pub async fn rename_account(
         &self,
-        _username: &str,
-        _current_password: &str,
+        username: &str,
+        current_password: &str,
     ) -> Result<SyncStatus, SyncError> {
-        todo!("identity rename: tests first")
-    }
-
-    pub async fn list_devices(&self) -> Result<Vec<DeviceView>, SyncError> {
+        if !validate_username(username) {
+            return Err(SyncError::new("invalid_username"));
+        }
+        let _identity = self.identity.lock().await;
         let session = self.session()?;
         let client = Self::client_of_record(&session.record)?;
+        if let Err(error) = amby_sync_client::rename_account(
+            &client,
+            &session.token,
+            &session.record.username,
+            username,
+            current_password,
+        )
+        .await
+        {
+            self.forget_if_revoked(&error);
+            if error.code() == "username_conflict" {
+                let current = client.account_username(&session.token).await?;
+                self.keep_username(&session.record, &current)?;
+            }
+            return Err(Self::identity_error(error));
+        }
+        self.keep_username(&session.record, username)?;
+        self.status()
+    }
+
+    fn identity_error(error: ClientError) -> SyncError {
+        if matches!(error.code(), "not_found" | "method_not_allowed") {
+            SyncError::new("unsupported_server")
+        } else {
+            error.into()
+        }
+    }
+
+    // Never recreate a connection which was replaced or signed out while HTTP was in flight.
+    fn keep_username(&self, original: &ConnectionRecord, username: &str) -> Result<(), SyncError> {
+        if self.connection.load()?.as_ref() != Some(original) {
+            return Err(SyncError::new("not_connected"));
+        }
+        if original.username != username {
+            let mut updated = original.clone();
+            updated.username = username.to_string();
+            self.connection.save(&updated)?;
+        }
+        Ok(())
+    }
+
+    /// The devices and current account name. A revoked token signs this device out locally.
+    pub async fn list_devices(&self) -> Result<Vec<DeviceView>, SyncError> {
+        let _identity = self.identity.lock().await;
+        let session = self.session()?;
+        let client = Self::client_of_record(&session.record)?;
+        match client.account_username(&session.token).await {
+            Ok(username) => self.keep_username(&session.record, &username)?,
+            // Older servers have no rename API; listing their devices still works.
+            Err(error) if matches!(error.code(), "not_found" | "method_not_allowed") => {}
+            Err(error) => {
+                self.forget_if_revoked(&error);
+                return Err(error.into());
+            }
+        }
         match list_devices(&client, &session.token, &session.account_key).await {
             Ok(devices) => Ok(devices
                 .into_iter()
@@ -624,6 +701,7 @@ impl SyncService {
     /// Signs this device out: the server is told (best effort), AK, the token and the record are
     /// removed here in every case.
     pub async fn sign_out(&self) -> Result<SignOutResult, SyncError> {
+        let _identity = self.identity.lock().await;
         let session = match self.session() {
             Ok(session) => Some(session),
             Err(error) if error.code == "not_connected" => None,

@@ -6281,6 +6281,40 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   display: block;
   padding: 12px 16px;
 }
+
+.sync-identity-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--muted) / 0.18);
+}
+.sync-identity-fields {
+  display: grid;
+  gap: 10px;
+}
+.sync-identity-fields > div {
+  display: grid;
+  gap: 5px;
+}
+.sync-identity-fields label {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+.sync-identity-form > [role="alert"] {
+  font-size: 12px;
+  color: hsl(var(--destructive));
+}
+.sync-identity-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.sync-device-editor {
+  padding: 0 12px 10px;
+}
 .sync-auth-health {
   display: inline-flex;
   align-items: center;

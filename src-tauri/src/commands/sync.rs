@@ -220,6 +220,28 @@ pub async fn sync_change_password(
     service.change_password(&old_password, &new_password).await
 }
 
+/// Changes a sealed device label without replacing its token.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_rename_device(
+    service: State<'_, SyncService>,
+    device_id: String,
+    name: String,
+) -> Result<(), SyncError> {
+    service.rename_device(&device_id, &name).await
+}
+
+/// Changes the login after current-password verification.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_rename_account(
+    service: State<'_, SyncService>,
+    username: String,
+    current_password: String,
+) -> Result<SyncStatus, SyncError> {
+    service.rename_account(&username, &current_password).await
+}
+
 // ----- the sync of the open vault (stage Э4) -----
 
 fn open_vault(context: &VaultContext) -> Result<std::path::PathBuf, SyncError> {

@@ -15,6 +15,8 @@ export const KNOWN_SYNC_ERROR_CODES: readonly string[] = [
   "registration_unavailable",
   "enroll_code_expired",
   "invalid_proof",
+  "username_taken",
+  "username_conflict",
   "not_found",
   "keys_conflict",
   "payload_too_large",

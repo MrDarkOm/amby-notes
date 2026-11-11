@@ -1782,6 +1782,28 @@ async syncChangePassword(oldPassword: string, newPassword: string) : Promise<Res
 }
 },
 /**
+ * Changes the login after current-password verification.
+ */
+async syncRenameAccount(username: string, currentPassword: string) : Promise<Result<SyncStatus, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_rename_account", { username, currentPassword }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Changes a sealed device label without replacing its token.
+ */
+async syncRenameDevice(deviceId: string, name: string) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_rename_device", { deviceId, name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * The state of the sync of the open vault; no network.
  */
 async syncVaultStatus() : Promise<VaultSyncStatus> {
