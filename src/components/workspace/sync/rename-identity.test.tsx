@@ -56,7 +56,7 @@ describe("renaming the connected account", () => {
     render(<RenameIdentityForm mode="account" username="alice" port={port} onClose={onClose} />)
     type("Новое имя пользователя", "bob")
     type("Текущий пароль", OLD_PASSWORD)
-    const submit = screen.getByRole("button", { name: "Сохранить" })
+    const submit = screen.getByRole("button", { name: "Сохранить" }) as HTMLButtonElement
     expect(submit.disabled).toBe(false)
     fireEvent.click(submit)
     await waitFor(() => expect(port.renameAccount).toHaveBeenCalledWith("bob", OLD_PASSWORD))
@@ -91,7 +91,7 @@ describe("renaming the connected account", () => {
     render(<RenameIdentityForm mode="account" username="alice" port={port} onClose={onClose} />)
     type("Новое имя пользователя", "bob")
     type("Текущий пароль", OLD_PASSWORD)
-    const submit = screen.getByRole("button", { name: "Сохранить" })
+    const submit = screen.getByRole("button", { name: "Сохранить" }) as HTMLButtonElement
     fireEvent.click(submit)
     fireEvent.click(submit)
     expect(port.renameAccount).toHaveBeenCalledTimes(1)
@@ -121,7 +121,7 @@ describe("renaming a device", () => {
         onClose={vi.fn()}
       />,
     )
-    const submit = screen.getByRole("button", { name: "Сохранить" })
+    const submit = screen.getByRole("button", { name: "Сохранить" }) as HTMLButtonElement
     expect(field("Имя устройства").value).toBe("Mac mini")
     expect(submit.disabled).toBe(true)
     type("Имя устройства", "Ноутбук дома")
