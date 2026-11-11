@@ -117,6 +117,8 @@ mod runtime_tests;
 #[cfg(test)]
 mod server_history_tests;
 #[cfg(test)]
+mod service_identity_tests;
+#[cfg(test)]
 mod service_password_change_tests;
 #[cfg(test)]
 mod service_tests;

@@ -138,6 +138,8 @@ export interface SyncPort {
   cancelPending(): Promise<void>
   signIn(input: SignInInput): Promise<SyncStatus>
   recover(input: RecoverInput): Promise<SyncStatus>
+  renameDevice(deviceId: string, name: string): Promise<void>
+  renameAccount(username: string, currentPassword: string): Promise<SyncStatus>
   listDevices(): Promise<DeviceView[]>
   disconnectDevice(deviceId: string): Promise<void>
   signOut(): Promise<SignOutResult>
@@ -269,6 +271,12 @@ export function createDesktopSyncPort(): SyncPort {
       call(commands.syncSignIn(url, allowHttp, username, password, deviceName)),
     recover: ({ url, allowHttp, username, recoveryCode, newPassword, deviceName }) =>
       call(commands.syncRecover(url, allowHttp, username, recoveryCode, newPassword, deviceName)),
+    renameDevice: async () => {
+      throw new SyncPortError("unsupported_server")
+    },
+    renameAccount: async () => {
+      throw new SyncPortError("unsupported_server")
+    },
     listDevices: () => call(commands.syncListDevices()),
     disconnectDevice: async (deviceId) => {
       await call(commands.syncDisconnectDevice(deviceId))
@@ -401,6 +409,8 @@ export const unavailableSyncPort: SyncPort = {
   cancelPending: async () => {},
   signIn: unavailable,
   recover: unavailable,
+  renameDevice: unavailable,
+  renameAccount: unavailable,
   listDevices: unavailable,
   disconnectDevice: unavailable,
   signOut: unavailable,

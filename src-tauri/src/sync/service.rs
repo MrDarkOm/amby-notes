@@ -537,6 +537,20 @@ impl SyncService {
 
     /// The devices of the account (П19). A revoked token (`token_revoked`) signs this device out
     /// locally and is reported as such.
+    /// Renames an encrypted device label without changing its session.
+    pub async fn rename_device(&self, _device_id: &str, _name: &str) -> Result<(), SyncError> {
+        todo!("identity rename: tests first")
+    }
+
+    /// Changes the login with current-password proof and preserves account keys.
+    pub async fn rename_account(
+        &self,
+        _username: &str,
+        _current_password: &str,
+    ) -> Result<SyncStatus, SyncError> {
+        todo!("identity rename: tests first")
+    }
+
     pub async fn list_devices(&self) -> Result<Vec<DeviceView>, SyncError> {
         let session = self.session()?;
         let client = Self::client_of_record(&session.record)?;
