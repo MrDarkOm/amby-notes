@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { chooseOption } from "@/lib/test-utils/amby-select"
 import i18n from "@/lib/i18n"
 import type { PasswordCheck } from "@/lib/sync/sync-port"
 import { ConnectWizard } from "./connect-wizard"
@@ -70,7 +71,7 @@ describe("the strength hint while the next verdict is on its way", () => {
   it("stays in the connect wizard and keeps Continue off", async () => {
     const { port, release } = gatedPort()
     render(<ConnectWizard port={port} onConnected={vi.fn()} defaultDeviceName="Mac mini" />)
-    fireEvent.change(screen.getByRole("combobox", { name: "Сервер" }), { target: { value: "own" } })
+    await chooseOption("Сервер", "Свой сервер")
     type("Адрес сервера", "https://sync.example.com")
     await screen.findByText("Сервер доступен")
     fireEvent.click(screen.getByRole("button", { name: "Регистрация" }))

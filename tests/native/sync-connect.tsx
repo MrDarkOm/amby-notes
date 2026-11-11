@@ -48,15 +48,20 @@ function field(label: string): HTMLInputElement | null {
   return found?.htmlFor ? (document.getElementById(found.htmlFor) as HTMLInputElement | null) : null
 }
 
-/** The radio of the own server: the Amby server is the default and has no address field. */
-function serverChoice(): HTMLSelectElement | null {
-  return document.querySelector<HTMLSelectElement>("select")
+/** The shared server selector: Amby is the default and has no address field. */
+function serverChoice(): HTMLButtonElement | null {
+  return document.querySelector<HTMLButtonElement>('[role="combobox"]')
 }
 
 async function chooseOwnServer() {
   const select = await waitFor("the server selector", () => serverChoice())
-  select.value = "own"
-  select.dispatchEvent(new Event("change", { bubbles: true }))
+  select.click()
+  const own = await waitFor("the own server option", () =>
+    [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(
+      (option) => option.textContent?.trim() === "Свой сервер",
+    ),
+  )
+  own.click()
   await waitFor("the server field", () => field("Адрес сервера"))
 }
 

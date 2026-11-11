@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { chooseOption } from "@/lib/test-utils/amby-select"
 import i18n from "@/lib/i18n"
 import { AMBY_SERVER_URL } from "@/lib/sync/amby-server"
 import { SyncPortError } from "@/lib/sync/sync-port"
@@ -21,8 +22,8 @@ function type(label: string, value: string) {
 }
 
 /** Types an address of an own server: the Amby server is the default and has no address field. */
-function typeOwnAddress(value: string) {
-  fireEvent.change(screen.getByRole("combobox", { name: "Сервер" }), { target: { value: "own" } })
+async function typeOwnAddress(value: string) {
+  await chooseOption("Сервер", "Свой сервер")
   type("Адрес сервера", value)
 }
 
@@ -45,7 +46,7 @@ function renderWizard(port: FakePort, props: { onConnected?: () => void } = {}) 
 /** Server step done: the address checked and found. */
 async function chooseServer(port: FakePort) {
   void port
-  typeOwnAddress(SERVER)
+  await typeOwnAddress(SERVER)
   await screen.findByText("Сервер доступен")
 }
 
@@ -93,9 +94,7 @@ describe("the connect wizard", () => {
     it("never checks an empty custom address", async () => {
       const port = createFakePort()
       renderWizard(port)
-      fireEvent.change(screen.getByRole("combobox", { name: "Сервер" }), {
-        target: { value: "own" },
-      })
+      await chooseOption("Сервер", "Свой сервер")
       type("Адрес сервера", "  ")
       await new Promise((resolve) => setTimeout(resolve, 350))
       expect(port.checkServer).not.toHaveBeenCalled()
@@ -126,7 +125,7 @@ describe("the connect wizard", () => {
           },
         })
         renderWizard(port)
-        typeOwnAddress(SERVER)
+        await typeOwnAddress(SERVER)
         await screen.findByText(message)
         expect(screen.getByLabelText("Имя пользователя")).toBeTruthy()
         expect(button("Войти").disabled).toBe(true)
@@ -137,7 +136,7 @@ describe("the connect wizard", () => {
     it("requires an explicit switch for plain HTTP", async () => {
       const port = createFakePort()
       renderWizard(port)
-      typeOwnAddress("http://192.168.1.20:8080")
+      await typeOwnAddress("http://192.168.1.20:8080")
       fireEvent.click(screen.getByRole("switch", { name: /локальной сети/ }))
       await screen.findByText("Сервер доступен")
       expect(screen.getByText(/идут по сети открыто/)).toBeTruthy()

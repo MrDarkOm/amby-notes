@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { chooseOption } from "@/lib/test-utils/amby-select"
 import i18n from "@/lib/i18n"
 import { AMBY_SERVER_URL } from "@/lib/sync/amby-server"
 import { SyncPortError, unavailableSyncPort } from "@/lib/sync/sync-port"
@@ -198,7 +199,7 @@ describe("the Synchronization section of the settings", () => {
     renderSettings(port)
     await screen.findByRole("combobox", { name: "Сервер" })
     port.status.mockResolvedValue(CONNECTED)
-    fireEvent.change(screen.getByRole("combobox", { name: "Сервер" }), { target: { value: "own" } })
+    await chooseOption("Сервер", "Свой сервер")
     fireEvent.change(screen.getByLabelText("Адрес сервера"), {
       target: { value: "https://sync.example.com" },
     })
@@ -238,26 +239,22 @@ describe("the Synchronization section of the settings", () => {
   describe("the choice of a server", () => {
     it("offers the Amby server as the selected default, without an address field", async () => {
       renderSettings(createFakePort())
-      const amby = (await screen.findByRole("combobox", { name: "Сервер" })) as HTMLSelectElement
+      const amby = (await screen.findByRole("combobox", { name: "Сервер" })) as HTMLButtonElement
       expect(amby.disabled).toBe(false)
-      expect(amby.value).toBe("amby")
+      expect(amby.textContent).toBe("Сервер Amby")
       expect(document.body.textContent).not.toMatch(/скоро будет/)
       expect(screen.queryByLabelText("Адрес сервера")).toBeNull()
     })
 
     it("has the address field for the own server", async () => {
       renderSettings(createFakePort())
-      fireEvent.change(await screen.findByRole("combobox", { name: "Сервер" }), {
-        target: { value: "own" },
-      })
+      await chooseOption("Сервер", "Свой сервер")
       expect(screen.getByLabelText("Адрес сервера")).toBeTruthy()
     })
 
     it("opens the install guide of the server in the browser", async () => {
       renderSettings(createFakePort())
-      fireEvent.change(await screen.findByRole("combobox", { name: "Сервер" }), {
-        target: { value: "own" },
-      })
+      await chooseOption("Сервер", "Свой сервер")
       fireEvent.click(screen.getByRole("link", { name: /Как поднять свой сервер/ }))
       expect(openWebAddressInBrowser).toHaveBeenCalledWith(
         "https://github.com/MrDarkOm/AmbyNotes-SelfHost",
@@ -268,10 +265,12 @@ describe("the Synchronization section of the settings", () => {
       renderSettings(createFakePort())
       await screen.findByRole("combobox", { name: "Сервер" })
       expect(screen.queryByRole("heading", { name: "Синхронизация" })).toBeNull()
-      expect(document.body.textContent?.match(/свой сервер/gi)).toHaveLength(1)
+      fireEvent.click(screen.getByRole("combobox", { name: "Сервер" }))
+      expect(await screen.findByRole("option", { name: "Свой сервер" })).toBeTruthy()
       cleanup()
       await i18n.changeLanguage("en")
       renderSettings(createFakePort())
+      fireEvent.click(await screen.findByRole("combobox", { name: "Server" }))
       expect(await screen.findByRole("option", { name: "Your own server" })).toBeTruthy()
       expect(document.body.textContent?.match(/own server/gi)).toHaveLength(1)
       await i18n.changeLanguage("ru")
