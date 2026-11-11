@@ -799,7 +799,7 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
     expect(text).toMatch(/Символическая ссылка/)
     expect(text).toMatch(/нельзя создать на этой системе \(недопустимый символ\)/)
     expect(text).toMatch(/Совпадает с «note\.md» без учёта регистра/)
-    expect(text).toMatch(/слишком большой для этого компьютера/)
+    expect(text).toMatch(/больше лимита приложения/)
     expect(text).toMatch(/Нет доступа к файлу/)
     expect(text).toMatch(/Причина не распознана/)
   })

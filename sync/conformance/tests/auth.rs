@@ -128,6 +128,23 @@ fn open_registration_does_not_ignore_a_nonempty_invitation_code() {
 }
 
 #[test]
+fn a_nonempty_code_keeps_the_old_invalid_name_response_on_an_open_server() {
+    // Рег2: invitation requests keep their old generic invalid-code response, even when public
+    // signup is enabled; open username validation must not leak into this branch.
+    let target = Target::in_process_with(|config| config.open_registration = true);
+    let ticket = target.new_ticket();
+    let new = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+    target
+        .api
+        .post(
+            "/v1/auth/enroll",
+            None,
+            enroll_body("Upper", &ticket.enroll_code, &new, "device"),
+        )
+        .expect_error(401, "invalid_enroll_code");
+}
+
+#[test]
 fn open_registration_keeps_pending_and_active_usernames_reserved() {
     // Э2б: an open request cannot consume a pending invitation or replace an active account.
     let target = Target::in_process_with(|config| config.open_registration = true);
