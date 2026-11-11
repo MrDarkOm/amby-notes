@@ -6076,24 +6076,62 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   padding: 0;
 }
 
+/* Reserve the gutter before scrolling starts; inset the thumb from rounded panel edges. */
+.settings-section-panel,
+.settings-section-panel .overflow-y-auto {
+  scrollbar-gutter: stable both-edges;
+}
+.settings-section-panel::-webkit-scrollbar,
+.settings-section-panel .overflow-y-auto::-webkit-scrollbar {
+  width: 11px;
+}
+.settings-section-panel::-webkit-scrollbar-track,
+.settings-section-panel .overflow-y-auto::-webkit-scrollbar-track {
+  margin-block: 12px;
+  background: transparent;
+}
+.settings-section-panel::-webkit-scrollbar-thumb,
+.settings-section-panel .overflow-y-auto::-webkit-scrollbar-thumb {
+  min-height: 36px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+  background-clip: content-box;
+}
+.settings-section-panel::-webkit-scrollbar-thumb:hover,
+.settings-section-panel .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: content-box;
+}
+
+/* All settings sections share a readable content width, including search and modules. */
+.settings-section-panel > * {
+  width: 100%;
+  max-width: 760px;
+  margin-inline: auto;
+}
+
+/* Sync authentication follows the same groups and rows as the settings. */
+.sync-settings-page:has(.sync-auth-card, .sync-auth-recovery) {
+  max-width: none;
+  margin: 0;
+}
 .sync-auth-card,
 .sync-auth-recovery {
   width: 100%;
-  max-width: 440px;
-  margin-inline: auto;
+  min-width: 0;
 }
 .sync-auth-card {
   display: grid;
-  gap: 18px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 16px;
-  padding: 24px;
-  background: hsl(var(--card));
+  gap: 24px;
+  container-type: inline-size;
 }
 .dark .sync-auth-card {
   color-scheme: dark;
 }
 .sync-auth-tabs {
+  width: 320px;
+  max-width: 100%;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 3px;
@@ -6128,36 +6166,71 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
 }
 .sync-auth-fields,
 .sync-auth-server {
-  display: grid;
-  gap: 14px;
   min-width: 0;
   border: 0;
   padding: 0;
   margin: 0;
 }
-.sync-auth-card input[data-slot="input"] {
-  min-height: 38px;
+.sync-auth-fields > div,
+.sync-auth-server > div:not(.sync-auth-http) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 320px);
+  align-items: center;
+  column-gap: 24px;
+  row-gap: 6px;
+  padding: 12px 16px;
 }
-.sync-auth-device {
-  color: hsl(var(--muted-foreground));
+.sync-auth-fields > div,
+.sync-auth-server > * + * {
+  border-top: 1px solid hsl(var(--border));
+}
+.sync-auth-fields > div > label,
+.sync-auth-server > div > label {
+  grid-column: 1;
+  grid-row: 1;
+  font-size: 13px;
+  font-weight: 400;
+}
+.sync-auth-fields > div > :not(label),
+.sync-auth-server > div > :not(label) {
+  grid-column: 2;
+  margin-block: 0;
+}
+.sync-auth-fields > div:has(> .sync-auth-forgot) {
+  row-gap: 2px;
+}
+.sync-auth-fields > div:has(> .sync-auth-forgot) > label {
+  margin-block: 0;
+}
+.sync-auth-fields > div > .sync-auth-forgot {
+  grid-column: 1;
+  grid-row: 2;
   font-size: 11px;
+  line-height: 1.2;
 }
-.sync-auth-device > summary {
-  cursor: pointer;
-  width: fit-content;
+.sync-auth-fields > div:has(> .sync-auth-forgot) > input {
+  grid-row: 1 / span 2;
 }
-.sync-auth-device[open] > summary {
-  margin-bottom: 10px;
+.sync-auth-card input[data-slot="input"] {
+  min-height: 32px;
 }
 .sync-auth-invitation,
 .sync-auth-http {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  font-size: 13px;
+}
+.sync-auth-invitation {
+  flex-direction: row-reverse;
 }
 .sync-auth-invitation input {
   accent-color: hsl(var(--primary));
+}
+.sync-auth-http > button {
+  order: 1;
 }
 .sync-auth-link {
   justify-self: start;
@@ -6171,26 +6244,43 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-.sync-auth-submit > button {
-  width: 100%;
-  min-height: 38px;
-}
-.sync-auth-server {
-  gap: 12px;
-  border-top: 1px solid hsl(var(--border));
-  padding-top: 18px;
-}
-.sync-auth-server-row {
+.sync-auth-submit {
   display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-end;
+}
+.sync-auth-submit > button {
+  min-width: 140px;
+  min-height: 32px;
+}
+.sync-auth-aux {
+  display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
 }
-.sync-auth-server-row > div {
-  flex: 1 1 150px;
+.sync-auth-aux:empty {
+  display: none;
 }
-
+.sync-auth-card section > div > .sync-auth-title {
+  padding: 12px 16px;
+}
+.sync-auth-server-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.sync-auth-server-control > [role="combobox"] {
+  flex: 1;
+  min-width: 0;
+}
+.sync-auth-server > .sync-auth-link,
+.sync-auth-server-error,
+.sync-auth-http-warning {
+  display: block;
+  padding: 12px 16px;
+}
 .sync-auth-health {
   display: inline-flex;
   align-items: center;
@@ -6215,9 +6305,35 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   line-height: 1.5;
   color: var(--notice-warning-fg);
 }
-@media (max-width: 520px) {
-  .sync-auth-card {
-    padding: 18px;
+@container (max-width: 480px) {
+  .sync-auth-fields > div:has(> .sync-auth-forgot) > input {
+    grid-row: 3;
+  }
+
+  .sync-auth-fields > div,
+  .sync-auth-server > div:not(.sync-auth-http) {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  .sync-auth-fields > div > :not(label),
+  .sync-auth-server > div > :not(label) {
+    grid-column: 1;
+  }
+  .sync-auth-card .settings-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+    padding-block: 12px;
+  }
+  .sync-auth-card .settings-row > div:last-child,
+  .sync-auth-tabs {
+    width: 100%;
+  }
+  .sync-auth-server-control {
+    flex-wrap: wrap;
+  }
+  .sync-auth-server-control > [role="combobox"] {
+    flex-basis: 150px;
   }
 }
 

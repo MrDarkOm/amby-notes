@@ -8,7 +8,7 @@ import "@/lib/i18n"
 import "@/themes/app.css"
 import { DesktopAdapter } from "../../src/lib/storage/desktop-adapter"
 import { joinStoragePath } from "../../src/lib/storage/storage-path"
-import { SyncSettings } from "@/components/workspace/sync/sync-settings"
+import { SettingsDialog } from "@/components/workspace/settings-dialog"
 import { createDesktopSyncPort } from "@/lib/sync/sync-port"
 
 interface Config {
@@ -114,9 +114,15 @@ async function readCode(): Promise<string> {
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <div style={{ maxWidth: 640, margin: "0 auto", padding: 24 }}>
-      <SyncSettings port={port} />
-    </div>
+    <SettingsDialog
+      open
+      standalone
+      vault={null}
+      activeModules={[]}
+      navigationTarget={{ section: "sync" }}
+      onOpenChange={() => {}}
+      onModuleEnabledChange={() => {}}
+    />
   </React.StrictMode>,
 )
 
@@ -125,7 +131,7 @@ try {
   if (!config?.url || !config.username || config.enrollCode === null)
     throw new Error("The server, user and invitation mode come from the environment")
 
-  await step("the screen starts with server selection", async () => {
+  await step("the full settings window shows authentication and server selection", async () => {
     await chooseOwnServer()
     if (text().includes("в тестовом режиме")) throw new Error("obsolete banner is shown")
   })

@@ -544,7 +544,7 @@ export function SettingsDialog({
 
         <div
           className={cn(
-            "m-3 ml-0 min-w-0 flex-1 rounded-xl border border-border bg-[var(--panel-bg)] shadow-sm",
+            "settings-section-panel m-3 ml-0 min-w-0 flex-1 rounded-xl border border-border bg-[var(--panel-bg)] shadow-sm",
             activeSection === "modules" && !query.trim()
               ? "flex flex-col overflow-hidden p-0"
               : "overflow-y-auto px-4 py-5 sm:px-7",

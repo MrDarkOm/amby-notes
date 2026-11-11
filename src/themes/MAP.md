@@ -16,6 +16,9 @@ portable theme format and localization contract.
 | i18next initialization only               | [i18n.ts](../lib/i18n.ts)                                                                                                                                                                            |
 | Workspace icon encoding / rendering       | [icon-values.ts](../components/workspace/icon-values.ts), [icon-value.tsx](../components/workspace/icon-value.tsx), [EmojiPickerPanel.tsx](../components/workspace/tiptap/EmojiPickerPanel.tsx)      |
 
+Settings content is centered at a maximum of 760px across sections and search;
+scroll areas reserve a stable gutter and inset their thumbs from panel edges.
+
 Static visual definitions belong here; components consume tokens and only local
 behavior/layout styling. Compact density joins workspace surfaces inside a rounded frame with panel dividers;
 `--amby-dock-width` keeps the activity rail, header and overlays aligned. Themes are validated data, never executable CSS/JS or

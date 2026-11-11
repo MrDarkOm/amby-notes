@@ -1,7 +1,7 @@
 import * as React from "react"
 import { errorType, logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
-import { CircleCheck, CircleX, CircleHelp, LoaderCircle } from "lucide-react"
+import { CircleCheck, CircleX, CircleHelp, LoaderCircle, UserRound, Server } from "lucide-react"
 
 import { AMBY_SERVER_URL, isAmbyServer } from "@/lib/sync/amby-server"
 import { AmbySelect } from "@/components/ui/amby-select"
@@ -13,6 +13,7 @@ import { syncErrorMessage } from "@/lib/sync/sync-errors"
 import { SyncPortError } from "@/lib/sync/sync-port"
 import type { PreparedAccountView, SyncPort, SyncStatus } from "@/lib/sync/sync-port"
 import { openWebAddressInBrowser } from "../tiptap/external-open"
+import { SettingsGroup, Row } from "../settings/settings-common"
 import { NewPasswordFields } from "./password-fields"
 import { RecoveryCodeStep } from "./recovery-code-step"
 import { useSyncServerCheck } from "./use-sync-server-check"
@@ -42,7 +43,7 @@ function Field({
 }) {
   const id = React.useId()
   return (
-    <div className="space-y-1.5">
+    <div className="sync-auth-field">
       <label htmlFor={id} className="text-[12px] font-medium">
         {label}
       </label>
@@ -318,117 +319,211 @@ export function ConnectWizard({
         else void signIn()
       }}
     >
-      <div className="sync-auth-tabs" role="group" aria-label={t("sync.wizard.auth.mode")}>
-        {(["signIn", "create"] as const).map((mode) => (
-          <button
-            key={mode}
-            type="button"
-            disabled={busy}
-            aria-pressed={step === mode}
-            onClick={() => goTo(mode)}
-          >
-            {t(mode === "signIn" ? "sync.wizard.auth.loginTab" : "sync.wizard.auth.registerTab")}
-          </button>
-        ))}
-      </div>
-      {step === "recover" && (
-        <h3 className="sync-auth-title">{t("sync.wizard.actions.recover")}</h3>
-      )}
-      <fieldset disabled={busy} className="sync-auth-fields">
-        {usernameField}
-        {step === "signIn" ? (
-          <Field label={t("sync.wizard.fields.password")}>
-            {(id) => (
-              <Input
-                id={id}
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
+      <SettingsGroup title={t("sync.layout.accountTitle")} icon={UserRound}>
+        <Row label={t("sync.wizard.auth.mode")}>
+          <div className="sync-auth-tabs" role="group" aria-label={t("sync.wizard.auth.mode")}>
+            {(["signIn", "create"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                disabled={busy}
+                aria-pressed={step === mode}
+                onClick={() => goTo(mode)}
+              >
+                {t(
+                  mode === "signIn" ? "sync.wizard.auth.loginTab" : "sync.wizard.auth.registerTab",
+                )}
+              </button>
+            ))}
+          </div>
+        </Row>
+        {step === "recover" && (
+          <h3 className="sync-auth-title">{t("sync.wizard.actions.recover")}</h3>
+        )}
+        <fieldset disabled={busy} className="sync-auth-fields">
+          {usernameField}
+          {step === "signIn" ? (
+            <Field label={t("sync.wizard.fields.password")}>
+              {(id) => (
+                <>
+                  <Input
+                    id={id}
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="sync-auth-link sync-auth-forgot"
+                    disabled={busy}
+                    onClick={() => goTo("recover")}
+                  >
+                    {t("sync.wizard.choice.forgot")}
+                  </button>
+                </>
+              )}
+            </Field>
+          ) : (
+            <>
+              {step === "recover" && (
+                <Field label={t("sync.wizard.fields.recoveryCode")}>
+                  {(id) => (
+                    <Input
+                      id={id}
+                      className="font-mono"
+                      autoComplete="off"
+                      autoCapitalize="characters"
+                      spellCheck={false}
+                      value={recoveryCode}
+                      onChange={(event) => setRecoveryCode(event.target.value)}
+                    />
+                  )}
+                </Field>
+              )}
+              {step === "create" && server?.registrationOpen && (
+                <label className="sync-auth-invitation">
+                  <input
+                    type="checkbox"
+                    checked={useInvitation}
+                    onChange={(event) => setUseInvitation(event.target.checked)}
+                  />
+                  {t("sync.wizard.fields.useInvitation")}
+                </label>
+              )}
+              {step === "create" && needsEnrollCode && (
+                <Field
+                  label={t("sync.wizard.fields.enrollCode")}
+                  hint={t("sync.wizard.fields.enrollCodeHint")}
+                >
+                  {(id) => (
+                    <Input
+                      id={id}
+                      autoComplete="off"
+                      autoCapitalize="characters"
+                      spellCheck={false}
+                      value={enrollCode}
+                      onChange={(event) => setEnrollCode(event.target.value)}
+                    />
+                  )}
+                </Field>
+              )}
+              <NewPasswordFields
+                port={port}
+                username={username.trim()}
+                passwordLabel={t(
+                  step === "recover"
+                    ? "sync.wizard.fields.newPassword"
+                    : "sync.wizard.fields.password",
+                )}
+                repeatLabel={t(
+                  step === "recover"
+                    ? "sync.wizard.fields.repeatNewPassword"
+                    : "sync.wizard.fields.repeatPassword",
+                )}
+                password={password}
+                repeat={repeat}
+                onPasswordChange={setPassword}
+                onRepeatChange={setRepeat}
+                onValidChange={setPasswordValid}
               />
+            </>
+          )}
+          {deviceField}
+        </fieldset>
+        <div className="sync-auth-aux">
+          {!serverError && <ErrorLine message={error} />}
+          {step === "recover" && (
+            <button
+              type="button"
+              className="sync-auth-link"
+              disabled={busy}
+              onClick={() => goTo("signIn")}
+            >
+              {t("sync.wizard.actions.back")}
+            </button>
+          )}
+        </div>
+      </SettingsGroup>
+      <SettingsGroup title={t("sync.wizard.server.choiceLabel")} icon={Server}>
+        <fieldset disabled={busy} className="sync-auth-server">
+          <Field label={t("sync.wizard.server.choiceLabel")}>
+            {(id) => (
+              <div className="sync-auth-server-control">
+                <AmbySelect
+                  id={id}
+                  aria-label={t("sync.wizard.server.choiceLabel")}
+                  value={own ? "own" : "amby"}
+                  disabled={busy}
+                  onValueChange={(value) => setOwn(value === "own")}
+                  options={[
+                    { value: "amby", label: t("sync.wizard.server.amby") },
+                    { value: "own", label: t("sync.wizard.server.own") },
+                  ]}
+                />
+                <span
+                  className="sync-auth-health"
+                  data-state={healthKey}
+                  role="status"
+                  title={t(`sync.wizard.server.${healthKey}`)}
+                >
+                  {health.checking ? (
+                    <MotionSpinner>
+                      <HealthIcon className="size-4" />
+                    </MotionSpinner>
+                  ) : (
+                    <HealthIcon className="size-4" aria-hidden="true" />
+                  )}
+                  <span>{t(`sync.wizard.server.${healthKey}`)}</span>
+                </span>
+              </div>
             )}
           </Field>
-        ) : (
-          <>
-            {step === "recover" && (
-              <Field label={t("sync.wizard.fields.recoveryCode")}>
+          {own && (
+            <>
+              <Field label={t("sync.wizard.server.address")}>
                 {(id) => (
                   <Input
                     id={id}
-                    className="font-mono"
-                    autoComplete="off"
-                    autoCapitalize="characters"
+                    inputMode="url"
+                    autoCapitalize="none"
                     spellCheck={false}
-                    value={recoveryCode}
-                    onChange={(event) => setRecoveryCode(event.target.value)}
+                    autoComplete="url"
+                    placeholder={t("sync.wizard.server.placeholder")}
+                    value={url}
+                    onChange={(event) => setUrl(event.target.value)}
                   />
                 )}
               </Field>
-            )}
-            {step === "create" && server?.registrationOpen && (
-              <label className="sync-auth-invitation">
-                <input
-                  type="checkbox"
-                  checked={useInvitation}
-                  onChange={(event) => setUseInvitation(event.target.checked)}
+              <div className="sync-auth-http">
+                <Switch
+                  id={httpId}
+                  checked={allowHttp}
+                  onCheckedChange={setAllowHttp}
+                  aria-label={t("sync.wizard.server.localNetwork")}
                 />
-                {t("sync.wizard.fields.useInvitation")}
-              </label>
-            )}
-            {step === "create" && needsEnrollCode && (
-              <Field
-                label={t("sync.wizard.fields.enrollCode")}
-                hint={t("sync.wizard.fields.enrollCodeHint")}
+                <label htmlFor={httpId}>{t("sync.wizard.server.localNetwork")}</label>
+              </div>
+              {allowHttp && (
+                <p className="sync-auth-http-warning">
+                  {t("sync.wizard.server.localNetworkWarning")}
+                </p>
+              )}
+              <a
+                className="sync-auth-link"
+                href={SERVER_GUIDE_URL}
+                onClick={(event) => {
+                  event.preventDefault()
+                  void openWebAddressInBrowser(SERVER_GUIDE_URL)
+                }}
               >
-                {(id) => (
-                  <Input
-                    id={id}
-                    autoComplete="off"
-                    autoCapitalize="characters"
-                    spellCheck={false}
-                    value={enrollCode}
-                    onChange={(event) => setEnrollCode(event.target.value)}
-                  />
-                )}
-              </Field>
-            )}
-            <NewPasswordFields
-              port={port}
-              username={username.trim()}
-              passwordLabel={t(
-                step === "recover"
-                  ? "sync.wizard.fields.newPassword"
-                  : "sync.wizard.fields.password",
-              )}
-              repeatLabel={t(
-                step === "recover"
-                  ? "sync.wizard.fields.repeatNewPassword"
-                  : "sync.wizard.fields.repeatPassword",
-              )}
-              password={password}
-              repeat={repeat}
-              onPasswordChange={setPassword}
-              onRepeatChange={setRepeat}
-              onValidChange={setPasswordValid}
-            />
-          </>
-        )}
-        <details className="sync-auth-device">
-          <summary>{t("sync.wizard.fields.deviceName")}</summary>
-          {deviceField}
-        </details>
-      </fieldset>
-      {step === "signIn" && (
-        <button
-          type="button"
-          className="sync-auth-link"
-          disabled={busy}
-          onClick={() => goTo("recover")}
-        >
-          {t("sync.wizard.choice.forgot")}
-        </button>
-      )}
-      {!serverError && <ErrorLine message={error} />}
+                {t("sync.wizard.server.guide")}
+              </a>
+            </>
+          )}
+          {serverError && <p className="sync-auth-server-error">{serverError}</p>}
+        </fieldset>
+      </SettingsGroup>
       <div data-testid="wizard-actions" className="sync-auth-submit">
         <Button type="submit" disabled={!canSubmit} aria-busy={busy}>
           {busy && (
@@ -439,93 +534,6 @@ export function ConnectWizard({
           {t(`sync.wizard.actions.${primary}`)}
         </Button>
       </div>
-      {step === "recover" && (
-        <button
-          type="button"
-          className="sync-auth-link"
-          disabled={busy}
-          onClick={() => goTo("signIn")}
-        >
-          {t("sync.wizard.actions.back")}
-        </button>
-      )}
-      <fieldset disabled={busy} className="sync-auth-server">
-        <div className="sync-auth-server-row">
-          <Field label={t("sync.wizard.server.choiceLabel")}>
-            {(id) => (
-              <AmbySelect
-                id={id}
-                aria-label={t("sync.wizard.server.choiceLabel")}
-                value={own ? "own" : "amby"}
-                disabled={busy}
-                onValueChange={(value) => setOwn(value === "own")}
-                options={[
-                  { value: "amby", label: t("sync.wizard.server.amby") },
-                  { value: "own", label: t("sync.wizard.server.own") },
-                ]}
-              />
-            )}
-          </Field>
-          <span
-            className="sync-auth-health"
-            data-state={healthKey}
-            role="status"
-            title={t(`sync.wizard.server.${healthKey}`)}
-          >
-            {health.checking ? (
-              <MotionSpinner>
-                <HealthIcon className="size-4" />
-              </MotionSpinner>
-            ) : (
-              <HealthIcon className="size-4" aria-hidden="true" />
-            )}
-            <span>{t(`sync.wizard.server.${healthKey}`)}</span>
-          </span>
-        </div>
-        {own && (
-          <>
-            <Field label={t("sync.wizard.server.address")}>
-              {(id) => (
-                <Input
-                  id={id}
-                  inputMode="url"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  autoComplete="url"
-                  placeholder={t("sync.wizard.server.placeholder")}
-                  value={url}
-                  onChange={(event) => setUrl(event.target.value)}
-                />
-              )}
-            </Field>
-            <div className="sync-auth-http">
-              <Switch
-                id={httpId}
-                checked={allowHttp}
-                onCheckedChange={setAllowHttp}
-                aria-label={t("sync.wizard.server.localNetwork")}
-              />
-              <label htmlFor={httpId}>{t("sync.wizard.server.localNetwork")}</label>
-            </div>
-            {allowHttp && (
-              <p className="sync-auth-http-warning">
-                {t("sync.wizard.server.localNetworkWarning")}
-              </p>
-            )}
-            <a
-              className="sync-auth-link"
-              href={SERVER_GUIDE_URL}
-              onClick={(event) => {
-                event.preventDefault()
-                void openWebAddressInBrowser(SERVER_GUIDE_URL)
-              }}
-            >
-              {t("sync.wizard.server.guide")}
-            </a>
-          </>
-        )}
-        {serverError && <p className="sync-auth-server-error">{serverError}</p>}
-      </fieldset>
     </form>
   )
 }
