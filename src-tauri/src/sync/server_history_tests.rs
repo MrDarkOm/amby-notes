@@ -1749,3 +1749,152 @@ fn i13_an_unchanged_state_keeps_using_the_cache() {
     let _ = deleted_files(vault.path(), Some(&again), &cache, NOW_MS);
     assert_eq!(server.version_calls(), calls);
 }
+
+// ----- И10в: a super note is one row -----
+
+const BUNDLE_FILES: [&str; 5] = [
+    "Без названия/Без названия.md",
+    "Без названия/Без названия.canvas",
+    "Без названия/Без названия.excalidraw",
+    "Без названия/ambd.json",
+    "Без названия/.ambd/views/01M2D4BGSH4DB36G8B53S7N68S.json",
+];
+
+fn list_of(server: &Server, files: &[(u32, &str)]) -> super::server_history::DeletedOnServer {
+    let connect = server.connector();
+    let access = access(
+        &connect,
+        state_of(
+            files
+                .iter()
+                .map(|(n, path)| record(*n, path, true, None))
+                .collect(),
+        ),
+    );
+    deleted_files(
+        TempVault::new().path(),
+        Some(&access),
+        &ServerHistoryCache::default(),
+        NOW_MS,
+    )
+}
+
+#[test]
+fn i10v_the_files_of_a_super_note_are_one_row_named_after_the_note() {
+    let server = Server::default();
+    let mut files = Vec::new();
+    for (index, path) in BUNDLE_FILES.iter().enumerate() {
+        let n = u32::try_from(index).unwrap() + 1;
+        server.add_deleted_file(n, path, format!("body {n}").as_bytes(), 100 + u64::from(n));
+        files.push((n, *path));
+    }
+    let list = list_of(&server, &files);
+    assert_eq!(list.files.len(), 1, "one row: {:?}", paths_of(&list));
+    let row = &list.files[0];
+    assert_eq!(
+        row.path, "Без названия/Без названия.md",
+        "named after the note"
+    );
+    assert_eq!(
+        row.item_id,
+        item_hex(1),
+        "the main note is the row's own item"
+    );
+    let mut ids = row.item_ids.clone();
+    ids.sort();
+    let mut expected: Vec<String> = (1..=5).map(item_hex).collect();
+    expected.sort();
+    assert_eq!(ids, expected, "every file of the super note");
+    assert_eq!(row.item_ids[0], item_hex(1), "the main note first");
+    assert_eq!(row.size_bytes, 5 * 6, "the size of all the files together");
+    assert_eq!(row.deleted_ms, 1_000_000 + 105 * 1_000, "the last deletion");
+}
+
+#[test]
+fn i10v_files_without_their_main_note_and_ordinary_folders_stay_per_file() {
+    let server = Server::default();
+    server.add_deleted_file(1, "Proj/Proj.canvas", b"canvas", 100);
+    server.add_deleted_file(2, "Proj/ambd.json", b"base", 101);
+    server.add_deleted_file(3, "Plain/one.md", b"one", 102);
+    server.add_deleted_file(4, "Plain/two.md", b"two", 103);
+    let list = list_of(
+        &server,
+        &[
+            (1, "Proj/Proj.canvas"),
+            (2, "Proj/ambd.json"),
+            (3, "Plain/one.md"),
+            (4, "Plain/two.md"),
+        ],
+    );
+    assert_eq!(list.files.len(), 4, "{:?}", paths_of(&list));
+    assert!(list.files.iter().all(|row| row.item_ids.len() == 1));
+}
+
+#[test]
+fn i10v_a_super_note_inside_a_super_note_is_its_own_row() {
+    let server = Server::default();
+    let files = [
+        (1, "A/A.md"),
+        (2, "A/A.canvas"),
+        (3, "A/B/B.md"),
+        (4, "A/B/B.canvas"),
+        (5, "Elsewhere/e.md"),
+    ];
+    for (n, path) in files {
+        server.add_deleted_file(n, path, b"x", 100 + u64::from(n));
+    }
+    let list = list_of(&server, &files);
+    assert_eq!(list.files.len(), 3, "{:?}", paths_of(&list));
+    let row = |path: &str| list.files.iter().find(|row| row.path == path).unwrap();
+    assert_eq!(row("A/A.md").item_ids.len(), 2);
+    assert_eq!(row("A/B/B.md").item_ids.len(), 2);
+    assert_eq!(row("Elsewhere/e.md").item_ids.len(), 1);
+}
+
+#[test]
+fn i10v_restoring_the_row_brings_all_its_files_back_each_without_replacing() {
+    let vault = TempVault::new();
+    // One of the files was meanwhile created again by the person: it is never replaced.
+    vault.write("Без названия/ambd.json", b"the new one");
+    let server = Server::default();
+    let mut files = Vec::new();
+    for (index, path) in BUNDLE_FILES.iter().enumerate() {
+        let n = u32::try_from(index).unwrap() + 1;
+        server.add_deleted_file(n, path, format!("body {n}").as_bytes(), 100 + u64::from(n));
+        files.push((n, *path));
+    }
+    let connect = server.connector();
+    let access = access(
+        &connect,
+        state_of(
+            files
+                .iter()
+                .map(|(n, path)| record(*n, path, true, None))
+                .collect(),
+        ),
+    );
+    let list = deleted_files(
+        vault.path(),
+        Some(&access),
+        &ServerHistoryCache::default(),
+        NOW_MS,
+    );
+    assert_eq!(list.files.len(), 1);
+    let outcome = restore_deleted(vault.path(), Some(&access), &list.files[0].item_ids).unwrap();
+    assert_eq!(outcome.requested, 5);
+    assert_eq!(outcome.restored, 5);
+    assert_eq!(
+        vault.read("Без названия/Без названия.md").as_deref(),
+        Some(&b"body 1"[..])
+    );
+    assert_eq!(
+        vault.read("Без названия/ambd.json").as_deref(),
+        Some(&b"the new one"[..]),
+        "never replaced"
+    );
+    assert_eq!(
+        vault.read("Без названия/ambd 2.json").as_deref(),
+        Some(&b"body 4"[..]),
+        "the next free name"
+    );
+}

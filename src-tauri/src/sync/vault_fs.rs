@@ -17,6 +17,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::UNIX_EPOCH;
+use unicode_normalization::UnicodeNormalization;
 
 use amby_sync_core::engine::{
     FsError, Listing, LocalEntry, LocalFs, LocalKind, NameRules, RenameHint, RootState,
@@ -92,6 +93,26 @@ impl VaultFs {
                 }
             }
         }
+    }
+
+    /// К3: a file of the person goes to the system trash, decided for each item; a service path
+    /// (`.amby/…`, К11 (б)) and a refusal of the system trash go to `.amby/trash/`: a deletion
+    /// that came from another device never destroys the local copy.
+    fn trash_resolved(&self, path: &str, target: &Path) -> Result<(), FsError> {
+        let taken = !amby_sync_core::engine::history::is_service_path(path)
+            && match self.system_trash.trash(target) {
+                Ok(()) => true,
+                Err(error) => {
+                    tracing::warn!(event = "remote_deletion_system_trash_refused", path = %path, error = %error);
+                    false
+                }
+            };
+        if !taken {
+            recycle_bin::move_exact_to_trash(&self.root, target)
+                .map_err(|error| map_io(path, &error))?;
+        }
+        self.record_amby_change(path);
+        Ok(())
     }
 
     /// The vault at `root`, with no hooks.
@@ -537,23 +558,34 @@ impl LocalFs for VaultFs {
     fn move_to_trash(&mut self, path: &str, _reason: TrashReason) -> Result<(), FsError> {
         let target = self.resolve(path)?;
         fs::symlink_metadata(&target).map_err(|error| map_io(path, &error))?;
-        // К3: a file of the person goes to the system trash, decided for each item; a service path
-        // (`.amby/…`, К11 (б)) and a refusal of the system trash go to `.amby/trash/`: a deletion
-        // that came from another device never destroys the local copy.
-        let taken = !amby_sync_core::engine::history::is_service_path(path)
-            && match self.system_trash.trash(&target) {
-                Ok(()) => true,
-                Err(error) => {
-                    tracing::warn!(event = "remote_deletion_system_trash_refused", path = %path, error = %error);
-                    false
-                }
-            };
-        if !taken {
-            recycle_bin::move_exact_to_trash(&self.root, &target)
-                .map_err(|error| map_io(path, &error))?;
+        self.trash_resolved(path, &target)
+    }
+
+    fn move_dir_to_trash(
+        &mut self,
+        dir: &str,
+        files: &[String],
+        _reason: TrashReason,
+    ) -> Result<bool, FsError> {
+        let target = self.resolve(dir)?;
+        // К3а: a service folder (`.amby/…`) is never grouped; it is trashed per file as before.
+        if amby_sync_core::engine::history::is_service_path(dir) {
+            return Ok(false);
         }
-        self.record_amby_change(path);
-        Ok(())
+        let metadata = fs::symlink_metadata(&target).map_err(|error| map_io(dir, &error))?;
+        if !metadata.is_dir() {
+            return Ok(false);
+        }
+        // The folder goes as one item only when everything it holds is a file of this deletion:
+        // a file of the person, a link, or a file the system keeps there stays where it is, and the
+        // caller trashes the files one by one.
+        let expected: std::collections::HashSet<String> =
+            files.iter().map(|file| file.nfc().collect()).collect();
+        if !holds_only(&target, dir, &expected)? {
+            return Ok(false);
+        }
+        self.trash_resolved(dir, &target)?;
+        Ok(true)
     }
 
     fn remove_empty_dir(&mut self, path: &str) -> Result<bool, FsError> {
@@ -661,4 +693,33 @@ impl LocalFs for VaultFs {
             hooks.batch_end();
         }
     }
+}
+
+/// Does the folder `dir` (at `path`) hold only files named in `expected` (NFC, relative to the
+/// vault) and folders that lead to them? A link, an unreadable entry or any other file answers no.
+fn holds_only(
+    path: &Path,
+    dir: &str,
+    expected: &std::collections::HashSet<String>,
+) -> Result<bool, FsError> {
+    let entries = fs::read_dir(path).map_err(|error| map_io(dir, &error))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| map_io(dir, &error))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let relative = format!("{dir}/{name}");
+        let kind = entry
+            .file_type()
+            .map_err(|error| map_io(&relative, &error))?;
+        if kind.is_symlink() {
+            return Ok(false);
+        }
+        if kind.is_dir() {
+            if !holds_only(&entry.path(), &relative, expected)? {
+                return Ok(false);
+            }
+        } else if !kind.is_file() || !expected.contains(&relative.nfc().collect::<String>()) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }

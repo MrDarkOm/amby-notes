@@ -2572,11 +2572,16 @@ export type DeletedDatabaseProperty = { databaseId: string; propertyId: string; 
  */
 export type DeletedFileView = { 
 /**
- * The item on the server, 32 hex digits.
+ * The item on the server, 32 hex digits. For a super note (И10в) the item of its main note.
  */
 itemId: string; 
 /**
- * Path of the last version with a body.
+ * Every item the row stands for, the main one first (И10в): one for an ordinary file, all
+ * the files of a super note for its single row. "Вернуть" restores them together.
+ */
+itemIds?: string[]; 
+/**
+ * Path of the last version with a body (for a super note: of its main note).
  */
 path: string; 
 /**

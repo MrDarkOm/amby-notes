@@ -163,9 +163,13 @@ pub struct RestoreVersionOutcome {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DeletedFileView {
-    /// The item on the server, 32 hex digits.
+    /// The item on the server, 32 hex digits. For a super note (И10в) the item of its main note.
     pub item_id: String,
-    /// Path of the last version with a body.
+    /// Every item the row stands for, the main one first (И10в): one for an ordinary file, all
+    /// the files of a super note for its single row. "Вернуть" restores them together.
+    #[serde(default)]
+    pub item_ids: Vec<String>,
+    /// Path of the last version with a body (for a super note: of its main note).
     pub path: String,
     /// Size of that content in bytes.
     pub size_bytes: u64,
@@ -854,23 +858,34 @@ pub fn deleted_files(
         &histories,
         &hidden,
     );
-    let truncated = rows.len() > MAX_DELETED_ROWS;
-    rows.truncate(MAX_DELETED_ROWS);
+    // И10в: the files of one super note are one row.
+    let mut groups = group_super_notes(std::mem::take(&mut rows));
+    let truncated = groups.len() > MAX_DELETED_ROWS;
+    groups.truncate(MAX_DELETED_ROWS);
     let keep_ms = u64::from(access.history_days) * DAY_MS;
-    let view = |row: &DeletedFile| {
-        let (device, device_name) = device_of(access, &row.deleted_by);
-        let deleted_ms = ms(row.deleted_ms);
+    let view = |group: &[DeletedFile]| {
+        let main = &group[0];
+        let (device, device_name) = device_of(access, &main.deleted_by);
+        let deleted_ms = group
+            .iter()
+            .map(|row| ms(row.deleted_ms))
+            .max()
+            .unwrap_or(0);
         DeletedFileView {
-            item_id: hex::encode(row.item_id.as_bytes()),
-            path: row.path.clone(),
-            size_bytes: row.size,
+            item_id: hex::encode(main.item_id.as_bytes()),
+            item_ids: group
+                .iter()
+                .map(|row| hex::encode(row.item_id.as_bytes()))
+                .collect(),
+            path: main.path.clone(),
+            size_bytes: group.iter().map(|row| row.size).sum(),
             deleted_ms,
             kept_until_ms: Some(deleted_ms.saturating_add(keep_ms)),
             device,
             device_name,
         }
     };
-    let files = rows.iter().map(view).collect();
+    let files = groups.iter().map(|group| view(group)).collect();
     let list = DeletedOnServer {
         available: true,
         reason: None,
@@ -884,6 +899,66 @@ pub fn deleted_files(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((fingerprint, list.clone()));
     list
+}
+
+/// The folder of the super note whose main note is `path` (`Name/Name.md` → `Name`), if it is one.
+fn bundle_root_of(path: &str) -> Option<&str> {
+    let (dir, file) = path.rsplit_once('/')?;
+    let stem = file.strip_suffix(".md")?;
+    let (_, folder) = dir.rsplit_once('/').unwrap_or(("", dir));
+    (!stem.is_empty() && folder == stem).then_some(dir)
+}
+
+/// И10в: the deleted files of one super note (a folder `Name/` with `Name.md`, its canvas, sketch,
+/// database views and attachments) become one group, the main note first; every other file stays
+/// a group of its own. The groups keep the order of the newest deletion. A super note inside
+/// another one is its own group. Files without their main note are never grouped.
+fn group_super_notes(rows: Vec<DeletedFile>) -> Vec<Vec<DeletedFile>> {
+    let roots: Vec<String> = rows
+        .iter()
+        .filter_map(|row| bundle_root_of(&row.path).map(str::to_string))
+        .collect();
+    let root_of = |path: &str| {
+        roots
+            .iter()
+            .filter(|root| {
+                path.len() > root.len()
+                    && path.starts_with(root.as_str())
+                    && path.as_bytes()[root.len()] == b'/'
+            })
+            .max_by_key(|root| root.len())
+            .cloned()
+    };
+    let mut groups: Vec<(Option<String>, Vec<DeletedFile>)> = Vec::new();
+    for row in rows {
+        let root = root_of(&row.path);
+        match root.as_ref().and_then(|root| {
+            groups
+                .iter_mut()
+                .find(|(known, _)| known.as_ref() == Some(root))
+        }) {
+            Some((_, members)) => members.push(row),
+            None => groups.push((root, vec![row])),
+        }
+    }
+    let mut out: Vec<Vec<DeletedFile>> = groups
+        .into_iter()
+        .map(|(root, mut members)| {
+            if let Some(root) = root {
+                // The main note first.
+                if let Some(at) = members
+                    .iter()
+                    .position(|row| bundle_root_of(&row.path) == Some(root.as_str()))
+                {
+                    let main = members.remove(at);
+                    members.insert(0, main);
+                }
+            }
+            members
+        })
+        .collect();
+    out.sort_by_key(|group| std::cmp::Reverse(group.iter().map(|row| row.deleted_ms).max()));
+    out
 }
 
 /// `name`, or `stem 2.ext`… next to `path`, the rule of the import (И15).

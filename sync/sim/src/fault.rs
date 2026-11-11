@@ -365,6 +365,17 @@ impl<F: LocalFs> LocalFs for FaultyFs<F> {
             .map_err(|()| died_fs())?;
         self.inner.move_to_trash(path, reason)
     }
+    fn move_dir_to_trash(
+        &mut self,
+        dir: &str,
+        files: &[String],
+        reason: TrashReason,
+    ) -> Result<bool, FsError> {
+        self.faults
+            .tick(Port::Fs, "move_dir_to_trash", None)
+            .map_err(|()| died_fs())?;
+        self.inner.move_dir_to_trash(dir, files, reason)
+    }
     fn remove_empty_dir(&mut self, path: &str) -> Result<bool, FsError> {
         self.faults
             .tick(Port::Fs, "remove_empty_dir", None)

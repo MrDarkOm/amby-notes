@@ -99,7 +99,11 @@ export function ArchiveServerSection({
     setBusy(true)
     setResult(null)
     try {
-      const outcome = await port.restoreDeleted([...ticked])
+      // И10в: a row of a super note stands for all its files, which come back together.
+      const itemIds = all
+        .filter((file) => ticked.has(file.itemId))
+        .flatMap((file) => (file.itemIds?.length ? file.itemIds : [file.itemId]))
+      const outcome = await port.restoreDeleted(itemIds)
       if (!mounted.current) return
       setResult(resultLine(outcome, t))
       setTicked(new Set())
