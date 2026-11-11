@@ -4100,6 +4100,8 @@ const ru = {
       unauthorized: "Сервер не узнал это устройство. Войдите снова.",
       token_revoked: "Это устройство отключено от учётной записи. Войдите снова.",
       invalid_credentials: "Неверное имя пользователя, пароль или код восстановления.",
+      registration_unavailable:
+        "Это имя недоступно для регистрации. Выберите другое или войдите в существующую учётную запись.",
       invalid_enroll_code: "Код приглашения неверен или уже использован.",
       enroll_code_expired:
         "Срок кода приглашения истёк. Попросите администратора сервера выдать новый.",
@@ -4357,7 +4359,7 @@ const ru = {
         tooLargePlan: "Файл больше предела тарифа: {{size}}",
         tooLargeServer: "Файл больше предела сервера: {{size}}",
         quotaFull: "Хранилище заполнено: файл ждёт свободного места",
-        tooBigForMemory: "Файл слишком большой для этого компьютера",
+        tooBigForMemory: "Файл больше лимита приложения",
         excludedPath: "Служебный путь",
         invalidName: "Имя нельзя создать на этой системе ({{problem}})",
         caseCollision: "Совпадает с «{{other}}» без учёта регистра",
@@ -4379,7 +4381,7 @@ const ru = {
       server: {
         choiceLabel: "Сервер",
         amby: "Сервер Amby",
-        ambyHint: "Пока регистрация по коду приглашения: его выдаёт владелец сервера.",
+        ambyHint: "Проверим, открыта ли регистрация или доступна только по коду приглашения.",
         own: "Свой сервер",
         guide: "Как поднять свой сервер",
         address: "Адрес сервера",
@@ -4400,6 +4402,7 @@ const ru = {
         username: "Имя пользователя",
         enrollCode: "Код приглашения",
         enrollCodeHint: "Одноразовый код, который выдал администратор сервера.",
+        useInvitation: "У меня есть код приглашения",
         password: "Пароль",
         repeatPassword: "Повторите пароль",
         deviceName: "Название устройства",
@@ -8554,6 +8557,8 @@ const en: typeof ru = {
       unauthorized: "The server does not recognise this device. Sign in again.",
       token_revoked: "This device was disconnected from the account. Sign in again.",
       invalid_credentials: "Wrong user name, password or recovery code.",
+      registration_unavailable:
+        "This name is unavailable for registration. Choose another or sign in to your existing account.",
       invalid_enroll_code: "The invitation code is wrong or was already used.",
       enroll_code_expired:
         "The invitation code has expired. Ask the server administrator for a new one.",
@@ -8816,7 +8821,7 @@ const en: typeof ru = {
         tooLargePlan: "The file is above the limit of your plan: {{size}}",
         tooLargeServer: "The file is above the limit of the server: {{size}}",
         quotaFull: "The storage is full: the file waits for free space",
-        tooBigForMemory: "The file is too big for this computer",
+        tooBigForMemory: "The file exceeds the app limit",
         excludedPath: "A service path",
         invalidName: "The name cannot be created on this system ({{problem}})",
         caseCollision: "The same as “{{other}}” ignoring case",
@@ -8838,7 +8843,7 @@ const en: typeof ru = {
       server: {
         choiceLabel: "Server",
         amby: "Amby server",
-        ambyHint: "For now registration needs an invitation code, issued by the server owner.",
+        ambyHint: "We will check whether registration is open or requires an invitation code.",
         own: "Your own server",
         guide: "How to set up your own server",
         address: "Server address",
@@ -8859,6 +8864,7 @@ const en: typeof ru = {
         username: "User name",
         enrollCode: "Invitation code",
         enrollCodeHint: "The one-time code given by the server administrator.",
+        useInvitation: "I have an invitation code",
         password: "Password",
         repeatPassword: "Repeat the password",
         deviceName: "Device name",

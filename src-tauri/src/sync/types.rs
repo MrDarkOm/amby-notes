@@ -91,6 +91,9 @@ pub struct ServerCheck {
     pub server_version: String,
     /// `instance_id` (П10).
     pub instance_id: String,
+    /// Whether this server permits signup without an invitation (Рег1); older servers are closed.
+    #[serde(default)]
+    pub registration_open: bool,
 }
 
 /// The verdict on a password (Р5: 12 characters, the four kinds of characters and a sufficient `zxcvbn` score).

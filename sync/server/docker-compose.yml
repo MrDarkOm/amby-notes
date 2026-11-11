@@ -18,6 +18,7 @@ services:
     environment:
       AMBY_SYNC_PUBLIC_URL: "https://${AMBY_SYNC_DOMAIN:?set AMBY_SYNC_DOMAIN in .env}"
       AMBY_SYNC_TRUST_PROXY: "1"
+      AMBY_SYNC_OPEN_REGISTRATION: "${AMBY_SYNC_OPEN_REGISTRATION:-0}"
     volumes:
       - amby-data:/data
     expose:

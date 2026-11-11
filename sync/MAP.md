@@ -189,3 +189,5 @@ application: [conflict_store.rs](../src-tauri/src/sync/conflict_store.rs) is the
 When sync removes or renames files inside `.amby/`, `VaultFs` includes the affected paths in `sync-amby-written` as well as published files; open property panels reread on changes to the properties directory or its children.
 
 Watcher events and their database/project invalidations are emitted together after a sync batch; events retained from an older vault generation are not delivered to the new activation.
+
+Open signup (Рег1–Рег4): `server/src/http/account.rs`, `throttle.rs` and `config.rs`; opt-in `AMBY_SYNC_OPEN_REGISTRATION`, advertised by `/v1/info.registration.open`. Invitation names stay reserved; signup attempts share an IP budget. Tests: `conformance/tests/auth.rs`, `info.rs`, `server/tests/config.rs`. App raw-file policy: 30,000,000 bytes in `EngineConfig`.

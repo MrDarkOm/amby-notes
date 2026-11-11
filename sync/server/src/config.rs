@@ -123,6 +123,9 @@ impl Config {
         if let Some(value) = get("AMBY_SYNC_ALLOW_HTTP") {
             config.allow_http = flag("AMBY_SYNC_ALLOW_HTTP", value)?;
         }
+        if let Some(value) = get("AMBY_SYNC_OPEN_REGISTRATION") {
+            config.open_registration = flag("AMBY_SYNC_OPEN_REGISTRATION", value)?;
+        }
         if let Some(value) = get("AMBY_SYNC_TRUST_PROXY") {
             config.trust_proxy = flag("AMBY_SYNC_TRUST_PROXY", value)?;
         }

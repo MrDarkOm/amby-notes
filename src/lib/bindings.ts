@@ -3483,7 +3483,11 @@ serverVersion: string;
 /**
  * `instance_id` (П10).
  */
-instanceId: string }
+instanceId: string; 
+/**
+ * Whether this server permits signup without an invitation (Рег1); older servers are closed.
+ */
+registrationOpen?: boolean }
 /**
  * Why the server part of a list is not there (И4, И13). Not an error: the person has nothing to
  * do, the panel shows one calm line.

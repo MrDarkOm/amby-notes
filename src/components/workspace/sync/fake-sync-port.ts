@@ -255,6 +255,7 @@ export function createFakePort(overrides: Partial<SyncPort> = {}): FakePort {
       url,
       host: "sync.example.com",
       serverVersion: "0.1.0",
+      registrationOpen: false,
       instanceId: "00112233445566778899aabbccddeeff",
     }),
     checkPassword: async (password) => fakePasswordCheck(password),
