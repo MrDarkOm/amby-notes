@@ -1,18 +1,21 @@
 import * as React from "react"
 import { errorType, logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
-import { UserRound, Server, CircleCheck } from "lucide-react"
+import { CircleCheck, CircleX, CircleHelp, LoaderCircle } from "lucide-react"
 
 import { AMBY_SERVER_URL, isAmbyServer } from "@/lib/sync/amby-server"
+import { AmbySelect } from "@/components/ui/amby-select"
+import { MotionSpinner } from "@/lib/motion"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { syncErrorMessage } from "@/lib/sync/sync-errors"
 import { SyncPortError } from "@/lib/sync/sync-port"
-import type { PreparedAccountView, ServerCheck, SyncPort, SyncStatus } from "@/lib/sync/sync-port"
+import type { PreparedAccountView, SyncPort, SyncStatus } from "@/lib/sync/sync-port"
 import { openWebAddressInBrowser } from "../tiptap/external-open"
 import { NewPasswordFields } from "./password-fields"
 import { RecoveryCodeStep } from "./recovery-code-step"
+import { useSyncServerCheck } from "./use-sync-server-check"
 
 export interface ConnectWizardProps {
   port: SyncPort
@@ -24,7 +27,7 @@ export interface ConnectWizardProps {
   defaultDeviceName?: string
 }
 
-type Step = "server" | "choice" | "create" | "signIn" | "recover" | "recovery"
+type Step = "create" | "signIn" | "recover" | "recovery"
 
 const SERVER_GUIDE_URL = "https://github.com/MrDarkOm/AmbyNotes-SelfHost"
 
@@ -57,7 +60,6 @@ function ErrorLine({ message }: { message: string | null }) {
   ) : null
 }
 
-/** The connect wizard: address → create an account / sign in / recover → password → code. */
 /**
  * The wizard was left or restarted and the prepared account (keys made in memory, nothing sent yet)
  * could not be forgotten. Nothing was connected and no note is involved; the next attempt replaces it.
@@ -66,6 +68,7 @@ function dropPendingFailed(error: unknown): void {
   logger.debug("sync.cancel_pending_failed", { errorType: errorType(error) })
 }
 
+/** One authentication form followed by explicit recovery-code acknowledgement on signup. */
 export function ConnectWizard({
   port,
   onConnected,
@@ -73,13 +76,11 @@ export function ConnectWizard({
   defaultDeviceName,
 }: ConnectWizardProps) {
   const { t } = useTranslation()
-  const [step, setStep] = React.useState<Step>("server")
-  const [accountMode, setAccountMode] = React.useState<"create" | "signIn" | "recover" | null>(null)
+  const [step, setStep] = React.useState<Step>("signIn")
   // The Amby server is the default; a record of another server starts on "own server".
   const [own, setOwn] = React.useState(Boolean(initial?.url) && !isAmbyServer(initial?.url))
   const [url, setUrl] = React.useState(initial?.url ?? "")
   const [allowHttp, setAllowHttp] = React.useState(initial?.allowHttp ?? false)
-  const [server, setServer] = React.useState<ServerCheck | null>(null)
   const [username, setUsername] = React.useState(initial?.username ?? "")
   const [enrollCode, setEnrollCode] = React.useState("")
   const [useInvitation, setUseInvitation] = React.useState(false)
@@ -101,6 +102,8 @@ export function ConnectWizard({
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const busyRef = React.useRef(false)
+  const httpId = React.useId()
+  const mounted = React.useRef(true)
 
   // A prepared account lives in the memory of the application until it is confirmed or
   // forgotten: closing the wizard forgets it.
@@ -108,12 +111,13 @@ export function ConnectWizard({
   React.useEffect(() => {
     hasPrepared.current = prepared !== null
   }, [prepared])
-  React.useEffect(
-    () => () => {
+  React.useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
       if (hasPrepared.current) void port.cancelPending().catch(dropPendingFailed)
-    },
-    [port],
-  )
+    }
+  }, [port])
 
   /** Runs one request at a time and shows its failure. */
   const run = async (action: () => Promise<void>) => {
@@ -135,22 +139,22 @@ export function ConnectWizard({
     setError(null)
     setPassword("")
     setRepeat("")
+    setRecoveryCode("")
+    setPasswordValid(false)
     setStep(next)
   }
 
-  const needsEnrollCode = !server?.registrationOpen || useInvitation
   const chosenUrl = own ? url.trim() : AMBY_SERVER_URL
   const chosenAllowHttp = own && allowHttp
+  const health = useSyncServerCheck(port, chosenUrl, chosenAllowHttp, !busy && prepared === null)
+  const server = health.server
+  const needsEnrollCode = Boolean(server && !server.registrationOpen) || useInvitation
   const target = { url: server?.url ?? chosenUrl, allowHttp: chosenAllowHttp }
-
-  const checkServer = () =>
-    run(async () => {
-      const found = await port.checkServer({ url: chosenUrl, allowHttp: chosenAllowHttp })
-      setServer(found)
-      setUseInvitation(false)
-      setEnrollCode("")
-      setStep(accountMode ?? "choice")
-    })
+  React.useEffect(() => {
+    setEnrollCode("")
+    setUseInvitation(false)
+    setError(null)
+  }, [chosenUrl, chosenAllowHttp])
 
   const prepare = () =>
     run(async () => {
@@ -161,6 +165,11 @@ export function ConnectWizard({
         password,
         deviceName: deviceName.trim(),
       })
+      if (!mounted.current) {
+        void port.cancelPending().catch(dropPendingFailed)
+        return
+      }
+      hasPrepared.current = true
       setPassword("")
       setRepeat("")
       setPrepared(view)
@@ -224,24 +233,6 @@ export function ConnectWizard({
       onConnected(status)
     })
 
-  const form = (children: React.ReactNode, submit: () => void) => (
-    <form
-      className="space-y-4"
-      onSubmit={(event) => {
-        event.preventDefault()
-        submit()
-      }}
-    >
-      {children}
-    </form>
-  )
-
-  const backButton = (to: Step) => (
-    <Button type="button" variant="link" size="sm" disabled={busy} onClick={() => goTo(to)}>
-      {t("sync.wizard.actions.back")}
-    </Button>
-  )
-
   const deviceField = (
     <Field label={t("sync.wizard.fields.deviceName")}>
       {(id) => (
@@ -265,70 +256,232 @@ export function ConnectWizard({
     </Field>
   )
 
-  const accountChoice = (
-    <section className="sync-connect-account">
-      <div className="sync-connect-heading">
-        <span className="sync-connect-symbol">
-          <UserRound className="size-5" aria-hidden="true" />
-        </span>
-        <div>
-          <h3>{t("sync.layout.accountTitle")}</h3>
-          <p>{t("sync.layout.accountHint")}</p>
-        </div>
-      </div>
-      <div
-        data-testid={step === "choice" ? "wizard-actions" : undefined}
-        className="sync-connect-options"
-      >
-        {(["create", "signIn", "recover"] as const).map((mode) => (
-          <Button
-            key={mode}
-            type="button"
-            size="sm"
-            variant={accountMode === mode ? "default" : mode === "recover" ? "link" : "outline"}
-            aria-pressed={accountMode === mode}
-            disabled={busy}
-            onClick={() => {
-              if (step === "server") setAccountMode(mode)
-              else goTo(mode)
-            }}
-          >
-            {t(
-              mode === "create"
-                ? "sync.wizard.choice.create"
-                : mode === "signIn"
-                  ? "sync.wizard.choice.signIn"
-                  : "sync.wizard.choice.forgot",
-            )}
-          </Button>
-        ))}
-        {step === "choice" && backButton("server")}
-      </div>
-    </section>
+  const serverError = React.useMemo(
+    () => (health.error ? syncErrorMessage(health.error, t) : null),
+    [health.error, t],
   )
 
-  if (step === "server") {
-    const serverForm = form(
-      <>
-        <fieldset className="space-y-2">
-          <legend className="sync-connect-server-title">
-            <Server className="size-4" aria-hidden="true" />
-            {t("sync.wizard.server.choiceLabel")}
-          </legend>
-          <label className="flex items-center gap-2 text-[13px]">
-            <input type="radio" name="sync-server" checked={!own} onChange={() => setOwn(false)} />
-            {t("sync.wizard.server.amby")}
-          </label>
-          {!own && (
-            <p className="pl-6 text-[12px] text-muted-foreground">
-              {t("sync.wizard.server.ambyHint")}
-            </p>
+  if (step === "recovery")
+    return prepared ? (
+      <div className="sync-auth-recovery">
+        <RecoveryCodeStep
+          port={port}
+          host={server?.host ?? ""}
+          username={username.trim()}
+          recoveryCode={prepared.recoveryCode}
+          confirmGroups={prepared.confirmGroups}
+          busy={busy}
+          error={error}
+          askEnrollCode={enrollRefused}
+          enrollCode={newEnrollCode}
+          onEnrollCodeChange={setNewEnrollCode}
+          onConfirm={(groups) => void confirm(groups)}
+          onBack={backFromRecovery}
+        />
+      </div>
+    ) : null
+
+  const filled =
+    username.trim() !== "" &&
+    deviceName.trim() !== "" &&
+    (step === "signIn"
+      ? password !== ""
+      : step === "create"
+        ? (!needsEnrollCode || enrollCode.trim() !== "") && passwordValid
+        : recoveryCode.trim() !== "" && passwordValid)
+  const canSubmit = health.ready && filled && !busy
+
+  const healthKey = health.checking
+    ? "checking"
+    : health.ready
+      ? "available"
+      : serverError
+        ? "unavailable"
+        : "enterAddress"
+  const HealthIcon = health.checking
+    ? LoaderCircle
+    : health.ready
+      ? CircleCheck
+      : serverError
+        ? CircleX
+        : CircleHelp
+  const primary = step === "create" ? "register" : step === "recover" ? "recover" : "signIn"
+
+  return (
+    <form
+      className="sync-auth-card"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (!canSubmit) return
+        if (step === "create") void prepare()
+        else if (step === "recover") void recover()
+        else void signIn()
+      }}
+    >
+      <div className="sync-auth-tabs" role="group" aria-label={t("sync.wizard.auth.mode")}>
+        {(["signIn", "create"] as const).map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            disabled={busy}
+            aria-pressed={step === mode}
+            onClick={() => goTo(mode)}
+          >
+            {t(mode === "signIn" ? "sync.wizard.auth.loginTab" : "sync.wizard.auth.registerTab")}
+          </button>
+        ))}
+      </div>
+      {step === "recover" && (
+        <h3 className="sync-auth-title">{t("sync.wizard.actions.recover")}</h3>
+      )}
+      <fieldset disabled={busy} className="sync-auth-fields">
+        {usernameField}
+        {step === "signIn" ? (
+          <Field label={t("sync.wizard.fields.password")}>
+            {(id) => (
+              <Input
+                id={id}
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            )}
+          </Field>
+        ) : (
+          <>
+            {step === "recover" && (
+              <Field label={t("sync.wizard.fields.recoveryCode")}>
+                {(id) => (
+                  <Input
+                    id={id}
+                    className="font-mono"
+                    autoComplete="off"
+                    autoCapitalize="characters"
+                    spellCheck={false}
+                    value={recoveryCode}
+                    onChange={(event) => setRecoveryCode(event.target.value)}
+                  />
+                )}
+              </Field>
+            )}
+            {step === "create" && server?.registrationOpen && (
+              <label className="sync-auth-invitation">
+                <input
+                  type="checkbox"
+                  checked={useInvitation}
+                  onChange={(event) => setUseInvitation(event.target.checked)}
+                />
+                {t("sync.wizard.fields.useInvitation")}
+              </label>
+            )}
+            {step === "create" && needsEnrollCode && (
+              <Field
+                label={t("sync.wizard.fields.enrollCode")}
+                hint={t("sync.wizard.fields.enrollCodeHint")}
+              >
+                {(id) => (
+                  <Input
+                    id={id}
+                    autoComplete="off"
+                    autoCapitalize="characters"
+                    spellCheck={false}
+                    value={enrollCode}
+                    onChange={(event) => setEnrollCode(event.target.value)}
+                  />
+                )}
+              </Field>
+            )}
+            <NewPasswordFields
+              port={port}
+              username={username.trim()}
+              passwordLabel={t(
+                step === "recover"
+                  ? "sync.wizard.fields.newPassword"
+                  : "sync.wizard.fields.password",
+              )}
+              repeatLabel={t(
+                step === "recover"
+                  ? "sync.wizard.fields.repeatNewPassword"
+                  : "sync.wizard.fields.repeatPassword",
+              )}
+              password={password}
+              repeat={repeat}
+              onPasswordChange={setPassword}
+              onRepeatChange={setRepeat}
+              onValidChange={setPasswordValid}
+            />
+          </>
+        )}
+        <details className="sync-auth-device">
+          <summary>{t("sync.wizard.fields.deviceName")}</summary>
+          {deviceField}
+        </details>
+      </fieldset>
+      {step === "signIn" && (
+        <button
+          type="button"
+          className="sync-auth-link"
+          disabled={busy}
+          onClick={() => goTo("recover")}
+        >
+          {t("sync.wizard.choice.forgot")}
+        </button>
+      )}
+      {!serverError && <ErrorLine message={error} />}
+      <div data-testid="wizard-actions" className="sync-auth-submit">
+        <Button type="submit" disabled={!canSubmit} aria-busy={busy}>
+          {busy && (
+            <MotionSpinner>
+              <LoaderCircle className="size-4" />
+            </MotionSpinner>
           )}
-          <label className="flex items-center gap-2 text-[13px]">
-            <input type="radio" name="sync-server" checked={own} onChange={() => setOwn(true)} />
-            {t("sync.wizard.server.own")}
-          </label>
-        </fieldset>
+          {t(`sync.wizard.actions.${primary}`)}
+        </Button>
+      </div>
+      {step === "recover" && (
+        <button
+          type="button"
+          className="sync-auth-link"
+          disabled={busy}
+          onClick={() => goTo("signIn")}
+        >
+          {t("sync.wizard.actions.back")}
+        </button>
+      )}
+      <fieldset disabled={busy} className="sync-auth-server">
+        <div className="sync-auth-server-row">
+          <Field label={t("sync.wizard.server.choiceLabel")}>
+            {(id) => (
+              <AmbySelect
+                id={id}
+                aria-label={t("sync.wizard.server.choiceLabel")}
+                value={own ? "own" : "amby"}
+                disabled={busy}
+                onValueChange={(value) => setOwn(value === "own")}
+                options={[
+                  { value: "amby", label: t("sync.wizard.server.amby") },
+                  { value: "own", label: t("sync.wizard.server.own") },
+                ]}
+              />
+            )}
+          </Field>
+          <span
+            className="sync-auth-health"
+            data-state={healthKey}
+            role="status"
+            title={t(`sync.wizard.server.${healthKey}`)}
+          >
+            {health.checking ? (
+              <MotionSpinner>
+                <HealthIcon className="size-4" />
+              </MotionSpinner>
+            ) : (
+              <HealthIcon className="size-4" aria-hidden="true" />
+            )}
+            <span>{t(`sync.wizard.server.${healthKey}`)}</span>
+          </span>
+        </div>
         {own && (
           <>
             <Field label={t("sync.wizard.server.address")}>
@@ -338,226 +491,41 @@ export function ConnectWizard({
                   inputMode="url"
                   autoCapitalize="none"
                   spellCheck={false}
+                  autoComplete="url"
                   placeholder={t("sync.wizard.server.placeholder")}
                   value={url}
                   onChange={(event) => setUrl(event.target.value)}
                 />
               )}
             </Field>
-            <div className="flex items-center gap-2">
+            <div className="sync-auth-http">
               <Switch
-                id="sync-allow-http"
+                id={httpId}
                 checked={allowHttp}
                 onCheckedChange={setAllowHttp}
                 aria-label={t("sync.wizard.server.localNetwork")}
               />
-              <label htmlFor="sync-allow-http" className="text-[12px]">
-                {t("sync.wizard.server.localNetwork")}
-              </label>
+              <label htmlFor={httpId}>{t("sync.wizard.server.localNetwork")}</label>
             </div>
             {allowHttp && (
-              <p className="text-[12px] text-destructive">
+              <p className="sync-auth-http-warning">
                 {t("sync.wizard.server.localNetworkWarning")}
               </p>
             )}
-          </>
-        )}
-        <ErrorLine message={error} />
-        <div data-testid="wizard-actions" className="flex flex-wrap items-center gap-2">
-          <Button type="submit" size="sm" disabled={busy || (own && url.trim() === "")}>
-            {busy ? t("sync.wizard.server.checking") : t("sync.wizard.server.check")}
-          </Button>
-          {own && (
-            <Button
-              type="button"
-              variant="link"
-              size="sm"
-              onClick={() => void openWebAddressInBrowser(SERVER_GUIDE_URL)}
+            <a
+              className="sync-auth-link"
+              href={SERVER_GUIDE_URL}
+              onClick={(event) => {
+                event.preventDefault()
+                void openWebAddressInBrowser(SERVER_GUIDE_URL)
+              }}
             >
               {t("sync.wizard.server.guide")}
-            </Button>
-          )}
-        </div>
-      </>,
-      () => void checkServer(),
-    )
-    return (
-      <div className="sync-connect-stack">
-        {accountChoice}
-        <section className="sync-connect-server">{serverForm}</section>
-      </div>
-    )
-  }
-
-  if (step === "choice") {
-    return (
-      <div className="sync-connect-stack">
-        {accountChoice}
-        <section className="sync-connect-server sync-connect-verified">
-          <CircleCheck className="size-5" aria-hidden="true" />
-          <div>
-            <h3>{t("sync.wizard.server.choiceLabel")}</h3>
-            <p className="text-[12px] text-muted-foreground">
-              {t("sync.wizard.server.found", { version: server?.serverVersion ?? "" })}
-            </p>
-            <p className="text-[11px] text-muted-foreground">{server?.host}</p>
-          </div>
-        </section>
-      </div>
-    )
-  }
-
-  if (step === "create") {
-    const filled =
-      username.trim() !== "" &&
-      (!needsEnrollCode || enrollCode.trim() !== "") &&
-      deviceName.trim() !== ""
-    return form(
-      <>
-        {usernameField}
-        {server?.registrationOpen && (
-          <label className="flex items-center gap-2 text-[12px]">
-            <input
-              type="checkbox"
-              checked={useInvitation}
-              onChange={(event) => setUseInvitation(event.target.checked)}
-            />
-            {t("sync.wizard.fields.useInvitation")}
-          </label>
+            </a>
+          </>
         )}
-        {needsEnrollCode && (
-          <Field
-            label={t("sync.wizard.fields.enrollCode")}
-            hint={t("sync.wizard.fields.enrollCodeHint")}
-          >
-            {(id) => (
-              <Input
-                id={id}
-                autoComplete="off"
-                autoCapitalize="characters"
-                spellCheck={false}
-                value={enrollCode}
-                onChange={(event) => setEnrollCode(event.target.value)}
-              />
-            )}
-          </Field>
-        )}
-        <NewPasswordFields
-          port={port}
-          username={username.trim()}
-          passwordLabel={t("sync.wizard.fields.password")}
-          repeatLabel={t("sync.wizard.fields.repeatPassword")}
-          password={password}
-          repeat={repeat}
-          onPasswordChange={setPassword}
-          onRepeatChange={setRepeat}
-          onValidChange={setPasswordValid}
-        />
-        {deviceField}
-        <ErrorLine message={error} />
-        <div data-testid="wizard-actions" className="flex flex-wrap items-center gap-2">
-          <Button type="submit" size="sm" disabled={busy || !filled || !passwordValid}>
-            {t("sync.wizard.actions.continue")}
-          </Button>
-          {backButton("choice")}
-        </div>
-      </>,
-      () => {
-        if (filled && passwordValid) void prepare()
-      },
-    )
-  }
-
-  if (step === "signIn") {
-    const filled = username.trim() !== "" && password !== "" && deviceName.trim() !== ""
-    return form(
-      <>
-        {usernameField}
-        <Field label={t("sync.wizard.fields.password")}>
-          {(id) => (
-            <Input
-              id={id}
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          )}
-        </Field>
-        {deviceField}
-        <ErrorLine message={error} />
-        <div data-testid="wizard-actions" className="flex flex-wrap items-center gap-2">
-          <Button type="submit" size="sm" disabled={busy || !filled}>
-            {t("sync.wizard.actions.signIn")}
-          </Button>
-          {backButton("choice")}
-        </div>
-      </>,
-      () => {
-        if (filled) void signIn()
-      },
-    )
-  }
-
-  if (step === "recover") {
-    const filled = username.trim() !== "" && recoveryCode.trim() !== "" && deviceName.trim() !== ""
-    return form(
-      <>
-        {usernameField}
-        <Field label={t("sync.wizard.fields.recoveryCode")}>
-          {(id) => (
-            <Input
-              id={id}
-              className="font-mono"
-              autoComplete="off"
-              autoCapitalize="characters"
-              spellCheck={false}
-              value={recoveryCode}
-              onChange={(event) => setRecoveryCode(event.target.value)}
-            />
-          )}
-        </Field>
-        <NewPasswordFields
-          port={port}
-          username={username.trim()}
-          passwordLabel={t("sync.wizard.fields.newPassword")}
-          repeatLabel={t("sync.wizard.fields.repeatNewPassword")}
-          password={password}
-          repeat={repeat}
-          onPasswordChange={setPassword}
-          onRepeatChange={setRepeat}
-          onValidChange={setPasswordValid}
-        />
-        {deviceField}
-        <ErrorLine message={error} />
-        <div data-testid="wizard-actions" className="flex flex-wrap items-center gap-2">
-          <Button type="submit" size="sm" disabled={busy || !filled || !passwordValid}>
-            {t("sync.wizard.actions.recover")}
-          </Button>
-          {backButton("choice")}
-        </div>
-      </>,
-      () => {
-        if (filled && passwordValid) void recover()
-      },
-    )
-  }
-
-  // step === "recovery"
-  return prepared ? (
-    <RecoveryCodeStep
-      port={port}
-      host={server?.host ?? ""}
-      username={username.trim()}
-      recoveryCode={prepared.recoveryCode}
-      confirmGroups={prepared.confirmGroups}
-      busy={busy}
-      error={error}
-      askEnrollCode={enrollRefused}
-      enrollCode={newEnrollCode}
-      onEnrollCodeChange={setNewEnrollCode}
-      onConfirm={(groups) => void confirm(groups)}
-      onBack={backFromRecovery}
-    />
-  ) : null
+        {serverError && <p className="sync-auth-server-error">{serverError}</p>}
+      </fieldset>
+    </form>
+  )
 }

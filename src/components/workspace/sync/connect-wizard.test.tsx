@@ -95,6 +95,7 @@ describe("the connect wizard", () => {
       const port = createFakePort()
       renderWizard(port)
       await chooseOption("Сервер", "Свой сервер")
+      port.checkServer.mockClear()
       type("Адрес сервера", "  ")
       await new Promise((resolve) => setTimeout(resolve, 350))
       expect(port.checkServer).not.toHaveBeenCalled()

@@ -6076,69 +6076,149 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   padding: 0;
 }
 
-.sync-connect-stack {
+.sync-auth-card,
+.sync-auth-recovery {
+  width: 100%;
+  max-width: 440px;
+  margin-inline: auto;
+}
+.sync-auth-card {
   display: grid;
-  gap: 16px;
-}
-.sync-connect-account,
-.sync-connect-server {
+  gap: 18px;
   border: 1px solid hsl(var(--border));
-  border-radius: 12px;
-  padding: 18px 20px;
+  border-radius: 16px;
+  padding: 24px;
+  background: hsl(var(--card));
 }
-.sync-connect-account {
-  background: hsl(var(--card) / 0.35);
+.dark .sync-auth-card {
+  color-scheme: dark;
 }
-.sync-connect-heading {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-.sync-connect-symbol {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  flex-shrink: 0;
+.sync-auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  padding: 3px;
   border-radius: 10px;
-  background: hsl(var(--muted));
+  background: hsl(var(--muted) / 0.65);
+}
+.sync-auth-tabs > button {
+  min-height: 34px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
   color: hsl(var(--muted-foreground));
 }
-.sync-connect-heading h3,
-.sync-connect-verified h3 {
+.sync-auth-tabs > button[aria-pressed="true"] {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  box-shadow: 0 1px 3px hsl(var(--foreground) / 0.07);
+}
+.sync-auth-tabs > button:focus-visible,
+.sync-auth-link:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+.sync-auth-tabs > button:disabled,
+.sync-auth-link:disabled {
+  opacity: 0.5;
+}
+.sync-auth-title {
   font-size: 14px;
   font-weight: 600;
 }
-.sync-connect-heading p {
+.sync-auth-fields,
+.sync-auth-server {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.sync-auth-card input[data-slot="input"] {
+  min-height: 38px;
+}
+.sync-auth-device {
+  color: hsl(var(--muted-foreground));
   font-size: 11px;
-  line-height: 1.6;
-  margin-top: 3px;
+}
+.sync-auth-device > summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.sync-auth-device[open] > summary {
+  margin-bottom: 10px;
+}
+.sync-auth-invitation,
+.sync-auth-http {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.sync-auth-invitation input {
+  accent-color: hsl(var(--primary));
+}
+.sync-auth-link {
+  justify-self: start;
+  width: fit-content;
+  font-size: 12px;
+  color: hsl(var(--primary));
+  cursor: pointer;
+  text-align: start;
+}
+.sync-auth-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.sync-auth-submit > button {
+  width: 100%;
+  min-height: 38px;
+}
+.sync-auth-server {
+  gap: 12px;
+  border-top: 1px solid hsl(var(--border));
+  padding-top: 18px;
+}
+.sync-auth-server-row {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.sync-auth-server-row > div {
+  flex: 1 1 150px;
+}
+
+.sync-auth-health {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  max-width: 100%;
+  font-size: 11px;
   color: hsl(var(--muted-foreground));
 }
-.sync-connect-options {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
+.sync-auth-health > svg {
+  flex-shrink: 0;
 }
-.sync-connect-server-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-  font-size: 12px;
-  font-weight: 600;
+.sync-auth-health[data-state="available"] > svg {
+  color: var(--notice-success-fg);
 }
-.sync-connect-verified {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
+.sync-auth-health[data-state="unavailable"] > svg {
+  color: var(--notice-warning-fg);
 }
-.sync-connect-verified > svg {
-  color: var(--editor-text-green);
-  margin-top: 2px;
+.sync-auth-server-error,
+.sync-auth-http-warning {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--notice-warning-fg);
+}
+@media (max-width: 520px) {
+  .sync-auth-card {
+    padding: 18px;
+  }
 }
 
 .backup-panel {

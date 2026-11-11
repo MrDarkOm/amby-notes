@@ -4392,7 +4392,11 @@ const ru = {
         check: "Проверить сервер",
         checking: "Проверяем…",
         found: "Сервер найден: Amby Sync {{version}}",
+        available: "Сервер доступен",
+        unavailable: "Сервер недоступен",
+        enterAddress: "Укажите адрес",
       },
+      auth: { mode: "Способ входа", loginTab: "Вход", registerTab: "Регистрация" },
       choice: {
         create: "Создать учётную запись",
         signIn: "Войти",
@@ -4413,6 +4417,7 @@ const ru = {
       actions: {
         back: "Назад",
         continue: "Продолжить",
+        register: "Зарегистрироваться",
         signIn: "Войти",
         recover: "Восстановить доступ",
         working: "Подождите…",
@@ -8854,7 +8859,11 @@ const en: typeof ru = {
         check: "Check the server",
         checking: "Checking…",
         found: "Server found: Amby Sync {{version}}",
+        available: "Server available",
+        unavailable: "Server unavailable",
+        enterAddress: "Enter an address",
       },
+      auth: { mode: "Authentication", loginTab: "Log in", registerTab: "Register" },
       choice: {
         create: "Create an account",
         signIn: "Sign in",
@@ -8875,6 +8884,7 @@ const en: typeof ru = {
       actions: {
         back: "Back",
         continue: "Continue",
+        register: "Register",
         signIn: "Sign in",
         recover: "Recover access",
         working: "Please wait…",
