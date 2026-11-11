@@ -18,7 +18,7 @@ import {
 import { splitWebFrontmatter, webRevision } from "@/lib/storage/web-frontmatter"
 import { useDatabaseStore } from "./database/database-store"
 import { noteLayerPath, wsPathDir } from "./workspace-tree-utils"
-import { recordLocalTreePaths } from "./watcher-tree-reconciliation"
+import { beginLocalTreeMutation, recordLocalTreePaths } from "./watcher-tree-reconciliation"
 import { mutationPaths } from "./workspace-mutations"
 import { flushEditorSerializations } from "./tiptap/editor-serialization-lifecycle"
 
@@ -109,15 +109,17 @@ export function useLayers({
   const t = i18n.t.bind(i18n)
   const activeLayers = useViewStateStore((s) => s.activeLayers)
   const linkedLayersByDoc = useViewStateStore((s) => s.linkedLayersByDoc)
+  const databaseInvalidationSeq = useDatabaseStore((state) => state.invalidationSeq)
   const { setActiveLayer, setLinkedLayers } = useViewStateStore.getState()
 
   const refreshLinkedLayers = React.useCallback(
-    async (docId: string, notePath: string) => {
+    async (docId: string, notePath: string, isCurrent: () => boolean = () => true) => {
       try {
         const layers = await noteLayers(notePath)
-        setLinkedLayers(docId, layers)
+        if (isCurrent()) setLinkedLayers(docId, layers)
       } catch (err) {
         console.error("Failed to load note layers:", err)
+        if (!isCurrent()) return
         setLinkedLayers(docId, {
           note: notePath.endsWith(".md"),
           canvas: false,
@@ -144,18 +146,23 @@ export function useLayers({
   const createAttachedDatabase = React.useCallback(
     async (noteId: string, notePath: string, title: string) => {
       if (!vault || !databasesEnabled || backendGeneration === null) return
-      const created = await createDatabase({
-        expectedGeneration: backendGeneration,
-        mode: "attached",
-        notePath,
-        name: title.replace(/\.md$/iu, "") || title,
-      })
-      const nextNotePath = created.notePath ?? notePath
-      applyDatabasePathChange(notePath, nextNotePath)
-      await refreshTreePaths([notePath, nextNotePath, created.manifestPath])
-      await refreshDatabaseCatalog?.()
-      await refreshLinkedLayers(noteId, nextNotePath)
-      setActiveLayer(noteId, "database")
+      const finishMutation = beginLocalTreeMutation()
+      try {
+        const created = await createDatabase({
+          expectedGeneration: backendGeneration,
+          mode: "attached",
+          notePath,
+          name: title.replace(/\.md$/iu, "") || title,
+        })
+        const nextNotePath = created.notePath ?? notePath
+        applyDatabasePathChange(notePath, nextNotePath)
+        await refreshTreePaths([notePath, nextNotePath, created.manifestPath])
+        await refreshDatabaseCatalog?.()
+        await refreshLinkedLayers(noteId, nextNotePath)
+        setActiveLayer(noteId, "database")
+      } finally {
+        finishMutation()
+      }
     },
     [
       applyDatabasePathChange,
@@ -428,16 +435,29 @@ export function useLayers({
     }
   }
 
-  // Load the cached layer-presence map for a document the first time it opens.
-  const requestedLayersRef = React.useRef<Set<string>>(new Set())
+  // A remote attachment arrives independently of the Markdown move. Refresh presence after
+  // catalog invalidation as well as relocation, even when this document already has a cache.
+  const presenceCheckedRef = React.useRef(false)
+  const presenceDocId = currentDoc?.id
+  const presenceDocPath = currentDoc?.path
   React.useEffect(() => {
-    if (!currentDoc) return
-    if (linkedLayersByDoc[currentDoc.id] || requestedLayersRef.current.has(currentDoc.id)) return
-    requestedLayersRef.current.add(currentDoc.id)
-    void refreshLinkedLayers(currentDoc.id, currentDoc.path)
-    // refreshLinkedLayers is recreated every render; the ref above makes this a once-per-document request.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentDoc?.id, currentDoc?.path, linkedLayersByDoc])
+    if (!presenceDocId || !presenceDocPath) return
+    const firstCheck = !presenceCheckedRef.current
+    presenceCheckedRef.current = true
+    if (firstCheck && useViewStateStore.getState().linkedLayersByDoc[presenceDocId]) return
+    let cancelled = false
+    void refreshLinkedLayers(presenceDocId, presenceDocPath, () => !cancelled)
+    return () => {
+      cancelled = true
+    }
+  }, [
+    presenceDocId,
+    presenceDocPath,
+    databaseInvalidationSeq,
+    refreshLinkedLayers,
+    vault,
+    backendGeneration,
+  ])
 
   React.useEffect(() => {
     if (!currentDoc || databasesEnabled) return

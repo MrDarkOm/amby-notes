@@ -11,7 +11,13 @@ import {
   readRecoveryDraft,
   discardRecoveryDraft,
 } from "../../src/lib/recovery-drafts"
-import { createDatabase, setStorageAdapter, settingsRepository } from "../../src/lib/storage"
+import {
+  createDatabase,
+  listDatabases,
+  noteLayers,
+  setStorageAdapter,
+  settingsRepository,
+} from "../../src/lib/storage"
 import { createDatabaseLayoutPort } from "../../src/lib/storage/database-layout-repository"
 import type { StorageContractContext } from "../../src/lib/storage/storage-contract"
 import { AutosaveCoordinator } from "../../src/components/workspace/autosave/autosave-coordinator"
@@ -248,6 +254,21 @@ export const nativeNoteCases: Array<{
           notePath: note.primaryPath!,
           name: "Attached identity",
         })
+        const manifest = JSON.parse(await adapter.readFile(created.manifestPath))
+        check(
+          manifest.databaseId === created.databaseId,
+          "Attachment publishes its manifest before opening the database",
+        )
+        check(
+          (await noteLayers(created.notePath!)).database,
+          "The attached layer is discoverable immediately",
+        )
+        const catalog = await listDatabases()
+        check(
+          catalog.find((database) => database.databaseId === created.databaseId)?.attachedNoteId ===
+            id,
+          "The catalog connects the database to the existing note before opening it",
+        )
         const refreshed = await adapter.loadActiveVaultData()
         const row = refreshed.tree.find((item) => item.id === id)
         check(row, "The note still has a tree row under its original ID")

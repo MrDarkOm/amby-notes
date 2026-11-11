@@ -100,6 +100,8 @@ against implementation. These design documents include intended behavior; tests
 and current code establish what is available. Use colocated store, query, cell,
 linked-reference, clipboard, layout and editor-lease tests for the changed concern.
 
-Successful database mutations emit `amby:database-written` with the vault generation, affected note IDs and known paths. The controller refreshes its catalog and invalidates hosts; workspace reconciliation rereads affected open notes without overwriting dirty buffers. Watcher `database:changed` events generated during sync are released after the batch.
+`amby:database-written` carries generation, note IDs and paths: refresh catalog/hosts and reconcile open notes, preserving dirty buffers. Sync releases `database:changed` after the batch.
 
 [Layout upgrade](use-database-layout-upgrade.ts): read-only startup scan, explicit backed-up conversion in the centre.
+
+[use-layers.ts](../use-layers.ts) rereads layers after moves/catalog invalidation and rejects superseded reads.

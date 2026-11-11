@@ -9,6 +9,14 @@ import type { TreeItem, TreePatch, TreePatchOp } from "@/lib/storage"
 // A patch that cannot be applied (its parent is not in the tree, a shallow refresh of an item the
 // tree does not have) yields `null`, and the caller reloads the whole tree instead.
 
+function pathKey(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+$/, "")
+}
+
+function samePath(left: string, right: string): boolean {
+  return pathKey(left) === pathKey(right)
+}
+
 function separatorIndex(path: string): number {
   return Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))
 }
@@ -31,7 +39,8 @@ function stem(name: string): string {
 function itemDirectory(item: TreeItem, vault: string): string | null {
   if (item.type === "folder" || item.type === "database") return item.path
   const parent = parentDirectory(item.path)
-  if (parent && parent !== vault && stem(baseName(item.path)) === baseName(parent)) return parent
+  if (parent && !samePath(parent, vault) && stem(baseName(item.path)) === baseName(parent))
+    return parent
   return null
 }
 
@@ -90,7 +99,7 @@ function sameItem(left: TreeItem, right: TreeItem): boolean {
 }
 
 function removeFrom(children: TreeItem[], paths: string[]): TreeItem[] {
-  const next = children.filter((child) => !paths.includes(child.path))
+  const next = children.filter((child) => !paths.some((path) => samePath(path, child.path)))
   return next.length === children.length ? children : next
 }
 
@@ -100,7 +109,7 @@ function upsertInto(
   replaceChildren: boolean,
   vault: string,
 ): TreeItem[] | null {
-  const existingAt = children.findIndex((child) => child.path === item.path)
+  const existingAt = children.findIndex((child) => samePath(child.path, item.path))
   const existing = existingAt === -1 ? undefined : children[existingAt]
   if (!replaceChildren && !existing) return null
   const next: TreeItem =
@@ -117,9 +126,9 @@ function upsertInto(
 
 function isInside(item: TreeItem, path: string, vault: string): boolean {
   const directory = itemDirectory(item, vault)
-  if (!directory || !path.startsWith(directory)) return false
-  const next = path.charAt(directory.length)
-  return next === "/" || next === "\\"
+  if (!directory || !pathKey(path).startsWith(pathKey(directory))) return false
+  const next = pathKey(path).charAt(pathKey(directory).length)
+  return next === "/"
 }
 
 function withChildren(
@@ -131,7 +140,7 @@ function withChildren(
   if (parentPath === null) return update(items)
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index]!
-    const own = item.path === parentPath
+    const own = samePath(item.path, parentPath)
     if (!own && !(item.children && isInside(item, parentPath, vault))) continue
     const children = item.children ?? []
     const next = own ? update(children) : withChildren(children, parentPath, vault, update)
@@ -158,10 +167,11 @@ function applyOp(items: TreeItem[], op: TreePatchOp, vault: string): TreeItem[] 
  */
 export function removePaths(items: TreeItem[], paths: ReadonlySet<string>): TreeItem[] {
   if (paths.size === 0) return items
+  const normalizedPaths = new Set([...paths].map(pathKey))
   let changed = false
   const next: TreeItem[] = []
   for (const item of items) {
-    if (paths.has(item.path)) {
+    if (normalizedPaths.has(pathKey(item.path))) {
       changed = true
       continue
     }
