@@ -17,6 +17,11 @@ export interface AppNotice {
   params?: Record<string, unknown>
   /** The key of the one line under the title: what happened to the data, what to do. */
   lineKey: string
+  action?: {
+    labelKey: string
+    busy: boolean
+    run: () => Promise<void>
+  }
 }
 
 interface AppNoticesState {

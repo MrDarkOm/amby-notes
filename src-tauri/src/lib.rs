@@ -160,6 +160,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::vault::start_vault_watcher,
         commands::vault::stop_vault_watcher,
         commands::database::get_database_module_state,
+        commands::database::database_layout_status,
+        commands::database::upgrade_database_layout,
         commands::database::set_database_module_enabled,
         commands::database::rebuild_database_projection,
         commands::database::refresh_database_change,

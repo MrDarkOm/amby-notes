@@ -918,6 +918,22 @@ async getDatabaseModuleState() : Promise<Result<DatabaseModuleState, DatabaseErr
     else return { status: "error", error: e  as any };
 }
 },
+async databaseLayoutStatus(expectedGeneration: number) : Promise<Result<LayoutStatus, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("database_layout_status", { expectedGeneration }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async upgradeDatabaseLayout(expectedGeneration: number) : Promise<Result<LayoutStatus, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("upgrade_database_layout", { expectedGeneration }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Enabling the module rebuilds only the derived SQLite projection. Durable
  * manifest, shard and template files remain untouched; the feature gate is a
@@ -2900,6 +2916,7 @@ export type InitWorkshopRequest = { expectedGeneration: number; operationId: str
 export type InstalledModuleInfo = { moduleId: string; activeVersion: string; installedVersions: string[]; installPath: string; entryPath: string; sizeBytes: number }
 export type JsonValue = null | boolean | number | string | JsonValue[] | Partial<{ [key in string]: JsonValue }>
 export type LayerResult = { notePath: string; layerPath: string; kind: string; pathChanges: PathChange[] }
+export type LayoutStatus = { pendingDatabases: number }
 /**
  * The limits in force; `None` is "no limit".
  */

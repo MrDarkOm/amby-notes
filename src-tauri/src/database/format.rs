@@ -161,6 +161,15 @@ pub struct DatabaseManifest {
     pub extra: ExtraFields,
 }
 
+impl DatabaseManifest {
+    pub fn templates(&self) -> Result<Vec<DatabaseTemplateFile>, String> {
+        self.extra.get("templates").map_or_else(
+            || Ok(Vec::new()),
+            |value| serde_json::from_value(value.clone()).map_err(|error| error.to_string()),
+        )
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct DatabaseCover {
     pub kind: String,
@@ -1819,6 +1828,12 @@ pub fn prepare_json<T: Serialize>(
     let mut bytes = serde_json::to_vec_pretty(value)
         .map_err(|error| FormatError::Serialization(error.to_string()))?;
     bytes.push(b'\n');
+    if bytes.len() > MAX_JSON_BYTES {
+        return Err(FormatError::TooLarge {
+            bytes: bytes.len(),
+            limit: MAX_JSON_BYTES,
+        });
+    }
     Ok(PreparedJson {
         revision: raw_revision(&bytes),
         bytes,
@@ -1915,7 +1930,7 @@ fn parse_document<T: DeserializeOwned>(
         .get("formatVersion")
         .and_then(Value::as_u64)
         .ok_or(FormatError::InvalidFormatVersion)?;
-    if version != SUPPORTED_FORMAT_VERSION {
+    if version != SUPPORTED_FORMAT_VERSION && !(kind == DocumentKind::Manifest && version == 2) {
         return Err(FormatError::UnsupportedFormatVersion { actual: version });
     }
     let value =

@@ -981,6 +981,24 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
       (error) => logger.warn("watcher.listen_failed", { errorType: errorType(error) }),
     )
 
+    // Sync knows these files were removed even when notify misses a directory move to the
+    // system trash. Reconcile through the same tree/ID checks, rather than depending on a
+    // second OS event to pause autosave and show the deletion card for an open document.
+    const cleanupRemoteDeleted = adoptAsyncDisposer(
+      listen<{ vault: string; paths: string[] }>("sync-remote-deleted", (event) => {
+        if (event.payload.vault !== vault || useVaultStore.getState().vault !== vault) return
+        for (const relative of event.payload.paths) {
+          const path = `${normalize(vault).replace(/\/+$/, "")}/${normalize(relative)}`
+          const change = { kind: "remove", path, duringLocalMutation: false }
+          pending.set(`${change.kind}:${normalize(path)}`, change)
+        }
+        if (!event.payload.paths.length) return
+        if (refreshTimer) clearTimeout(refreshTimer)
+        refreshTimer = setTimeout(() => void flushPendingChanges(), 300)
+      }),
+      (error) => logger.warn("watcher.listen_failed", { errorType: errorType(error) }),
+    )
+
     return () => {
       if (refreshTimer) clearTimeout(refreshTimer)
       pending.clear()
@@ -989,6 +1007,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
       cleanupMoved()
       cleanupProperties()
       cleanupDatabase()
+      cleanupRemoteDeleted()
     }
     // refreshTree is recreated every render but only reads `vault`, which is in the deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps

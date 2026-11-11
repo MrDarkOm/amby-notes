@@ -119,6 +119,34 @@ describe("the stack", () => {
     return screen.findByTestId("notices-centre")
   }
 
+  it("runs a database upgrade from its notice button and disables it while busy", async () => {
+    const run = vi.fn(async () => {})
+    render(<NoticesStack port={createFakePort()} />)
+    act(() =>
+      useAppNoticesStore.getState().post({
+        id: "layout",
+        level: "decision",
+        titleKey: "databaseLayout.title",
+        lineKey: "databaseLayout.line",
+        action: { labelKey: "databaseLayout.update", busy: false, run },
+      }),
+    )
+    const centre = await open()
+    fireEvent.click(within(centre).getByRole("button", { name: "Обновить данные" }))
+    expect(run).toHaveBeenCalledOnce()
+    act(() =>
+      useAppNoticesStore.setState((state) => ({
+        notices: state.notices.map((notice) => ({
+          ...notice,
+          action: { labelKey: "databaseLayout.updating", busy: true, run },
+        })),
+      })),
+    )
+    expect(
+      (within(centre).getByRole("button", { name: "Обновление…" }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+  })
+
   it("shows a card with the words of the locale and a way to close it", async () => {
     render(<NoticesStack port={createFakePort()} />)
     act(() => {

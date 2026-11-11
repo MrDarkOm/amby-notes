@@ -99,6 +99,17 @@ describe("local tree mutation reconciliation", () => {
 })
 
 describe("planOpenDocumentTreeChanges", () => {
+  it("keeps an existing database tab attached to its main note after the tree restores note IDs", () => {
+    expect(
+      planOpenDocumentTreeChanges(
+        { database: { path: "/vault/Note", title: "Note", noteId: "note" } },
+        [{ id: "note", path: "/vault/Note/Note.md", name: "Note", type: "file" }],
+      ),
+    ).toEqual([
+      { kind: "relocated", fileId: "database", path: "/vault/Note/Note.md", title: "Note" },
+    ])
+  })
+
   it("classifies a rename out of the vault as deletion when its stable ID disappears", () => {
     expect(
       planOpenDocumentTreeChanges({ "note-1": document("/vault/Moved/Note.md", "Note") }, []),

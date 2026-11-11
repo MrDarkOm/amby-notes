@@ -302,6 +302,9 @@ fn sync_note_with_resolution(
     }
     let manifest_bytes = fs::read(&database.manifest_path).map_err(|error| error.to_string())?;
     let manifest = parse_manifest(&manifest_bytes).map_err(|error| error.to_string())?;
+    if manifest.value.format_version >= 2 {
+        return Err("The current database format stores values only in Markdown".to_owned());
+    }
     if !super::validation::validate_manifest(&manifest.value)
         .errors
         .is_empty()

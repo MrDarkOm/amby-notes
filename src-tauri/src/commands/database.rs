@@ -53,6 +53,76 @@ fn active_generation(context: &VaultContext) -> Option<u64> {
         .map(|active| active.generation)
 }
 
+#[tauri::command]
+#[specta::specta]
+pub fn database_layout_status(
+    context: tauri::State<'_, VaultContext>,
+    expected_generation: u64,
+) -> Result<crate::database::layout::LayoutStatus, DatabaseError> {
+    let guard = context.conn.lock_or_recover();
+    let active = guard.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
+    if active.generation != expected_generation {
+        return Err(DatabaseError::VaultGenerationConflict {
+            actual_generation: active.generation,
+        });
+    }
+    crate::database::layout::scan(&active.root)
+        .map_err(|message| DatabaseError::failed("databaseLayoutFailed", message))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn upgrade_database_layout(
+    app: tauri::AppHandle,
+    expected_generation: u64,
+) -> Result<crate::database::layout::LayoutStatus, DatabaseError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let context = app.state::<VaultContext>();
+        let _guard = context.mutation_gate.lock_or_recover();
+        let root = {
+            let guard = context.conn.lock_or_recover();
+            let active = guard.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
+            if active.generation != expected_generation {
+                return Err(DatabaseError::VaultGenerationConflict {
+                    actual_generation: active.generation,
+                });
+            }
+            active.root.clone()
+        };
+        // Stop and join the sync writer before changing a multi-file layout. The link and
+        // credentials remain intact; always resume the same vault after success or failure.
+        if let Some(sync) = app.try_state::<crate::sync::runtime::SyncRuntime>() { sync.deactivate_vault(); }
+        let mut result = crate::database::layout::upgrade(&root)
+            .map_err(|message| DatabaseError::failed("databaseLayoutFailed", message));
+        if result.is_ok() {
+            let guard = context.conn.lock_or_recover();
+            if let Some(active) = guard.as_ref() {
+                match crate::database::projection::rebuild_database_projection(&active.connection, &root) {
+                    Ok(report) => {
+                        app.state::<DatabaseRuntimeState>().set_projection(expected_generation, Some(crate::database::model::ProjectionVersion { epoch: report.epoch, seq: report.seq }));
+                    }
+                    Err(message) => result = Err(DatabaseError::failed("projectionRebuildFailed", message)),
+                }
+            }
+        }
+        if let Err(error) = &result { tracing::warn!(event = "database.layout_upgrade_failed", error = ?error); }
+        use tauri::Emitter;
+        let _ = app.emit("amby:database-written", serde_json::json!({"generation": expected_generation, "paths": [root.to_string_lossy()], "noteIds": [], "allNotes": true}));
+        crate::watcher::notify_published_files(
+            &app,
+            &root,
+            expected_generation,
+            std::slice::from_ref(&root),
+            None,
+        );
+        crate::sync::activate_for_open_vault(&app, root);
+        result
+    })
+    .await
+    .map_err(|error| DatabaseError::failed("databaseLayoutFailed", error.to_string()))?
+}
+
 fn projection_error(message: String) -> DatabaseError {
     DatabaseError::failed("projectionRefreshFailed", message)
 }
@@ -1868,7 +1938,7 @@ pub fn list_databases(
                             [database.database_id.as_str()],
                             |row| row.get::<_, bool>(0),
                         )
-                        .unwrap_or(database.read_only),
+                        .unwrap_or(database.read_only) || std::fs::read(&database.manifest_path).ok().and_then(|bytes| crate::database::format::parse_manifest(&bytes).ok()).is_none_or(|manifest| manifest.value.format_version < 2),
                     properties: database_properties(&active.connection, &database.database_id),
                     views: active
                         .connection

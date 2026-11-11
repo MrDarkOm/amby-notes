@@ -396,9 +396,6 @@ export function DatabaseWorkspace({
     openRowDialogInLane,
     handleCreateRelationRow,
     moveRowToGroup,
-    yamlSyncState,
-    syncYamlForRow,
-    resolveYamlForRow,
   } = useDatabaseRowActions({
     databaseId,
     vaultGeneration,
@@ -771,9 +768,6 @@ export function DatabaseWorkspace({
             commitPeekCell={commitPeekCell}
             selectedRowIndex={selectedRowIndex}
             selectAdjacentRow={selectAdjacentRow}
-            yamlSyncState={yamlSyncState}
-            syncYamlForRow={syncYamlForRow}
-            resolveYamlForRow={resolveYamlForRow}
             setSelectedRowId={setSelectedRowId}
             onOpenRowFullPage={onOpenRowFullPage}
             onLoadRowDocument={onLoadRowDocument}

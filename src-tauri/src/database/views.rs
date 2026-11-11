@@ -56,6 +56,9 @@ fn read_manifest(
 fn json_bytes(value: &Value) -> Result<Vec<u8>, String> {
     let mut bytes = serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?;
     bytes.push(b'\n');
+    if bytes.len() > super::format::MAX_JSON_BYTES {
+        return Err("Generated database JSON is too large".to_owned());
+    }
     Ok(bytes)
 }
 

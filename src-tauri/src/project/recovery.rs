@@ -188,7 +188,11 @@ pub fn rollback(vault: &Path, journal: &Journal) -> Result<Rollback, ProjectErro
                 continue;
             }
 
-            if let Some(template) = &section.template {
+            if let Some(template) = section
+                .template
+                .as_ref()
+                .filter(|_| section.extras.layout_version < 2)
+            {
                 let directory = container.join(".ambd").join("templates");
                 let file = directory.join(format!("{}.json", template.template_id));
                 let expected_template = template_file_bytes(&section.database_id, template)

@@ -68,6 +68,7 @@ export function filterLocalTreeWatcherChanges<
 interface OpenDocumentLocation {
   path: string
   title: string
+  noteId?: string
 }
 
 /** Folder events and root-level rescan notifications also cover open descendants. */
@@ -133,11 +134,19 @@ export function planOpenDocumentTreeChanges(
   const filesById = indexFiles(tree)
   const changes: OpenDocumentTreeChange[] = []
   for (const [fileId, document] of Object.entries(openDocs)) {
-    const item = filesById.get(fileId)
+    // A previously opened database tab can still use its database ID. Its Markdown layer
+    // has a separate stable note ID, which attached containers now retain in the tree.
+    const item =
+      filesById.get(fileId) ??
+      (document.noteId &&
+      !document.path.endsWith(".canvas") &&
+      !document.path.endsWith(".excalidraw")
+        ? filesById.get(document.noteId)
+        : undefined)
     if (!item || item.type === "folder") {
       changes.push({ kind: "deleted", fileId })
     } else if (
-      item.id === fileId &&
+      (item.id === fileId || item.id === document.noteId) &&
       (item.path !== document.path || item.name !== document.title)
     ) {
       changes.push({ kind: "relocated", fileId, path: item.path, title: item.name })

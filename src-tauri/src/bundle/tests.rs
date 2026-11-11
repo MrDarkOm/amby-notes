@@ -1,4 +1,4 @@
-use super::assets::{classify_ext, sanitize_stem};
+use super::assets::{classify_ext, random_asset_name};
 use super::path_ops::file_name;
 use super::scan::is_markdown;
 use super::*;
@@ -688,11 +688,20 @@ fn test_sanitize_ext() {
 }
 
 #[test]
-fn test_sanitize_stem() {
-    assert_eq!(sanitize_stem("My Note Asset"), "My-Note-Asset");
-    assert_eq!(sanitize_stem("../../../etc/passwd"), "etc-passwd");
-    assert_eq!(sanitize_stem("   ---   "), "asset");
-    assert_eq!(sanitize_stem(""), "asset");
+fn asset_names_are_unique_typed_and_do_not_contain_source_paths() {
+    let cases = [
+        ("PNG", "img_", ".png"),
+        ("pdf", "pdf_", ".pdf"),
+        ("mp3", "audio_", ".mp3"),
+        ("mp4", "video_", ".mp4"),
+        ("../../secret", "file_", ".bin"),
+    ];
+    for (ext, prefix, suffix) in cases {
+        let name = random_asset_name(ext);
+        assert!(name.starts_with(prefix) && name.ends_with(suffix));
+        assert!(!name.contains('/') && !name.contains('\\'));
+        assert_ne!(name, random_asset_name(ext));
+    }
 }
 
 #[test]

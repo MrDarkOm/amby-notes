@@ -10,6 +10,17 @@ export const SUPPORTED_LANGUAGES = [
 export type LanguageCode = (typeof SUPPORTED_LANGUAGES)[number]["code"]
 
 const ru = {
+  databaseLayout: {
+    title: "Обновлён формат баз данных",
+    line: "Обновите данные для работы с базами. Перед обновлением будет создана резервная копия.",
+    update: "Обновить данные",
+    updating: "Обновление…",
+    updatingLine: "Сохраняем резервную копию и обновляем базы. Дождитесь завершения.",
+    failed:
+      "Не удалось завершить обновление. Существующие данные сохранены. Можно повторить попытку.",
+    scanFailed:
+      "Не удалось проверить формат баз. Проверьте доступ к хранилищу и повторите обновление.",
+  },
   app: { name: "Amby" },
   errors: {
     notANote: "Это не заметка: {{path}}",
@@ -4477,6 +4488,16 @@ const ru = {
 }
 
 const en: typeof ru = {
+  databaseLayout: {
+    title: "The database format has been updated",
+    line: "Update your data to continue using databases. A backup will be created before updating.",
+    update: "Update data",
+    updating: "Updating…",
+    updatingLine: "Creating a backup and updating databases. Please wait for completion.",
+    failed: "The update could not finish. Existing data has been retained. You can try again.",
+    scanFailed:
+      "The database format could not be checked. Check vault access and try updating again.",
+  },
   app: { name: "Amby" },
   errors: {
     notANote: "Not a note: {{path}}",

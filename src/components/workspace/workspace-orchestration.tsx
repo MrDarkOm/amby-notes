@@ -608,7 +608,10 @@ export function WorkspaceOrchestration() {
       activeTab.kind === "database" ||
       activeTab.kind === "canvas" ||
       activeTab.kind === "sketch")
-      ? (treeItemById.get(activeTab.fileId)?.id ?? activeTab.fileId)
+      ? ((
+          treeItemById.get(activeTab.fileId) ??
+          treeItemById.get(openDocs[activeTab.fileId]?.noteId ?? "")
+        )?.id ?? activeTab.fileId)
       : ""
 
   // Current file icon (from iconOverrides or tree)

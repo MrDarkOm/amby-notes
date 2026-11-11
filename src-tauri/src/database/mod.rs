@@ -9,6 +9,7 @@ pub mod filter_operators;
 pub mod format;
 pub mod formula;
 pub mod history;
+pub mod layout;
 pub mod model;
 pub mod mutation_state;
 pub mod mutations;

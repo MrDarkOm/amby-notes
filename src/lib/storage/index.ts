@@ -1,4 +1,5 @@
 import { createBackupPort } from "./backup-repository"
+import { createDatabaseLayoutPort } from "./database-layout-repository"
 import { createAiChatRepository } from "./ai-chat-repository"
 import { DesktopAdapter } from "./desktop-adapter"
 import { WebAdapter } from "./web-adapter"
@@ -855,4 +856,5 @@ export {
   type BackupInfo,
 } from "./backup-repository"
 export const resolveBackupPort = () => createBackupPort(isTauri())
+export const resolveDatabaseLayoutPort = () => createDatabaseLayoutPort(isTauri())
 export const resolveAiChatRepository = () => createAiChatRepository(isTauri())

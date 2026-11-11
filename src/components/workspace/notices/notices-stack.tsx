@@ -99,7 +99,7 @@ function entryWords(
       return {
         title: entry.appNotice ? t(entry.appNotice.titleKey, entry.appNotice.params) : "",
         line: entry.appNotice ? t(entry.appNotice.lineKey) : "",
-        button: null,
+        button: entry.appNotice?.action ? t(entry.appNotice.action.labelKey) : null,
       }
     default:
       return { title: "", line: "", button: null }
@@ -126,7 +126,8 @@ function EntryCard({ entry, context }: { entry: CentreEntry; context: RowContext
   const appData = conflict ? appDataConflictKind(conflict.originalPath) : null
   const { title, line, button } = entryWords(entry, t, i18n.language)
   const go = () => {
-    if (entry.action.kind === "note") requestOpenNote({ id: entry.action.id })
+    if (entry.appNotice?.action) void entry.appNotice.action.run()
+    else if (entry.action.kind === "note") requestOpenNote({ id: entry.action.id })
     else if (entry.action.kind === "compare") openCompare(entry.action.conflictId)
     else openSyncSettings()
   }
@@ -137,6 +138,7 @@ function EntryCard({ entry, context }: { entry: CentreEntry; context: RowContext
       variant="outline"
       className="h-auto min-h-8 max-w-full whitespace-normal py-1.5 text-left"
       onClick={go}
+      disabled={entry.appNotice?.action?.busy}
     >
       {button}
     </Button>

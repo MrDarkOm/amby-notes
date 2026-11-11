@@ -43,3 +43,5 @@ Tests sit beside the files: [centre-entries.test.ts](centre-entries.test.ts), [n
 [notice-journal.test.ts](../../../lib/notices/notice-journal.test.ts).
 
 A refusal under a property editor or in a cell is a [NoticeLine](notice-line.tsx) (`warning`; a cell's mark is `noticeTextClass` in [notice-look.ts](notice-look.ts)). The line under the tree may carry one retry button (`action` of its store).
+
+App notices support one async action.

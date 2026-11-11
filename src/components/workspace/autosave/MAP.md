@@ -51,6 +51,9 @@ A rename or move can rewrite inbound links in other files. Rust sends `amby:file
 
 `amby:files-changed` also reports structural file actions, file saves in other windows, and snapshot/archive restores. Events carry the vault generation, and file saves identify the originating window. Database writes emit `amby:database-written` with affected note IDs and created paths; these enter the same reconciliation path. `amby:properties-written` rereads open properties with the property-version guard.
 
+Confirmed sync deletions (`sync-remote-deleted`, scoped by vault) also enter this queue: an OS
+watcher event is not required to retain the open text, pause saving and show its deletion card.
+
 When an external tree refresh no longer contains an open canvas or sketch, the tab and buffer remain available: the file revision check on the next save handles the missing or changed path. A tree refresh must not discard a potentially dirty layer.
 
 `remap-layer-autosave.ts` moves a canvas or sketch revision baseline before remapping its queued save and changes the queued payload to the new path.

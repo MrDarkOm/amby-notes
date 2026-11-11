@@ -70,3 +70,5 @@ Archive preview: `readTrashPreview(id, relativePath)` goes through `HistoryRepos
 Global AI settings use compare-and-write through the settings repository and native app-data lock. Versioned AI migration/guarded rollback enter through the same boundary; the browser adapter refuses filesystem migration.
 
 Point refresh: `refreshVaultPaths(paths)` returns the tree patch and sync report for those paths only, or `null` when only a full `loadActiveVaultData` can decide (the browser adapter always returns `null`). Mutation results may carry `treePatch`; both are applied by [tree-patch.ts](../../components/workspace/tree-patch.ts).
+
+Database layout upgrade: [database-layout-repository.ts](database-layout-repository.ts) exposes read-only scan and explicit conversion, both bound to the active backend generation.

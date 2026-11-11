@@ -39,13 +39,15 @@ fn option_names(property: &Value) -> Vec<String> {
 }
 
 fn templates(container: &Path) -> Vec<String> {
-    match fs::read_dir(container.join(".ambd/templates")) {
-        Ok(entries) => entries
-            .flatten()
-            .map(|entry| entry.file_name().to_string_lossy().into_owned())
-            .collect(),
-        Err(_) => Vec::new(),
-    }
+    let name = container.file_name().unwrap().to_string_lossy();
+    let manifest: Value =
+        serde_json::from_slice(&fs::read(container.join(format!("{name}.json"))).unwrap()).unwrap();
+    manifest["templates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|template| format!("{}.json", template["templateId"].as_str().unwrap()))
+        .collect()
 }
 
 #[test]
@@ -125,15 +127,8 @@ fn the_dossier_headings_come_from_the_page_template_of_the_database() {
     let template_id = manifest["defaultTemplateId"].as_str().unwrap().to_owned();
     assert_eq!(manifest["templateOrder"], serde_json::json!([template_id]));
     assert_eq!(templates(&container), [format!("{template_id}.json")]);
-    let file: Value = serde_json::from_slice(
-        &fs::read(
-            container
-                .join(".ambd/templates")
-                .join(format!("{template_id}.json")),
-        )
-        .unwrap(),
-    )
-    .unwrap();
+    let file = &manifest["templates"][0];
+    assert!(!container.join(".ambd/templates").exists());
     assert_eq!(file["name"], "Досье");
     assert_eq!(
         file["body"],
@@ -168,17 +163,7 @@ fn the_dossier_headings_come_from_the_page_template_of_the_database() {
 
     // Locations get their own, shorter set.
     let locations = manifest_json(&fixture, "Saga/Локации", "Локации");
-    let id = locations["defaultTemplateId"].as_str().unwrap();
-    let file: Value = serde_json::from_slice(
-        &fs::read(
-            fixture
-                .vault
-                .join("Saga/Локации/.ambd/templates")
-                .join(format!("{id}.json")),
-        )
-        .unwrap(),
-    )
-    .unwrap();
+    let file = &locations["templates"][0];
     assert_eq!(file["body"], "## Описание\n\n## История\n\n");
 }
 
@@ -208,17 +193,7 @@ fn names_follow_the_labels_of_the_active_language() {
     );
     assert_eq!(property(&manifest, "Portrait")["type"], "files");
     assert_eq!(manifest["views"][0]["name"], "Gallery");
-    let id = manifest["defaultTemplateId"].as_str().unwrap();
-    let file: Value = serde_json::from_slice(
-        &fs::read(
-            fixture
-                .vault
-                .join("Saga/Characters/.ambd/templates")
-                .join(format!("{id}.json")),
-        )
-        .unwrap(),
-    )
-    .unwrap();
+    let file = &manifest["templates"][0];
     assert_eq!(file["name"], "Dossier");
     assert!(file["body"].as_str().unwrap().starts_with("## Basics"));
 
@@ -339,14 +314,10 @@ fn a_template_the_user_has_edited_is_left_and_reported() {
     clear_step_hook();
 
     let container = fixture.vault.join("Saga/Персонажи");
-    let template = fs::read_dir(container.join(".ambd/templates"))
-        .unwrap()
-        .flatten()
-        .next()
-        .unwrap()
-        .path();
-    let mut edited = fs::read(&template).unwrap();
-    edited.extend_from_slice(b"\n");
+    let template = container.join("Персонажи.json");
+    let mut edited: Value = serde_json::from_slice(&fs::read(&template).unwrap()).unwrap();
+    edited["templates"][0]["body"] = serde_json::json!("Author's changed template");
+    let edited = serde_json::to_vec_pretty(&edited).unwrap();
     fs::write(&template, &edited).unwrap();
 
     let report = recover_pending_projects(&fixture.vault).unwrap();

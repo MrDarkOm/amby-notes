@@ -120,6 +120,6 @@ must sit on a shallower level than its page; a loop is refused first; a stale pa
 **Page numbers.** `list_text_stats(databaseId)` joins `db_members` to `notes` and returns, per page, `word_count`,
 `mtime` and `created_at` as the note index keeps them (read-only; no file is read).
 
-**Presets.** `presets.rs` plans what a world section starts with (icon, properties, a gallery grouped by one of them, the
-page template) through `props.rs`. The result is journaled (`PlannedSection.extras`, `.template`), so a repeat or a cleanup
-recomputes the manifest and the template byte for byte; rollback removes the template only when it is the file we wrote.
+**Presets.** `presets.rs` plans icons, properties, views and templates through `props.rs`.
+New templates are embedded in layout-v2 manifests. Journaled plans reproduce the same bytes;
+older journals retain v1 shard baselines. Recovery only removes unchanged operation-owned data.

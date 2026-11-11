@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useDatabaseLayoutUpgrade } from "../database/use-database-layout-upgrade"
 
 import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
 import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
@@ -14,6 +15,7 @@ import { useNoticeToastStore } from "./use-notice-toasts-store"
  * (the status, the events) is [`SyncNoticesHost`](../sync/sync-notices-host.tsx).
  */
 export function NoticesHost() {
+  useDatabaseLayoutUpgrade()
   const vault = useVaultStore((state) => state.vault)
 
   // The journal belongs to the vault that is open. Records of a failed autosave belong to its session.

@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::model::ImportedAsset;
 
@@ -9,7 +8,6 @@ use super::scan::is_bundle_main_note;
 pub const MAX_ATTACHMENT_FILE_SIZE: u64 = 100 * 1024 * 1024; // 100 MB
 pub const MAX_PASTED_BYTES: usize = 25 * 1024 * 1024; // 25 MB
 pub const MAX_EXT_LEN: usize = 16;
-pub const MAX_STEM_LEN: usize = 128;
 
 pub(crate) const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "avif"];
 
@@ -22,28 +20,6 @@ pub(crate) fn sanitize_ext(ext: &str) -> String {
         return "bin".to_string();
     }
     trimmed
-}
-
-pub(crate) fn sanitize_stem(stem: &str) -> String {
-    let mut safe: String = stem
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    if safe.len() > MAX_STEM_LEN {
-        safe.truncate(MAX_STEM_LEN);
-    }
-    let trimmed = safe.trim_matches('-');
-    if trimmed.is_empty() {
-        "asset".to_string()
-    } else {
-        trimmed.to_string()
-    }
 }
 
 pub(crate) fn sniff_image_format(bytes: &[u8]) -> Option<&'static str> {
@@ -71,13 +47,6 @@ pub(crate) fn classify_ext(ext: &str) -> &'static str {
     }
 }
 
-pub(crate) fn now_millis() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0)
-}
-
 pub(crate) fn assets_dir_for(vault: &Path, note: &Path) -> PathBuf {
     if is_bundle_main_note(note) {
         if let Some(parent) = note.parent() {
@@ -87,23 +56,16 @@ pub(crate) fn assets_dir_for(vault: &Path, note: &Path) -> PathBuf {
     vault.join("assets")
 }
 
-pub(crate) fn unique_name(dir: &Path, stem: &str, ext: &str) -> String {
-    let safe_stem = sanitize_stem(stem);
-    let safe_ext = sanitize_ext(ext);
-    let initial = if safe_ext.is_empty() || (safe_ext == "bin" && ext.is_empty()) {
-        safe_stem.clone()
-    } else {
-        format!("{safe_stem}.{safe_ext}")
+pub(crate) fn random_asset_name(ext: &str) -> String {
+    let ext = sanitize_ext(ext);
+    let prefix = match ext.as_str() {
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "avif" | "bmp" => "img",
+        "pdf" => "pdf",
+        "mp3" | "wav" | "ogg" | "m4a" | "flac" | "opus" | "aac" => "audio",
+        "mp4" | "webm" | "mov" | "mkv" => "video",
+        _ => "file",
     };
-    if !dir.join(&initial).exists() {
-        return initial;
-    }
-    let suffix = now_millis();
-    if safe_ext.is_empty() || (safe_ext == "bin" && ext.is_empty()) {
-        format!("{safe_stem}-{suffix}")
-    } else {
-        format!("{safe_stem}-{suffix}.{safe_ext}")
-    }
+    format!("{prefix}_{}.{ext}", ulid::Ulid::generate())
 }
 
 fn relative_for_markdown(vault: &Path, note: &Path, asset_abs: &Path) -> String {

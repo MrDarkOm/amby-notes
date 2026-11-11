@@ -18,6 +18,7 @@ are in [commands/database.rs](../commands/database.rs); frontend contracts are i
 | Formula evaluation                            | [formula.rs](formula.rs)                                                                                 |
 | Rollup aggregation registry / config | [rollup.rs](rollup.rs), [rollup_config.rs](rollup_config.rs) |
 | YAML synchronization                          | [yaml_sync.rs](yaml_sync.rs)                                                                             |
+| Layout v2 / explicit backed-up upgrade | [layout.rs](layout.rs), [layout/tests.rs](layout/tests.rs) |
 | Mutation history                               | [history.rs](history.rs)                                                                                 |
 | Value-batch journal / startup rollback        | [value_batch_recovery.rs](value_batch_recovery.rs)                                                       |
 | Relation journals / activation recovery       | [relation_recovery.rs](relation_recovery.rs), [relation_schema_recovery.rs](relation_schema_recovery.rs) |
@@ -105,14 +106,12 @@ with keyset paging over one database's members, and batch ID → title/path reso
 (`ok` or `missing`; a trashed note cannot be told from a deleted one by ID).
 
 `assets.rs::resolve_database_asset_paths` turns stored `assets/<note-id>/<file>` paths
-into absolute image paths for card covers. It refuses links anywhere in the chain,
-non-images, oversized files and anything outside `.ambd/assets/<note-id>/`. If the
+into absolute image paths for card covers. Layout v2 uses flat `assets/<type>_<ULID>.<ext>` names; v1 reads `.ambd/assets/<note-id>/`. It refuses links, non-images and oversized files. If the
 completed journal cannot be written, the journal and backups move to
 `quarantine/` so activation never rolls back a confirmed write.
 
 `.ambd/records` shards are no longer moved into frontmatter (the transfer and the explicit
-database migration were removed after 0.1.9; shards are never deleted). They are still read for
-YAML sync (`yamlSyncBases`, and values as a fallback).
+database migration were removed after 0.1.9; shards are never deleted). Only layout v1 reads them for YAML sync. Layout v2 reads values from Markdown and rejects legacy YAML sync writes.
 
 Relation value mutations require the source raw-byte `expectedRevision`, recheck
 planned note/manifest bytes before publication, and return post-write `revisions`

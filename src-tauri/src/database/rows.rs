@@ -342,7 +342,7 @@ fn load_default_template(
     let Some(template_id) = manifest.value.default_template_id else {
         return (String::new(), std::collections::BTreeMap::new());
     };
-    load_template_file(database, database_id, &template_id)
+    load_template(database, database_id, &template_id)
 }
 
 fn load_template(
@@ -364,6 +364,17 @@ fn load_template(
             .any(|id| id == template_id)
     {
         return (String::new(), std::collections::BTreeMap::new());
+    }
+    if let Ok(templates) = manifest.value.templates() {
+        if let Some(template) = templates
+            .into_iter()
+            .find(|item| item.template_id == template_id && item.database_id == database_id)
+        {
+            return (template.body, template.values);
+        }
+    }
+    if manifest.value.format_version >= 2 {
+        return (String::new(), Default::default());
     }
     load_template_file(database, database_id, template_id)
 }
@@ -636,25 +647,16 @@ mod tests {
         }]);
         manifest["templateOrder"] = json!([template_id.clone()]);
         manifest["defaultTemplateId"] = json!(template_id.clone());
+        manifest["templates"] = json!([{
+            "format": "amby-database-template",
+            "formatVersion": 1,
+            "databaseId": database.database_id,
+            "templateId": template_id,
+            "name": "Project",
+            "body": "# Project\n",
+            "values": {(property_id.clone()): {"type": "text", "value": "todo"}}
+        }]);
         fs::write(&manifest_path, json_bytes(&manifest).unwrap()).unwrap();
-        let template_path = container
-            .join(".ambd/templates")
-            .join(format!("{template_id}.json"));
-        fs::create_dir_all(template_path.parent().unwrap()).unwrap();
-        fs::write(
-            template_path,
-            json_bytes(&json!({
-                "format": "amby-database-template",
-                "formatVersion": 1,
-                "databaseId": database.database_id,
-                "templateId": template_id,
-                "name": "Project",
-                "body": "# Project\n",
-                "values": {(property_id.clone()): {"type": "text", "value": "todo"}}
-            }))
-            .unwrap(),
-        )
-        .unwrap();
         let row = create_database_row(
             &vault,
             &WatcherState::new(),

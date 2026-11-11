@@ -9,6 +9,14 @@ deleting the index must not delete or change notes.
 Amby never writes `.obsidian/`, `.git/`, `.trash/`, or `assets/` while indexing.
 Those directories, along with `.amby/`, are excluded from the note index.
 
+## Вложения
+
+Новые вложения заметок и баз получают случайные имена с префиксом типа:
+`img_<ULID>.png`, `pdf_<ULID>.pdf`, `audio_…`, `video_…` или `file_…`.
+Импорт возвращает исходное имя для отображения; содержимое файлов не меняется.
+Для суперзаметки используется её `assets/`, для обычной заметки — `assets/`
+хранилища. Существующие вложения при переходе не переименовываются.
+
 ## `.amby/`
 
 `.amby/` is Amby's per-vault metadata directory. It may contain:
@@ -100,6 +108,7 @@ Those directories, along with `.amby/`, are excluded from the note index.
   (`.amby/trash/`). Conflict marks (`<<<<<<<` and the like) are never written into a note. Conflict copies
   made before this layout (`Name.<id>-conflict.md` beside the file) stay where they are and are still
   listed as conflicts. The indexer does not read this folder.
+- `migrations/database-layout-v2/<ULID>/` — журнал и неизменяемые исходные копии явного обновления баз к единому JSON и общей папке `assets/`. Сохраняются после завершения, не являются кэшем и не синхронизируются.
 - future versioned, documented metadata files.
 
 ### Which files of `.amby/` are synchronised

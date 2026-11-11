@@ -12,6 +12,7 @@ import {
   discardRecoveryDraft,
 } from "../../src/lib/recovery-drafts"
 import { createDatabase, setStorageAdapter, settingsRepository } from "../../src/lib/storage"
+import { createDatabaseLayoutPort } from "../../src/lib/storage/database-layout-repository"
 import type { StorageContractContext } from "../../src/lib/storage/storage-contract"
 import { AutosaveCoordinator } from "../../src/components/workspace/autosave/autosave-coordinator"
 import { FileRevisionTracker } from "../../src/components/workspace/autosave/file-revision-tracker"
@@ -26,6 +27,104 @@ export const nativeNoteCases: Array<{
   name: string
   run: (context: StorageContractContext) => Promise<void>
 }> = [
+  {
+    name: "native attachment imports use unique typed names and preserve the original display name",
+    async run({ adapter, vaultPath }) {
+      const note = await adapter.createNote(vaultPath, vaultPath, "Asset names")
+      const source = `${vaultPath}/Original Report.pdf`
+      await adapter.writeFile(source, "%PDF-test bytes")
+      const first = await adapter.importAsset(vaultPath, note.primaryPath!, source)
+      const second = await adapter.importAsset(vaultPath, note.primaryPath!, source)
+      check(first && second, "Both files were imported")
+      check(
+        /^assets\/pdf_[0-9A-HJKMNP-TV-Z]{26}\.pdf$/.test(first.relPath),
+        "The filename has a type prefix and a random ID",
+      )
+      check(first.relPath !== second.relPath, "Repeated imports have distinct paths")
+      check(first.fileName === "Original Report.pdf", "The original name remains the display name")
+      check(
+        (await adapter.readFile(first.absPath)) === "%PDF-test bytes",
+        "The copied bytes are intact",
+      )
+      const pasted = await adapter.importAssetBytes(
+        vaultPath,
+        note.primaryPath!,
+        new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+        "png",
+      )
+      check(pasted?.relPath.startsWith("assets/img_"), "Pasted images use the same naming scheme")
+    },
+  },
+  {
+    name: "native database layout upgrade is explicit and preserves embedded templates and asset paths",
+    async run({ adapter, vaultPath }) {
+      const loaded = await adapter.loadActiveVaultData()
+      await adapter.setDatabaseModuleEnabled(true, loaded.generation)
+      const created = await adapter.createDatabase({
+        expectedGeneration: loaded.generation,
+        mode: "standalone",
+        parentPath: vaultPath,
+        name: "Layout upgrade",
+      })
+      const templateId = (await adapter.createNote(vaultPath, vaultPath, "Template identity"))
+        .primaryId!
+      const manifest = JSON.parse(await adapter.readFile(created.manifestPath))
+      manifest.formatVersion = 1
+      manifest.templateOrder = [templateId]
+      manifest.defaultTemplateId = templateId
+      delete manifest.templates
+      const oldBytes = JSON.stringify(manifest)
+      await adapter.writeFile(created.manifestPath, oldBytes)
+      const container = created.manifestPath.replace(/[/\\][^/\\]+$/, "")
+      const template = {
+        format: "amby-database-template",
+        formatVersion: 1,
+        databaseId: created.databaseId,
+        templateId,
+        name: "Preserved template",
+        body: "## Preserved body\n",
+        values: {},
+        unknown: 42,
+      }
+      await adapter.writeFile(
+        `${container}/.ambd/templates/${templateId}.json`,
+        JSON.stringify(template),
+      )
+      await adapter.writeFile(`${container}/.ambd/assets/${templateId}/cover.png`, "image bytes")
+      const port = createDatabaseLayoutPort(true)
+      check(
+        (await port.scan(loaded.generation)).pendingDatabases === 1,
+        "Opening only detects the old format",
+      )
+      check(
+        (await adapter.readFile(created.manifestPath)) === oldBytes,
+        "Scanning does not change the original manifest",
+      )
+      check(
+        (await port.upgrade(loaded.generation)).pendingDatabases === 0,
+        "Explicit action upgrades the database",
+      )
+      const updated = JSON.parse(await adapter.readFile(created.manifestPath))
+      check(
+        updated.formatVersion === 2 && updated.templates[0].unknown === 42,
+        "Templates and unknown fields are retained in the manifest",
+      )
+      check(
+        (await adapter.readFile(`${container}/assets/${templateId}/cover.png`)) === "image bytes",
+        "Existing asset paths retain their bytes",
+      )
+      const row = await adapter.createDatabaseRow({
+        expectedGeneration: loaded.generation,
+        databaseId: created.databaseId,
+        title: "From migrated template",
+        template: { kind: "default" },
+      })
+      check(
+        (await adapter.readFile(row.notePath)).includes("## Preserved body"),
+        "The migrated template is used when creating a row",
+      )
+    },
+  },
   {
     name: "native recovery move preserves a newer destination draft",
     async run({ adapter, vaultPath }) {
@@ -132,6 +231,32 @@ export const nativeNoteCases: Array<{
         !isUnchangedNoteRevision(external.revision, revision, revision),
         "A real external edit remains a conflict",
       )
+    },
+  },
+  {
+    name: "native attached database preserves the open note identity in the tree",
+    async run({ adapter, vaultPath }) {
+      const loaded = await adapter.loadActiveVaultData()
+      await adapter.setDatabaseModuleEnabled(true, loaded.generation)
+      const note = await adapter.createNote(vaultPath, vaultPath, "Attached identity")
+      const id = note.primaryId!
+      setStorageAdapter(adapter)
+      try {
+        const created = await createDatabase({
+          expectedGeneration: loaded.generation,
+          mode: "attached",
+          notePath: note.primaryPath!,
+          name: "Attached identity",
+        })
+        const refreshed = await adapter.loadActiveVaultData()
+        const row = refreshed.tree.find((item) => item.id === id)
+        check(row, "The note still has a tree row under its original ID")
+        check(row.path === created.notePath, "The row follows the promoted Markdown note")
+        check(row.type === "file", "The attached database does not replace the note identity")
+        await adapter.readNote(vaultPath, id)
+      } finally {
+        setStorageAdapter(null)
+      }
     },
   },
   {
@@ -267,9 +392,9 @@ export const nativeNoteCases: Array<{
         const copy = await adapter.saveConflictCopy(source.primaryPath!, "local version")
         await waitForPath(copy)
         seen.length = 0
-        await adapter.deleteItem(vaultPath, source.primaryPath!, "vault")
-        const trash = await adapter.listTrash()
-        await adapter.restoreTrash(trash[0].id)
+        await adapter.deleteItem(vaultPath, source.primaryPath!, "archive")
+        const trash = await adapter.listArchive()
+        await adapter.restoreArchive(trash[0].id)
         await waitForPath(source.primaryPath!)
       } finally {
         stopMoved()
@@ -344,26 +469,26 @@ export const nativeNoteCases: Array<{
       const snapshots = await adapter.listSnapshots(note.primaryPath!)
       check(snapshots.length > 0, "History recorded pre-write bytes")
       await adapter.readSnapshotText(snapshots[0].id)
-      await adapter.deleteItem(vaultPath, note.primaryPath!, "vault")
-      const trash = await adapter.listTrash()
-      check(trash.length === 1, "Delete entered vault-local recycle bin")
-      const rootPreview = await adapter.readTrashPreview(trash[0].id, "")
+      await adapter.deleteItem(vaultPath, note.primaryPath!, "archive")
+      const trash = await adapter.listArchive()
+      check(trash.length === 1, "Delete entered the vault archive")
+      const rootPreview = await adapter.readArchivePreview(trash[0].id, "")
       const preview = rootPreview.directory
-        ? await adapter.readTrashPreview(
+        ? await adapter.readArchivePreview(
             trash[0].id,
             rootPreview.children.find((child) => child.name.endsWith(".md"))!.path,
           )
         : rootPreview
       check(preview.text === original, "Archive preview reads the exact archived bytes")
-      check((await adapter.listTrash()).length === 1, "Preview leaves the item in the archive")
+      check((await adapter.listArchive()).length === 1, "Preview leaves the item in the archive")
       let escaped = false
       try {
-        await adapter.readTrashPreview(trash[0].id, "../outside.md")
+        await adapter.readArchivePreview(trash[0].id, "../outside.md")
       } catch {
         escaped = true
       }
       check(escaped, "Archive preview rejects paths outside its payload")
-      const restored = await adapter.restoreTrash(trash[0].id)
+      const restored = await adapter.restoreArchive(trash[0].id)
       check(
         (await adapter.readFile(restored.primaryPath!)) === original,
         "Restored bytes are intact",
@@ -438,15 +563,15 @@ export const nativeNoteCases: Array<{
     async run({ adapter, vaultPath }) {
       const note = await adapter.createNote(vaultPath, vaultPath, "Delete Failure")
       const original = await adapter.readFile(note.primaryPath!)
-      await settingsRepository.writeVaultRaw("trash", "blocker")
+      await settingsRepository.writeVaultRaw("archive", "blocker")
 
       let failed = false
       try {
-        await adapter.deleteItem(vaultPath, note.primaryPath!, "vault")
+        await adapter.deleteItem(vaultPath, note.primaryPath!, "archive")
       } catch {
         failed = true
       }
-      check(failed, "A non-directory trash root rejects deletion")
+      check(failed, "A non-directory archive root rejects deletion")
       check(
         (await adapter.readFile(note.primaryPath!)) === original,
         "Failed deletion leaves original Markdown byte-for-byte intact",

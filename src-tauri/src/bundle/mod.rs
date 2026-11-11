@@ -11,8 +11,8 @@ mod rollback;
 mod scan;
 
 pub(crate) use assets::{
-    assets_dir_for, build_imported_asset, now_millis, sanitize_ext, sniff_image_format,
-    unique_name, IMAGE_EXTS, MAX_ATTACHMENT_FILE_SIZE, MAX_PASTED_BYTES,
+    assets_dir_for, build_imported_asset, random_asset_name, sanitize_ext, sniff_image_format,
+    IMAGE_EXTS, MAX_ATTACHMENT_FILE_SIZE, MAX_PASTED_BYTES,
 };
 pub(crate) use execute::{move_item_impl, rename_item_impl};
 pub(crate) use layers::{

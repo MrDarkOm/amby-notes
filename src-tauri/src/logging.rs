@@ -1014,6 +1014,8 @@ fn allowed_event(value: &str) -> bool {
         "database.delete_row_failed",
         "database.mutate_view_failed",
         "database.projection_rebuild_failed",
+        "database.layout_upgrade_failed",
+        "database.layout_scan_failed",
         "database.query",
         "database.rebuild",
         "database.refresh",

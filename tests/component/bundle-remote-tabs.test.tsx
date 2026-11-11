@@ -124,6 +124,39 @@ afterEach(() => {
 })
 
 describe("a whole super note deleted on another computer while its note is open (К15)", () => {
+  it("reconciles a confirmed sync deletion even without a filesystem watcher event", async () => {
+    const listeners = captureListeners()
+    vi.mocked(isTauri).mockReturnValue(true)
+    vi.mocked(refreshVaultPaths).mockResolvedValue(null)
+    vi.mocked(readNote).mockRejectedValue(new Error("gone"))
+    useVaultStore.setState({ vault: "/vault", backendGeneration: 7 })
+    const view = renderHook(() => useVaultData())
+    await waitFor(() => expect(view.result.current.treeItems).toEqual(tree))
+    act(() => {
+      useDocStore.getState().setDoc("note", noteDoc("/vault/Note/Note.md"))
+      useDocStore.getState().markUnsaved("note")
+      useTabsStore.getState().openItem({ kind: "document", fileId: "note", title: "Note" })
+    })
+    vi.mocked(loadActiveVaultData).mockResolvedValue({ ...loaded, tree: [] })
+    await waitFor(() => expect(listeners.has("sync-remote-deleted")).toBe(true))
+    act(() =>
+      listeners.get("sync-remote-deleted")!({
+        payload: { vault: "/other", paths: ["Note/Note.md"] },
+      }),
+    )
+    expect(useDocStore.getState().openDocs.note.externallyDeleted).toBeFalsy()
+    act(() =>
+      listeners.get("sync-remote-deleted")!({
+        payload: { vault: "/vault", paths: ["Note/Note.md"] },
+      }),
+    )
+    await waitFor(() => expect(useDocStore.getState().openDocs.note.externallyDeleted).toBe(true))
+    expect(useDocStore.getState().openDocs.note.content).toBe("open text")
+    expect(useDocStore.getState().unsavedFileIds.has("note")).toBe(true)
+    expect(useTabsStore.getState().tabs.some((tab) => tab.fileId === "note")).toBe(true)
+    expect(useDocStore.getState().externalConflicts.note.externalContent).toBeNull()
+  })
+
   it.each([
     ["clean", false, false],
     ["dirty", true, false],

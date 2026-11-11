@@ -40,9 +40,13 @@ pub fn create_database(
 /// What a new database starts with beyond an empty table. Everything here is decided before
 /// the first write (so a repeat or a cleanup rebuilds the same bytes) and serialized into the
 /// caller's journal.
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct NewDatabaseExtras {
+    #[serde(default = "legacy_layout_version")]
+    pub(crate) layout_version: u64,
+    #[serde(default)]
+    pub(crate) template: Option<serde_json::Value>,
     /// Definitions built by [`build_new_property`].
     #[serde(default)]
     pub(crate) properties: Vec<serde_json::Value>,
@@ -57,6 +61,23 @@ pub(crate) struct NewDatabaseExtras {
     /// (`.ambd/templates/<id>.json`).
     #[serde(default)]
     pub(crate) template_id: Option<String>,
+}
+
+fn legacy_layout_version() -> u64 {
+    1
+}
+
+impl Default for NewDatabaseExtras {
+    fn default() -> Self {
+        Self {
+            layout_version: 2,
+            template: None,
+            properties: Vec::new(),
+            view: None,
+            icon: None,
+            template_id: None,
+        }
+    }
 }
 
 /// The view a new database gets: a table of titles, sorted by title.
@@ -94,9 +115,9 @@ pub(crate) fn new_database_manifest_bytes(
         .view
         .clone()
         .unwrap_or_else(|| default_table_view(ids));
-    let manifest = json!({
+    let mut manifest = json!({
         "format": "amby-database",
-        "formatVersion": 1,
+        "formatVersion": extras.layout_version,
         "containerKind": container_kind,
         "databaseId": ids.database_id,
         "name": name,
@@ -111,6 +132,9 @@ pub(crate) fn new_database_manifest_bytes(
         "defaultTemplateId": extras.template_id,
         "views": [view],
     });
+    if extras.layout_version >= 2 {
+        manifest["templates"] = json!(extras.template.iter().collect::<Vec<_>>());
+    }
     json_bytes(&manifest)
 }
 

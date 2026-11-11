@@ -8,27 +8,17 @@ import { logger } from "@/lib/logger"
 import {
   applyDatabaseValueBatch,
   createDatabaseRow,
-  resolveDatabaseYamlConflict,
-  syncDatabaseYaml,
-  type DatabaseYamlConflict,
-  type DatabaseYamlResolution,
   type DatabaseFieldRef,
   type DatabaseRow,
   type DatabaseRowTemplate,
   type CreatedDatabaseRow,
-  type DatabaseYamlSyncResult,
 } from "@/lib/storage"
 import { useDatabaseStore } from "./database-store"
 
 import { placeNewRecordInLane } from "./new-record-lane"
 
 import { createRelationTargetRow } from "./use-property-mutation"
-import {
-  ShownError,
-  operationErrorText,
-  reportOperationError,
-  warningNotices,
-} from "@/lib/operation-errors"
+import { ShownError, operationErrorText, warningNotices } from "@/lib/operation-errors"
 
 interface UseDatabaseRowActionsParams {
   databaseId: string
@@ -65,13 +55,6 @@ export function useDatabaseRowActions({
   const [rowTemplate, setRowTemplate] = React.useState<DatabaseRowTemplate>({ kind: "empty" })
   // Set when the page is added from a board lane: it is created in that lane.
   const [rowLaneKey, setRowLaneKey] = React.useState<string | null>(null)
-
-  const [yamlSyncState, setYamlSyncState] = React.useState<{
-    rowId: string
-    busy: boolean
-    error: string | null
-    result: DatabaseYamlSyncResult | null
-  } | null>(null)
 
   const openRowDialog = React.useCallback(
     (template: DatabaseRowTemplate) => {
@@ -185,75 +168,6 @@ export function useDatabaseRowActions({
     [mutationBusy, onCatalogChanged, retry, vaultGeneration, setMutationBusy, setMutationError],
   )
 
-  const syncYamlForRow = React.useCallback(
-    async (row: DatabaseRow) => {
-      if (vaultGeneration === null) return
-      setYamlSyncState({ rowId: row.noteId, busy: true, error: null, result: null })
-      try {
-        const result = await syncDatabaseYaml({
-          expectedGeneration: vaultGeneration,
-          databaseId,
-          noteId: row.noteId,
-          expectedRecordRevision: row.rowRevision,
-        })
-        logger.info("database.sync_yaml", {
-          databaseId,
-          noteId: row.noteId,
-          changed: result.changed,
-        })
-        setYamlSyncState({ rowId: row.noteId, busy: false, error: null, result })
-        if (result.changed) retry()
-      } catch (error) {
-        setYamlSyncState({
-          rowId: row.noteId,
-          busy: false,
-          error: reportOperationError(error),
-          result: null,
-        })
-      }
-    },
-    [databaseId, retry, vaultGeneration],
-  )
-
-  const resolveYamlForRow = React.useCallback(
-    async (
-      row: DatabaseRow,
-      conflict: DatabaseYamlConflict,
-      resolution: DatabaseYamlResolution,
-      manualValueJson?: string,
-    ) => {
-      if (vaultGeneration === null) return
-      setYamlSyncState((current) => ({
-        rowId: row.noteId,
-        busy: true,
-        error: null,
-        result: current?.rowId === row.noteId ? current.result : null,
-      }))
-      try {
-        const result = await resolveDatabaseYamlConflict({
-          expectedGeneration: vaultGeneration,
-          databaseId,
-          noteId: row.noteId,
-          propertyId: conflict.propertyId,
-          expectedNoteRevision: conflict.noteRevision,
-          expectedRecordRevision: conflict.recordRevision,
-          resolution,
-          manualValueJson,
-        })
-        setYamlSyncState({ rowId: row.noteId, busy: false, error: null, result })
-        if (result.changed) retry()
-      } catch (error) {
-        setYamlSyncState({
-          rowId: row.noteId,
-          busy: false,
-          error: reportOperationError(error),
-          result: null,
-        })
-      }
-    },
-    [databaseId, retry, vaultGeneration],
-  )
-
   const moveRowToGroup = React.useCallback(
     async (row: DatabaseRow, laneKey: string) => {
       if (!groupField || groupField.kind !== "property" || vaultGeneration === null) return
@@ -300,8 +214,5 @@ export function useDatabaseRowActions({
     openRowDialogInLane,
     handleCreateRelationRow,
     moveRowToGroup,
-    yamlSyncState,
-    syncYamlForRow,
-    resolveYamlForRow,
   }
 }
