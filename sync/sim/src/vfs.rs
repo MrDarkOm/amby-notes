@@ -87,6 +87,8 @@ struct Inner {
     nfc_insensitive: bool,
     history: Vec<HistoryEntry>,
     trash: Vec<TrashEntry>,
+    /// The folders that went to the trash as one item (К3а) with their files.
+    dir_trashes: Vec<(String, Vec<String>)>,
     staged: BTreeMap<u64, Staged>,
     next_staged: u64,
     clock: i64,
@@ -161,6 +163,7 @@ impl Vfs {
             unobserved: BTreeMap::new(),
             required: BTreeMap::new(),
             reads: 0,
+            dir_trashes: Vec::new(),
             known: None,
             fresh: BTreeMap::new(),
         })))
@@ -550,7 +553,7 @@ impl Vfs {
 
     /// The folders that went to the trash as one item (К3a): the folder and its files.
     pub fn dir_trashes(&self) -> Vec<(String, Vec<String>)> {
-        Vec::new()
+        self.0.borrow().dir_trashes.clone()
     }
 
     pub fn events(&self) -> Vec<FsEvent> {
@@ -874,6 +877,61 @@ impl LocalFs for Vfs {
             }
             _ => Err(FsError::Io(format!("{path} is not a file"))),
         }
+    }
+
+    fn move_dir_to_trash(
+        &mut self,
+        dir: &str,
+        files: &[String],
+        _reason: TrashReason,
+    ) -> Result<bool, FsError> {
+        let mut inner = self.0.borrow_mut();
+        let Some(stored) = Self::find(&inner, dir) else {
+            return Ok(false);
+        };
+        if inner.nodes.get(&stored) != Some(&Node::Dir) {
+            return Ok(false);
+        }
+        let expected: BTreeSet<String> = files
+            .iter()
+            .filter_map(|file| Self::find(&inner, file))
+            .collect();
+        let prefix = format!("{stored}/");
+        let under: Vec<(String, Node)> = inner
+            .nodes
+            .iter()
+            .filter(|(key, _)| key.starts_with(&prefix))
+            .map(|(key, node)| (key.clone(), node.clone()))
+            .collect();
+        for (key, node) in &under {
+            if matches!(node, Node::File { .. }) {
+                if !expected.contains(key) {
+                    return Ok(false);
+                }
+                Self::deny_check(&inner, key)?;
+            }
+        }
+        let mut moved = Vec::new();
+        for (key, node) in under {
+            inner.nodes.remove(&key);
+            if let Node::File { bytes, .. } = node {
+                inner.trash.push(TrashEntry {
+                    path: key.clone(),
+                    bytes: bytes.clone(),
+                });
+                inner.events.push(FsEvent::Trash {
+                    path: key.clone(),
+                    bytes,
+                });
+                moved.push(key);
+            }
+        }
+        inner.nodes.remove(&stored);
+        inner.events.push(FsEvent::RemoveDir {
+            path: stored.clone(),
+        });
+        inner.dir_trashes.push((stored, moved));
+        Ok(true)
     }
 
     fn remove_empty_dir(&mut self, path: &str) -> Result<bool, FsError> {

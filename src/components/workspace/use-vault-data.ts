@@ -696,36 +696,18 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
           const doc = openDocs[id]
           if (!doc) continue
           if (treeChange.kind === "deleted") {
-            const isSpecial =
-              id.startsWith("database:") ||
+            // Canvas and sketch buffers have their own autosave/recovery lifecycle. A missing old
+            // path may be an external move; closing here could discard a dirty buffer before its
+            // revision tracker can report the conflict.
+            if (
               id.endsWith(".canvas") ||
               id.endsWith(".excalidraw") ||
               doc.path.endsWith(".canvas") ||
               doc.path.endsWith(".excalidraw")
-            if (isSpecial) {
-              // Canvas and sketch buffers have their own autosave/recovery lifecycle.
-              // A missing old path may be an external move; closing here could discard
-              // a dirty buffer before its revision tracker can report the conflict.
-              if (
-                id.endsWith(".canvas") ||
-                id.endsWith(".excalidraw") ||
-                doc.path.endsWith(".canvas") ||
-                doc.path.endsWith(".excalidraw")
-              )
-                continue
-              useDocStore.getState().dropDocs([id])
-              setTabs((prev) => {
-                const surviving = prev.filter((t) => t.fileId !== id && t.fileId !== doc.path)
-                if (surviving.length !== prev.length) {
-                  const activeKey = useTabsStore.getState().activeTabKey
-                  if (!surviving.some((t) => t.key === activeKey)) {
-                    setActiveTabKey(surviving[surviving.length - 1]?.key ?? "")
-                  }
-                }
-                return surviving
-              })
+            )
               continue
-            }
+            // A database tab holds the text of its note as well, so it is a note like any other
+            // (К15): it keeps its tab and its text and gets the card, it is never dropped.
             const latest = useDocStore.getState().openDocs[id] ?? doc
             if (!latest.externallyDeleted) {
               // Another computer may have put the note into the archive (К13): the file is then in
@@ -767,6 +749,9 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
             continue
           }
           if (treeChange.kind === "relocated") {
+            const wasDeleted = Boolean(
+              (useDocStore.getState().openDocs[id] ?? doc).externallyDeleted,
+            )
             patchDoc(id, { path: treeChange.path, title: treeChange.title })
             void remapRecoveryDraft(id, id, "markdown", treeChange.path, recoveryScope)
             void remapRecoveryDraft(
@@ -782,6 +767,36 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
                 ...conflict,
                 path: treeChange.path,
               })
+            }
+            // К14: the note was called deleted by an earlier, partial refresh and has now turned
+            // up at another path. The tab follows it and the card of the deletion goes: the text
+            // on disk is compared with the open one, and a difference is an ordinary conflict.
+            if (wasDeleted) {
+              let found: Awaited<ReturnType<typeof readNote>> | null = null
+              try {
+                found = await readNote(vault, doc.noteId ?? id)
+              } catch (err) {
+                logger.warn("watcher.moved_note_read_failed", { errorType: errorType(err) })
+              }
+              if (!isCurrent()) return
+              const latest = useDocStore.getState().openDocs[id]
+              if (found && latest) {
+                patchDoc(id, { externallyDeleted: false, externallyArchived: false })
+                if (found.content === latest.content) {
+                  patchDoc(id, { revision: found.revision, source: found.source })
+                  markSaved(id)
+                  clearExternalConflict(id)
+                } else {
+                  setExternalConflict({
+                    fileId: id,
+                    path: treeChange.path,
+                    localContent: latest.content,
+                    externalContent: found.content,
+                    externalRevision: found.revision,
+                    sourceTemplate: found.source,
+                  })
+                }
+              }
             }
           }
         }

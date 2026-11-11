@@ -80,6 +80,14 @@ impl LocalFs for SharedFs {
     fn move_to_trash(&mut self, path: &str, reason: TrashReason) -> Result<(), FsError> {
         self.0.borrow_mut().move_to_trash(path, reason)
     }
+    fn move_dir_to_trash(
+        &mut self,
+        dir: &str,
+        files: &[String],
+        reason: TrashReason,
+    ) -> Result<bool, FsError> {
+        self.0.borrow_mut().move_dir_to_trash(dir, files, reason)
+    }
     fn remove_empty_dir(&mut self, path: &str) -> Result<bool, FsError> {
         self.0.borrow_mut().remove_empty_dir(path)
     }

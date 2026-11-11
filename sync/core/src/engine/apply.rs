@@ -200,7 +200,9 @@ impl Engine {
             self.apply_keep(&keep, plan, ctx, report)?;
         }
 
-        // (4) Deletions, always to the trash (Д52).
+        // (4) Deletions, always to the trash (Д52). К3а: a folder of a super note whose files are
+        // all deleted by this pass goes to the trash as one item; anything else is trashed per file.
+        let trashes = self.trash_whole_super_notes(trashes, plan, report)?;
         for (seq, disk, expect, rec) in trashes {
             match self.ports.fs.read(&disk) {
                 Ok(bytes) if hash_of(&bytes) == expect => {
@@ -1012,5 +1014,81 @@ impl Engine {
             report.conflicts.push(record);
         }
         Ok(())
+    }
+}
+
+/// The folder of the super note whose main note is `disk` (`Name/Name.md` → `Name`), if it is one.
+fn super_note_folder(disk: &str) -> Option<&str> {
+    let (dir, file) = disk.rsplit_once('/')?;
+    let stem = file.strip_suffix(".md")?;
+    let folder = dir.rsplit_once('/').map_or(dir, |(_, last)| last);
+    (!stem.is_empty() && folder == stem).then_some(dir)
+}
+
+type TrashAct = (Option<u64>, String, [u8; 32], super::model::ItemRecord);
+
+impl Engine {
+    /// К3а: for each folder `Name/` of a super note whose main note is deleted by this pass, the
+    /// folder goes to the trash as **one item** when every file in it is deleted by this pass too,
+    /// unchanged (the same content the server deleted), and the port finds nothing else in the
+    /// folder. Otherwise nothing is moved here and the files go one by one, as before. Returns the
+    /// deletions that are still to do.
+    fn trash_whole_super_notes(
+        &mut self,
+        mut trashes: Vec<TrashAct>,
+        plan: &mut Plan,
+        report: &mut CycleReport,
+    ) -> Res<Vec<TrashAct>> {
+        let mut folders: Vec<String> = trashes
+            .iter()
+            .filter_map(|(_, disk, _, _)| super_note_folder(disk).map(str::to_string))
+            .collect();
+        // The outer folder first: when it goes whole, the folders inside it go with it.
+        folders.sort_by_key(|folder| depth(folder));
+        folders.dedup();
+        for folder in folders {
+            let prefix = format!("{folder}/");
+            let members: Vec<usize> = trashes
+                .iter()
+                .enumerate()
+                .filter(|(_, (_, disk, _, _))| disk.starts_with(&prefix))
+                .map(|(index, _)| index)
+                .collect();
+            if members.is_empty() {
+                continue;
+            }
+            // Every file must still be what the server deleted; a changed one is decided by the
+            // next pass (С9) and keeps the folder where it is.
+            let unchanged = members.iter().all(|&index| {
+                let (_, disk, expect, _) = &trashes[index];
+                matches!(self.ports.fs.read(disk), Ok(bytes) if hash_of(&bytes) == *expect)
+            });
+            if !unchanged {
+                continue;
+            }
+            let files: Vec<String> = members
+                .iter()
+                .map(|&index| trashes[index].1.clone())
+                .collect();
+            let moved = matches!(
+                self.ports
+                    .fs
+                    .move_dir_to_trash(&folder, &files, TrashReason::RemoteDeletion),
+                Ok(true)
+            );
+            if !moved {
+                continue;
+            }
+            for &index in members.iter().rev() {
+                let (_, disk, _, rec) = trashes.remove(index);
+                report.trashed += 1;
+                report.trashed_paths.push(disk.clone());
+                for up in ancestors(&disk) {
+                    plan.cleanup.insert(up.to_string());
+                }
+                self.ports.state.apply(&vec![StateOp::PutItem(rec)])?;
+            }
+        }
+        Ok(trashes)
     }
 }

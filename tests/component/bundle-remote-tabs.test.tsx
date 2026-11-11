@@ -11,22 +11,14 @@ import { useDocStore } from "@/components/workspace/use-doc-store"
 import { useTabsStore } from "@/components/workspace/use-tabs-store"
 import { useViewStateStore } from "@/components/workspace/use-view-state-store"
 import { useSettingsStore } from "@/components/workspace/use-settings-store"
-import {
-  loadSession,
-  loadWorkspaces,
-  saveSession,
-  saveWorkspaces,
-  type SessionFile,
-} from "@/components/workspace/app-config"
+import { loadSession, loadWorkspaces } from "@/components/workspace/app-config"
 import {
   isTauri,
   loadActiveVaultData,
   loadVaultData,
   readNote,
-  listArchive,
   writeNote,
   writeFile,
-  getNoteProperties,
   refreshVaultPaths,
   type TreeItem,
 } from "@/lib/storage"

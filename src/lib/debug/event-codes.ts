@@ -267,6 +267,7 @@ const EVENT_CODES = new Set([
   "watcher.moved_listen_failed",
   "watcher.database_listen_failed",
   "watcher.open_document_reload_failed",
+  "watcher.moved_note_read_failed",
   "watcher.process",
   "watcher.refresh_failed",
   "watcher.start",

@@ -9,7 +9,7 @@ import { findModule } from "./modules"
 import { GRAPH_TAB_FILE_ID, useTabsStore } from "./use-tabs-store"
 import type { ActionContext } from "./panel-registry"
 import { computeSplitLayout } from "./split-tree"
-import { flattenFileItems, nextAvailableNoteName } from "./workspace-tree-utils"
+import { flattenFileItems, nextAvailableNoteName, noteLayerPath } from "./workspace-tree-utils"
 import { parseCreativeFileId } from "./creative/creative-history"
 import { flushEditorSerializations } from "./tiptap/editor-serialization-lifecycle"
 import {
@@ -803,19 +803,18 @@ export function WorkspaceOrchestration() {
       if (!vault) return
       const document = useDocStore.getState().openDocs[fileId]
       if (!document?.externallyDeleted) return
-      if (
-        fileId.startsWith("database:") ||
-        fileId.endsWith(".canvas") ||
-        fileId.endsWith(".excalidraw")
-      ) {
-        return
-      }
+      if (fileId.endsWith(".canvas") || fileId.endsWith(".excalidraw")) return
+      // К15: the tab of a database holds the text of its note; "Вернуть" writes that note back.
+      const isDatabase = fileId.startsWith("database:")
+      if (isDatabase && !document.noteId) return
+      const noteId = isDatabase ? (document.noteId ?? fileId) : fileId
+      const notePath = isDatabase ? noteLayerPath(document.path) : document.path
       try {
         const conflict = useDocStore.getState().externalConflicts[fileId]
         const outcome = await restoreDeletedNote(
           vault,
-          fileId,
-          document.path,
+          noteId,
+          notePath,
           document.content,
           conflict?.sourceTemplate ?? document.source,
           backendGeneration,
@@ -831,7 +830,7 @@ export function WorkspaceOrchestration() {
         if (!hasNewerEdits) markSaved(fileId)
         clearExternalConflict(fileId)
         emitAutosaveConflictResolution(fileId, hasNewerEdits ? "resume" : "discard")
-        await refreshTreePaths([document.path], vault)
+        await refreshTreePaths([notePath], vault)
       } catch (error) {
         logger.warn("document.restore_deleted_failed", { errorType: errorType(error) })
         throw error

@@ -555,7 +555,7 @@ describe('И10в: a super note is one row and "Вернуть" returns all its f
     fireEvent.click(screen.getByRole("button", { name: "Вернуть" }))
     await waitFor(() => expect(port.restoreDeleted).toHaveBeenCalledTimes(1), FAST)
     expect([...vi.mocked(port.restoreDeleted).mock.calls[0][0]].sort()).toEqual(
-      [...bundle.itemIds].sort(),
+      [...(bundle.itemIds ?? [])].sort(),
     )
   })
 })
