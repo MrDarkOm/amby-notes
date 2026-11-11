@@ -50,7 +50,7 @@ describe("changing the password of the account", () => {
   it("offers the change only on a connected device", async () => {
     const port = createFakePort()
     render(<SyncSettings port={port} />)
-    await screen.findByRole("radio", { name: /Сервер Amby/ })
+    await screen.findByRole("combobox", { name: "Сервер" })
     expect(screen.queryByRole("button", { name: "Сменить пароль" })).toBeNull()
     cleanup()
     await connected()
