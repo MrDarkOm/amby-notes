@@ -28,6 +28,8 @@ pub mod error_code {
     pub const INVALID_CREDENTIALS: &str = "invalid_credentials";
     /// A wrong, used or unknown enrolment code (П17).
     pub const INVALID_ENROLL_CODE: &str = "invalid_enroll_code";
+    /// An open signup name is already active or reserved by an invitation (Рег2).
+    pub const REGISTRATION_UNAVAILABLE: &str = "registration_unavailable";
     /// The right code, but older than 24 hours (П17).
     pub const ENROLL_CODE_EXPIRED: &str = "enroll_code_expired";
     /// A wrong proof when the keys are replaced (П18).

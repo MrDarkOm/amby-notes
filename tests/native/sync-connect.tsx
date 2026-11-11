@@ -21,8 +21,8 @@ const config = (window as unknown as { __AMBY_NATIVE_SYNC__: Config }).__AMBY_NA
 if (!root || !("__TAURI_INTERNALS__" in window))
   throw new Error("A real native test runtime is required")
 
-const PASSWORD = "correct horse battery staple 42"
-const NEW_PASSWORD = "an entirely different password about owls 77"
+const PASSWORD = "Correct horse battery staple 42!"
+const NEW_PASSWORD = "An entirely different password about owls 77!"
 const results: Array<{ name: string; passed: boolean; error?: string }> = []
 const port = createDesktopSyncPort()
 
@@ -120,8 +120,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
 
 let recoveryCode = ""
 try {
-  if (!config?.url || !config.username || !config.enrollCode)
-    throw new Error("The server, the user and the invitation code come from the environment")
+  if (!config?.url || !config.username || config.enrollCode === null)
+    throw new Error("The server, user and invitation mode come from the environment")
 
   await step("the screen starts with server selection", async () => {
     await chooseOwnServer()
@@ -141,10 +141,18 @@ try {
   await step("a weak password is not accepted, a strong one is", async () => {
     await press("Создать учётную запись")
     type("Имя пользователя", config.username!)
-    type("Код приглашения", config.enrollCode!)
+    if (config.enrollCode) {
+      const invitation = [...document.querySelectorAll("label")]
+        .find((label) => label.textContent?.trim() === "У меня есть код приглашения")
+        ?.querySelector<HTMLInputElement>("input")
+      invitation?.click()
+      type("Код приглашения", config.enrollCode)
+    } else if (field("Код приглашения")) {
+      throw new Error("An open server must not ask for an invitation")
+    }
     type("Пароль", "password12345678")
     type("Повторите пароль", "password12345678")
-    await waitFor("a weak verdict", () => text().includes("Слабый пароль"))
+    await waitFor("a weak verdict", () => text().includes("Нужно: заглавная буква, спецсимвол"))
     if (!button("Продолжить")!.disabled) throw new Error("Continue must be disabled")
     type("Пароль", PASSWORD)
     type("Повторите пароль", PASSWORD)

@@ -162,7 +162,18 @@ pub(crate) async fn enroll(State(state): State<AppState>, request: Request) -> A
     let (parts, body) = split(request);
     let request = read_json(&state, &parts, body).await?;
     let username = field_str(&request, "username")?.to_string();
-    let enroll_code = field_str(&request, "enroll_code")?.to_string();
+    let enroll_code = match request.get("enroll_code") {
+        None if state.config.open_registration => "",
+        None => return Err(ApiError::bad_request("`enroll_code` is missing")),
+        Some(value) => value
+            .as_str()
+            .ok_or_else(|| ApiError::bad_request("`enroll_code` is malformed"))?,
+    }
+    .to_string();
+    let open_signup = state.config.open_registration && enroll_code.is_empty();
+    if open_signup && !crate::admin::valid_username(&username) {
+        return Err(ApiError::bad_request("`username` is invalid"));
+    }
     let salt = field_hex::<16>(&request, "salt")?;
     let kdf = KdfParams::from_json(&request)?;
     let auth_key = field_hex::<32>(&request, "auth_key")?;
@@ -176,6 +187,11 @@ pub(crate) async fn enroll(State(state): State<AppState>, request: Request) -> A
     let config = state.config.clone();
     let device = NewDevice::generate()?;
     let outcome = state.db.write(|tx| -> rusqlite::Result<ApiResult<()>> {
+        if open_signup {
+            if let Some(seconds) = throttle::registration_attempt(tx, &config, now, &addr)? {
+                return Ok(Err(ApiError::rate_limited(seconds)));
+            }
+        }
         if let Some(seconds) = throttle::locked_for(tx, &config, now, &username, &addr)? {
             return Ok(Err(ApiError::rate_limited(seconds)));
         }
@@ -186,34 +202,51 @@ pub(crate) async fn enroll(State(state): State<AppState>, request: Request) -> A
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()?;
-        let wanted = sha256(normalize_code(&enroll_code).as_bytes());
-        // An unknown name, a used code and a wrong code take the same path (П17).
-        let (user_id, stored, expires) = match &waiting {
-            Some((id, Some(hash), Some(expires))) => (Some(*id), hash.clone(), *expires),
-            _ => (None, vec![0u8; 32], 0),
-        };
-        let matches = ct_eq(&stored, &wanted) && user_id.is_some();
-        let failure = if !matches {
-            Some(ApiError::new(
-                StatusCode::UNAUTHORIZED,
-                code::INVALID_ENROLL_CODE,
-                "the enrolment code is not valid",
-            ))
-        } else if now > expires {
-            Some(ApiError::new(
-                StatusCode::UNAUTHORIZED,
-                code::ENROLL_CODE_EXPIRED,
-                "the enrolment code has expired",
-            ))
+        let user_id = if open_signup {
+            if waiting.is_some() {
+                throttle::record_failure(tx, now, &username, &addr)?;
+                return Ok(Err(ApiError::new(
+                    StatusCode::CONFLICT,
+                    code::REGISTRATION_UNAVAILABLE,
+                    "the registration name is unavailable",
+                )));
+            }
+            tx.execute(
+                "INSERT INTO users (username, created_ms) VALUES (?1, ?2)",
+                params![username, now],
+            )?;
+            tx.last_insert_rowid()
         } else {
-            None
-        };
-        if let Some(error) = failure {
-            throttle::record_failure(tx, now, &username, &addr)?;
-            return Ok(Err(error));
-        }
-        let Some(user_id) = user_id else {
-            return Ok(Err(ApiError::internal("enrolment without a user")));
+            let wanted = sha256(normalize_code(&enroll_code).as_bytes());
+            // An unknown name, a used code and a wrong code take the same path (П17).
+            let (user_id, stored, expires) = match &waiting {
+                Some((id, Some(hash), Some(expires))) => (Some(*id), hash.clone(), *expires),
+                _ => (None, vec![0u8; 32], 0),
+            };
+            let matches = ct_eq(&stored, &wanted) && user_id.is_some();
+            let failure = if !matches {
+                Some(ApiError::new(
+                    StatusCode::UNAUTHORIZED,
+                    code::INVALID_ENROLL_CODE,
+                    "the enrolment code is not valid",
+                ))
+            } else if now > expires {
+                Some(ApiError::new(
+                    StatusCode::UNAUTHORIZED,
+                    code::ENROLL_CODE_EXPIRED,
+                    "the enrolment code has expired",
+                ))
+            } else {
+                None
+            };
+            if let Some(error) = failure {
+                throttle::record_failure(tx, now, &username, &addr)?;
+                return Ok(Err(error));
+            }
+            let Some(user_id) = user_id else {
+                return Ok(Err(ApiError::internal("enrolment without a user")));
+            };
+            user_id
         };
         tx.execute(
             "UPDATE users SET enroll_hash = NULL, enroll_expires_ms = NULL, has_password = 1, \

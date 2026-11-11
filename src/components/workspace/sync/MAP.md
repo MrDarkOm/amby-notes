@@ -26,7 +26,7 @@ A vault that was switched off is resumed ("Switch on again") only when `VaultSyn
 and the key of its space, and both must fit the current connection (runtime.rs `link_matches`). Otherwise the panel shows the
 first-time choice (new / existing space); resuming a space that is gone forgets the stale link.
 Account choice precedes server setup. Action rows are one per step (`wizard-actions`): primary first,
-secondary outline, links last. The server step offers the Amby server (default, address in `src/lib/sync/amby-server.ts`, no address field) or an own server (address field, guide link).
+secondary outline, links last. The server step offers Amby (address in `src/lib/sync/amby-server.ts`) or an own server. `ServerCheck.registrationOpen` hides the invitation field unless explicitly selected; missing metadata means closed.
 
 The external-changes window of the editor ([external-conflict-dialog.tsx](../external-conflict-dialog.tsx)) is tied to an open,
 edited buffer and writes through it, so the comparison of a sync conflict is a window of its own. It reads the two versions

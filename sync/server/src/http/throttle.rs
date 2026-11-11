@@ -99,3 +99,31 @@ pub(crate) fn clear_pair(conn: &Connection, name: &str, addr: &str) -> rusqlite:
     )?;
     Ok(())
 }
+
+/// An open signup consumes an address-wide attempt, including successes (Рег3).
+/// The reserved key cannot be a valid username, and this counter never locks invitations.
+pub(crate) fn registration_attempt(
+    conn: &Connection,
+    config: &Config,
+    now_ms: i64,
+    addr: &str,
+) -> rusqlite::Result<Option<u64>> {
+    const KEY: &str = ":open-registration:";
+    let retry = retry_after(
+        conn,
+        "SELECT at_ms FROM login_failures WHERE name = ?1 AND addr = ?2 \
+         AND at_ms > ?3 ORDER BY at_ms DESC LIMIT 1 OFFSET ?4",
+        params![
+            KEY,
+            addr,
+            now_ms - window_ms(config.login_window_secs),
+            i64::from(config.login_max_failures) - 1
+        ],
+        config.login_window_secs,
+        now_ms,
+    )?;
+    if retry.is_none() {
+        record_failure(conn, now_ms, KEY, addr)?;
+    }
+    Ok(retry)
+}

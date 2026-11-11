@@ -58,6 +58,20 @@ fn info_shows_the_values_the_plan_names() {
 }
 
 #[test]
+fn info_reports_that_open_registration_is_disabled_by_default() {
+    // Э2б: invitation-only remains the safe default for an existing deployment.
+    let target = Target::in_process();
+    assert_eq!(info(&target.api)["registration"]["open"], false);
+}
+
+#[test]
+fn info_reports_open_registration_when_the_server_enables_it() {
+    // Э2б: clients decide whether to ask for an invitation from this public capability.
+    let target = Target::in_process_with(|config| config.open_registration = true);
+    assert_eq!(info(&target.api)["registration"]["open"], true);
+}
+
+#[test]
 fn instance_id_is_the_same_on_every_call() {
     // П10, С7: the id changes only when the server is new.
     let target = Target::from_env();

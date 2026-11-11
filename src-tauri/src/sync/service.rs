@@ -254,6 +254,12 @@ impl SyncService {
             host: url.host_display(),
             server_version: info.server_version,
             instance_id: info.instance_id,
+            registration_open: info
+                .rest
+                .get("registration")
+                .and_then(|value| value.get("open"))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
         })
     }
 

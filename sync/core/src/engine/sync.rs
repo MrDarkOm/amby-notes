@@ -63,7 +63,7 @@ impl EngineConfig {
             vk,
             mass_min_files: 20,
             mass_percent: 10,
-            max_file_bytes: 256 * 1024 * 1024,
+            max_file_bytes: 30_000_000,
         }
     }
 }

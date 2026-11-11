@@ -2,6 +2,7 @@
 //! С12; П11–П17).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use std::sync::Barrier;
 use std::time::Duration;
 
 use amby_sync_conformance::client::{
@@ -35,6 +36,14 @@ fn wrong_login(target: &Target, username: &str) -> amby_sync_conformance::Resp {
     )
 }
 
+fn open_enroll_body(username: &str, new: &amby_sync_core::crypto::account::NewAccount) -> Value {
+    let mut body = enroll_body(username, "", new, "open device");
+    body.as_object_mut()
+        .expect("enrolment body is an object")
+        .remove("enroll_code");
+    body
+}
+
 // ---------------------------------------------------------------- enrolment
 
 #[test]
@@ -61,6 +70,373 @@ fn enrolment_stores_what_the_device_sent() {
     )
     .expect("the recovery copy must open with the recovery key");
     assert_eq!(by_code, account.ak);
+}
+
+#[test]
+fn open_registration_creates_an_account_without_an_invitation_code() {
+    // Э2б, П12: an explicitly enabled server accepts only the normal encrypted account fields.
+    let target = Target::in_process_with(|config| config.open_registration = true);
+    let username = target.new_username();
+    let new = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+    let answer = target
+        .api
+        .post("/v1/auth/enroll", None, open_enroll_body(&username, &new))
+        .expect(201)
+        .json();
+    let token = answer["token"]
+        .as_str()
+        .expect("open enrolment returns a token");
+    target.api.get("/v1/keys", Some(token)).expect(200);
+}
+
+#[test]
+fn closed_registration_still_requires_an_invitation_code() {
+    // Э2б: turning the option off preserves the existing invitation-only contract.
+    let target = Target::in_process();
+    let username = target.new_username();
+    let new = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+    target
+        .api
+        .post("/v1/auth/enroll", None, open_enroll_body(&username, &new))
+        .expect_error(400, "bad_request");
+    let empty_code = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+    target
+        .api
+        .post(
+            "/v1/auth/enroll",
+            None,
+            enroll_body(&username, "", &empty_code, "open device"),
+        )
+        .expect_error(401, "invalid_enroll_code");
+}
+
+#[test]
+fn open_registration_does_not_ignore_a_nonempty_invitation_code() {
+    // Э2б, П17: a supplied code follows the old invitation path, including its errors.
+    let target = Target::in_process_with(|config| config.open_registration = true);
+    let ticket = target.new_ticket();
+    let new = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+    target
+        .api
+        .post(
+            "/v1/auth/enroll",
+            None,
+            enroll_body(&ticket.username, "AAAA-AAAA-AAAA-AAAA-AAAA", &new, "device"),
+        )
+        .expect_error(401, "invalid_enroll_code");
+    enroll_with(&target, &ticket.username, &ticket.enroll_code, PASSWORD);
+}
+
+#[test]
+fn a_nonempty_code_keeps_the_old_invalid_name_response_on_an_open_server() {
+    // Рег2: invitation requests keep their old generic invalid-code response, even when public
+    // signup is enabled; open username validation must not leak into this branch.
+    let target = Target::in_process_with(|config| config.open_registration = true);
+    let ticket = target.new_ticket();
+    let new = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+    target
+        .api
+        .post(
+            "/v1/auth/enroll",
+            None,
+            enroll_body("Upper", &ticket.enroll_code, &new, "device"),
+        )
+        .expect_error(401, "invalid_enroll_code");
+}
+
+#[test]
+fn open_registration_keeps_pending_and_active_usernames_reserved() {
+    // Э2б: an open request cannot consume a pending invitation or replace an active account.
+    let target = Target::in_process_with(|config| config.open_registration = true);
+    let pending = target.new_ticket();
+    let pending_keys = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+    target
+        .api
+        .post(
+            "/v1/auth/enroll",
+            None,
+            open_enroll_body(&pending.username, &pending_keys),
+        )
+        .expect_error(409, "registration_unavailable");
+    enroll_with(&target, &pending.username, &pending.enroll_code, PASSWORD);
+
+    let active = target.new_username();
+    let first = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+    let first_answer = target
+        .api
+        .post("/v1/auth/enroll", None, open_enroll_body(&active, &first))
+        .expect(201)
+        .json();
+    let first_token = first_answer["token"].as_str().unwrap().to_string();
+    let replacement = create_account(
+        "another long password 99",
+        &Argon2Params::V1_DEFAULT,
+        &mut OsRandom,
+    )
+    .unwrap();
+    let duplicate = target.api.post(
+        "/v1/auth/enroll",
+        None,
+        open_enroll_body(&active, &replacement),
+    );
+    duplicate.expect_error(409, "registration_unavailable");
+    target.api.get("/v1/keys", Some(&first_token)).expect(200);
+}
+
+#[test]
+fn open_registration_uses_the_admin_username_policy() {
+    // П11, Э2б: public registration does not weaken the server's username validation.
+    let target = Target::in_process_with(|config| config.open_registration = true);
+    for username in ["Upper", "_leading", "trailing_", "has space", "é"] {
+        let new = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+        target
+            .api
+            .post("/v1/auth/enroll", None, open_enroll_body(username, &new))
+            .expect_error(400, "bad_request");
+    }
+}
+
+#[test]
+fn open_registration_cannot_bypass_the_existing_enrolment_ip_lock() {
+    // П16, Э2б: invitation failures still lock the address before a correct code is accepted.
+    let target = Target::in_process_with(|config| config.open_registration = true);
+    let ticket = target.new_ticket();
+    let max = limit(&target.api, "login_max_failures");
+    let new = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+    for _ in 0..max {
+        target
+            .api
+            .post(
+                "/v1/auth/enroll",
+                None,
+                enroll_body(&ticket.username, "AAAA-AAAA-AAAA-AAAA-AAAA", &new, "device"),
+            )
+            .expect_error(401, "invalid_enroll_code");
+    }
+    target
+        .api
+        .post(
+            "/v1/auth/enroll",
+            None,
+            enroll_body(&ticket.username, &ticket.enroll_code, &new, "device"),
+        )
+        .expect_error(429, "rate_limited");
+}
+
+#[test]
+fn open_registration_counts_successful_empty_code_attempts_per_ip() {
+    // Э2б, П16: successful public signups consume the same per-address budget as refused ones;
+    // both an omitted code and an explicitly empty code are the open-registration path.
+    let target = Target::in_process_with(|config| config.open_registration = true);
+    let max = limit(&target.api, "login_max_failures");
+    let window = limit(&target.api, "login_window_secs");
+    for attempt in 0..max {
+        let username = target.new_username();
+        let new = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+        let body = if attempt % 2 == 0 {
+            open_enroll_body(&username, &new)
+        } else {
+            enroll_body(&username, "", &new, "open device")
+        };
+        target.api.post("/v1/auth/enroll", None, body).expect(201);
+    }
+
+    let username = target.new_username();
+    let new = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+    let locked = target
+        .api
+        .post("/v1/auth/enroll", None, open_enroll_body(&username, &new))
+        .expect_error(429, "rate_limited");
+    let retry_after = locked
+        .header("retry-after")
+        .and_then(|value| value.parse::<u64>().ok())
+        .expect("a public signup lock must tell the client when to retry");
+    assert!(retry_after > 0 && retry_after <= window);
+}
+
+#[test]
+fn open_registration_uses_the_last_forwarded_ip_and_does_not_lock_invitations() {
+    // Э2б, П16: when a proxy is trusted, only its last address is the client address. Changing a
+    // claimed prefix must not evade the lock; a genuinely different client address gets its own
+    // budget, and the invitation path keeps its independent counter.
+    let target = Target::in_process_with(|config| {
+        config.open_registration = true;
+        config.trust_proxy = true;
+    });
+    let max = limit(&target.api, "login_max_failures");
+    for attempt in 0..max {
+        let username = target.new_username();
+        let new = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+        let claimed_prefix = format!("10.0.0.{}", attempt + 1);
+        from_ip(
+            &target,
+            "/v1/auth/enroll",
+            open_enroll_body(&username, &new),
+            &format!("{claimed_prefix}, 203.0.113.10"),
+        )
+        .expect(201);
+    }
+
+    let locked_name = target.new_username();
+    let locked_new = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+    from_ip(
+        &target,
+        "/v1/auth/enroll",
+        open_enroll_body(&locked_name, &locked_new),
+        "198.51.100.8, 203.0.113.10",
+    )
+    .expect_error(429, "rate_limited");
+
+    let other_name = target.new_username();
+    let other_new = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+    from_ip(
+        &target,
+        "/v1/auth/enroll",
+        open_enroll_body(&other_name, &other_new),
+        "198.51.100.8, 203.0.113.11",
+    )
+    .expect(201);
+
+    let ticket = target.new_ticket();
+    let invited_new = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+    from_ip(
+        &target,
+        "/v1/auth/enroll",
+        enroll_body(
+            &ticket.username,
+            &ticket.enroll_code,
+            &invited_new,
+            "invited device",
+        ),
+        "198.51.100.8, 203.0.113.10",
+    )
+    .expect(201);
+}
+
+#[test]
+fn open_registration_ignores_spoofed_forwarded_ips_without_trust() {
+    // Рег3, П16: an untrusted client cannot turn X-Forwarded-For into a new public-signup budget.
+    let target = Target::in_process_with(|config| config.open_registration = true);
+    let max = limit(&target.api, "login_max_failures");
+    for attempt in 0..max {
+        let username = target.new_username();
+        let new = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+        from_ip(
+            &target,
+            "/v1/auth/enroll",
+            open_enroll_body(&username, &new),
+            &format!("198.51.100.{}", attempt + 1),
+        )
+        .expect(201);
+    }
+    let username = target.new_username();
+    let new = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+    from_ip(
+        &target,
+        "/v1/auth/enroll",
+        open_enroll_body(&username, &new),
+        "203.0.113.200",
+    )
+    .expect_error(429, "rate_limited");
+}
+
+#[test]
+fn open_registration_lock_ends_after_its_configured_window() {
+    // Рег3, П16, П37: the public-signup address lock expires on the server clock.
+    let target = Target::in_process_with(|config| config.open_registration = true);
+    let control = in_process_or_skip!(target);
+    let max = limit(&target.api, "login_max_failures");
+    let window = limit(&target.api, "login_window_secs");
+    for _ in 0..max {
+        let username = target.new_username();
+        let new = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+        target
+            .api
+            .post("/v1/auth/enroll", None, open_enroll_body(&username, &new))
+            .expect(201);
+    }
+    let locked_name = target.new_username();
+    let locked_new = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+    target
+        .api
+        .post(
+            "/v1/auth/enroll",
+            None,
+            open_enroll_body(&locked_name, &locked_new),
+        )
+        .expect_error(429, "rate_limited");
+    control.advance(Duration::from_secs(window + 1));
+    let fresh_name = target.new_username();
+    let fresh_new = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+    target
+        .api
+        .post(
+            "/v1/auth/enroll",
+            None,
+            open_enroll_body(&fresh_name, &fresh_new),
+        )
+        .expect(201);
+}
+
+#[test]
+fn racing_open_registrations_create_one_account_and_preserve_the_winner() {
+    // Э2б, П12: two first-device writes for one public username are one transaction, not two
+    // accounts with whichever keys happen to be written last.
+    let target = Target::in_process_with(|config| config.open_registration = true);
+    let username = target.new_username();
+    let first = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+    let second = create_account(
+        "another long password 99",
+        &Argon2Params::V1_DEFAULT,
+        &mut OsRandom,
+    )
+    .unwrap();
+    let bodies = [
+        open_enroll_body(&username, &first),
+        open_enroll_body(&username, &second),
+    ];
+    let barrier = Barrier::new(bodies.len());
+    let answers: Vec<_> = std::thread::scope(|scope| {
+        let handles: Vec<_> = bodies
+            .iter()
+            .map(|body| {
+                let (api, barrier) = (target.api.clone(), &barrier);
+                scope.spawn(move || {
+                    barrier.wait();
+                    api.post("/v1/auth/enroll", None, body.clone())
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect()
+    });
+    assert_eq!(
+        answers.iter().filter(|answer| answer.status == 201).count(),
+        1,
+        "exactly one concurrent registration may win: {answers:?}"
+    );
+    assert_eq!(
+        answers
+            .iter()
+            .filter(|answer| {
+                answer.status == 409
+                    && answer.error_code().as_deref() == Some("registration_unavailable")
+            })
+            .count(),
+        1,
+        "the loser must be a normal reserved-name conflict: {answers:?}"
+    );
+    let winner = answers
+        .iter()
+        .find(|answer| answer.status == 201)
+        .expect("a concurrent registration winner");
+    let winner_body = winner.json();
+    let token = winner_body["token"]
+        .as_str()
+        .expect("winner returns its device token");
+    target.api.get("/v1/keys", Some(token)).expect(200);
 }
 
 #[test]

@@ -82,6 +82,7 @@ export function ConnectWizard({
   const [server, setServer] = React.useState<ServerCheck | null>(null)
   const [username, setUsername] = React.useState(initial?.username ?? "")
   const [enrollCode, setEnrollCode] = React.useState("")
+  const [useInvitation, setUseInvitation] = React.useState(false)
   const [password, setPassword] = React.useState("")
   const [repeat, setRepeat] = React.useState("")
   const [recoveryCode, setRecoveryCode] = React.useState("")
@@ -137,6 +138,7 @@ export function ConnectWizard({
     setStep(next)
   }
 
+  const needsEnrollCode = !server?.registrationOpen || useInvitation
   const chosenUrl = own ? url.trim() : AMBY_SERVER_URL
   const chosenAllowHttp = own && allowHttp
   const target = { url: server?.url ?? chosenUrl, allowHttp: chosenAllowHttp }
@@ -145,6 +147,8 @@ export function ConnectWizard({
     run(async () => {
       const found = await port.checkServer({ url: chosenUrl, allowHttp: chosenAllowHttp })
       setServer(found)
+      setUseInvitation(false)
+      setEnrollCode("")
       setStep(accountMode ?? "choice")
     })
 
@@ -153,7 +157,7 @@ export function ConnectWizard({
       const view = await port.prepareAccount({
         ...target,
         username: username.trim(),
-        enrollCode: enrollCode.trim(),
+        enrollCode: needsEnrollCode ? enrollCode.trim() : "",
         password,
         deviceName: deviceName.trim(),
       })
@@ -404,25 +408,40 @@ export function ConnectWizard({
   }
 
   if (step === "create") {
-    const filled = username.trim() !== "" && enrollCode.trim() !== "" && deviceName.trim() !== ""
+    const filled =
+      username.trim() !== "" &&
+      (!needsEnrollCode || enrollCode.trim() !== "") &&
+      deviceName.trim() !== ""
     return form(
       <>
         {usernameField}
-        <Field
-          label={t("sync.wizard.fields.enrollCode")}
-          hint={t("sync.wizard.fields.enrollCodeHint")}
-        >
-          {(id) => (
-            <Input
-              id={id}
-              autoComplete="off"
-              autoCapitalize="characters"
-              spellCheck={false}
-              value={enrollCode}
-              onChange={(event) => setEnrollCode(event.target.value)}
+        {server?.registrationOpen && (
+          <label className="flex items-center gap-2 text-[12px]">
+            <input
+              type="checkbox"
+              checked={useInvitation}
+              onChange={(event) => setUseInvitation(event.target.checked)}
             />
-          )}
-        </Field>
+            {t("sync.wizard.fields.useInvitation")}
+          </label>
+        )}
+        {needsEnrollCode && (
+          <Field
+            label={t("sync.wizard.fields.enrollCode")}
+            hint={t("sync.wizard.fields.enrollCodeHint")}
+          >
+            {(id) => (
+              <Input
+                id={id}
+                autoComplete="off"
+                autoCapitalize="characters"
+                spellCheck={false}
+                value={enrollCode}
+                onChange={(event) => setEnrollCode(event.target.value)}
+              />
+            )}
+          </Field>
+        )}
         <NewPasswordFields
           port={port}
           username={username.trim()}

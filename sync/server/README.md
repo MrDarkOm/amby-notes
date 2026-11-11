@@ -47,6 +47,25 @@ curl https://sync.example.org/v1/info
 The server speaks plain HTTP only inside the compose network. Do not publish its port 8080
 directly to the internet: passwords and notes must travel over HTTPS.
 
+## Open registration
+
+Invitation-only registration remains the default. To let people create an account without an
+invitation, set `AMBY_SYNC_OPEN_REGISTRATION=1` in the compose environment and recreate the server
+container. `/v1/info` advertises `registration.open`; the app then asks for an invitation only when
+the person selects “I have an invitation code”. Existing accounts and names reserved by the
+administrator cannot be replaced. Invitations continue to work in either mode.
+
+Public signup attempts, including successes, are limited per client IP using
+`AMBY_SYNC_LOGIN_MAX_FAILURES` / `AMBY_SYNC_LOGIN_WINDOW_SECS` (default: 5 per 15 minutes).
+Only enable `AMBY_SYNC_TRUST_PROXY` behind a proxy that appends the real client address and blocks
+direct access to the server. Configure the default account quota with the plans file before
+opening registration. Existing accounts can be pinned to their previous plan.
+
+The app limits each source file to 30 MB (30,000,000 bytes). Server `max_file_bytes` limits encrypted
+bytes, including padding and authentication tags: for the current body format, a 30 MB source needs
+30,416,160 bytes. The server cannot inspect the original size. The default account quota is a
+server setting, separate from this client file-size policy.
+
 ## Add a user
 
 ```bash
@@ -71,18 +90,19 @@ digit.
 Everything is set by environment variables (in `docker-compose.yml`). The defaults suit most
 servers.
 
-| Variable                         | Default                 | Meaning                                                       |
-| -------------------------------- | ----------------------- | ------------------------------------------------------------- |
-| `AMBY_SYNC_PUBLIC_URL`           | `http://localhost:8080` | the address users type; must be `https://` unless it is local |
-| `AMBY_SYNC_ALLOW_HTTP`           | `0`                     | `1` allows plain `http://` on a trusted local network         |
-| `AMBY_SYNC_TRUST_PROXY`          | `0`                     | `1` when a proxy such as Caddy sets `X-Forwarded-For`         |
-| `AMBY_SYNC_QUOTA_BYTES_PER_USER` | off                     | most encrypted bytes one user may keep                        |
-| `AMBY_SYNC_MAX_BLOB_BYTES`       | `536870912` (512 MiB)   | biggest single file after encryption                          |
-| `AMBY_SYNC_PLANS_FILE`           | `<data dir>/plans.json` | the plans file (see "Plans and limits"); no file, no plans    |
-| `AMBY_SYNC_RETAIN_VERSION_DAYS`  | `30`                    | how long old versions and deleted files stay restorable       |
-| `AMBY_SYNC_ORPHAN_BLOB_HOURS`    | `24`                    | how long an upload nobody finished or committed is kept       |
-| `AMBY_SYNC_DATA_DIR`             | `/data`                 | database and files (the Docker volume)                        |
-| `AMBY_SYNC_LISTEN`               | `0.0.0.0:8080`          | address inside the container                                  |
+| Variable                         | Default                 | Meaning                                                                        |
+| -------------------------------- | ----------------------- | ------------------------------------------------------------------------------ |
+| `AMBY_SYNC_PUBLIC_URL`           | `http://localhost:8080` | the address users type; must be `https://` unless it is local                  |
+| `AMBY_SYNC_ALLOW_HTTP`           | `0`                     | `1` allows plain `http://` on a trusted local network                          |
+| `AMBY_SYNC_OPEN_REGISTRATION`    | `0`                     | `1` allows signup without an invitation; the info endpoint advertises the mode |
+| `AMBY_SYNC_TRUST_PROXY`          | `0`                     | `1` when a proxy such as Caddy sets `X-Forwarded-For`                          |
+| `AMBY_SYNC_QUOTA_BYTES_PER_USER` | off                     | most encrypted bytes one user may keep                                         |
+| `AMBY_SYNC_MAX_BLOB_BYTES`       | `536870912` (512 MiB)   | biggest single file after encryption                                           |
+| `AMBY_SYNC_PLANS_FILE`           | `<data dir>/plans.json` | the plans file (see "Plans and limits"); no file, no plans                     |
+| `AMBY_SYNC_RETAIN_VERSION_DAYS`  | `30`                    | how long old versions and deleted files stay restorable                        |
+| `AMBY_SYNC_ORPHAN_BLOB_HOURS`    | `24`                    | how long an upload nobody finished or committed is kept                        |
+| `AMBY_SYNC_DATA_DIR`             | `/data`                 | database and files (the Docker volume)                                         |
+| `AMBY_SYNC_LISTEN`               | `0.0.0.0:8080`          | address inside the container                                                   |
 
 A value the server cannot use stops it from starting, with a message that names the variable.
 The rest of the limits (login attempts, request sizes) are visible at `/v1/info`.
