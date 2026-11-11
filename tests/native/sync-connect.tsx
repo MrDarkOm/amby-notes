@@ -49,16 +49,14 @@ function field(label: string): HTMLInputElement | null {
 }
 
 /** The radio of the own server: the Amby server is the default and has no address field. */
-function ownRadio(): HTMLInputElement | null {
-  const label = [...document.querySelectorAll("label")].find(
-    (l) => l.textContent?.trim() === "Свой сервер",
-  )
-  return label?.querySelector("input") ?? null
+function serverChoice(): HTMLSelectElement | null {
+  return document.querySelector<HTMLSelectElement>("select")
 }
 
 async function chooseOwnServer() {
-  const radio = await waitFor("the own server option", () => ownRadio())
-  radio.click()
+  const select = await waitFor("the server selector", () => serverChoice())
+  select.value = "own"
+  select.dispatchEvent(new Event("change", { bubbles: true }))
   await waitFor("the server field", () => field("Адрес сервера"))
 }
 
@@ -99,8 +97,7 @@ async function step(name: string, run: () => Promise<void>) {
 async function checkServer() {
   await chooseOwnServer()
   type("Адрес сервера", config.url!)
-  await press("Проверить сервер")
-  await waitFor("the server to be found", () => text().includes("Сервер найден"))
+  await waitFor("the server to be found", () => text().includes("Сервер доступен"))
 }
 
 async function readCode(): Promise<string> {
@@ -130,16 +127,14 @@ try {
 
   await step("a server that is not there is reported, a good one is found", async () => {
     type("Адрес сервера", "http://127.0.0.1:1")
-    await press("Проверить сервер")
     await waitFor("a network error", () => text().includes("Не удалось связаться с сервером"))
     type("Адрес сервера", "http://example.com")
-    await press("Проверить сервер")
     await waitFor("the https rule", () => text().includes("https://"))
     await checkServer()
   })
 
   await step("a weak password is not accepted, a strong one is", async () => {
-    await press("Создать учётную запись")
+    await press("Регистрация")
     type("Имя пользователя", config.username!)
     if (config.enrollCode) {
       const invitation = [...document.querySelectorAll("label")]
@@ -153,14 +148,14 @@ try {
     type("Пароль", "password12345678")
     type("Повторите пароль", "password12345678")
     await waitFor("a weak verdict", () => text().includes("Нужно: заглавная буква, спецсимвол"))
-    if (!button("Продолжить")!.disabled) throw new Error("Continue must be disabled")
+    if (!button("Зарегистрироваться")!.disabled) throw new Error("Continue must be disabled")
     type("Пароль", PASSWORD)
     type("Повторите пароль", PASSWORD)
     await waitFor("a good verdict", () => /Отличный пароль|Хороший пароль/.test(text()))
   })
 
   await step("the recovery code is shown and cannot be skipped", async () => {
-    await press("Продолжить")
+    await press("Зарегистрироваться")
     recoveryCode = await readCode()
     if (recoveryCode.split("-").length !== 14) throw new Error(`Not 14 groups: ${recoveryCode}`)
     if (!/не вернёт никто/.test(text())) throw new Error("no honest warning")
@@ -198,14 +193,13 @@ try {
 
   await step("signing out empties the device and returns the wizard", async () => {
     await press("Выйти на этом устройстве")
-    await waitFor("the wizard", () => ownRadio())
+    await waitFor("the wizard", () => serverChoice())
     const status = await port.status()
     if (status.connected || status.keysMissing) throw new Error("still connected")
   })
 
   await step("a wrong password is told apart and the right one signs in", async () => {
     await checkServer()
-    await press("Войти")
     type("Имя пользователя", config.username!)
     type("Пароль", "not the password at all")
     await press("Войти")
@@ -217,7 +211,7 @@ try {
 
   await step("the forgotten password is replaced by the recovery code", async () => {
     await press("Выйти на этом устройстве")
-    await waitFor("the wizard", () => ownRadio())
+    await waitFor("the wizard", () => serverChoice())
     await checkServer()
     await press("Забыли пароль?")
     type("Имя пользователя", config.username!)
@@ -231,9 +225,8 @@ try {
 
   await step("after recovery the old password is refused and the new one works", async () => {
     await press("Выйти на этом устройстве")
-    await waitFor("the wizard", () => ownRadio())
+    await waitFor("the wizard", () => serverChoice())
     await checkServer()
-    await press("Войти")
     type("Имя пользователя", config.username!)
     type("Пароль", PASSWORD)
     await press("Войти")
@@ -246,7 +239,7 @@ try {
 
   await step("the final sign-out leaves nothing behind", async () => {
     await press("Выйти на этом устройстве")
-    await waitFor("the wizard", () => ownRadio())
+    await waitFor("the wizard", () => serverChoice())
     const status = await port.status()
     if (status.connected || status.username) throw new Error("a record is left")
   })
