@@ -68,7 +68,7 @@ describe("the Synchronization section of the settings", () => {
   it("does not carry the obsolete test-mode warning", async () => {
     const port = createFakePort()
     renderSettings(port)
-    await screen.findByRole("radio", { name: /Сервер Amby/ })
+    await screen.findByRole("combobox", { name: "Сервер" })
     expect(screen.queryByRole("note")).toBeNull()
     expect(document.body.textContent).not.toMatch(/экспериментальн|тестовом режиме/i)
     expect(document.body.textContent).not.toMatch(/Заметки пока не синхронизируются/)
@@ -80,14 +80,14 @@ describe("the Synchronization section of the settings", () => {
     expect(await screen.findByTestId("sync-vault")).toBeTruthy()
     cleanup()
     renderSettings(createFakePort())
-    await screen.findByRole("radio", { name: /Сервер Amby/ })
+    await screen.findByRole("combobox", { name: "Сервер" })
     expect(screen.queryByTestId("sync-vault")).toBeNull()
   })
 
   it("shows the connect wizard when the device is not connected", async () => {
     const port = createFakePort()
     renderSettings(port)
-    expect(await screen.findByRole("radio", { name: /Сервер Amby/ })).toBeTruthy()
+    expect(await screen.findByRole("combobox", { name: "Сервер" })).toBeTruthy()
     expect(screen.queryByText(/Подключено к/)).toBeNull()
   })
 
@@ -97,7 +97,7 @@ describe("the Synchronization section of the settings", () => {
     await screen.findByText("Mac mini")
     expect(screen.getByText("Ноутбук")).toBeTruthy()
     expect(screen.getByText("Неизвестное устройство")).toBeTruthy()
-    expect(screen.queryByRole("radio", { name: /Сервер Amby/ })).toBeNull()
+    expect(screen.queryByRole("combobox", { name: "Сервер" })).toBeNull()
   })
 
   it("marks this device and offers no disconnect for it", async () => {
@@ -141,7 +141,7 @@ describe("the Synchronization section of the settings", () => {
     port.status.mockResolvedValue(DISCONNECTED)
     click("Выйти на этом устройстве")
     await waitFor(() => expect(port.signOut).toHaveBeenCalledTimes(1))
-    expect(await screen.findByRole("radio", { name: /Сервер Amby/ })).toBeTruthy()
+    expect(await screen.findByRole("combobox", { name: "Сервер" })).toBeTruthy()
     expect(screen.queryByText(/Подключено к/)).toBeNull()
   })
 
@@ -149,7 +149,7 @@ describe("the Synchronization section of the settings", () => {
     const port = await connected({ signOut: async () => ({ serverNotified: false }) })
     port.status.mockResolvedValue(DISCONNECTED)
     click("Выйти на этом устройстве")
-    expect((await screen.findByRole("status")).textContent).toMatch(/Сервер не удалось уведомить/)
+    expect(await screen.findByText(/Сервер не удалось уведомить/)).toBeTruthy()
   })
 
   it("returns to the wizard when the server has disconnected this device", async () => {
@@ -163,7 +163,7 @@ describe("the Synchronization section of the settings", () => {
     renderSettings(port)
     port.status.mockResolvedValue(DISCONNECTED)
     expect((await screen.findByRole("alert")).textContent).toMatch(/отключено/)
-    expect(await screen.findByRole("radio", { name: /Сервер Amby/ })).toBeTruthy()
+    expect(await screen.findByRole("combobox", { name: "Сервер" })).toBeTruthy()
   })
 
   it("asks to sign in again when the key store lost the keys", async () => {
@@ -177,7 +177,7 @@ describe("the Synchronization section of the settings", () => {
       }),
     })
     renderSettings(port)
-    expect((await screen.findByRole("status")).textContent).toMatch(/не найдены в связке ключей/)
+    expect(await screen.findByText(/не найдены в связке ключей/)).toBeTruthy()
     expect((screen.getByLabelText("Адрес сервера") as HTMLInputElement).value).toBe(
       "https://sync.example.com",
     )
@@ -196,15 +196,13 @@ describe("the Synchronization section of the settings", () => {
   it("lists the devices again after the wizard connects", async () => {
     const port = createFakePort()
     renderSettings(port)
-    await screen.findByRole("radio", { name: /Сервер Amby/ })
+    await screen.findByRole("combobox", { name: "Сервер" })
     port.status.mockResolvedValue(CONNECTED)
-    fireEvent.click(screen.getByRole("radio", { name: /Свой сервер/ }))
+    fireEvent.change(screen.getByRole("combobox", { name: "Сервер" }), { target: { value: "own" } })
     fireEvent.change(screen.getByLabelText("Адрес сервера"), {
       target: { value: "https://sync.example.com" },
     })
-    click("Проверить сервер")
-    await screen.findByText(/Сервер найден/)
-    click("Войти")
+    await screen.findByText("Сервер доступен")
     fireEvent.change(screen.getByLabelText("Имя пользователя"), { target: { value: "alice" } })
     fireEvent.change(screen.getByLabelText("Пароль"), { target: { value: "pw" } })
     click("Войти")
@@ -216,14 +214,14 @@ describe("the Synchronization section of the settings", () => {
   it("explains that the browser build cannot sync", async () => {
     render(<SyncSettings port={unavailableSyncPort} />)
     expect(await screen.findByText(/доступна только в приложении для компьютера/)).toBeTruthy()
-    expect(screen.queryByRole("radio", { name: /Сервер Amby/ })).toBeNull()
+    expect(screen.queryByRole("combobox", { name: "Сервер" })).toBeNull()
   })
 
   it("is also available in English", async () => {
     await i18n.changeLanguage("en")
     const port = createFakePort()
     renderSettings(port)
-    expect(await screen.findByRole("radio", { name: /Amby/ })).toBeTruthy()
+    expect(await screen.findByRole("combobox", { name: "Server" })).toBeTruthy()
     expect(screen.queryByRole("note")).toBeNull()
     expect(document.body.textContent).not.toMatch(/works in a test mode/i)
     await i18n.changeLanguage("ru")
@@ -240,23 +238,27 @@ describe("the Synchronization section of the settings", () => {
   describe("the choice of a server", () => {
     it("offers the Amby server as the selected default, without an address field", async () => {
       renderSettings(createFakePort())
-      const amby = (await screen.findByRole("radio", { name: /Сервер Amby/ })) as HTMLInputElement
+      const amby = (await screen.findByRole("combobox", { name: "Сервер" })) as HTMLSelectElement
       expect(amby.disabled).toBe(false)
-      expect(amby.checked).toBe(true)
+      expect(amby.value).toBe("amby")
       expect(document.body.textContent).not.toMatch(/скоро будет/)
       expect(screen.queryByLabelText("Адрес сервера")).toBeNull()
     })
 
     it("has the address field for the own server", async () => {
       renderSettings(createFakePort())
-      fireEvent.click(await screen.findByRole("radio", { name: "Свой сервер" }))
+      fireEvent.change(await screen.findByRole("combobox", { name: "Сервер" }), {
+        target: { value: "own" },
+      })
       expect(screen.getByLabelText("Адрес сервера")).toBeTruthy()
     })
 
     it("opens the install guide of the server in the browser", async () => {
       renderSettings(createFakePort())
-      fireEvent.click(await screen.findByRole("radio", { name: "Свой сервер" }))
-      fireEvent.click(screen.getByRole("button", { name: /Как поднять свой сервер/ }))
+      fireEvent.change(await screen.findByRole("combobox", { name: "Сервер" }), {
+        target: { value: "own" },
+      })
+      fireEvent.click(screen.getByRole("link", { name: /Как поднять свой сервер/ }))
       expect(openWebAddressInBrowser).toHaveBeenCalledWith(
         "https://github.com/MrDarkOm/AmbyNotes-SelfHost",
       )
@@ -264,13 +266,13 @@ describe("the Synchronization section of the settings", () => {
 
     it("names the own server only on its option, in both languages", async () => {
       renderSettings(createFakePort())
-      await screen.findByRole("radio", { name: /Сервер Amby/ })
+      await screen.findByRole("combobox", { name: "Сервер" })
       expect(screen.queryByRole("heading", { name: "Синхронизация" })).toBeNull()
       expect(document.body.textContent?.match(/свой сервер/gi)).toHaveLength(1)
       cleanup()
       await i18n.changeLanguage("en")
       renderSettings(createFakePort())
-      expect(await screen.findByRole("radio", { name: "Your own server" })).toBeTruthy()
+      expect(await screen.findByRole("option", { name: "Your own server" })).toBeTruthy()
       expect(document.body.textContent?.match(/own server/gi)).toHaveLength(1)
       await i18n.changeLanguage("ru")
     })

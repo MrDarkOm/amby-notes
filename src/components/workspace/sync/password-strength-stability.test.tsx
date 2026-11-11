@@ -70,16 +70,16 @@ describe("the strength hint while the next verdict is on its way", () => {
   it("stays in the connect wizard and keeps Continue off", async () => {
     const { port, release } = gatedPort()
     render(<ConnectWizard port={port} onConnected={vi.fn()} defaultDeviceName="Mac mini" />)
-    fireEvent.click(screen.getByRole("radio", { name: /Свой сервер/ }))
+    fireEvent.change(screen.getByRole("combobox", { name: "Сервер" }), { target: { value: "own" } })
     type("Адрес сервера", "https://sync.example.com")
-    fireEvent.click(screen.getByRole("button", { name: "Проверить сервер" }))
-    await screen.findByText(/Сервер найден/)
-    fireEvent.click(screen.getByRole("button", { name: "Создать учётную запись" }))
+    await screen.findByText("Сервер доступен")
+    fireEvent.click(screen.getByRole("button", { name: "Регистрация" }))
     type("Имя пользователя", "alice")
     type("Код приглашения", "AAAA-BBBB-CCCC-DDDD-EEEE")
     type("Пароль", STRONG)
     type("Повторите пароль", STRONG)
-    const next = () => screen.getByRole("button", { name: "Продолжить" }) as HTMLButtonElement
+    const next = () =>
+      screen.getByRole("button", { name: "Зарегистрироваться" }) as HTMLButtonElement
     await waitFor(() => expect(next().disabled).toBe(false))
     const before = screen.getByTestId("password-strength").textContent
 
