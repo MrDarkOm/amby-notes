@@ -27,6 +27,8 @@ pub struct Config {
     pub public_url: String,
     /// Allow `http://` for a host that is not localhost (`AMBY_SYNC_ALLOW_HTTP`, П41).
     pub allow_http: bool,
+    /// Allow signup without an invitation (`AMBY_SYNC_OPEN_REGISTRATION`), Рег1.
+    pub open_registration: bool,
     /// Largest sealed body in bytes (П8).
     pub max_blob_bytes: u64,
     /// Largest number of items in one commit (П8).
@@ -68,6 +70,7 @@ impl Default for Config {
             listen: "0.0.0.0:8080".to_string(),
             public_url: "http://localhost:8080".to_string(),
             allow_http: false,
+            open_registration: false,
             max_blob_bytes: 536_870_912,
             max_commit_items: 10_000,
             max_header_bytes: 16_384,

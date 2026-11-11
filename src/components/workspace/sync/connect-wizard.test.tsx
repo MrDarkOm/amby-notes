@@ -818,3 +818,56 @@ describe("the action rows of the connect wizard", () => {
     expect(labels(rowOf())).toEqual(["Подтвердить и подключиться", "Назад"])
   })
 })
+
+// Open registration is advertised by the server; recovery acknowledgement still precedes enrolment.
+describe("open registration", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("ru")
+  })
+  afterEach(cleanup)
+
+  function openPort() {
+    return createFakePort({
+      checkServer: async ({ url }) => ({
+        url,
+        host: "sync.example.com",
+        serverVersion: "0.2.0",
+        instanceId: "00112233445566778899aabbccddeeff",
+        registrationOpen: true,
+      }),
+    })
+  }
+
+  it("creates an account without asking for an invitation and still shows recovery before sending", async () => {
+    const port = openPort()
+    renderWizard(port)
+    await chooseServer(port)
+    click("Создать учётную запись")
+    expect(screen.queryByLabelText("Код приглашения")).toBeNull()
+    type("Имя пользователя", "alice")
+    type("Пароль", STRONG)
+    type("Повторите пароль", STRONG)
+    await waitFor(() => expect(button("Продолжить").disabled).toBe(false))
+    click("Продолжить")
+    await screen.findByTestId("recovery-code")
+    expect(port.prepareAccount).toHaveBeenCalledWith(
+      expect.objectContaining({ enrollCode: "", username: "alice" }),
+    )
+    expect(port.confirmRecoveryCode).not.toHaveBeenCalled()
+  })
+
+  it("can still use an invitation for a name reserved by the administrator on an open server", async () => {
+    const port = openPort()
+    renderWizard(port)
+    await chooseServer(port)
+    click("Создать учётную запись")
+    fireEvent.click(screen.getByRole("checkbox", { name: "У меня есть код приглашения" }))
+    await fillCreateForm()
+    await waitFor(() => expect(button("Продолжить").disabled).toBe(false))
+    click("Продолжить")
+    await screen.findByTestId("recovery-code")
+    expect(port.prepareAccount).toHaveBeenCalledWith(
+      expect.objectContaining({ enrollCode: "AAAA-BBBB-CCCC-DDDD-EEEE" }),
+    )
+  })
+})

@@ -47,6 +47,7 @@ fn the_defaults_are_the_values_the_plan_names() {
     assert_eq!(config.max_commit_items, 10_000);
     assert_eq!(config.max_json_bytes, 64 * 1024 * 1024);
     assert_eq!(config.quota_bytes_per_user, None);
+    assert!(!config.open_registration);
 }
 
 #[test]
@@ -70,6 +71,7 @@ fn every_variable_of_the_table_is_read() {
         ("AMBY_SYNC_LOGIN_WINDOW_PER_USER_SECS", "7200"),
         ("AMBY_SYNC_TRUST_PROXY", "1"),
         ("AMBY_SYNC_QUOTA_BYTES_PER_USER", "123456"),
+        ("AMBY_SYNC_OPEN_REGISTRATION", "1"),
     ]);
     assert_eq!(config.data_dir, PathBuf::from("/srv/amby"));
     assert_eq!(config.listen, "127.0.0.1:9000");
@@ -88,6 +90,7 @@ fn every_variable_of_the_table_is_read() {
     assert_eq!(config.login_window_per_user_secs, 7200);
     assert!(config.trust_proxy);
     assert_eq!(config.quota_bytes_per_user, Some(123_456));
+    assert!(config.open_registration);
 }
 
 #[test]
@@ -109,6 +112,7 @@ fn a_bad_value_of_a_known_variable_refuses_to_start() {
         ("AMBY_SYNC_ALLOW_HTTP", "maybe"),
         ("AMBY_SYNC_TRUST_PROXY", "yes please"),
         ("AMBY_SYNC_QUOTA_BYTES_PER_USER", "a lot"),
+        ("AMBY_SYNC_OPEN_REGISTRATION", "sometimes"),
     ] {
         match parse(&[(name, value)]) {
             Err(ConfigError::Invalid { name: got, .. }) => assert_eq!(got, name),
