@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import i18n from "@/lib/i18n"
 import { SyncPortError } from "@/lib/sync/sync-port"
 import { RenameIdentityForm } from "./rename-identity"
-import { createFakePort, type FakePort } from "./fake-sync-port"
+import { CONNECTED, createFakePort } from "./fake-sync-port"
 
 const OLD_PASSWORD = "Correct-Horse-Battery-Staple-42!"
 
@@ -31,7 +31,9 @@ describe("renaming the connected account", () => {
     expect(field("Новое имя пользователя").value).toBe("")
     expect(field("Текущий пароль").value).toBe("")
     expect(field("Текущий пароль").type).toBe("password")
-    expect(screen.getByRole("button", { name: "Сохранить" })).toBeDisabled()
+    expect((screen.getByRole("button", { name: "Сохранить" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
   })
 
   it.each(["", "alice", "Alice", "-bob", "bob-", "bad name", "a".repeat(65)])(
@@ -41,7 +43,9 @@ describe("renaming the connected account", () => {
       render(<RenameIdentityForm mode="account" username="alice" port={port} onClose={vi.fn()} />)
       type("Новое имя пользователя", username)
       type("Текущий пароль", OLD_PASSWORD)
-      expect(screen.getByRole("button", { name: "Сохранить" })).toBeDisabled()
+      expect(
+        (screen.getByRole("button", { name: "Сохранить" }) as HTMLButtonElement).disabled,
+      ).toBe(true)
       expect(port.renameAccount).not.toHaveBeenCalled()
     },
   )
@@ -53,7 +57,7 @@ describe("renaming the connected account", () => {
     type("Новое имя пользователя", "bob")
     type("Текущий пароль", OLD_PASSWORD)
     const submit = screen.getByRole("button", { name: "Сохранить" })
-    expect(submit).toBeEnabled()
+    expect(submit.disabled).toBe(false)
     fireEvent.click(submit)
     await waitFor(() => expect(port.renameAccount).toHaveBeenCalledWith("bob", OLD_PASSWORD))
     expect(onClose).toHaveBeenCalledWith(true)
@@ -81,7 +85,7 @@ describe("renaming the connected account", () => {
   it("does not submit twice and can be cancelled while idle", async () => {
     let release!: () => void
     const port = createFakePort({
-      renameAccount: () => new Promise((resolve) => (release = resolve)),
+      renameAccount: () => new Promise((resolve) => (release = () => resolve(CONNECTED))),
     })
     const onClose = vi.fn()
     render(<RenameIdentityForm mode="account" username="alice" port={port} onClose={onClose} />)
@@ -91,7 +95,9 @@ describe("renaming the connected account", () => {
     fireEvent.click(submit)
     fireEvent.click(submit)
     expect(port.renameAccount).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole("button", { name: "Отмена" })).toBeDisabled()
+    expect((screen.getByRole("button", { name: "Отмена" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
     release()
     await waitFor(() => expect(onClose).toHaveBeenCalledWith(true))
   })
@@ -117,13 +123,13 @@ describe("renaming a device", () => {
     )
     const submit = screen.getByRole("button", { name: "Сохранить" })
     expect(field("Имя устройства").value).toBe("Mac mini")
-    expect(submit).toBeDisabled()
+    expect(submit.disabled).toBe(true)
     type("Имя устройства", "Ноутбук дома")
-    expect(submit).toBeEnabled()
+    expect(submit.disabled).toBe(false)
     type("Имя устройства", "a".repeat(65))
-    expect(submit).toBeDisabled()
+    expect(submit.disabled).toBe(true)
     type("Имя устройства", "bad\u0000name")
-    expect(submit).toBeDisabled()
+    expect(submit.disabled).toBe(true)
   })
 
   it("renames the selected device and closes", async () => {
