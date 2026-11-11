@@ -21,8 +21,8 @@ const config = (window as unknown as { __AMBY_NATIVE_SYNC__: Config }).__AMBY_NA
 if (!root || !("__TAURI_INTERNALS__" in window))
   throw new Error("A real native test runtime is required")
 
-const PASSWORD = "correct horse battery staple 42"
-const NEW_PASSWORD = "an entirely different password about owls 77"
+const PASSWORD = "Correct horse battery staple 42!"
+const NEW_PASSWORD = "An entirely different password about owls 77!"
 const results: Array<{ name: string; passed: boolean; error?: string }> = []
 const port = createDesktopSyncPort()
 
@@ -152,7 +152,7 @@ try {
     }
     type("Пароль", "password12345678")
     type("Повторите пароль", "password12345678")
-    await waitFor("a weak verdict", () => text().includes("Слабый пароль"))
+    await waitFor("a weak verdict", () => text().includes("Нужно: заглавная буква, спецсимвол"))
     if (!button("Продолжить")!.disabled) throw new Error("Continue must be disabled")
     type("Пароль", PASSWORD)
     type("Повторите пароль", PASSWORD)
