@@ -39,7 +39,7 @@ url = "2"
 reqwest = { version = "0.13", features = ["json", "rustls", "stream", "webpki-roots"], default-features = false }
 rfd = { version = "0.16", default-features = false, features = ["gtk3"] }
 futures-util = "0.3"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled", "fallible_uint"] }
 ulid = "3"
 walkdir = "2"
 notify = "8"
