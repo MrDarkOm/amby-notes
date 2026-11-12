@@ -142,18 +142,26 @@ export function AccountStorage({ port: given, revision = 0 }: AccountStorageProp
     }
   }
 
-  // A pass that ends with a limit announced asks the server again (the numbers moved).
+  // A pass that ends with a limit announced, or that sent or removed something, asks the server again.
   React.useEffect(() => {
     let alive = true
     let unlisten: (() => void) | null = null
+    // The pass after which the sizes were read last: a pass that sent or removed something moves
+    // them (the confirmation of a deletion names them, appendix Л), once per pass.
+    let readAfter: number | null = null
     port
       .onVaultStatus((status) => {
-        if (
-          alive &&
-          status.unsynced.some((item) => item.reason === "tooLarge" || item.reason === "quotaFull")
-        ) {
-          void load()
-        }
+        if (!alive) return
+        const limit = status.unsynced.some(
+          (item) => item.reason === "tooLarge" || item.reason === "quotaFull",
+        )
+        const moved =
+          status.last !== null &&
+          status.last.uploaded + status.last.trashed > 0 &&
+          status.lastSyncMs !== null &&
+          status.lastSyncMs !== readAfter
+        if (moved) readAfter = status.lastSyncMs
+        if (limit || moved) void load()
       })
       .then((off) => {
         if (alive) unlisten = off

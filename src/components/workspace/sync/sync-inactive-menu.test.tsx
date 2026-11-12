@@ -148,3 +148,19 @@ describe("the menu of an inactive sync button", () => {
     expect(screen.getByRole("alert").textContent).toBe(syncCodeMessage("timeout", i18n.t))
   })
 })
+
+describe("the menu of a deleted server copy (appendix Л)", () => {
+  it("is titled as switched off, not as broken, and offers the settings", () => {
+    const { onFix, onOpenSettings } = show(make("spaceDeleted", "settings"))
+    expect(screen.getByText(i18n.t("sync.inactive.titleOff"))).toBeTruthy()
+    expect(screen.queryByText(i18n.t("sync.inactive.title"))).toBeNull()
+    expect(screen.getByTestId("sync-inactive-reason").textContent).toContain(
+      "Локальные файлы остались",
+    )
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: i18n.t("sync.inactive.action.spaceDeleted") }),
+    )
+    expect(onOpenSettings).toHaveBeenCalledTimes(1)
+    expect(onFix).not.toHaveBeenCalled()
+  })
+})

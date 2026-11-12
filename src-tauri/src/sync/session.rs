@@ -1195,7 +1195,12 @@ fn settle(shared: &Arc<Shared>, outcome: Outcome, failures: &mut u32, schedule: 
             }
         }
         Outcome::Failed(error) => {
-            tracing::warn!(event = "sync_pass_failed", kind = %failure_kind(&error));
+            // The machine code says why (never a path or the text of the server).
+            let code = match &error {
+                EngineError::Remote(error) => remote_code(error),
+                _ => String::new(),
+            };
+            tracing::warn!(event = "sync_pass_failed", kind = %failure_kind(&error), failureCode = %code);
             match &error {
                 EngineError::Remote(error) => {
                     if is_not_found(error) && space_is_gone(shared) {
@@ -1258,6 +1263,14 @@ fn space_deleted(shared: &Arc<Shared>) -> Next {
     let saved = SqliteStateStore::open(&shared.config.vault)
         .and_then(|mut store| store.set_meta(META_ENABLED, "0"))
         .is_ok();
+    tracing::info!(
+        event = "sync_space_deleted",
+        failureCode = if saved {
+            "space_deleted"
+        } else {
+            "state_error"
+        }
+    );
     shared.update(|status| {
         status.phase = SyncPhase::Off;
         status.enabled = false;

@@ -52,12 +52,12 @@ export function SyncInactiveMenuContent({
   return (
     <DropdownMenuContent side={side} align="start" className="sync-inactive-menu">
       <div className="sync-inactive-title">
-        {reason.id === "unavailable" ? (
+        {reason.id === "unavailable" || reason.id === "spaceDeleted" ? (
           <CloudOff aria-hidden="true" />
         ) : (
           <TriangleAlert aria-hidden="true" />
         )}
-        {t("sync.inactive.title")}
+        {t(reason.id === "spaceDeleted" ? "sync.inactive.titleOff" : "sync.inactive.title")}
       </div>
       <p data-testid="sync-inactive-reason" className="sync-inactive-reason">
         {syncInactiveText(reason, t)}

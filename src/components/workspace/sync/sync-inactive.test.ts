@@ -220,3 +220,16 @@ describe("the sync button explains a pass that failed or stopped", () => {
     })
   })
 })
+
+describe("a server copy deleted on purpose is a calm state, not a failure (appendix Л)", () => {
+  it("names the deletion and sends the person to choose a space, with no retry", () => {
+    // Running session: the pass found its space gone (session.rs `space_deleted`).
+    const running = vaultStatus({ enabled: false, phase: "off", errorCode: "space_deleted" })
+    expect(reason(running)).toMatchObject({ id: "spaceDeleted", action: "settings" })
+    // After a restart the link rests with the switch off; the deletion is still the reason.
+    expect(reason(resting("space_deleted"))).toMatchObject({
+      id: "spaceDeleted",
+      action: "settings",
+    })
+  })
+})

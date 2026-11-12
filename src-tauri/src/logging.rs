@@ -1153,6 +1153,7 @@ fn allowed_event(value: &str) -> bool {
         "sync_pass_panicked",
         "sync_password_changed",
         "sync_signed_out",
+        "sync_space_deleted",
         "system_trash_failed",
         "archive_migration_done",
         "archive_migration_failed",
