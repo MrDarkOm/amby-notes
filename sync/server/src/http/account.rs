@@ -68,6 +68,17 @@ fn device_name(request: &Value) -> ApiResult<Vec<u8>> {
     field_hex_vec(&request["device"], "name_enc", NAME_ENVELOPE_LEN)
 }
 
+/// The name of the device in `login` and `recover` (М1): optional. No `device`, `"device": null`
+/// or a `device` without `name_enc` make a device with an empty name, set later by renaming it
+/// (М3); a name that is present is checked as in `enroll`.
+fn optional_device_name(request: &Value) -> ApiResult<Vec<u8>> {
+    match request.get("device") {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Object(device)) if !device.contains_key("name_enc") => Ok(Vec::new()),
+        Some(_) => device_name(request),
+    }
+}
+
 /// A device and its token, made before the transaction so that a failure of the random source
 /// cannot leave half a sign-in behind.
 struct NewDevice {
@@ -301,7 +312,7 @@ async fn sign_in(state: AppState, request: Request, secret: Secret) -> ApiResult
         Secret::Recovery => "recovery_auth_key",
     };
     let key = field_hex::<32>(&request, key_field)?;
-    let name_enc = device_name(&request)?;
+    let name_enc = optional_device_name(&request)?;
 
     let addr = client_addr(&state, &parts);
     let now = state.clock.now_ms();
