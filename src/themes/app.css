@@ -5927,15 +5927,6 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   flex-shrink: 0;
   color: hsl(var(--muted-foreground));
 }
-.sync-device-row {
-  flex-wrap: wrap;
-}
-.sync-device-row > div:first-of-type {
-  min-width: 100px;
-}
-.sync-device-row > div.flex {
-  flex-wrap: wrap;
-}
 .sync-device-current {
   border-radius: 5px;
   background: hsl(var(--muted));
@@ -5947,14 +5938,7 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   height: 28px;
   font-size: 11px;
 }
-.sync-account-strip .sync-account-signout {
-  margin-top: 3px;
-  padding-inline: 0;
-  height: 22px;
-  gap: 5px;
-  font-size: 11px;
-  color: hsl(var(--muted-foreground));
-}
+
 .sync-account-heading {
   display: grid;
   gap: 3px;
@@ -6029,10 +6013,7 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
 .sync-storage-row[data-current="true"] .sync-storage-icon {
   color: hsl(var(--primary));
 }
-.sync-account-signout > svg {
-  width: 13px;
-  height: 13px;
-}
+
 .sync-vault-card {
   min-width: 0;
 }
@@ -7094,21 +7075,66 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   line-height: 1.3;
 }
 .sync-account-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
   flex-basis: 100%;
   margin-top: 4px;
   padding-top: 12px;
   border-top: 1px solid hsl(var(--border));
 }
-.sync-account-column > .sync-account-strip .sync-account-signout {
-  margin-top: 0;
-  padding-inline: 8px;
-  height: 28px;
+.sync-account-actions > button {
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 32px;
+  padding: 6px 8px;
   font-size: 12px;
+  white-space: normal;
+}
+.sync-identity-name {
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.sync-identity-name > h3,
+.sync-identity-name > p {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sync-identity-name > .sync-inline-rename {
+  width: 24px;
+  height: 24px;
+  padding: 4px;
+  color: hsl(var(--muted-foreground));
+}
+.sync-inline-rename > svg {
+  width: 13px;
+  height: 13px;
+}
+.sync-devices .sync-device-row {
+  display: grid;
+  grid-template-columns: 16px minmax(28px, 1fr) auto;
+  column-gap: 8px;
+  row-gap: 6px;
+}
+.sync-device-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+.sync-device-actions[data-confirming="true"] {
+  grid-column: 1 / -1;
+}
+.sync-device-last-seen {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+  overflow-wrap: anywhere;
 }
 .sync-vault-heading > .min-w-0 .sync-vault-status {
   margin: 4px 0 0;
