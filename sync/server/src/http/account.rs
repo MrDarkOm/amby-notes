@@ -8,7 +8,7 @@ use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 use sha2::Sha256;
 
-use amby_sync_proto::error_code as code;
+use amby_sync_proto::{error_code as code, normalize_username};
 
 use super::throttle;
 use super::util::{
@@ -114,15 +114,16 @@ pub(crate) async fn prelogin(
 ) -> ApiResult<Response> {
     let (parts, body) = split(request);
     let request = read_json(&state, &parts, body).await?;
-    let username = field_str(&request, "username")?;
-    if username.chars().count() > 256 {
+    let raw_username = field_str(&request, "username")?;
+    if raw_username.chars().count() > 256 {
         return Err(ApiError::bad_request("`username` is too long"));
     }
+    let username = normalize_username(raw_username);
     let real = state.db.call(|conn| {
         conn.query_row(
             "SELECT salt, kdf_memory_kib, kdf_iterations, kdf_parallelism FROM users \
              WHERE username = ?1 AND has_password = 1",
-            [username],
+            [username.as_str()],
             |row| {
                 Ok((
                     row.get::<_, Vec<u8>>(0)?,
@@ -161,7 +162,7 @@ pub(crate) async fn prelogin(
 pub(crate) async fn enroll(State(state): State<AppState>, request: Request) -> ApiResult<Response> {
     let (parts, body) = split(request);
     let request = read_json(&state, &parts, body).await?;
-    let username = field_str(&request, "username")?.to_string();
+    let username = normalize_username(field_str(&request, "username")?);
     let enroll_code = match request.get("enroll_code") {
         None if state.config.open_registration => "",
         None => return Err(ApiError::bad_request("`enroll_code` is missing")),
@@ -294,7 +295,7 @@ enum Secret {
 async fn sign_in(state: AppState, request: Request, secret: Secret) -> ApiResult<Response> {
     let (parts, body) = split(request);
     let request = read_json(&state, &parts, body).await?;
-    let username = field_str(&request, "username")?.to_string();
+    let username = normalize_username(field_str(&request, "username")?);
     let key_field = match secret {
         Secret::Password => "auth_key",
         Secret::Recovery => "recovery_auth_key",
@@ -569,8 +570,8 @@ pub(crate) async fn username_rename(
     let (parts, body) = split(request);
     let auth = authenticate(&state, &parts)?;
     let request = read_json(&state, &parts, body).await?;
-    let username = field_str(&request, "username")?.to_string();
-    let base_username = field_str(&request, "base_username")?.to_string();
+    let username = normalize_username(field_str(&request, "username")?);
+    let base_username = normalize_username(field_str(&request, "base_username")?);
     let proof = field_hex::<32>(&request, "auth_key")?;
     if !crate::admin::valid_username(&username) {
         return Err(ApiError::bad_request("`username` is invalid"));

@@ -467,7 +467,7 @@ impl SyncClient {
                 Method::POST,
                 "/v1/auth/prelogin",
                 None,
-                Some(json!({ "username": username })),
+                Some(json!({ "username": amby_sync_proto::normalize_username(username) })),
             )
             .await?;
         Ok(Prelogin {
@@ -480,7 +480,7 @@ impl SyncClient {
     pub async fn enroll(&self, request: &EnrollRequest<'_>) -> Result<Session, ClientError> {
         let account = request.account;
         let body = json!({
-            "username": request.username,
+            "username": amby_sync_proto::normalize_username(request.username),
             "enroll_code": request.enroll_code,
             "salt": hex::encode(account.password.salt),
             "params": params_to(&account.password.params),
@@ -504,7 +504,7 @@ impl SyncClient {
         device_name_enc: &[u8],
     ) -> Result<LoginAnswer, ClientError> {
         let body = json!({
-            "username": username,
+            "username": amby_sync_proto::normalize_username(username),
             "auth_key": hex::encode(auth_key.as_bytes()),
             "device": { "name_enc": hex::encode(device_name_enc) },
         });
@@ -527,7 +527,7 @@ impl SyncClient {
         device_name_enc: &[u8],
     ) -> Result<RecoverAnswer, ClientError> {
         let body = json!({
-            "username": username,
+            "username": amby_sync_proto::normalize_username(username),
             "recovery_auth_key": hex::encode(recovery_auth_key.as_bytes()),
             "device": { "name_enc": hex::encode(device_name_enc) },
         });
@@ -625,7 +625,7 @@ impl SyncClient {
         auth_key: &AuthKey,
     ) -> Result<(), ClientError> {
         self.send(Method::PUT, "/v1/account/username", Some(token), Some(json!({
-            "username": username, "base_username": base, "auth_key": hex::encode(auth_key.as_bytes()),
+            "username": amby_sync_proto::normalize_username(username), "base_username": amby_sync_proto::normalize_username(base), "auth_key": hex::encode(auth_key.as_bytes()),
         }))).await?;
         Ok(())
     }

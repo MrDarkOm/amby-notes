@@ -193,3 +193,5 @@ Watcher events and their database/project invalidations are emitted together aft
 Open signup (Рег1–Рег4): `server/src/http/account.rs`, `throttle.rs` and `config.rs`; opt-in `AMBY_SYNC_OPEN_REGISTRATION`, advertised by `/v1/info.registration.open`. Invitation names stay reserved; signup attempts share an IP budget. Tests: `conformance/tests/auth.rs`, `info.rs`, `server/tests/config.rs`. App raw-file policy: 30,000,000 bytes in `EngineConfig`.
 
 Account login rename uses password proof and a base username at `/v1/account/username`; device PUT replaces only the fixed sealed name. Client flows preserve AK/tokens, while the app refreshes remote login names when listing devices.
+
+ASCII username folding is shared by server and client through `proto::normalize_username`; storage, uniqueness, prelogin salts and login throttles use lowercase. Passwords and encrypted device/space names retain their case.

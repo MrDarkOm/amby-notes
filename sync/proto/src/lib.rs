@@ -1,8 +1,14 @@
 //! Wire constants of the sync protocol v1 (docs/sync-plan.md, appendix Б).
 //!
-//! Only names and numbers live here: the server and the client agree on them. The shapes of the
+//! Wire constants and canonicalization live here: server and client agree on them. The shapes of the
 //! requests are in the appendix, and the conformance suite writes them out by hand on purpose,
 //! so that it does not repeat a mistake of the server's own types.
+
+/// Canonical account login: fold ASCII capitals only, without changing other characters.
+/// Passwords, device labels and invitation codes do not use this function.
+pub fn normalize_username(username: &str) -> String {
+    username.to_ascii_lowercase()
+}
 
 /// The protocol version this code speaks (П9).
 pub const PROTOCOL_VERSION: u32 = 1;

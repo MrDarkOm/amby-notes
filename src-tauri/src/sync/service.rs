@@ -297,9 +297,10 @@ impl SyncService {
     /// earlier prepared account. Nothing is sent and nothing is stored.
     pub async fn prepare_account(
         &self,
-        request: PrepareRequest,
+        mut request: PrepareRequest,
     ) -> Result<PreparedAccountView, SyncError> {
         self.require_not_connected()?;
+        request.username = amby_sync_proto::normalize_username(&request.username);
         if !validate_username(&request.username) {
             return Err(SyncError::new("invalid_username"));
         }
@@ -444,8 +445,9 @@ impl SyncService {
     }
 
     /// Signs in on this device with the password (Р5).
-    pub async fn sign_in(&self, request: SignInRequest) -> Result<SyncStatus, SyncError> {
+    pub async fn sign_in(&self, mut request: SignInRequest) -> Result<SyncStatus, SyncError> {
         self.require_not_connected()?;
+        request.username = amby_sync_proto::normalize_username(&request.username);
         Self::require_device_name(&request.device_name)?;
         let url = Self::url_of(&request.endpoint)?;
         let client = Self::client_of(&url)?;
@@ -467,8 +469,9 @@ impl SyncService {
     }
 
     /// Replaces a forgotten password with the recovery code and signs in (Р5, О3).
-    pub async fn recover(&self, request: RecoverRequest) -> Result<SyncStatus, SyncError> {
+    pub async fn recover(&self, mut request: RecoverRequest) -> Result<SyncStatus, SyncError> {
         self.require_not_connected()?;
+        request.username = amby_sync_proto::normalize_username(&request.username);
         Self::require_device_name(&request.device_name)?;
         let code = RecoveryCode::parse(&request.recovery_code)
             .map_err(|_| SyncError::new("invalid_recovery_code"))?;
@@ -570,7 +573,8 @@ impl SyncService {
         username: &str,
         current_password: &str,
     ) -> Result<SyncStatus, SyncError> {
-        if !validate_username(username) {
+        let username = amby_sync_proto::normalize_username(username);
+        if !validate_username(&username) {
             return Err(SyncError::new("invalid_username"));
         }
         let _identity = self.identity.lock().await;
@@ -580,7 +584,7 @@ impl SyncService {
             &client,
             &session.token,
             &session.record.username,
-            username,
+            &username,
             current_password,
         )
         .await
@@ -592,7 +596,7 @@ impl SyncService {
             }
             return Err(Self::identity_error(error));
         }
-        self.keep_username(&session.record, username)?;
+        self.keep_username(&session.record, &username)?;
         self.status()
     }
 

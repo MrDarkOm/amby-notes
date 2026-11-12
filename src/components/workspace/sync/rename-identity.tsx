@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { syncErrorMessage } from "@/lib/sync/sync-errors"
 import { SyncPortError, type SyncPort } from "@/lib/sync/sync-port"
+import { normalizeSyncUsername } from "@/lib/sync/username"
 
 export type RenameIdentityFormProps = {
   port: SyncPort
@@ -15,7 +16,12 @@ export type RenameIdentityFormProps = {
 const USERNAME = /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/
 
 function validUsername(value: string, current: string): boolean {
-  return value !== current && value.length <= 64 && USERNAME.test(value)
+  const normalized = normalizeSyncUsername(value)
+  return (
+    normalized !== normalizeSyncUsername(current) &&
+    normalized.length <= 64 &&
+    USERNAME.test(normalized)
+  )
 }
 
 function validDeviceName(value: string, current: string): boolean {
@@ -51,7 +57,8 @@ export function RenameIdentityForm(props: RenameIdentityFormProps) {
     setBusy(true)
     setError(null)
     try {
-      if (props.mode === "account") await props.port.renameAccount(value, password)
+      if (props.mode === "account")
+        await props.port.renameAccount(normalizeSyncUsername(value), password)
       else await props.port.renameDevice(props.deviceId, value.trim())
       setPassword("")
       setValue("")

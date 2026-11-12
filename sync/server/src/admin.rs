@@ -7,6 +7,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use amby_sync_proto::normalize_username;
 use rusqlite::{params, OptionalExtension};
 use sha2::{Digest, Sha256};
 
@@ -105,7 +106,8 @@ fn new_code() -> Result<String, AdminError> {
 /// hours (24 by default); for a name without a password it issues a new code and burns the old
 /// one.
 pub fn user_add(state: &AppState, username: &str) -> Result<UserAdded, AdminError> {
-    if !valid_username(username) {
+    let username = normalize_username(username);
+    if !valid_username(&username) {
         return Err(AdminError::InvalidName);
     }
     let code = new_code()?;
@@ -115,9 +117,9 @@ pub fn user_add(state: &AppState, username: &str) -> Result<UserAdded, AdminErro
         .now_ms()
         .saturating_add(hours.saturating_mul(3_600_000));
     let hash: [u8; 32] = Sha256::digest(normalize_code(&code).as_bytes()).into();
-    state.users.add_user(username, hash, expires_ms)?;
+    state.users.add_user(&username, hash, expires_ms)?;
     Ok(UserAdded {
-        username: username.to_string(),
+        username,
         enroll_code: code,
         expires_ms,
     })
@@ -130,7 +132,8 @@ pub fn user_list(state: &AppState) -> Result<Vec<UserRecord>, AdminError> {
 
 /// `user remove <name> --yes` (П38): removes the user, devices, spaces and bodies for good.
 pub fn user_remove(state: &AppState, username: &str) -> Result<(), AdminError> {
-    Ok(state.users.remove_user(username)?)
+    let username = normalize_username(username);
+    Ok(state.users.remove_user(&username)?)
 }
 
 /// `backup <dir>` (П38, Р11): an online copy of the database and of the bodies.
@@ -364,15 +367,18 @@ pub fn run_cli(state: &AppState, args: &[&str]) -> CliOutput {
 type CliResult = Result<CliOutput, CliOutput>;
 
 fn user_row(state: &AppState, name: &str) -> Result<i64, CliOutput> {
-    if !valid_username(name) {
+    let name = normalize_username(name);
+    if !valid_username(&name) {
         return Err(AdminError::InvalidName.into());
     }
     state
         .db
         .call(|conn| {
-            conn.query_row("SELECT id FROM users WHERE username = ?1", [name], |row| {
-                row.get(0)
-            })
+            conn.query_row(
+                "SELECT id FROM users WHERE username = ?1",
+                [name.as_str()],
+                |row| row.get(0),
+            )
             .optional()
         })?
         .ok_or_else(|| CliOutput::fail(1, "no such user"))
@@ -403,16 +409,17 @@ fn limits_json(limits: &crate::plans::EffectiveLimits) -> serde_json::Value {
 }
 
 fn cli_user_add(state: &AppState, name: &str, parsed: &Words<'_>) -> CliResult {
-    if !valid_username(name) {
+    let name = normalize_username(name);
+    if !valid_username(&name) {
         return Err(AdminError::InvalidName.into());
     }
     if let Some(plan) = parsed.plan {
         // Nobody is created for an unknown plan.
         known_plan(state, plan)?;
     }
-    let added = user_add(state, name)?;
+    let added = user_add(state, &name)?;
     if let Some(plan) = parsed.plan {
-        set_plan(state, name, Some(plan))?;
+        set_plan(state, &name, Some(plan))?;
     }
     let stdout = if parsed.json {
         format!(
@@ -502,13 +509,14 @@ fn set_plan(state: &AppState, name: &str, plan: Option<&str>) -> Result<Option<S
 }
 
 fn cli_plan_set(state: &AppState, name: &str, plan: Option<&str>) -> CliResult {
-    if !valid_username(name) {
+    let name = normalize_username(name);
+    if !valid_username(&name) {
         return Err(AdminError::InvalidName.into());
     }
     if let Some(plan) = plan {
         known_plan(state, plan)?;
     }
-    let before = set_plan(state, name, plan)?;
+    let before = set_plan(state, &name, plan)?;
     let label = |plan: Option<&str>| plan.map_or_else(|| "default".to_string(), str::to_string);
     let line = format!(
         "plan changed: user {name}, from {} to {}\n",
@@ -523,8 +531,9 @@ fn cli_plan_set(state: &AppState, name: &str, plan: Option<&str>) -> CliResult {
 }
 
 fn cli_plan_show(state: &AppState, name: &str, parsed: &Words<'_>) -> CliResult {
+    let name = normalize_username(name);
     let cutoff = crate::quota::pending_cutoff(state);
-    let id = user_row(state, name)?;
+    let id = user_row(state, &name)?;
     let (resolved, usage, spaces) = state.db.call(|conn| -> rusqlite::Result<_> {
         let resolved = crate::quota::resolve_user(state, conn, id)?;
         let usage = crate::quota::user_usage(conn, id, cutoff)?;

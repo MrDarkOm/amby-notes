@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { syncErrorMessage } from "@/lib/sync/sync-errors"
 import { SyncPortError } from "@/lib/sync/sync-port"
+import { normalizeSyncUsername } from "@/lib/sync/username"
 import type { PreparedAccountView, SyncPort, SyncStatus } from "@/lib/sync/sync-port"
 import { openWebAddressInBrowser } from "../tiptap/external-open"
 import { SettingsGroup, Row } from "../settings/settings-common"
@@ -151,6 +152,7 @@ export function ConnectWizard({
   const server = health.server
   const needsEnrollCode = Boolean(server && !server.registrationOpen) || useInvitation
   const target = { url: server?.url ?? chosenUrl, allowHttp: chosenAllowHttp }
+  const canonicalUsername = normalizeSyncUsername(username.trim())
   React.useEffect(() => {
     setEnrollCode("")
     setUseInvitation(false)
@@ -161,7 +163,7 @@ export function ConnectWizard({
     run(async () => {
       const view = await port.prepareAccount({
         ...target,
-        username: username.trim(),
+        username: canonicalUsername,
         enrollCode: needsEnrollCode ? enrollCode.trim() : "",
         password,
         deviceName: deviceName.trim(),
@@ -211,7 +213,7 @@ export function ConnectWizard({
     run(async () => {
       const status = await port.signIn({
         ...target,
-        username: username.trim(),
+        username: canonicalUsername,
         password,
         deviceName: deviceName.trim(),
       })
@@ -223,7 +225,7 @@ export function ConnectWizard({
     run(async () => {
       const status = await port.recover({
         ...target,
-        username: username.trim(),
+        username: canonicalUsername,
         recoveryCode: recoveryCode.trim(),
         newPassword: password,
         deviceName: deviceName.trim(),
@@ -268,7 +270,7 @@ export function ConnectWizard({
         <RecoveryCodeStep
           port={port}
           host={server?.host ?? ""}
-          username={username.trim()}
+          username={canonicalUsername}
           recoveryCode={prepared.recoveryCode}
           confirmGroups={prepared.confirmGroups}
           busy={busy}
@@ -283,7 +285,7 @@ export function ConnectWizard({
     ) : null
 
   const filled =
-    username.trim() !== "" &&
+    canonicalUsername !== "" &&
     deviceName.trim() !== "" &&
     (step === "signIn"
       ? password !== ""
@@ -410,7 +412,7 @@ export function ConnectWizard({
               )}
               <NewPasswordFields
                 port={port}
-                username={username.trim()}
+                username={canonicalUsername}
                 passwordLabel={t(
                   step === "recover"
                     ? "sync.wizard.fields.newPassword"

@@ -168,7 +168,8 @@ pub async fn prepare_account(
     enroll_code: &str,
     password: &str,
 ) -> Result<PreparedAccount, ClientError> {
-    if !validate_username(username) {
+    let username = amby_sync_proto::normalize_username(username);
+    if !validate_username(&username) {
         return Err(ClientError::InvalidUsername);
     }
     let password = password.to_string();
@@ -176,7 +177,7 @@ pub async fn prepare_account(
         blocking(move || create_account(&password, &Argon2Params::V1_DEFAULT, &mut OsRandom))
             .await?;
     Ok(PreparedAccount {
-        username: username.to_string(),
+        username,
         enroll_code: clean_enroll_code(enroll_code),
         account,
     })
@@ -404,7 +405,8 @@ pub async fn rename_account(
     username: &str,
     password: &str,
 ) -> Result<(), ClientError> {
-    if !validate_username(username) {
+    let username = amby_sync_proto::normalize_username(username);
+    if !validate_username(&username) {
         return Err(ClientError::InvalidUsername);
     }
     let keys = client.keys(token).await?;
@@ -426,7 +428,7 @@ pub async fn rename_account(
         other => other,
     })?;
     client
-        .rename_account(token, base, username, &derived.auth_key)
+        .rename_account(token, base, &username, &derived.auth_key)
         .await
 }
 

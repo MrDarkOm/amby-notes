@@ -1,8 +1,7 @@
 # Sync connect screen map
 
 "Synchronization" settings; sync is not a module. Plan:
-[sync-plan.md](../../../../docs/sync-plan.md) (Р5, Р12, stage Э4). The connection, and the sync of the open
-vault under it. Back up real vaults before first sync.
+[sync-plan.md](../../../../docs/sync-plan.md) (Р5, Р12, stage Э4). Account/vault sync. Back up real vaults first.
 
 | Concern                                                                                                                                                                                                                                                                  | Owner                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -20,7 +19,7 @@ Rules that tests hold: the recovery code is shown **before** anything is sent, a
 groups of it; the password is judged by the application (12 characters, `zxcvbn` score 3), the screen only
 shows the verdict; every error is a machine code translated in `sync.errors.*` (the text of a server is
 never shown); the browser build has the `unavailable` port. Keep passwords and codes out of component state
-once they have been used, and out of the DOM text. Change password: [change-password.tsx](change-password.tsx). Names: [rename-identity.tsx](rename-identity.tsx).
+once they have been used, and out of the DOM text. Change password: [change-password.tsx](change-password.tsx). Names: [rename-identity.tsx](rename-identity.tsx). Fold: [username.ts](../../../lib/sync/username.ts).
 
 A vault that was switched off is resumed ("Switch on again") only when `VaultSyncStatus.resumable`: the link remembers the server address
 and the key of its space, and both must fit the current connection (runtime.rs `link_matches`). Otherwise the panel shows the

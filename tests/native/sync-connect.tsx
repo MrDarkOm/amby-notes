@@ -156,7 +156,7 @@ try {
 
   await step("a weak password is not accepted, a strong one is", async () => {
     await press("Регистрация")
-    type("Имя пользователя", config.username!)
+    type("Имя пользователя", config.username!.toUpperCase())
     if (config.enrollCode) {
       const invitation = [...document.querySelectorAll("label")]
         .find((label) => label.textContent?.trim() === "У меня есть код приглашения")
@@ -221,7 +221,7 @@ try {
 
   await step("a wrong password is told apart and the right one signs in", async () => {
     await checkServer()
-    type("Имя пользователя", config.username!)
+    type("Имя пользователя", config.username!.toUpperCase())
     type("Пароль", "not the password at all")
     await press("Войти")
     await waitFor("invalid credentials", () => text().includes("Неверное имя пользователя, пароль"))
@@ -235,7 +235,7 @@ try {
     await waitFor("the wizard", () => serverChoice())
     await checkServer()
     await press("Забыли пароль?")
-    type("Имя пользователя", config.username!)
+    type("Имя пользователя", config.username!.toUpperCase())
     type("Код восстановления", recoveryCode.toLowerCase().split("-").join(" "))
     type("Новый пароль", NEW_PASSWORD)
     type("Повторите новый пароль", NEW_PASSWORD)
@@ -248,7 +248,7 @@ try {
     await press("Выйти на этом устройстве")
     await waitFor("the wizard", () => serverChoice())
     await checkServer()
-    type("Имя пользователя", config.username!)
+    type("Имя пользователя", config.username!.toUpperCase())
     type("Пароль", PASSWORD)
     await press("Войти")
     await waitFor("invalid credentials", () => text().includes("Неверное имя пользователя, пароль"))
@@ -276,7 +276,7 @@ try {
   const renamedUsername = `${config.username}-renamed`
   await step("the account login can be renamed with the current password", async () => {
     await press("Изменить имя аккаунта")
-    type("Новое имя пользователя", renamedUsername)
+    type("Новое имя пользователя", renamedUsername.toUpperCase())
     type("Текущий пароль", NEW_PASSWORD)
     await press("Сохранить")
     await waitFor(
@@ -292,7 +292,7 @@ try {
     await press("Выйти на этом устройстве")
     await waitFor("the wizard", () => serverChoice())
     await checkServer()
-    type("Имя пользователя", renamedUsername)
+    type("Имя пользователя", renamedUsername.toUpperCase())
     type("Пароль", NEW_PASSWORD)
     await press("Войти")
     await waitFor(

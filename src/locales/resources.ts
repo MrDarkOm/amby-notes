@@ -4129,7 +4129,7 @@ const ru = {
       insecure_url:
         "Адрес должен начинаться с https://. Для сервера в локальной сети включите переключатель ниже.",
       invalid_username:
-        "Имя пользователя: строчные латинские буквы, цифры, точка, дефис и подчёркивание (до 64 символов).",
+        "Имя пользователя: латинские буквы без учёта регистра, цифры, точка, дефис и подчёркивание (до 64 символов).",
       invalid_device_name: "Название устройства слишком длинное: не больше 64 байт.",
       network: "Не удалось связаться с сервером. Проверьте адрес и подключение к сети.",
       timeout: "Сервер не ответил вовремя. Попробуйте ещё раз.",
@@ -8603,7 +8603,7 @@ const en: typeof ru = {
       insecure_url:
         "The address must start with https://. For a server on your local network, turn on the switch below.",
       invalid_username:
-        "User name: lower-case Latin letters, digits, dot, hyphen and underscore (up to 64 characters).",
+        "User name: Latin letters (case-insensitive), digits, dot, hyphen and underscore (up to 64 characters).",
       invalid_device_name: "The device name is too long: at most 64 bytes.",
       network: "Could not reach the server. Check the address and your network connection.",
       timeout: "The server did not answer in time. Try again.",
