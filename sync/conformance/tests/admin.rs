@@ -58,7 +58,7 @@ fn user_add_rejects_bad_names_with_exit_code_2() {
     let target = Target::from_env();
     let too_long = "a".repeat(65);
     for name in [
-        "Alice",
+        "A!ice",
         "",
         "a b",
         too_long.as_str(),
@@ -78,6 +78,30 @@ fn user_add_rejects_bad_names_with_exit_code_2() {
             Ok(_) => panic!("the name `{name}` must be refused"),
         }
     }
+}
+
+#[test]
+fn user_add_folds_ascii_case_and_reserves_one_lowercase_name() {
+    // П11, П17, П38: the administrator stores one canonical lowercase username; an active
+    // account cannot be reserved again through either casing.
+    let target = Target::from_env();
+    let canonical = target.new_username();
+    let mixed = canonical.to_ascii_uppercase();
+    let ticket = target
+        .try_user_add(&mixed)
+        .expect("mixed-case admin name should be accepted");
+    assert_eq!(ticket.username, canonical);
+    enroll_with(&target, &ticket.username, &ticket.enroll_code, PASSWORD);
+    assert_eq!(
+        target.try_user_add(&mixed).unwrap_err().exit_code,
+        Some(3),
+        "uppercase variant must address the same active user"
+    );
+    assert_eq!(
+        target.try_user_add(&canonical).unwrap_err().exit_code,
+        Some(3),
+        "lowercase variant must address the same active user"
+    );
 }
 
 #[test]
