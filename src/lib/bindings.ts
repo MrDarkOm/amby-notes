@@ -1834,6 +1834,17 @@ async syncAccountOverview(knownVaults: string[]) : Promise<Result<AccountOvervie
 }
 },
 /**
+ * Deletes the server copy of a space of the current account (appendix Л); local files stay.
+ */
+async syncDeleteSpace(spaceId: string) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_delete_space", { spaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Switches sync on for the open vault after a complete external backup.
  * `test_vault` is a legacy IPC compatibility argument; the current UI sends false.
  */

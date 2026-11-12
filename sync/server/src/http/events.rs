@@ -96,6 +96,7 @@ pub(crate) async fn events(
                         let text = format!("event: commit\nid: {seq}\ndata: {data}\n\n");
                         return Some((Ok(Bytes::from(text)), run));
                     }
+                    Ok(HubEvent::SpaceRemoved { space_id }) if space_id == run.space_id => return None,
                     Ok(HubEvent::Revoked { device_id }) if device_id == run.auth.device_id => return None,
                     // Another space, another device, or events that were missed: events are
                     // only a nudge, the device reads the feed from its cursor (П34).

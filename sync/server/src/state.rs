@@ -24,6 +24,11 @@ pub(crate) enum HubEvent {
         /// How many items the commit holds.
         items: usize,
     },
+    /// A space was deleted by its owner: its streams end (Л4).
+    SpaceRemoved {
+        /// The space.
+        space_id: [u8; 16],
+    },
     /// The token of a device was revoked: its streams end (П19, П34).
     Revoked {
         /// The device.

@@ -262,6 +262,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::sync::sync_vault_status,
         commands::sync::sync_list_spaces,
         commands::sync::sync_account_overview,
+        commands::sync::sync_delete_space,
         commands::sync::sync_enable_vault,
         commands::sync::sync_disable_vault,
         commands::sync::sync_run_now,

@@ -27,6 +27,7 @@ export type SyncInactiveReasonId =
   | "keychainLocked"
   | "vaultOff"
   | "vaultNotSetUp"
+  | "spaceDeleted"
   | "cannotStart"
   | "waiting"
   | "stopMassIncoming"
@@ -129,6 +130,9 @@ export function syncInactiveReason(input: SyncInactiveInput): SyncInactiveReason
   // (runtime.rs `resting_status`).
   if (status.errorCode === "not_connected") return signIn() ?? make("signedOut", "settings")
   if (status.errorCode === "keychain_unavailable") return make("keychainLocked", "reconnect")
+  // The server copy was deleted on purpose (appendix Л): a calm state; switching sync on again is
+  // a choice of a space in the settings, never a retry of the old one.
+  if (status.errorCode === "space_deleted") return make("spaceDeleted", "settings")
   if (status.errorCode) return make("cannotStart", "reconnect", { code: status.errorCode })
   // `resumable` means the link fits the credentials of this device: it is signed in.
   if (status.linked && status.resumable) return make("vaultOff", "resume")

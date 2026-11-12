@@ -38,7 +38,9 @@ use crate::sync::conflict_store::{
 };
 use crate::sync::gate;
 use crate::sync::remote::HttpRemote;
-use crate::sync::state_db::{state_dir, SqliteStateStore, META_DEVICE_ID, META_SPACE_ID};
+use crate::sync::state_db::{
+    state_dir, SqliteStateStore, META_DEVICE_ID, META_ENABLED, META_SPACE_ID,
+};
 use crate::sync::types::SyncError;
 use crate::sync::vault_fs::{FsHooks, VaultFs};
 use crate::sync::vault_types::{
@@ -1193,9 +1195,20 @@ fn settle(shared: &Arc<Shared>, outcome: Outcome, failures: &mut u32, schedule: 
             }
         }
         Outcome::Failed(error) => {
-            tracing::warn!(event = "sync_pass_failed", kind = %failure_kind(&error));
+            // The machine code says why (never a path or the text of the server).
+            let code = match &error {
+                EngineError::Remote(error) => remote_code(error),
+                _ => String::new(),
+            };
+            tracing::warn!(event = "sync_pass_failed", kind = %failure_kind(&error), failureCode = %code);
             match &error {
-                EngineError::Remote(error) => waiting(failures, remote_code(error), schedule),
+                EngineError::Remote(error) => {
+                    if is_not_found(error) && space_is_gone(shared) {
+                        space_deleted(shared)
+                    } else {
+                        waiting(failures, remote_code(error), schedule)
+                    }
+                }
                 EngineError::Locked => waiting(failures, "vault_locked".to_string(), schedule),
                 EngineError::Fs(_) => waiting(failures, "storage_error".to_string(), schedule),
                 EngineError::State(state) => match state_error(state).code.as_str() {
@@ -1227,6 +1240,56 @@ fn failure_kind(error: &EngineError) -> &'static str {
         EngineError::Fs(_) => "fs",
         EngineError::State(_) => "state",
         EngineError::Crypto(_) => "crypto",
+    }
+}
+
+fn is_not_found(error: &RemoteError) -> bool {
+    matches!(error, RemoteError::Rejected { status: 404, code } if code == "not_found")
+}
+
+/// Does the list of spaces of the account prove that the space of this session is gone (Л8)? A
+/// `404` alone is not enough: any failure to ask leaves the question open.
+fn space_is_gone(shared: &Arc<Shared>) -> bool {
+    let config = &shared.config;
+    config
+        .handle
+        .block_on(config.client.list_spaces(&config.token))
+        .is_ok_and(|spaces| spaces.iter().all(|space| space.space_id != config.space_id))
+}
+
+/// The server copy was deleted from another device (Л8): the exchange ends, the switch is saved
+/// as off, so it does not come back after a restart, and every local file stays as it is.
+fn space_deleted(shared: &Arc<Shared>) -> Next {
+    let saved = SqliteStateStore::open(&shared.config.vault)
+        .and_then(|mut store| store.set_meta(META_ENABLED, "0"))
+        .is_ok();
+    tracing::info!(
+        event = "sync_space_deleted",
+        failureCode = if saved {
+            "space_deleted"
+        } else {
+            "state_error"
+        }
+    );
+    shared.update(|status| {
+        status.phase = SyncPhase::Off;
+        status.enabled = false;
+        status.error_code = Some(
+            if saved {
+                "space_deleted"
+            } else {
+                "state_error"
+            }
+            .to_string(),
+        );
+        status.next_try_secs = None;
+        status.stop = None;
+    });
+    shared.shutdown_listener.notify_one();
+    Next {
+        hold: true,
+        retry_in: None,
+        poll: Duration::from_secs(60 * 60 * 24 * 365),
     }
 }
 

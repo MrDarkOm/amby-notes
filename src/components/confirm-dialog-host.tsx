@@ -2,6 +2,7 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   Dialog,
   DialogContent,
@@ -18,6 +19,10 @@ function ConfirmDialog({ question }: { question: PendingConfirm }) {
   const cancelRef = React.useRef<HTMLButtonElement>(null)
   const confirmRef = React.useRef<HTMLButtonElement>(null)
   const destructive = Boolean(question.destructive)
+  // An irreversible action that asks for the exact name first (Л10): nothing is confirmed until it matches.
+  const [typed, setTyped] = React.useState("")
+  const required = question.requiredText
+  const allowed = !required || typed === required.value
   // What had the focus when the question came; it gets it back (Radix returns it only to a trigger, and there is none).
   const [opener] = React.useState(() =>
     document.activeElement instanceof HTMLElement ? document.activeElement : null,
@@ -46,6 +51,19 @@ function ConfirmDialog({ question }: { question: PendingConfirm }) {
             <DialogDescription>{question.description}</DialogDescription>
           ) : null}
         </DialogHeader>
+        {required ? (
+          <Input
+            aria-label={required.label}
+            placeholder={required.value}
+            value={typed}
+            autoComplete="off"
+            spellCheck={false}
+            onChange={(event) => setTyped(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && allowed) settle(question.id, "yes")
+            }}
+          />
+        ) : null}
         <DialogFooter>
           <Button
             ref={cancelRef}
@@ -61,6 +79,7 @@ function ConfirmDialog({ question }: { question: PendingConfirm }) {
             type="button"
             variant={destructive ? "destructive" : "default"}
             size="sm"
+            disabled={!allowed}
             onClick={() => settle(question.id, "yes")}
           >
             {question.confirmLabel}

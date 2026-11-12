@@ -239,13 +239,13 @@ describe("the rows (У1)", () => {
     expect(screen.queryByText(/и история/)).toBeNull()
   })
 
-  it("has no way to delete a storage from the server yet (Э5)", async () => {
+  it("offers only the row menu: deletion is asked for and decided elsewhere (appendix Л)", async () => {
     await mount(ACCOUNT_UNLIMITED)
     expect(rows().length).toBeGreaterThan(0)
     expect(screen.queryByText(/Удалить с сервера/)).toBeNull()
     expect(screen.queryByRole("menu")).toBeNull()
     for (const row of rows()) {
-      expect(within(row).queryByRole("button")).toBeNull()
+      expect(within(row).getAllByRole("button")).toHaveLength(1)
     }
   })
 })
@@ -279,6 +279,29 @@ describe("when the section reads the server (У1)", () => {
       ),
     )
     await waitFor(() => expect(port.accountOverview).toHaveBeenCalledTimes(2))
+  })
+
+  it("reads again once after a pass that sent or removed something, so sizes are not stale", async () => {
+    // Appendix Л: the confirmation of a deletion names the size; a list read when the space was
+    // made (before its first upload) must not stay at 0 B.
+    const port = await mount(ACCOUNT_STANDARD)
+    const sent = vaultStatus({
+      lastSyncMs: 1_760_000_000_500,
+      last: { downloaded: 0, uploaded: 2, renamed: 0, trashed: 0 },
+    })
+    await act(async () => emitVaultStatus(sent))
+    await waitFor(() => expect(port.accountOverview).toHaveBeenCalledTimes(2))
+    // The same pass announced again, and a pass that sent nothing, read nothing.
+    await act(async () => emitVaultStatus(sent))
+    await act(async () =>
+      emitVaultStatus(
+        vaultStatus({
+          lastSyncMs: 1_760_000_000_900,
+          last: { downloaded: 3, uploaded: 0, renamed: 0, trashed: 0 },
+        }),
+      ),
+    )
+    expect(port.accountOverview).toHaveBeenCalledTimes(2)
   })
 
   it("says what went wrong in words when the server cannot be reached", async () => {

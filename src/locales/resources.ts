@@ -4057,6 +4057,8 @@ const ru = {
         keychainLocked: "Синхронизация не работает: нет доступа к связке ключей.",
         vaultOff: "Синхронизация выключена для этого хранилища.",
         vaultNotSetUp: "Синхронизация ещё не включена для этого хранилища.",
+        spaceDeleted:
+          "Серверную копию этого хранилища удалили. Локальные файлы остались, синхронизация выключена.",
         cannotStart: "Синхронизация не запустилась. {{reason}}",
         waiting: "Синхронизация не прошла. {{reason}} Повторим через {{wait}}.",
         stopMassIncoming:
@@ -4081,6 +4083,7 @@ const ru = {
         keychainLocked: "Разрешить доступ",
         vaultOff: "Включить для этого хранилища",
         vaultNotSetUp: "Включить для этого хранилища…",
+        spaceDeleted: "Выбрать пространство…",
         cannotStart: "Повторить",
         waiting: "Повторить сейчас",
         stopMassIncoming: "Посмотреть файлы и ответить…",
@@ -4096,6 +4099,7 @@ const ru = {
         failed: "Повторить",
       },
       title: "Синхронизация не работает",
+      titleOff: "Синхронизация выключена",
       refreshFiles: "Обновить файлы с диска",
       openSettings: "Настройки синхронизации",
     },
@@ -4137,6 +4141,8 @@ const ru = {
       server_unavailable: "Сервер сейчас недоступен (ошибка на его стороне). Попробуйте позже.",
       unsupported_server:
         "Этот сервер говорит на другой версии протокола. Обновите Amby или сервер.",
+      space_deleted:
+        "Серверную копию этого хранилища удалили. Синхронизация выключена, локальные файлы остались.",
       cannot_decrypt: "Ответ сервера не удалось расшифровать. Проверьте код восстановления.",
       crypto:
         "Сервер прислал недопустимые параметры шифрования. Подключение остановлено ради безопасности.",
@@ -4203,6 +4209,16 @@ const ru = {
       elsewhere: "Подключено на других устройствах или нигде",
       nameUnavailable: "Название недоступно",
       rowHistory: "и история {{size}}",
+      rowActions: "Действия с хранилищем",
+      deleteFromServer: "Удалить с сервера…",
+      deleteTitle: "Удалить «{{name}}» с сервера?",
+      deleteTitleUnnamed: "Удалить хранилище {{id}} с сервера?",
+      deleteDescription:
+        "Копия на сервере и её версии будут удалены навсегда: сейчас {{live}}, в истории {{history}}. Локальные файлы на устройствах останутся.",
+      deleteConfirm: "Удалить с сервера",
+      deleteField: "Введите точное название хранилища",
+      deleteFieldId: "Введите идентификатор хранилища",
+      deleteDone: "Копия на сервере удалена. Локальные файлы остались",
     },
     notices: {
       spaceLimit:
@@ -8533,6 +8549,7 @@ const en: typeof ru = {
         keychainLocked: "Sync is not working: no access to the key store.",
         vaultOff: "Sync is switched off for this vault.",
         vaultNotSetUp: "Sync is not switched on for this vault yet.",
+        spaceDeleted: "The server copy of this vault was deleted. Local files remain, sync is off.",
         cannotStart: "Sync did not start. {{reason}}",
         waiting: "Sync failed. {{reason}} Trying again in {{wait}}.",
         stopMassIncoming: "Sync stopped: {{count}} files would change on this computer at once.",
@@ -8554,6 +8571,7 @@ const en: typeof ru = {
         keychainLocked: "Allow access",
         vaultOff: "Switch on for this vault",
         vaultNotSetUp: "Switch on for this vault…",
+        spaceDeleted: "Choose a space…",
         cannotStart: "Try again",
         waiting: "Try again now",
         stopMassIncoming: "Review the files and answer…",
@@ -8569,6 +8587,7 @@ const en: typeof ru = {
         failed: "Try again",
       },
       title: "Sync is not working",
+      titleOff: "Sync is off",
       refreshFiles: "Reload files from disk",
       openSettings: "Sync settings",
     },
@@ -8611,6 +8630,8 @@ const en: typeof ru = {
       server_unavailable: "The server is unavailable right now (an error on its side). Try later.",
       unsupported_server:
         "This server speaks another version of the protocol. Update Amby or the server.",
+      space_deleted:
+        "The server copy of this storage was deleted. Sync is off, local files remain.",
       cannot_decrypt: "The answer of the server could not be decrypted. Check the recovery code.",
       crypto:
         "The server sent unacceptable encryption settings. The connection was stopped for your safety.",
@@ -8678,6 +8699,16 @@ const en: typeof ru = {
       elsewhere: "Connected on other devices or nowhere",
       nameUnavailable: "Name unavailable",
       rowHistory: "and history {{size}}",
+      rowActions: "Storage actions",
+      deleteFromServer: "Delete from the server…",
+      deleteTitle: "Delete “{{name}}” from the server?",
+      deleteTitleUnnamed: "Delete storage {{id}} from the server?",
+      deleteDescription:
+        "The copy on the server and its versions will be deleted for good: now {{live}}, {{history}} in the history. Local files on your devices will stay.",
+      deleteConfirm: "Delete from the server",
+      deleteField: "Type the exact name of the storage",
+      deleteFieldId: "Type the identifier of the storage",
+      deleteDone: "The copy on the server is deleted. Local files remain",
     },
     notices: {
       spaceLimit:

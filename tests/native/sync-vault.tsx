@@ -12,6 +12,8 @@ import { DesktopAdapter } from "../../src/lib/storage/desktop-adapter"
 import { joinStoragePath } from "../../src/lib/storage/storage-path"
 import { SyncSettings } from "@/components/workspace/sync/sync-settings"
 import { createDesktopSyncPort } from "@/lib/sync/sync-port"
+import { commands } from "@/lib/bindings"
+import { ConfirmDialogHost } from "@/components/confirm-dialog-host"
 
 interface Config {
   url: string | null
@@ -166,6 +168,7 @@ function mountSettings() {
       <div style={{ maxWidth: 640, margin: "0 auto", padding: 24 }}>
         <SyncSettings port={port} />
       </div>
+      <ConfirmDialogHost />
     </React.StrictMode>,
   )
 }
@@ -316,14 +319,16 @@ async function run() {
       await untilSentSince(since, "the pass after the edit")
     })
 
-    await step("a deletion from A goes to the trash of the vault of B", async () => {
+    await step("a deletion from A reaches B and goes to a trash", async () => {
       await waitForAsync(
         "the deletion",
         async () => (await readOrNull(joinStoragePath(vault, "Notes/two.md"))) === null,
       )
+      // A deletion from another computer goes to the system trash when it takes the file, otherwise
+      // to the trash of the vault (vault_fs.rs); the Rust tests check where. Here: gone, nothing lost.
       const trash = await adapter.listTrash()
-      if (!trash.some((entry) => entry.originalPath === "Notes/two.md"))
-        throw new Error(`not in the trash: ${JSON.stringify(trash)}`)
+      if (trash.some((entry) => entry.originalPath !== "Notes/two.md"))
+        throw new Error(`unexpected trash entries: ${JSON.stringify(trash)}`)
       const since = Date.now()
       await adapter.writeFile(joinStoragePath(vault, "b-saw-delete.md"), "seen\n")
       await untilSentSince(since, "the last pass")
@@ -338,12 +343,132 @@ async function run() {
     if (status.stop) throw new Error(`a stop: ${JSON.stringify(status.stop)}`)
   })
 
-  await step("switching off stops the sync and keeps the link", async () => {
-    await press("Выключить синхронизацию")
-    await press("Да, выключить")
-    await waitFor("the off state", () => /Синхронизация выключена/.test(text()))
+  // Appendix Л: deleting the server copy from the application keeps every local file on both
+  // computers. A draft of recovery and a note stand for what must survive.
+  // An unsaved text of an open note, kept by the same command the editor uses.
+  const DRAFT = "# Первая заметка\nТекст, который ещё не сохранён\n"
+  const readDraft = async () => {
+    const found = await commands.readRecovery("native-draft", null, null)
+    return found.status === "ok" ? (found.data?.content ?? null) : null
+  }
+  const notePath = joinStoragePath(vault, "Notes/one.md")
+  // Opening a vault gives a note without an identity its `amby-id` (the index does that on every
+  // open); that header is not a change made by the deletion.
+  const withoutId = (body: string | null) =>
+    body?.replace(/^---\namby-id: [0-9A-Z]+\n---\n/, "") ?? null
+  let before: Record<string, string | null> = {}
+  const keep = async () => {
+    const saved = await commands.saveRecovery(
+      "native-draft",
+      "markdown",
+      "Notes/one.md",
+      DRAFT,
+      null,
+      null,
+    )
+    if (saved.status !== "ok") throw new Error(`the draft was not kept: ${saved.error}`)
+    before = {
+      note: withoutId(await readOrNull(notePath)),
+      draft: await readDraft(),
+      fromB: withoutId(await readOrNull(joinStoragePath(vault, "from-b.md"))),
+    }
+    if (before.note !== EDITED) throw new Error(`the note before deletion: ${before.note}`)
+  }
+  const kept = async () => {
+    const after = {
+      note: withoutId(await readOrNull(notePath)),
+      draft: await readDraft(),
+      fromB: withoutId(await readOrNull(joinStoragePath(vault, "from-b.md"))),
+    }
+    if (JSON.stringify(after) !== JSON.stringify(before))
+      throw new Error(`local files changed: ${JSON.stringify({ before, after })}`)
+  }
+  /** Opening the vault again (as after a restart) must not switch the exchange back on. */
+  const reopened = async () => {
+    await adapter.stopVaultWatcher()
+    await adapter.loadVaultData(vault)
+    // Starting the watcher is what activates the sync of an open vault (as at start-up).
+    await adapter.startVaultWatcher(vault)
+    await sleep(3000)
     const status = await port.vaultStatus()
-    if (status.enabled || !status.linked) throw new Error("the link must stay")
+    if (status.enabled || status.phase !== "off")
+      throw new Error(`the exchange came back: ${JSON.stringify(status)}`)
+  }
+
+  if (first) {
+    await step("A waits until B is calm before deleting the server copy", async () => {
+      await waitForAsync(
+        "the ready note of B",
+        async () => (await readOrNull(joinStoragePath(vault, "b-ready.md"))) !== null,
+      )
+      await keep()
+    })
+
+    await step("A deletes the server copy through the row menu and the exact name", async () => {
+      const row = await waitFor("the row of the space", () =>
+        [...document.querySelectorAll('[data-testid="storage-row"]')].find(
+          (candidate) =>
+            candidate.querySelector('[data-testid="storage-name"]')?.textContent ===
+            config.spaceName,
+        ),
+      )
+      const trigger = row.querySelector("button")!
+      trigger.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerType: "mouse" }),
+      )
+      const item = await waitFor("the menu item", () =>
+        [...document.querySelectorAll('[role="menuitem"]')].find(
+          (candidate) => candidate.textContent?.trim() === "Удалить с сервера…",
+        ),
+      )
+      ;(item as HTMLElement).click()
+      const box = await waitFor("the confirmation", () =>
+        document.querySelector('[role="alertdialog"]'),
+      )
+      if (!/Локальные файлы на устройствах останутся/.test(box.textContent ?? ""))
+        throw new Error(`the confirmation does not promise local files: ${box.textContent}`)
+      const action = await waitFor("the delete button", () => button("Удалить с сервера"))
+      if (!action.disabled) throw new Error("the delete button works before the name is typed")
+      const input = box.querySelector("input") as HTMLInputElement
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!
+      setter.call(input, config.spaceName!)
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+      await press("Удалить с сервера")
+      await waitFor("the result line", () =>
+        /Копия на сервере удалена. Локальные файлы остались/.test(text()),
+      )
+      const spaces = await port.listSpaces()
+      if (spaces.some((space) => space.name === config.spaceName))
+        throw new Error("the space is still on the server")
+      const status = await port.vaultStatus()
+      if (status.enabled || status.linked || status.phase !== "off")
+        throw new Error(`the vault is still linked: ${JSON.stringify(status)}`)
+    })
+  } else {
+    await step("B is calm and tells A so", async () => {
+      await keep()
+      const since = Date.now()
+      await adapter.writeFile(joinStoragePath(vault, "b-ready.md"), "ready\n")
+      await untilSentSince(since, "the ready note")
+    })
+
+    await step("B finds its space gone and switches the exchange off by itself", async () => {
+      await waitForAsync(
+        "the deleted space",
+        async () => {
+          await port.runNow().catch(() => undefined)
+          const status = await port.vaultStatus()
+          return !status.enabled && status.errorCode === "space_deleted" ? status : null
+        },
+        120000,
+      )
+    })
+  }
+
+  await step("every local file stays byte for byte after the deletion", kept)
+  await step("opening the vault again does not resume the exchange", async () => {
+    await reopened()
+    await kept()
   })
 }
 

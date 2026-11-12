@@ -109,6 +109,79 @@ fn state_failure(error: &amby_sync_core::engine::StateError) -> SyncError {
 }
 
 impl SyncRuntime {
+    /// Who this device is right now, to tell afterwards whether an answer that took a while still
+    /// belongs to the same account (Л9): the device and the address of the record and the token.
+    fn identity(&self) -> Option<(String, String, String)> {
+        let record = self.connection.load().ok()??;
+        let token = self.secrets.get(SECRET_DEVICE_TOKEN).ok()??;
+        Some((record.server_url, record.device_id, token))
+    }
+
+    /// Removes the server copy of the space only (Л6–Л9); every local file stays. When the space is
+    /// the one of the open vault, its session is stopped (waiting for a running pass) and the
+    /// switched-off state is saved before the request; when the request is confirmed the link is
+    /// forgotten. A failure leaves the link, switched off, so the action can be repeated. An answer
+    /// that comes after another vault or account was taken does not touch the new one.
+    pub async fn delete_space(&self, space_id: &str) -> Result<(), SyncError> {
+        let id = hex_16(space_id).ok_or_else(|| SyncError::new("invalid_space"))?;
+        let credentials = self.credentials()?;
+        let identity = self.identity();
+        let current_vault = self.inner().vault.clone();
+        // Is it the space of the open vault? (Read before anything is stopped.)
+        let linked_vault = match current_vault {
+            Some(vault) => Self::read_link(&vault)?
+                .filter(|link| link.space_id == id)
+                .map(|_| vault),
+            None => None,
+        };
+        let token = match &linked_vault {
+            Some(vault) => {
+                let token = self.next_epoch();
+                self.stop_session();
+                Self::set_enabled(vault, false)?;
+                if let Some(link) = Self::read_link(vault)? {
+                    self.rest_current(vault, self.resting_status(&link, None), token);
+                }
+                Some(token)
+            }
+            None => None,
+        };
+
+        match credentials
+            .client
+            .delete_space(&credentials.token, &id)
+            .await
+        {
+            Ok(()) => {}
+            // A space that is already gone (a repeat after a lost answer) counts only when the
+            // list of the server proves that the id is absent; an old server that does not know
+            // the request still lists it.
+            Err(amby_sync_client::ClientError::Api {
+                status: 404 | 405, ..
+            }) => {
+                let spaces = credentials.client.list_spaces(&credentials.token).await?;
+                if spaces.iter().any(|space| space.space_id == id) {
+                    return Err(SyncError::new("unsupported_server"));
+                }
+            }
+            Err(error) => return Err(error.into()),
+        }
+
+        // The answer is acted on only for the same account.
+        if let Some(vault) = linked_vault {
+            if self.identity() == identity {
+                let still_linked = Self::read_link(&vault)?.is_some_and(|link| link.space_id == id);
+                if still_linked {
+                    Self::forget_link(&vault)?;
+                    if let Some(token) = token {
+                        self.rest_current(&vault, VaultSyncStatus::off(gate::gate_closed()), token);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// A runtime that reads the credentials from `secrets` and `connection`, carries requests on
     /// `handle`, follows `schedule` and reports through `hooks`.
     pub fn new(

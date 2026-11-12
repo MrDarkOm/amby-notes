@@ -54,6 +54,7 @@ export const KNOWN_SYNC_ERROR_CODES: readonly string[] = [
   "space_exists",
   "space_limit",
   "space_not_found",
+  "space_deleted",
   "invalid_space",
   "no_vault_open",
   "sync_not_running",

@@ -21,7 +21,7 @@ const image = process.env.AMBY_SYNC_IMAGE || "amby-sync-server:smoke"
 const port = process.env.AMBY_SYNC_PORT || "18082"
 const containerName = `amby-sync-vault-native-${process.pid}`
 const username = "native-vault"
-const password = "correct horse battery staple 42"
+const password = "Qz7#native-vault-Lm4!pR9xT2"
 const spaceName = "Нативная проверка"
 const url = `http://127.0.0.1:${port}`
 
