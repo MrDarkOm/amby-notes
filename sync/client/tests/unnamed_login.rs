@@ -52,14 +52,14 @@ impl Seen {
             .is_none_or(|device| device.get("name_enc").is_none())
     }
 
-    /// The sealed name of the request, bytes.
+    /// The sealed name of the request, bytes: `device.name_enc` in a sign-in, the top-level
+    /// `name_enc` in `PUT /v1/devices/{id}` (the rename request of the protocol).
     fn name_enc(&self) -> Vec<u8> {
-        hex::decode(
-            self.body["device"]["name_enc"]
-                .as_str()
-                .expect("no name_enc"),
-        )
-        .unwrap()
+        let name = self.body["device"]["name_enc"]
+            .as_str()
+            .or_else(|| self.body["name_enc"].as_str())
+            .expect("no name_enc");
+        hex::decode(name).unwrap()
     }
 }
 
