@@ -109,6 +109,12 @@ fn state_failure(error: &amby_sync_core::engine::StateError) -> SyncError {
 }
 
 impl SyncRuntime {
+    /// Removes the server copy only (Л6–Л9), preserving all local files and buffers.
+    /// Tests-first interface: stopping the linked session and forgetting the link follow later.
+    pub async fn delete_space(&self, _space_id: &str) -> Result<(), SyncError> {
+        todo!("Л6–Л9: keep local files while deleting the server copy")
+    }
+
     /// A runtime that reads the credentials from `secrets` and `connection`, carries requests on
     /// `handle`, follows `schedule` and reports through `hooks`.
     pub fn new(

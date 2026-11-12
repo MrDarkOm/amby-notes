@@ -372,6 +372,15 @@ fn version_conflicts(bytes: &[u8]) -> Option<Vec<VersionConflict>> {
 }
 
 impl SyncClient {
+    /// `DELETE /v1/spaces/{space_id}` (Л1, Л2, Л5, Л9). Tests-first interface.
+    pub async fn delete_space(
+        &self,
+        _token: &DeviceToken,
+        _space_id: &[u8; 16],
+    ) -> Result<(), ClientError> {
+        todo!("Л9: delete the server space only")
+    }
+
     /// `GET /v1/spaces` (П20).
     pub async fn list_spaces(&self, token: &DeviceToken) -> Result<Vec<SpaceEntry>, ClientError> {
         let value = self

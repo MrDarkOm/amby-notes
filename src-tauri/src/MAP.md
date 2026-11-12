@@ -65,4 +65,6 @@ System key store UI policy: [keychain_access.rs](keychain_access.rs) serializes 
 
 Backup catalog and verified restore into a separate folder: [sync/backup_restore.rs](sync/backup_restore.rs), called by [commands/backups.rs](commands/backups.rs); journals and scoping: [vault format](../../docs/vault-format.md#backup-and-git-policy).
 
+`SyncRuntime::delete_space`: test stub (Л); local files stay.
+
 AI connections live only in `ai-connections.json` (an `ai` section of version 1); a missing file means no connections. The old `ai` section of `settings.json` and the files `settings.ai-v1.*`, `settings.pre-ai-connections.backup.json` are no longer read, rewritten or deleted. The native checks that read the file are in [ai/connections.rs](ai/connections.rs).

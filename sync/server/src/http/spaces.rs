@@ -15,6 +15,15 @@ use super::util::{
 };
 use crate::state::AppState;
 
+/// `DELETE /v1/spaces/{space_id}` (Л1–Л5). Tests-first interface; no deletion yet.
+pub(crate) async fn remove() -> ApiResult<Response> {
+    Err(ApiError::new(
+        StatusCode::NOT_IMPLEMENTED,
+        "not_implemented",
+        "space deletion is not implemented",
+    ))
+}
+
 /// A space of the signed-in user.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct OwnedSpace {

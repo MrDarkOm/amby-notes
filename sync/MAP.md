@@ -195,3 +195,8 @@ Open signup (Рег1–Рег4): `server/src/http/account.rs`, `throttle.rs` and
 Account login rename uses password proof and a base username at `/v1/account/username`; device PUT replaces only the fixed sealed name. Client flows preserve AK/tokens, while the app refreshes remote login names when listing devices.
 
 ASCII username folding is shared by server and client through `proto::normalize_username`; storage, uniqueness, prelogin salts and login throttles use lowercase. Passwords and encrypted device/space names retain their case.
+
+Server-space deletion (Э5, appendix Л, Л1–Л11): tests-first interfaces only; the DELETE route in
+`server/src/http/spaces.rs` answers `501 not_implemented`, `client::SyncClient::delete_space` and
+the application's `SyncRuntime::delete_space` are stubs. Contract: delete only the server copy;
+all local user files remain. Test batch and coverage: [report](../docs/road/target/sync-delete-space-tests.md).

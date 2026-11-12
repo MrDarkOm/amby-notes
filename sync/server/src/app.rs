@@ -3,7 +3,7 @@
 
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post, put};
+use axum::routing::{delete, get, post, put};
 use axum::Router;
 use serde_json::json;
 
@@ -23,6 +23,7 @@ pub const ROUTES: &[&str] = &[
     "/v1/account",
     "/v1/account/username",
     "/v1/spaces",
+    "/v1/spaces/{space_id}",
     "/v1/spaces/{space_id}/changes",
     "/v1/spaces/{space_id}/events",
     "/v1/spaces/{space_id}/blobs",
@@ -68,6 +69,7 @@ pub fn build_app(state: AppState) -> Router {
             get(account::username_get).put(account::username_rename),
         )
         .route("/v1/spaces", get(spaces::list).post(spaces::create))
+        .route("/v1/spaces/{space_id}", delete(spaces::remove))
         .route("/v1/spaces/{space_id}/changes", get(feed::changes))
         .route("/v1/spaces/{space_id}/events", get(events::events))
         .route("/v1/spaces/{space_id}/blobs", post(blobs::start))
