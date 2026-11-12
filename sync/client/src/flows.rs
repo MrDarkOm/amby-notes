@@ -5,13 +5,13 @@
 //!
 //! **A new device cannot seal its name yet.** The key of names is derived from AK (Ф34), and a
 //! device that is just signing in does not have AK before the server answers. So `sign_in` and
-//! `recover_account` sign in with a placeholder name, read AK, sign in again with the real name
-//! and disconnect the placeholder device: the list of devices shows every device by the name it
-//! chose, and a placeholder never stays in it.
+//! `recover_account` sign in once without a name, read AK and then name the device (appendix М).
+//! A server that still wants a name gets the old path: a placeholder sign-in, a second one under
+//! the real name, the placeholder disconnected. Either way no unnamed or placeholder device stays.
 
 use amby_sync_core::crypto::account::{
     create_account, derive_password_keys, derive_recovery_keys, seal_account_key_for_password,
-    unwrap_account_key, Argon2Params, NewAccount,
+    unwrap_account_key, Argon2Params, NewAccount, PasswordKeys, RecoveryKeys,
 };
 use amby_sync_core::crypto::keys::{AccountKey, AuthKey, Kek};
 use amby_sync_core::crypto::name::{open_device_name, seal_device_name, NAME_MAX_BYTES};
@@ -207,8 +207,10 @@ pub async fn enroll_prepared(
     })
 }
 
-/// Signs in on a new device with the password (Р5, П13, П14): prelogin, parameters checked by
-/// Ф8, Argon2id, login, AK unwrapped, then the second sign-in under the real name.
+/// Signs in on a new device with the password (Р5, П13, П14, appendix М): prelogin, parameters
+/// checked by Ф8, Argon2id, one login without a name, AK unwrapped, then the device names itself.
+/// A failed step disconnects that device (М4). An old server that wants a name gets the old path
+/// (М6).
 pub async fn sign_in(
     client: &SyncClient,
     username: &str,
@@ -222,6 +224,60 @@ pub async fn sign_in(
     let (salt, params, password) = (pre.salt, pre.params, password.to_string());
     let keys = blocking(move || derive_password_keys(&password, &salt, &params)).await?;
 
+    let first = match client.login_unnamed(username, &keys.auth_key).await {
+        Ok(first) => first,
+        Err(error) if wants_a_name(&error) => {
+            return sign_in_with_placeholder(client, username, &keys, device_name).await;
+        }
+        Err(error) => return Err(error),
+    };
+    let session = first.session;
+    let Some(account_key) = unwrap_ak(&keys.kek, &first.wrapped_ak) else {
+        drop_device(client, &session.token, &session.device_id).await;
+        return Err(ClientError::CannotDecrypt);
+    };
+    name_or_drop(client, &session, &account_key, device_name).await?;
+    Ok(Connected {
+        session,
+        account_key,
+    })
+}
+
+/// An old server answers a sign-in without a name with `400 bad_request` (М6).
+fn wants_a_name(error: &ClientError) -> bool {
+    matches!(error, ClientError::Api { status: 400, code, .. } if code == "bad_request")
+}
+
+/// Gives the new device its name (М3); when that fails the device is disconnected (М4, М5).
+async fn name_or_drop(
+    client: &SyncClient,
+    session: &Session,
+    account_key: &AccountKey,
+    device_name: &str,
+) -> Result<(), ClientError> {
+    let named = match sealed_name(account_key, device_name) {
+        Ok(name_enc) => {
+            client
+                .rename_device(&session.token, &session.device_id, &name_enc)
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    if let Err(error) = named {
+        drop_device(client, &session.token, &session.device_id).await;
+        return Err(error);
+    }
+    Ok(())
+}
+
+/// The path for a server that wants a name at sign-in (М6): a placeholder login to get AK, the
+/// second login under the real name, the placeholder disconnected.
+async fn sign_in_with_placeholder(
+    client: &SyncClient,
+    username: &str,
+    keys: &PasswordKeys,
+    device_name: &str,
+) -> Result<Connected, ClientError> {
     let first = client
         .login(username, &keys.auth_key, &placeholder_name())
         .await?;
@@ -261,9 +317,10 @@ async fn login_named(
     Ok(client.login(username, auth_key, &name_enc).await?.session)
 }
 
-/// Forgotten password (Р5, О3, П15, П18): signs in with the code, unwraps AK, sets
-/// `new_password` (AK stays the same, the data on the server stays readable), and leaves the
-/// device signed in under `device_name`.
+/// Forgotten password (Р5, О3, П15, П18, appendix М): one recover without a name, AK unwrapped
+/// with the code, `new_password` set (AK stays the same, the data on the server stays readable),
+/// then the device names itself. A failed step after the recover disconnects that device (М5);
+/// an old server that wants a name gets the old path (М6).
 pub async fn recover_account(
     client: &SyncClient,
     username: &str,
@@ -273,6 +330,83 @@ pub async fn recover_account(
 ) -> Result<Connected, ClientError> {
     check_device_name(device_name)?;
     let recovery = derive_recovery_keys(code);
+    let first = match client.recover_unnamed(username, &recovery.auth_key).await {
+        Ok(first) => first,
+        Err(error) if wants_a_name(&error) => {
+            return recover_with_placeholder(
+                client,
+                username,
+                &recovery,
+                new_password,
+                device_name,
+            )
+            .await;
+        }
+        Err(error) => return Err(error),
+    };
+    let mut session = first.session;
+    let Some(account_key) = unwrap_ak(&recovery.kek, &first.wrapped_ak_recovery) else {
+        drop_device(client, &session.token, &session.device_id).await;
+        return Err(ClientError::CannotDecrypt);
+    };
+    match set_recovered_password(
+        client,
+        &session,
+        &recovery.auth_key,
+        &account_key,
+        new_password,
+    )
+    .await
+    {
+        Ok(version) => session.keys_version = version,
+        Err(error) => {
+            drop_device(client, &session.token, &session.device_id).await;
+            return Err(error);
+        }
+    }
+    name_or_drop(client, &session, &account_key, device_name).await?;
+    Ok(Connected {
+        session,
+        account_key,
+    })
+}
+
+/// The new password after a recovery, under the proof of the code (П18). Returns the new version
+/// of the keys.
+async fn set_recovered_password(
+    client: &SyncClient,
+    session: &Session,
+    recovery_auth_key: &AuthKey,
+    account_key: &AccountKey,
+    new_password: &str,
+) -> Result<u64, ClientError> {
+    let (ak, password) = (account_key.clone(), new_password.to_string());
+    let envelope = blocking(move || {
+        seal_account_key_for_password(&password, &ak, &Argon2Params::V1_DEFAULT, &mut OsRandom)
+    })
+    .await?;
+    client
+        .replace_keys(
+            &session.token,
+            &ReplaceKeysRequest {
+                base_keys_version: session.keys_version,
+                proof_kind: ProofKind::Recovery,
+                proof_auth_key: recovery_auth_key,
+                envelope: &envelope,
+            },
+        )
+        .await
+}
+
+/// The recovery path for a server that wants a name (М6): a placeholder recover to get AK, a
+/// named recover with the new password, the placeholder disconnected.
+async fn recover_with_placeholder(
+    client: &SyncClient,
+    username: &str,
+    recovery: &RecoveryKeys,
+    new_password: &str,
+    device_name: &str,
+) -> Result<Connected, ClientError> {
     let first = client
         .recover(username, &recovery.auth_key, &placeholder_name())
         .await?;

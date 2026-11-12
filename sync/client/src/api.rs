@@ -541,22 +541,44 @@ impl SyncClient {
     }
 
     /// `POST /v1/auth/login` without a device name (appendix М, М1, М7): the device is created with
-    /// an empty name, set afterwards with `rename_device`. Tests-first interface.
+    /// an empty name, set afterwards with `rename_device`.
     pub async fn login_unnamed(
         &self,
-        _username: &str,
-        _auth_key: &AuthKey,
+        username: &str,
+        auth_key: &AuthKey,
     ) -> Result<LoginAnswer, ClientError> {
-        todo!("М1, М7: sign in without a device name")
+        let body = json!({
+            "username": amby_sync_proto::normalize_username(username),
+            "auth_key": hex::encode(auth_key.as_bytes()),
+        });
+        let value = self
+            .send(Method::POST, "/v1/auth/login", None, Some(body))
+            .await?;
+        Ok(LoginAnswer {
+            session: session_from(&value)?,
+            salt: hex_array(&value, "salt")?,
+            params: params_from(&value)?,
+            wrapped_ak: hex_bytes(&value, "wrapped_ak")?,
+        })
     }
 
-    /// `POST /v1/auth/recover` without a device name (appendix М, М1, М7). Tests-first interface.
+    /// `POST /v1/auth/recover` without a device name (appendix М, М1, М7).
     pub async fn recover_unnamed(
         &self,
-        _username: &str,
-        _recovery_auth_key: &AuthKey,
+        username: &str,
+        recovery_auth_key: &AuthKey,
     ) -> Result<RecoverAnswer, ClientError> {
-        todo!("М1, М7: recover without a device name")
+        let body = json!({
+            "username": amby_sync_proto::normalize_username(username),
+            "recovery_auth_key": hex::encode(recovery_auth_key.as_bytes()),
+        });
+        let value = self
+            .send(Method::POST, "/v1/auth/recover", None, Some(body))
+            .await?;
+        Ok(RecoverAnswer {
+            session: session_from(&value)?,
+            wrapped_ak_recovery: hex_bytes(&value, "wrapped_ak_recovery")?,
+        })
     }
 
     /// `GET /v1/keys` (П18).
