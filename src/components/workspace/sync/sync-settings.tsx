@@ -210,64 +210,79 @@ export function SyncSettings({ port: given, vault: givenVault }: SyncSettingsPro
   const accountHeader = (
     <>
       <section className="sync-account-strip">
-        <div className="sync-account-avatar">
-          <UserRound className="size-4" aria-hidden="true" />
-        </div>
-        <div className="sync-account-identity">
-          <div className="sync-identity-name">
-            <h3>{status.username}</h3>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="sync-inline-rename"
-              aria-label={t("sync.identity.renameAccount")}
-              title={t("sync.identity.renameAccount")}
-              disabled={busy || changing || identityEditor !== null}
-              onClick={() => {
-                setChanging(false)
-                setIdentityEditor({ mode: "account", username: status.username ?? "" })
-              }}
-            >
-              <Pencil />
-            </Button>
-          </div>
-          <p className="sync-account-server">
-            {t(isAmbyServer(status.serverUrl) ? "sync.connected.toAmby" : "sync.connected.to", {
-              host: status.host ?? status.serverUrl ?? "",
-            })}
-          </p>
-        </div>
-        <div className="sync-account-actions">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={busy || identityEditor !== null}
-            aria-expanded={changing}
-            onClick={() => {
-              setPasswordChanged(false)
+        {identityEditor?.mode === "account" ? (
+          <RenameIdentityForm
+            port={port}
+            mode="account"
+            onConnectionLost={onIdentityConnectionLost}
+            username={identityEditor.username}
+            onClose={(changed) => {
               setIdentityEditor(null)
-              setChanging(true)
+              if (changed) void load(false)
             }}
-          >
-            <KeyRound />
-            {t("sync.changePassword.open")}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="sync-account-signout"
-            title={t("sync.connected.signOutHint")}
-            aria-label={t("sync.connected.signOut")}
-            disabled={busy || identityEditor !== null}
-            onClick={() => void signOut()}
-          >
-            <LogOut />
-            {t("sync.layout.signOut")}
-          </Button>
-        </div>
+          />
+        ) : (
+          <>
+            <div className="sync-account-avatar">
+              <UserRound className="size-4" aria-hidden="true" />
+            </div>
+            <div className="sync-account-identity">
+              <div className="sync-identity-name">
+                <h3>{status.username}</h3>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="sync-inline-rename"
+                  aria-label={t("sync.identity.renameAccount")}
+                  title={t("sync.identity.renameAccount")}
+                  disabled={busy || changing || identityEditor !== null}
+                  onClick={() => {
+                    setChanging(false)
+                    setIdentityEditor({ mode: "account", username: status.username ?? "" })
+                  }}
+                >
+                  <Pencil />
+                </Button>
+              </div>
+              <p className="sync-account-server">
+                {t(isAmbyServer(status.serverUrl) ? "sync.connected.toAmby" : "sync.connected.to", {
+                  host: status.host ?? status.serverUrl ?? "",
+                })}
+              </p>
+            </div>
+            <div className="sync-account-actions">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={busy || identityEditor !== null}
+                aria-expanded={changing}
+                onClick={() => {
+                  setPasswordChanged(false)
+                  setIdentityEditor(null)
+                  setChanging(true)
+                }}
+              >
+                <KeyRound />
+                {t("sync.changePassword.open")}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="sync-account-signout"
+                title={t("sync.connected.signOutHint")}
+                aria-label={t("sync.connected.signOut")}
+                disabled={busy || identityEditor !== null}
+                onClick={() => void signOut()}
+              >
+                <LogOut />
+                {t("sync.layout.signOut")}
+              </Button>
+            </div>
+          </>
+        )}
       </section>
       {passwordChanged && (
         <p role="status" className="text-[12px] text-muted-foreground">
@@ -281,18 +296,6 @@ export function SyncSettings({ port: given, vault: givenVault }: SyncSettingsPro
           onClose={(changed) => {
             setChanging(false)
             setPasswordChanged(changed)
-          }}
-        />
-      )}
-      {identityEditor?.mode === "account" && (
-        <RenameIdentityForm
-          port={port}
-          mode="account"
-          onConnectionLost={onIdentityConnectionLost}
-          username={identityEditor.username}
-          onClose={(changed) => {
-            setIdentityEditor(null)
-            if (changed) void load(false)
           }}
         />
       )}
@@ -331,91 +334,94 @@ export function SyncSettings({ port: given, vault: givenVault }: SyncSettingsPro
                 {(devices ?? []).map((device) => {
                   const name = device.name ?? t("sync.connected.unknownDevice")
                   return (
-                    <React.Fragment key={device.deviceId}>
-                      <li className="sync-device-row">
-                        <Laptop className="size-4 shrink-0 text-muted-foreground" />
-                        <div className="sync-device-name sync-identity-name">
-                          <p className="truncate text-[13px]">{name}</p>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            className="sync-inline-rename"
-                            title={t("sync.identity.renameDevice", { name })}
-                            aria-label={t("sync.identity.renameDevice", { name })}
-                            disabled={busy || changing || identityEditor !== null}
-                            onClick={() =>
-                              setIdentityEditor({ mode: "device", deviceId: device.deviceId, name })
-                            }
-                          >
-                            <Pencil />
-                          </Button>
-                        </div>
-                        <div
-                          className="sync-device-actions"
-                          data-confirming={confirming === device.deviceId || undefined}
-                        >
-                          {device.current && (
-                            <span className="sync-device-current">
-                              {t("sync.connected.thisDevice")}
-                            </span>
-                          )}
-                          {!device.current && confirming === device.deviceId ? (
-                            <div className="flex gap-2">
-                              <Button
-                                type="button"
-                                variant="destructive"
-                                size="sm"
-                                disabled={busy || identityEditor !== null}
-                                onClick={() => void disconnect(device.deviceId)}
-                              >
-                                {t("sync.connected.confirmDisconnect")}
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setConfirming(null)}
-                              >
-                                {t("sync.connected.cancel")}
-                              </Button>
-                            </div>
-                          ) : !device.current ? (
+                    <li key={device.deviceId} className="sync-device-row">
+                      {identityEditor?.mode === "device" &&
+                      identityEditor.deviceId === device.deviceId ? (
+                        <RenameIdentityForm
+                          port={port}
+                          mode="device"
+                          onConnectionLost={onIdentityConnectionLost}
+                          deviceId={device.deviceId}
+                          name={identityEditor.name}
+                          onClose={(changed) => {
+                            setIdentityEditor(null)
+                            if (changed) void loadDevices()
+                          }}
+                        />
+                      ) : (
+                        <>
+                          <Laptop className="size-4 shrink-0 text-muted-foreground" />
+                          <div className="sync-device-name sync-identity-name">
+                            <p className="truncate text-[13px]">{name}</p>
                             <Button
                               type="button"
-                              variant="outline"
-                              size="sm"
-                              aria-label={t("sync.connected.disconnectLabel", { name })}
-                              disabled={busy || identityEditor !== null}
-                              onClick={() => setConfirming(device.deviceId)}
+                              variant="ghost"
+                              size="icon-sm"
+                              className="sync-inline-rename"
+                              title={t("sync.identity.renameDevice", { name })}
+                              aria-label={t("sync.identity.renameDevice", { name })}
+                              disabled={busy || changing || identityEditor !== null}
+                              onClick={() =>
+                                setIdentityEditor({
+                                  mode: "device",
+                                  deviceId: device.deviceId,
+                                  name,
+                                })
+                              }
                             >
-                              {t("sync.connected.disconnect")}
+                              <Pencil />
                             </Button>
-                          ) : null}
-                        </div>
-                        <p className="sync-device-last-seen">
-                          {t("sync.connected.lastSeen", {
-                            date: new Date(device.lastSeenMs).toLocaleString(i18n.language),
-                          })}
-                        </p>
-                      </li>
-                      {identityEditor?.mode === "device" &&
-                        identityEditor.deviceId === device.deviceId && (
-                          <li className="sync-device-editor">
-                            <RenameIdentityForm
-                              port={port}
-                              mode="device"
-                              onConnectionLost={onIdentityConnectionLost}
-                              deviceId={device.deviceId}
-                              name={identityEditor.name}
-                              onClose={(changed) => {
-                                setIdentityEditor(null)
-                                if (changed) void loadDevices()
-                              }}
-                            />
-                          </li>
-                        )}
-                    </React.Fragment>
+                          </div>
+                          <div
+                            className="sync-device-actions"
+                            data-confirming={confirming === device.deviceId || undefined}
+                          >
+                            {device.current && (
+                              <span className="sync-device-current">
+                                {t("sync.connected.thisDevice")}
+                              </span>
+                            )}
+                            {!device.current && confirming === device.deviceId ? (
+                              <div className="flex gap-2">
+                                <Button
+                                  type="button"
+                                  variant="destructive"
+                                  size="sm"
+                                  disabled={busy || identityEditor !== null}
+                                  onClick={() => void disconnect(device.deviceId)}
+                                >
+                                  {t("sync.connected.confirmDisconnect")}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setConfirming(null)}
+                                >
+                                  {t("sync.connected.cancel")}
+                                </Button>
+                              </div>
+                            ) : !device.current ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                aria-label={t("sync.connected.disconnectLabel", { name })}
+                                disabled={busy || identityEditor !== null}
+                                onClick={() => setConfirming(device.deviceId)}
+                              >
+                                {t("sync.connected.disconnect")}
+                              </Button>
+                            ) : null}
+                          </div>
+                          <p className="sync-device-last-seen">
+                            {t("sync.connected.lastSeen", {
+                              date: new Date(device.lastSeenMs).toLocaleString(i18n.language),
+                            })}
+                          </p>
+                        </>
+                      )}
+                    </li>
                   )
                 })}
               </ul>

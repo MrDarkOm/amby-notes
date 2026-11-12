@@ -6293,8 +6293,17 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   justify-content: flex-end;
   gap: 8px;
 }
-.sync-device-editor {
-  padding: 0 12px 10px;
+.sync-account-strip > .sync-identity-form,
+.sync-device-row > .sync-identity-form {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.sync-device-row > .sync-identity-form {
+  grid-column: 1 / -1;
 }
 .sync-auth-health {
   display: inline-flex;
