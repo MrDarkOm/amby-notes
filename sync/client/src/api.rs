@@ -540,6 +540,25 @@ impl SyncClient {
         })
     }
 
+    /// `POST /v1/auth/login` without a device name (appendix М, М1, М7): the device is created with
+    /// an empty name, set afterwards with `rename_device`. Tests-first interface.
+    pub async fn login_unnamed(
+        &self,
+        _username: &str,
+        _auth_key: &AuthKey,
+    ) -> Result<LoginAnswer, ClientError> {
+        todo!("М1, М7: sign in without a device name")
+    }
+
+    /// `POST /v1/auth/recover` without a device name (appendix М, М1, М7). Tests-first interface.
+    pub async fn recover_unnamed(
+        &self,
+        _username: &str,
+        _recovery_auth_key: &AuthKey,
+    ) -> Result<RecoverAnswer, ClientError> {
+        todo!("М1, М7: recover without a device name")
+    }
+
     /// `GET /v1/keys` (П18).
     pub async fn keys(&self, token: &DeviceToken) -> Result<KeysAnswer, ClientError> {
         let value = self
