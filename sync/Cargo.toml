@@ -35,7 +35,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time",
 futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
 hmac = "0.12"
 subtle = "2"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled", "fallible_uint"] }
 # Client of the protocol (Э4): the same HTTP stack as the application (src-tauri), rustls, no OpenSSL.
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "webpki-roots"] }
 url = "2"
