@@ -139,7 +139,7 @@ fn a_nonempty_code_keeps_the_old_invalid_name_response_on_an_open_server() {
         .post(
             "/v1/auth/enroll",
             None,
-            enroll_body("Upper", &ticket.enroll_code, &new, "device"),
+            enroll_body("_leading", &ticket.enroll_code, &new, "device"),
         )
         .expect_error(401, "invalid_enroll_code");
 }
@@ -187,7 +187,7 @@ fn open_registration_keeps_pending_and_active_usernames_reserved() {
 fn open_registration_uses_the_admin_username_policy() {
     // П11, Э2б: public registration does not weaken the server's username validation.
     let target = Target::in_process_with(|config| config.open_registration = true);
-    for username in ["Upper", "_leading", "trailing_", "has space", "é"] {
+    for username in ["_leading", "trailing_", "has space", "é"] {
         let new = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
         target
             .api

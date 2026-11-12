@@ -270,7 +270,7 @@ async fn a_bad_user_name_or_device_name_is_told_at_once() {
     let target = Target::from_env();
     let device = Device::new();
     let ticket = target.new_ticket();
-    let bad_user = prepare_request(&target, "Alice", &ticket.enroll_code, "Mac A");
+    let bad_user = prepare_request(&target, "Alice!", &ticket.enroll_code, "Mac A");
     assert_eq!(
         code_of(device.service.prepare_account(bad_user)).await,
         "invalid_username"

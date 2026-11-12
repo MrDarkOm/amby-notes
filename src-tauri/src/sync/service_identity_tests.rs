@@ -97,7 +97,7 @@ async fn account_rename_changes_only_the_login_name_and_keeps_existing_sessions(
     let device_token = first.secrets.peek(SECRET_DEVICE_TOKEN);
     let device_id = first.connection.load().unwrap().unwrap().device_id;
 
-    let renamed = first.service.rename_account("bob", PASSWORD).await.unwrap();
+    let renamed = first.service.rename_account("BoB", PASSWORD).await.unwrap();
 
     assert_eq!(renamed.username.as_deref(), Some("bob"));
     assert_eq!(
@@ -166,7 +166,7 @@ async fn wrong_password_does_not_rename_account_or_change_local_state() {
 #[tokio::test]
 async fn account_rename_validates_before_network_and_rejects_collision() {
     let dead = dead_device();
-    for name in ["", "Alice", "bad name", "-bad", "bad-"] {
+    for name in ["", "Alice!", "bad name", "-bad", "bad-"] {
         assert_eq!(
             code_of(dead.service.rename_account(name, PASSWORD)).await,
             "invalid_username",
@@ -183,7 +183,7 @@ async fn account_rename_validates_before_network_and_rejects_collision() {
         code_of(
             first
                 .service
-                .rename_account(&second_account.username, PASSWORD)
+                .rename_account(&second_account.username.to_ascii_uppercase(), PASSWORD)
         )
         .await,
         "username_taken"
@@ -191,6 +191,104 @@ async fn account_rename_validates_before_network_and_rejects_collision() {
     assert_eq!(
         first.service.status().unwrap().username.as_deref(),
         Some(first_account.username.as_str())
+    );
+}
+
+#[tokio::test]
+async fn prepare_account_canonicalizes_mixed_case_username_in_local_record() {
+    let target = Target::from_env();
+    let device = Device::new();
+    let ticket = target.new_ticket();
+    let mixed = format!("T{}", &ticket.username[1..]);
+    let view = device
+        .service
+        .prepare_account(PrepareRequest {
+            endpoint: endpoint_of(&target),
+            username: mixed,
+            enroll_code: ticket.enroll_code,
+            password: PASSWORD.to_string(),
+            device_name: "Mac A".to_string(),
+        })
+        .await
+        .unwrap();
+    let groups: Vec<&str> = view.recovery_code.split('-').collect();
+    let typed = view
+        .confirm_groups
+        .iter()
+        .map(|position| groups[usize::from(*position) - 1].to_string())
+        .collect::<Vec<_>>();
+    let status = device.service.confirm_recovery_code(&typed).await.unwrap();
+
+    assert_eq!(status.username.as_deref(), Some(ticket.username.as_str()));
+    assert_eq!(
+        device.connection.load().unwrap().unwrap().username,
+        ticket.username
+    );
+}
+
+#[tokio::test]
+async fn sign_in_and_recovery_accept_uppercase_usernames() {
+    let target = Target::from_env();
+
+    let signed_in_account = Device::new();
+    let signed_in = create_account(&signed_in_account, &target).await;
+    let sign_in_device = Device::new();
+    let sign_in_status = sign_in_device
+        .service
+        .sign_in(sign_in_request(
+            &target,
+            &signed_in.username.to_ascii_uppercase(),
+            "Windows PC",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        sign_in_status.username.as_deref(),
+        Some(signed_in.username.as_str())
+    );
+
+    let recovered_account = Device::new();
+    let recovered = create_account(&recovered_account, &target).await;
+    let recovered_username = recovered.username.clone();
+    let recovery_device = Device::new();
+    let recovery_status = recovery_device
+        .service
+        .recover(super::service::RecoverRequest {
+            endpoint: endpoint_of(&target),
+            username: recovered_username.to_ascii_uppercase(),
+            recovery_code: recovered.recovery_code,
+            new_password: "Recovered-Uppercase-1234!".to_string(),
+            device_name: "Recovery Mac".to_string(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        recovery_status.username.as_deref(),
+        Some(recovered_username.as_str())
+    );
+}
+
+#[tokio::test]
+async fn account_rename_case_only_does_not_create_a_new_identity() {
+    let target = Target::from_env();
+    let device = Device::new();
+    let created = create_account(&device, &target).await;
+    let status = device
+        .service
+        .rename_account(&created.username.to_ascii_uppercase(), PASSWORD)
+        .await
+        .unwrap();
+
+    assert_eq!(status.username.as_deref(), Some(created.username.as_str()));
+    let second = Device::new();
+    second
+        .service
+        .sign_in(sign_in_request(&target, &created.username, "Second Mac"))
+        .await
+        .unwrap();
+    assert_eq!(
+        second.service.status().unwrap().username.as_deref(),
+        Some(created.username.as_str())
     );
 }
 

@@ -36,7 +36,7 @@ describe("renaming the connected account", () => {
     )
   })
 
-  it.each(["", "alice", "Alice", "-bob", "bob-", "bad name", "a".repeat(65)])(
+  it.each(["", "alice", "ALICE", "-bob", "bob-", "bad name", "a".repeat(65)])(
     "keeps save disabled for an invalid or unchanged username %s",
     (username) => {
       const port = createFakePort()
@@ -49,6 +49,28 @@ describe("renaming the connected account", () => {
       expect(port.renameAccount).not.toHaveBeenCalled()
     },
   )
+
+  it("canonicalizes a mixed-case username before renaming", async () => {
+    const port = createFakePort()
+    const onClose = vi.fn()
+    render(<RenameIdentityForm mode="account" username="alice" port={port} onClose={onClose} />)
+    type("Новое имя пользователя", "BoB")
+    type("Текущий пароль", OLD_PASSWORD)
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }))
+    await waitFor(() => expect(port.renameAccount).toHaveBeenCalledWith("bob", OLD_PASSWORD))
+    expect(onClose).toHaveBeenCalledWith(true)
+  })
+
+  it("keeps a case-only account rename disabled", () => {
+    const port = createFakePort()
+    render(<RenameIdentityForm mode="account" username="alice" port={port} onClose={vi.fn()} />)
+    type("Новое имя пользователя", "ALICE")
+    type("Текущий пароль", OLD_PASSWORD)
+    expect((screen.getByRole("button", { name: "Сохранить" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+    expect(port.renameAccount).not.toHaveBeenCalled()
+  })
 
   it("renames the account with the current password and closes without exposing it", async () => {
     const port = createFakePort()
@@ -147,6 +169,24 @@ describe("renaming a device", () => {
     type("Имя устройства", "Ноутбук дома")
     fireEvent.click(screen.getByRole("button", { name: "Сохранить" }))
     await waitFor(() => expect(port.renameDevice).toHaveBeenCalledWith("d2", "Ноутбук дома"))
+    expect(onClose).toHaveBeenCalledWith(true)
+  })
+
+  it("preserves device-name casing", async () => {
+    const port = createFakePort()
+    const onClose = vi.fn()
+    render(
+      <RenameIdentityForm
+        mode="device"
+        deviceId="d1"
+        name="Mac mini"
+        port={port}
+        onClose={onClose}
+      />,
+    )
+    type("Имя устройства", "MAC MINI")
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }))
+    await waitFor(() => expect(port.renameDevice).toHaveBeenCalledWith("d1", "MAC MINI"))
     expect(onClose).toHaveBeenCalledWith(true)
   })
 

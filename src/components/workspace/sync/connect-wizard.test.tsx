@@ -309,6 +309,19 @@ describe("the connect wizard", () => {
       expect(port.confirmRecoveryCode).not.toHaveBeenCalled()
     })
 
+    it("canonicalizes a mixed-case username before preparing an account", async () => {
+      const port = createFakePort()
+      renderWizard(port)
+      await chooseServer(port)
+      click("Регистрация")
+      await fillCreateForm()
+      type("Имя пользователя", "BoB")
+      await waitFor(() => expect(button("Зарегистрироваться").disabled).toBe(false))
+      click("Зарегистрироваться")
+      await screen.findByTestId("recovery-code")
+      expect(port.prepareAccount).toHaveBeenCalledWith(expect.objectContaining({ username: "bob" }))
+    })
+
     it.each([
       ["invalid_username", /Имя пользователя: /],
       ["weak_password", /слишком простой/],
@@ -635,6 +648,24 @@ describe("the connect wizard", () => {
       await waitFor(() => expect(onConnected).toHaveBeenCalledWith(CONNECTED))
     })
 
+    it("canonicalizes a mixed-case username before signing in", async () => {
+      const port = createFakePort()
+      renderWizard(port)
+      await openSignIn(port)
+      type("Имя пользователя", "BoB")
+      type("Пароль", STRONG)
+      click("Войти")
+      await waitFor(() =>
+        expect(port.signIn).toHaveBeenCalledWith({
+          url: SERVER,
+          allowHttp: false,
+          username: "bob",
+          password: STRONG,
+          deviceName: "Mac mini",
+        }),
+      )
+    })
+
     it("does not judge the strength of a password that already exists", async () => {
       // a person with an old, short password must still be able to sign in
       const port = createFakePort()
@@ -750,6 +781,28 @@ describe("the connect wizard", () => {
         newPassword: STRONG,
         deviceName: "Mac mini",
       })
+    })
+
+    it("canonicalizes a mixed-case username before recovery", async () => {
+      const port = createFakePort()
+      renderWizard(port)
+      await openRecover(port)
+      type("Имя пользователя", "BoB")
+      type("Код восстановления", FAKE_CODE.toLowerCase())
+      type("Новый пароль", STRONG)
+      type("Повторите новый пароль", STRONG)
+      await waitFor(() => expect(button("Восстановить доступ").disabled).toBe(false))
+      click("Восстановить доступ")
+      await waitFor(() =>
+        expect(port.recover).toHaveBeenCalledWith({
+          url: SERVER,
+          allowHttp: false,
+          username: "bob",
+          recoveryCode: FAKE_CODE.toLowerCase(),
+          newPassword: STRONG,
+          deviceName: "Mac mini",
+        }),
+      )
     })
 
     it.each([

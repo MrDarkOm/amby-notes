@@ -100,10 +100,47 @@ async fn nothing_is_sent_until_the_prepared_account_is_enrolled() {
 #[tokio::test]
 async fn a_user_name_the_server_would_refuse_is_refused_at_once() {
     // П11
-    let error = prepare_account("Alice", "AAAA-BBBB-CCCC-DDDD-EEEE", PASSWORD)
+    let error = prepare_account("alice smith", "AAAA-BBBB-CCCC-DDDD-EEEE", PASSWORD)
         .await
         .unwrap_err();
     assert_eq!(error.code(), "invalid_username");
+}
+
+#[tokio::test]
+async fn a_mixed_case_username_is_prepared_in_canonical_lowercase() {
+    let prepared = prepare_account("DaRkOm", "AAAA-BBBB-CCCC-DDDD-EEEE", PASSWORD)
+        .await
+        .unwrap();
+    assert_eq!(prepared.username(), "darkom");
+}
+
+#[tokio::test]
+async fn mixed_case_username_signs_in_and_recovers_the_same_account_key() {
+    let target = Target::from_env();
+    let (username, first, code) = first_device(&target).await;
+    let uppercase = username.to_ascii_uppercase();
+    let signed = sign_in(
+        &client_of(&target),
+        &uppercase,
+        PASSWORD,
+        "Mixed Case Device",
+    )
+    .await
+    .unwrap();
+    assert_eq!(signed.account_key.as_bytes(), first.account_key.as_bytes());
+    let recovered = recover_account(
+        &client_of(&target),
+        &uppercase,
+        &code,
+        PASSWORD,
+        "Recovered Device",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        recovered.account_key.as_bytes(),
+        first.account_key.as_bytes()
+    );
 }
 
 #[tokio::test]

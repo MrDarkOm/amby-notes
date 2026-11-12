@@ -141,14 +141,7 @@ fn account_name_change_rejects_invalid_names_and_unauthenticated_requests() {
     // account mutation without a valid device token.
     let target = Target::from_env();
     let account = enroll(&target, PASSWORD);
-    for invalid in [
-        "",
-        "Upper",
-        "has space",
-        "-leading",
-        "trailing-",
-        &"x".repeat(65),
-    ] {
+    for invalid in ["", "has space", "-leading", "trailing-", &"x".repeat(65)] {
         account
             .put(
                 "/v1/account/username",
