@@ -372,13 +372,16 @@ fn version_conflicts(bytes: &[u8]) -> Option<Vec<VersionConflict>> {
 }
 
 impl SyncClient {
-    /// `DELETE /v1/spaces/{space_id}` (Л1, Л2, Л5, Л9). Tests-first interface.
+    /// `DELETE /v1/spaces/{space_id}` (Л1, Л2, Л5, Л9): removes the server copy only. The error
+    /// keeps its machine code; `not_found` also answers a repeat, which the caller decides on.
     pub async fn delete_space(
         &self,
-        _token: &DeviceToken,
-        _space_id: &[u8; 16],
+        token: &DeviceToken,
+        space_id: &[u8; 16],
     ) -> Result<(), ClientError> {
-        todo!("Л9: delete the server space only")
+        self.send(Method::DELETE, &space_path(space_id, ""), Some(token), None)
+            .await?;
+        Ok(())
     }
 
     /// `GET /v1/spaces` (П20).

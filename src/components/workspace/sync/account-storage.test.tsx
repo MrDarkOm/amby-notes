@@ -239,13 +239,13 @@ describe("the rows (У1)", () => {
     expect(screen.queryByText(/и история/)).toBeNull()
   })
 
-  it("has no way to delete a storage from the server yet (Э5)", async () => {
+  it("offers only the row menu: deletion is asked for and decided elsewhere (appendix Л)", async () => {
     await mount(ACCOUNT_UNLIMITED)
     expect(rows().length).toBeGreaterThan(0)
     expect(screen.queryByText(/Удалить с сервера/)).toBeNull()
     expect(screen.queryByRole("menu")).toBeNull()
     for (const row of rows()) {
-      expect(within(row).queryByRole("button")).toBeNull()
+      expect(within(row).getAllByRole("button")).toHaveLength(1)
     }
   })
 })

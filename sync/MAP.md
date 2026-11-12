@@ -196,7 +196,9 @@ Account login rename uses password proof and a base username at `/v1/account/use
 
 ASCII username folding is shared by server and client through `proto::normalize_username`; storage, uniqueness, prelogin salts and login throttles use lowercase. Passwords and encrypted device/space names retain their case.
 
-Server-space deletion (Э5, appendix Л, Л1–Л11): tests-first interfaces only; the DELETE route in
-`server/src/http/spaces.rs` answers `501 not_implemented`, `client::SyncClient::delete_space` and
-the application's `SyncRuntime::delete_space` are stubs. Contract: delete only the server copy;
-all local user files remain. Test batch and coverage: [report](../docs/road/target/sync-delete-space-tests.md).
+Server-space deletion (Э5, appendix Л, Л1–Л11): `DELETE /v1/spaces/{space_id}` in
+`server/src/http/spaces.rs` (rows first, bodies after, under the lock; the open event stream of the
+space ends with `HubEvent::SpaceRemoved`), `client::SyncClient::delete_space`, and the application's
+`SyncRuntime::delete_space` (stops the session, saves the switch off, then DELETE; a `404`/`405` counts
+only when the space list proves the id absent). Contract: delete only the server copy; all local user
+files remain. Test batch and coverage: [report](../docs/road/target/sync-delete-space-tests.md).

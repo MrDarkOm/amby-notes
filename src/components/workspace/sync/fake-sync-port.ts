@@ -281,6 +281,7 @@ export function createFakePort(overrides: Partial<SyncPort> = {}): FakePort {
     vaultStatus: async () => VAULT_OFF,
     listSpaces: async () => SPACES,
     accountOverview: async () => ACCOUNT_STANDARD,
+    deleteSpace: async () => {},
     enableVault: async () => vaultStatus(),
     disableVault: async () => VAULT_OFF,
     runNow: async () => {},

@@ -16,6 +16,10 @@ export interface ConfirmOptions {
   cancelLabel?: string
   /** A dangerous action: the button is drawn as dangerous and the focus starts on the safe button. */
   destructive?: boolean
+  /** Exact text required before confirming an irreversible server-space deletion (Л10). */
+  requiredText?: { value: string; label: string }
+  /** Dismisses a question whose account or action is no longer current (Л11). */
+  signal?: AbortSignal
 }
 
 export interface PendingConfirm extends ConfirmOptions {
@@ -56,9 +60,21 @@ export const useConfirmStore = create<ConfirmState>((set) => ({
  */
 export function confirmChoice(options: ConfirmOptions): Promise<ConfirmOutcome> {
   return new Promise<ConfirmOutcome>((resolve) => {
+    // A question that is no longer current (another account, another action) is never put on the screen.
+    if (options.signal?.aborted) {
+      resolve("dismissed")
+      return
+    }
     lastId += 1
     const id = lastId
     resolvers.set(id, resolve)
+    options.signal?.addEventListener(
+      "abort",
+      () => useConfirmStore.getState().settle(id, "dismissed"),
+      {
+        once: true,
+      },
+    )
     useConfirmStore.setState((state) => ({ queue: [...state.queue, { ...options, id }] }))
   })
 }

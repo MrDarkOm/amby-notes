@@ -14,14 +14,52 @@ use super::util::{
     ApiError, ApiResult, NAME_ENVELOPE_LEN, WRAPPED_KEY_LEN,
 };
 use crate::state::AppState;
+use crate::store::BlobStore;
 
-/// `DELETE /v1/spaces/{space_id}` (Л1–Л5). Tests-first interface; no deletion yet.
-pub(crate) async fn remove() -> ApiResult<Response> {
-    Err(ApiError::new(
-        StatusCode::NOT_IMPLEMENTED,
-        "not_implemented",
-        "space deletion is not implemented",
-    ))
+/// `DELETE /v1/spaces/{space_id}` (Л1–Л5): the space of the signed-in user with all its records,
+/// versions, bodies and unfinished uploads. Rows go first and files after, under the lock.
+pub(crate) async fn remove(
+    State(state): State<AppState>,
+    params: super::Params,
+    request: Request,
+) -> ApiResult<Response> {
+    let (parts, _) = split(request);
+    // Sign-in first, then the id (Л2).
+    let auth = authenticate(&state, &parts)?;
+    let space_text = params
+        .0
+        .get("space_id")
+        .map_or("", String::as_str)
+        .to_string();
+    let removed = state.db.write_then(
+        |tx| -> ApiResult<(OwnedSpace, Vec<crate::store::BlobKey>)> {
+            let space = owned_space(tx, auth.user_id, &space_text)?;
+            let keys: Vec<crate::store::BlobKey> = {
+                let mut statement = tx.prepare("SELECT blob_id FROM blobs WHERE space = ?1")?;
+                let rows = statement.query_map([space.row], |row| row.get::<_, Vec<u8>>(0))?;
+                rows.filter_map(|blob| blob.ok().and_then(|blob| blob.try_into().ok()))
+                    .map(|blob_id| crate::store::BlobKey {
+                        space_id: space.space_id,
+                        blob_id,
+                    })
+                    .collect()
+            };
+            tx.execute("DELETE FROM spaces WHERE id = ?1", [space.row])?;
+            Ok((space, keys))
+        },
+        |tx, (_, keys)| {
+            for key in keys {
+                if !crate::maintenance::row_exists(tx, key)? {
+                    state.files.delete(key)?;
+                }
+            }
+            Ok(())
+        },
+    )?;
+    let _ = state.hub.send(crate::state::HubEvent::SpaceRemoved {
+        space_id: removed.0.space_id,
+    });
+    Ok(json_response(StatusCode::OK, &json!({ "ok": true })))
 }
 
 /// A space of the signed-in user.

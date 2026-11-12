@@ -277,6 +277,16 @@ pub async fn sync_account_overview(
     runtime.account_overview(&paths).await
 }
 
+/// Deletes the server copy of a space of the current account (appendix Л); local files stay.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_delete_space(
+    runtime: State<'_, SyncRuntime>,
+    space_id: String,
+) -> Result<(), SyncError> {
+    runtime.delete_space(&space_id).await
+}
+
 /// Switches sync on for the open vault after a complete external backup.
 /// `test_vault` is a legacy IPC compatibility argument; the current UI sends false.
 #[tauri::command]
