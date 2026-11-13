@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 use amby_sync_proto::error_code as code;
 
-use super::spaces::owned_space;
+use super::spaces::{owned_space, recheck};
 use super::util::{
     authenticate, field_hex, hex, json_response, read_json, sha256, unhex, unhex_array, ApiError,
     ApiResult,
@@ -140,6 +140,11 @@ pub(crate) async fn commit(
     // One transaction takes the write lock first: the check of the bases and the write are not
     // separated by another commit (Р3, П27), and a refused commit changes nothing.
     let outcome = state.db.write(|tx| -> rusqlite::Result<Outcome> {
+        // Т1: the space and the token are looked up again, in this transaction.
+        let space = match recheck(tx, &auth, &space_text) {
+            Ok(space) => space,
+            Err(error) => return Ok(Outcome::Refused(error)),
+        };
         let known: Option<(Vec<u8>, String)> = tx
             .query_row(
                 "SELECT digest, response FROM commits WHERE space = ?1 AND commit_id = ?2",

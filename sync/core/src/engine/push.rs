@@ -373,9 +373,9 @@ impl Engine {
                 .cmp(&rank(b))
                 .then_with(|| a.header.path.cmp(&b.header.path))
         });
-        let limit = (info.max_commit_items as usize).max(1);
+        let limit = (info.max_commit_items as usize).clamp(1, MAX_COMMIT_ENTRIES);
         let mut held = false;
-        for chunk in outs.chunks(limit) {
+        for chunk in split_commits(&outs, limit) {
             if held {
                 // A commit refused for lack of room is still the record of what is being sent
                 // (С2, Д7): nothing else may replace it in this pass.
@@ -842,6 +842,40 @@ enum ChunkOutcome {
 }
 
 /// Н9: keeps the deletions of `outs`; every other change waits with the reason.
+/// Most entries the engine puts in one commit (Т4).
+const MAX_COMMIT_ENTRIES: usize = 1000;
+/// Most bytes of request JSON the engine puts in one commit (Т4).
+const MAX_COMMIT_BYTES: usize = 1024 * 1024;
+/// Fields of an item besides the header in the request JSON, by estimate.
+const ENTRY_OVERHEAD_BYTES: usize = 200;
+
+/// Splits the outgoing entries, in order, into commits of at most `limit` entries and about
+/// [`MAX_COMMIT_BYTES`] of request JSON (Т4). An entry always goes, however large.
+fn split_commits(outs: &[Out], limit: usize) -> Vec<&[Out]> {
+    let mut chunks = Vec::new();
+    let (mut start, mut bytes) = (0, 0usize);
+    for (index, out) in outs.iter().enumerate() {
+        let size = header_size_estimate(out) * 2 + ENTRY_OVERHEAD_BYTES;
+        if index > start && (index - start >= limit || bytes + size > MAX_COMMIT_BYTES) {
+            chunks.push(&outs[start..index]);
+            start = index;
+            bytes = 0;
+        }
+        bytes += size;
+    }
+    if start < outs.len() {
+        chunks.push(&outs[start..]);
+    }
+    chunks
+}
+
+/// The size of the sealed header of an entry: the canonical JSON (path, fixed fields, hash)
+/// padded to 256 bytes (Ф17) plus the envelope head and tag.
+fn header_size_estimate(out: &Out) -> usize {
+    let json = out.header.path.len() * 2 + 260 + out.header.extra.len() * 40;
+    json.div_ceil(256) * 256 + 64
+}
+
 fn only_deletions(outs: Vec<Out>, skipped: &mut Vec<UnsyncedRecord>) -> Vec<Out> {
     let (deletions, rest): (Vec<Out>, Vec<Out>) =
         outs.into_iter().partition(|out| out.header.deleted);
