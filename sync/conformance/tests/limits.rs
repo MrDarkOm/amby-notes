@@ -84,19 +84,26 @@ fn a_header_of_exactly_the_maximum_size_is_accepted_and_one_byte_more_is_not() {
 #[test]
 fn a_json_request_of_exactly_the_limit_is_read_and_one_byte_more_is_413() {
     // П8, П7: the limit counts bytes of the request body. Unknown fields are ignored (П7), so a
-    // padded prelogin request is a good one.
+    // padded request to create a space is a good one. Х3: the sign-in routes have their own, smaller
+    // limit, so the request carries a device token.
     let target = Target::from_env();
     let max = limit(&target.api, "max_json_bytes") as usize;
     if max > 8 * 1024 * 1024 {
         eprintln!("SKIP: the JSON limit ({max} bytes) is too big to test over the network");
         return;
     }
+    let account = enroll(&target, PASSWORD);
     let make = |total: usize| {
-        let head = br#"{"username":"someone","pad":""#.as_slice();
+        let head = format!(
+            r#"{{"space_id":"{}","name_enc":"01{}","key_epoch":1,"wrapped_vk":"{}","pad":""#,
+            hex16(&random16()),
+            "00".repeat(104),
+            "00".repeat(73)
+        );
         let tail = br#""}"#.as_slice();
         let fill = total - head.len() - tail.len();
         let mut body = Vec::with_capacity(total);
-        body.extend_from_slice(head);
+        body.extend_from_slice(head.as_bytes());
         body.extend(std::iter::repeat_n(b'a', fill));
         body.extend_from_slice(tail);
         body
@@ -105,18 +112,18 @@ fn a_json_request_of_exactly_the_limit_is_read_and_one_byte_more_is_413() {
         .api
         .send(
             "POST",
-            "/v1/auth/prelogin",
-            None,
+            "/v1/spaces",
+            Some(&account.token),
             &[],
             Body::Raw(make(max), Some("application/json")),
         )
-        .expect(200);
+        .expect(201);
     target
         .api
         .send(
             "POST",
-            "/v1/auth/prelogin",
-            None,
+            "/v1/spaces",
+            Some(&account.token),
             &[],
             Body::Raw(make(max + 1), Some("application/json")),
         )
