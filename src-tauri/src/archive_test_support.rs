@@ -115,7 +115,16 @@ pub fn copy_dir(from: &Path, to: &Path) {
         if entry.file_type().unwrap().is_dir() {
             copy_dir(&entry.path(), &target);
         } else {
-            fs::copy(entry.path(), target).unwrap();
+            fs::copy(entry.path(), &target).unwrap();
+            // The time of the last change is data here (the archive dates entries by it): keep it,
+            // as macOS does and Linux does not.
+            let modified = entry.metadata().unwrap().modified().unwrap();
+            fs::File::options()
+                .write(true)
+                .open(&target)
+                .unwrap()
+                .set_modified(modified)
+                .unwrap();
         }
     }
 }

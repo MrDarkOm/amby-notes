@@ -674,7 +674,8 @@ a subscription ends; data stays until it is renewed or the user deletes it.
   free, adding requests get `507 server_storage_full` (an ordinary error, no details): open registration,
   `POST /spaces`, `POST …/blobs`, `PUT …/parts/{n}`, `POST …/complete`, and a commit that has any
   non-deletion entry. Sign-in, reading, downloads, deletions-only commits, `DELETE` of a body and of a space
-  keep working so that space can be freed. Retry later; do not treat it as a permanent plan limit.
+  keep working so that space can be freed. Retry later; do not treat it as a permanent plan limit. The free space is measured on Unix
+  (Linux, macOS); on other systems the server treats it as enough.
 - **Concurrent large bodies**: `503 server_busy` with `Retry-After: 5` (3.1). Retry after the delay.
 - **Open registration cap**: `AMBY_SYNC_MAX_USERS` (3.5). Invitations are not limited.
 
