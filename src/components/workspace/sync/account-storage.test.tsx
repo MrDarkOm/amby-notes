@@ -139,7 +139,7 @@ describe("the header of the section (У2)", () => {
     cleanup()
     await mount(
       overview({
-        plan: { name: "free", title: "Free", pinned: true },
+        plan: { name: "free", title: "Free", pinned: true, sync: true, untilMs: null },
         limits: { ...ACCOUNT_STANDARD.limits, maxTotalBytes: null },
       }),
     )
@@ -155,7 +155,11 @@ describe("the header of the section (У2)", () => {
   })
 
   it("takes the plan name when the plan has no title", async () => {
-    await mount(overview({ plan: { name: "standard", title: null, pinned: false } }))
+    await mount(
+      overview({
+        plan: { name: "standard", title: null, pinned: false, sync: true, untilMs: null },
+      }),
+    )
     expect(screen.getByText("Тариф: standard")).toBeTruthy()
   })
 
@@ -163,7 +167,7 @@ describe("the header of the section (У2)", () => {
     await i18n.changeLanguage("en")
     await mount({
       ...ACCOUNT_STANDARD,
-      plan: { name: "standard", title: "Standard", pinned: false },
+      plan: { name: "standard", title: "Standard", pinned: false, sync: true, untilMs: null },
     })
     expect(screen.getByText("Plan: Standard")).toBeTruthy()
     expect(screen.getByText("312 MB of 1 GB")).toBeTruthy()

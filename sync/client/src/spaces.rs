@@ -59,6 +59,10 @@ pub struct AccountPlan {
     pub title: Option<String>,
     /// The administrator pinned the user to this plan.
     pub pinned: bool,
+    /// The plan allows sending changes (Н6, Н8); `true` for a server without the field.
+    pub sync: bool,
+    /// When the pinning ends, in ms since the epoch (Н2, Н6); `None` is no end.
+    pub until_ms: Option<i64>,
 }
 
 /// The effective limits in `GET /v1/account`; `None` is no limit (П61).
@@ -692,6 +696,9 @@ impl SyncClient {
                 name: optional_text(plan, "name"),
                 title: optional_text(plan, "title"),
                 pinned: bool_field(plan, "pinned")?,
+                // Н8: an old server has no such fields: `sync` is then `true`, no end.
+                sync: plan.get("sync").and_then(Value::as_bool).unwrap_or(true),
+                until_ms: plan.get("until_ms").and_then(Value::as_i64),
             },
             limits: AccountLimits {
                 max_spaces: optional_number(limits, "max_spaces")?,

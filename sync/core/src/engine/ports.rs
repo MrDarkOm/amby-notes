@@ -255,6 +255,8 @@ pub struct AccountInfo {
     pub live_bytes: u64,
     /// Bytes of started bodies no version refers to yet (П55).
     pub pending_bytes: u64,
+    /// The plan allows sending changes (Н9); `true` for a server without the field.
+    pub sync_allowed: bool,
 }
 
 /// One entry of the compressed change feed (П31).

@@ -784,7 +784,10 @@ pub(crate) async fn overview(
         let spaces = rows.collect::<Result<Vec<_>, _>>()?;
         let limits = &plan.limits;
         Ok(json!({
-            "plan": { "name": plan.name, "title": plan.title, "pinned": plan.pinned },
+            "plan": {
+                "name": plan.name, "title": plan.title, "pinned": plan.pinned,
+                "sync": plan.limits.sync, "until_ms": plan.until_ms,
+            },
             "limits": {
                 "max_spaces": limits.max_spaces,
                 "max_total_bytes": limits.max_total_bytes,

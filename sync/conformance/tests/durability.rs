@@ -132,7 +132,7 @@ fn a_migrated_version_1_database_serves_its_old_data_and_has_no_limits_but_the_c
     let control = target.control().unwrap();
     assert_eq!(
         legacy_v1::user_version(&legacy.db),
-        2,
+        3, // Н7: the schema went on to 3
         "the server migrated the file on start"
     );
     // the user who was waiting for a code gets one, and sees the space of before the update

@@ -126,7 +126,7 @@ export const SPACES: SpaceView[] = [
 /** The overview of the owner's "Standard" plan: one storage of 312 MB of 1 GB, the open vault. */
 export const ACCOUNT_STANDARD: AccountOverview = {
   limitsKnown: true,
-  plan: { name: "standard", title: "Стандарт", pinned: false },
+  plan: { name: "standard", title: "Стандарт", pinned: false, sync: true, untilMs: null },
   limits: {
     maxSpaces: 1,
     maxTotalBytes: 1_000_000_000,

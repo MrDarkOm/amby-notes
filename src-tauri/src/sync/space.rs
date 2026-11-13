@@ -221,6 +221,8 @@ pub async fn account_overview(
                     name,
                     title: view.plan.title,
                     pinned: view.plan.pinned,
+                    sync: view.plan.sync,
+                    until_ms: view.plan.until_ms,
                 }),
                 limits: LimitsView {
                     max_spaces: view.limits.max_spaces.and_then(|n| u32::try_from(n).ok()),

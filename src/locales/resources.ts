@@ -1963,6 +1963,9 @@ const ru = {
       quotaFull: "Хранилище на сервере заполнено",
       quotaFullLine:
         "Новое не отправляется, чужое приходит как обычно. Удалите ненужное или попросите владельца сервера увеличить тариф.",
+      subscriptionRequired: "Нужна подписка",
+      subscriptionRequiredLine:
+        "Новое и изменённое ждёт отправки, удаления и полученное проходят как обычно. Подписку выдаёт администратор сервера.",
       itemErrors: "Файлов с ошибкой: {{count}}",
       itemErrorsLine: "Попробуем снова, ничего не потеряно.",
     },
@@ -4185,6 +4188,8 @@ const ru = {
       backup_invalid: "Созданную копию не удалось проверить. Синхронизация не началась.",
       space_limit:
         "На вашем тарифе больше нет места для новых хранилищ. Подключите существующее или обратитесь к владельцу сервера.",
+      subscription_required:
+        "Синхронизация доступна по подписке. Аккаунт работает, но отправлять файлы на сервер без неё нельзя.",
       unknown: "Что-то пошло не так. Код ошибки: {{code}}.",
     },
     account: {
@@ -4204,6 +4209,10 @@ const ru = {
       days_many: "{{count}} дней",
       days_other: "{{count}} дня",
       ownerChangesPlan: "Тариф меняет владелец сервера",
+      noSubscription: "Без подписки · синхронизация недоступна",
+      buySubscription: "Оформить подписку",
+      buyStub: "Оплата скоро появится. Пока подписку выдаёт администратор сервера",
+      planUntil: "до {{date}}",
       thisVault: "Это хранилище",
       boundHere: "Привязано на этом компьютере: {{folder}}",
       elsewhere: "Подключено на других устройствах или нигде",
@@ -4387,6 +4396,7 @@ const ru = {
         tooLargePlan: "Файл больше предела тарифа: {{size}}",
         tooLargeServer: "Файл больше предела сервера: {{size}}",
         quotaFull: "Хранилище заполнено: файл ждёт свободного места",
+        subscriptionRequired: "Нужна подписка: файл ждёт отправки",
         tooBigForMemory: "Файл больше лимита приложения",
         excludedPath: "Служебный путь",
         invalidName: "Имя нельзя создать на этой системе ({{problem}})",
@@ -6470,6 +6480,9 @@ const en: typeof ru = {
       quotaFull: "The storage on the server is full",
       quotaFullLine:
         "New files are not sent; files from other devices arrive as usual. Delete what you do not need or ask the owner of the server for a bigger plan.",
+      subscriptionRequired: "A subscription is needed",
+      subscriptionRequiredLine:
+        "New and changed files wait to be sent; deletions and incoming changes go through as usual. The server administrator grants the subscription.",
       itemErrors: "Files with an error: {{count}}",
       itemErrorsLine: "We will try again; nothing is lost.",
     },
@@ -8675,6 +8688,8 @@ const en: typeof ru = {
       backup_invalid: "The completed backup could not be verified. Synchronisation did not start.",
       space_limit:
         "Your plan has no room for another storage. Connect an existing one or ask the owner of the server.",
+      subscription_required:
+        "Sync needs a subscription. The account works, but files cannot be sent to the server without one.",
       unknown: "Something went wrong. Error code: {{code}}.",
     },
     account: {
@@ -8694,6 +8709,10 @@ const en: typeof ru = {
       days_many: "{{count}} days",
       days_other: "{{count}} days",
       ownerChangesPlan: "The plan is changed by the owner of the server",
+      noSubscription: "No subscription · sync is not available",
+      buySubscription: "Get a subscription",
+      buyStub: "Payment is coming soon. For now the server administrator grants the subscription",
+      planUntil: "until {{date}}",
       thisVault: "This storage",
       boundHere: "Linked on this computer: {{folder}}",
       elsewhere: "Connected on other devices or nowhere",
@@ -8880,6 +8899,7 @@ const en: typeof ru = {
         tooLargePlan: "The file is above the limit of your plan: {{size}}",
         tooLargeServer: "The file is above the limit of the server: {{size}}",
         quotaFull: "The storage is full: the file waits for free space",
+        subscriptionRequired: "A subscription is needed: the file waits to be sent",
         tooBigForMemory: "The file exceeds the app limit",
         excludedPath: "A service path",
         invalidName: "The name cannot be created on this system ({{problem}})",

@@ -109,6 +109,8 @@ pub(crate) async fn create(State(state): State<AppState>, request: Request) -> A
     let wrapped_vk = field_hex_vec(&request, "wrapped_vk", WRAPPED_KEY_LEN)?;
     let now = state.clock.now_ms();
     let exists = state.db.write(|tx| -> ApiResult<bool> {
+        // Н4, Н5: a new space needs a subscription; first, in the transaction of the write.
+        crate::quota::require_subscription(&state, tx, auth.user_id)?;
         let taken: bool = tx
             .query_row(
                 "SELECT 1 FROM spaces WHERE space_id = ?1",

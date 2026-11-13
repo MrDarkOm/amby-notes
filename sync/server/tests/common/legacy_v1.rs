@@ -206,7 +206,8 @@ pub fn dump(db: &Path) -> Vec<String> {
             .unwrap()
             .map(Result::unwrap)
             .filter(|name| {
-                let added_in_v2 = (table == "users" && name == "plan")
+                // Н7 adds `users.plan_until_ms` in v3: also not a column of the old file.
+                let added_in_v2 = (table == "users" && (name == "plan" || name == "plan_until_ms"))
                     || (table == "versions" && name == "keep_until_ms");
                 !added_in_v2
             })

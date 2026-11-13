@@ -116,6 +116,10 @@ pub(crate) async fn start(
     let now = state.clock.now_ms();
     let outcome = state.db.write(|tx| -> ApiResult<(bool, BlobRow)> {
         let plan = crate::quota::resolve_user(&state, tx, auth.user_id)?;
+        // Н4, Н5: no subscription, no new body; before every other check of the route.
+        if !plan.limits.sync {
+            return Err(crate::quota::subscription_required());
+        }
         // Е.4: size (413), then a body that is already there (200/409), then the quota (507).
         if let Some(max) = plan.limits.max_file_bytes {
             if size > max {
@@ -200,6 +204,10 @@ pub(crate) async fn put_part(
     let space = state
         .db
         .call(|conn| owned_space(conn, auth.user_id, space_param(&params)))?;
+    // Н4, Н5: after ownership, before the other checks of the route.
+    state
+        .db
+        .call(|conn| crate::quota::require_subscription(&state, conn, auth.user_id))?;
     let blob_id = blob_id_from(&params)?;
     let row = state
         .db
@@ -281,6 +289,10 @@ pub(crate) async fn complete(
     let space = state
         .db
         .call(|conn| owned_space(conn, auth.user_id, space_param(&params)))?;
+    // Н4, Н5: after ownership, before the other checks of the route.
+    state
+        .db
+        .call(|conn| crate::quota::require_subscription(&state, conn, auth.user_id))?;
     let blob_id = blob_id_from(&params)?;
     let row = state
         .db

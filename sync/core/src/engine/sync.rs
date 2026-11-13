@@ -270,6 +270,14 @@ impl Engine {
                     }
                     self.ports.state.apply(&ops)?;
                 }
+                // Н9: refused as a whole, nothing was applied. The record goes; the files are seen
+                // again from the disk below and wait there with their reason, deletions go alone.
+                Err(RemoteError::Rejected { code: reason, .. })
+                    if reason == code::SUBSCRIPTION_REQUIRED =>
+                {
+                    report.limits.subscription_required = true;
+                    self.ports.state.apply(&vec![StateOp::SetCommit(None)])?;
+                }
                 Err(RemoteError::Rejected { code: reason, .. })
                     if reason == code::QUOTA_EXCEEDED =>
                 {
@@ -518,9 +526,12 @@ impl Engine {
             max_file_source: LimitSource::Server,
             free_bytes: None,
             quota_full: false,
+            subscription_required: false,
         };
         match self.ports.remote.account() {
             Ok(account) => {
+                // Н9: no subscription, nothing new or edited is sent.
+                limits.subscription_required = !account.sync_allowed;
                 if let Some(max) = account
                     .max_file_bytes
                     .filter(|max| *max < info.max_blob_bytes)

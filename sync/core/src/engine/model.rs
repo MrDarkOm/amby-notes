@@ -108,6 +108,8 @@ pub enum UnsyncedReason {
     },
     /// The quota of the user is full: the file is not sent, receiving goes on (Д75).
     QuotaFull,
+    /// The plan of the user does not allow sending: the file waits, receiving goes on (Н9).
+    SubscriptionRequired,
     /// The file is larger than this device's memory limit for a file (Д71).
     TooBigForMemory,
     /// An incoming path the rules exclude (`.git/`, temporary files, …).
@@ -140,6 +142,9 @@ pub struct PassLimits {
     pub free_bytes: Option<u64>,
     /// Did a file wait because the quota is full (Д75)?
     pub quota_full: bool,
+    /// The plan does not allow sending (Н9): the account said so or a `403` did. New and edited
+    /// files wait; deletions and receiving go on.
+    pub subscription_required: bool,
 }
 
 impl PassLimits {
@@ -151,6 +156,7 @@ impl PassLimits {
             max_file_source: LimitSource::Server,
             free_bytes: None,
             quota_full: false,
+            subscription_required: false,
         }
     }
 }

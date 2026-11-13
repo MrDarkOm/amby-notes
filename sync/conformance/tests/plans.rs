@@ -45,7 +45,7 @@ fn a_server_without_a_plans_file_shows_no_plan_and_only_its_ceilings() {
     let overview = enroll(&target, PASSWORD).overview();
     assert_eq!(
         overview["plan"],
-        json!({"name": null, "title": null, "pinned": false})
+        json!({"name": null, "title": null, "pinned": false, "sync": true, "until_ms": null})
     );
     let limits = &overview["limits"];
     assert_eq!(limits["max_spaces"], Value::Null);
@@ -79,7 +79,7 @@ fn a_user_without_a_pin_gets_the_default_plan_with_its_effective_limits() {
     let overview = enroll(&target, PASSWORD).overview();
     assert_eq!(
         overview["plan"],
-        json!({"name": "small", "title": "Small", "pinned": false})
+        json!({"name": "small", "title": "Small", "pinned": false, "sync": true, "until_ms": null})
     );
     let limits = &overview["limits"];
     assert_eq!(limits["max_spaces"], 2);
@@ -114,7 +114,7 @@ fn a_pinned_user_shows_the_pinned_plan_and_a_plan_without_limits_shows_nulls() {
     let overview = account.overview();
     assert_eq!(
         overview["plan"],
-        json!({"name": "free", "title": "Free", "pinned": true})
+        json!({"name": "free", "title": "Free", "pinned": true, "sync": true, "until_ms": null})
     );
     assert_eq!(overview["limits"]["max_spaces"], Value::Null);
     assert_eq!(overview["limits"]["max_total_bytes"], Value::Null);

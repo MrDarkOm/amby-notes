@@ -17,6 +17,7 @@ import { resolveSyncPort, type AccountOverview, type SyncPort } from "@/lib/sync
 import { NOTICE_LOOK } from "../notices/notice-look"
 import { useVaultStore } from "../use-vault-store"
 import { reportSyncListenFailed } from "./listen-failure"
+import { SubscriptionOffer } from "./subscription-offer"
 
 export interface AccountStorageProps {
   /** The port to use; the application's own by default. */
@@ -153,7 +154,10 @@ export function AccountStorage({ port: given, revision = 0 }: AccountStorageProp
       .onVaultStatus((status) => {
         if (!alive) return
         const limit = status.unsynced.some(
-          (item) => item.reason === "tooLarge" || item.reason === "quotaFull",
+          (item) =>
+            item.reason === "tooLarge" ||
+            item.reason === "quotaFull" ||
+            item.reason === "subscriptionRequired",
         )
         const moved =
           status.last !== null &&
@@ -228,7 +232,28 @@ export function AccountStorage({ port: given, revision = 0 }: AccountStorageProp
           {plan
             ? t("sync.account.plan", { name: plan.title ?? plan.name })
             : t("sync.account.ownServerUnlimited")}
+          {plan?.sync && plan.untilMs !== null && (
+            <span data-testid="plan-until" className="font-normal text-muted-foreground">
+              {" "}
+              {t("sync.account.planUntil", {
+                date: new Intl.DateTimeFormat(i18n.language, {
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                  timeZone: "UTC",
+                }).format(new Date(plan.untilMs - 1)),
+              })}
+            </span>
+          )}
         </p>
+        {plan && !plan.sync && (
+          <div className="space-y-1.5">
+            <p data-testid="subscription-none" className="text-[12px]">
+              {t("sync.account.noSubscription")}
+            </p>
+            <SubscriptionOffer />
+          </div>
+        )}
         {quota !== null && level !== null ? (
           <div className="space-y-1">
             <div

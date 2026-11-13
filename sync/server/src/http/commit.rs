@@ -159,6 +159,15 @@ pub(crate) async fn commit(
                 "this commit id was used with other content",
             )));
         }
+        // Н4, Н5: after the replay (П28) and before the other checks. A commit of deletions only
+        // (every entry `deleted` and no body) goes through; a mixed one is refused whole.
+        let plan = crate::quota::resolve_user(&state, tx, auth.user_id)?;
+        let only_deletions = entries
+            .iter()
+            .all(|entry| entry.deleted && entry.blob_id.is_none());
+        if !plan.limits.sync && !only_deletions {
+            return Ok(Outcome::Refused(crate::quota::subscription_required()));
+        }
         // П30 first: every body must be complete and in this space.
         for entry in &entries {
             if let Some(blob) = &entry.blob_id {
@@ -181,7 +190,6 @@ pub(crate) async fn commit(
         }
         // П60-3: a version whose body is larger than the file limit (the limit may have been
         // lowered after the body was uploaded). The whole batch is refused.
-        let plan = crate::quota::resolve_user(&state, tx, auth.user_id)?;
         if let Some(max) = plan.limits.max_file_bytes {
             for entry in entries.iter().filter(|entry| !entry.deleted) {
                 let Some(blob) = &entry.blob_id else { continue };

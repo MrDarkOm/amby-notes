@@ -19,6 +19,7 @@ const UNSYNCED_REASONS = [
   "notUtf8",
   "tooLarge",
   "quotaFull",
+  "subscriptionRequired",
   "tooBigForMemory",
   "excludedPath",
   "invalidName",

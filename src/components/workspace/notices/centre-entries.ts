@@ -22,6 +22,7 @@ export type CentreKind =
   | "closed-save-failed"
   | "limit-too-large"
   | "limit-quota-full"
+  | "limit-subscription-required"
   | "item-errors"
   | "app-notice"
 
@@ -113,6 +114,14 @@ function warningsOf(input: CentreInput): CentreEntry[] {
         kind: "limit-too-large",
         count: limit.count,
         maxBytes: limit.maxBytes,
+        action: { kind: "settings" },
+      })
+    } else if (limit.kind === "subscriptionRequired") {
+      warning.push({
+        id: "limit:subscriptionRequired",
+        section: "warning",
+        level: "warning",
+        kind: "limit-subscription-required",
         action: { kind: "settings" },
       })
     } else {

@@ -89,6 +89,12 @@ function entryWords(
         line: t("notices.centre.quotaFullLine"),
         button: null,
       }
+    case "limit-subscription-required":
+      return {
+        title: t("notices.centre.subscriptionRequired"),
+        line: t("notices.centre.subscriptionRequiredLine"),
+        button: null,
+      }
     case "item-errors":
       return {
         title: t("notices.centre.itemErrors", { count: entry.count ?? 0 }),
