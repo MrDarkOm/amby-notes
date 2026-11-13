@@ -39,10 +39,6 @@ fn assert_storage_full(response: Resp) {
     );
 }
 
-fn header_len(prepared: &Prepared) -> u64 {
-    prepared.json["header"].as_str().unwrap().len() as u64 / 2
-}
-
 // ----------------------------------------------------------------------------- Х1
 
 /// Everything the six adding requests need, made before the threshold is raised.
