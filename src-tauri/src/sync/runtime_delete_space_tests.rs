@@ -206,6 +206,41 @@ fn env_keys(env: &Env) -> Value {
     env.account.get("/v1/keys").expect(200).json()
 }
 
+/// Reads one whole request: the head up to the blank line, then the body by `Content-Length`. A
+/// fake server that answers before the body is read makes Windows reset the connection, which the
+/// client sees as a network failure (the deletion carries a body since Ц1).
+fn read_request(stream: &mut std::net::TcpStream) -> Vec<u8> {
+    let mut data = Vec::new();
+    let mut chunk = [0u8; 16 * 1024];
+    let head_end = loop {
+        if let Some(position) = data.windows(4).position(|window| window == b"\r\n\r\n") {
+            break Some(position + 4);
+        }
+        match stream.read(&mut chunk) {
+            Ok(0) | Err(_) => break None,
+            Ok(count) => data.extend_from_slice(&chunk[..count]),
+        }
+    };
+    if let Some(head_end) = head_end {
+        let content_length = String::from_utf8_lossy(&data[..head_end])
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse::<usize>().ok())
+                    .flatten()
+            })
+            .unwrap_or(0);
+        while data.len() < head_end + content_length {
+            match stream.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(count) => data.extend_from_slice(&chunk[..count]),
+            }
+        }
+    }
+    data
+}
+
 fn old_server(
     keys: Value,
     listing: String,
@@ -241,11 +276,13 @@ fn old_server(
                 }
                 Err(_) => return,
             };
+            // The listener is non-blocking; on macOS and Windows an accepted socket inherits that,
+            // and a read would end before the request has arrived.
+            let _ = stream.set_nonblocking(false);
             let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
             let _ = stream.set_write_timeout(Some(Duration::from_secs(1)));
-            let mut buffer = [0u8; 16 * 1024];
-            let read = stream.read(&mut buffer).unwrap_or(0);
-            let head = String::from_utf8_lossy(&buffer[..read]);
+            let request = read_request(&mut stream);
+            let head = String::from_utf8_lossy(&request);
             seen_requests
                 .lock()
                 .unwrap()
@@ -355,34 +392,12 @@ fn serve_held_request(
     control: HeldDeleteControl,
     vault_root: Option<PathBuf>,
 ) {
+    // See `old_server`: the accepted socket must block.
+    let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(1)));
-    let mut buffer = [0u8; 16 * 1024];
-    let mut read = stream.read(&mut buffer).unwrap_or(0);
-    if let Some(header_end) = buffer[..read]
-        .windows(4)
-        .position(|window| window == b"\r\n\r\n")
-        .map(|position| position + 4)
-    {
-        let content_length = String::from_utf8_lossy(&buffer[..header_end])
-            .lines()
-            .find_map(|line| {
-                let (name, value) = line.split_once(':')?;
-                name.eq_ignore_ascii_case("content-length")
-                    .then(|| value.trim().parse::<usize>().ok())
-                    .flatten()
-            })
-            .unwrap_or(0);
-        let required = header_end.saturating_add(content_length);
-        while read < required && read < buffer.len() {
-            let count = stream.read(&mut buffer[read..]).unwrap_or(0);
-            if count == 0 {
-                break;
-            }
-            read += count;
-        }
-    }
-    let head = String::from_utf8_lossy(&buffer[..read]);
+    let request = read_request(&mut stream);
+    let head = String::from_utf8_lossy(&request);
     let request_line = head.lines().next().unwrap_or_default().to_string();
     control.requests.lock().unwrap().push(request_line.clone());
     let (status, body) = if request_line.starts_with("POST /v1/spaces ") {
