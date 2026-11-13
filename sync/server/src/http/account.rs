@@ -13,8 +13,8 @@ use amby_sync_proto::{error_code as code, normalize_username};
 use super::throttle;
 use super::util::{
     authenticate, client_addr, ct_eq, field_hex, field_hex_vec, field_str, field_u64, hex,
-    json_response, random, read_json, sha256, unhex_array, ApiError, ApiResult, NAME_ENVELOPE_LEN,
-    WRAPPED_KEY_LEN,
+    json_response, random, read_auth_json, read_json, sha256, unhex_array, ApiError, ApiResult,
+    NAME_ENVELOPE_LEN, WRAPPED_KEY_LEN,
 };
 use super::{split, Params};
 use crate::admin::normalize_code;
@@ -124,7 +124,7 @@ pub(crate) async fn prelogin(
     request: Request,
 ) -> ApiResult<Response> {
     let (parts, body) = split(request);
-    let request = read_json(&state, &parts, body).await?;
+    let request = read_auth_json(&state, &parts, body).await?;
     let raw_username = field_str(&request, "username")?;
     if raw_username.chars().count() > 256 {
         return Err(ApiError::bad_request("`username` is too long"));
@@ -172,7 +172,7 @@ pub(crate) async fn prelogin(
 /// `POST /v1/auth/enroll` (П12, П17).
 pub(crate) async fn enroll(State(state): State<AppState>, request: Request) -> ApiResult<Response> {
     let (parts, body) = split(request);
-    let request = read_json(&state, &parts, body).await?;
+    let request = read_auth_json(&state, &parts, body).await?;
     let username = normalize_username(field_str(&request, "username")?);
     let enroll_code = match request.get("enroll_code") {
         None if state.config.open_registration => "",
@@ -215,6 +215,10 @@ pub(crate) async fn enroll(State(state): State<AppState>, request: Request) -> A
             )
             .optional()?;
         let user_id = if open_signup {
+            // Х1: no room on the disk, no new account; nothing is written, no name is held.
+            if let Err(error) = crate::quota::require_free_space(&state) {
+                return Ok(Err(error));
+            }
             if waiting.is_some() {
                 throttle::record_failure(tx, now, &username, &addr)?;
                 return Ok(Err(ApiError::new(
@@ -222,6 +226,17 @@ pub(crate) async fn enroll(State(state): State<AppState>, request: Request) -> A
                     code::REGISTRATION_UNAVAILABLE,
                     "the registration name is unavailable",
                 )));
+            }
+            // Х2: open registration stops at `max_users` accounts (Рег2); codes are not limited.
+            if let Some(max) = config.max_users {
+                let have: u64 = tx.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))?;
+                if have >= max {
+                    return Ok(Err(ApiError::new(
+                        StatusCode::CONFLICT,
+                        code::REGISTRATION_UNAVAILABLE,
+                        "the registration name is unavailable",
+                    )));
+                }
             }
             tx.execute(
                 "INSERT INTO users (username, created_ms) VALUES (?1, ?2)",
@@ -305,7 +320,7 @@ enum Secret {
 /// credentials, one comparison of constant time, and the same work for an unknown name.
 async fn sign_in(state: AppState, request: Request, secret: Secret) -> ApiResult<Response> {
     let (parts, body) = split(request);
-    let request = read_json(&state, &parts, body).await?;
+    let request = read_auth_json(&state, &parts, body).await?;
     let username = normalize_username(field_str(&request, "username")?);
     let key_field = match secret {
         Secret::Password => "auth_key",

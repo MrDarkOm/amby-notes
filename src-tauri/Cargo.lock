@@ -169,6 +169,7 @@ dependencies = [
  "getrandom 0.3.4",
  "hmac",
  "rusqlite",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",

@@ -123,6 +123,8 @@ pub(crate) async fn start(
         if !plan.limits.sync {
             return Err(crate::quota::subscription_required());
         }
+        // Х1: no room on the disk, no new body.
+        crate::quota::require_free_space(&state)?;
         // Е.4: size (413), then a body that is already there (200/409), then the quota (507).
         if let Some(max) = plan.limits.max_file_bytes {
             if size > max {
@@ -208,9 +210,11 @@ pub(crate) async fn put_part(
         .db
         .call(|conn| owned_space(conn, auth.user_id, space_param(&params)))?;
     // Н4, Н5: after ownership, before the other checks of the route.
-    state
-        .db
-        .call(|conn| crate::quota::require_subscription(&state, conn, auth.user_id))?;
+    state.db.call(|conn| -> ApiResult<()> {
+        crate::quota::require_subscription(&state, conn, auth.user_id)?;
+        // Х1: no room on the disk, no new data.
+        crate::quota::require_free_space(&state)
+    })?;
     let blob_id = blob_id_from(&params)?;
     let row = state
         .db
@@ -248,7 +252,9 @@ pub(crate) async fn put_part(
         .await
         .map_err(|error| match error {
             ReadError::TooLarge => bad_part(),
-            ReadError::Broken => ApiError::bad_request("the request body could not be read"),
+            ReadError::Broken | ReadError::Busy => {
+                ApiError::bad_request("the request body could not be read")
+            }
         })?;
     if data.len() as u64 != expected {
         return Err(bad_part());
@@ -296,9 +302,11 @@ pub(crate) async fn complete(
         .db
         .call(|conn| owned_space(conn, auth.user_id, space_param(&params)))?;
     // Н4, Н5: after ownership, before the other checks of the route.
-    state
-        .db
-        .call(|conn| crate::quota::require_subscription(&state, conn, auth.user_id))?;
+    state.db.call(|conn| -> ApiResult<()> {
+        crate::quota::require_subscription(&state, conn, auth.user_id)?;
+        // Х1: no room on the disk, no new data.
+        crate::quota::require_free_space(&state)
+    })?;
     let blob_id = blob_id_from(&params)?;
     let row = state
         .db

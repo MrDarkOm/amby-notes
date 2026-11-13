@@ -1,6 +1,7 @@
 //! Errors, strict hex, reading bodies, authentication.
 
 use std::fmt::Write as _;
+use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::request::Parts;
@@ -11,6 +12,7 @@ use rusqlite::OptionalExtension;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use amby_sync_proto::error_code as code;
 
@@ -239,6 +241,8 @@ pub(crate) enum ReadError {
     TooLarge,
     /// The connection broke.
     Broken,
+    /// Too many large bodies are being read at once (Х4).
+    Busy,
 }
 
 /// How much of an over-long body is read and thrown away so that the client can finish
@@ -247,6 +251,37 @@ const DRAIN_LIMIT: usize = 32 * 1024 * 1024;
 
 /// Reads at most `limit` bytes. A longer body is drained (up to [`DRAIN_LIMIT`]) and refused.
 pub(crate) async fn read_limited(body: Body, limit: usize) -> Result<Vec<u8>, ReadError> {
+    read_counted(body, limit, None, None).await
+}
+
+/// A JSON body above this size takes one place of `max_large_bodies` while it is read (Х4).
+const LARGE_BODY: usize = 1024 * 1024;
+
+/// The body of an authentication request is at most this long, whatever `max_json_bytes` says (Х3).
+const AUTH_BODY_LIMIT: usize = 64 * 1024;
+
+/// [`read_limited`] with the count of large bodies (Х4): `declared` is the `Content-Length`, if
+/// any. A declared length above 1 MiB takes a place before the first byte is read; without one the
+/// place is taken once the read passes 1 MiB. No place: [`ReadError::Busy`], nothing more is read.
+/// The place is given back when this function ends or its future is dropped (a lost connection).
+async fn read_counted(
+    body: Body,
+    limit: usize,
+    declared: Option<u64>,
+    gate: Option<&Arc<Semaphore>>,
+) -> Result<Vec<u8>, ReadError> {
+    let mut permit: Option<OwnedSemaphorePermit> = None;
+    let take = |gate: &Arc<Semaphore>| {
+        gate.clone()
+            .try_acquire_owned()
+            .map(Some)
+            .map_err(|_| ReadError::Busy)
+    };
+    if let Some(gate) = gate {
+        if declared.is_some_and(|length| length > LARGE_BODY as u64) {
+            permit = take(gate)?;
+        }
+    }
     let mut stream = body.into_data_stream();
     let mut data = Vec::new();
     let mut seen = 0usize;
@@ -254,6 +289,11 @@ pub(crate) async fn read_limited(body: Body, limit: usize) -> Result<Vec<u8>, Re
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|_| ReadError::Broken)?;
         seen += chunk.len();
+        if let Some(gate) = gate {
+            if permit.is_none() && seen > LARGE_BODY {
+                permit = take(gate)?;
+            }
+        }
         if !too_large {
             if seen > limit {
                 too_large = true;
@@ -266,6 +306,7 @@ pub(crate) async fn read_limited(body: Body, limit: usize) -> Result<Vec<u8>, Re
             break;
         }
     }
+    drop(permit);
     if too_large {
         Err(ReadError::TooLarge)
     } else {
@@ -273,8 +314,28 @@ pub(crate) async fn read_limited(body: Body, limit: usize) -> Result<Vec<u8>, Re
     }
 }
 
-/// The JSON object of a request (П1, П7, П8).
+/// The JSON object of a request (П1, П7, П8). Large bodies are counted (Х4).
 pub(crate) async fn read_json(state: &AppState, parts: &Parts, body: Body) -> ApiResult<Value> {
+    read_json_with(state, parts, body, state.config.max_json_bytes, true).await
+}
+
+/// The JSON object of an authentication request: at most 64 KiB, read before any work on the
+/// database (Х3).
+pub(crate) async fn read_auth_json(
+    state: &AppState,
+    parts: &Parts,
+    body: Body,
+) -> ApiResult<Value> {
+    read_json_with(state, parts, body, AUTH_BODY_LIMIT, false).await
+}
+
+async fn read_json_with(
+    state: &AppState,
+    parts: &Parts,
+    body: Body,
+    limit: usize,
+    counted: bool,
+) -> ApiResult<Value> {
     let is_json = parts
         .headers
         .get(header::CONTENT_TYPE)
@@ -288,7 +349,13 @@ pub(crate) async fn read_json(state: &AppState, parts: &Parts, body: Body) -> Ap
             "the content type must be application/json",
         ));
     }
-    let bytes = read_limited(body, state.config.max_json_bytes)
+    let declared = parts
+        .headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<u64>().ok());
+    let gate = counted.then_some(&state.large_bodies);
+    let bytes = read_counted(body, limit, declared, gate)
         .await
         .map_err(|error| match error {
             ReadError::TooLarge => ApiError::new(
@@ -297,6 +364,12 @@ pub(crate) async fn read_json(state: &AppState, parts: &Parts, body: Body) -> Ap
                 "the request is too large",
             ),
             ReadError::Broken => ApiError::bad_request("the request body could not be read"),
+            ReadError::Busy => ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                code::SERVER_BUSY,
+                "the server is busy; try again shortly",
+            )
+            .with_retry_after(5),
         })?;
     let value: Value =
         serde_json::from_slice(&bytes).map_err(|_| ApiError::bad_request("not valid JSON"))?;

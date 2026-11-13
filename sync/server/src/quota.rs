@@ -230,6 +230,38 @@ pub(crate) fn require_subscription(
     }
 }
 
+/// Х1: `507 server_storage_full` when the volume of the data directory has less than
+/// `min_free_bytes` free; `Ok` when the check is off, the space is enough or it cannot be read.
+/// Call it inside the transaction of an adding request, after the checks of Н4. The answer is the
+/// plain error of П4 and says nothing about the disk.
+pub(crate) fn require_free_space(state: &AppState) -> Result<(), crate::http::util::ApiError> {
+    let minimum = state.config.min_free_bytes;
+    if minimum == 0 {
+        return Ok(());
+    }
+    match free_bytes(&state.config.data_dir) {
+        Some(free) if free < minimum => Err(crate::http::util::ApiError::new(
+            axum::http::StatusCode::INSUFFICIENT_STORAGE,
+            amby_sync_proto::error_code::SERVER_STORAGE_FULL,
+            "the server has no room for new data",
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// Bytes available to unprivileged writers on the volume of `dir`; `None` when unknown.
+#[cfg(unix)]
+fn free_bytes(dir: &std::path::Path) -> Option<u64> {
+    let stat = rustix::fs::statvfs(dir).ok()?;
+    Some(stat.f_bavail.saturating_mul(stat.f_frsize))
+}
+
+/// Other systems are not measured: "enough".
+#[cfg(not(unix))]
+fn free_bytes(_dir: &std::path::Path) -> Option<u64> {
+    None
+}
+
 /// The error of Н4: an ordinary one, with no details about the plan.
 pub(crate) fn subscription_required() -> crate::http::util::ApiError {
     crate::http::util::ApiError::new(

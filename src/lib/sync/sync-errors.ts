@@ -54,6 +54,8 @@ export const KNOWN_SYNC_ERROR_CODES: readonly string[] = [
   "space_exists",
   "space_limit",
   "subscription_required",
+  "server_storage_full",
+  "server_busy",
   "space_not_found",
   "space_deleted",
   "invalid_space",
