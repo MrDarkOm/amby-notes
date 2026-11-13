@@ -66,6 +66,10 @@ pub mod error_code {
     pub const UNKNOWN_BLOB: &str = "unknown_blob";
     /// Too many failed sign-in attempts (П16).
     pub const RATE_LIMITED: &str = "rate_limited";
+    /// The data volume of the server is nearly full: adding is refused (appendix Х, Х1).
+    pub const SERVER_STORAGE_FULL: &str = "server_storage_full";
+    /// Too many large bodies are being read at once; try again later (appendix Х, Х4).
+    pub const SERVER_BUSY: &str = "server_busy";
     /// The plan of the user does not allow sending changes (appendix Н, Н4).
     pub const SUBSCRIPTION_REQUIRED: &str = "subscription_required";
     /// The user's quota would be exceeded (П42).
