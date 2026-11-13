@@ -696,9 +696,9 @@ impl SyncClient {
                 name: optional_text(plan, "name"),
                 title: optional_text(plan, "title"),
                 pinned: bool_field(plan, "pinned")?,
-                // Interface stub (appendix Н): the fields are not read yet.
-                sync: true,
-                until_ms: None,
+                // Н8: an old server has no such fields: `sync` is then `true`, no end.
+                sync: plan.get("sync").and_then(Value::as_bool).unwrap_or(true),
+                until_ms: plan.get("until_ms").and_then(Value::as_i64),
             },
             limits: AccountLimits {
                 max_spaces: optional_number(limits, "max_spaces")?,

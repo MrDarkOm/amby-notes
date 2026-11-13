@@ -14,13 +14,18 @@ use rusqlite::{Connection, TransactionBehavior};
 
 /// Migrations in order. The schema version is the number of entries applied (`user_version`).
 /// Never edit an applied entry: add a new one.
-const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2];
+const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2, SCHEMA_V3];
 
 /// Appendix Е (П58): only additions, no existing row is rewritten.
 const SCHEMA_V2: &str = "
 ALTER TABLE users ADD COLUMN plan TEXT;
 ALTER TABLE versions ADD COLUMN keep_until_ms INTEGER;
 CREATE INDEX versions_keep ON versions(keep_until_ms) WHERE keep_until_ms IS NOT NULL;
+";
+
+/// Appendix Н (Н7): only an addition, no existing row is rewritten.
+const SCHEMA_V3: &str = "
+ALTER TABLE users ADD COLUMN plan_until_ms INTEGER;
 ";
 
 const SCHEMA_V1: &str = "

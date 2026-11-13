@@ -170,6 +170,14 @@ fn parse_plan(name: &str, raw: &Raw) -> Result<Plan, PlansError> {
             "max_file_bytes" => plan.max_file_bytes = Some(limit(name, field, value)?),
             "history_days" => plan.history_days = Some(limit(name, field, value)?),
             "max_history_bytes" => plan.max_history_bytes = Some(limit(name, field, value)?),
+            "sync" => match value {
+                Raw::Other(Value::Bool(allowed)) => plan.sync = Some(*allowed),
+                _ => {
+                    return Err(invalid(format!(
+                        "plan `{name}`: `sync` must be true or false"
+                    )))
+                }
+            },
             other => return Err(invalid(format!("plan `{name}`: unknown field `{other}`"))),
         }
     }
@@ -273,8 +281,8 @@ impl EffectiveLimits {
                 .and_then(|plan| plan.history_days)
                 .unwrap_or(config.retain_version_days),
             max_history_bytes: plan.and_then(|plan| plan.max_history_bytes),
-            // Interface stub (appendix Н): the rule of Н1 is not applied yet.
-            sync: true,
+            // Н1: no field is `true`.
+            sync: plan.and_then(|plan| plan.sync).unwrap_or(true),
         }
     }
 }

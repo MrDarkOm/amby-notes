@@ -127,7 +127,10 @@ pub(crate) fn user_usage(
 pub(crate) struct Resolved {
     pub(crate) name: Option<String>,
     pub(crate) title: Option<String>,
+    /// A pin that acts: `false` for no pin and for one that has expired (Н2).
     pub(crate) pinned: bool,
+    /// The end of the pin that acts (Н6); `None` for no end, no pin or an expired pin.
+    pub(crate) until_ms: Option<i64>,
     pub(crate) limits: EffectiveLimits,
     /// Whether the effective `max_file_bytes` is the server ceiling and not the plan's number.
     pub(crate) file_limit_from_server: bool,
@@ -155,18 +158,48 @@ pub(crate) fn pinned_plan(conn: &Connection, user_id: i64) -> rusqlite::Result<O
         .flatten())
 }
 
-/// Works out the plan and the effective limits of `user_id`.
+/// The stored pin of a user: the plan name and the end of the pin (`users.plan_until_ms`, Н2).
+pub(crate) fn pin_of(
+    conn: &Connection,
+    user_id: i64,
+) -> rusqlite::Result<(Option<String>, Option<i64>)> {
+    Ok(conn
+        .query_row(
+            "SELECT plan, plan_until_ms FROM users WHERE id = ?1",
+            [user_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?
+        .unwrap_or((None, None)))
+}
+
+/// Works out the plan and the effective limits of `user_id`. A pin whose end has come
+/// (`now_ms >= plan_until_ms`) does not act: the default plan does (Н2).
 pub(crate) fn resolve_user(
     state: &AppState,
     conn: &Connection,
     user_id: i64,
 ) -> rusqlite::Result<Resolved> {
-    let pinned = pinned_plan(conn, user_id)?;
-    Ok(resolve_plan(state, pinned.as_deref()))
+    let (pinned, until) = pin_of(conn, user_id)?;
+    Ok(resolve_plan(state, pinned.as_deref(), until))
 }
 
-/// The same for a stored plan name.
-pub(crate) fn resolve_plan(state: &AppState, pinned: Option<&str>) -> Resolved {
+/// Whether a pin ended at `until_ms` has expired now (Н2). A pin without a plan has no end.
+pub(crate) fn pin_expired(state: &AppState, pinned: Option<&str>, until_ms: Option<i64>) -> bool {
+    pinned.is_some() && until_ms.is_some_and(|end| state.clock.now_ms() >= end)
+}
+
+/// The same for a stored plan name and end.
+pub(crate) fn resolve_plan(
+    state: &AppState,
+    pinned: Option<&str>,
+    until_ms: Option<i64>,
+) -> Resolved {
+    let (pinned, until_ms) = if pin_expired(state, pinned, until_ms) {
+        (None, None)
+    } else {
+        (pinned, if pinned.is_some() { until_ms } else { None })
+    };
     let found = state.plans.resolve(pinned);
     let plan: Option<&Plan> = found.map(|(_, plan)| plan);
     let limits = EffectiveLimits::for_plan(plan, &state.config);
@@ -177,9 +210,33 @@ pub(crate) fn resolve_plan(state: &AppState, pinned: Option<&str>) -> Resolved {
         name: found.map(|(name, _)| name.to_string()),
         title: plan.and_then(|plan| plan.title.clone()),
         pinned: pinned.is_some(),
+        until_ms,
         limits,
         file_limit_from_server: from_server,
     }
+}
+
+/// Н4, Н5: the `403 subscription_required` of a user whose effective plan does not allow
+/// sending; `Ok` otherwise. Call it inside the transaction of the write it guards.
+pub(crate) fn require_subscription(
+    state: &AppState,
+    conn: &Connection,
+    user_id: i64,
+) -> Result<(), crate::http::util::ApiError> {
+    if resolve_user(state, conn, user_id)?.limits.sync {
+        Ok(())
+    } else {
+        Err(subscription_required())
+    }
+}
+
+/// The error of Н4: an ordinary one, with no details about the plan.
+pub(crate) fn subscription_required() -> crate::http::util::ApiError {
+    crate::http::util::ApiError::new(
+        axum::http::StatusCode::FORBIDDEN,
+        amby_sync_proto::error_code::SUBSCRIPTION_REQUIRED,
+        "the plan does not allow sending changes",
+    )
 }
 
 /// The size of the live body of `item` in `space` (the latest, not deleted version), which a

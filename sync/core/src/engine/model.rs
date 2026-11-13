@@ -142,6 +142,9 @@ pub struct PassLimits {
     pub free_bytes: Option<u64>,
     /// Did a file wait because the quota is full (Д75)?
     pub quota_full: bool,
+    /// The plan does not allow sending (Н9): the account said so or a `403` did. New and edited
+    /// files wait; deletions and receiving go on.
+    pub subscription_required: bool,
 }
 
 impl PassLimits {
@@ -153,6 +156,7 @@ impl PassLimits {
             max_file_source: LimitSource::Server,
             free_bytes: None,
             quota_full: false,
+            subscription_required: false,
         }
     }
 }
