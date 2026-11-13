@@ -292,7 +292,7 @@ fn nothing_is_deleted_or_squeezed_when_the_subscription_goes() {
     assert_eq!(d.account.overview()["usage"]["live_bytes"], 1_000);
     // and when the subscription comes back, sending works again
     pin(&target, &d.account, "pro");
-    d.space.commit_ok(&[d.prepared.clone()]);
+    d.space.commit_ok(std::slice::from_ref(&d.prepared));
     assert_eq!(d.space.all_changes(0).len(), 2);
 }
 
@@ -426,6 +426,11 @@ fn a_commit_accepted_before_is_answered_again_after_the_subscription_is_gone() {
         .commit_with(&commit_id, std::slice::from_ref(&item))
         .expect(200)
         .json();
+    // П28: a replay is the earlier answer marked `"replayed": true`.
+    assert_eq!(again["replayed"], true, "marked as a replay");
+    let (mut again, mut first) = (again, first);
+    again["replayed"] = serde_json::Value::Null;
+    first["replayed"] = serde_json::Value::Null;
     assert_eq!(again, first, "the earlier answer");
     assert_eq!(space.all_changes(0).len(), 1, "applied once");
 }

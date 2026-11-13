@@ -100,11 +100,14 @@ fn counts(db: &Path) -> Vec<(String, i64)> {
     TABLES
         .iter()
         .map(|table| {
-            let n: i64 = conn
-                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
-                    row.get(0)
-                })
-                .unwrap();
+            // П58, Н7: the migration itself adds the record `meta.last_migration`; the other
+            // rows of `meta` and of every table stay as they were.
+            let sql = if *table == "meta" {
+                "SELECT COUNT(*) FROM meta WHERE key != 'last_migration'".to_string()
+            } else {
+                format!("SELECT COUNT(*) FROM {table}")
+            };
+            let n: i64 = conn.query_row(&sql, [], |row| row.get(0)).unwrap();
             (table.to_string(), n)
         })
         .collect()

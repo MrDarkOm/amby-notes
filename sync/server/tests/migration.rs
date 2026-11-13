@@ -33,11 +33,11 @@ fn meta(db: &std::path::Path, key: &str) -> Option<Vec<u8>> {
 
 #[test]
 fn a_version_1_database_becomes_version_2_with_the_new_columns() {
-    // П58: ALTER … ADD COLUMN users.plan, versions.keep_until_ms, the index; user_version 2.
+    // П58: ALTER … ADD COLUMN users.plan, versions.keep_until_ms, the index; Н7 goes on to 3.
     let dir = tempfile::tempdir().unwrap();
     let legacy = build(dir.path());
     drop(open(dir.path()).expect("a version-1 database must be migrated, not refused"));
-    assert_eq!(user_version(&legacy.db), 2);
+    assert_eq!(user_version(&legacy.db), 3);
     assert!(has_column(&legacy.db, "users", "plan"));
     assert!(has_column(&legacy.db, "versions", "keep_until_ms"));
     let conn = Connection::open(&legacy.db).unwrap();
@@ -91,7 +91,7 @@ fn the_migration_does_not_rewrite_any_existing_data() {
 
 #[test]
 fn a_copy_is_made_before_the_migration_and_it_opens_as_version_1() {
-    // П58: `VACUUM INTO backups/pre-v2-<ms>.db`, checked with quick_check, before the change.
+    // П58: `VACUUM INTO backups/pre-v<N>-<ms>.db` (N = 3 since Н7), checked with quick_check, before the change.
     let dir = tempfile::tempdir().unwrap();
     let legacy = build(dir.path());
     let before = dump(&legacy.db);
@@ -104,7 +104,7 @@ fn a_copy_is_made_before_the_migration_and_it_opens_as_version_1() {
         .to_string_lossy()
         .into_owned();
     assert!(
-        name.starts_with("pre-v2-") && name.ends_with(".db"),
+        name.starts_with("pre-v3-") && name.ends_with(".db"),
         "pre-v<N>-<ms>.db with N the new version: {name}"
     );
     assert_eq!(user_version(&copies[0]), 1, "the copy is the old version");
@@ -131,7 +131,7 @@ fn the_result_is_recorded_in_meta_so_that_a_person_can_find_the_copy() {
     let raw = meta(&legacy.db, "last_migration").expect("`meta.last_migration` must be written");
     let record: serde_json::Value = serde_json::from_slice(&raw).expect("a JSON object");
     assert_eq!(record["from"], 1);
-    assert_eq!(record["to"], 2);
+    assert_eq!(record["to"], 3);
     assert!(record["at_ms"].as_i64().unwrap() >= START_MS);
     let copy = backups(dir.path())[0]
         .file_name()
@@ -152,7 +152,7 @@ fn starting_again_does_not_migrate_or_copy_again() {
     drop(open(dir.path()).expect("the second start"));
     assert_eq!(backups(dir.path()), copies);
     assert_eq!(meta(&legacy.db, "last_migration").unwrap(), record);
-    assert_eq!(user_version(&legacy.db), 2);
+    assert_eq!(user_version(&legacy.db), 3);
 }
 
 #[test]
@@ -190,7 +190,7 @@ fn a_fresh_database_is_made_at_version_2_without_a_copy() {
     let dir = tempfile::tempdir().unwrap();
     drop(open(dir.path()).expect("a fresh data directory"));
     let db = dir.path().join("amby-sync.db");
-    assert_eq!(user_version(&db), 2);
+    assert_eq!(user_version(&db), 3);
     assert!(has_column(&db, "users", "plan"));
     assert!(has_column(&db, "versions", "keep_until_ms"));
     assert!(backups(dir.path()).is_empty());
