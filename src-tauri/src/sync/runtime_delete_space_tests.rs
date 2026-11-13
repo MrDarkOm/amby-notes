@@ -200,7 +200,14 @@ fn assert_snapshot(vault: &TempVault, expected: &BTreeMap<String, Vec<u8>>) {
 /// application must not turn the old-server response into a confirmed deletion (Л5).
 type RequestLog = Arc<Mutex<Vec<String>>>;
 
+/// The keys of the test account as the server gives them: the deletion reads them first to prove the
+/// password on this device (appendix Ц, Ц2).
+fn env_keys(env: &Env) -> Value {
+    env.account.get("/v1/keys").expect(200).json()
+}
+
 fn old_server(
+    keys: Value,
     listing: String,
     delete_status: u16,
 ) -> (String, RequestLog, std::thread::JoinHandle<()>) {
@@ -223,7 +230,8 @@ fn old_server(
         }
     );
     let handle = std::thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(2);
+        // The password is proved first (Ц2): Argon2 takes a second or two in a debug build.
+        let deadline = Instant::now() + Duration::from_secs(15);
         while Instant::now() < deadline {
             let mut stream = match listener.accept() {
                 Ok((stream, _)) => stream,
@@ -242,7 +250,9 @@ fn old_server(
                 .lock()
                 .unwrap()
                 .push(head.lines().next().unwrap_or_default().to_string());
-            let (status, response_body) = if head.starts_with("DELETE /v1/spaces/") {
+            let (status, response_body) = if head.starts_with("GET /v1/keys ") {
+                ("200 OK".to_string(), keys.to_string())
+            } else if head.starts_with("DELETE /v1/spaces/") {
                 (format!("{delete_status} {reason}"), body.clone())
             } else if head.starts_with("GET /v1/spaces ") {
                 ("200 OK".to_string(), listing.clone())
@@ -267,6 +277,7 @@ struct HeldDeleteControl {
     requests: RequestLog,
     spaces: Arc<Mutex<Vec<Value>>>,
     info: Value,
+    keys: Value,
     changes_started: Arc<AtomicBool>,
     hold_changes: Arc<AtomicBool>,
     release_changes: Arc<AtomicBool>,
@@ -285,7 +296,13 @@ struct HeldDeleteServer {
 }
 
 impl HeldDeleteServer {
-    fn new(vault_root: Option<PathBuf>, hold_delete: bool, drop_delete: bool, info: Value) -> Self {
+    fn new(
+        vault_root: Option<PathBuf>,
+        hold_delete: bool,
+        drop_delete: bool,
+        info: Value,
+        keys: Value,
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -293,6 +310,7 @@ impl HeldDeleteServer {
             requests: Arc::new(Mutex::new(Vec::new())),
             spaces: Arc::new(Mutex::new(Vec::new())),
             info,
+            keys,
             changes_started: Arc::new(AtomicBool::new(false)),
             hold_changes: Arc::new(AtomicBool::new(false)),
             release_changes: Arc::new(AtomicBool::new(true)),
@@ -305,7 +323,9 @@ impl HeldDeleteServer {
         };
         let accept_control = control.clone();
         let accept_thread = thread::spawn(move || {
-            let deadline = Instant::now() + Duration::from_secs(15);
+            // Ends by `stop`; the deadline is only a guard. Proving the password (Ц2) runs Argon2,
+            // which is slow when several tests do it at once.
+            let deadline = Instant::now() + Duration::from_secs(60);
             while !accept_control.stop.load(Ordering::SeqCst) && Instant::now() < deadline {
                 let (stream, _) = match listener.accept() {
                     Ok(pair) => pair,
@@ -409,6 +429,8 @@ fn serve_held_request(
                 r#"{"error":{"code":"not_found","message":"gone"}}"#.to_string(),
             )
         }
+    } else if request_line.starts_with("GET /v1/keys ") {
+        ("200 OK", control.keys.to_string())
     } else if request_line.starts_with("GET /v1/info ") {
         ("200 OK", control.info.clone().to_string())
     } else if request_line.starts_with("GET /v1/spaces/") && request_line.contains("/changes?") {
@@ -512,7 +534,8 @@ fn the_stopped_state_is_persisted_before_the_delete_request() {
     let paths = seed_local_files(&vault);
     let expected = snapshot(&vault, &paths);
     let info = env.account.get("/v1/info").expect(200).json();
-    let server = HeldDeleteServer::new(Some(vault.root.clone()), false, false, info);
+    let server =
+        HeldDeleteServer::new(Some(vault.root.clone()), false, false, info, env_keys(&env));
     let pc = computer_at(&env, &env.account, &server.url);
     let space_id = enable_new(&env, &pc, &vault, "Order");
 
@@ -545,7 +568,8 @@ fn delete_waits_for_an_active_pass_before_sending_the_request() {
     let env = Env::new();
     let vault = TempVault::new("delete-active-pass");
     let info = env.account.get("/v1/info").expect(200).json();
-    let server = HeldDeleteServer::new(Some(vault.root.clone()), false, false, info);
+    let server =
+        HeldDeleteServer::new(Some(vault.root.clone()), false, false, info, env_keys(&env));
     let pc = computer_at(&env, &env.account, &server.url);
     let space_id = enable_new(&env, &pc, &vault, "Active pass");
     let before = pc.recorder.passes_started();
@@ -598,7 +622,7 @@ fn a_stale_delete_response_cannot_disable_a_new_current_vault() {
     // the old response must not apply its stop/forget result to the new current link.
     let env = Env::new();
     let info = env.account.get("/v1/info").expect(200).json();
-    let server = HeldDeleteServer::new(None, true, false, info);
+    let server = HeldDeleteServer::new(None, true, false, info, env_keys(&env));
     let old = computer_at(&env, &env.account, &server.url);
     let old_vault = TempVault::new("delete-stale-old");
     let old_id = enable_new(&env, &old, &old_vault, "Old current");
@@ -690,7 +714,7 @@ fn a_stale_delete_response_cannot_replace_switched_account_credentials() {
     // the connection record and key store have moved to a different account.
     let env = Env::new();
     let info = env.account.get("/v1/info").expect(200).json();
-    let server = HeldDeleteServer::new(None, true, false, info);
+    let server = HeldDeleteServer::new(None, true, false, info, env_keys(&env));
     let pc = computer_at(&env, &env.account, &server.url);
     let vault = TempVault::new("delete-stale-account");
     let old_id = enable_new(&env, &pc, &vault, "Old account");
@@ -817,8 +841,10 @@ fn deleting_another_space_leaves_the_current_vault_running() {
 
 #[test]
 fn a_server_refusal_keeps_local_files_and_is_not_reported_as_success() {
-    // Л6, Л7, Л8: inject an authorization refusal after a real link was made. The application
-    // must surface the refusal, keep the local link for retry, and preserve bytes.
+    // Л6, Л7, Л8, Ц2: inject an authorization refusal after a real link was made. The application
+    // must surface the refusal, keep the local link for retry, and preserve bytes. Since Ц2 the
+    // token is refused already when the password is proved, before sync is stopped, so the vault
+    // keeps syncing as it was.
     let env = Env::new();
     let pc = computer(&env, &env.another_computer("Refused delete"));
     let vault = TempVault::new("delete-refused");
@@ -833,7 +859,10 @@ fn a_server_refusal_keeps_local_files_and_is_not_reported_as_success() {
     assert_eq!(error.code, "unauthorized");
 
     let status = pc.runtime.status();
-    assert!(!status.enabled, "a failed delete remains stopped");
+    assert!(
+        status.enabled,
+        "nothing was stopped before the refusal (Ц2)"
+    );
     assert!(status.linked, "the link remains retryable after refusal");
     assert_eq!(status.space_id.as_deref(), Some(space_id.as_str()));
     assert_eq!(
@@ -842,7 +871,7 @@ fn a_server_refusal_keeps_local_files_and_is_not_reported_as_success() {
             .meta(META_ENABLED)
             .unwrap()
             .as_deref(),
-        Some("0")
+        Some("1")
     );
     assert!(server_has_space(&env, &space_id));
     assert_snapshot(&vault, &expected);
@@ -854,7 +883,7 @@ fn a_lost_delete_response_keeps_the_link_disabled_and_can_be_retried() {
     // disabled link remain, while a retry is accepted only after GET proves the id absent.
     let env = Env::new();
     let info = env.account.get("/v1/info").expect(200).json();
-    let server = HeldDeleteServer::new(None, false, false, info);
+    let server = HeldDeleteServer::new(None, false, false, info, env_keys(&env));
     let pc = computer_at(&env, &env.account, &server.url);
     let vault = TempVault::new("delete-lost-response");
     let space_id = enable_new(&env, &pc, &vault, "Lost response");
@@ -903,7 +932,8 @@ fn an_old_server_404_or_405_is_not_reported_as_a_confirmed_deletion() {
     let space_id = hex::encode(env.space_id);
     let listing = env.account.get("/v1/spaces").expect(200).text();
     for delete_status in [404, 405] {
-        let (server_url, requests, server_thread) = old_server(listing.clone(), delete_status);
+        let (server_url, requests, server_thread) =
+            old_server(env_keys(&env), listing.clone(), delete_status);
         let pc = computer_at(&env, &env.account, &server_url);
         let error = run(&env, pc.runtime.delete_space(&space_id, ACCOUNT_PASSWORD)).unwrap_err();
         assert!(
@@ -936,7 +966,8 @@ fn a_repeat_delete_accepts_absence_only_after_the_space_list_is_empty() {
     // Л5: a lost response is safe to retry only when the follow-up list proves this id absent.
     let env = Env::new();
     let space_id = hex::encode(env.space_id);
-    let (server_url, requests, server_thread) = old_server(r#"{"spaces":[]}"#.to_string(), 404);
+    let (server_url, requests, server_thread) =
+        old_server(env_keys(&env), r#"{"spaces":[]}"#.to_string(), 404);
     let pc = computer_at(&env, &env.account, &server_url);
 
     let result = run(&env, pc.runtime.delete_space(&space_id, ACCOUNT_PASSWORD));
@@ -972,7 +1003,7 @@ fn an_invalid_space_id_is_rejected_without_touching_the_open_vault() {
     let current_id = enable_new(&env, &pc, &vault, "Valid current");
 
     let listing = env.account.get("/v1/spaces").expect(200).text();
-    let (spy_url, requests, spy_thread) = old_server(listing, 404);
+    let (spy_url, requests, spy_thread) = old_server(env_keys(&env), listing, 404);
     let spy = computer_at(&env, &env.account, &spy_url);
     let error = run(
         &env,
