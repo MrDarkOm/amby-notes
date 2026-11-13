@@ -34,7 +34,7 @@ describe("the cause of a failed update install", () => {
 
   it("passes the privacy filter of the journal as it is", () => {
     for (const code of new Set(cases.map(([, value]) => value))) {
-      expect(sanitizeLogMetadata({ errorCode: code })?.errorCode).toBe(code)
+      expect(sanitizeLogMetadata({ failureCode: code })?.failureCode).toBe(code)
     }
   })
 })
