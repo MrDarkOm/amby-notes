@@ -122,6 +122,10 @@ fn t4_a_rename_of_a_folder_with_2500_files_arrives_whole_and_the_folder_goes_fir
     // Т4, Д18, Д50: several commits in the limits; the folder record before the files by path;
     // the other device ends with every file at the new path, none at the old one.
     let w = world_of_two();
+    // Д45: a folder has its own record only when it was once empty; then Д50 sends it first.
+    w.dev(0).fs.user_mkdir("Proj");
+    w.pass(0);
+    w.pass(1);
     for i in 0..2500 {
         w.save(0, &format!("Proj/sub/f{i:04}.md"), &content(i));
     }
