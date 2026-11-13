@@ -46,10 +46,27 @@ export async function getCurrentAppVersion(): Promise<string> {
 
 /**
  * Why an update could not be installed, as a code the journal may keep (docs/notices.md: no raw
- * error text). Interface stub: the cause is not told apart yet.
+ * error text): only the kind is read from the message of the updater, nothing of it is kept.
  */
 export function updateFailureCode(error: unknown): string {
-  void error
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase()
+  if (message.includes("previous app")) return "PreviousAppNotRestored"
+  if (message.includes("same mount point")) return "TempDirNotOnSameMountPoint"
+  if (message.includes("signature")) return "SignatureInvalid"
+  if (
+    message.includes("permission denied") ||
+    message.includes("operation not permitted") ||
+    message.includes("os error 13") ||
+    message.includes("os error 1)")
+  )
+    return "PermissionDenied"
+  if (
+    message.includes("sending request") ||
+    message.includes("timed out") ||
+    message.includes("network") ||
+    message.includes("connect")
+  )
+    return "NetworkError"
   return "UnknownError"
 }
 
@@ -82,10 +99,16 @@ function wrapUpdate(update: Update): AvailableAppUpdate {
         }
       }
 
-      await update.downloadAndInstall(report, {
-        timeout: DOWNLOAD_TIMEOUT_MS,
-        restartAfterInstall: true,
-      })
+      try {
+        await update.downloadAndInstall(report, {
+          timeout: DOWNLOAD_TIMEOUT_MS,
+          restartAfterInstall: true,
+        })
+      } catch (error) {
+        // The journal keeps why it failed as a code (docs/notices.md), for the setting and for the start.
+        logger.warn("updater.install_failed", { failureCode: updateFailureCode(error) })
+        throw error
+      }
       onProgress?.({ phase: "restarting" })
       const { relaunch } = await import("@tauri-apps/plugin-process")
       await relaunch()

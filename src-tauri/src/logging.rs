@@ -1235,6 +1235,7 @@ fn allowed_event(value: &str) -> bool {
         "unhandled_promise_rejection",
         "unhandled_window_error",
         "updater.automatic_update_failed",
+        "updater.install_failed",
         "updater.version_read_failed",
         "upsert_custom_property",
         "vault.startup_failed",
@@ -1424,6 +1425,7 @@ fn is_failure_code(value: &str) -> bool {
 }
 /// The value of `errorCode` after the privacy filter: a known code as it is, anything else
 /// `UnknownError`.
+#[cfg(test)]
 pub(crate) fn sanitized_error_code(value: &str) -> Option<String> {
     safe_code(value, "errorCode")
 }
@@ -1451,6 +1453,7 @@ fn safe_code(value: &str, key: &str) -> Option<String> {
                 | "FlushTimedOut"
                 | "LockPoisoned"
                 | "OperationFailed"
+                | "NoteNotIndexed"
         ),
         "errorType" => matches!(
             value,
