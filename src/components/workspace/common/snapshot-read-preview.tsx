@@ -58,6 +58,7 @@ export default function SnapshotReadPreview({
       extensions,
       content: doc,
       editable: false,
+      injectCSS: false,
       autofocus: false,
       immediatelyRender: false,
       editorProps,

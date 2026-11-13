@@ -1,5 +1,6 @@
 import * as React from "react"
 import { ArrowLeftRight, Database, Hash } from "lucide-react"
+import { NoticeLine } from "../notices/notice-line"
 import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
 import type { DatabasePropertySummary, DatabaseSummary } from "@/lib/storage"
@@ -7,6 +8,7 @@ import type { RelationConfigState } from "./property-settings"
 import { AmbySelect } from "@/components/ui/amby-select"
 import { SettingInlineRow } from "./property-settings-ui"
 import { usePropertyHasValues } from "./use-property-has-values"
+import { reportOperationError } from "@/lib/operation-errors"
 
 interface Stored {
   targetDatabaseId: string
@@ -81,7 +83,7 @@ export function RelationSettings({
         inversePropertyName: twoWay ? currentDatabaseTitle : "",
       })
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      setError(reportOperationError(failure))
     } finally {
       setBusy(false)
     }
@@ -126,11 +128,7 @@ export function RelationSettings({
           />
         </div>
       </SettingInlineRow>
-      {error && (
-        <p role="alert" className="px-1 pt-1 text-xs leading-snug text-destructive">
-          {error}
-        </p>
-      )}
+      {error && <NoticeLine text={error} className="px-1 pt-1" />}
     </div>
   )
 }

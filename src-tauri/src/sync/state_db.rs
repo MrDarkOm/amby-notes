@@ -548,6 +548,7 @@ fn reason_json(reason: &UnsyncedReason) -> Value {
             },
         }),
         UnsyncedReason::QuotaFull => json!({"t": "quota_full"}),
+        UnsyncedReason::SubscriptionRequired => json!({"t": "subscription_required"}),
         UnsyncedReason::TooBigForMemory => json!({"t": "too_big_for_memory"}),
         UnsyncedReason::ExcludedPath => json!({"t": "excluded_path"}),
         UnsyncedReason::InvalidName(problem) => {
@@ -575,6 +576,7 @@ fn reason_from_json(value: &Value) -> Option<UnsyncedReason> {
             },
         },
         "quota_full" => UnsyncedReason::QuotaFull,
+        "subscription_required" => UnsyncedReason::SubscriptionRequired,
         "too_big_for_memory" => UnsyncedReason::TooBigForMemory,
         "excluded_path" => UnsyncedReason::ExcludedPath,
         "invalid_name" => UnsyncedReason::InvalidName(problem_from_json(value.get("problem")?)?),

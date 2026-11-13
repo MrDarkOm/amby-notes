@@ -12,12 +12,14 @@ export function enqueueNoteMutation<T>(
   run: () => Promise<T>,
 ): Promise<T> {
   const key = keyFor(generation, noteId)
+  // Keeps the queue going: the failure itself reaches the caller of the previous mutation (`task`).
   const task = (queues.get(key) ?? Promise.resolve()).catch(() => {}).then(run)
   queues.set(key, task)
   void task
     .finally(() => {
       if (queues.get(key) === task) queues.delete(key)
     })
+    // Only cleans the queue entry; the failure reaches the caller through the returned `task`.
     .catch(() => {})
   return task
 }
@@ -43,6 +45,7 @@ export function enqueueNotePropertyMutation<T>(
       settled = true
       unregister()
     })
+    // Only cleans the registration; the failure reaches the caller through the returned `task`.
     .catch(() => {})
   return task
 }

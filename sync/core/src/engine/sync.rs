@@ -10,10 +10,9 @@ use crate::crypto::keys::{ItemId, SpaceId, SpaceKey};
 use crate::crypto::random::Random;
 
 use super::apply::ApplyCtx;
-use super::classify::{classify, Lc};
+use super::classify::{applied_hints, classify, Lc};
 use super::decide::{decide, Inputs};
 use super::flow::{Flow, Res};
-use super::merge::is_mergeable_path;
 use super::model::{
     CycleOutcome, CycleReport, CycleRequest, Direction, EngineError, ItemRecord, PassLimits,
     ReadOnlyItem, StateOp, StopReason, SyncState, UnsyncedReason, UnsyncedRecord,
@@ -25,7 +24,7 @@ use super::ports::{
 };
 use super::rules::mass_change_reached;
 use super::scan::scan;
-use super::util::is_unmaterialised;
+use super::util::{is_merge_path, is_unmaterialised};
 
 /// The five ports of one device and one space (Д2).
 pub struct Ports {
@@ -64,7 +63,7 @@ impl EngineConfig {
             vk,
             mass_min_files: 20,
             mass_percent: 10,
-            max_file_bytes: 256 * 1024 * 1024,
+            max_file_bytes: 30_000_000,
         }
     }
 }
@@ -271,6 +270,14 @@ impl Engine {
                     }
                     self.ports.state.apply(&ops)?;
                 }
+                // Н9: refused as a whole, nothing was applied. The record goes; the files are seen
+                // again from the disk below and wait there with their reason, deletions go alone.
+                Err(RemoteError::Rejected { code: reason, .. })
+                    if reason == code::SUBSCRIPTION_REQUIRED =>
+                {
+                    report.limits.subscription_required = true;
+                    self.ports.state.apply(&vec![StateOp::SetCommit(None)])?;
+                }
                 Err(RemoteError::Rejected { code: reason, .. })
                     if reason == code::QUOTA_EXCEEDED =>
                 {
@@ -346,7 +353,12 @@ impl Engine {
         }
 
         // Д10 step 6: decisions for everything, nothing written yet.
-        let classes = classify(&state.items, &disk, &request.rename_hints);
+        let mut hints = request.rename_hints.clone();
+        self.absorb_late_hints(&mut hints);
+        let classes = classify(&state.items, &disk, &hints);
+        self.ports
+            .fs
+            .rename_hints_applied(&applied_hints(&state.items, &classes, &hints));
         let bases = self.load_bases(&state, &classes, &feed.items)?;
         let mut plan = decide(
             &Inputs {
@@ -364,6 +376,13 @@ impl Engine {
         );
         plan.forget
             .extend(forgotten.iter().map(|key| ItemId::from_bytes(*key)));
+
+        // З32: too many properties would vanish from the groups, counted over the whole pass.
+        if !approvals.mass_change {
+            if let Some(stop) = self.property_loss(&state, &classes, &plan, &disk)? {
+                return Err(Flow::Stop(stop));
+            }
+        }
 
         // Д54: too many files would change.
         if !approvals.mass_change {
@@ -474,7 +493,7 @@ impl Engine {
         let after = if commit_held {
             None
         } else {
-            self.push(&info, &plan.undelete, &request.rename_hints, report)?
+            self.push(&info, &plan.undelete, &mut hints, report)?
         };
         self.prune_bases()?;
 
@@ -507,9 +526,12 @@ impl Engine {
             max_file_source: LimitSource::Server,
             free_bytes: None,
             quota_full: false,
+            subscription_required: false,
         };
         match self.ports.remote.account() {
             Ok(account) => {
+                // Н9: no subscription, nothing new or edited is sent.
+                limits.subscription_required = !account.sync_allowed;
                 if let Some(max) = account
                     .max_file_bytes
                     .filter(|max| *max < info.max_blob_bytes)
@@ -559,7 +581,7 @@ impl Engine {
                 || is_unmaterialised(record)
                 || srv.version <= record.version
                 || srv.hash == record.content_hash
-                || !is_mergeable_path(&record.path)
+                || !is_merge_path(&record.path)
             {
                 continue;
             }

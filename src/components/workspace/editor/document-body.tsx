@@ -37,10 +37,13 @@ import { IconValue } from "../icon-value"
 import { KNOWN_ICONS } from "../tree/tree-types"
 import type { TreeItem } from "../sidebar-tree"
 import { stripMdExt } from "./document-breadcrumbs-utils"
+import type { RenameOutcome } from "../file-actions/rename-outcome"
 import { DocumentTitle } from "./document-title"
 import { DocumentAreaControls } from "./document-area-controls"
 import { LAYER_OPTIONS, type DocumentViewMode, type EditorLayer } from "./use-document-view-mode"
 import { useViewStateStore, isLayerLocked } from "../use-view-state-store"
+import { useHeldDraftGate } from "../held-drafts-store"
+import { canvasLayerPath, sketchLayerPath } from "../workspace-tree-utils"
 import { EDITOR_CONTENT_WIDTH } from "@/lib/themes"
 import { MotionSpinner } from "@/lib/motion"
 import type { ContentWidth } from "../app-config"
@@ -67,7 +70,7 @@ export interface DocumentBodyProps {
   onFileIconChange?: (icon: string) => void
   editingTitle: boolean
   onEditingTitleChange: (editing: boolean) => void
-  onRenameTitle?: (newName: string) => void
+  onRenameTitle?: (newName: string) => Promise<RenameOutcome | void> | void
   nestedNotes: TreeItem[]
   nestedNotesPlacement: "top" | "bottom" | "hidden"
   onNestedNotesPlacementChange?: (placement: "top" | "bottom" | "hidden") => void
@@ -97,6 +100,8 @@ export interface DocumentBodyProps {
   onScrollPositionChange?: (position: number) => void
   viewModeMenuOpen: boolean
   onViewModeMenuOpenChange: (open: boolean) => void
+  /** The strip of the notices of the note; it is drawn by the floating bar, peeking out from behind it. */
+  notices?: React.ReactNode
   treeItems?: TreeItem[]
 }
 
@@ -161,6 +166,7 @@ export function DocumentBody({
   onScrollPositionChange,
   viewModeMenuOpen,
   onViewModeMenuOpenChange,
+  notices,
   treeItems,
 }: DocumentBodyProps) {
   const { t } = useTranslation()
@@ -228,8 +234,11 @@ export function DocumentBody({
 
   const viewModes = useViewStateStore((s) => s.viewModes)
   const lockedFileIds = useViewStateStore((s) => s.lockedFileIds)
-  const canvasLocked = isLayerLocked(lockedFileIds, viewModes, docId, "canvas")
-  const sketchLocked = isLayerLocked(lockedFileIds, viewModes, docId, "sketch")
+  // A canvas or sketch whose draft question was closed without an answer is read only until it is answered.
+  const canvasHeld = useHeldDraftGate(canvasLayerPath(docPath), activeLayer === "canvas")
+  const sketchHeld = useHeldDraftGate(sketchLayerPath(docPath), activeLayer === "sketch")
+  const canvasLocked = isLayerLocked(lockedFileIds, viewModes, docId, "canvas") || canvasHeld
+  const sketchLocked = isLayerLocked(lockedFileIds, viewModes, docId, "sketch") || sketchHeld
 
   const activeLayerMeta =
     LAYER_OPTIONS.find((option) => option.id === activeLayer) ?? LAYER_OPTIONS[0]
@@ -355,7 +364,7 @@ export function DocumentBody({
   )
 
   return (
-    <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+    <div data-note-area="" className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
       {/* Editor Layer */}
       <div
         aria-hidden={activeLayer !== "editor"}
@@ -443,6 +452,7 @@ export function DocumentBody({
           nestedNotes={nestedNotes}
           nestedNotesPlacement={nestedNotesPlacement}
           onNestedNotesPlacementChange={onNestedNotesPlacementChange}
+          notices={notices}
         />
       </div>
 

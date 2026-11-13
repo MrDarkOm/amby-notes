@@ -119,6 +119,8 @@ export function AiPanel({
       const snapshot = { ...current, messages, updatedAt: new Date().toISOString() }
       if (store.generation === run.generation && store.chat?.id === run.chat.id) {
         store.replace(snapshot)
+        // `save` of the chat store sets its `error` state and the panel shows it; this only stops
+        // the rejection.
         void store.save(snapshot, run.generation).catch(() => {})
       }
     },
@@ -201,6 +203,8 @@ export function AiPanel({
       void useAiChatStore
         .getState()
         .save(updated)
+        // `save` of the chat store sets its `error` state and the panel shows it; this only stops
+        // the rejection.
         .catch(() => {})
   }, [chat, currentDocId, loading, revision])
 
@@ -236,6 +240,8 @@ export function AiPanel({
   const changeChat = React.useCallback((updated: Chat) => {
     const state = useAiChatStore.getState()
     state.replace(updated)
+    // `save` of the chat store sets its `error` state and the panel shows it; this only stops the
+    // rejection.
     if (state.revision) void state.save(updated).catch(() => {})
   }, [])
 

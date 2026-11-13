@@ -18,7 +18,6 @@ import {
   createWorkshopSection,
   type WorkshopSummary,
 } from "@/lib/storage"
-import { projectErrorText } from "./project-error"
 import { projectLabels } from "./project-labels"
 import {
   levelChain,
@@ -29,6 +28,7 @@ import {
   type TextSchemaChoice,
 } from "./text-schema-presets"
 import { useOperationId } from "./use-operation-id"
+import { ShownError, projectErrorText } from "@/lib/operation-errors"
 
 export type CreativeCreationKind = "story" | "universe"
 
@@ -112,7 +112,7 @@ export function CreateProjectDialog({
     setError(null)
     try {
       if (kind === "story") {
-        if (!workshop) throw new Error(t("creative.errors.projectNotFound"))
+        if (!workshop) throw new ShownError(t("creative.errors.projectNotFound"))
         const created = await createStory({
           expectedGeneration: vaultGeneration,
           operationId: operationId(),
@@ -123,7 +123,7 @@ export function CreateProjectDialog({
         })
         onCreated({ kind: "story", id: created.storyId, cardNoteId: created.cardNoteId })
       } else if (kind === "universe") {
-        if (!workshop) throw new Error(t("creative.errors.projectNotFound"))
+        if (!workshop) throw new ShownError(t("creative.errors.projectNotFound"))
         // A universe is a page of the "Universes" base, made the way any world page is.
         let sectionId = workshop.sections.find((s) => s.role === "universes")?.id
         if (!sectionId) {

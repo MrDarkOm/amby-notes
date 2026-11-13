@@ -111,11 +111,6 @@ pub fn is_standalone_database_dir(path: &Path) -> bool {
     let manifest_path = crate::database::discovery::manifest_path_for_container(path);
     if let Ok(bytes) = fs::read(&manifest_path) {
         if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-            if value.get("format").and_then(|v| v.as_str()) == Some("amby-database")
-                || value.get("databaseId").is_some()
-            {
-                return true;
-            }
             if let Some(kind) = value
                 .get("containerKind")
                 .or_else(|| value.get("kind"))
@@ -123,23 +118,28 @@ pub fn is_standalone_database_dir(path: &Path) -> bool {
             {
                 return kind == "standalone";
             }
+            if value.get("format").and_then(|v| v.as_str()) == Some("amby-database")
+                || value.get("databaseId").is_some()
+            {
+                return true;
+            }
         }
     }
     let legacy_manifest = path.join("ambd.json");
     if legacy_manifest.is_file() {
         if let Ok(bytes) = fs::read(&legacy_manifest) {
             if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                if value.get("format").and_then(|v| v.as_str()) == Some("amby-database")
-                    || value.get("databaseId").is_some()
-                {
-                    return true;
-                }
                 if let Some(kind) = value
                     .get("containerKind")
                     .or_else(|| value.get("kind"))
                     .and_then(|v| v.as_str())
                 {
                     return kind == "standalone";
+                }
+                if value.get("format").and_then(|v| v.as_str()) == Some("amby-database")
+                    || value.get("databaseId").is_some()
+                {
+                    return true;
                 }
             }
         }
@@ -433,6 +433,44 @@ mod tests {
         let path = std::env::temp_dir().join(format!("amby-tree-{name}-{nanos}"));
         std::fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    #[test]
+    fn attached_database_keeps_its_main_note_identity() {
+        let vault = temp_vault("attached-database-identity");
+        let dir = vault.join("Note");
+        fs::create_dir_all(&dir).unwrap();
+        let note_path = dir.join("Note.md");
+        fs::write(&note_path, "body").unwrap();
+        let notes = vec![IndexedNote {
+            id: "note-id".into(),
+            path: path_string(&note_path),
+            title: "Note".into(),
+            modified: None,
+            word_count: 1,
+        }];
+        for filename in ["Note.json", "ambd.json"] {
+            let manifest = dir.join(filename);
+            fs::write(
+                &manifest,
+                serde_json::to_vec(&serde_json::json!({
+                    "format": "amby-database",
+                    "formatVersion": 1,
+                    "containerKind": "attached",
+                    "databaseId": "database-id",
+                    "name": "Note"
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            let tree = build_tree(&vault, &notes).unwrap();
+            assert_eq!(tree.len(), 1);
+            assert_eq!(tree[0].id, "note-id");
+            assert_eq!(tree[0].path, path_string(&note_path));
+            assert_eq!(tree[0].item_type, "file");
+            fs::remove_file(manifest).unwrap();
+        }
+        fs::remove_dir_all(vault).unwrap();
     }
 
     #[test]

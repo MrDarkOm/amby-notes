@@ -9,6 +9,7 @@ use amby_sync_client::{BlobDownload, ClientError, DeviceToken, SyncClient};
 use amby_sync_core::crypto::keys::{BodyId, ItemId};
 use amby_sync_core::engine::{
     AccountInfo, BlobState, ChangesPage, CommitItem, CommitReply, Remote, RemoteError, ServerInfo,
+    VersionEntry,
 };
 
 /// A signed-in device and a space.
@@ -116,6 +117,7 @@ impl Remote for HttpRemote {
             max_total_bytes: view.limits.max_total_bytes,
             live_bytes: view.usage.live_bytes,
             pending_bytes: view.usage.pending_bytes,
+            sync_allowed: view.plan.sync,
         })
     }
 
@@ -177,6 +179,14 @@ impl Remote for HttpRemote {
             at: 0,
             done: false,
         }))
+    }
+
+    /// Appendix И, И2: `GET …/items/{item}/versions` (П33). A `404` is the usual
+    /// [`RemoteError::Rejected`].
+    fn versions(&mut self, item: &ItemId) -> Result<Vec<VersionEntry>, RemoteError> {
+        self.handle
+            .block_on(self.client.item_versions(&self.token, &self.space, item))
+            .map_err(remote_error)
     }
 
     fn commit(

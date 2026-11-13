@@ -31,6 +31,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
+import { reportOperationError } from "@/lib/operation-errors"
 import {
   STANDARD_MODULES,
   toCanonicalModuleId,
@@ -117,6 +118,8 @@ export function HistorySettings() {
           setEnabled(localStorage.getItem("amby:history-disabled") !== "true")
         }
       })
+      // The settings could not be read: the fields keep their defaults and the settings file is not
+      // touched.
       .catch(() => {})
     return () => {
       mounted = false
@@ -171,7 +174,8 @@ export function HistorySettings() {
         setNotice(t("settings.history.nothingToPrune"))
       }
     } catch (err) {
-      setNotice(String(err))
+      // The text of the failure is ours; what the storage said goes to the debug log with its code.
+      setNotice(reportOperationError(err))
     } finally {
       setIsPruning(false)
     }
@@ -297,6 +301,8 @@ export function AiTab() {
 
   const update = (next: AiSettings) => {
     setAi(next)
+    // The failed save is already reported by the settings window (emitSettingsSaveError); nothing
+    // more to do here.
     void saveSettingsPatch({ ai: next }).catch(() => {})
   }
 
@@ -466,6 +472,8 @@ export function ModulesTab({
           )
         }
       })
+      // The settings could not be read: the lists keep their defaults and the settings file is not
+      // touched.
       .catch(() => {})
 
     loadGlobalModulesRegistry()
@@ -475,6 +483,8 @@ export function ModulesTab({
           setIsRegistryLoaded(true)
         }
       })
+      // The registry could not be read: the list of installed modules stays as it was and the file
+      // is not touched.
       .catch(() => {})
 
     return () => {

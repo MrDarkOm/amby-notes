@@ -1,19 +1,14 @@
 import type { ActivityButton, PanelId, Side, ActionContext } from "../panel-registry"
 import type { AppPreferences, DockPreferences, PanelScope, WindowPreferences } from "../app-config"
 import type { ModuleContext } from "../modules"
-import type { RefreshSyncState } from "../sync/use-refresh-sync"
+import type { RefreshSync } from "../sync/use-refresh-sync"
 import { collapseButtonsToLeft } from "../activity-buttons"
 import { useSidebarLayout } from "../use-sidebar-layout"
 import * as React from "react"
 import type { SettingsNavigationTarget } from "../settings-navigation"
 
 interface UseWorkspaceDockParams {
-  refreshSync: {
-    refresh: () => Promise<void>
-    state: RefreshSyncState
-    busy: boolean
-    error: unknown
-  }
+  refreshSync: RefreshSync
   presetOptions: { id: string; label: string; hint: string }[]
   activePresetId: string
   switchPreset: (id: string, ctx: ModuleContext) => Promise<boolean>

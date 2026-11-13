@@ -14,24 +14,24 @@ const STRENGTH_BAR = [
   "w-full bg-primary",
 ]
 
-/** The strength of a password in words, with the main weakness and one piece of advice. */
+/**
+ * The strength of a password in one line: what is still missing, or that it is too simple or
+ * known, or how good it is. The block keeps its height so that the form below does not move.
+ */
 export function PasswordStrength({ check }: { check: PasswordCheck }) {
-  const { t, i18n } = useTranslation()
-  const label = check.tooShort
-    ? t("sync.password.tooShort")
-    : check.score <= 2
-      ? t("sync.password.weak")
-      : check.score === 3
-        ? t("sync.password.good")
-        : t("sync.password.great")
-  const hint = (kind: "warnings" | "suggestions", name: string | undefined) => {
-    const key = `sync.password.${kind}.${name}`
-    return name && i18n.exists(key) ? t(key) : null
-  }
-  const warning = check.ok ? null : hint("warnings", check.warning ?? undefined)
-  const advice = check.ok ? null : hint("suggestions", check.suggestions[0])
+  const { t } = useTranslation()
+  const label =
+    check.missing.length > 0
+      ? t("sync.password.needs", {
+          items: check.missing.map((name) => t(`sync.password.missing.${name}`)).join(", "),
+        })
+      : !check.ok
+        ? t("sync.password.weak")
+        : check.score === 3
+          ? t("sync.password.good")
+          : t("sync.password.great")
   return (
-    <div role="status" data-testid="password-strength" className="space-y-1">
+    <div role="status" data-testid="password-strength" className="min-h-[1.75rem] space-y-1">
       <div className="h-1 overflow-hidden rounded-full bg-muted">
         <div
           className={cn("h-full rounded-full", STRENGTH_BAR[check.tooShort ? 0 : check.score])}
@@ -40,11 +40,6 @@ export function PasswordStrength({ check }: { check: PasswordCheck }) {
       <p className={cn("text-[12px]", check.ok ? "text-muted-foreground" : "text-destructive")}>
         {label}
       </p>
-      {(warning || advice) && (
-        <p className="text-[11px] text-muted-foreground">
-          {[warning, advice].filter(Boolean).join(" ")}
-        </p>
-      )}
     </div>
   )
 }
@@ -75,9 +70,9 @@ export function NewPasswordFields({
   onValidChange,
 }: NewPasswordFieldsProps) {
   const { t } = useTranslation()
-  const verdict = usePasswordVerdict(port, password, username)
+  const { check, shown } = usePasswordVerdict(port, password, username)
   const same = password === repeat
-  const valid = Boolean(verdict?.ok) && same && password.length > 0
+  const valid = Boolean(check?.ok) && same && password.length > 0
   React.useEffect(() => onValidChange(valid), [onValidChange, valid])
   const passwordId = React.useId()
   const repeatId = React.useId()
@@ -94,7 +89,7 @@ export function NewPasswordFields({
           value={password}
           onChange={(event) => onPasswordChange(event.target.value)}
         />
-        {verdict && <PasswordStrength check={verdict} />}
+        {shown && <PasswordStrength check={shown} />}
       </div>
       <div className="space-y-1.5">
         <label htmlFor={repeatId} className="text-[12px] font-medium">

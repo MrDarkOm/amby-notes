@@ -207,6 +207,7 @@ export function useSidebarLayout({
     if (isTauri())
       await getCurrentWindow()
         .setFullscreen(true)
+        // The full-screen change is refused by the system: the focus mode works in the window.
         .catch(() => {})
   }, [isLeftSidebarOpen, isRightSidebarOpen])
 
@@ -223,6 +224,7 @@ export function useSidebarLayout({
     if (isTauri())
       await getCurrentWindow()
         .setFullscreen(false)
+        // The full-screen change is refused by the system: the window stays as it is.
         .catch(() => {})
   }, [])
 

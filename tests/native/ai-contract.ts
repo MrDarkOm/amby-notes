@@ -434,18 +434,6 @@ export const nativeAiCases: Array<{
         refusedOlderShape = true
       }
       check(refusedOlderShape, "The connections file refuses a section of the older shape")
-      check(
-        (await commands.rollbackAiSettings()).status === "ok",
-        "Rollback sets the connections file aside",
-      )
-      check(
-        (await adapter.readGlobalRaw("ai-connections.json")) === null,
-        "No connections file remains after rollback",
-      )
-      check(
-        (await adapter.readGlobalRaw("settings.json")) === old,
-        "Rollback leaves settings.json as it was",
-      )
       await adapter.writeGlobalRaw("settings.json", previous ?? "{}")
       if (previousConnections !== null) {
         await adapter.writeGlobalRaw("ai-connections.json", previousConnections)

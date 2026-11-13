@@ -1,15 +1,16 @@
 // @vitest-environment happy-dom
 // The notices of a note above the bottom bar (docs/sync-plan.md, stage Э4б, К3): a stack of cards and a
-// bulb with the number. The bulb is there only while there is something to say; urgent cards (a new
+// strip with the most serious card. The strip is there only while there is something to say; urgent cards (a new
 // sync conflict, text in danger) open it by themselves; every warning that used to be a strip above the
 // note is a card here with the same buttons. Behaviour only; how it looks is checked in a native window.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import i18n from "@/lib/i18n"
-import { listTrash, restoreTrash } from "@/lib/storage"
+import { listArchive, listTrash, readNote, restoreArchive, restoreTrash } from "@/lib/storage"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import { useSyncNoticesStore } from "../sync/use-sync-notices-store"
+import { OPEN_PANEL_REQUEST_EVENT } from "../panel-navigation"
 import { NoteNotices, type NoteNoticesProps } from "./note-notices"
 import { useNoteNoticesStore } from "./use-note-notices-store"
 
@@ -18,6 +19,8 @@ vi.mock("@/lib/storage", async (importOriginal) => ({
   readNote: vi.fn(),
   listTrash: vi.fn(),
   restoreTrash: vi.fn(),
+  listArchive: vi.fn(),
+  restoreArchive: vi.fn(),
 }))
 
 const ORIGINAL = "Заметки/идея.md"
@@ -40,7 +43,7 @@ function mount(props: Partial<NoteNoticesProps> = {}) {
   return render(<NoteNotices {...merged} />)
 }
 
-const bulb = () => screen.queryByTestId("note-notices-bulb")
+const bulb = () => screen.queryByTestId("note-notices-strip")
 const stack = () => screen.queryByTestId("note-notices-stack")
 
 beforeEach(async () => {
@@ -57,17 +60,32 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe("the bulb", () => {
+describe("important warnings of the properties", () => {
+  it("open the stack for a lost id and for a property that could not be saved", async () => {
+    mount({ warningKey: "workspace.identityReadOnly" })
+    expect(stack()).not.toBeNull()
+    cleanup()
+    mount()
+    expect(stack()).toBeNull()
+    act(() => useNoteNoticesStore.getState().setPropertyFailed(ABSOLUTE, true))
+    expect(stack()).not.toBeNull()
+    expect(screen.getByTestId("note-notice-property-failed")).toBeTruthy()
+  })
+})
+
+describe("the strip", () => {
   it("is not there while the note has nothing to say", () => {
     mount()
     expect(bulb()).toBeNull()
     expect(stack()).toBeNull()
   })
 
-  it("appears with the number of notices and opens and hides the stack on a click", () => {
-    mount({ warningKey: "workspace.identityReadOnly" })
+  it("shows the most serious card in one line, and opens and hides the stack on a click", () => {
+    mount({ warningKey: "workspace.losslessSourceOnly" })
     const button = bulb()!
-    expect(button.textContent).toContain("1")
+    // one card: its title, and no "+N"
+    expect(button.textContent).toContain(i18n.t("workspace.losslessSourceOnly"))
+    expect(button.textContent).not.toMatch(/\+\d/)
     expect(button.getAttribute("aria-label")).toMatch(/Уведомления заметки: 1/)
     // a warning does not open by itself
     expect(stack()).toBeNull()
@@ -76,13 +94,18 @@ describe("the bulb", () => {
     expect(button.getAttribute("aria-expanded")).toBe("true")
     fireEvent.click(button)
     expect(stack()).toBeNull()
+    expect(button.getAttribute("aria-expanded")).toBe("false")
   })
 
-  it("counts every notice of this note, and no notice of another note", () => {
+  it("counts every other notice of this note as +N, and no notice of another note", () => {
     useSyncNoticesStore.setState({ conflicts: [conflict] })
     useNoteNoticesStore.getState().markRestored(ORIGINAL)
     mount({ warningKey: "workspace.losslessSourceOnly" })
-    expect(bulb()!.textContent).toContain("3")
+    fireEvent.click(bulb()!) // the conflict opened the panel; the pill shows the title and the count
+    expect(bulb()!.textContent).toContain("+2")
+    expect(bulb()!.getAttribute("aria-label")).toMatch(/Уведомления заметки: 3/)
+    // the line shows the most serious one: the conflict
+    expect(bulb()!.textContent).toContain("Заметка «идея» изменена на двух компьютерах")
     cleanup()
     mount({ document: { id: "/vault/Заметки/другая.md", path: "/vault/Заметки/другая.md" } })
     expect(bulb()).toBeNull()
@@ -98,28 +121,38 @@ describe("the bulb", () => {
   })
 
   it("keeps the number in step as notices come and go", () => {
-    mount()
+    const { rerender } = mount()
     expect(bulb()).toBeNull()
-    act(() => useNoteNoticesStore.getState().setSaveFailed(ABSOLUTE, true))
-    expect(bulb()!.textContent).toContain("1")
-    act(() => useSyncNoticesStore.getState().setConflicts([conflict]))
-    expect(bulb()!.textContent).toContain("2")
-    act(() => useNoteNoticesStore.getState().setSaveFailed(ABSOLUTE, false))
-    expect(bulb()!.textContent).toContain("1")
+    act(() => useNoteNoticesStore.getState().markRestored(ORIGINAL))
+    expect(bulb()!.textContent).not.toMatch(/\+\d/)
+    rerender(
+      <NoteNotices
+        document={{ id: ABSOLUTE, path: ABSOLUTE }}
+        warningKey="workspace.losslessSourceOnly"
+      />,
+    )
+    expect(bulb()!.textContent).toContain("+1")
+    rerender(<NoteNotices document={{ id: ABSOLUTE, path: ABSOLUTE }} warningKey={null} />)
+    expect(bulb()!.textContent).not.toMatch(/\+\d/)
+  })
+
+  it("does not draw the old bulb or a stack of its own beside the strip", () => {
+    useNoteNoticesStore.getState().markRestored(ORIGINAL)
+    mount()
+    expect(screen.queryByTestId("note-notices-bulb")).toBeNull()
+    expect(screen.getByTestId("note-notices").contains(bulb())).toBe(true)
   })
 })
 
 describe("what opens the stack by itself", () => {
   it("a new sync conflict, even when the person had hidden the stack", () => {
-    mount({ warningKey: "workspace.identityReadOnly" })
+    mount({ warningKey: "workspace.losslessSourceOnly" })
     fireEvent.click(bulb()!)
     fireEvent.click(bulb()!)
     expect(stack()).toBeNull()
     act(() => useSyncNoticesStore.getState().setConflicts([conflict]))
     expect(stack()).not.toBeNull()
-    expect(
-      within(stack()!).getByText("Пришла другая версия заметки с другого компьютера"),
-    ).toBeTruthy()
+    expect(within(stack()!).getByText("Заметка «идея» изменена на двух компьютерах")).toBeTruthy()
   })
 
   it("a conflict that was already there when the note was opened", () => {
@@ -186,7 +219,8 @@ describe("the warnings that used to be strips above the note", () => {
     ["workspace.unterminatedFrontmatter"],
   ])("%s is a card, with its own text", (key) => {
     mount({ warningKey: key })
-    fireEvent.click(bulb()!)
+    // a lost id opens the stack by itself; the other warnings wait for a click on the bulb
+    if (!stack()) fireEvent.click(bulb()!)
     expect(within(stack()!).getByText(i18n.t(key))).toBeTruthy()
   })
 
@@ -197,8 +231,8 @@ describe("the warnings that used to be strips above the note", () => {
       canRestoreDeleted: true,
       onRestoreDeleted,
     })
-    expect(within(stack()!).getByText("Файл удалён")).toBeTruthy()
-    fireEvent.click(within(stack()!).getByRole("button", { name: "Восстановить файл" }))
+    expect(within(stack()!).getByText("Файл удалён вне Amby. Текст ещё открыт здесь")).toBeTruthy()
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Вернуть" }))
     await waitFor(() => expect(onRestoreDeleted).toHaveBeenCalledTimes(1))
   })
 
@@ -208,9 +242,11 @@ describe("the warnings that used to be strips above the note", () => {
       canRestoreDeleted: true,
       onRestoreDeleted: vi.fn().mockRejectedValue(new Error("no")),
     })
-    fireEvent.click(within(stack()!).getByRole("button", { name: "Восстановить файл" }))
-    expect(await within(stack()!).findByText("Не удалось восстановить файл.")).toBeTruthy()
-    expect(within(stack()!).getByText("Файл удалён")).toBeTruthy()
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Вернуть" }))
+    expect(
+      await within(stack()!).findByText("Не удалось вернуть заметку. Текст остаётся открытым."),
+    ).toBeTruthy()
+    expect(within(stack()!).getByText("Файл удалён вне Amby. Текст ещё открыт здесь")).toBeTruthy()
   })
 
   it("offers to close the tab when the deleted file cannot be restored", () => {
@@ -220,7 +256,7 @@ describe("the warnings that used to be strips above the note", () => {
       canRestoreDeleted: false,
       onCloseTab,
     })
-    fireEvent.click(within(stack()!).getByRole("button", { name: "Закрыть" }))
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Закрыть заметку" }))
     expect(onCloseTab).toHaveBeenCalledTimes(1)
   })
 
@@ -258,18 +294,37 @@ describe("the warnings that used to be strips above the note", () => {
     })
     mount({ document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true } })
     expect(within(stack()!).queryByText("Автосохранение приостановлено")).toBeNull()
-    expect(within(stack()!).getByText("Файл удалён")).toBeTruthy()
+    expect(within(stack()!).getByText("Файл удалён вне Amby. Текст ещё открыт здесь")).toBeTruthy()
   })
 })
 
 describe("a second version from another computer", () => {
-  it("is a card in the main file and in the copy, with a hint about the other file", () => {
+  it("is a card with a title, one line that the data is safe and one button, in the note and in an old copy", () => {
     useSyncNoticesStore.setState({ conflicts: [conflict] })
     mount()
-    expect(within(stack()!).getByText(`Копия: «${COPY}».`)).toBeTruthy()
+    const card = within(stack()!).getByTestId("note-notice-sync-conflict")
+    expect(within(card).getByText("Заметка «идея» изменена на двух компьютерах")).toBeTruthy()
+    expect(within(card).getByText("Обе версии целы")).toBeTruthy()
+    expect(within(card).getAllByRole("button")).toHaveLength(1)
+    expect(within(card).getByRole("button", { name: "Сравнить" })).toBeTruthy()
     cleanup()
     mount({ document: { id: `/vault/${COPY}`, path: `/vault/${COPY}` } })
-    expect(within(stack()!).getByText(`Основной файл: «${ORIGINAL}».`)).toBeTruthy()
+    const copyCard = within(stack()!).getByTestId("note-notice-sync-conflict")
+    expect(within(copyCard).getByText("Заметка «идея» изменена на двух компьютерах")).toBeTruthy()
+  })
+
+  it("names no path, no extension and none of the service words", () => {
+    useSyncNoticesStore.setState({ conflicts: [conflict] })
+    mount()
+    const text = within(stack()!).getByTestId("note-notice-sync-conflict").textContent ?? ""
+    expect(text).not.toMatch(/\.md|Заметки\/|conflict|\.amby/)
+    expect(text).not.toMatch(/копи|основн|идентификатор/i)
+  })
+
+  it("says that two notes created at once were created, not edited", () => {
+    useSyncNoticesStore.setState({ conflicts: [{ ...conflict, kind: "bothCreated" }] })
+    mount()
+    expect(within(stack()!).getByText("Заметка «идея» создана на двух компьютерах")).toBeTruthy()
   })
 
   it("opens the comparison from the card", () => {
@@ -287,39 +342,160 @@ describe("a second version from another computer", () => {
   })
 })
 
-describe("a note deleted on another computer", () => {
-  const message = "Эту заметку удалили на другом компьютере. Она в архиве хранилища"
-
-  it("is a card with a way back, and it steps in front of the general “deleted” card", () => {
-    act(() => useSyncNoticesStore.getState().markRemoteDeleted(ORIGINAL))
-    mount({ document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true } })
-    expect(within(stack()!).getByText(message)).toBeTruthy()
-    expect(within(stack()!).queryByText("Файл удалён")).toBeNull()
-    expect(bulb()!.textContent).toContain("1")
+describe("what was done after a choice in the comparison", () => {
+  const outcome = (choice: "keepOriginal" | "keepCopy" | "keepBoth" | "assembled") => ({
+    conflictId: "0123456789ab",
+    path: ORIGINAL,
+    name: "идея",
+    choice,
+    where: "card" as const,
   })
 
-  it("brings the file back from the archive of the vault and the card goes away", async () => {
-    vi.mocked(listTrash).mockResolvedValue([
-      { id: "t1", originalPath: ABSOLUTE, deletedAtMs: 2, name: "идея" },
-    ] as never)
-    act(() => useSyncNoticesStore.getState().markRemoteDeleted(ORIGINAL))
-    mount({ document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true } })
-    fireEvent.click(within(stack()!).getByRole("button", { name: "Вернуть" }))
-    await waitFor(() => expect(restoreTrash).toHaveBeenCalledWith("t1"))
-    await waitFor(() => expect(screen.queryByText(message)).toBeNull())
+  it.each([
+    [
+      "keepOriginal",
+      "Оставлена версия в заметке «идея». Вторая версия — в корзине хранилища.",
+      false,
+    ],
+    ["keepCopy", "В заметке «идея» теперь вторая версия. Прежняя — в истории заметки.", true],
+    ["keepBoth", "Обе версии заметки «идея» сохранены: вторая стала отдельной заметкой.", false],
+    [
+      "assembled",
+      "Заметка «идея» собрана из выбранных частей. Прежняя версия — в истории заметки.",
+      true,
+    ],
+  ] as const)(
+    "%s is an info card that says where the other version went",
+    (choice, text, history) => {
+      useSyncNoticesStore.setState({ outcomes: [outcome(choice)] })
+      mount()
+      fireEvent.click(bulb()!)
+      const card = within(stack()!).getByTestId("note-notice-conflict-outcome")
+      expect(card.getAttribute("data-level")).toBe("info")
+      expect(within(card).getByText(text)).toBeTruthy()
+      // history is offered only where a version really went to the history of the note
+      expect(Boolean(within(card).queryByRole("button", { name: "Открыть историю" }))).toBe(history)
+      expect(within(card).getByRole("button", { name: "Закрыть" })).toBeTruthy()
+      expect(card.textContent).not.toMatch(/\.md|\.amby|копи/)
+    },
+  )
+
+  it("does not open the stack by itself: it is news, not a question", () => {
+    useSyncNoticesStore.setState({ outcomes: [outcome("keepCopy")] })
+    mount()
+    expect(bulb()).not.toBeNull()
+    expect(stack()).toBeNull()
   })
 
-  it("keeps the card and shows an error when the archive does not have it, and the general card returns", async () => {
+  it("opens the history panel from the card", () => {
+    const seen = vi.fn()
+    window.addEventListener(OPEN_PANEL_REQUEST_EVENT, seen)
+    useSyncNoticesStore.setState({ outcomes: [outcome("keepCopy")] })
+    mount()
+    fireEvent.click(bulb()!)
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Открыть историю" }))
+    window.removeEventListener(OPEN_PANEL_REQUEST_EVENT, seen)
+    expect((seen.mock.calls[0]![0] as CustomEvent).detail).toEqual({ panelId: "history" })
+  })
+
+  it("is closed with the button, and is only for the note it is about", () => {
+    useSyncNoticesStore.setState({ outcomes: [outcome("keepCopy")] })
+    mount({ document: { id: "/vault/Заметки/другая.md", path: "/vault/Заметки/другая.md" } })
+    expect(bulb()).toBeNull()
+    cleanup()
+    mount()
+    fireEvent.click(bulb()!)
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Закрыть" }))
+    expect(useSyncNoticesStore.getState().outcomes).toEqual([])
+    expect(bulb()).toBeNull()
+  })
+
+  it("sits below a question: a conflict that is still open comes first", () => {
+    useSyncNoticesStore.setState({
+      conflicts: [{ ...conflict, id: "ba9876543210" }],
+      outcomes: [outcome("keepCopy")],
+    })
+    mount()
+    expect(bulb()!.getAttribute("data-level")).toBe("decision")
+  })
+})
+
+describe("a note deleted on another computer (К12)", () => {
+  const message = "Эту заметку удалили на другом компьютере. Текст ещё открыт здесь"
+
+  it("is a card with two buttons, and it steps in front of the general “deleted” card", () => {
     act(() => useSyncNoticesStore.getState().markRemoteDeleted(ORIGINAL))
     mount({
       document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true },
       canRestoreDeleted: true,
       onRestoreDeleted: vi.fn(),
+      onCloseTab: vi.fn(),
+    })
+    expect(within(stack()!).getByText(message)).toBeTruthy()
+    expect(within(stack()!).queryByText(/в архиве хранилища/)).toBeNull()
+    expect(within(stack()!).queryByText(/Файл удалён вне Amby/)).toBeNull()
+    expect(within(stack()!).getByRole("button", { name: "Вернуть" })).toBeTruthy()
+    expect(within(stack()!).getByRole("button", { name: "Закрыть заметку" })).toBeTruthy()
+    expect(bulb()!.getAttribute("aria-label")).toMatch(/: 1$/)
+  })
+
+  it("«Вернуть» saves the open text at the old path and does not touch the archive", async () => {
+    const restore = vi.fn().mockResolvedValue(undefined)
+    act(() => useSyncNoticesStore.getState().markRemoteDeleted(ORIGINAL))
+    mount({
+      document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true },
+      canRestoreDeleted: true,
+      onRestoreDeleted: restore,
+      onCloseTab: vi.fn(),
     })
     fireEvent.click(within(stack()!).getByRole("button", { name: "Вернуть" }))
-    expect(await within(stack()!).findByText(/Не удалось вернуть заметку из архива/)).toBeTruthy()
+    await waitFor(() => expect(restore).toHaveBeenCalledTimes(1))
+    expect(listTrash).not.toHaveBeenCalled()
     expect(restoreTrash).not.toHaveBeenCalled()
-    await waitFor(() => expect(within(stack()!).getByText("Файл удалён")).toBeTruthy())
+  })
+
+  it("«Закрыть заметку» closes the tab", () => {
+    const close = vi.fn()
+    act(() => useSyncNoticesStore.getState().markRemoteDeleted(ORIGINAL))
+    mount({
+      document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true },
+      canRestoreDeleted: true,
+      onRestoreDeleted: vi.fn(),
+      onCloseTab: close,
+    })
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Закрыть заметку" }))
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps the card and says so when the text cannot be saved back", async () => {
+    act(() => useSyncNoticesStore.getState().markRemoteDeleted(ORIGINAL))
+    mount({
+      document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true },
+      canRestoreDeleted: true,
+      onRestoreDeleted: vi.fn().mockRejectedValue(new Error("disk")),
+      onCloseTab: vi.fn(),
+    })
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Вернуть" }))
+    expect(await within(stack()!).findByText(/Не удалось вернуть заметку/)).toBeTruthy()
+    expect(within(stack()!).getByText(message)).toBeTruthy()
+  })
+})
+
+describe("a file deleted outside Amby (К12)", () => {
+  it("is one card with the same two buttons, no dialog is needed", () => {
+    const close = vi.fn()
+    const restore = vi.fn().mockResolvedValue(undefined)
+    mount({
+      document: { id: ABSOLUTE, path: ABSOLUTE, externallyDeleted: true },
+      canRestoreDeleted: true,
+      onRestoreDeleted: restore,
+      onCloseTab: close,
+    })
+    expect(within(stack()!).getByText("Файл удалён вне Amby. Текст ещё открыт здесь")).toBeTruthy()
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Закрыть заметку" }))
+    expect(close).toHaveBeenCalledTimes(1)
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Вернуть" }))
+    expect(restore).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -375,5 +551,104 @@ describe("a note that came back after a deletion made here", () => {
     expect(within(stack()!).getByText(/Заметку «идея» вернули/)).toBeTruthy()
     fireEvent.click(within(stack()!).getByRole("button", { name: "Закрыть" }))
     expect(bulb()).toBeNull()
+  })
+})
+
+describe("a note archived on another computer (К13)", () => {
+  const title = "Заметку перенесли в архив на другом компьютере"
+  const archived = {
+    id: ABSOLUTE,
+    path: ABSOLUTE,
+    externallyDeleted: true,
+    externallyArchived: true,
+  }
+  const setDoc = (content = "text") =>
+    useDocStore.getState().setDoc(ABSOLUTE, {
+      id: ABSOLUTE,
+      path: ABSOLUTE,
+      title: "идея",
+      content,
+      source: content,
+      revision: "r1",
+      created: "",
+      modified: "",
+      wordCount: 1,
+      externallyDeleted: true,
+      externallyArchived: true,
+    } as never)
+
+  it("is one decision card with two buttons, opened by itself, instead of the “deleted” card", () => {
+    mount({ document: archived, onCloseTab: vi.fn() })
+    expect(stack()).not.toBeNull()
+    expect(within(stack()!).getByText(title)).toBeTruthy()
+    expect(within(stack()!).queryByText(/Файл удалён вне Amby/)).toBeNull()
+    expect(within(stack()!).getByRole("button", { name: "Вернуть из архива" })).toBeTruthy()
+    expect(within(stack()!).getByRole("button", { name: "Закрыть заметку" })).toBeTruthy()
+    expect(bulb()!.getAttribute("aria-label")).toMatch(/: 1$/)
+  })
+
+  it("«Вернуть из архива» moves the file back by К6 and the note is whole again", async () => {
+    setDoc()
+    vi.mocked(listArchive).mockResolvedValue([
+      { id: ORIGINAL, originalPath: ORIGINAL, archivedAtMs: 1, name: "идея.md" },
+    ])
+    vi.mocked(restoreArchive).mockResolvedValue({
+      primaryPath: ABSOLUTE,
+      pathChanges: [],
+      deletedPaths: [],
+    } as never)
+    vi.mocked(readNote).mockResolvedValue({
+      content: "text",
+      revision: "r2",
+      source: "text",
+    } as never)
+    mount({ document: archived, onCloseTab: vi.fn() })
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Вернуть из архива" }))
+    await waitFor(() => expect(restoreArchive).toHaveBeenCalledWith(ORIGINAL))
+    await waitFor(() => {
+      const doc = useDocStore.getState().openDocs[ABSOLUTE]
+      expect(doc.externallyDeleted).toBe(false)
+      expect(doc.externallyArchived).toBe(false)
+    })
+  })
+
+  it("keeps different unsaved text as the usual conflict, never dropping it", async () => {
+    setDoc("my edits")
+    vi.mocked(listArchive).mockResolvedValue([
+      { id: ORIGINAL, originalPath: ORIGINAL, archivedAtMs: 1, name: "идея.md" },
+    ])
+    vi.mocked(restoreArchive).mockResolvedValue({
+      primaryPath: ABSOLUTE,
+      pathChanges: [],
+      deletedPaths: [],
+    } as never)
+    vi.mocked(readNote).mockResolvedValue({
+      content: "old",
+      revision: "r2",
+      source: "old",
+    } as never)
+    mount({ document: archived, onCloseTab: vi.fn() })
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Вернуть из архива" }))
+    await waitFor(() =>
+      expect(useDocStore.getState().externalConflicts[ABSOLUTE]?.externalContent).toBe("old"),
+    )
+    expect(useDocStore.getState().openDocs[ABSOLUTE].content).toBe("my edits")
+  })
+
+  it("says so and keeps the card when the archive has no such file", async () => {
+    setDoc()
+    vi.mocked(listArchive).mockResolvedValue([])
+    mount({ document: archived, onCloseTab: vi.fn() })
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Вернуть из архива" }))
+    await waitFor(() => expect(listArchive).toHaveBeenCalled())
+    expect(restoreArchive).not.toHaveBeenCalled()
+    expect(within(stack()!).getByText(title)).toBeTruthy()
+  })
+
+  it("«Закрыть заметку» closes the tab", () => {
+    const close = vi.fn()
+    mount({ document: archived, onCloseTab: close })
+    fireEvent.click(within(stack()!).getByRole("button", { name: "Закрыть заметку" }))
+    expect(close).toHaveBeenCalledTimes(1)
   })
 })

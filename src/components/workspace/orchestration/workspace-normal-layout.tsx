@@ -3,7 +3,7 @@ import type { ActivityButton, PanelId, Side, PanelRenderProps } from "../panel-r
 import type { LayoutLeafItem, LayoutSplitDivider } from "../split-tree"
 import type { ModuleContext } from "../modules"
 import type { PanelScope } from "../app-config"
-import type { RefreshSyncState } from "../sync/use-refresh-sync"
+import type { RefreshSync } from "../sync/use-refresh-sync"
 import { type SplitPaneOptions, type Tab, useTabsStore } from "../use-tabs-store"
 import type { SpotlightCreateAction } from "../sidebar-search"
 import type { VaultRecord } from "../workspace-picker"
@@ -26,6 +26,8 @@ import { searchNotes, openInExplorer } from "@/lib/storage"
 import { PresetNameDialog } from "../preset-name-dialog"
 import { VaultManagerDialog } from "../vault/vault-manager"
 import { flushEditorSerializations } from "../tiptap/editor-serialization-lifecycle"
+import { motion, useTransform } from "motion/react"
+import { type PanelPresence, usePanelLength, usePanelPresence } from "./use-panel-presence"
 
 interface WorkspaceNormalLayoutProps {
   headerTabs: HeaderTab[]
@@ -70,12 +72,7 @@ interface WorkspaceNormalLayoutProps {
     onPointerDown: (defId: string) => (e: React.PointerEvent<HTMLElement>) => void
   }
   activityBarPresetProps: {
-    refreshSync: {
-      refresh: () => Promise<void>
-      state: RefreshSyncState
-      busy: boolean
-      error: unknown
-    }
+    refreshSync: RefreshSync
     presets: { id: string; label: string; hint: string }[]
     activePresetId: string
     onSwitchPreset: (id: string) => Promise<boolean>
@@ -181,7 +178,6 @@ export function WorkspaceNormalLayout({
   activityBarPresetProps,
   activityDockProps,
   currentHelpContext,
-  isLeftSidebarOpen,
   resizingSide,
   setSidebarHover,
   panelRenderProps,
@@ -190,7 +186,6 @@ export function WorkspaceNormalLayout({
   splitLayout,
   renderPaneLeaf,
   paneDnd,
-  isRightSidebarOpen,
   rightButtons,
   quickOpenMode,
   displayTreeItems,
@@ -220,6 +215,19 @@ export function WorkspaceNormalLayout({
   savePresetAs,
 }: WorkspaceNormalLayoutProps) {
   const { t } = useTranslation()
+  // One progress per side, for the pinned panel, its overlay and the header alike.
+  const leftPanel = usePanelPresence(isLeftSidebarVisible)
+  const rightPanel = usePanelPresence(rightPanelEnabled && isRightSidebarVisible)
+  const leftOverlayWidth = usePanelLength(
+    leftPanel.progress,
+    "4px",
+    "(var(--amby-left-panel-width, 300px) + var(--amby-dock-width))",
+  )
+  const rightOverlayWidth = usePanelLength(
+    rightPanel.progress,
+    "4px",
+    "(var(--amby-right-panel-width, 300px) + var(--amby-dock-width))",
+  )
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       <HeaderTabs
@@ -230,6 +238,8 @@ export function WorkspaceNormalLayout({
         onTabClose={handleTabClose}
         onToggleLeftSidebar={() => toggleSidebar("left")}
         onToggleRightSidebar={() => toggleSidebar("right")}
+        leftPanelProgress={leftPanel.progress}
+        rightPanelProgress={rightPanel.progress}
         isLeftSidebarOpen={isLeftSidebarVisible}
         isRightSidebarOpen={isRightSidebarVisible}
         isLeftDockPinned={leftDockPinned}
@@ -293,50 +303,30 @@ export function WorkspaceNormalLayout({
           className="amby-workspace-frame flex min-h-0 min-w-0 flex-1"
           data-split={isMultiPane || undefined}
         >
-          {leftDockPinned && isLeftSidebarOpen && (
+          {leftDockPinned && leftPanel.mounted && (
             <>
-              <div
-                data-help-area="left-panel"
-                style={{
-                  width: isLeftSidebarVisible ? "var(--amby-left-panel-width, 300px)" : 0,
-                  transition:
-                    resizingSide === "left" ? "none" : "width 320ms cubic-bezier(0.16, 1, 0.3, 1)",
-                }}
-                onMouseEnter={() => setSidebarHover("left", true)}
-                onMouseLeave={() => setSidebarHover("left", false)}
-                className={
-                  isCompactLayout
-                    ? "fixed bottom-0 left-[var(--amby-dock-width)] top-11 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl"
-                    : "relative shrink-0 overflow-hidden"
-                }
+              <PinnedSidePanel
+                side="left"
+                presence={leftPanel}
+                compact={isCompactLayout}
+                onHoverChange={(hover) => setSidebarHover("left", hover)}
               >
-                <div
-                  className="relative h-full shrink-0"
-                  style={{ width: "var(--amby-left-panel-width, 300px)" }}
-                >
-                  <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />
-                  {!isCompactLayout && (
-                    <ResizeHandle
-                      side="right"
-                      active={resizingSide === "left"}
-                      onMouseDown={startResize("left")}
-                    />
-                  )}
-                </div>
-              </div>
+                <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />
+                {!isCompactLayout && (
+                  <ResizeHandle
+                    side="right"
+                    active={resizingSide === "left"}
+                    onMouseDown={startResize("left")}
+                  />
+                )}
+              </PinnedSidePanel>
             </>
           )}
 
           {!leftDockPinned && (
-            <div
+            <motion.div
               className="amby-sidebar-overlay--left fixed bottom-0 left-0 top-11 z-40 rounded-r-2xl"
-              style={{
-                width: isLeftSidebarVisible
-                  ? "calc(var(--amby-left-panel-width, 300px) + var(--amby-dock-width))"
-                  : 4,
-                transition:
-                  resizingSide === "left" ? "none" : "width 320ms cubic-bezier(0.16, 1, 0.3, 1)",
-              }}
+              style={{ width: leftOverlayWidth }}
               onMouseEnter={() => setSidebarHover("left", true)}
               onMouseLeave={() => setSidebarHover("left", false)}
             >
@@ -383,7 +373,7 @@ export function WorkspaceNormalLayout({
                   </div>
                 </div>
               </div>
-            </div>
+            </motion.div>
           )}
 
           <main
@@ -414,37 +404,23 @@ export function WorkspaceNormalLayout({
             />
           </main>
 
-          {rightPanelEnabled && rightDockPinned && isRightSidebarOpen && (
+          {rightPanelEnabled && rightDockPinned && rightPanel.mounted && (
             <>
-              <div
-                data-help-area="right-panel"
-                style={{
-                  width: isRightSidebarVisible ? "var(--amby-right-panel-width, 300px)" : 0,
-                  transition:
-                    resizingSide === "right" ? "none" : "width 320ms cubic-bezier(0.16, 1, 0.3, 1)",
-                }}
-                onMouseEnter={() => setSidebarHover("right", true)}
-                onMouseLeave={() => setSidebarHover("right", false)}
-                className={
-                  isCompactLayout
-                    ? "fixed bottom-0 right-[var(--amby-dock-width)] top-11 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl"
-                    : "relative shrink-0 overflow-hidden"
-                }
+              <PinnedSidePanel
+                side="right"
+                presence={rightPanel}
+                compact={isCompactLayout}
+                onHoverChange={(hover) => setSidebarHover("right", hover)}
               >
-                <div
-                  className="relative h-full shrink-0"
-                  style={{ width: "var(--amby-right-panel-width, 300px)" }}
-                >
-                  {!isCompactLayout && (
-                    <ResizeHandle
-                      side="left"
-                      active={resizingSide === "right"}
-                      onMouseDown={startResize("right")}
-                    />
-                  )}
-                  <PanelHost side="right" activeId={activeBySide.right} props={panelRenderProps} />
-                </div>
-              </div>
+                {!isCompactLayout && (
+                  <ResizeHandle
+                    side="left"
+                    active={resizingSide === "right"}
+                    onMouseDown={startResize("right")}
+                  />
+                )}
+                <PanelHost side="right" activeId={activeBySide.right} props={panelRenderProps} />
+              </PinnedSidePanel>
             </>
           )}
         </div>
@@ -466,15 +442,9 @@ export function WorkspaceNormalLayout({
         )}
 
         {rightPanelEnabled && !rightDockPinned && (
-          <div
+          <motion.div
             className="amby-sidebar-overlay--right fixed bottom-0 right-0 top-11 z-40 rounded-l-2xl"
-            style={{
-              width: isRightSidebarVisible
-                ? "calc(var(--amby-right-panel-width, 300px) + var(--amby-dock-width))"
-                : 4,
-              transition:
-                resizingSide === "right" ? "none" : "width 320ms cubic-bezier(0.16, 1, 0.3, 1)",
-            }}
+            style={{ width: rightOverlayWidth }}
             onMouseEnter={() => setSidebarHover("right", true)}
             onMouseLeave={() => setSidebarHover("right", false)}
           >
@@ -519,7 +489,7 @@ export function WorkspaceNormalLayout({
                 />
               </div>
             </div>
-          </div>
+          </motion.div>
         )}
       </div>
 
@@ -583,6 +553,74 @@ export function WorkspaceNormalLayout({
         onClose={() => setPresetNameOpen(false)}
         onConfirm={savePresetAs}
       />
+    </div>
+  )
+}
+
+/**
+ * A pinned side panel. On a wide window it slides over the content with a transform and takes
+ * its width only once it has settled, so the editor reflows once under the panel instead of on
+ * every frame. In the compact layout it is an overlay already and simply grows.
+ */
+function PinnedSidePanel({
+  side,
+  presence,
+  compact,
+  onHoverChange,
+  children,
+}: {
+  side: Side
+  presence: PanelPresence
+  compact: boolean
+  onHoverChange: (hover: boolean) => void
+  children: React.ReactNode
+}) {
+  const width = `var(--amby-${side}-panel-width, 300px)`
+  const compactWidth = usePanelLength(presence.progress, "0px", width)
+  const slide = useTransform(presence.progress, [0, 1], [side === "left" ? "-100%" : "100%", "0%"])
+  const hover = {
+    onMouseEnter: () => onHoverChange(true),
+    onMouseLeave: () => onHoverChange(false),
+  }
+
+  if (compact) {
+    return (
+      <motion.div
+        data-help-area={`${side}-panel`}
+        style={{ width: compactWidth }}
+        {...hover}
+        className={cn(
+          "fixed bottom-0 top-11 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl",
+          side === "left" ? "left-[var(--amby-dock-width)]" : "right-[var(--amby-dock-width)]",
+        )}
+      >
+        <div className="relative h-full shrink-0" style={{ width }}>
+          {children}
+        </div>
+      </motion.div>
+    )
+  }
+
+  return (
+    <div
+      data-help-area={`${side}-panel`}
+      className="relative shrink-0"
+      style={{ width: presence.settled ? width : 0 }}
+      {...hover}
+    >
+      {/* Clips the sliding panel to its own column while it lies over the content. */}
+      <div
+        className={cn(
+          "absolute inset-y-0 z-30",
+          side === "left" ? "left-0" : "right-0",
+          !presence.settled && "overflow-hidden",
+        )}
+        style={{ width }}
+      >
+        <motion.div className="relative h-full shrink-0" style={{ width, x: slide }}>
+          {children}
+        </motion.div>
+      </div>
     </div>
   )
 }

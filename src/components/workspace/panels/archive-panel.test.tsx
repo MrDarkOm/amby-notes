@@ -3,23 +3,27 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
 import {
-  confirmAction,
-  listTrash,
-  purgeTrash,
-  readTrashPreview,
-  restoreTrash,
-  type TrashEntry,
+  listArchive,
+  purgeArchive,
+  readArchivePreview,
+  restoreArchive,
+  type ArchiveEntry,
 } from "@/lib/storage"
+import { confirm } from "@/lib/confirm"
+import { DEFAULT_PREFS } from "../app-config"
+import { useSettingsStore } from "../use-settings-store"
 import { ArchivePanel } from "./archive-panel"
 import type { PanelRenderProps } from "../panel-registry"
 
 vi.mock("@/lib/storage", () => ({
-  listTrash: vi.fn(),
-  readTrashPreview: vi.fn(),
-  restoreTrash: vi.fn(),
-  purgeTrash: vi.fn(),
-  confirmAction: vi.fn(),
+  listArchive: vi.fn(),
+  readArchivePreview: vi.fn(),
+  restoreArchive: vi.fn(),
+  purgeArchive: vi.fn(),
+  // The "on the server" section asks whether this is the desktop app (no sync in a browser).
+  isTauri: () => false,
 }))
+vi.mock("@/lib/confirm", () => ({ confirm: vi.fn() }))
 const props: PanelRenderProps = {
   treeItems: [],
   selectedId: null,
@@ -27,17 +31,18 @@ const props: PanelRenderProps = {
   onSelect: vi.fn(),
   onOpenVault: vi.fn(),
 }
-const entry: TrashEntry = {
+const entry: ArchiveEntry = {
   id: "archived-note",
   name: "Черновик.md",
   originalPath: "Мир/Черновик.md",
-  deletedAtMs: Date.now(),
+  archivedAtMs: Date.now(),
 }
 beforeEach(async () => {
   vi.resetAllMocks()
   await i18n.changeLanguage("ru")
-  vi.mocked(listTrash).mockResolvedValue([entry])
-  vi.mocked(restoreTrash).mockResolvedValue({
+  useSettingsStore.setState({ prefs: DEFAULT_PREFS })
+  vi.mocked(listArchive).mockResolvedValue([entry])
+  vi.mocked(restoreArchive).mockResolvedValue({
     primaryPath: "/vault/Мир/Черновик.md",
     pathChanges: [],
     deletedPaths: [],
@@ -57,14 +62,14 @@ describe("archive panel", () => {
     expect(screen.getByText("Мир")).toBeTruthy()
     expect(screen.getByText("1")).toBeTruthy()
     expect(document.querySelector("time")?.getAttribute("datetime")).toBe(
-      new Date(entry.deletedAtMs).toISOString(),
+      new Date(entry.archivedAtMs).toISOString(),
     )
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "Мир/Черновик.md" } })
     expect(screen.getByText("Черновик")).toBeTruthy()
   })
 
   it("switches row menus on the first press without blocking the rest of the workspace", async () => {
-    vi.mocked(listTrash).mockResolvedValue([entry, { ...entry, id: "second", name: "Другая.md" }])
+    vi.mocked(listArchive).mockResolvedValue([entry, { ...entry, id: "second", name: "Другая.md" }])
     render(<ArchivePanel {...props} />)
     await screen.findByText("Черновик")
     openActions()
@@ -100,7 +105,7 @@ describe("archive panel", () => {
   })
 
   it("opens a read-only preview by name without restoring the entry", async () => {
-    vi.mocked(readTrashPreview).mockResolvedValue({
+    vi.mocked(readArchivePreview).mockResolvedValue({
       path: "",
       directory: false,
       text: "Archived content",
@@ -110,13 +115,13 @@ describe("archive panel", () => {
     render(<ArchivePanel {...props} />)
     fireEvent.click(await screen.findByRole("button", { name: "Предпросмотр «Черновик»" }))
     expect(await screen.findByText("Archived content")).toBeTruthy()
-    expect(readTrashPreview).toHaveBeenCalledExactlyOnceWith(entry.id, "")
-    expect(restoreTrash).not.toHaveBeenCalled()
-    expect(purgeTrash).not.toHaveBeenCalled()
+    expect(readArchivePreview).toHaveBeenCalledExactlyOnceWith(entry.id, "")
+    expect(restoreArchive).not.toHaveBeenCalled()
+    expect(purgeArchive).not.toHaveBeenCalled()
   })
 
   it("opens preview from the menu without returning focus to the background trigger", async () => {
-    vi.mocked(readTrashPreview).mockResolvedValue({
+    vi.mocked(readArchivePreview).mockResolvedValue({
       path: "",
       directory: false,
       text: "Preview from menu",
@@ -133,7 +138,7 @@ describe("archive panel", () => {
   })
 
   it("tells the tree which file came back, so it refreshes that file only", async () => {
-    vi.mocked(listTrash).mockResolvedValueOnce([entry]).mockResolvedValue([])
+    vi.mocked(listArchive).mockResolvedValueOnce([entry]).mockResolvedValue([])
     const changed = vi.fn()
     window.addEventListener("amby:archive-changed", changed)
     try {
@@ -148,16 +153,16 @@ describe("archive panel", () => {
   })
 
   it("restores the selected entry once and refreshes the catalog", async () => {
-    vi.mocked(listTrash).mockResolvedValueOnce([entry]).mockResolvedValue([])
+    vi.mocked(listArchive).mockResolvedValueOnce([entry]).mockResolvedValue([])
     render(<ArchivePanel {...props} />)
     fireEvent.click(await screen.findByRole("button", { name: "Восстановить «Черновик»" }))
-    await waitFor(() => expect(restoreTrash).toHaveBeenCalledExactlyOnceWith(entry.id))
+    await waitFor(() => expect(restoreArchive).toHaveBeenCalledExactlyOnceWith(entry.id))
     expect(await screen.findByText("Архив пуст")).toBeTruthy()
-    expect(purgeTrash).not.toHaveBeenCalled()
+    expect(purgeArchive).not.toHaveBeenCalled()
   })
 
   it("keeps the entry and shows a failure if restoring fails", async () => {
-    vi.mocked(restoreTrash).mockRejectedValue(new Error("conflict"))
+    vi.mocked(restoreArchive).mockRejectedValue(new Error("conflict"))
     render(<ArchivePanel {...props} />)
     fireEvent.click(await screen.findByRole("button", { name: "Восстановить «Черновик»" }))
     expect(await screen.findByRole("alert")).toBeTruthy()
@@ -167,32 +172,42 @@ describe("archive panel", () => {
     ).toBe(false)
   })
 
-  it("requires confirmation before permanent deletion", async () => {
-    vi.mocked(confirmAction).mockResolvedValue(false)
+  it("requires confirmation before permanent deletion (К4)", async () => {
+    useSettingsStore.setState({
+      prefs: { ...DEFAULT_PREFS, files: { ...DEFAULT_PREFS.files, deleteMode: "permanent" } },
+    })
+    vi.mocked(confirm).mockResolvedValue(false)
     render(<ArchivePanel {...props} />)
     await screen.findByText("Черновик")
     openActions()
-    fireEvent.click(screen.getByRole("menuitem", { name: "Удалить навсегда" }))
-    await waitFor(() =>
-      expect(confirmAction).toHaveBeenCalledWith(expect.stringContaining("Черновик.md")),
-    )
-    expect(purgeTrash).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("menuitem", { name: "Удалить из архива" }))
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+    // The question names the note without an extension, says it is dangerous and names the verb.
+    const question = vi.mocked(confirm).mock.calls[0][0]
+    expect(question.title).toContain("Черновик")
+    expect(question.title).not.toContain(".md")
+    expect(question.destructive).toBe(true)
+    expect(question.confirmLabel).toBe("Удалить")
+    expect(purgeArchive).not.toHaveBeenCalled()
   })
 
-  it("deletes the exact archive entry after confirmation", async () => {
-    vi.mocked(confirmAction).mockResolvedValue(true)
-    vi.mocked(listTrash).mockResolvedValueOnce([entry]).mockResolvedValue([])
+  it("deletes the exact archive entry after confirmation (К4)", async () => {
+    useSettingsStore.setState({
+      prefs: { ...DEFAULT_PREFS, files: { ...DEFAULT_PREFS.files, deleteMode: "permanent" } },
+    })
+    vi.mocked(confirm).mockResolvedValue(true)
+    vi.mocked(listArchive).mockResolvedValueOnce([entry]).mockResolvedValue([])
     render(<ArchivePanel {...props} />)
     await screen.findByText("Черновик")
     openActions()
-    fireEvent.click(screen.getByRole("menuitem", { name: "Удалить навсегда" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Удалить из архива" }))
     expect(await screen.findByText("Архив пуст")).toBeTruthy()
-    expect(purgeTrash).toHaveBeenCalledExactlyOnceWith(entry.id)
-    expect(restoreTrash).not.toHaveBeenCalled()
+    expect(purgeArchive).toHaveBeenCalledExactlyOnceWith(entry.id, "permanent")
+    expect(restoreArchive).not.toHaveBeenCalled()
   })
 
   it("reports a failed catalog read and allows retrying", async () => {
-    vi.mocked(listTrash).mockRejectedValueOnce(new Error("unavailable"))
+    vi.mocked(listArchive).mockRejectedValueOnce(new Error("unavailable"))
     render(<ArchivePanel {...props} />)
     expect(await screen.findByRole("alert")).toBeTruthy()
     expect(screen.queryByText("Архив пуст")).toBeNull()
@@ -201,8 +216,8 @@ describe("archive panel", () => {
   })
 
   it("discards a stale response after a newer archive refresh", async () => {
-    let resolveFirst!: (entries: TrashEntry[]) => void
-    vi.mocked(listTrash).mockReturnValueOnce(
+    let resolveFirst!: (entries: ArchiveEntry[]) => void
+    vi.mocked(listArchive).mockReturnValueOnce(
       new Promise((resolve) => {
         resolveFirst = resolve
       }),

@@ -126,6 +126,9 @@ pub(super) struct PutAct {
     /// Both sides changed the content of a note that has a base: try the merge before the copy
     /// becomes a set (К1, Г4). The base is `copy.base`.
     pub merge: bool,
+    /// A group of note properties (З33): if the server version cannot be read and the local one
+    /// can, the local file stays on the path and the server version goes to this set.
+    pub guard: Option<CopyPlan>,
 }
 
 /// Rename a file on disk (Д26, Д30, Д34): `LocalFs::rename` never overwrites.

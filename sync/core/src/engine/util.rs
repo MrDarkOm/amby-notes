@@ -7,6 +7,7 @@ use crate::crypto::random::Random;
 
 use super::merge::{is_mergeable_path, MERGE_MAX_BYTES};
 use super::model::ItemRecord;
+use super::props_groups::{check_group, kind_of_path, PROPS_MERGE_MAX_BYTES};
 
 /// `mtime_ns` of a base that was never written to this disk: the server's record is known, the
 /// file is not here (a name this system cannot hold, a path the rules exclude, a file over the
@@ -75,9 +76,28 @@ impl Random for FixedRandom {
     }
 }
 
+/// Is the file at `path` one that may be merged and so keeps a base: a note (Г5) or a group of
+/// note properties (З52, З53)?
+pub(super) fn is_merge_path(path: &str) -> bool {
+    is_mergeable_path(path) || kind_of_path(path).is_some()
+}
+
+/// The largest version of the file at `path` that is merged: 1 MiB for a note (Г5), 16 000 000
+/// bytes for a group (З30).
+pub(super) fn merge_limit(path: &str) -> usize {
+    if kind_of_path(path).is_some() {
+        PROPS_MERGE_MAX_BYTES
+    } else {
+        MERGE_MAX_BYTES
+    }
+}
+
 /// May `bytes` at `path` be kept as the base of a merge (Г5, Г6): a note of at most 1 MiB, valid
-/// UTF-8, without a `0x00` byte.
+/// UTF-8, without a `0x00` byte; a group that passes the admission check of З30.
 pub(super) fn base_eligible(path: &str, bytes: &[u8]) -> bool {
+    if let Some(kind) = kind_of_path(path) {
+        return check_group(kind, bytes).is_ok();
+    }
     is_mergeable_path(path)
         && bytes.len() <= MERGE_MAX_BYTES
         && !bytes.contains(&0)

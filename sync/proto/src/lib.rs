@@ -1,8 +1,14 @@
 //! Wire constants of the sync protocol v1 (docs/sync-plan.md, appendix Б).
 //!
-//! Only names and numbers live here: the server and the client agree on them. The shapes of the
+//! Wire constants and canonicalization live here: server and client agree on them. The shapes of the
 //! requests are in the appendix, and the conformance suite writes them out by hand on purpose,
 //! so that it does not repeat a mistake of the server's own types.
+
+/// Canonical account login: fold ASCII capitals only, without changing other characters.
+/// Passwords, device labels and invitation codes do not use this function.
+pub fn normalize_username(username: &str) -> String {
+    username.to_ascii_lowercase()
+}
 
 /// The protocol version this code speaks (П9).
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -28,6 +34,8 @@ pub mod error_code {
     pub const INVALID_CREDENTIALS: &str = "invalid_credentials";
     /// A wrong, used or unknown enrolment code (П17).
     pub const INVALID_ENROLL_CODE: &str = "invalid_enroll_code";
+    /// An open signup name is already active or reserved by an invitation (Рег2).
+    pub const REGISTRATION_UNAVAILABLE: &str = "registration_unavailable";
     /// The right code, but older than 24 hours (П17).
     pub const ENROLL_CODE_EXPIRED: &str = "enroll_code_expired";
     /// A wrong proof when the keys are replaced (П18).
@@ -58,6 +66,12 @@ pub mod error_code {
     pub const UNKNOWN_BLOB: &str = "unknown_blob";
     /// Too many failed sign-in attempts (П16).
     pub const RATE_LIMITED: &str = "rate_limited";
+    /// The data volume of the server is nearly full: adding is refused (appendix Х, Х1).
+    pub const SERVER_STORAGE_FULL: &str = "server_storage_full";
+    /// Too many large bodies are being read at once; try again later (appendix Х, Х4).
+    pub const SERVER_BUSY: &str = "server_busy";
+    /// The plan of the user does not allow sending changes (appendix Н, Н4).
+    pub const SUBSCRIPTION_REQUIRED: &str = "subscription_required";
     /// The user's quota would be exceeded (П42).
     pub const QUOTA_EXCEEDED: &str = "quota_exceeded";
     /// The user already has as many spaces as the plan allows (appendix Е, П59).
@@ -66,4 +80,8 @@ pub mod error_code {
     pub const INTERNAL: &str = "internal";
     /// A stub: the handler is not written yet (plan, раздел 6, шаг 1).
     pub const NOT_IMPLEMENTED: &str = "not_implemented";
+    /// A requested account name is already used.
+    pub const USERNAME_TAKEN: &str = "username_taken";
+    /// The account name changed since the client last read it.
+    pub const USERNAME_CONFLICT: &str = "username_conflict";
 }

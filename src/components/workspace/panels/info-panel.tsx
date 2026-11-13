@@ -12,7 +12,6 @@ import {
   type DatabaseNoteContext,
   type DatabasePropertySummary,
 } from "@/lib/storage"
-import { noteEditingPolicy } from "../editor/note-editing-policy"
 import type { PanelRenderProps } from "../panel-registry"
 import { createRelationTargetRow, usePropertyMutation } from "../database/use-property-mutation"
 import { useDatabaseStore } from "../database/database-store"
@@ -93,6 +92,13 @@ export function InfoPanel({
   onUpsertCustomProperty,
   onDeleteCustomProperty,
   onReorderCustomProperties,
+  onCreateProperty,
+  onSetPropertyIcon,
+  onSetPropertySettings,
+  onRenameProperty,
+  onChangePropertyType,
+  onSetPropertyValue,
+  onSetPropertyList,
 }: PanelRenderProps) {
   const { t } = useTranslation()
   const [propertyEditorOpen, setPropertyEditorOpen] = React.useState(false)
@@ -260,6 +266,8 @@ export function InfoPanel({
         })
         const refreshed = await getDatabaseNoteContext(context.row.noteId)
         setNoteDatabaseContext(refreshed)
+        // The change is saved; if the catalog of databases is not refreshed, the side list stays
+        // old until the next refresh.
         void refreshDatabaseCatalog().catch(() => {})
         invalidateDatabaseHosts()
       } finally {
@@ -283,6 +291,8 @@ export function InfoPanel({
         })
         const refreshed = await getDatabaseNoteContext(context.row.noteId)
         setNoteDatabaseContext(refreshed)
+        // The change is saved; if the catalog of databases is not refreshed, the side list stays
+        // old until the next refresh.
         void refreshDatabaseCatalog().catch(() => {})
         invalidateDatabaseHosts()
       } finally {
@@ -360,9 +370,12 @@ export function InfoPanel({
               }
             : current,
         )
+        // The change is saved; if the catalog of databases is not refreshed, the side list stays
+        // old until the next refresh.
         void refreshDatabaseCatalog().catch(() => {})
         invalidateDatabaseHosts()
       } catch (error) {
+        // Only a fresher view after the failed change; the original error is thrown right below.
         const refreshed = await getDatabaseNoteContext(context.row.noteId).catch(() => null)
         if (refreshed) setNoteDatabaseContext(refreshed)
         throw error
@@ -504,8 +517,6 @@ export function InfoPanel({
       </div>
     )
   }
-  const warningKey =
-    properties.kind === "folder" ? null : noteEditingPolicy(properties.frontmatter).warningKey
   function openPropertyEditor() {
     setEditingProperty(null)
     setPropertyEditorOpen(true)
@@ -536,7 +547,6 @@ export function InfoPanel({
       nonDuplicateCustomProperties={nonDuplicateCustomProperties}
       noteDatabaseContext={noteDatabaseContext}
       propertyError={propertyError}
-      warningKey={warningKey}
       hasNoteProperties={hasNoteProperties}
       orderedNoteDatabaseProperties={orderedNoteDatabaseProperties}
       noteDatabaseOrder={noteDatabaseOrder}
@@ -558,6 +568,13 @@ export function InfoPanel({
       setPropertyEditorOpen={setPropertyEditorOpen}
       customPropertyOrderBusy={customPropertyOrderBusy}
       onReorderCustomProperties={onReorderCustomProperties}
+      onCreateProperty={onCreateProperty}
+      onSetPropertyIcon={onSetPropertyIcon}
+      onSetPropertySettings={onSetPropertySettings}
+      onRenameProperty={onRenameProperty}
+      onChangePropertyType={onChangePropertyType}
+      onSetPropertyValue={onSetPropertyValue}
+      onSetPropertyList={onSetPropertyList}
       metadata={metadata}
       editingProperty={editingProperty}
       propertyEditorOpen={propertyEditorOpen}

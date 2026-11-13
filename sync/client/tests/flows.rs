@@ -7,8 +7,8 @@ mod common;
 use std::path::Path;
 
 use amby_sync_client::{
-    disconnect_device, enroll_prepared, list_devices, prepare_account, recover_account, sign_in,
-    validate_username,
+    change_password, disconnect_device, enroll_prepared, list_devices, prepare_account,
+    recover_account, sign_in, validate_username,
 };
 use amby_sync_conformance::in_process_or_skip;
 use amby_sync_conformance::Target;
@@ -100,10 +100,47 @@ async fn nothing_is_sent_until_the_prepared_account_is_enrolled() {
 #[tokio::test]
 async fn a_user_name_the_server_would_refuse_is_refused_at_once() {
     // П11
-    let error = prepare_account("Alice", "AAAA-BBBB-CCCC-DDDD-EEEE", PASSWORD)
+    let error = prepare_account("alice smith", "AAAA-BBBB-CCCC-DDDD-EEEE", PASSWORD)
         .await
         .unwrap_err();
     assert_eq!(error.code(), "invalid_username");
+}
+
+#[tokio::test]
+async fn a_mixed_case_username_is_prepared_in_canonical_lowercase() {
+    let prepared = prepare_account("DaRkOm", "AAAA-BBBB-CCCC-DDDD-EEEE", PASSWORD)
+        .await
+        .unwrap();
+    assert_eq!(prepared.username(), "darkom");
+}
+
+#[tokio::test]
+async fn mixed_case_username_signs_in_and_recovers_the_same_account_key() {
+    let target = Target::from_env();
+    let (username, first, code) = first_device(&target).await;
+    let uppercase = username.to_ascii_uppercase();
+    let signed = sign_in(
+        &client_of(&target),
+        &uppercase,
+        PASSWORD,
+        "Mixed Case Device",
+    )
+    .await
+    .unwrap();
+    assert_eq!(signed.account_key.as_bytes(), first.account_key.as_bytes());
+    let recovered = recover_account(
+        &client_of(&target),
+        &uppercase,
+        &code,
+        PASSWORD,
+        "Recovered Device",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        recovered.account_key.as_bytes(),
+        first.account_key.as_bytes()
+    );
 }
 
 #[tokio::test]
@@ -551,4 +588,191 @@ async fn a_refused_invitation_code_can_be_replaced_and_the_keys_stay() {
     )
     .await
     .unwrap();
+}
+
+// ----- password change on a connected device (Р5, П18) -----
+
+const CHANGED_PASSWORD: &str = "the owls change the password 88";
+
+#[tokio::test]
+async fn a_changed_password_signs_in_and_the_old_one_does_not() {
+    // Р5, П18: the same AK (the data stays readable), the version of the keys goes up by one
+    let target = Target::from_env();
+    let client = client_of(&target);
+    let (username, first, _) = first_device(&target).await;
+    let version = first.session.keys_version;
+    let new_version = change_password(
+        &client,
+        &first.session.token,
+        version,
+        PASSWORD,
+        CHANGED_PASSWORD,
+    )
+    .await
+    .unwrap();
+    assert_eq!(new_version, version + 1);
+    assert_eq!(
+        client
+            .keys(&first.session.token)
+            .await
+            .unwrap()
+            .keys_version,
+        version + 1
+    );
+
+    let old = sign_in(&client, &username, PASSWORD, "x")
+        .await
+        .unwrap_err();
+    assert_eq!(old.code(), "invalid_credentials");
+    let fresh = sign_in(&client, &username, CHANGED_PASSWORD, "Mac B")
+        .await
+        .unwrap();
+    assert_eq!(fresh.account_key.as_bytes(), first.account_key.as_bytes());
+}
+
+#[tokio::test]
+async fn a_wrong_old_password_changes_nothing() {
+    // Р5: refused as `invalid_proof`; the old password still works, the version stays
+    let target = Target::from_env();
+    let client = client_of(&target);
+    let (username, first, _) = first_device(&target).await;
+    let version = first.session.keys_version;
+    let error = change_password(
+        &client,
+        &first.session.token,
+        version,
+        "not the old password at all 1",
+        CHANGED_PASSWORD,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code(), "invalid_proof");
+    assert_eq!(
+        client
+            .keys(&first.session.token)
+            .await
+            .unwrap()
+            .keys_version,
+        version
+    );
+    sign_in(&client, &username, PASSWORD, "Mac B")
+        .await
+        .unwrap();
+    let new = sign_in(&client, &username, CHANGED_PASSWORD, "Mac C")
+        .await
+        .unwrap_err();
+    assert_eq!(new.code(), "invalid_credentials");
+}
+
+#[tokio::test]
+async fn a_wrong_old_password_is_found_before_anything_is_sent() {
+    // Р5: the check is local; the server sees a read of the keys and no `PUT`
+    let server = FakeServer::start(|path| {
+        if path == "/v1/keys" {
+            // A real-looking, but arbitrary, answer: the old password cannot open this envelope.
+            Canned::json(
+                200,
+                &format!(
+                    r#"{{"keys_version":3,"salt":"{}","params":{{"memory_kib":65536,"iterations":3,"parallelism":4}},"wrapped_ak":"{}","wrapped_ak_recovery":"{}"}}"#,
+                    "00".repeat(16),
+                    "00".repeat(73),
+                    "00".repeat(73)
+                ),
+            )
+        } else {
+            Canned::json(500, "{}")
+        }
+    })
+    .await;
+    let client = server.client();
+    let token = amby_sync_client::DeviceToken::new("t".repeat(64));
+    let error = change_password(&client, &token, 3, PASSWORD, CHANGED_PASSWORD)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "invalid_proof");
+    assert!(
+        server
+            .requests()
+            .iter()
+            .all(|seen| !seen.starts_with("PUT")),
+        "{:?}",
+        server.requests()
+    );
+}
+
+#[tokio::test]
+async fn a_stale_version_of_the_keys_is_a_conflict_and_changes_nothing() {
+    // П18: another device changed the password in the meantime
+    let target = Target::from_env();
+    let client = client_of(&target);
+    let (username, first, _) = first_device(&target).await;
+    let version = first.session.keys_version;
+    change_password(
+        &client,
+        &first.session.token,
+        version,
+        PASSWORD,
+        CHANGED_PASSWORD,
+    )
+    .await
+    .unwrap();
+    // The caller still holds the version it read before.
+    let error = change_password(
+        &client,
+        &first.session.token,
+        version,
+        CHANGED_PASSWORD,
+        "a third password about owls 5",
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code(), "keys_conflict");
+    assert_eq!(
+        client
+            .keys(&first.session.token)
+            .await
+            .unwrap()
+            .keys_version,
+        version + 1
+    );
+    sign_in(&client, &username, CHANGED_PASSWORD, "Mac B")
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn other_devices_and_the_recovery_code_survive_a_password_change() {
+    // Р5: other devices go on working; the recovery pair is not replaced
+    let target = Target::from_env();
+    let client = client_of(&target);
+    let (username, first, code) = first_device(&target).await;
+    let second = sign_in(&client, &username, PASSWORD, "Mac B")
+        .await
+        .unwrap();
+    change_password(
+        &client,
+        &first.session.token,
+        second.session.keys_version,
+        PASSWORD,
+        CHANGED_PASSWORD,
+    )
+    .await
+    .unwrap();
+    let devices = list_devices(&client, &second.session.token, &second.account_key)
+        .await
+        .unwrap();
+    assert_eq!(names(&devices), vec![Some("Mac A"), Some("Mac B")]);
+    let recovered = recover_account(
+        &client,
+        &username,
+        &code,
+        "recovered after change 1234",
+        "Mac C",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        recovered.account_key.as_bytes(),
+        first.account_key.as_bytes()
+    );
 }

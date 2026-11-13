@@ -227,6 +227,9 @@ export const ImagePlacement = Extension.create({
       source = { pos, node }
       const dragged = source
       view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)))
+      // preventDefault above also cancels the click's focus: without it the browser keeps its
+      // old text selection (a whole block, or all of the note) painted over the picture.
+      if (!view.hasFocus()) view.focus()
       const start = { x: event.clientX, y: event.clientY }
       let active = false
       let feedback: ReturnType<typeof imageDragFeedback> = null

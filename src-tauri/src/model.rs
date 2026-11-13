@@ -26,6 +26,10 @@ pub struct MutationOutcome {
     pub mutation: FsMutationResult,
     pub index_state: IndexState,
     pub warnings: Vec<OperationWarning>,
+    /// Vault generation and content paths rewritten as a side effect of a move or rename.
+    #[serde(skip)]
+    #[specta(skip)]
+    pub rewritten_notes: Option<(u64, Vec<std::path::PathBuf>)>,
 }
 
 #[derive(Serialize, specta::Type)]
@@ -188,6 +192,9 @@ pub struct FrontmatterProperty {
     pub key: String,
     pub value: String,
     pub value_kind: String,
+    /// The items when the value is a YAML list of scalars, as they are (never glued with commas).
+    #[serde(default)]
+    pub items: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, specta::Type)]

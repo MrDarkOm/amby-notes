@@ -41,7 +41,7 @@ describe("the Synchronization tab of the settings", () => {
     const tab = screen.getByRole("tab", { name: /Синхронизация/ })
     fireEvent.mouseDown(tab)
     fireEvent.click(tab)
-    expect(await screen.findByRole("radio", { name: /Сервер Amby/ })).toBeTruthy()
+    expect(await screen.findByRole("combobox", { name: "Сервер" })).toBeTruthy()
   })
 
   it("is found by the search of the settings", async () => {

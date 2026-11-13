@@ -10,6 +10,8 @@ import type {
   ApprovalKind,
   ConflictChoice,
   ConflictVersions,
+  GroupConflictVersions,
+  NotePick,
   Result,
   SpaceTarget,
   SpaceView,
@@ -21,6 +23,14 @@ import type {
   SignOutResult,
   SyncStatus,
   VaultSyncStatus,
+  DeletedOnServer,
+  NoteServerVersions,
+  RestoreDeletedOutcome,
+  RestoreVersionOutcome,
+  RestoreVersionStatus,
+  ServerVersionState,
+  ServerVersionText,
+  ServerVersionView,
 } from "@/lib/bindings"
 
 export type {
@@ -28,10 +38,20 @@ export type {
   ApprovalKind,
   ConflictChoice,
   ConflictVersions,
+  DeletedOnServer,
   DeviceView,
+  GroupConflictVersions,
+  NotePick,
+  NoteServerVersions,
   PasswordCheck,
   PreparedAccountView,
+  RestoreDeletedOutcome,
+  RestoreVersionOutcome,
+  RestoreVersionStatus,
   ServerCheck,
+  ServerVersionState,
+  ServerVersionText,
+  ServerVersionView,
   SpaceView,
   SyncStatus,
   VaultSyncStatus,
@@ -51,6 +71,12 @@ export interface RemoteDeletedEvent {
 
 /** The event for notes that came back after a deletion made on this computer; the payload is the paths. */
 const RESTORED_AFTER_DELETION_EVENT = "sync-restored-after-deletion"
+
+/** The event for notes where a pass merged the edits of two computers; the payload is the paths in the vault. */
+const MERGED_EVENT = "sync-merged"
+
+/** The event for files of `.amby/` that a pass of synchronisation wrote (the watcher does not look there). */
+const AMBY_WRITTEN_EVENT = "sync-amby-written"
 
 /** The default name of the recovery code file offered by "Save to file". */
 export const RECOVERY_CODE_FILE_NAME = "amby-recovery-code.txt"
@@ -112,9 +138,13 @@ export interface SyncPort {
   cancelPending(): Promise<void>
   signIn(input: SignInInput): Promise<SyncStatus>
   recover(input: RecoverInput): Promise<SyncStatus>
+  renameDevice(deviceId: string, name: string): Promise<void>
+  renameAccount(username: string, currentPassword: string): Promise<SyncStatus>
   listDevices(): Promise<DeviceView[]>
   disconnectDevice(deviceId: string): Promise<void>
   signOut(): Promise<SignOutResult>
+  /** Changes the password of the account from this connected device; needs the old one. */
+  changePassword(oldPassword: string, newPassword: string): Promise<void>
   /** Offers to save the recovery code as a text file; the path, or `null` when cancelled. */
   saveRecoveryCode(contents: string): Promise<string | null>
 
@@ -129,6 +159,9 @@ export interface SyncPort {
    * are the folders of the vaults the application knows; the ones linked to a space are named in its row.
    */
   accountOverview(knownVaults: string[]): Promise<AccountOverview>
+  /** Deletes only the server copy and its versions; local user files remain (Л6–Л11). */
+  /** Removes the server copy of a space; `password` proves the account (appendix Ц, Ц1, Ц4). */
+  deleteSpace(spaceId: string, password: string): Promise<void>
   /** Switches sync on for the open vault: a new space or an existing one. */
   enableVault(target: SpaceTarget, testVault: boolean): Promise<VaultSyncStatus>
   /** Switches sync off for the open vault; the link with the space stays. */
@@ -151,6 +184,34 @@ export interface SyncPort {
    * answer is `conflict_changed`.
    */
   resolveConflictWithText(id: string, text: string, stamp: string): Promise<void>
+  /**
+   * The conflicting notes of a conflict of a group of note properties (З69). `conflict_not_group` when
+   * the person can only choose a whole file (no base, a version cannot be read).
+   */
+  readGroupConflict(id: string): Promise<GroupConflictVersions>
+  /**
+   * Resolves a conflict of a group of note properties by notes (З17, З69): a pick for every conflicting
+   * note, everything else from the merge. `stamp` is the one `readGroupConflict` returned
+   * (`conflict_changed` when a file changed since).
+   */
+  resolveGroupConflict(id: string, picks: Record<string, NotePick>, stamp: string): Promise<void>
+  // ----- earlier versions and deleted files from the server (appendix И, Э5) -----
+
+  /** The server versions of a note for its history panel (И1–И4). Never throws for "no sync" or "no network": see `available`. */
+  noteVersions(path: string): Promise<NoteServerVersions>
+  /** The text of one server version for the preview (И5). */
+  readServerVersion(path: string, itemId: string, version: number): Promise<ServerVersionText>
+  /** "Вернуть" for a server version (И6); `expectedHash` is the hash of the file when the list was shown. */
+  restoreServerVersion(
+    path: string,
+    itemId: string,
+    version: number,
+    expectedHash: string,
+  ): Promise<RestoreVersionOutcome>
+  /** The "on the server" part of the archive (И9–И13). */
+  deletedFiles(): Promise<DeletedOnServer>
+  /** "Вернуть" for deleted files of the server (И15, И17). */
+  restoreDeleted(itemIds: string[]): Promise<RestoreDeletedOutcome>
   /** Calls `listener` whenever the status changes; returns the function that stops it. */
   onVaultStatus(listener: (status: VaultSyncStatus) => void): Promise<() => void>
   /** Calls `listener` with the vault and the paths (in it) of files deleted on another computer. */
@@ -160,6 +221,16 @@ export interface SyncPort {
    * another computer edited them (Р7, Д37).
    */
   onRestoredAfterDeletion(listener: (paths: string[]) => void): Promise<() => void>
+  /**
+   * Calls `listener` with the paths (in the vault) of notes where a pass merged the edits of two computers
+   * (К1, Г17а). The earlier version of the note is in its history.
+   */
+  onMerged(listener: (paths: string[]) => void): Promise<() => void>
+  /**
+   * Calls `listener` with the paths (relative to the vault) of the files in `.amby/` that a pass wrote,
+   * such as the groups of note properties (З65). The watcher does not report them.
+   */
+  onAmbyWritten(listener: (paths: string[]) => void): Promise<() => void>
 }
 
 /** Unwraps the answer of a command. A failure of the IPC layer itself carries no text on purpose. */
@@ -203,11 +274,19 @@ export function createDesktopSyncPort(): SyncPort {
       call(commands.syncSignIn(url, allowHttp, username, password, deviceName)),
     recover: ({ url, allowHttp, username, recoveryCode, newPassword, deviceName }) =>
       call(commands.syncRecover(url, allowHttp, username, recoveryCode, newPassword, deviceName)),
+    renameDevice: async (deviceId, name) => {
+      await call(commands.syncRenameDevice(deviceId, name))
+    },
+    renameAccount: (username, currentPassword) =>
+      call(commands.syncRenameAccount(username, currentPassword)),
     listDevices: () => call(commands.syncListDevices()),
     disconnectDevice: async (deviceId) => {
       await call(commands.syncDisconnectDevice(deviceId))
     },
     signOut: () => call(commands.syncSignOut()),
+    changePassword: async (oldPassword, newPassword) => {
+      await call(commands.syncChangePassword(oldPassword, newPassword))
+    },
     saveRecoveryCode: async (contents) => {
       let result: Result<string | null, string>
       try {
@@ -228,6 +307,9 @@ export function createDesktopSyncPort(): SyncPort {
     },
     listSpaces: () => call(commands.syncListSpaces()),
     accountOverview: (knownVaults) => call(commands.syncAccountOverview(knownVaults)),
+    deleteSpace: async (spaceId, password) => {
+      await call(commands.syncDeleteSpace(spaceId, password))
+    },
     enableVault: (target, testVault) => call(commands.syncEnableVault(target, testVault)),
     disableVault: () => call(commands.syncDisableVault()),
     runNow: async () => {
@@ -243,6 +325,17 @@ export function createDesktopSyncPort(): SyncPort {
     resolveConflictWithText: async (id, text, stamp) => {
       await call(commands.syncResolveConflictWithText(id, text, stamp))
     },
+    readGroupConflict: (id) => call(commands.syncReadGroupConflict(id)),
+    resolveGroupConflict: async (id, picks, stamp) => {
+      await call(commands.syncResolveGroupConflict(id, picks, stamp))
+    },
+    noteVersions: (path) => call(commands.syncNoteVersions(path)),
+    readServerVersion: (path, itemId, version) =>
+      call(commands.syncReadServerVersion(path, itemId, version)),
+    restoreServerVersion: (path, itemId, version, expectedHash) =>
+      call(commands.syncRestoreServerVersion(path, itemId, version, expectedHash)),
+    deletedFiles: () => call(commands.syncDeletedFiles()),
+    restoreDeleted: (itemIds) => call(commands.syncRestoreDeleted(itemIds)),
     onVaultStatus: async (listener) => {
       try {
         const { listen } = await import("@tauri-apps/api/event")
@@ -276,6 +369,26 @@ export function createDesktopSyncPort(): SyncPort {
         throw new SyncPortError("ipc_failed")
       }
     },
+    onMerged: async (listener) => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event")
+        const unlisten = await listen<string[]>(MERGED_EVENT, (event) => listener(event.payload))
+        return () => unlisten()
+      } catch {
+        throw new SyncPortError("ipc_failed")
+      }
+    },
+    onAmbyWritten: async (listener) => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event")
+        const unlisten = await listen<string[]>(AMBY_WRITTEN_EVENT, (event) =>
+          listener(event.payload),
+        )
+        return () => unlisten()
+      } catch {
+        throw new SyncPortError("ipc_failed")
+      }
+    },
   }
 }
 
@@ -301,9 +414,12 @@ export const unavailableSyncPort: SyncPort = {
   cancelPending: async () => {},
   signIn: unavailable,
   recover: unavailable,
+  renameDevice: unavailable,
+  renameAccount: unavailable,
   listDevices: unavailable,
   disconnectDevice: unavailable,
   signOut: unavailable,
+  changePassword: unavailable,
   saveRecoveryCode: unavailable,
   vaultStatus: async () => ({
     enabled: false,
@@ -327,6 +443,7 @@ export const unavailableSyncPort: SyncPort = {
   }),
   listSpaces: unavailable,
   accountOverview: unavailable,
+  deleteSpace: unavailable,
   enableVault: unavailable,
   disableVault: unavailable,
   runNow: unavailable,
@@ -334,9 +451,30 @@ export const unavailableSyncPort: SyncPort = {
   resolveConflict: unavailable,
   readConflictVersions: unavailable,
   resolveConflictWithText: unavailable,
+  readGroupConflict: unavailable,
+  resolveGroupConflict: unavailable,
+  noteVersions: async () => ({
+    available: false,
+    reason: "syncOff",
+    versions: [],
+    snapshotsOnServer: [],
+    currentOnServer: false,
+  }),
+  readServerVersion: unavailable,
+  restoreServerVersion: unavailable,
+  deletedFiles: async () => ({
+    available: false,
+    reason: "syncOff",
+    files: [],
+    truncated: false,
+    trashOnServer: [],
+  }),
+  restoreDeleted: unavailable,
   onVaultStatus: async () => () => {},
   onRemoteDeleted: async () => () => {},
   onRestoredAfterDeletion: async () => () => {},
+  onMerged: async () => () => {},
+  onAmbyWritten: async () => () => {},
 }
 
 let desktopPort: SyncPort | null = null

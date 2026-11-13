@@ -1,9 +1,11 @@
 import * as React from "react"
 import { Check, Star, Trash2 } from "lucide-react"
+import { NoticeLine } from "../notices/notice-line"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { PickerShell } from "./picker-shell"
 import { OPTION_COLORS, STATUS_GROUPS, type OptionDraft, type StatusGroup } from "./option-model"
+import { reportOperationError } from "@/lib/operation-errors"
 
 const ITEM =
   "flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-left text-[13px] outline-none hover:bg-accent focus-visible:bg-accent disabled:opacity-50"
@@ -32,7 +34,7 @@ export function OptionEditMenu({ draft, status, onChange, onRemove, onDone }: Op
     try {
       await action()
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      setError(reportOperationError(failure))
       throw failure
     }
   }
@@ -63,14 +65,11 @@ export function OptionEditMenu({ draft, status, onChange, onRemove, onDone }: Op
           if (event.key === "Escape") setName(draft.name)
         }}
       />
-      {error && (
-        <p role="alert" className="px-1 pb-1 text-xs leading-snug text-destructive">
-          {error}
-        </p>
-      )}
+      {error && <NoticeLine text={error} className="px-1 pb-1" />}
       <button
         type="button"
         className={ITEM}
+        // The failure is already shown under the element by `run`; this only stops the rejection.
         onClick={() => void run(() => onChange({ isDefault: !draft.isDefault })).catch(() => {})}
       >
         <Star
@@ -102,6 +101,8 @@ export function OptionEditMenu({ draft, status, onChange, onRemove, onDone }: Op
               type="button"
               className={ITEM}
               onClick={() =>
+                // The failure is already shown under the element by `run`; this only stops the
+                // rejection.
                 void run(() => onChange({ group: group as StatusGroup })).catch(() => {})
               }
             >
@@ -120,6 +121,7 @@ export function OptionEditMenu({ draft, status, onChange, onRemove, onDone }: Op
           key={color.id}
           type="button"
           className={ITEM}
+          // The failure is already shown under the element by `run`; this only stops the rejection.
           onClick={() => void run(() => onChange({ color: color.hex })).catch(() => {})}
         >
           <span

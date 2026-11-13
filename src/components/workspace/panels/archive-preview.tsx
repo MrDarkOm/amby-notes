@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { MotionSpinner } from "@/lib/motion"
-import { readTrashPreview, type TrashEntry, type TrashPreview } from "@/lib/storage"
+import { readArchivePreview, type ArchiveEntry, type TrashPreview } from "@/lib/storage"
 import { SnapshotModeToggle, SnapshotPreview, type SnapshotMode } from "../common/snapshot-preview"
 import { useVaultStore } from "../use-vault-store"
 import { archiveEntryLabel } from "./archive-model"
@@ -16,7 +16,7 @@ export function ArchivePreview({
   onClose,
   onRestore,
 }: {
-  entry: TrashEntry
+  entry: ArchiveEntry
   busy: boolean
   actionError: string | null
   onClose: () => void
@@ -34,7 +34,7 @@ export function ArchivePreview({
   React.useEffect(() => {
     let cancelled = false
     setState({ path, preview: null, error: false })
-    void readTrashPreview(entry.id, path).then(
+    void readArchivePreview(entry.id, path).then(
       (preview) => {
         if (!cancelled) setState({ path, preview, error: false })
       },
@@ -52,10 +52,10 @@ export function ArchivePreview({
       vault
         ? {
             vaultPath: vault,
-            notePath: `${vault}/.amby/trash/${entry.id}/${entry.name}${path ? `/${path}` : ""}`,
+            notePath: `${vault}/.amby/archive/${entry.id}${path ? `/${path}` : ""}`,
           }
         : undefined,
-    [vault, entry.id, entry.name, path],
+    [vault, entry.id, path],
   )
   const preview = state.path === path ? state.preview : null
   const failed = state.path === path && state.error

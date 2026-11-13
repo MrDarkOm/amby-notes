@@ -1,14 +1,4 @@
-import {
-  CalendarDays,
-  CheckSquare,
-  Hash,
-  Link2,
-  List,
-  Paperclip,
-  Tags,
-  Type,
-  Waypoints,
-} from "lucide-react"
+import { propertyTypeIcon } from "../property-type-icons"
 import type { DatabasePropertySummary, FrontmatterProperty } from "@/lib/storage"
 
 export const PROPERTY_TYPE_FALLBACKS = {
@@ -17,67 +7,39 @@ export const PROPERTY_TYPE_FALLBACKS = {
   checkbox: "Флажок",
   date: "Дата",
   select: "Выбор",
+  list: "Мультивыбор",
   url: "Ссылка",
 } as const
 
 export function databasePropertyIcon(property: Pick<DatabasePropertySummary, "propertyType">) {
-  return property.propertyType === "number"
-    ? Hash
-    : property.propertyType === "checkbox"
-      ? CheckSquare
-      : property.propertyType === "date"
-        ? CalendarDays
-        : property.propertyType === "url"
-          ? Link2
-          : property.propertyType === "select"
-            ? List
-            : property.propertyType === "multiSelect" || property.propertyType === "status"
-              ? Tags
-              : property.propertyType === "files"
-                ? Paperclip
-                : property.propertyType === "relation"
-                  ? Waypoints
-                  : Type
+  return propertyTypeIcon(property.propertyType)
 }
 
-export function frontmatterPropertyIcon(property: FrontmatterProperty, propertyType?: string) {
-  if (propertyType === "checkbox") return CheckSquare
-  if (propertyType === "number") return Hash
-  if (propertyType === "date") return CalendarDays
-  if (propertyType === "select") return List
-  if (propertyType === "url") return Link2
-  if (propertyType === "text") {
-    const key = property.key.trim().toLowerCase()
-    if (key === "tags" || key === "tag" || key === "keywords") return Tags
-    return Type
-  }
-
+/** The type of a header key when the note keeps no record of its own for it. */
+function inferredType(property: FrontmatterProperty): string {
   const key = property.key.trim().toLowerCase()
-  if (key === "tags" || key === "tag" || key === "keywords") return Tags
-  if (
-    key === "date" ||
-    key === "due" ||
-    key === "created" ||
-    key === "modified" ||
-    key === "deadline"
-  ) {
-    return CalendarDays
-  }
+  if (key === "tags" || key === "tag" || key === "keywords") return "list"
+  if (["date", "due", "created", "modified", "deadline"].includes(key)) return "date"
   if (
     property.valueKind === "checkbox" ||
     property.value === "true" ||
     property.value === "false"
   ) {
-    return CheckSquare
+    return "checkbox"
   }
-  if (property.valueKind === "number") return Hash
-  if (property.valueKind === "list") return List
+  if (property.valueKind === "number") return "number"
+  if (property.valueKind === "list") return "list"
   if (
     property.valueKind === "url" ||
     property.value.startsWith("http://") ||
     property.value.startsWith("https://")
   ) {
-    return Link2
+    return "url"
   }
-  return Type
+  return "text"
+}
+
+/** The icon of a type is the same in the panel of a note and in databases (З61). */
+export function frontmatterPropertyIcon(property: FrontmatterProperty, propertyType?: string) {
+  return propertyTypeIcon(propertyType ?? inferredType(property))
 }

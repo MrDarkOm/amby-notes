@@ -1,3 +1,4 @@
+import type { RenameOutcome } from "../file-actions/rename-outcome"
 import type { ViewSettings } from "./view-config"
 import type { SettingsPatch } from "./view-config"
 import type { GroupSort } from "./view-config"
@@ -8,9 +9,6 @@ import type { PropertyMutationRow } from "./use-property-mutation"
 import type { DatabaseRowTemplate } from "@/lib/storage"
 import type { DatabaseFilterNode } from "@/lib/storage"
 import type { DatabaseSortSpec } from "@/lib/storage"
-import type { DatabaseYamlSyncResult } from "@/lib/storage"
-import type { DatabaseYamlConflict } from "@/lib/storage"
-import type { DatabaseYamlResolution } from "@/lib/storage"
 import { EMPTY_PROPERTIES } from "./empty-collections"
 import type { DatabaseSummary, DatabaseViewSummary } from "@/lib/storage"
 import * as React from "react"
@@ -97,7 +95,7 @@ interface DatabaseViewContentProps {
   ) => Promise<void>
   computedErrors: { formula?: string; rollup?: string }
   renderPropertySettings: (property: DatabasePropertySummary) => React.JSX.Element | null
-  onRenameRow: ((rowId: string, name: string) => Promise<void> | void) | undefined
+  onRenameRow: ((rowId: string, name: string) => Promise<RenameOutcome | void> | void) | undefined
   filteredFieldKeys: Set<string>
   setRequestedFilterField: React.Dispatch<React.SetStateAction<string | null>>
   setQueryPanel: React.Dispatch<React.SetStateAction<"sort" | "filter" | null>>
@@ -137,19 +135,6 @@ interface DatabaseViewContentProps {
   ) => Promise<void>
   selectedRowIndex: number
   selectAdjacentRow: (offset: number) => void
-  yamlSyncState: {
-    rowId: string
-    busy: boolean
-    error: string | null
-    result: DatabaseYamlSyncResult | null
-  } | null
-  syncYamlForRow: (row: DatabaseRow) => Promise<void>
-  resolveYamlForRow: (
-    row: DatabaseRow,
-    conflict: DatabaseYamlConflict,
-    resolution: DatabaseYamlResolution,
-    manualValueJson?: string,
-  ) => Promise<void>
   setSelectedRowId: React.Dispatch<React.SetStateAction<string | null>>
   onOpenRowFullPage: ((row: DatabaseRow) => void) | undefined
   onLoadRowDocument: ((row: DatabaseRow) => Promise<Document>) | undefined
@@ -222,9 +207,6 @@ export function DatabaseViewContent({
   commitPeekCell,
   selectedRowIndex,
   selectAdjacentRow,
-  yamlSyncState,
-  syncYamlForRow,
-  resolveYamlForRow,
   setSelectedRowId,
   onOpenRowFullPage,
   onLoadRowDocument,
@@ -481,25 +463,6 @@ export function DatabaseViewContent({
               canNext={selectedRowIndex < displayRows.length - 1}
               onPrevious={() => selectAdjacentRow(-1)}
               onNext={() => selectAdjacentRow(1)}
-              yamlSync={
-                yamlSyncState?.rowId === selectedRow.noteId
-                  ? {
-                      busy: yamlSyncState.busy,
-                      error: yamlSyncState.error,
-                      result: yamlSyncState.result,
-                      onSync: () => void syncYamlForRow(selectedRow),
-                      onResolve: (conflict, resolution, manualValueJson) =>
-                        void resolveYamlForRow(selectedRow, conflict, resolution, manualValueJson),
-                    }
-                  : {
-                      busy: false,
-                      error: null,
-                      result: null,
-                      onSync: () => void syncYamlForRow(selectedRow),
-                      onResolve: (conflict, resolution, manualValueJson) =>
-                        void resolveYamlForRow(selectedRow, conflict, resolution, manualValueJson),
-                    }
-              }
               onClose={() => setSelectedRowId(null)}
               onOpenFullPage={() => onOpenRowFullPage?.(selectedRow)}
               body={

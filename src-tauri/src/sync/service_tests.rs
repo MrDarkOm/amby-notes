@@ -14,8 +14,8 @@ use super::service::{PrepareRequest, RecoverRequest, SignInRequest};
 use super::test_support::{endpoint_of, Device, LogCapture};
 use super::types::{Endpoint, PreparedAccountView, SyncError};
 
-const PASSWORD: &str = "correct horse battery staple 42";
-const NEW_PASSWORD: &str = "a brand new password about owls 77";
+const PASSWORD: &str = "Correct-Horse-Battery-Staple-42!";
+const NEW_PASSWORD: &str = "A-Brand-New-Phrase-About-Owls-77!";
 
 fn prepare_request(target: &Target, username: &str, code: &str, device: &str) -> PrepareRequest {
     PrepareRequest {
@@ -270,7 +270,7 @@ async fn a_bad_user_name_or_device_name_is_told_at_once() {
     let target = Target::from_env();
     let device = Device::new();
     let ticket = target.new_ticket();
-    let bad_user = prepare_request(&target, "Alice", &ticket.enroll_code, "Mac A");
+    let bad_user = prepare_request(&target, "Alice!", &ticket.enroll_code, "Mac A");
     assert_eq!(
         code_of(device.service.prepare_account(bad_user)).await,
         "invalid_username"
@@ -1119,5 +1119,79 @@ async fn another_invitation_code_needs_a_prepared_account() {
     assert_eq!(
         device.service.set_enroll_code("AAAA").unwrap_err().code,
         "no_pending_account"
+    );
+}
+
+#[tokio::test]
+async fn signing_in_does_not_apply_the_rule_of_new_passwords() {
+    // Р5: an existing password that would not pass today is not refused by the application; the
+    // server answers, not `weak_password`
+    let target = Target::from_env();
+    let device = Device::new();
+    for password in ["password", "short", ""] {
+        assert_eq!(
+            code_of(device.service.sign_in(sign_in_request(
+                &target,
+                "nobody-here",
+                password,
+                "Mac B"
+            )))
+            .await,
+            "invalid_credentials",
+            "{password:?}"
+        );
+    }
+}
+
+fn registration_target(open: bool) -> Target {
+    Target::in_process_with(|config| config.open_registration = open)
+}
+
+#[tokio::test]
+async fn server_check_exposes_open_registration_and_defaults_closed() {
+    // Э2б: the connect screen learns the actual server policy, not a hardcoded address policy.
+    for open in [false, true] {
+        let target = registration_target(open);
+        let device = Device::new();
+        let checked = device
+            .service
+            .check_server(&endpoint_of(&target))
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(checked).unwrap()["registrationOpen"],
+            open
+        );
+    }
+}
+
+#[tokio::test]
+async fn an_open_account_is_created_only_after_recovery_acknowledgement_and_can_sign_in_again() {
+    // Э2б, Р5, О3: no invitation; acknowledgement still comes before enrolment and key persistence.
+    let target = registration_target(true);
+    let device = Device::new();
+    let username = target.new_username();
+    let view = device
+        .service
+        .prepare_account(prepare_request(&target, &username, "", "Mac"))
+        .await
+        .unwrap();
+    assert!(!device.service.status().unwrap().connected);
+    assert!(device.connection.load().unwrap().is_none());
+    let status = device
+        .service
+        .confirm_recovery_code(&typed_groups(&view))
+        .await
+        .unwrap();
+    assert!(status.connected);
+    assert_eq!(status.username.as_deref(), Some(username.as_str()));
+    let second = Device::new();
+    assert!(
+        second
+            .service
+            .sign_in(sign_in_request(&target, &username, PASSWORD, "PC"))
+            .await
+            .unwrap()
+            .connected
     );
 }

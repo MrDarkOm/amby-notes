@@ -3,10 +3,12 @@
 // and what the screen asks of the application. How it looks is checked in a native window.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
 import i18n from "@/lib/i18n"
 import { KNOWN_SYNC_ERROR_CODES, syncErrorKey } from "@/lib/sync/sync-errors"
 import { SyncPortError } from "@/lib/sync/sync-port"
 import type { VaultSyncStatus } from "@/lib/sync/sync-port"
+import { useAppNoticesStore } from "../notices/use-app-notices-store"
 import { SyncVaultPanel } from "./sync-vault-panel"
 import {
   SPACES,
@@ -34,6 +36,7 @@ const click = (name: string | RegExp) => fireEvent.click(button(name))
 
 describe("sync of the open vault: switching it on", () => {
   beforeEach(async () => {
+    useNoticeJournalStore.setState(useNoticeJournalStore.getInitialState())
     await i18n.changeLanguage("ru")
   })
   afterEach(cleanup)
@@ -200,6 +203,7 @@ describe("sync of the open vault: a binding that was switched off", () => {
     vaultStatus({ enabled: false, phase: "off", linked: true, resumable: true, ...overrides })
 
   beforeEach(async () => {
+    useNoticeJournalStore.setState(useNoticeJournalStore.getInitialState())
     await i18n.changeLanguage("ru")
   })
   afterEach(cleanup)
@@ -276,6 +280,7 @@ describe("sync of the open vault: a binding that was switched off", () => {
 
 describe("sync of the open vault: the status", () => {
   beforeEach(async () => {
+    useNoticeJournalStore.setState(useNoticeJournalStore.getInitialState())
     await i18n.changeLanguage("ru")
   })
   afterEach(cleanup)
@@ -398,6 +403,7 @@ describe("sync of the open vault: the status", () => {
 
 describe("sync of the open vault: the stops of Р8", () => {
   beforeEach(async () => {
+    useNoticeJournalStore.setState(useNoticeJournalStore.getInitialState())
     await i18n.changeLanguage("ru")
   })
   afterEach(cleanup)
@@ -523,6 +529,7 @@ describe("sync of the open vault: the stops of Р8", () => {
 
 describe("sync of the open vault: conflicts and files that stay behind", () => {
   beforeEach(async () => {
+    useNoticeJournalStore.setState(useNoticeJournalStore.getInitialState())
     await i18n.changeLanguage("ru")
   })
   afterEach(cleanup)
@@ -531,46 +538,278 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
     id: "0123456789ab",
     kind: "bothEdited",
     originalPath: "Заметки/идея.md",
-    copyPath: "Заметки/идея.0123456789ab-conflict.md",
+    copyPath: ".amby/conflicts/0123456789ab/other.md",
     createdMs: 1_760_000_000_000,
   }
 
-  it("lists a conflict with both files and three ways to resolve it", async () => {
-    const port = await show(vaultStatus({ conflicts: [conflict] }))
+  it("lists a conflict by the name of the note, with one button and the choice in the comparison", async () => {
+    const port = await show(vaultStatus({ conflicts: [conflict] }), {
+      readConflictVersions: async () => ({ original: "a", copy: "b", stamp: "s" }),
+    })
     const list = await screen.findByTestId("sync-conflicts")
     expect(list.textContent).toMatch(/Конфликты \(1\)/)
     const row = within(list).getAllByRole("listitem")[0]
-    expect(row.textContent).toMatch(/Заметки\/идея\.md/)
-    expect(row.textContent).toMatch(/идея\.0123456789ab-conflict\.md/)
-    expect(row.textContent).toMatch(/изменили на двух компьютерах/)
-    fireEvent.click(within(row).getByRole("button", { name: "Оставить основной файл" }))
+    expect(row.textContent).toMatch(/Заметка «идея» изменена на двух компьютерах/)
+    expect(row.textContent).toMatch(/Обе версии целы/)
+    expect(row.textContent).not.toMatch(/\.md|conflict|Заметки\//)
+    expect(within(row).getAllByRole("button")).toHaveLength(1)
+    fireEvent.click(within(row).getByRole("button", { name: "Сравнить" }))
+    const dialog = await screen.findByRole("dialog")
+    expect(port.resolveConflict).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole("button", { name: "Оставить версию в заметке" }))
     await waitFor(() =>
       expect(port.resolveConflict).toHaveBeenCalledWith("0123456789ab", "keepOriginal"),
     )
-    fireEvent.click(within(row).getByRole("button", { name: "Заменить копией" }))
+  })
+
+  it.each([["Взять вторую версию", "keepCopy"]])(
+    "takes “%s” in the comparison as %s",
+    async (label, choice) => {
+      const port = await show(vaultStatus({ conflicts: [conflict] }), {
+        readConflictVersions: async () => ({ original: "a", copy: "b", stamp: "s" }),
+      })
+      const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+      fireEvent.click(within(row).getByRole("button", { name: "Сравнить" }))
+      fireEvent.click(await screen.findByRole("button", { name: label }))
+      await waitFor(() => expect(port.resolveConflict).toHaveBeenCalledWith("0123456789ab", choice))
+    },
+  )
+
+  it("tells a conflict of the properties of notes in words, with two choices and no paths", async () => {
+    const properties = {
+      ...conflict,
+      originalPath: ".amby/properties.json",
+      copyPath: ".amby/conflicts/09d76fd5687f/other.json",
+    }
+    const port = await show(vaultStatus({ conflicts: [properties] }))
+    const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+    expect(row.textContent).toMatch(/Свойства заметок изменили на двух компьютерах/)
+    expect(row.textContent).not.toMatch(/\.amby/)
+    expect(within(row).queryByRole("button", { name: "Сравнить" })).toBeNull()
+    expect(within(row).getAllByRole("button")).toHaveLength(2)
+    fireEvent.click(within(row).getByRole("button", { name: "Взять с другого компьютера" }))
     await waitFor(() =>
       expect(port.resolveConflict).toHaveBeenCalledWith("0123456789ab", "keepCopy"),
     )
-    fireEvent.click(within(row).getByRole("button", { name: "Оставить оба" }))
+    expect(screen.getByTestId("sync-conflicts").textContent).toMatch(
+      /Правки, сделанные на компьютере/,
+    )
+  })
+
+  // ----- З69: a conflict of a group of note properties is chosen by notes -----
+
+  const groupConflict = {
+    ...conflict,
+    originalPath: ".amby/properties/prop_3.jsonl",
+    copyPath: ".amby/conflicts/09d76fd5687f/other.jsonl",
+    hasBase: true,
+  }
+  const groupRead = {
+    group: {
+      notes: [
+        {
+          noteId: "A",
+          notePath: "Папка/Идея.md",
+          noteTitle: "Идея",
+          changes: [
+            {
+              name: "Статус",
+              current: { icon: "lucide:star", propertyType: "select", settings: null },
+              other: null,
+            },
+          ],
+          orderDiffers: true,
+          currentRemoved: false,
+          otherRemoved: false,
+        },
+        {
+          noteId: "B",
+          notePath: null,
+          noteTitle: null,
+          changes: [],
+          orderDiffers: false,
+          currentRemoved: false,
+          otherRemoved: true,
+        },
+      ],
+      autoMerged: 3,
+    },
+    stamp: "stamp-g",
+  }
+
+  it("lists the conflicting notes of a group and resolves it only when every note is chosen", async () => {
+    const resolveGroupConflict = vi.fn(async () => {})
+    const port = await show(vaultStatus({ conflicts: [groupConflict] }), {
+      readGroupConflict: vi.fn(async () => groupRead),
+      resolveGroupConflict,
+    })
+    const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+    const notes = await within(row).findByTestId("sync-group-notes")
+    expect(port.readGroupConflict).toHaveBeenCalledWith("0123456789ab")
+    expect(notes.textContent).toMatch(/«Идея»/)
+    expect(notes.textContent).toMatch(/Заметка без названия/)
+    expect(row.textContent).toMatch(/Остальные изменения \(3\) соединены сами/)
+    expect(row.textContent).not.toMatch(/\.amby/)
+    expect(within(row).queryByRole("button", { name: "Взять с другого компьютера" })).toBeNull()
+    const done = within(row).getByRole("button", { name: "Применить" })
+    expect(done).toHaveProperty("disabled", true)
+    const [first, second] = within(notes).getAllByRole("radiogroup")
+    // each side shows what it keeps: the property, its type, the default look, the removal
+    const mine = within(first).getByRole("radio", { name: "Этот компьютер" })
+    const theirs = within(first).getByRole("radio", { name: "Другой компьютер" })
+    expect(mine.textContent).toMatch(/Статус/)
+    expect(mine.textContent).toMatch(/Выбор/)
+    expect(mine.textContent).toMatch(/Свой порядок свойств/)
+    expect(theirs.textContent).toMatch(/Статус/)
+    expect(theirs.textContent).toMatch(/Как по умолчанию/)
+    expect(within(second).getByRole("radio", { name: "Другой компьютер" }).textContent).toMatch(
+      /Оформление заметки удалено/,
+    )
+    // the warning about the whole file does not apply to the choice by notes
+    expect(screen.queryByText(/пропадут/)).toBeNull()
+    fireEvent.click(within(first).getByRole("radio", { name: "Другой компьютер" }))
+    expect(done).toHaveProperty("disabled", true)
+    fireEvent.click(within(second).getByRole("radio", { name: "Этот компьютер" }))
+    expect(
+      within(second).getByRole("radio", { name: "Этот компьютер" }).getAttribute("aria-checked"),
+    ).toBe("true")
+    expect(done).toHaveProperty("disabled", false)
+    fireEvent.click(done)
     await waitFor(() =>
-      expect(port.resolveConflict).toHaveBeenCalledWith("0123456789ab", "keepBoth"),
+      expect(resolveGroupConflict).toHaveBeenCalledWith(
+        "0123456789ab",
+        { A: "other", B: "current" },
+        "stamp-g",
+      ),
+    )
+    expect(port.resolveConflict).not.toHaveBeenCalled()
+  })
+
+  it("rereads the notes of a group when the files changed while the person chose", async () => {
+    let reads = 0
+    const readGroupConflict = vi.fn(async () => {
+      reads += 1
+      return { ...groupRead, stamp: `stamp-${reads}` }
+    })
+    const resolveGroupConflict = vi.fn(async () => {
+      throw new SyncPortError("conflict_changed")
+    })
+    await show(vaultStatus({ conflicts: [groupConflict] }), {
+      readGroupConflict,
+      resolveGroupConflict,
+    })
+    const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+    const notes = await within(row).findByTestId("sync-group-notes")
+    for (const note of within(notes).getAllByRole("radiogroup")) {
+      fireEvent.click(within(note).getByRole("radio", { name: "Другой компьютер" }))
+    }
+    fireEvent.click(within(row).getByRole("button", { name: "Применить" }))
+    await waitFor(() => expect(readGroupConflict).toHaveBeenCalledTimes(2))
+    expect((await screen.findByRole("alert")).textContent).toMatch(/выбор ещё раз/)
+    // the choice starts again on the new versions
+    expect(within(row).getByRole("button", { name: "Применить" })).toHaveProperty("disabled", true)
+  })
+
+  it("keeps the whole-file choice for a group the app cannot choose by notes", async () => {
+    // З69: `conflict_not_group` (no base, an unreadable version): two buttons as before
+    const port = await show(vaultStatus({ conflicts: [groupConflict] }), {
+      readGroupConflict: vi.fn(async () => {
+        throw new SyncPortError("conflict_not_group")
+      }),
+    })
+    const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+    fireEvent.click(await within(row).findByRole("button", { name: "Взять с другого компьютера" }))
+    await waitFor(() =>
+      expect(port.resolveConflict).toHaveBeenCalledWith("0123456789ab", "keepCopy"),
+    )
+    expect(within(row).queryByTestId("sync-group-notes")).toBeNull()
+  })
+
+  it("does not ask for notes when the group set has no base", async () => {
+    const readGroupConflict = vi.fn(async () => groupRead)
+    await show(vaultStatus({ conflicts: [{ ...groupConflict, hasBase: false }] }), {
+      readGroupConflict,
+    })
+    const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+    expect(within(row).getByRole("button", { name: "Взять с другого компьютера" })).toBeTruthy()
+    expect(readGroupConflict).not.toHaveBeenCalled()
+  })
+
+  // З69, fixed 13 November: a set is synchronised, so on the computer that did not make it the
+  // version in the file came from the other computer and the second version is this one's.
+  it("swaps the sides of a group set made on the other computer", async () => {
+    const resolveGroupConflict = vi.fn(async () => {})
+    await show(vaultStatus({ conflicts: [{ ...groupConflict, createdHere: false }] }), {
+      readGroupConflict: vi.fn(async () => groupRead),
+      resolveGroupConflict,
+    })
+    const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+    const notes = await within(row).findByTestId("sync-group-notes")
+    const [first, second] = within(notes).getAllByRole("radiogroup")
+    // the version in the file ("current") is now named after the other computer
+    expect(within(first).getByRole("radio", { name: "Другой компьютер" }).textContent).toMatch(
+      /Выбор/,
+    )
+    expect(within(second).getByRole("radio", { name: "Этот компьютер" }).textContent).toMatch(
+      /Оформление заметки удалено/,
+    )
+    fireEvent.click(within(first).getByRole("radio", { name: "Этот компьютер" }))
+    fireEvent.click(within(second).getByRole("radio", { name: "Другой компьютер" }))
+    fireEvent.click(within(row).getByRole("button", { name: "Применить" }))
+    await waitFor(() =>
+      expect(resolveGroupConflict).toHaveBeenCalledWith(
+        "0123456789ab",
+        { A: "other", B: "current" },
+        "stamp-g",
+      ),
+    )
+  })
+
+  it("swaps the whole-file buttons of an app-data set made on the other computer", async () => {
+    const port = await show(
+      vaultStatus({ conflicts: [{ ...groupConflict, hasBase: false, createdHere: false }] }),
+    )
+    const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+    fireEvent.click(within(row).getByRole("button", { name: "Оставить с этого компьютера" }))
+    await waitFor(() =>
+      expect(port.resolveConflict).toHaveBeenCalledWith("0123456789ab", "keepCopy"),
+    )
+  })
+
+  it("keeps the sides of a set made here", async () => {
+    const port = await show(
+      vaultStatus({ conflicts: [{ ...groupConflict, hasBase: false, createdHere: true }] }),
+    )
+    const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+    fireEvent.click(within(row).getByRole("button", { name: "Оставить с этого компьютера" }))
+    await waitFor(() =>
+      expect(port.resolveConflict).toHaveBeenCalledWith("0123456789ab", "keepOriginal"),
     )
   })
 
   it("words a conflict of two creations differently", async () => {
     await show(vaultStatus({ conflicts: [{ ...conflict, kind: "bothCreated" }] }))
     const list = await screen.findByTestId("sync-conflicts")
-    expect(list.textContent).toMatch(/создали на двух компьютерах/)
+    expect(list.textContent).toMatch(/создана на двух компьютерах/)
   })
 
-  it("replaces a replaced file only after a confirmation that names the file", async () => {
-    // "Заменить копией" overwrites the file with the copy: the person has to mean it
-    const port = await show(vaultStatus({ conflicts: [conflict] }))
+  it("writes to the journal after the choice where the replaced version went, and only then", async () => {
+    const port = await show(vaultStatus({ conflicts: [conflict] }), {
+      readConflictVersions: async () => ({ original: "a", copy: "b", stamp: "s" }),
+    })
     const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
-    fireEvent.click(within(row).getByRole("button", { name: "Заменить копией" }))
+    // nothing is promised before the choice
+    expect(document.body.textContent).not.toMatch(/истории/)
+    fireEvent.click(within(row).getByRole("button", { name: "Сравнить" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Взять вторую версию" }))
     await waitFor(() => expect(port.resolveConflict).toHaveBeenCalled())
-    // The replaced version stays in the history: the screen says where to find it.
-    expect(document.body.textContent).toMatch(/истории/)
+    // What the choice did is said in the journal of the notification centre, not in this list.
+    await waitFor(() =>
+      expect(
+        useNoticeJournalStore.getState().entries.map((entry) => [entry.kind, entry.params.choice]),
+      ).toEqual([["conflictOutcome", "keepCopy"]]),
+    )
+    expect(screen.queryByTestId("sync-conflict-outcome")).toBeNull()
   })
 
   it("shows the list as it changes: a resolved conflict leaves it", async () => {
@@ -587,7 +826,8 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
       },
     })
     const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
-    fireEvent.click(within(row).getByRole("button", { name: "Оставить оба" }))
+    fireEvent.click(within(row).getByRole("button", { name: "Сравнить" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Оставить версию в заметке" }))
     expect((await screen.findByRole("alert")).textContent).toMatch(/уже нет в списке/)
   })
 
@@ -611,7 +851,7 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
     expect(text).toMatch(/Символическая ссылка/)
     expect(text).toMatch(/нельзя создать на этой системе \(недопустимый символ\)/)
     expect(text).toMatch(/Совпадает с «note\.md» без учёта регистра/)
-    expect(text).toMatch(/слишком большой для этого компьютера/)
+    expect(text).toMatch(/больше лимита приложения/)
     expect(text).toMatch(/Нет доступа к файлу/)
     expect(text).toMatch(/Причина не распознана/)
   })
@@ -698,5 +938,61 @@ describe("sync of the open vault: texts", () => {
     expect(document.body.textContent).not.toMatch(/sync\.vault\./)
     await i18n.changeLanguage("ru")
     cleanup()
+  })
+})
+
+// A status that cannot be followed (docs/notices.md, sections 12 and 13): the screen must not go on saying
+// "synced" for a state it can no longer see, and the centre says that the status stopped updating.
+describe("a sync status that cannot be followed", () => {
+  beforeEach(async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    useAppNoticesStore.setState({ notices: [] })
+    await i18n.changeLanguage("ru")
+  })
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
+
+  it("says the state is unknown instead of synced, and warns in the centre", async () => {
+    await show(vaultStatus({ phase: "idle", lastSyncMs: 1_760_000_000_000 }), {
+      onVaultStatus: async () => {
+        throw new Error("listen failed /secret")
+      },
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId("sync-vault").getAttribute("data-sync-state")).toBe("unknown"),
+    )
+    expect(screen.getByTestId("sync-status").textContent).toContain("неизвестно")
+    expect(screen.getByTestId("sync-status").textContent).not.toMatch(/синхронизирован/i)
+    const notice = useAppNoticesStore.getState().notices.find((n) => n.id === "sync-listen-failed")
+    expect(notice?.level).toBe("warning")
+  })
+
+  it("subscribes again, and goes back to the real state and clears the warning when that works", async () => {
+    let attempts = 0
+    let push: ((status: VaultSyncStatus) => void) | null = null
+    await show(vaultStatus({ phase: "idle", lastSyncMs: 1_760_000_000_000 }), {
+      onVaultStatus: async (listener) => {
+        attempts += 1
+        if (attempts === 1) throw new Error("listen failed")
+        push = listener
+        return () => {}
+      },
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId("sync-vault").getAttribute("data-sync-state")).toBe("unknown"),
+    )
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000)
+    })
+    expect(attempts).toBe(2)
+    expect(useAppNoticesStore.getState().notices.some((n) => n.id === "sync-listen-failed")).toBe(
+      false,
+    )
+    act(() => push!(vaultStatus({ phase: "running" })))
+    await waitFor(() =>
+      expect(screen.getByTestId("sync-vault").getAttribute("data-sync-state")).toBe("running"),
+    )
   })
 })

@@ -9,6 +9,14 @@ deleting the index must not delete or change notes.
 Amby never writes `.obsidian/`, `.git/`, `.trash/`, or `assets/` while indexing.
 Those directories, along with `.amby/`, are excluded from the note index.
 
+## Вложения
+
+Новые вложения заметок и баз получают случайные имена с префиксом типа:
+`img_<ULID>.png`, `pdf_<ULID>.pdf`, `audio_…`, `video_…` или `file_…`.
+Импорт возвращает исходное имя для отображения; содержимое файлов не меняется.
+Для суперзаметки используется её `assets/`, для обычной заметки — `assets/`
+хранилища. Существующие вложения при переходе не переименовываются.
+
 ## `.amby/`
 
 `.amby/` is Amby's per-vault metadata directory. It may contain:
@@ -25,8 +33,33 @@ Those directories, along with `.amby/`, are excluded from the note index.
   positions keyed by node ID (`nodes: { id: [x, y] }`) and the view (`camera`).
   It is user state, not a cache; a missing, unlocked or unknown-version file only
   means the graph lays itself out freely.
-- `properties.json` — versioned custom-property metadata keyed by stable note ID;
-  SQLite mirrors it for queries, while this sidecar makes the data rebuildable.
+- `properties/` — the look of note properties (sync plan, appendix З). The **value** of a
+  property lives only in the YAML header of the note. Type, icon and options come from the
+  template of basic properties in the application; a note's record keeps only the
+  **differences** from it, by property name, and an `order` only after the user reordered.
+  - `layout.json` — `{"groups":16,"hash":"blake3-first-hex","template":N,"version":1}`,
+    read before the groups; another number of groups or version makes the properties
+    read-only. It is written last by the migration and marks its end.
+  - `prop_<x>.jsonl` — `<x>` is the first lowercase hexadecimal digit of BLAKE3 of the
+    note's `amby-id`; at most 16 files, a file exists only if it has lines. JSON Lines: the
+    first line `{"version":1}` (unknown fields are kept), then one line per note sorted by
+    `id`: `{"hint":{"path":…},"id":…,"props":{"<name>":{"icon":…,"propertyType":…,
+"settings":…}},"order":[…],"dismissedRenames":[[…,…]],"edited":…}` in compact JSON with keys in
+    ascending byte order. `edited` (optional) is the Unix time in milliseconds of the last edit
+    of the line; when sync meets a note edited differently on two devices, the later edit
+    wins. An edit replaces, inserts or removes only its own line; every
+    other line is copied byte for byte. A line that cannot be read is shown as read-only,
+    the file is never written while it is there, and nothing is repaired automatically.
+    `hint` is a hint for people and for rebinding, not a key.
+  - `legacy_<x>.jsonl` — marks of edits made by an old version: `{"entry":…,"id":…,
+"record":…}` (BLAKE3 hashes), same digit and same rules as `prop_<x>.jsonl`.
+- `properties.json` — the first format of the same data (a list of properties with values
+  per note). After the migration it is neither changed nor deleted so that old versions on
+  other devices keep working; the new version reads it only to carry over their edits and
+  never writes it. SQLite mirrors the properties for queries and can be rebuilt from the files.
+- `property-ops/<operation-id>.json` — journal of an edit that touches both the header and
+  the group (rename, create, delete, change of type). It exists only while the operation
+  does; on opening the vault the device that began it finishes it. It stays on this device.
 - `property-backups/<note-id>/<operation-id>.json` — immutable versioned backups
   created when standalone note properties are removed while the note enters a
   database. Each file records the destination note ID, creation time, complete
@@ -75,6 +108,7 @@ Those directories, along with `.amby/`, are excluded from the note index.
   (`.amby/trash/`). Conflict marks (`<<<<<<<` and the like) are never written into a note. Conflict copies
   made before this layout (`Name.<id>-conflict.md` beside the file) stay where they are and are still
   listed as conflicts. The indexer does not read this folder.
+- `migrations/database-layout-v2/<ULID>/` — журнал и неизменяемые исходные копии явного обновления баз к единому JSON и общей папке `assets/`. Сохраняются после завершения, не являются кэшем и не синхронизируются.
 - future versioned, documented metadata files.
 
 ### Which files of `.amby/` are synchronised
@@ -84,26 +118,30 @@ that does not say so is not synchronised** (sync plan, Р4): an unknown file nei
 computer nor gets lost. The engine enforces the same list (`sync/core/src/engine/rules.rs`), and a
 test holds the two together.
 
-| Entry                      | Synchronised | Why                                                               |
-| -------------------------- | ------------ | ----------------------------------------------------------------- |
-| `properties.json`          | yes          | user data of the notes                                            |
-| `blocks/`                  | yes          | per-note UI sidecars                                              |
-| `graph-layout.json`        | yes          | user state                                                        |
-| `property-backups/`        | yes          | immutable backups of removed properties                           |
-| `conflicts/`               | yes          | second versions of conflicts, listed and resolved from any device |
-| `notes.db`, `-wal`, `-shm` | no           | rebuildable index                                                 |
-| `history/`                 | no           | each device keeps its own snapshots                               |
-| `ai/`                      | no           | conversations remain on this device                               |
-| `recovery/`                | no           | drafts and journals of this device                                |
-| `trash/`                   | no           | each device keeps its own trash                                   |
-| `migrations/`              | no           | journals of this device                                           |
-| `sync/`                    | no           | state of synchronisation of this device                           |
-| `workspace.json`, others   | no           | not named: the default is "no"                                    |
+| Entry                      | Synchronised | Why                                                                    |
+| -------------------------- | ------------ | ---------------------------------------------------------------------- |
+| `properties.json`          | yes          | user data of the notes, for the old versions                           |
+| `properties/`              | yes          | the look of note properties: groups, marks, layout                     |
+| `property-ops/`            | no           | journal of unfinished edits of this device                             |
+| `blocks/`                  | yes          | per-note UI sidecars                                                   |
+| `graph-layout.json`        | yes          | user state                                                             |
+| `property-backups/`        | yes          | immutable backups of removed properties                                |
+| `conflicts/`               | yes          | second versions of conflicts, listed and resolved from any device      |
+| `notes.db`, `-wal`, `-shm` | no           | rebuildable index                                                      |
+| `history/`                 | no           | each device keeps its own snapshots                                    |
+| `ai/`                      | no           | conversations remain on this device                                    |
+| `recovery/`                | no           | drafts and journals of this device                                     |
+| `archive/`                 | yes          | the archive (К1): files repeat their vault paths; `.meta/` has records |
+| `trash/`                   | no           | service trash of this device (closed conflicts, refused system trash)  |
+| `migrations/`              | no           | journals of this device                                                |
+| `sync/`                    | no           | state of synchronisation of this device                                |
+| `workspace.json`, others   | no           | not named: the default is "no"                                         |
 
 Files written by synchronisation itself follow the rules of the vault: a file that arrives from another
 device replaces the local one only after a history snapshot with the reason `sync-overwrite` (taken
-even when the history is switched off), and a file deleted on another device goes to `.amby/trash/`
-whatever the delete mode (sync plan, Р8). The writes of synchronisation are not registered as
+even when the history is switched off), and a file deleted on another device goes to the system
+trash of this computer, or to `.amby/trash/` when the system trash refuses it or the path is inside
+`.amby/` (sync plan, К3, К11 (б); never destroyed). The writes of synchronisation are not registered as
 writes of the application, so the watcher reports them like changes made by another program.
 
 The directory is application metadata, not an Obsidian configuration directory.
@@ -410,18 +448,28 @@ truth.
 The explicit Delete action follows the application setting `files.deleteMode`
 (`delete_item` takes the mode explicitly). The default `system` moves a note,
 folder, or complete bundle to the operating system's trash; restoration uses
-that system's trash interface and Amby keeps no vault-local copy. `vault` moves
-the item to `.amby/trash/` like Archive. `permanent` removes it with no copy and
-is always confirmed in the UI. A failed system or vault move is reported rather
+that system's trash interface and Amby keeps no vault-local copy. `archive` does what
+Archive does (the old value `vault` is read as `archive`). `permanent` removes it with no copy and
+is always confirmed in the UI. A failed system or archive move is reported rather
 than falling back to permanent deletion.
 
-Archive remains a separate action that moves items to `.amby/trash/`, including
-Canvas, Excalidraw, and database layers, and can be restored inside Amby. After
-a successful delete/archive, queued saves for affected open documents are
-discarded so they cannot recreate the removed files. Unsaved editor text is
+Archive (sync plan, appendix К) moves items to `.amby/archive/<path in the vault>` by renaming:
+the path inside repeats the path of the vault, so "Restore" puts the file back, to a free name
+(`Name 2.md`) when its place is taken. The archive is synchronised like ordinary files. Each file
+has a record `.amby/archive/.meta/<id>.json` `{path, archivedAtMs}` (unknown fields are kept; no
+record means the time of the file). After a successful delete/archive, queued saves for affected
+open documents are discarded so they cannot recreate the removed files. Unsaved editor text is
 retained in recovery drafts when the chosen resolution requires it.
 
-Archive preview reads the selected payload by trash ID and a payload-relative path. It never
+The old `.amby/trash/` is moved into the archive once per vault, when the vault is opened and
+before a synchronisation session: `.amby/migrations/trash-to-archive-v1/` holds `plan.json`
+(the journal: the plan, written before the first rename), `steps/` (one file per finished entry), `manifests/`
+(the old descriptions of the moved entries), `completed.json` (marker and outcome) and, after a
+rollback, `rolled-back-<ms>/`. Entries whose path is inside `.amby/`, without content or with a
+damaged description stay in `.amby/trash/` with a reason code. Nothing is deleted; a rollback by the
+journal is the developer command `rollback_archive_migration`.
+
+Archive preview reads the selected archived file by its archive path. It never
 restores, indexes, or rewrites content. Manifest, payload and child paths reject symlinks and
 traversal; text is capped at 256 KiB and directory listings at 500 entries, with truncation
 reported to the UI. Unsupported or binary files remain restorable without being decoded.

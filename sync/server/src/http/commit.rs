@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 use amby_sync_proto::error_code as code;
 
-use super::spaces::owned_space;
+use super::spaces::{owned_space, recheck};
 use super::util::{
     authenticate, field_hex, hex, json_response, read_json, sha256, unhex, unhex_array, ApiError,
     ApiResult,
@@ -140,6 +140,11 @@ pub(crate) async fn commit(
     // One transaction takes the write lock first: the check of the bases and the write are not
     // separated by another commit (Р3, П27), and a refused commit changes nothing.
     let outcome = state.db.write(|tx| -> rusqlite::Result<Outcome> {
+        // Т1: the space and the token are looked up again, in this transaction.
+        let space = match recheck(tx, &auth, &space_text) {
+            Ok(space) => space,
+            Err(error) => return Ok(Outcome::Refused(error)),
+        };
         let known: Option<(Vec<u8>, String)> = tx
             .query_row(
                 "SELECT digest, response FROM commits WHERE space = ?1 AND commit_id = ?2",
@@ -158,6 +163,40 @@ pub(crate) async fn commit(
                 code::COMMIT_ID_REUSED,
                 "this commit id was used with other content",
             )));
+        }
+        // Н4, Н5: after the replay (П28) and before the other checks. A commit of deletions only
+        // (every entry `deleted` and no body) goes through; a mixed one is refused whole.
+        let plan = crate::quota::resolve_user(&state, tx, auth.user_id)?;
+        let only_deletions = entries
+            .iter()
+            .all(|entry| entry.deleted && entry.blob_id.is_none());
+        if !plan.limits.sync && !only_deletions {
+            return Ok(Outcome::Refused(crate::quota::subscription_required()));
+        }
+        // Х6: without a subscription a deletion must free something: it names the current live
+        // version of an existing item. Anything else is an addition and refuses the whole commit.
+        if !plan.limits.sync {
+            for entry in &entries {
+                let current: Option<(u64, bool)> = tx
+                    .query_row(
+                        "SELECT version, deleted FROM versions \
+                         WHERE space = ?1 AND item_id = ?2 AND superseded_ms IS NULL",
+                        params![space.row, entry.item_id.as_slice()],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .optional()?;
+                let frees = entry.base_version >= 1
+                    && current == Some((entry.base_version, false));
+                if !frees {
+                    return Ok(Outcome::Refused(crate::quota::subscription_required()));
+                }
+            }
+        }
+        // Х1: no room on the disk, nothing is added; a commit of deletions only still passes.
+        if entries.iter().any(|entry| !entry.deleted) {
+            if let Err(error) = crate::quota::require_free_space(&state) {
+                return Ok(Outcome::Refused(error));
+            }
         }
         // П30 first: every body must be complete and in this space.
         for entry in &entries {
@@ -181,7 +220,6 @@ pub(crate) async fn commit(
         }
         // П60-3: a version whose body is larger than the file limit (the limit may have been
         // lowered after the body was uploaded). The whole batch is refused.
-        let plan = crate::quota::resolve_user(&state, tx, auth.user_id)?;
         if let Some(max) = plan.limits.max_file_bytes {
             for entry in entries.iter().filter(|entry| !entry.deleted) {
                 let Some(blob) = &entry.blob_id else { continue };

@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import i18n from "@/lib/i18n"
+import type { TreeItem } from "@/lib/storage"
 import { useSettingsStore } from "./use-settings-store"
 import {
   Dialog,
@@ -14,6 +15,8 @@ import {
 
 interface DeleteConfirmationDialogProps {
   name: string
+  /** What is being deleted, to name it in the question (a note, a folder, a sketch...). */
+  kind?: TreeItem["type"]
   count?: number
   isDirtyOrConflicted?: boolean
   onCancel: () => void
@@ -26,6 +29,7 @@ interface DeleteConfirmationDialogProps {
 /** A destructive-action confirmation whose opt-out is persisted by the caller. */
 export function DeleteConfirmationDialog({
   name,
+  kind = "file",
   count = 1,
   isDirtyOrConflicted = false,
   onCancel,
@@ -48,7 +52,7 @@ export function DeleteConfirmationDialog({
         >
           <DialogHeader>
             <DialogTitle className="text-base">
-              {t(isBulk ? "workspace.deleteManyTitle" : "workspace.deleteDirtyTitle")}
+              {isBulk ? t("workspace.deleteManyTitle", { count }) : t("workspace.deleteDirtyTitle")}
             </DialogTitle>
             <DialogDescription>
               {t(isBulk ? "workspace.deleteManyDirtyConfirm" : "workspace.deleteDirtyConfirm", {
@@ -94,14 +98,15 @@ export function DeleteConfirmationDialog({
       >
         <DialogHeader>
           <DialogTitle className="text-base">
-            {t(isBulk ? "workspace.deleteManyTitle" : "workspace.deleteTitle")}
+            {isBulk
+              ? t("workspace.deleteManyTitle", { count })
+              : t(`workspace.deleteTitle.${kind}`, { name })}
           </DialogTitle>
           <DialogDescription>
             {t(
-              `${isBulk ? "workspace.deleteManyConfirm" : "workspace.deleteConfirm"}${
-                deleteMode === "vault" ? "Vault" : ""
-              }`,
-              { name, count },
+              deleteMode === "archive"
+                ? "workspace.deleteConfirmArchive"
+                : "workspace.deleteConfirm",
             )}
           </DialogDescription>
         </DialogHeader>

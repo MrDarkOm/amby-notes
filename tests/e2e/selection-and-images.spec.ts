@@ -177,6 +177,21 @@ test("a picture's caption and alignment are written into the note", async ({ pag
   expect(stored).toContain('"A tidy caption")')
 })
 
+test("clicking a picture while the note is selected leaves only the picture selected", async ({
+  page,
+}) => {
+  await seedVault(page, { Note: NOTE })
+  await openInLive(page, "Note")
+  const editor = liveEditor(page)
+  await editor.getByText("First paragraph").click()
+  await page.keyboard.press("ControlOrMeta+a")
+  await editor.locator(PICTURE).first().click()
+
+  await expect(editor).toBeFocused()
+  await expect(editor).toHaveClass(/ProseMirror-hideselection/u)
+  expect(await highlighted(page)).toBeNull()
+})
+
 test("a picture inside selected text is not left selected when the cursor moves to another line", async ({
   page,
 }) => {

@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils"
 import { useSettingsStore } from "./use-settings-store"
 import { LogViewerDialog } from "./settings/log-viewer-dialog"
 import { useDebugStore } from "./settings/use-debug-store"
-import { SyncNoticesHost } from "./sync/sync-notices-host"
 
 export interface WorkspaceShellProps {
   children: React.ReactNode
@@ -55,7 +54,6 @@ export function WorkspaceShell({ children, className }: WorkspaceShellProps) {
     >
       {children}
       <DebugIndicator />
-      <SyncNoticesHost />
     </div>
   )
 }

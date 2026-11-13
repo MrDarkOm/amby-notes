@@ -15,14 +15,17 @@ use std::fs;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::UNIX_EPOCH;
+use unicode_normalization::UnicodeNormalization;
 
 use amby_sync_core::engine::{
-    FsError, Listing, LocalEntry, LocalFs, LocalKind, NameRules, RootState, SnapshotReason,
-    StagedWrite, TrashReason,
+    FsError, Listing, LocalEntry, LocalFs, LocalKind, NameRules, RenameHint, RootState,
+    SnapshotReason, StagedWrite, TrashReason,
 };
 
+use crate::sync::hints::RenameHints;
+use crate::system_recycle_bin::SystemTrash;
 use crate::{frontmatter, history, recycle_bin};
 
 /// What the application does around a batch of incoming changes (Р8): merge the events of the
@@ -32,24 +35,104 @@ pub trait FsHooks: Send + Sync {
     fn batch_begin(&self) {}
     /// It ended (also after an error).
     fn batch_end(&self) {}
+    /// The files of `.amby/` (paths relative to the vault) that the batch wrote, told once before
+    /// [`Self::batch_end`] and only when there are some. The watcher does not look into `.amby/`,
+    /// so this is how the windows learn about an updated group of properties (З65).
+    fn amby_written(&self, _paths: &[String]) {}
 }
 
 /// The vault as the engine sees it.
 pub struct VaultFs {
     root: PathBuf,
     hooks: Option<Arc<dyn FsHooks>>,
+    /// The files of `.amby/` written since the batch began (`None` outside a batch), shared with
+    /// the writes in flight (З65).
+    amby_written: Arc<Mutex<Option<Vec<String>>>>,
+    /// The system trash that takes a deletion that came from another device (К3): the real one at
+    /// run time, a refusing one in the tests of the application (К11 (и)), so no test touches the
+    /// trash of the person.
+    system_trash: Arc<dyn SystemTrash>,
+    /// The renames the application recorded (Д70), handed to the engine after it read the vault.
+    rename_hints: Option<Arc<RenameHints>>,
 }
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// Folders of `.amby/` whose files are synchronised (Р4); the rest of `.amby/` is listed by name
-/// only.
-const AMBY_SYNCED_FOLDERS: [&str; 3] = ["blocks", "property-backups", "conflicts"];
+/// Folders of `.amby/` whose files are synchronised (Р4, З14); the rest of `.amby/` is listed by
+/// name only. Must agree with `amby_sync_core::engine::rules::is_excluded_path` (a test holds it).
+const AMBY_SYNCED_FOLDERS: [&str; 5] = [
+    "blocks",
+    "property-backups",
+    "conflicts",
+    "properties",
+    "archive",
+];
+
+/// The system trash a `VaultFs` asks by default: the real one, and in the tests of the application
+/// one that refuses (К11 (и)), so the older tests see the fall-back `.amby/trash/`.
+fn default_system_trash() -> Arc<dyn SystemTrash> {
+    #[cfg(test)]
+    {
+        Arc::new(crate::system_recycle_bin::RefusingTrash)
+    }
+    #[cfg(not(test))]
+    {
+        Arc::new(crate::system_recycle_bin::OsTrash)
+    }
+}
 
 impl VaultFs {
+    fn record_amby_change(&self, path: &str) {
+        if !path.starts_with(".amby/") {
+            return;
+        }
+        if let Ok(mut changed) = self.amby_written.lock() {
+            if let Some(list) = changed.as_mut() {
+                if !list.iter().any(|existing| existing == path) {
+                    list.push(path.to_string());
+                }
+            }
+        }
+    }
+
+    /// К3: a file of the person goes to the system trash, decided for each item; a service path
+    /// (`.amby/…`, К11 (б)) and a refusal of the system trash go to `.amby/trash/`: a deletion
+    /// that came from another device never destroys the local copy.
+    fn trash_resolved(&self, path: &str, target: &Path) -> Result<(), FsError> {
+        let taken = !amby_sync_core::engine::history::is_service_path(path)
+            && match self.system_trash.trash(target) {
+                Ok(()) => true,
+                Err(error) => {
+                    tracing::warn!(event = "remote_deletion_system_trash_refused", path = %path, error = %error);
+                    false
+                }
+            };
+        if !taken {
+            recycle_bin::move_exact_to_trash(&self.root, target)
+                .map_err(|error| map_io(path, &error))?;
+        }
+        self.record_amby_change(path);
+        Ok(())
+    }
+
     /// The vault at `root`, with no hooks.
     pub fn new(root: PathBuf) -> Self {
-        Self { root, hooks: None }
+        Self {
+            root,
+            hooks: None,
+            amby_written: Arc::default(),
+            system_trash: default_system_trash(),
+            rename_hints: None,
+        }
+    }
+
+    /// The vault at `root` whose remote deletions go to `system_trash` (К3). `new` and
+    /// `with_hooks` use the real system trash outside tests and a refusing one in `cfg(test)`.
+    pub fn with_system_trash(root: PathBuf, system_trash: Arc<dyn SystemTrash>) -> Self {
+        Self {
+            system_trash,
+            ..Self::new(root)
+        }
     }
 
     /// The vault at `root`; `hooks` are told about batches.
@@ -57,7 +140,17 @@ impl VaultFs {
         Self {
             root,
             hooks: Some(hooks),
+            amby_written: Arc::default(),
+            system_trash: default_system_trash(),
+            rename_hints: None,
         }
+    }
+
+    /// The queue of renames of the application, which the engine drains after it read the vault
+    /// (Д70).
+    pub fn with_rename_hints(mut self, hints: Arc<RenameHints>) -> Self {
+        self.rename_hints = Some(hints);
+        self
     }
 
     /// The folder of the vault.
@@ -124,7 +217,7 @@ fn mtime_ns(metadata: &fs::Metadata) -> i64 {
 
 /// Is a folder named `name` at `rel_parent` (relative, `""` for the root) not entered by the
 /// listing? Its entry is listed, its content is not: nothing in it is ever synchronised (Р4).
-fn is_not_entered(rel_parent: &str, name: &str) -> bool {
+pub(super) fn is_not_entered(rel_parent: &str, name: &str) -> bool {
     if name == ".git" {
         return true;
     }
@@ -244,6 +337,7 @@ struct VaultStaged {
     rel: String,
     temp: PathBuf,
     file: Option<fs::File>,
+    amby_written: Arc<Mutex<Option<Vec<String>>>>,
 }
 
 impl VaultStaged {
@@ -266,6 +360,15 @@ impl StagedWrite for VaultStaged {
         let result = self.publish_inner(snapshot);
         if result.is_err() {
             self.remove_temp();
+        } else if self.rel.starts_with(".amby/") {
+            // The watcher does not look into `.amby/`, so the batch tells what it wrote there.
+            if let Ok(mut written) = self.amby_written.lock() {
+                if let Some(list) = written.as_mut() {
+                    if !list.contains(&self.rel) {
+                        list.push(self.rel.clone());
+                    }
+                }
+            }
         }
         result
     }
@@ -381,6 +484,7 @@ impl LocalFs for VaultFs {
             rel: path.to_string(),
             temp,
             file: Some(file),
+            amby_written: Arc::clone(&self.amby_written),
         }))
     }
 
@@ -413,7 +517,10 @@ impl LocalFs for VaultFs {
                 if !same {
                     return Err(FsError::AlreadyExists(to.to_string()));
                 }
-                return fs::rename(&source, &target).map_err(|error| map_io(to, &error));
+                fs::rename(&source, &target).map_err(|error| map_io(to, &error))?;
+                self.record_amby_change(from);
+                self.record_amby_change(to);
+                return Ok(());
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(map_io(to, &error)),
@@ -427,6 +534,8 @@ impl LocalFs for VaultFs {
             match frontmatter::publish_prepared_no_replace(&source, &target) {
                 Ok(()) => {
                     fs::remove_file(&source).map_err(|error| map_io(from, &error))?;
+                    self.record_amby_change(from);
+                    self.record_amby_change(to);
                     Ok(())
                 }
                 Err(frontmatter::AtomicCreateError::AlreadyExists) => {
@@ -439,14 +548,44 @@ impl LocalFs for VaultFs {
         } else {
             // A folder has no atomic move that refuses to replace; the target was just found
             // missing, and the system itself refuses to replace a folder that is not empty.
-            fs::rename(&source, &target).map_err(|error| map_io(to, &error))
+            fs::rename(&source, &target).map_err(|error| map_io(to, &error))?;
+            self.record_amby_change(from);
+            self.record_amby_change(to);
+            Ok(())
         }
     }
 
     fn move_to_trash(&mut self, path: &str, _reason: TrashReason) -> Result<(), FsError> {
         let target = self.resolve(path)?;
         fs::symlink_metadata(&target).map_err(|error| map_io(path, &error))?;
-        recycle_bin::move_exact_to_trash(&self.root, &target).map_err(|error| map_io(path, &error))
+        self.trash_resolved(path, &target)
+    }
+
+    fn move_dir_to_trash(
+        &mut self,
+        dir: &str,
+        files: &[String],
+        _reason: TrashReason,
+    ) -> Result<bool, FsError> {
+        let target = self.resolve(dir)?;
+        // К3а: a service folder (`.amby/…`) is never grouped; it is trashed per file as before.
+        if amby_sync_core::engine::history::is_service_path(dir) {
+            return Ok(false);
+        }
+        let metadata = fs::symlink_metadata(&target).map_err(|error| map_io(dir, &error))?;
+        if !metadata.is_dir() {
+            return Ok(false);
+        }
+        // The folder goes as one item only when everything it holds is a file of this deletion:
+        // a file of the person, a link, or a file the system keeps there stays where it is, and the
+        // caller trashes the files one by one.
+        let expected: std::collections::HashSet<String> =
+            files.iter().map(|file| file.nfc().collect()).collect();
+        if !holds_only(&target, dir, &expected)? {
+            return Ok(false);
+        }
+        self.trash_resolved(dir, &target)?;
+        Ok(true)
     }
 
     fn remove_empty_dir(&mut self, path: &str) -> Result<bool, FsError> {
@@ -462,7 +601,10 @@ impl LocalFs for VaultFs {
             return Ok(false);
         }
         match fs::remove_dir(&target) {
-            Ok(()) => Ok(true),
+            Ok(()) => {
+                self.record_amby_change(path);
+                Ok(true)
+            }
             Err(error)
                 if error.kind() == std::io::ErrorKind::NotFound
                     || error.kind() == std::io::ErrorKind::DirectoryNotEmpty =>
@@ -516,14 +658,68 @@ impl LocalFs for VaultFs {
     }
 
     fn batch_begin(&mut self) {
+        if let Ok(mut written) = self.amby_written.lock() {
+            *written = Some(Vec::new());
+        }
         if let Some(hooks) = &self.hooks {
             hooks.batch_begin();
         }
     }
 
+    fn take_rename_hints(&mut self) -> Vec<RenameHint> {
+        self.rename_hints
+            .as_ref()
+            .map(|queue| queue.take_for_pass())
+            .unwrap_or_default()
+    }
+
+    fn rename_hints_applied(&mut self, applied: &[RenameHint]) {
+        if let Some(queue) = &self.rename_hints {
+            queue.mark_applied(applied);
+        }
+    }
+
     fn batch_end(&mut self) {
+        let written = self
+            .amby_written
+            .lock()
+            .ok()
+            .and_then(|mut list| list.take())
+            .unwrap_or_default();
         if let Some(hooks) = &self.hooks {
+            if !written.is_empty() {
+                hooks.amby_written(&written);
+            }
             hooks.batch_end();
         }
     }
+}
+
+/// Does the folder `dir` (at `path`) hold only files named in `expected` (NFC, relative to the
+/// vault) and folders that lead to them? A link, an unreadable entry or any other file answers no.
+fn holds_only(
+    path: &Path,
+    dir: &str,
+    expected: &std::collections::HashSet<String>,
+) -> Result<bool, FsError> {
+    let entries = fs::read_dir(path).map_err(|error| map_io(dir, &error))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| map_io(dir, &error))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let relative = format!("{dir}/{name}");
+        let kind = entry
+            .file_type()
+            .map_err(|error| map_io(&relative, &error))?;
+        if kind.is_symlink() {
+            return Ok(false);
+        }
+        if kind.is_dir() {
+            if !holds_only(&entry.path(), &relative, expected)? {
+                return Ok(false);
+            }
+        } else if !kind.is_file() || !expected.contains(&relative.nfc().collect::<String>()) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }

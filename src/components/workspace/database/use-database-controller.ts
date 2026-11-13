@@ -1,7 +1,6 @@
 import * as React from "react"
 import { listen } from "@tauri-apps/api/event"
 import {
-  DatabaseOperationError,
   getDatabaseModuleState,
   isTauri,
   listDatabases,
@@ -12,6 +11,8 @@ import {
 } from "@/lib/storage"
 import { useDatabaseStore } from "./database-store"
 import { adoptAsyncDisposer } from "@/lib/async-disposable"
+import { operationErrorCode, reportOperationError } from "@/lib/operation-errors"
+import { logger } from "@/lib/logger"
 
 interface DatabaseControllerOptions {
   enabled: boolean
@@ -19,8 +20,7 @@ interface DatabaseControllerOptions {
 }
 
 function errorMessage(error: unknown): string {
-  if (error instanceof DatabaseOperationError) return error.message
-  return error instanceof Error ? error.message : String(error)
+  return reportOperationError(error)
 }
 
 /** Owns runtime lifecycle and catalog invalidation; table hosts fetch on demand. */
@@ -56,7 +56,10 @@ export function useDatabaseController({ enabled, vaultGeneration }: DatabaseCont
 
     if (!enabled || vaultGeneration === null) {
       if (wasEnabled && vaultGeneration !== null) {
-        void setDatabaseModuleEnabled(false, vaultGeneration).catch(() => {})
+        void setDatabaseModuleEnabled(false, vaultGeneration).catch((error: unknown) => {
+          // The screen is already switched off; the backend learns it again on the next open.
+          logger.debug("database.module_disable_failed", { failureCode: operationErrorCode(error) })
+        })
       }
       if (!enabled) setCatalogDisabled()
       return
@@ -76,6 +79,7 @@ export function useDatabaseController({ enabled, vaultGeneration }: DatabaseCont
         if (signal.cancelled || !isTauri()) return undefined
         let refreshTimer: ReturnType<typeof setTimeout> | null = null
         let refreshInFlight = false
+        let localWritePending = false
         const pending = new Map<string, DatabaseChangedPayload>()
         const scheduleRefresh = () => {
           if (refreshTimer !== null || signal.cancelled) return
@@ -85,10 +89,12 @@ export function useDatabaseController({ enabled, vaultGeneration }: DatabaseCont
           }, 100)
         }
         const flushChanges = async () => {
-          if (refreshInFlight || pending.size === 0 || signal.cancelled) return
+          if (refreshInFlight || (pending.size === 0 && !localWritePending) || signal.cancelled)
+            return
           refreshInFlight = true
           const changes = [...pending.values()]
           pending.clear()
+          localWritePending = false
           try {
             const requiresFullRebuild = changes.some(
               (change) =>
@@ -111,7 +117,7 @@ export function useDatabaseController({ enabled, vaultGeneration }: DatabaseCont
                 nextRuntime = await rebuildDatabaseProjection()
               }
             }
-            if (!signal.cancelled) setRuntime(nextRuntime)
+            if (!signal.cancelled && changes.length > 0) setRuntime(nextRuntime)
           } catch {
             // The next catalog refresh still exposes diagnostics when a
             // malformed source keeps the prior projection read-only.
@@ -120,15 +126,33 @@ export function useDatabaseController({ enabled, vaultGeneration }: DatabaseCont
             if (!signal.cancelled) {
               await refreshCatalog(signal)
               if (!signal.cancelled) invalidateHosts()
-              if (pending.size > 0) scheduleRefresh()
+              if (pending.size > 0 || localWritePending) scheduleRefresh()
             }
           }
         }
-        return listen<DatabaseChangedPayload>("database:changed", (event) => {
+        const stopExternal = await listen<DatabaseChangedPayload>("database:changed", (event) => {
+          if (event.payload.generation !== vaultGeneration) return
           const key = `${event.payload.kind}:${event.payload.path}`
           pending.set(key, event.payload)
           scheduleRefresh()
         })
+        try {
+          const stopLocal = await listen<{ generation: number }>(
+            "amby:database-written",
+            (event) => {
+              if (event.payload.generation !== vaultGeneration) return
+              localWritePending = true
+              scheduleRefresh()
+            },
+          )
+          return () => {
+            stopExternal()
+            stopLocal()
+          }
+        } catch (error) {
+          stopExternal()
+          throw error
+        }
       } catch (error) {
         if (!signal.cancelled) setCatalogError(errorMessage(error))
         return undefined

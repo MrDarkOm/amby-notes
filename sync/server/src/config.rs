@@ -27,6 +27,8 @@ pub struct Config {
     pub public_url: String,
     /// Allow `http://` for a host that is not localhost (`AMBY_SYNC_ALLOW_HTTP`, П41).
     pub allow_http: bool,
+    /// Allow signup without an invitation (`AMBY_SYNC_OPEN_REGISTRATION`), Рег1.
+    pub open_registration: bool,
     /// Largest sealed body in bytes (П8).
     pub max_blob_bytes: u64,
     /// Largest number of items in one commit (П8).
@@ -58,6 +60,13 @@ pub struct Config {
     pub plans_file: Option<PathBuf>,
     /// Seconds between `: ping` lines on an event stream (П34).
     pub sse_keepalive_secs: u64,
+    /// Free bytes the data volume keeps; below it adding requests get `507 server_storage_full`
+    /// (`AMBY_SYNC_MIN_FREE_BYTES`, Х1); `0` turns the check off.
+    pub min_free_bytes: u64,
+    /// Users open registration may reach (`AMBY_SYNC_MAX_USERS`, Х2); `None` is no limit.
+    pub max_users: Option<u64>,
+    /// JSON bodies over 1 MiB read at the same time (`AMBY_SYNC_MAX_LARGE_BODIES`, Х4).
+    pub max_large_bodies: u64,
 }
 
 impl Default for Config {
@@ -68,6 +77,7 @@ impl Default for Config {
             listen: "0.0.0.0:8080".to_string(),
             public_url: "http://localhost:8080".to_string(),
             allow_http: false,
+            open_registration: false,
             max_blob_bytes: 536_870_912,
             max_commit_items: 10_000,
             max_header_bytes: 16_384,
@@ -83,6 +93,9 @@ impl Default for Config {
             quota_bytes_per_user: None,
             plans_file: None,
             sse_keepalive_secs: 15,
+            min_free_bytes: 1_073_741_824,
+            max_users: None,
+            max_large_bodies: 4,
         }
     }
 }
@@ -119,6 +132,9 @@ impl Config {
         }
         if let Some(value) = get("AMBY_SYNC_ALLOW_HTTP") {
             config.allow_http = flag("AMBY_SYNC_ALLOW_HTTP", value)?;
+        }
+        if let Some(value) = get("AMBY_SYNC_OPEN_REGISTRATION") {
+            config.open_registration = flag("AMBY_SYNC_OPEN_REGISTRATION", value)?;
         }
         if let Some(value) = get("AMBY_SYNC_TRUST_PROXY") {
             config.trust_proxy = flag("AMBY_SYNC_TRUST_PROXY", value)?;
@@ -186,6 +202,29 @@ impl Config {
                 &mut quota,
             )?;
             config.quota_bytes_per_user = Some(quota);
+        }
+        // Х1: `0` is allowed here and turns the check off.
+        if let Some(value) = get("AMBY_SYNC_MIN_FREE_BYTES") {
+            config.min_free_bytes = value.trim().parse().map_err(|_| {
+                invalid(
+                    "AMBY_SYNC_MIN_FREE_BYTES",
+                    "must be a whole number, not negative",
+                )
+            })?;
+        }
+        number(
+            vars,
+            "AMBY_SYNC_MAX_LARGE_BODIES",
+            &mut config.max_large_bodies,
+        )?;
+        if let Some(value) = get("AMBY_SYNC_MAX_USERS") {
+            let mut max = 0u64;
+            number(
+                &HashMap::from([("AMBY_SYNC_MAX_USERS".to_string(), value.to_string())]),
+                "AMBY_SYNC_MAX_USERS",
+                &mut max,
+            )?;
+            config.max_users = Some(max);
         }
         if let Some(value) = get("AMBY_SYNC_PLANS_FILE") {
             config.plans_file = Some(PathBuf::from(non_empty("AMBY_SYNC_PLANS_FILE", value)?));

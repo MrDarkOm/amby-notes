@@ -1,42 +1,39 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import {
-  AlertTriangle,
-  ArchiveRestore,
-  FileWarning,
-  GitCompare,
-  Lightbulb,
-  NotebookPen,
-  Save,
-  X,
-} from "lucide-react"
+import { ChevronDown, ChevronUp, GitCompare, History } from "lucide-react"
+import { motion, useReducedMotion } from "motion/react"
 
 import { Button } from "@/components/ui/button"
 import { errorType, logger } from "@/lib/logger"
 import { flushAutosaveGeneration } from "../autosave/autosave-lifecycle"
 import { relativeToVault } from "../editor/document-breadcrumbs-utils"
-import { restoreRemoteDeleted } from "../sync/restore-remote-deleted"
+import { conflictName } from "../sync/conflict-outcome"
+import { restoreArchivedNote } from "../sync/restore-archived-note"
+import { requestOpenPanel } from "../panel-navigation"
 import { conflictForPath, useSyncNoticesStore } from "../sync/use-sync-notices-store"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
+import { NoticeLevelIcon } from "../notices/notice-level"
+import { mostSeriousNoticeLevel, noticeIsUrgent, noticeSeverityRank } from "../notices/notice-look"
+import { motionTransitions } from "@/lib/motion-config"
+import { Card, type Notice } from "./notice-card"
+import { usePropertyNotices } from "./property-notices"
+import { usePropertyMoveRetryStore } from "../file-actions/property-move-retry-store"
 import { useNoteNoticesStore } from "./use-note-notices-store"
 
 export interface NoteNoticesProps {
-  document: { id: string; path: string; externallyDeleted?: boolean }
+  document: {
+    id: string
+    path: string
+    externallyDeleted?: boolean
+    externallyArchived?: boolean
+  }
   /** The key of the warning about the note's properties or Live admission, if any. */
   warningKey: string | null
   /** Whether the open text can be written back after the file was deleted. */
   canRestoreDeleted?: boolean
   onRestoreDeleted?: () => void | Promise<void>
   onCloseTab?: () => void
-}
-
-interface Notice {
-  /** Stable while the same thing is being said; a new one opens the stack when it is urgent. */
-  id: string
-  /** The text of the note is in danger, or the person must decide: opens the stack by itself. */
-  urgent: boolean
-  card: React.ReactNode
 }
 
 /**
@@ -46,48 +43,6 @@ interface Notice {
  */
 export function NoteNotices(props: NoteNoticesProps) {
   return <NoteNoticesOf key={props.document.id} {...props} />
-}
-
-function Card({
-  testId,
-  urgent,
-  icon,
-  title,
-  lines = [],
-  error,
-  actions,
-}: {
-  testId: string
-  urgent: boolean
-  icon: React.ReactNode
-  title: string
-  lines?: string[]
-  error?: string | null
-  actions?: React.ReactNode
-}) {
-  return (
-    <div
-      data-testid={testId}
-      data-urgent={urgent}
-      className="note-notice-card pointer-events-auto flex items-start gap-3 rounded-xl px-3 py-2.5"
-    >
-      <span className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-300">{icon}</span>
-      <div className="min-w-0 flex-1 space-y-1">
-        <p className="text-[13px] font-medium">{title}</p>
-        {lines.map((line) => (
-          <p key={line} className="break-all text-[11px] text-muted-foreground">
-            {line}
-          </p>
-        ))}
-        {error && (
-          <p role="alert" className="text-[11px] text-destructive">
-            {error}
-          </p>
-        )}
-        {actions && <div className="flex flex-wrap gap-2 pt-1">{actions}</div>}
-      </div>
-    </div>
-  )
 }
 
 function NoteNoticesOf({
@@ -105,19 +60,23 @@ function NoteNoticesOf({
   const remoteDeleted = useSyncNoticesStore((state) =>
     relative ? state.remoteDeleted.includes(relative) : false,
   )
-  const remoteRestoreFailed = useSyncNoticesStore((state) =>
-    relative ? state.restoreFailed.includes(relative) : false,
-  )
+  const outcomes = useSyncNoticesStore((state) => state.outcomes)
+  const dismissOutcome = useSyncNoticesStore((state) => state.dismissOutcome)
+  const conflictOutcomes = outcomes.filter((item) => item.path === relative)
   const externalConflict = useDocStore((state) => state.externalConflicts[document.id])
   const openConflictDialog = useDocStore((state) => state.openConflictDialog)
   const saveFailed = useNoteNoticesStore((state) => Boolean(state.saveFailed[document.id]))
+  const propertyFailed = useNoteNoticesStore((state) => Boolean(state.propertyFailed[document.id]))
   const draftOffer = useNoteNoticesStore((state) => state.draftOffers[document.id])
   const restored = useNoteNoticesStore((state) =>
     relative ? state.restored.includes(relative) : false,
   )
+  const merged = useNoteNoticesStore((state) =>
+    relative ? state.merged.includes(relative) : false,
+  )
 
-  const [restoringRemote, setRestoringRemote] = React.useState(false)
-  const [remoteRestoreError, setRemoteRestoreError] = React.useState(false)
+  const propertyMoveRetry = usePropertyMoveRetryStore((state) => state.failed[document.id])
+  const [retryingPropertyMove, setRetryingPropertyMove] = React.useState(false)
   const [restoringDeleted, setRestoringDeleted] = React.useState(false)
   const [deletedRestoreError, setDeletedRestoreError] = React.useState(false)
   React.useEffect(() => {
@@ -125,19 +84,22 @@ function NoteNoticesOf({
     setRestoringDeleted(false)
   }, [document.externallyDeleted])
 
-  const restoreRemote = async () => {
-    if (restoringRemote || !relative || !vault) return
-    setRestoringRemote(true)
-    setRemoteRestoreError(false)
+  const [restoringArchived, setRestoringArchived] = React.useState(false)
+  const [archivedRestoreError, setArchivedRestoreError] = React.useState(false)
+  const restoreArchived = async () => {
+    if (restoringArchived || !vault) return
+    setRestoringArchived(true)
+    setArchivedRestoreError(false)
     try {
-      await restoreRemoteDeleted(vault, relative)
+      await restoreArchivedNote(vault, document.id)
     } catch (error) {
       logger.warn("sync.restore_remote_deleted_failed", { errorType: errorType(error) })
-      setRemoteRestoreError(true)
+      setArchivedRestoreError(true)
     } finally {
-      setRestoringRemote(false)
+      setRestoringArchived(false)
     }
   }
+
   const restoreDeleted = async () => {
     if (!onRestoreDeleted || restoringDeleted) return
     setRestoringDeleted(true)
@@ -152,23 +114,23 @@ function NoteNoticesOf({
   }
 
   const notices: Notice[] = []
+  const propertyNotices = usePropertyNotices(document.id)
   const found = vault ? conflictForPath(conflicts, vault, document.path) : null
   if (found) {
     notices.push({
       id: `sync-conflict:${found.conflict.id}`,
-      urgent: true,
       card: (
         <Card
           key="sync-conflict"
           testId="note-notice-sync-conflict"
-          urgent
-          icon={<AlertTriangle className="size-4" />}
-          title={t("noteNotices.syncConflict")}
-          lines={[
-            found.role === "original"
-              ? t("sync.notices.bannerHintOriginal", { other: found.conflict.copyPath })
-              : t("sync.notices.bannerHintCopy", { other: found.conflict.originalPath }),
-          ]}
+          level="decision"
+          title={t(
+            found.conflict.kind === "bothCreated"
+              ? "sync.vault.conflicts.createdTitle"
+              : "sync.vault.conflicts.editedTitle",
+            { name: conflictName(found.conflict.originalPath) },
+          )}
+          lines={[t("sync.vault.conflicts.bothSafe")]}
           actions={
             <Button
               type="button"
@@ -184,65 +146,110 @@ function NoteNoticesOf({
       ),
     })
   }
-  // The strip for a note deleted on another computer steps in front of the general "deleted" one,
-  // until the way back from the archive has failed.
-  const remoteActive = remoteDeleted && !remoteRestoreFailed
-  if (remoteDeleted) {
+  // What was done after a choice in the comparison (docs/notices.md, section 10): news, not a question.
+  for (const outcome of conflictOutcomes) {
     notices.push({
-      id: "remote-deleted",
-      urgent: true,
+      id: `conflict-outcome:${outcome.conflictId}`,
       card: (
         <Card
-          key="remote-deleted"
-          testId="note-notice-remote-deleted"
-          urgent
-          icon={<ArchiveRestore className="size-4" />}
-          title={t("sync.notices.remoteDeleted")}
-          error={remoteRestoreError ? t("sync.notices.restoreFailed") : null}
+          key={`conflict-outcome:${outcome.conflictId}`}
+          testId="note-notice-conflict-outcome"
+          level="info"
+          title={t(`sync.notices.outcome.${outcome.choice}`, { name: outcome.name })}
           actions={
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={restoringRemote}
-              onClick={() => void restoreRemote()}
-            >
-              {restoringRemote ? t("sync.notices.restoring") : t("sync.notices.restore")}
-            </Button>
+            <>
+              {(outcome.choice === "keepCopy" || outcome.choice === "assembled") && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => requestOpenPanel("history")}
+                >
+                  <History />
+                  {t("sync.notices.openHistory")}
+                </Button>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => dismissOutcome(outcome.conflictId)}
+              >
+                {t("sync.notices.dismiss")}
+              </Button>
+            </>
           }
         />
       ),
     })
   }
-  if (document.externallyDeleted && !remoteActive) {
+  // The file of the open note is gone (К12): one card, no window. The text is still open and autosave
+  // stays paused until the person decides: "Вернуть" saves it at the old path, "Закрыть заметку" closes
+  // the tab. The reason says which computer did it; a deletion on another one steps in front.
+  if (document.externallyArchived) {
+    // К13: the file went into the archive on another computer. The tab keeps the text; "Вернуть из архива"
+    // brings the file back by К6 (no replacing), "Закрыть заметку" closes the tab.
     notices.push({
-      id: "external-deleted",
-      urgent: true,
+      id: "archived-elsewhere",
       card: (
         <Card
-          key="external-deleted"
-          testId="note-notice-deleted"
-          urgent
-          icon={<AlertTriangle className="size-4" />}
-          title={t("conflict.deletedBannerTitle")}
-          lines={[t("conflict.deletedBannerDescription")]}
-          error={deletedRestoreError ? t("conflict.restoreFailed") : null}
+          key="archived-elsewhere"
+          testId="note-notice-archived-elsewhere"
+          level="decision"
+          title={t("sync.notices.archivedElsewhere")}
+          error={archivedRestoreError ? t("sync.notices.restoreArchivedFailed") : null}
           actions={
-            canRestoreDeleted && onRestoreDeleted ? (
+            <>
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
-                disabled={restoringDeleted}
-                onClick={() => void restoreDeleted()}
+                disabled={restoringArchived}
+                onClick={() => void restoreArchived()}
               >
-                {restoringDeleted ? t("conflict.saving") : t("conflict.restoreDeleted")}
+                {restoringArchived
+                  ? t("sync.notices.restoring")
+                  : t("sync.notices.restoreArchived")}
               </Button>
-            ) : onCloseTab ? (
-              <Button type="button" size="sm" variant="outline" onClick={onCloseTab}>
-                {t("common.close")}
-              </Button>
-            ) : undefined
+              {onCloseTab && (
+                <Button type="button" size="sm" variant="outline" onClick={onCloseTab}>
+                  {t("noteNotices.closeNote")}
+                </Button>
+              )}
+            </>
+          }
+        />
+      ),
+    })
+  } else if (remoteDeleted || document.externallyDeleted) {
+    notices.push({
+      id: remoteDeleted ? "remote-deleted" : "external-deleted",
+      card: (
+        <Card
+          key={remoteDeleted ? "remote-deleted" : "external-deleted"}
+          testId={remoteDeleted ? "note-notice-remote-deleted" : "note-notice-deleted"}
+          level="decision"
+          title={t(remoteDeleted ? "sync.notices.remoteDeleted" : "conflict.deletedBannerTitle")}
+          error={deletedRestoreError ? t("conflict.restoreFailed") : null}
+          actions={
+            <>
+              {canRestoreDeleted && onRestoreDeleted && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={restoringDeleted}
+                  onClick={() => void restoreDeleted()}
+                >
+                  {restoringDeleted ? t("sync.notices.restoring") : t("sync.notices.restore")}
+                </Button>
+              )}
+              {onCloseTab && (
+                <Button type="button" size="sm" variant="outline" onClick={onCloseTab}>
+                  {t("noteNotices.closeNote")}
+                </Button>
+              )}
+            </>
           }
         />
       ),
@@ -251,13 +258,11 @@ function NoteNoticesOf({
   if (externalConflict && !document.externallyDeleted) {
     notices.push({
       id: "external-change",
-      urgent: true,
       card: (
         <Card
           key="external-change"
           testId="note-notice-external-change"
-          urgent
-          icon={<AlertTriangle className="size-4" />}
+          level="decision"
           title={t("conflict.pausedAutosaveBannerTitle")}
           lines={[t("conflict.pausedAutosaveBannerDescription")]}
           actions={
@@ -277,13 +282,11 @@ function NoteNoticesOf({
   if (saveFailed) {
     notices.push({
       id: "save-failed",
-      urgent: true,
       card: (
         <Card
           key="save-failed"
           testId="note-notice-save-failed"
-          urgent
-          icon={<Save className="size-4" />}
+          level="danger"
           title={t("noteNotices.saveFailedTitle")}
           lines={[t("noteNotices.saveFailedDescription")]}
           actions={
@@ -306,16 +309,58 @@ function NoteNoticesOf({
       ),
     })
   }
+  if (propertyFailed) {
+    notices.push({
+      id: "property-failed",
+      card: (
+        <Card
+          key="property-failed"
+          testId="note-notice-property-failed"
+          level="danger"
+          title={t("noteNotices.properties.saveFailed")}
+        />
+      ),
+    })
+  }
+  // The note went into a database and its properties were not carried over: they are still in the note.
+  if (propertyMoveRetry) {
+    notices.push({
+      id: "properties-to-database",
+      card: (
+        <Card
+          key="properties-to-database"
+          testId="note-notice-properties-to-database"
+          level="warning"
+          title={t("noteNotices.propertiesToDatabase.title")}
+          lines={[t("noteNotices.propertiesToDatabase.line")]}
+          actions={
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={retryingPropertyMove}
+              onClick={() => {
+                setRetryingPropertyMove(true)
+                void propertyMoveRetry.retry().finally(() => setRetryingPropertyMove(false))
+              }}
+            >
+              {retryingPropertyMove
+                ? t("noteNotices.propertiesToDatabase.busy")
+                : t("noteNotices.propertiesToDatabase.action")}
+            </Button>
+          }
+        />
+      ),
+    })
+  }
   if (draftOffer) {
     notices.push({
       id: "draft",
-      urgent: true,
       card: (
         <Card
           key="draft"
           testId="note-notice-draft"
-          urgent
-          icon={<NotebookPen className="size-4" />}
+          level="decision"
           title={t("noteNotices.draftTitle")}
           lines={[t("noteNotices.draftDescription")]}
           actions={
@@ -333,16 +378,54 @@ function NoteNoticesOf({
     })
   }
   if (warningKey) {
+    // A lost id switches the properties off for good: the person decides what to do. The other
+    // warnings about the header only limit what the note can do.
+    const warningLevel = warningKey === "workspace.identityReadOnly" ? "decision" : "warning"
     notices.push({
       id: `warning:${warningKey}`,
-      urgent: false,
       card: (
         <Card
           key="warning"
           testId="note-notice-warning"
-          urgent={false}
-          icon={<FileWarning className="size-4" />}
+          level={warningLevel}
           title={t(warningKey)}
+        />
+      ),
+    })
+  }
+  // The program merged the edits of two computers by itself (docs/notices.md, section 12): it says so,
+  // quietly, and shows where the earlier version is.
+  if (merged && relative) {
+    notices.push({
+      id: "merged",
+      card: (
+        <Card
+          key="merged"
+          testId="note-notice-merged"
+          level="info"
+          title={t("noteNotices.mergedTitle")}
+          lines={[t("noteNotices.mergedLine")]}
+          actions={
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => requestOpenPanel("history")}
+              >
+                <History />
+                {t("sync.notices.openHistory")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => useNoteNoticesStore.getState().clearMerged(relative)}
+              >
+                {t("sync.notices.dismiss")}
+              </Button>
+            </>
+          }
         />
       ),
     })
@@ -351,13 +434,11 @@ function NoteNoticesOf({
     const name = (relative.split("/").pop() ?? relative).replace(/\.md$/iu, "")
     notices.push({
       id: "restored",
-      urgent: false,
       card: (
         <Card
           key="restored"
           testId="note-notice-restored"
-          urgent={false}
-          icon={<ArchiveRestore className="size-4" />}
+          level="info"
           title={t("sync.notices.restoredAfterDeletion", { name })}
           actions={
             <Button
@@ -374,10 +455,18 @@ function NoteNoticesOf({
     })
   }
 
+  notices.push(...propertyNotices)
+  // The panel reads from the most serious down (docs/notices.md, section 7); inside one level the order
+  // in which the cards were collected stays (the sort is stable).
+  notices.sort(
+    (a, b) => noticeSeverityRank(a.card.props.level) - noticeSeverityRank(b.card.props.level),
+  )
+
+  const reducedMotion = useReducedMotion()
   const [open, setOpen] = React.useState(false)
   const seen = React.useRef<Set<string>>(new Set())
   const urgentKey = notices
-    .filter((notice) => notice.urgent)
+    .filter((notice) => noticeIsUrgent(notice.card.props.level))
     .map((notice) => notice.id)
     .join("\u0000")
   React.useEffect(() => {
@@ -386,35 +475,93 @@ function NoteNoticesOf({
     seen.current = urgent
   }, [urgentKey])
 
+  // The panel never grows wider than the note's own area (a narrow column beside the side panels): the
+  // bar sits 1rem from its right edge, so the room to the left of that edge is the width minus 2rem.
+  const [rootEl, setRootEl] = React.useState<HTMLElement | null>(null)
+  const [room, setRoom] = React.useState<number | null>(null)
+  React.useEffect(() => {
+    const area = rootEl?.closest<HTMLElement>("[data-note-area]")
+    if (!area) return
+    const measure = () => setRoom(Math.max(0, area.clientWidth - 32))
+    measure()
+    if (typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(measure)
+    observer.observe(area)
+    return () => observer.disconnect()
+  }, [rootEl])
+
   if (notices.length === 0) return null
-  const anyUrgent = notices.some((notice) => notice.urgent)
+  const topLevel = mostSeriousNoticeLevel(notices.map((notice) => notice.card.props.level))!
+  const top = notices.find((notice) => notice.card.props.level === topLevel)!
+  const more = notices.length - 1
+  const frameStyle = room === null ? undefined : { maxWidth: `min(${room}px, calc(100vw - 3rem))` }
+  const Chevron = open ? ChevronDown : ChevronUp
+  const toggle = {
+    type: "button" as const,
+    "data-testid": "note-notices-strip",
+    "data-urgent": noticeIsUrgent(topLevel),
+    "data-level": topLevel,
+    "aria-label": t("noteNotices.stripLabel", { count: notices.length }),
+    title: t(open ? "noteNotices.stripCollapse" : "noteNotices.stripExpand"),
+    "aria-expanded": open,
+    onClick: () => setOpen((value) => !value),
+  }
   return (
     <div
+      ref={setRootEl}
       data-testid="note-notices"
-      className="pointer-events-none absolute bottom-14 right-4 z-20 flex max-w-[calc(100%-2rem)] flex-col items-end gap-2"
+      className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-end"
     >
-      {open && (
+      {/* Its own small element at the right edge of the floating bar of the note, a gap above the bar (it
+          never covers the bar's buttons). Folded it is a pill that fits its content; open it is a rounded
+          panel: a header row, then the cards, which scroll when there are many. */}
+      {open ? (
         <div
-          data-testid="note-notices-stack"
-          className="flex max-h-[60vh] w-[min(26rem,calc(100vw-2rem))] flex-col gap-2 overflow-y-auto"
+          data-testid="note-notices-frame"
+          style={frameStyle}
+          className="note-notices-panel pointer-events-auto flex w-[min(24rem,calc(100vw-3rem))] max-w-[calc(100vw-3rem)] shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-lg"
         >
-          {notices.map((notice) => notice.card)}
+          <button
+            {...toggle}
+            className="flex h-9 w-full items-center gap-2 px-3 text-left text-[12px] font-medium select-none hover:bg-accent/40"
+          >
+            <NoticeLevelIcon level={topLevel} className="size-4 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">
+              {t("noteNotices.panelTitle", { count: notices.length })}
+            </span>
+            <Chevron className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          </button>
+          <motion.div
+            data-testid="note-notices-stack"
+            className="flex max-h-[min(55vh,24rem)] flex-col gap-2 overflow-y-auto border-t border-border/60 p-2"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            transition={reducedMotion ? motionTransitions.instant : motionTransitions.panel}
+          >
+            {notices.map((notice) => notice.card)}
+          </motion.div>
+        </div>
+      ) : (
+        <div
+          data-testid="note-notices-frame"
+          style={frameStyle}
+          className="note-notices-pill pointer-events-auto w-fit max-w-[min(20rem,calc(100vw-3rem))] shrink-0 overflow-hidden rounded-full border border-border bg-popover text-popover-foreground shadow-md"
+        >
+          <button
+            {...toggle}
+            className="flex h-7 w-full items-center gap-1.5 pr-2 pl-2.5 text-left text-[12px] select-none hover:bg-accent/40"
+          >
+            <NoticeLevelIcon level={topLevel} className="size-3.5 shrink-0" />
+            <span className="min-w-0 truncate font-medium">{top.card.props.title}</span>
+            {more > 0 && (
+              <span className="shrink-0 text-[11px] text-muted-foreground">
+                {t("noteNotices.stripMore", { count: more })}
+              </span>
+            )}
+            <Chevron className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          </button>
         </div>
       )}
-      <button
-        type="button"
-        data-testid="note-notices-bulb"
-        data-urgent={anyUrgent}
-        aria-label={t("noteNotices.bulbLabel", { count: notices.length })}
-        title={t("noteNotices.bulbTitle")}
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        className="note-notices-bulb pointer-events-auto flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold select-none"
-      >
-        <Lightbulb className="size-3.5" aria-hidden="true" />
-        <span>{notices.length}</span>
-        {open && <X className="size-3" aria-hidden="true" />}
-      </button>
     </div>
   )
 }

@@ -475,6 +475,16 @@ pub fn plan(
 
     Ok(PresetPlan {
         extras: NewDatabaseExtras {
+            layout_version: 2,
+            template: template
+                .as_ref()
+                .map(|t| {
+                    template_file_bytes(&ids.database_id, t).and_then(|bytes| {
+                        serde_json::from_slice(&bytes).map_err(|error| error.to_string())
+                    })
+                })
+                .transpose()
+                .map_err(|error| ProjectError::failed("serialize", error))?,
             properties,
             view,
             icon,

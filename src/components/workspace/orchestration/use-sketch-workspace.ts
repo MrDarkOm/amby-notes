@@ -3,11 +3,10 @@ import type { TFunction } from "i18next"
 import { validateAndSerializeSketch, defaultSketchJson } from "@/lib/sketch-format"
 import {
   discardRecoveryDraft,
-  readRecoveryDraft,
   scheduleRecoveryDraft,
   type RecoveryScope,
 } from "@/lib/recovery-drafts"
-import { confirmAction, readFile } from "@/lib/storage"
+import { readFile } from "@/lib/storage"
 import { recordAutosaveDiagnostic } from "@/lib/debug/autosave"
 import { logger, errorType } from "@/lib/logger"
 import { useDocStore } from "../use-doc-store"
@@ -15,13 +14,19 @@ import { sketchLayerPath } from "../workspace-tree-utils"
 import { FileConflictPausedError, FileRevisionTracker } from "../autosave/file-revision-tracker"
 import { AutosaveCoordinator, type AutosaveKey } from "../autosave/autosave-coordinator"
 import { registerAutosaveLifecycle } from "../autosave/autosave-lifecycle"
-import { recoveryNeedsConfirmation, resolveRecoveryContent } from "../recovery-restore"
+import { DeletedPaths } from "../autosave/deleted-paths"
+import { isPathInside } from "../workspace-mutations"
+import { settleLayerDraft } from "./layer-draft"
 import { CanvasLoadDeduplicator } from "./canvas-load-dedup"
 
 type SketchAutosavePayload = { path: string; json: string }
 
 /** Owns Excalidraw sketch buffers and their recovery/autosave lifecycle. */
-export function useSketchWorkspace(generation: number, t: TFunction, recoveryScope: RecoveryScope) {
+export function useSketchWorkspace(
+  generation: number,
+  _t: TFunction,
+  recoveryScope: RecoveryScope,
+) {
   const openSketchesRef = React.useRef<Record<string, string>>({})
   const [, setSketchRevision] = React.useState(0)
   const setOpenSketches = React.useCallback(
@@ -38,6 +43,7 @@ export function useSketchWorkspace(generation: number, t: TFunction, recoverySco
   const openSketches = openSketchesRef.current
   const sketchLoadsRef = React.useRef(new CanvasLoadDeduplicator())
   const revisionsRef = React.useRef(new FileRevisionTracker())
+  const deletedRef = React.useRef(new DeletedPaths())
   const vaultGenerationRef = React.useRef({ generation })
   vaultGenerationRef.current.generation = generation
 
@@ -94,6 +100,7 @@ export function useSketchWorkspace(generation: number, t: TFunction, recoverySco
   const loadSketchBuffer = React.useCallback(
     (path: string): Promise<string> =>
       sketchLoadsRef.current.run(generation, path, async () => {
+        deletedRef.current.lift(path)
         let diskContent: string
         try {
           await revisionsRef.current.baseline(path)
@@ -101,28 +108,29 @@ export function useSketchWorkspace(generation: number, t: TFunction, recoverySco
         } catch {
           diskContent = defaultSketchJson()
         }
-        const recovery = (await readRecoveryDraft(path, recoveryScope))?.content
-        let recoveredContent: string | undefined
-        if (recovery !== undefined) {
-          try {
-            recoveredContent = validateAndSerializeSketch(recovery)
-          } catch (error) {
-            console.error("Ignoring invalid sketch recovery draft:", error)
-          }
-        }
-        const restoreConfirmed = recoveryNeedsConfirmation(diskContent, recoveredContent)
-          ? await confirmAction(t("recovery.restorePrompt"))
-          : false
-        const resolved = resolveRecoveryContent(diskContent, recoveredContent, restoreConfirmed)
-        if (resolved.discardDraft) void discardRecoveryDraft(path, recoveryScope)
-        if (resolved.restored) {
-          scheduleRecoveryDraft(path, resolved.content, "sketch", path, recoveryScope)
-          autosave.enqueueImmediate(autosaveKey(path), { path, json: resolved.content })
-        }
-        setOpenSketches((prev) => ({ ...prev, [path]: resolved.content }))
-        return resolved.content
+        return settleLayerDraft({
+          path,
+          recoveryScope,
+          disk: diskContent,
+          validate: validateAndSerializeSketch,
+          onRestored: (content) => {
+            scheduleRecoveryDraft(path, content, "sketch", path, recoveryScope)
+            autosave.enqueueImmediate(autosaveKey(path), { path, json: content })
+          },
+          readDisk: async () => {
+            try {
+              return validateAndSerializeSketch(await readFile(path))
+            } catch {
+              return defaultSketchJson()
+            }
+          },
+          setBuffer: (content) => setOpenSketches((prev) => ({ ...prev, [path]: content })),
+        }).then((content) => {
+          setOpenSketches((prev) => ({ ...prev, [path]: content }))
+          return content
+        })
       }),
-    [autosave, autosaveKey, generation, recoveryScope, setOpenSketches, t],
+    [autosave, autosaveKey, generation, recoveryScope, setOpenSketches],
   )
 
   const handleSketchSave = React.useCallback(
@@ -134,10 +142,41 @@ export function useSketchWorkspace(generation: number, t: TFunction, recoverySco
         console.error("Refusing to save invalid sketch:", error)
         return
       }
+      // Deleted by Amby: a closing editor must not queue a write (docs/notices.md, section 9).
+      if (deletedRef.current.covers(path)) return
       if (openSketchesRef.current[path] === normalized) return
       openSketchesRef.current = { ...openSketchesRef.current, [path]: normalized }
       scheduleRecoveryDraft(path, normalized, "sketch", path, recoveryScope)
       autosave.schedule(autosaveKey(path), { path, json: normalized })
+    },
+    [autosave, autosaveKey, recoveryScope],
+  )
+
+  /**
+   * Amby deleted these paths (or folders): forget every sketch buffer under them, with its queued
+   * save, recovery draft and file baseline, and drop later saves for them until the path is opened again.
+   */
+  const discardDeleted = React.useCallback(
+    (deletedPaths: readonly string[]) => {
+      const inside = (path: string) => deletedPaths.some((root) => isPathInside(path, root))
+      const known = new Set<string>(deletedPaths)
+      for (const path of Object.keys(openSketchesRef.current)) if (inside(path)) known.add(path)
+      for (const state of autosave.inspectAll()) {
+        if (state.key.kind === "sketch" && inside(state.key.documentId))
+          known.add(state.key.documentId)
+      }
+      for (const root of deletedPaths) deletedRef.current.add(root)
+      for (const path of known) {
+        autosave.discard(autosaveKey(path))
+        revisionsRef.current.forget(path)
+        void discardRecoveryDraft(path, recoveryScope)
+      }
+      if (Object.keys(openSketchesRef.current).some(inside)) {
+        openSketchesRef.current = Object.fromEntries(
+          Object.entries(openSketchesRef.current).filter(([path]) => !inside(path)),
+        )
+        setSketchRevision((revision) => revision + 1)
+      }
     },
     [autosave, autosaveKey, recoveryScope],
   )
@@ -190,6 +229,7 @@ export function useSketchWorkspace(generation: number, t: TFunction, recoverySco
   return {
     autosave,
     autosaveKey,
+    discardDeleted,
     fileRevisions: revisionsRef.current,
     handleSketchSave,
     loadSketchBuffer,

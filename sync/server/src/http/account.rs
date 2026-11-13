@@ -8,13 +8,13 @@ use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 use sha2::Sha256;
 
-use amby_sync_proto::error_code as code;
+use amby_sync_proto::{error_code as code, normalize_username};
 
 use super::throttle;
 use super::util::{
     authenticate, client_addr, ct_eq, field_hex, field_hex_vec, field_str, field_u64, hex,
-    json_response, random, read_json, sha256, unhex_array, ApiError, ApiResult, NAME_ENVELOPE_LEN,
-    WRAPPED_KEY_LEN,
+    json_response, random, read_auth_json, read_json, sha256, unhex_array, ApiError, ApiResult,
+    NAME_ENVELOPE_LEN, WRAPPED_KEY_LEN,
 };
 use super::{split, Params};
 use crate::admin::normalize_code;
@@ -68,6 +68,17 @@ fn device_name(request: &Value) -> ApiResult<Vec<u8>> {
     field_hex_vec(&request["device"], "name_enc", NAME_ENVELOPE_LEN)
 }
 
+/// The name of the device in `login` and `recover` (М1): optional. No `device`, `"device": null`
+/// or a `device` without `name_enc` make a device with an empty name, set later by renaming it
+/// (М3); a name that is present is checked as in `enroll`.
+fn optional_device_name(request: &Value) -> ApiResult<Vec<u8>> {
+    match request.get("device") {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Object(device)) if !device.contains_key("name_enc") => Ok(Vec::new()),
+        Some(_) => device_name(request),
+    }
+}
+
 /// A device and its token, made before the transaction so that a failure of the random source
 /// cannot leave half a sign-in behind.
 struct NewDevice {
@@ -113,16 +124,17 @@ pub(crate) async fn prelogin(
     request: Request,
 ) -> ApiResult<Response> {
     let (parts, body) = split(request);
-    let request = read_json(&state, &parts, body).await?;
-    let username = field_str(&request, "username")?;
-    if username.chars().count() > 256 {
+    let request = read_auth_json(&state, &parts, body).await?;
+    let raw_username = field_str(&request, "username")?;
+    if raw_username.chars().count() > 256 {
         return Err(ApiError::bad_request("`username` is too long"));
     }
+    let username = normalize_username(raw_username);
     let real = state.db.call(|conn| {
         conn.query_row(
             "SELECT salt, kdf_memory_kib, kdf_iterations, kdf_parallelism FROM users \
              WHERE username = ?1 AND has_password = 1",
-            [username],
+            [username.as_str()],
             |row| {
                 Ok((
                     row.get::<_, Vec<u8>>(0)?,
@@ -160,9 +172,20 @@ pub(crate) async fn prelogin(
 /// `POST /v1/auth/enroll` (П12, П17).
 pub(crate) async fn enroll(State(state): State<AppState>, request: Request) -> ApiResult<Response> {
     let (parts, body) = split(request);
-    let request = read_json(&state, &parts, body).await?;
-    let username = field_str(&request, "username")?.to_string();
-    let enroll_code = field_str(&request, "enroll_code")?.to_string();
+    let request = read_auth_json(&state, &parts, body).await?;
+    let username = normalize_username(field_str(&request, "username")?);
+    let enroll_code = match request.get("enroll_code") {
+        None if state.config.open_registration => "",
+        None => return Err(ApiError::bad_request("`enroll_code` is missing")),
+        Some(value) => value
+            .as_str()
+            .ok_or_else(|| ApiError::bad_request("`enroll_code` is malformed"))?,
+    }
+    .to_string();
+    let open_signup = state.config.open_registration && enroll_code.is_empty();
+    if open_signup && !crate::admin::valid_username(&username) {
+        return Err(ApiError::bad_request("`username` is invalid"));
+    }
     let salt = field_hex::<16>(&request, "salt")?;
     let kdf = KdfParams::from_json(&request)?;
     let auth_key = field_hex::<32>(&request, "auth_key")?;
@@ -176,6 +199,11 @@ pub(crate) async fn enroll(State(state): State<AppState>, request: Request) -> A
     let config = state.config.clone();
     let device = NewDevice::generate()?;
     let outcome = state.db.write(|tx| -> rusqlite::Result<ApiResult<()>> {
+        if open_signup {
+            if let Some(seconds) = throttle::registration_attempt(tx, &config, now, &addr)? {
+                return Ok(Err(ApiError::rate_limited(seconds)));
+            }
+        }
         if let Some(seconds) = throttle::locked_for(tx, &config, now, &username, &addr)? {
             return Ok(Err(ApiError::rate_limited(seconds)));
         }
@@ -186,34 +214,66 @@ pub(crate) async fn enroll(State(state): State<AppState>, request: Request) -> A
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()?;
-        let wanted = sha256(normalize_code(&enroll_code).as_bytes());
-        // An unknown name, a used code and a wrong code take the same path (П17).
-        let (user_id, stored, expires) = match &waiting {
-            Some((id, Some(hash), Some(expires))) => (Some(*id), hash.clone(), *expires),
-            _ => (None, vec![0u8; 32], 0),
-        };
-        let matches = ct_eq(&stored, &wanted) && user_id.is_some();
-        let failure = if !matches {
-            Some(ApiError::new(
-                StatusCode::UNAUTHORIZED,
-                code::INVALID_ENROLL_CODE,
-                "the enrolment code is not valid",
-            ))
-        } else if now > expires {
-            Some(ApiError::new(
-                StatusCode::UNAUTHORIZED,
-                code::ENROLL_CODE_EXPIRED,
-                "the enrolment code has expired",
-            ))
+        let user_id = if open_signup {
+            // Х1: no room on the disk, no new account; nothing is written, no name is held.
+            if let Err(error) = crate::quota::require_free_space(&state) {
+                return Ok(Err(error));
+            }
+            if waiting.is_some() {
+                throttle::record_failure(tx, now, &username, &addr)?;
+                return Ok(Err(ApiError::new(
+                    StatusCode::CONFLICT,
+                    code::REGISTRATION_UNAVAILABLE,
+                    "the registration name is unavailable",
+                )));
+            }
+            // Х2: open registration stops at `max_users` accounts (Рег2); codes are not limited.
+            if let Some(max) = config.max_users {
+                let have: u64 = tx.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))?;
+                if have >= max {
+                    return Ok(Err(ApiError::new(
+                        StatusCode::CONFLICT,
+                        code::REGISTRATION_UNAVAILABLE,
+                        "the registration name is unavailable",
+                    )));
+                }
+            }
+            tx.execute(
+                "INSERT INTO users (username, created_ms) VALUES (?1, ?2)",
+                params![username, now],
+            )?;
+            tx.last_insert_rowid()
         } else {
-            None
-        };
-        if let Some(error) = failure {
-            throttle::record_failure(tx, now, &username, &addr)?;
-            return Ok(Err(error));
-        }
-        let Some(user_id) = user_id else {
-            return Ok(Err(ApiError::internal("enrolment without a user")));
+            let wanted = sha256(normalize_code(&enroll_code).as_bytes());
+            // An unknown name, a used code and a wrong code take the same path (П17).
+            let (user_id, stored, expires) = match &waiting {
+                Some((id, Some(hash), Some(expires))) => (Some(*id), hash.clone(), *expires),
+                _ => (None, vec![0u8; 32], 0),
+            };
+            let matches = ct_eq(&stored, &wanted) && user_id.is_some();
+            let failure = if !matches {
+                Some(ApiError::new(
+                    StatusCode::UNAUTHORIZED,
+                    code::INVALID_ENROLL_CODE,
+                    "the enrolment code is not valid",
+                ))
+            } else if now > expires {
+                Some(ApiError::new(
+                    StatusCode::UNAUTHORIZED,
+                    code::ENROLL_CODE_EXPIRED,
+                    "the enrolment code has expired",
+                ))
+            } else {
+                None
+            };
+            if let Some(error) = failure {
+                throttle::record_failure(tx, now, &username, &addr)?;
+                return Ok(Err(error));
+            }
+            let Some(user_id) = user_id else {
+                return Ok(Err(ApiError::internal("enrolment without a user")));
+            };
+            user_id
         };
         tx.execute(
             "UPDATE users SET enroll_hash = NULL, enroll_expires_ms = NULL, has_password = 1, \
@@ -260,14 +320,14 @@ enum Secret {
 /// credentials, one comparison of constant time, and the same work for an unknown name.
 async fn sign_in(state: AppState, request: Request, secret: Secret) -> ApiResult<Response> {
     let (parts, body) = split(request);
-    let request = read_json(&state, &parts, body).await?;
-    let username = field_str(&request, "username")?.to_string();
+    let request = read_auth_json(&state, &parts, body).await?;
+    let username = normalize_username(field_str(&request, "username")?);
     let key_field = match secret {
         Secret::Password => "auth_key",
         Secret::Recovery => "recovery_auth_key",
     };
     let key = field_hex::<32>(&request, key_field)?;
-    let name_enc = device_name(&request)?;
+    let name_enc = optional_device_name(&request)?;
 
     let addr = client_addr(&state, &parts);
     let now = state.clock.now_ms();
@@ -515,6 +575,143 @@ pub(crate) async fn devices_list(
     ))
 }
 
+/// `GET /v1/account/username`: returns the current login for an authenticated device.
+pub(crate) async fn username_get(
+    State(state): State<AppState>,
+    request: Request,
+) -> ApiResult<Response> {
+    let (parts, _) = split(request);
+    let auth = authenticate(&state, &parts)?;
+    Ok(json_response(
+        StatusCode::OK,
+        &json!({ "username": auth.username }),
+    ))
+}
+
+/// `PUT /v1/account/username`: changes only the login name after proving the current password.
+pub(crate) async fn username_rename(
+    State(state): State<AppState>,
+    request: Request,
+) -> ApiResult<Response> {
+    let (parts, body) = split(request);
+    let auth = authenticate(&state, &parts)?;
+    let request = read_json(&state, &parts, body).await?;
+    let username = normalize_username(field_str(&request, "username")?);
+    let base_username = normalize_username(field_str(&request, "base_username")?);
+    let proof = field_hex::<32>(&request, "auth_key")?;
+    if !crate::admin::valid_username(&username) {
+        return Err(ApiError::bad_request("`username` is invalid"));
+    }
+    let addr = client_addr(&state, &parts);
+    let now = state.clock.now_ms();
+    let config = state.config.clone();
+    let result = state.db.write(|tx| -> rusqlite::Result<ApiResult<()>> {
+        let current: String = tx.query_row(
+            "SELECT username FROM users WHERE id = ?1",
+            [auth.user_id],
+            |row| row.get(0),
+        )?;
+        if let Some(seconds) = throttle::locked_for(tx, &config, now, &current, &addr)? {
+            return Ok(Err(ApiError::rate_limited(seconds)));
+        }
+        let stored: Vec<u8> = tx.query_row(
+            "SELECT auth_hash FROM users WHERE id = ?1",
+            [auth.user_id],
+            |row| row.get(0),
+        )?;
+        if !ct_eq(&stored, &sha256(&proof)) {
+            throttle::record_failure(tx, now, &current, &addr)?;
+            return Ok(Err(ApiError::new(
+                StatusCode::FORBIDDEN,
+                code::INVALID_PROOF,
+                "the proof is not valid",
+            )));
+        }
+        if username == current {
+            throttle::clear_pair(tx, &current, &addr)?;
+            return Ok(Ok(()));
+        }
+        if base_username != current {
+            return Ok(Err(ApiError::new(
+                StatusCode::CONFLICT,
+                code::USERNAME_CONFLICT,
+                "the account name changed in the meantime",
+            )));
+        }
+        let taken: Option<i64> = tx
+            .query_row(
+                "SELECT id FROM users WHERE username = ?1",
+                [&username],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if taken.is_some() {
+            return Ok(Err(ApiError::new(
+                StatusCode::CONFLICT,
+                code::USERNAME_TAKEN,
+                "that account name is already in use",
+            )));
+        }
+        tx.execute(
+            "UPDATE users SET username = ?2 WHERE id = ?1",
+            params![auth.user_id, username],
+        )?;
+        throttle::clear_pair(tx, &current, &addr)?;
+        Ok(Ok(()))
+    })?;
+    result?;
+    Response::builder()
+        .status(StatusCode::NO_CONTENT)
+        .body(axum::body::Body::empty())
+        .map_err(ApiError::internal)
+}
+
+/// `PUT /v1/devices/{device_id}`: replace only the sealed display name of an owned device.
+pub(crate) async fn device_rename(
+    State(state): State<AppState>,
+    params: Params,
+    request: Request,
+) -> ApiResult<Response> {
+    let (parts, body) = split(request);
+    let auth = authenticate(&state, &parts)?;
+    let target = params
+        .0
+        .get("device_id")
+        .and_then(|text| unhex_array::<16>(text))
+        .ok_or_else(ApiError::not_found)?;
+    let owned = state.db.call(|conn| -> rusqlite::Result<bool> {
+        conn.query_row(
+            "SELECT 1 FROM devices WHERE device_id = ?1 AND user_id = ?2",
+            params![target.as_slice(), auth.user_id],
+            |_| Ok(true),
+        )
+        .optional()
+        .map(|value| value.is_some())
+    })?;
+    if !owned {
+        return Err(ApiError::not_found());
+    }
+    let request = read_json(&state, &parts, body).await?;
+    let name_enc = field_hex_vec(&request, "name_enc", NAME_ENVELOPE_LEN)?;
+    if name_enc.first() != Some(&1) {
+        return Err(ApiError::bad_request("`name_enc` is missing or malformed"));
+    }
+    let changed = state.db.write(|tx| -> rusqlite::Result<bool> {
+        let count = tx.execute(
+            "UPDATE devices SET name_enc = ?1 WHERE device_id = ?2 AND user_id = ?3",
+            params![name_enc, target.as_slice(), auth.user_id],
+        )?;
+        Ok(count == 1)
+    })?;
+    if !changed {
+        return Err(ApiError::not_found());
+    }
+    Response::builder()
+        .status(StatusCode::NO_CONTENT)
+        .body(axum::body::Body::empty())
+        .map_err(ApiError::internal)
+}
+
 /// `DELETE /v1/devices/{device_id}` (П19): the token stops working at once, and the open event
 /// streams of the device end (П34).
 pub(crate) async fn device_delete(
@@ -602,7 +799,10 @@ pub(crate) async fn overview(
         let spaces = rows.collect::<Result<Vec<_>, _>>()?;
         let limits = &plan.limits;
         Ok(json!({
-            "plan": { "name": plan.name, "title": plan.title, "pinned": plan.pinned },
+            "plan": {
+                "name": plan.name, "title": plan.title, "pinned": plan.pinned,
+                "sync": plan.limits.sync, "until_ms": plan.until_ms,
+            },
             "limits": {
                 "max_spaces": limits.max_spaces,
                 "max_total_bytes": limits.max_total_bytes,

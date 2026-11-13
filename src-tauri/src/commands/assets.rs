@@ -60,10 +60,10 @@ pub fn import_asset(
     let dir = paths::confine(&vault, &dir)?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
-    let stem = source
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "asset".to_string());
+    let original_name = source
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "asset".to_owned());
     let raw_ext = source
         .extension()
         .map(|s| s.to_string_lossy().to_string())
@@ -71,7 +71,7 @@ pub fn import_asset(
     let ext = sanitize_ext(&raw_ext);
 
     for _ in 0..1_000 {
-        let name = unique_name(&dir, &stem, &ext);
+        let name = random_asset_name(&ext);
         let dest = dir.join(&name);
         let dest = paths::confine(&vault, &dest)?;
         let expected = watcher::path_fingerprint(source);
@@ -79,7 +79,12 @@ pub fn import_asset(
         match frontmatter::atomic_copy_file_new(source, &dest, MAX_ATTACHMENT_FILE_SIZE) {
             Ok(_) => {
                 watcher_state.confirm_prepared_write(&prepared);
-                return Ok(build_imported_asset(&vault, &note, dest, name));
+                return Ok(build_imported_asset(
+                    &vault,
+                    &note,
+                    dest,
+                    original_name.clone(),
+                ));
             }
             Err(frontmatter::AtomicCreateError::AlreadyExists) => {
                 watcher_state.cancel_prepared_write(&prepared);
@@ -124,9 +129,8 @@ pub fn import_asset_bytes(
         &suggested_ext
     };
     let ext = sanitize_ext(raw_ext);
-    let stem = format!("pasted-{}", now_millis());
     for _ in 0..1_000 {
-        let name = unique_name(&dir, &stem, &ext);
+        let name = random_asset_name(&ext);
         let dest = dir.join(&name);
         let dest = paths::confine(&vault, &dest)?;
         let prepared =

@@ -1,13 +1,18 @@
 // @vitest-environment happy-dom
 
-import { act, cleanup, renderHook } from "@testing-library/react"
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { loadNoteLayerContent, useLayers } from "./use-layers"
 import * as storage from "@/lib/storage"
+import { confirm } from "@/lib/confirm"
 import { useViewStateStore } from "./use-view-state-store"
+import { useDatabaseStore } from "./database/database-store"
 import { useDocStore } from "./use-doc-store"
 import type { Document } from "./use-doc-store"
+import { hasActiveLocalTreeMutation } from "./watcher-tree-reconciliation"
 import { registerEditorSerialization } from "./tiptap/editor-serialization-lifecycle"
+
+vi.mock("@/lib/confirm", () => ({ confirm: vi.fn() }))
 
 afterEach(() => {
   cleanup()
@@ -187,5 +192,186 @@ describe("note layer loading", () => {
       calls[1]("# Attached note")
     })
     expect(useDocStore.getState().openDocs[container.id]?.content).toBe("# Attached note")
+  })
+})
+
+describe("deleting a layer asks in the application", () => {
+  const doc: Document = {
+    id: "note-id",
+    title: "План",
+    path: "/vault/План/План.md",
+    content: "",
+    source: "",
+    created: "",
+    modified: "",
+    wordCount: 0,
+  }
+  const layers = { note: true, sketch: false, canvas: true, database: false }
+
+  function setup() {
+    useViewStateStore.setState({ activeLayers: {}, linkedLayersByDoc: {} })
+    vi.spyOn(storage, "noteLayers").mockResolvedValue(layers)
+    vi.spyOn(storage, "deleteLayer").mockResolvedValue({
+      primaryPath: doc.path,
+      pathChanges: [],
+      deletedPaths: [],
+    } as never)
+    return renderHook(() =>
+      useLayers({
+        vault: "/vault",
+        databasesEnabled: false,
+        backendGeneration: 1,
+        currentDoc: doc,
+        treeItems: [],
+        refreshTreePaths: vi.fn().mockResolvedValue([]),
+        applyMutationResult: vi.fn().mockReturnValue(true),
+      }),
+    )
+  }
+
+  it("is a dangerous question that names the note; Cancel deletes nothing", async () => {
+    vi.mocked(confirm).mockResolvedValue(false)
+    const { result } = setup()
+    await act(() => result.current.handleDeleteLayer("canvas"))
+    expect(confirm).toHaveBeenCalledTimes(1)
+    const question = vi.mocked(confirm).mock.calls[0][0]
+    expect(question.destructive).toBe(true)
+    expect(question.title).toContain("План")
+    expect(storage.deleteLayer).not.toHaveBeenCalled()
+  })
+
+  it("deletes the layer after yes", async () => {
+    vi.mocked(confirm).mockResolvedValue(true)
+    const { result } = setup()
+    await act(() => result.current.handleDeleteLayer("canvas"))
+    expect(storage.deleteLayer).toHaveBeenCalledWith("/vault", doc.path, "canvas")
+  })
+})
+
+describe("remote database attachment", () => {
+  const doc: Document = {
+    id: "remote-note",
+    noteId: "remote-note",
+    title: "Remote",
+    path: "/vault/Remote.md",
+    content: "text",
+    source: "text",
+    created: "",
+    modified: "",
+    wordCount: 1,
+  }
+  const plain = { note: true, canvas: false, sketch: false, database: false }
+
+  beforeEach(() => {
+    useViewStateStore.setState({ activeLayers: {}, linkedLayersByDoc: { [doc.id]: plain } })
+    useDatabaseStore.getState().reset(null)
+    vi.spyOn(storage, "noteLayers").mockResolvedValue(plain)
+    vi.spyOn(storage, "createDatabase")
+  })
+
+  function setup() {
+    return renderHook(
+      ({ currentDoc }) =>
+        useLayers({
+          vault: "/vault",
+          databasesEnabled: true,
+          backendGeneration: 1,
+          currentDoc,
+          treeItems: [],
+          refreshTreePaths: vi.fn().mockResolvedValue([]),
+          applyMutationResult: vi.fn(),
+        }),
+      { initialProps: { currentDoc: doc } },
+    )
+  }
+
+  it("detects a manifest arriving after the note was moved without recreating the database", async () => {
+    const { result, rerender } = setup()
+    const moved = { ...doc, path: "/vault/Remote/Remote.md" }
+    rerender({ currentDoc: moved })
+    await waitFor(() => expect(storage.noteLayers).toHaveBeenCalledWith(moved.path))
+    vi.mocked(storage.noteLayers).mockResolvedValue({ ...plain, database: true })
+    act(() => useDatabaseStore.getState().invalidateHosts())
+    await waitFor(() =>
+      expect(useViewStateStore.getState().linkedLayersByDoc[doc.id]?.database).toBe(true),
+    )
+    useDatabaseStore.setState({
+      databases: [{ databaseId: "db", attachedNoteId: doc.id }] as never,
+    })
+    await act(() => result.current.handleLayerChange("database"))
+    expect(storage.createDatabase).not.toHaveBeenCalled()
+    expect(useViewStateStore.getState().activeLayers[doc.id]).toBe("database")
+  })
+
+  it("creates the database immediately on attachment and holds watcher refreshes until the tree is updated", async () => {
+    let publish: (value: Awaited<ReturnType<typeof storage.createDatabase>>) => void = () => {}
+    vi.mocked(storage.createDatabase).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          publish = resolve
+        }),
+    )
+    const item = { id: doc.id, path: doc.path, name: doc.title, type: "file" as const }
+    const refreshTreePaths = vi.fn().mockResolvedValue([])
+    const { result } = renderHook(() =>
+      useLayers({
+        vault: "/vault",
+        databasesEnabled: true,
+        backendGeneration: 1,
+        currentDoc: doc,
+        treeItems: [item],
+        refreshTreePaths,
+        applyMutationResult: vi.fn(),
+      }),
+    )
+    let attached: Promise<void>
+    act(() => {
+      attached = result.current.handleAttachLayerToFile(doc.id, "database")
+    })
+    expect(storage.createDatabase).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "attached", notePath: doc.path }),
+    )
+    expect(hasActiveLocalTreeMutation()).toBe(true)
+    await act(async () => {
+      publish({
+        databaseId: "new-db",
+        title: doc.title,
+        manifestRevision: "r",
+        viewId: "v",
+        viewRevision: "r",
+        manifestPath: "/vault/Remote/Remote.json",
+        viewPath: "/vault/Remote/Remote.json",
+        notePath: "/vault/Remote/Remote.md",
+        warnings: [],
+      })
+      await attached!
+    })
+    expect(refreshTreePaths).toHaveBeenCalledWith([
+      doc.path,
+      "/vault/Remote/Remote.md",
+      "/vault/Remote/Remote.json",
+    ])
+    expect(hasActiveLocalTreeMutation()).toBe(false)
+  })
+
+  it("does not let a delayed layer read hide the database after a newer invalidation", async () => {
+    let finishOld: (value: typeof plain) => void = () => {}
+    vi.mocked(storage.noteLayers)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishOld = resolve
+          }),
+      )
+      .mockResolvedValue({ ...plain, database: true })
+    setup()
+    act(() => useDatabaseStore.getState().invalidateHosts())
+    await waitFor(() => expect(storage.noteLayers).toHaveBeenCalledTimes(1))
+    act(() => useDatabaseStore.getState().invalidateHosts())
+    await waitFor(() =>
+      expect(useViewStateStore.getState().linkedLayersByDoc[doc.id]?.database).toBe(true),
+    )
+    await act(async () => finishOld(plain))
+    expect(useViewStateStore.getState().linkedLayersByDoc[doc.id]?.database).toBe(true)
   })
 })

@@ -4,6 +4,7 @@ import * as React from "react"
 import { renameDatabase } from "@/lib/storage"
 
 import { normalizeDatabaseIcon } from "./database-icon"
+import { operationErrorText, reportOperationError, warningNotices } from "@/lib/operation-errors"
 
 interface UseDatabaseTitleParams {
   title: string
@@ -39,11 +40,21 @@ export function useDatabaseTitle({
   React.useEffect(() => setDatabaseTitle(title), [title])
   React.useEffect(() => setDatabaseIcon(normalizeDatabaseIcon(icon) ?? ""), [icon])
 
+  // A refused name keeps the field open, with the name as typed and the reason under it
+  // (docs/notices.md, section 8).
+  const [titleRefusal, setTitleRefusal] = React.useState<{ name: string; text: string } | null>(
+    null,
+  )
+  const renamingRef = React.useRef(false)
+  // The name just taken: leaving the field after Enter must not hand it over a second time.
+  const settledRef = React.useRef<string | null>(null)
+
+  /** `true` when the name was taken (or there was nothing to do), `false` when it was refused. */
   const persistDatabaseTitle = React.useCallback(
-    async (next: string) => {
+    async (next: string): Promise<boolean> => {
       if (vaultGeneration === null || !database?.manifestRevision || isDatabaseLocked) {
         onRenameTitle?.(next)
-        return
+        return true
       }
       try {
         const renamed = await renameDatabase({
@@ -57,18 +68,15 @@ export function useDatabaseTitle({
         const refreshFailure = refreshResults.find(
           (result): result is PromiseRejectedResult => result.status === "rejected",
         )
-        const notices = [...renamed.warnings]
+        const notices = warningNotices(renamed.warnings)
         if (refreshFailure) {
-          notices.push(
-            refreshFailure.reason instanceof Error
-              ? refreshFailure.reason.message
-              : String(refreshFailure.reason),
-          )
+          notices.push(operationErrorText(refreshFailure.reason))
         }
         setMutationError(notices.length ? notices.join("; ") : null)
+        return true
       } catch (error) {
-        setMutationError(error instanceof Error ? error.message : String(error))
-        setDatabaseTitle(title)
+        setTitleRefusal({ name: next, text: reportOperationError(error) })
+        return false
       }
     },
     [
@@ -78,17 +86,49 @@ export function useDatabaseTitle({
       onCatalogChanged,
       onRenameTitle,
       retry,
-      title,
       vaultGeneration,
       setMutationError,
     ],
   )
 
-  const commitDatabaseTitle = () => {
-    const next = databaseTitle.trim()
-    if (next && next !== title) void persistDatabaseTitle(next)
+  const cancelDatabaseTitle = () => {
+    setDatabaseTitle(title)
+    setTitleRefusal(null)
     setEditingDatabaseTitle(false)
   }
+
+  const commitDatabaseTitle = () => {
+    const next = databaseTitle.trim()
+    if (renamingRef.current) return
+    if (next && next === settledRef.current) {
+      setEditingDatabaseTitle(false)
+      return
+    }
+    // Leaving the field with the refused name still in it gives up, instead of asking again.
+    if (!next || next === title || next === titleRefusal?.name) {
+      cancelDatabaseTitle()
+      return
+    }
+    renamingRef.current = true
+    void persistDatabaseTitle(next)
+      .then((taken) => {
+        if (!taken) return
+        setTitleRefusal(null)
+        settledRef.current = next
+        setEditingDatabaseTitle(false)
+      })
+      .finally(() => {
+        renamingRef.current = false
+      })
+  }
+
+  const changeDatabaseTitle = (value: string) => {
+    settledRef.current = null
+    setDatabaseTitle(value)
+  }
+
+  const titleHint =
+    titleRefusal && databaseTitle.trim() === titleRefusal.name ? titleRefusal.text : null
 
   const displayedDatabaseIcon =
     normalizeDatabaseIcon(databaseIcon) ?? normalizeDatabaseIcon(database?.icon)
@@ -100,9 +140,11 @@ export function useDatabaseTitle({
     displayedDatabaseIcon,
     setDatabaseIcon,
     databaseTitle,
-    setDatabaseTitle,
+    setDatabaseTitle: changeDatabaseTitle,
     editingDatabaseTitle,
     setEditingDatabaseTitle,
     commitDatabaseTitle,
+    cancelDatabaseTitle,
+    titleHint,
   }
 }

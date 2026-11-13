@@ -5,13 +5,13 @@ import type { DatabaseRow, WorkshopSectionSummary } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { resolveGalleryPreview } from "../../database/layouts/gallery-preview"
 import { useDatabaseStore } from "../../database/database-store"
-import { projectErrorText } from "../project-error"
 import { sectionRoleIcon } from "../section-icons"
 import { PortraitDot } from "../workshop/portrait-dot"
 import { QuickCreate } from "../workshop/quick-create"
 import { usePortraitResolvers } from "../workshop/use-portrait-resolvers"
 import { initialsOf, type StoryLabels } from "../workshop/workshop-model"
 import { galleryGroups } from "./section-gallery-model"
+import { projectErrorText } from "@/lib/operation-errors"
 
 interface SectionGalleryProps {
   section: WorkshopSectionSummary

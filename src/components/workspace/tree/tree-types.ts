@@ -1,6 +1,7 @@
 import type * as React from "react"
 import type { TreeItem } from "@/lib/storage"
 import type { TreeReorderPosition } from "../tree-sort"
+import type { RenameOutcome } from "../file-actions/rename-outcome"
 
 export type { TreeItem }
 
@@ -98,7 +99,7 @@ export interface SidebarTreeProps {
   items: TreeItem[]
   selectedId: string | null
   onSelect: (id: string) => void
-  onRename?: (id: string, newName: string) => void
+  onRename?: (id: string, newName: string) => Promise<RenameOutcome | void> | void
   onDelete?: (id: string, mode?: "archive") => void
   onDeleteMany?: (ids: string[]) => void
   onNewFile?: (parentId: string | null) => void
@@ -182,6 +183,8 @@ export interface TreeNodeProps {
   isOpen: boolean
   onToggleOpen: (id: string) => void
   isEditing: boolean
+  /** Why the name typed in this row was refused; shown under the field while the field still holds that name. */
+  renameHint?: { name: string; text: string } | null
   onStartEdit: (id: string) => void
   onFinishEdit: (id: string, newName: string | null) => void
   selectedIds: ReadonlySet<string>

@@ -1,5 +1,7 @@
 mod ai;
 mod app_data;
+mod archive;
+mod archive_migration;
 mod bundle;
 mod commands;
 mod credentials;
@@ -16,7 +18,9 @@ pub mod package_manager;
 mod page_info;
 mod paths;
 mod project;
+mod property_groups;
 mod property_store;
+mod property_template;
 mod recovery;
 mod recycle_bin;
 mod shadow_check;
@@ -79,6 +83,11 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::history::read_trash_preview,
         commands::history::restore_trash,
         commands::history::purge_trash,
+        commands::history::list_archive,
+        commands::history::read_archive_preview,
+        commands::history::restore_archive,
+        commands::history::purge_archive,
+        commands::history::rollback_archive_migration,
         commands::ai_chats::ai_list_chats,
         commands::ai_chats::ai_load_chat,
         commands::ai_chats::ai_save_chat,
@@ -100,10 +109,31 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::notes::restore_deleted_note,
         commands::notes::get_note_metadata,
         commands::notes::get_note_properties,
-        commands::notes::upsert_custom_property,
-        commands::notes::delete_custom_property,
-        commands::notes::reorder_custom_properties,
         commands::notes::backup_custom_properties,
+        commands::properties::list_property_template,
+        commands::properties::get_property_panel,
+        commands::properties::restore_dormant_property,
+        commands::properties::purge_dormant_property,
+        commands::properties::accept_property_rename_hint,
+        commands::properties::dismiss_property_rename_hint,
+        commands::properties::property_storage_status,
+        commands::properties::open_vault_properties,
+        commands::properties::take_property_file_value,
+        commands::properties::create_note_property,
+        commands::properties::rename_note_property,
+        commands::properties::change_note_property_type,
+        commands::properties::set_note_property_appearance,
+        commands::properties::set_note_property_value,
+        commands::properties::set_note_property_list,
+        commands::properties::reorder_note_properties,
+        commands::properties::delete_note_property,
+        commands::properties::rollback_properties_migration,
+        commands::properties::check_old_version_property_edits,
+        commands::properties::resolve_old_version_property_conflict,
+        commands::properties::inspect_properties,
+        commands::properties::list_property_rebind_offers,
+        commands::properties::rebind_note_properties,
+        commands::properties::delete_orphan_properties,
         commands::notes::list_tags,
         commands::notes::search_notes,
         commands::notes::get_link_graph,
@@ -130,6 +160,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::vault::start_vault_watcher,
         commands::vault::stop_vault_watcher,
         commands::database::get_database_module_state,
+        commands::database::database_layout_status,
+        commands::database::upgrade_database_layout,
         commands::database::set_database_module_enabled,
         commands::database::rebuild_database_projection,
         commands::database::refresh_database_change,
@@ -195,6 +227,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::external::fetch_page_info,
         commands::assets::import_asset,
         commands::assets::import_asset_bytes,
+        commands::import_files::import_files,
         commands::assets::pick_asset_file,
         commands::assets::export_text_file,
         commands::assets::import_text_file,
@@ -223,9 +256,13 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::sync::sync_list_devices,
         commands::sync::sync_disconnect_device,
         commands::sync::sync_sign_out,
+        commands::sync::sync_change_password,
+        commands::sync::sync_rename_account,
+        commands::sync::sync_rename_device,
         commands::sync::sync_vault_status,
         commands::sync::sync_list_spaces,
         commands::sync::sync_account_overview,
+        commands::sync::sync_delete_space,
         commands::sync::sync_enable_vault,
         commands::sync::sync_disable_vault,
         commands::sync::sync_run_now,
@@ -233,6 +270,13 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::sync::sync_resolve_conflict,
         commands::sync::sync_read_conflict_versions,
         commands::sync::sync_resolve_conflict_with_text,
+        commands::sync::sync_read_group_conflict,
+        commands::sync::sync_resolve_group_conflict,
+        commands::sync::sync_note_versions,
+        commands::sync::sync_read_server_version,
+        commands::sync::sync_restore_server_version,
+        commands::sync::sync_deleted_files,
+        commands::sync::sync_restore_deleted,
         ai::cancel_ai_request,
         ai::ai_model_catalog,
         ai::ai_chat,

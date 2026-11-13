@@ -29,6 +29,8 @@ pub struct Plan {
     pub history_days: Option<u64>,
     /// The ceiling of the history in bytes (П57-д).
     pub max_history_bytes: Option<u64>,
+    /// Whether the plan allows sending changes (Н1); `None` is `true`.
+    pub sync: Option<bool>,
 }
 
 /// The parsed `plans.json` (П51).
@@ -67,6 +69,8 @@ pub struct EffectiveLimits {
     pub history_days: u64,
     /// Ceiling of the history; `None` is no ceiling.
     pub max_history_bytes: Option<u64>,
+    /// The plan allows sending changes (Н1, Н4).
+    pub sync: bool,
 }
 
 /// A plan name: `[a-z0-9_-]{1,32}` (П50).
@@ -166,6 +170,14 @@ fn parse_plan(name: &str, raw: &Raw) -> Result<Plan, PlansError> {
             "max_file_bytes" => plan.max_file_bytes = Some(limit(name, field, value)?),
             "history_days" => plan.history_days = Some(limit(name, field, value)?),
             "max_history_bytes" => plan.max_history_bytes = Some(limit(name, field, value)?),
+            "sync" => match value {
+                Raw::Other(Value::Bool(allowed)) => plan.sync = Some(*allowed),
+                _ => {
+                    return Err(invalid(format!(
+                        "plan `{name}`: `sync` must be true or false"
+                    )))
+                }
+            },
             other => return Err(invalid(format!("plan `{name}`: unknown field `{other}`"))),
         }
     }
@@ -269,6 +281,8 @@ impl EffectiveLimits {
                 .and_then(|plan| plan.history_days)
                 .unwrap_or(config.retain_version_days),
             max_history_bytes: plan.and_then(|plan| plan.max_history_bytes),
+            // Н1: no field is `true`.
+            sync: plan.and_then(|plan| plan.sync).unwrap_or(true),
         }
     }
 }

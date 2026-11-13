@@ -32,6 +32,7 @@ pub mod limits;
 pub mod linemerge;
 pub mod mini;
 pub mod net;
+pub mod restore;
 pub mod scenario;
 pub mod state;
 pub mod vfs;

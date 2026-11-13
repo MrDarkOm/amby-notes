@@ -2,12 +2,19 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import "@/lib/i18n"
+import i18n from "@/lib/i18n"
 import { isKnownDebugEvent } from "@/lib/debug/event-codes"
+import { useAppNoticesStore } from "../notices/use-app-notices-store"
+
+/** The text of the one notice in the centre, as the person reads it. */
+function noticeText() {
+  const [notice] = useAppNoticesStore.getState().notices
+  return notice ? i18n.t(notice.titleKey, notice.params) : ""
+}
 
 const calls = vi.hoisted(() => ({
   openAttachment: vi.fn<(note: string, attachment: string) => Promise<void>>(),
   openWebAddress: vi.fn<(address: string) => Promise<void>>(),
-  showErrorMessage: vi.fn<(message: string) => Promise<void>>(),
 }))
 
 vi.mock("@/lib/storage", async (importOriginal) => ({
@@ -26,6 +33,7 @@ import {
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  useAppNoticesStore.setState(useAppNoticesStore.getInitialState())
 })
 
 describe("the Open button of an attachment card", () => {
@@ -43,7 +51,7 @@ describe("the Open button of an attachment card", () => {
     await waitFor(() =>
       expect(calls.openAttachment).toHaveBeenCalledWith("/vault/Note.md", "assets/report.pdf"),
     )
-    expect(calls.showErrorMessage).not.toHaveBeenCalled()
+    expect(useAppNoticesStore.getState().notices).toEqual([])
   })
 
   it("has no button for an address outside the vault, nor where nothing can be opened", () => {
@@ -110,14 +118,15 @@ describe("a file card", () => {
 })
 
 describe("a refusal", () => {
-  it("is explained to the person in words, not shown as a code or a path", async () => {
+  it("is explained in words in the centre, as a warning that does not shout, not as a code or a path", async () => {
     calls.openAttachment.mockRejectedValue(new Error("AttachmentTypeNotAllowed"))
-    calls.showErrorMessage.mockResolvedValue()
     await openAttachmentWithSystem("/vault/Note.md", "assets/tool.command")
-    expect(calls.showErrorMessage).toHaveBeenCalledTimes(1)
-    const message = calls.showErrorMessage.mock.calls[0][0]
-    expect(message).toMatch(/программа или скрипт/u)
-    expect(message).not.toContain("AttachmentTypeNotAllowed")
+    const { notices } = useAppNoticesStore.getState()
+    expect(notices).toHaveLength(1)
+    // Nothing is lost and nobody waits: `warning`, so no toast (docs/notices.md, sections 2.1 and 4).
+    expect(notices[0].level).toBe("warning")
+    expect(noticeText()).toMatch(/программа или скрипт/u)
+    expect(JSON.stringify(notices[0])).not.toContain("AttachmentTypeNotAllowed")
   })
 
   it("covers every code the backend can answer with", () => {
@@ -135,9 +144,8 @@ describe("a refusal", () => {
 
   it("is reported for a web address too, and never rejects", async () => {
     calls.openWebAddress.mockRejectedValue(new Error("AddressNotAllowed"))
-    calls.showErrorMessage.mockResolvedValue()
     await expect(openWebAddressInBrowser("javascript:alert(1)")).resolves.toBeUndefined()
-    expect(calls.showErrorMessage).toHaveBeenCalledTimes(1)
+    expect(useAppNoticesStore.getState().notices).toHaveLength(1)
   })
 })
 

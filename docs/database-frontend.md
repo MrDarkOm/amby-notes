@@ -5,10 +5,10 @@
 Дата: 2026-09-04
 
 Документ продолжает
-[архитектуру](./database-system.md),
-[пользовательские сценарии](./database-user-flows.md),
-[durable-формат](./database-format.md) и
-[runtime-контракт](./database-runtime.md). Он фиксирует state ownership,
+[архитектуру](database-system.md),
+[пользовательские сценарии](database-user-flows.md),
+[durable-формат](database-format.md) и
+[runtime-контракт](database-runtime.md). Он фиксирует state ownership,
 component boundaries и поведение Table, Board, List, Gallery, side peek и linked
 views.
 

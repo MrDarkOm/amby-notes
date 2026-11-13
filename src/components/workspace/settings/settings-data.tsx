@@ -11,7 +11,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { confirmAction, isTauri, openInExplorer } from "@/lib/storage"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
+import { isTauri, openInExplorer } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import {
   DEFAULT_PREFS,
@@ -37,6 +39,7 @@ export function DataTab({ vault }: { vault: string | null }) {
     import("@tauri-apps/api/path")
       .then(({ localDataDir }) => localDataDir())
       .then((base) => setDir(`${base.replace(/[/\\]$/, "")}/Amby/notes`))
+      // The folder shown as a hint is unknown: the hint stays empty.
       .catch(() => {})
   }, [])
 
@@ -70,7 +73,7 @@ export function DataTab({ vault }: { vault: string | null }) {
           type="button"
           className={btn}
           onClick={async () => {
-            if (await confirmAction(t("settings.data.resetConfirm"))) setPrefs({ ...DEFAULT_PREFS })
+            if (await confirm(confirmations.resetSettings())) setPrefs({ ...DEFAULT_PREFS })
           }}
         >
           <RotateCcw className="size-4" />
@@ -107,6 +110,8 @@ export function DeleteConfirmationSetting({ vault }: { vault: string | null }) {
       .then((config) => {
         if (!cancelled) setEnabled(config.confirmations.confirmFileDelete)
       })
+      // The setting could not be read: the switch keeps its default and the setting file is not
+      // touched.
       .catch(() => {})
     return () => {
       cancelled = true
@@ -149,6 +154,8 @@ export function DeleteModeSetting() {
       <Select
         value={mode}
         onValueChange={(value) =>
+          // The failed save is already reported by the settings window (emitSettingsSaveError);
+          // nothing more to do here.
           void setPrefs({ files: { deleteMode: value as DeleteModePref } }).catch(() => {})
         }
       >

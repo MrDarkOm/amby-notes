@@ -45,6 +45,7 @@ export function useNoteTrail(noteId: string | undefined): TrailStep[] | null {
     }
     let cancelled = false
     void getDatabaseNoteContext(noteId)
+      // A note that is not a row of a database has no context: the trail is drawn without it.
       .catch(() => null)
       .then((context) => {
         if (!cancelled) setAnswer({ noteId, context })

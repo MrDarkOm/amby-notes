@@ -6,6 +6,7 @@
 use tauri::State;
 
 use crate::sync::account_types::AccountOverview;
+use crate::sync::conflict_store::NotePick;
 use crate::sync::password::check_password;
 use crate::sync::runtime::SyncRuntime;
 use crate::sync::service::{PrepareRequest, RecoverRequest, SignInRequest, SyncService};
@@ -14,7 +15,8 @@ use crate::sync::types::{
     SyncError, SyncStatus,
 };
 use crate::sync::vault_types::{
-    ApprovalKind, ConflictChoice, ConflictVersions, SpaceTarget, SpaceView, VaultSyncStatus,
+    ApprovalKind, ConflictChoice, ConflictVersions, GroupConflictVersions, SpaceTarget, SpaceView,
+    VaultSyncStatus,
 };
 use crate::vault_context::VaultContext;
 
@@ -207,6 +209,39 @@ pub async fn sync_sign_out(
     Ok(result)
 }
 
+/// Changes the password of the account; needs the old one (Р5, П18).
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_change_password(
+    service: State<'_, SyncService>,
+    old_password: String,
+    new_password: String,
+) -> Result<(), SyncError> {
+    service.change_password(&old_password, &new_password).await
+}
+
+/// Changes a sealed device label without replacing its token.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_rename_device(
+    service: State<'_, SyncService>,
+    device_id: String,
+    name: String,
+) -> Result<(), SyncError> {
+    service.rename_device(&device_id, &name).await
+}
+
+/// Changes the login after current-password verification.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_rename_account(
+    service: State<'_, SyncService>,
+    username: String,
+    current_password: String,
+) -> Result<SyncStatus, SyncError> {
+    service.rename_account(&username, &current_password).await
+}
+
 // ----- the sync of the open vault (stage Э4) -----
 
 fn open_vault(context: &VaultContext) -> Result<std::path::PathBuf, SyncError> {
@@ -240,6 +275,17 @@ pub async fn sync_account_overview(
 ) -> Result<AccountOverview, SyncError> {
     let paths: Vec<std::path::PathBuf> = known_vaults.into_iter().map(Into::into).collect();
     runtime.account_overview(&paths).await
+}
+
+/// Deletes the server copy of a space of the current account (appendix Л); local files stay.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_delete_space(
+    runtime: State<'_, SyncRuntime>,
+    space_id: String,
+    password: String,
+) -> Result<(), SyncError> {
+    runtime.delete_space(&space_id, &password).await
 }
 
 /// Switches sync on for the open vault after a complete external backup.
@@ -298,6 +344,29 @@ pub fn sync_read_conflict_versions(
     runtime.read_conflict_versions(&id)
 }
 
+/// The conflicting notes of a conflict of a group of note properties (З69).
+#[tauri::command]
+#[specta::specta]
+pub fn sync_read_group_conflict(
+    runtime: State<'_, SyncRuntime>,
+    id: String,
+) -> Result<GroupConflictVersions, SyncError> {
+    runtime.read_group_conflict(&id)
+}
+
+/// Resolves a conflict of a group of note properties by notes (З69): a pick for every
+/// conflicting note; refused with `conflict_changed` when a file changed since it was read.
+#[tauri::command]
+#[specta::specta]
+pub fn sync_resolve_group_conflict(
+    runtime: State<'_, SyncRuntime>,
+    id: String,
+    picks: std::collections::BTreeMap<String, NotePick>,
+    stamp: String,
+) -> Result<(), SyncError> {
+    runtime.resolve_group_conflict(&id, picks, &stamp)
+}
+
 /// Resolves a conflict with a text put together by the comparison (stage Э4б).
 #[tauri::command]
 #[specta::specta]
@@ -308,4 +377,240 @@ pub fn sync_resolve_conflict_with_text(
     stamp: String,
 ) -> Result<(), SyncError> {
     runtime.resolve_conflict_with_text(&id, &text, &stamp)
+}
+
+// ----- earlier versions and deleted files from the server (appendix И, Э5) -----
+//
+// Thin: the flows are in [`crate::sync::server_history`]. The server part of a list is never an
+// error (И4, И13): without sync or a connection it is `available = false` with a reason.
+
+use crate::lock_util::LockExt;
+use crate::paths;
+use crate::sync::server_history::{
+    self, DeletedOnServer, HistoryLink, NoteServerVersions, RestoreDeletedOutcome,
+    RestoreFileStatus, RestoreVersionOutcome, RestoreVersionStatus, ServerAccess,
+    ServerVersionText,
+};
+use crate::watcher::{self, WatcherState};
+
+fn storage_error<T>(_: T) -> SyncError {
+    SyncError::new("storage_error")
+}
+
+/// Runs `work` on a blocking thread with the access to the server of the open vault, or with
+/// `None` when sync of the vault is not running (И4). The state of the engine is read, the names
+/// of devices and `history_days` are asked for as far as the server answers.
+async fn with_server<T: Send + 'static>(
+    runtime: &SyncRuntime,
+    need_days: bool,
+    work: impl FnOnce(Option<&ServerAccess<'_>>, &server_history::ServerHistoryCache) -> T
+        + Send
+        + 'static,
+) -> Result<T, SyncError> {
+    let cache = runtime.history_cache();
+    let link: Option<HistoryLink> = runtime.history_link();
+    let extras = match &link {
+        Some(link) => Some(link.extras(need_days).await),
+        None => None,
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some((link, (device_names, history_days))) = link.zip(extras) else {
+            return work(None, &cache);
+        };
+        let Ok(state) = link.load_state() else {
+            return work(None, &cache);
+        };
+        cache.see_cursor(state.cursor);
+        let connect = || link.connect();
+        let access = ServerAccess {
+            connect: &connect,
+            space: amby_sync_core::crypto::keys::SpaceId::from_bytes(link.space_id),
+            keys: vec![link.vk.clone()],
+            state,
+            this_device: link.device_id,
+            device_names,
+            history_days,
+        };
+        work(Some(&access), &cache)
+    })
+    .await
+    .map_err(storage_error)
+}
+
+/// The server versions of a note for its history panel (И1–И4, И19).
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_note_versions(
+    runtime: State<'_, SyncRuntime>,
+    scope: State<'_, paths::VaultScope>,
+    path: String,
+) -> Result<NoteServerVersions, SyncError> {
+    let vault = scope.get().map_err(storage_error)?;
+    let note = paths::guard(&scope, &path).map_err(storage_error)?;
+    with_server(&runtime, false, move |access, _| {
+        server_history::note_versions(&vault, &note, access)
+    })
+    .await
+}
+
+/// The text of one server version of a note for the preview (И5, И19).
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_read_server_version(
+    runtime: State<'_, SyncRuntime>,
+    path: String,
+    item_id: String,
+    version: u64,
+) -> Result<ServerVersionText, SyncError> {
+    let _ = path;
+    with_server(&runtime, false, move |access, _| {
+        server_history::read_server_version(access, &item_id, version)
+    })
+    .await?
+}
+
+/// "Вернуть" for a server version of a note (И6, И19).
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_restore_server_version(
+    app: tauri::AppHandle,
+    runtime: State<'_, SyncRuntime>,
+    scope: State<'_, paths::VaultScope>,
+    path: String,
+    item_id: String,
+    version: u64,
+    expected_hash: String,
+) -> Result<RestoreVersionOutcome, SyncError> {
+    use tauri::Manager;
+    let vault = scope.get().map_err(storage_error)?;
+    let note = paths::guard(&scope, &path).map_err(storage_error)?;
+    let outcome = with_server(&runtime, false, {
+        let (app, vault, note, expected) = (
+            app.clone(),
+            vault.clone(),
+            note.clone(),
+            expected_hash.clone(),
+        );
+        move |access, _| {
+            let write = |target: &std::path::Path, bytes: &[u8]| -> Result<bool, String> {
+                // The gate is held only for the check and the write, not for the download.
+                let db = app.state::<VaultContext>();
+                let watcher_state = app.state::<WatcherState>();
+                let _gate = db.mutation_gate.lock_or_recover();
+                let prepared =
+                    watcher_state.prepare_write([(target, watcher::fingerprint_for_bytes(bytes))]);
+                match server_history::plain_restore_write(&vault, target, bytes, &expected) {
+                    Ok(true) => {
+                        watcher_state.confirm_prepared_write(&prepared);
+                        Ok(true)
+                    }
+                    other => {
+                        watcher_state.cancel_prepared_write(&prepared);
+                        other
+                    }
+                }
+            };
+            server_history::restore_server_version_with(
+                &vault, &note, access, &item_id, version, &expected, &write,
+            )
+        }
+    })
+    .await??;
+    if outcome.status == RestoreVersionStatus::Restored {
+        let db = app.state::<VaultContext>();
+        let _gate = db.mutation_gate.lock_or_recover();
+        publish_and_index(&app, &db, &vault, std::slice::from_ref(&note)).map_err(storage_error)?;
+    }
+    Ok(outcome)
+}
+
+/// Tells the windows about the written files and re-reads them in the index, the same as after
+/// a restore of a snapshot. The caller holds the `mutation_gate`.
+fn publish_and_index(
+    app: &tauri::AppHandle,
+    db: &VaultContext,
+    vault: &std::path::Path,
+    paths: &[std::path::PathBuf],
+) -> Result<(), String> {
+    let generation = db.generation()?;
+    watcher::notify_published_files(app, vault, generation, paths, None);
+    let conn_guard = db.conn.lock_or_recover();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    let changed: std::collections::HashSet<std::path::PathBuf> = paths.iter().cloned().collect();
+    if crate::vault_index::sync_paths(conn, vault, &changed)?.is_none() {
+        crate::vault_index::sync_vault(conn, vault)?;
+    }
+    Ok(())
+}
+
+/// The "on the server" part of the archive (И9–И13, И19).
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_deleted_files(
+    runtime: State<'_, SyncRuntime>,
+    scope: State<'_, paths::VaultScope>,
+) -> Result<DeletedOnServer, SyncError> {
+    let vault = scope.get().map_err(storage_error)?;
+    with_server(&runtime, true, move |access, cache| {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(0));
+        server_history::deleted_files(&vault, access, cache, now_ms)
+    })
+    .await
+}
+
+/// "Вернуть" for deleted files of the server (И15, И17, И19).
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_restore_deleted(
+    app: tauri::AppHandle,
+    runtime: State<'_, SyncRuntime>,
+    scope: State<'_, paths::VaultScope>,
+    item_ids: Vec<String>,
+) -> Result<RestoreDeletedOutcome, SyncError> {
+    use tauri::Manager;
+    let vault = scope.get().map_err(storage_error)?;
+    let outcome = with_server(&runtime, false, {
+        let (app, vault) = (app.clone(), vault.clone());
+        move |access, cache| {
+            let create = |target: &std::path::Path,
+                          bytes: &[u8]|
+             -> Result<(), crate::frontmatter::AtomicCreateError> {
+                let db = app.state::<VaultContext>();
+                let watcher_state = app.state::<WatcherState>();
+                let _gate = db.mutation_gate.lock_or_recover();
+                let prepared =
+                    watcher_state.prepare_write([(target, watcher::fingerprint_for_bytes(bytes))]);
+                let result = crate::frontmatter::atomic_write_bytes_new(target, bytes);
+                match &result {
+                    Ok(()) => watcher_state.confirm_prepared_write(&prepared),
+                    Err(_) => watcher_state.cancel_prepared_write(&prepared),
+                }
+                result
+            };
+            let outcome = server_history::restore_deleted_with(&vault, access, &item_ids, &create);
+            cache.invalidate();
+            outcome
+        }
+    })
+    .await??;
+    let written: Vec<std::path::PathBuf> = outcome
+        .results
+        .iter()
+        .filter(|result| {
+            matches!(
+                result.status,
+                RestoreFileStatus::Restored | RestoreFileStatus::RestoredRenamed
+            )
+        })
+        .filter_map(|result| result.final_path.as_deref())
+        .map(|relative| vault.join(relative))
+        .collect();
+    if !written.is_empty() {
+        let db = app.state::<VaultContext>();
+        let _gate = db.mutation_gate.lock_or_recover();
+        publish_and_index(&app, &db, &vault, &written).map_err(storage_error)?;
+    }
+    Ok(outcome)
 }

@@ -88,6 +88,57 @@ describe("recovery drafts", () => {
       await discardRecoveryDraft(renamedPath)
     })
 
+    it("keeps a newer draft created while the old recovery is being moved", async () => {
+      const oldPath = "/vault/Old.canvas"
+      const newPath = "/vault/New.canvas"
+      await saveRecoveryDraft(oldPath, "older draft", "canvas", oldPath)
+      const moving = remapRecoveryDraft(oldPath, newPath, "canvas", newPath)
+      scheduleRecoveryDraft(newPath, "newer draft", "canvas", newPath)
+      await moving
+      await flushRecoveryDraft(newPath, "canvas")
+      expect((await readRecoveryDraft(newPath))?.content).toBe("newer draft")
+      await discardRecoveryDraft(oldPath)
+      await discardRecoveryDraft(newPath)
+    })
+
+    it("does not replace a newer edit while changing the path hint of a stable id", async () => {
+      const id = "stable-note-id"
+      await saveRecoveryDraft(id, "older draft", "markdown", "/vault/Old.md")
+      const moving = remapRecoveryDraft(id, id, "markdown", "/vault/New.md")
+      scheduleRecoveryDraft(id, "newer draft", "markdown", "/vault/New.md")
+      await moving
+      await flushRecoveryDraft(id, "markdown")
+      const draft = await readRecoveryDraft(id)
+      expect(draft?.content).toBe("newer draft")
+      expect(draft?.pathHint).toBe("/vault/New.md")
+      await discardRecoveryDraft(id)
+    })
+
+    it("keeps a newer source draft when it changes during the move", async () => {
+      const oldPath = "/vault/source-old.canvas"
+      const newPath = "/vault/source-new.canvas"
+      await saveRecoveryDraft(oldPath, "old", "canvas", oldPath)
+      const moving = remapRecoveryDraft(oldPath, newPath, "canvas", newPath)
+      scheduleRecoveryDraft(oldPath, "newer source", "canvas", oldPath)
+      await moving
+      await flushRecoveryDraft(oldPath, "canvas")
+      expect((await readRecoveryDraft(oldPath))?.content).toBe("newer source")
+      await discardRecoveryDraft(oldPath)
+      await discardRecoveryDraft(newPath)
+    })
+
+    it("preserves an existing destination recovery instead of overwriting it", async () => {
+      const oldPath = "/vault/collision-old.canvas"
+      const newPath = "/vault/collision-new.canvas"
+      await saveRecoveryDraft(oldPath, "first draft", "canvas", oldPath)
+      await saveRecoveryDraft(newPath, "other draft", "canvas", newPath)
+      await remapRecoveryDraft(oldPath, newPath, "canvas", newPath)
+      expect((await readRecoveryDraft(oldPath))?.content).toBe("first draft")
+      expect((await readRecoveryDraft(newPath))?.content).toBe("other draft")
+      await discardRecoveryDraft(oldPath)
+      await discardRecoveryDraft(newPath)
+    })
+
     it("ignores and cleans up expired or corrupt drafts", async () => {
       const expiredKey = "amby:recovery-draft:" + encodeURIComponent("/vault/Expired.md")
       localStorage.setItem(

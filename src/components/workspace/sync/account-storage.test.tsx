@@ -42,10 +42,13 @@ const APPENDIX_E_KEYS = [
   "sync.errors.space_limit",
 ]
 
-const PLURAL_KEYS = ["sync.notices.tooLarge"]
+const PLURAL_KEYS: string[] = []
 const PLAIN_NOTICE_KEYS = [
-  "sync.notices.tooLargeShow",
-  "sync.notices.quotaFull",
+  "notices.centre.tooLarge",
+  "notices.centre.tooLargeLine",
+  "notices.centre.quotaFull",
+  "notices.centre.quotaFullLine",
+  "notices.centre.show",
   "sync.notices.spaceLimit",
   "sync.notices.chooseExisting",
 ]
@@ -136,7 +139,7 @@ describe("the header of the section (У2)", () => {
     cleanup()
     await mount(
       overview({
-        plan: { name: "free", title: "Free", pinned: true },
+        plan: { name: "free", title: "Free", pinned: true, sync: true, untilMs: null },
         limits: { ...ACCOUNT_STANDARD.limits, maxTotalBytes: null },
       }),
     )
@@ -152,7 +155,11 @@ describe("the header of the section (У2)", () => {
   })
 
   it("takes the plan name when the plan has no title", async () => {
-    await mount(overview({ plan: { name: "standard", title: null, pinned: false } }))
+    await mount(
+      overview({
+        plan: { name: "standard", title: null, pinned: false, sync: true, untilMs: null },
+      }),
+    )
     expect(screen.getByText("Тариф: standard")).toBeTruthy()
   })
 
@@ -160,7 +167,7 @@ describe("the header of the section (У2)", () => {
     await i18n.changeLanguage("en")
     await mount({
       ...ACCOUNT_STANDARD,
-      plan: { name: "standard", title: "Standard", pinned: false },
+      plan: { name: "standard", title: "Standard", pinned: false, sync: true, untilMs: null },
     })
     expect(screen.getByText("Plan: Standard")).toBeTruthy()
     expect(screen.getByText("312 MB of 1 GB")).toBeTruthy()
@@ -236,13 +243,13 @@ describe("the rows (У1)", () => {
     expect(screen.queryByText(/и история/)).toBeNull()
   })
 
-  it("has no way to delete a storage from the server yet (Э5)", async () => {
+  it("offers only the row menu: deletion is asked for and decided elsewhere (appendix Л)", async () => {
     await mount(ACCOUNT_UNLIMITED)
     expect(rows().length).toBeGreaterThan(0)
     expect(screen.queryByText(/Удалить с сервера/)).toBeNull()
     expect(screen.queryByRole("menu")).toBeNull()
     for (const row of rows()) {
-      expect(within(row).queryByRole("button")).toBeNull()
+      expect(within(row).getAllByRole("button")).toHaveLength(1)
     }
   })
 })
@@ -278,6 +285,29 @@ describe("when the section reads the server (У1)", () => {
     await waitFor(() => expect(port.accountOverview).toHaveBeenCalledTimes(2))
   })
 
+  it("reads again once after a pass that sent or removed something, so sizes are not stale", async () => {
+    // Appendix Л: the confirmation of a deletion names the size; a list read when the space was
+    // made (before its first upload) must not stay at 0 B.
+    const port = await mount(ACCOUNT_STANDARD)
+    const sent = vaultStatus({
+      lastSyncMs: 1_760_000_000_500,
+      last: { downloaded: 0, uploaded: 2, renamed: 0, trashed: 0 },
+    })
+    await act(async () => emitVaultStatus(sent))
+    await waitFor(() => expect(port.accountOverview).toHaveBeenCalledTimes(2))
+    // The same pass announced again, and a pass that sent nothing, read nothing.
+    await act(async () => emitVaultStatus(sent))
+    await act(async () =>
+      emitVaultStatus(
+        vaultStatus({
+          lastSyncMs: 1_760_000_000_900,
+          last: { downloaded: 3, uploaded: 0, renamed: 0, trashed: 0 },
+        }),
+      ),
+    )
+    expect(port.accountOverview).toHaveBeenCalledTimes(2)
+  })
+
   it("says what went wrong in words when the server cannot be reached", async () => {
     const port = createFakePort({
       accountOverview: async () => {
@@ -293,12 +323,12 @@ describe("the section in the settings (У1, У5)", () => {
   it("is shown when connected, next to the devices, and not in the browser build", async () => {
     const port = createFakePort({ status: async () => CONNECTED })
     render(<SyncSettings port={port} />)
-    expect(await screen.findByText("Хранилища аккаунта")).toBeTruthy()
+    expect((await screen.findAllByText("Хранилища аккаунта")).length).toBeGreaterThan(0)
     expect(await screen.findByTestId("account-storage")).toBeTruthy()
     cleanup()
     render(<SyncSettings port={unavailableSyncPort} />)
     await screen.findAllByText(/Синхронизация/)
-    expect(screen.queryByText("Хранилища аккаунта")).toBeNull()
+    expect(screen.queryAllByText("Хранилища аккаунта")).toHaveLength(0)
   })
 })
 

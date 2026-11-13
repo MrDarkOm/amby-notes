@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ChevronRight, Clock3, History, Loader2, RefreshCw, Trash2 } from "lucide-react"
+import { ChevronRight, Clock3, Cloud, History, Loader2, RefreshCw, Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { MotionSpinner } from "@/lib/motion"
@@ -59,6 +59,31 @@ function HistoryContents({
   )
   const groups = groupHistoryByDay(versions.slice(0, limit))
   const count = versions.length
+  // Versions from the server (appendix И): kept under the local ones, they join the list of the
+  // preview. A new computer has no snapshots yet, but the server may still hold the text.
+  const serverVersions = (history.server?.available ? history.server.versions : []).filter(
+    (version) =>
+      `${dateFormat.format(version.committedMs)} ${timeFormat.format(version.committedMs)}`
+        .toLocaleLowerCase(locale)
+        .includes(search),
+  )
+  const onServerBySnapshot = new Map(
+    (history.server?.available ? (history.server.snapshotsOnServer ?? []) : []).map((mark) => [
+      mark.snapshotId,
+      mark,
+    ]),
+  )
+  const currentOnServer = Boolean(history.server?.available && history.server.currentOnServer)
+  const markLabel = (version: {
+    device: "thisDevice" | "otherDevice"
+    deviceName?: string | null
+  }) =>
+    version.deviceName ??
+    t(
+      version.device === "thisDevice"
+        ? "historyPanel.serverThisDevice"
+        : "historyPanel.serverOtherDevice",
+    )
   function dayLabel(date: Date) {
     const today = new Date()
     const yesterday = new Date(today)
@@ -73,7 +98,7 @@ function HistoryContents({
         title={t("panels.history")}
         actions={
           <>
-            {history.snapshots.length > 0 && (
+            {(history.snapshots.length > 0 || serverVersions.length > 0) && (
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -124,7 +149,7 @@ function HistoryContents({
         ariaLabel={t("historyPanel.searchVersions")}
         placeholder={t("historyPanel.searchVersions")}
       />
-      {history.error && !history.selected && (
+      {history.error && !history.selected && !history.selectedServer && (
         <p role="alert" className="shrink-0 border-b px-4 py-3 text-xs text-destructive">
           {history.error}
         </p>
@@ -138,6 +163,15 @@ function HistoryContents({
         className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-4"
         aria-busy={history.loading}
       >
+        {currentOnServer && (
+          <p
+            data-testid="history-current-on-server"
+            className="flex items-center gap-1 px-1 pt-3 text-[11px] text-muted-foreground"
+          >
+            <Cloud className="size-3 shrink-0" aria-hidden />
+            {t("historyPanel.currentOnServer")}
+          </p>
+        )}
         {history.error && !count ? (
           <div className="flex justify-center py-8">
             <Button variant="outline" size="sm" onClick={() => void history.refresh()}>
@@ -154,7 +188,7 @@ function HistoryContents({
             </MotionSpinner>
             {t("historyPanel.loading")}
           </p>
-        ) : !count ? (
+        ) : !count && serverVersions.length === 0 ? (
           <div className="flex flex-col items-center gap-3 px-3 py-10 text-center">
             <History className="size-8 text-muted-foreground/50" />
             <p className="text-xs font-medium">
@@ -201,6 +235,18 @@ function HistoryContents({
                       <p className="mt-1 whitespace-normal break-words text-[11px] leading-4 text-muted-foreground [overflow-wrap:anywhere]">
                         {t(historyReasonKey(entry.reason))}
                       </p>
+                      {onServerBySnapshot.has(entry.id) && (
+                        <p className="mt-1 flex items-center gap-1 text-[11px] leading-4 text-muted-foreground">
+                          <Cloud
+                            role="img"
+                            aria-label={t("historyPanel.onServer")}
+                            className="size-3 shrink-0"
+                          />
+                          <span className="truncate">
+                            {markLabel(onServerBySnapshot.get(entry.id)!)}
+                          </span>
+                        </p>
+                      )}
                     </div>
                     <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/50 group-hover:text-foreground" />
                   </button>
@@ -208,6 +254,57 @@ function HistoryContents({
               </div>
             </section>
           ))
+        )}
+        {serverVersions.length > 0 && (
+          <section aria-label={t("historyPanel.serverHeading")}>
+            <h3 className="flex items-center gap-1 px-1 pb-2 pt-4 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <Cloud className="size-3" aria-hidden />
+              {t("historyPanel.serverHeading")}
+            </h3>
+            <div className="ml-2 border-l border-border">
+              {serverVersions.map((version) => (
+                <button
+                  key={`${version.itemId}-${version.version}`}
+                  disabled={history.busy}
+                  onClick={() => void history.selectServer(version)}
+                  aria-label={t("historyPanel.viewVersion", {
+                    date: `${dateFormat.format(version.committedMs)}, ${timeFormat.format(version.committedMs)}`,
+                  })}
+                  className="group relative ml-2 flex w-[calc(100%-0.5rem)] min-w-0 items-center gap-2 rounded-lg px-2 py-2.5 text-left hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs">
+                      <span className="font-medium tabular-nums">
+                        {dateFormat.format(version.committedMs)},{" "}
+                        {timeFormat.format(version.committedMs)}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {formatHistorySize(version.sizeBytes, locale)}
+                      </span>
+                    </p>
+                    <p className="mt-1 flex items-center gap-1 text-[11px] leading-4 text-muted-foreground">
+                      <Cloud
+                        role="img"
+                        aria-label={t("historyPanel.fromServer")}
+                        className="size-3 shrink-0"
+                      />
+                      <span className="truncate">{markLabel(version)}</span>
+                    </p>
+                  </div>
+                  <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/50 group-hover:text-foreground" />
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+        {history.server && !history.server.available && !history.loading && (
+          <p className="px-1 pt-4 text-[11px] text-muted-foreground">
+            {t(
+              history.server.reason === "syncOff"
+                ? "historyPanel.serverNeedsSync"
+                : "historyPanel.serverOffline",
+            )}
+          </p>
         )}
         {count > limit && (
           <Button

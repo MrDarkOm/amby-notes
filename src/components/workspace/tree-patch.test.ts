@@ -37,6 +37,33 @@ const upsert = (
 const names = (items: TreeItem[] | undefined) => (items ?? []).map((item) => item.name)
 
 describe("applyTreePatchOps", () => {
+  it("replaces the optimistic Windows bundle using native separator paths without duplicating it", () => {
+    const native = "C:\\vault\\Light novels\\Light novels.md"
+    const optimistic = note("C:/vault/Light novels/Light novels.md", "stable-note")
+    const rebuilt = { ...optimistic, path: native, icon: "supernote" }
+    const next = applyTreePatchOps(
+      [optimistic],
+      {
+        ops: [{ kind: "remove", parentPath: null, paths: [native] }, upsert(null, rebuilt)],
+      },
+      "C:\\vault",
+    )
+    expect(next).toEqual([rebuilt])
+    expect(removePaths([optimistic], new Set([native]))).toEqual([])
+    expect(applyTreePatchOps([optimistic], { ops: [upsert(null, rebuilt)] }, "C:\\vault")).toEqual([
+      rebuilt,
+    ])
+  })
+
+  it("finds Windows parents with mixed separators when applying a nested patch", () => {
+    const tree = [folder("C:/vault/F", [note("C:/vault/F/a.md")])]
+    const inserted = note("C:/vault/F/b.md")
+    expect(
+      applyTreePatchOps(tree, { ops: [upsert("C:\\vault\\F", inserted)] }, "C:\\vault")?.[0]
+        ?.children,
+    ).toHaveLength(2)
+  })
+
   it("puts a new file in its sorted place: case-insensitive, folders and bundles first", () => {
     const tree = [
       bundle(`${V}/beta`),

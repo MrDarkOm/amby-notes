@@ -42,6 +42,11 @@ export interface PageFloatingBarProps {
   historyDisabled?: boolean
   lock?: PageBarLock
   settings?: PageBarSettings
+  /**
+   * Something placed above the top edge of the bar, right-aligned to it, with a gap (the pill of the
+   * notices of a note). It stays when the bar itself is hidden.
+   */
+  above?: React.ReactNode
 }
 
 const SEPARATOR = <div className="mx-0.5 h-3.5 w-px bg-border/80" />
@@ -62,8 +67,17 @@ export function PageFloatingBar({
   historyDisabled = false,
   lock,
   settings,
+  above,
 }: PageFloatingBarProps) {
-  if (hidden) return null
+  // The anchor of `above`: no height, as wide as the bar, so what is put there can sit at the bar's right edge.
+  const peek = above ? <div className="pointer-events-none relative z-0 h-0">{above}</div> : null
+  if (hidden) {
+    return peek ? (
+      <div className="pointer-events-none absolute bottom-2 right-4 z-10 w-56 select-none">
+        {peek}
+      </div>
+    ) : null
+  }
 
   const stats =
     summary !== undefined || wordCount !== undefined || modified ? (
@@ -174,11 +188,18 @@ export function PageFloatingBar({
       </React.Fragment>
     ) : null,
   ].filter(Boolean)
-  if (sections.length === 0) return null
+  if (sections.length === 0) {
+    return peek ? (
+      <div className="pointer-events-none absolute bottom-2 right-4 z-10 w-56 select-none">
+        {peek}
+      </div>
+    ) : null
+  }
 
   return (
     <div className="pointer-events-none absolute bottom-2 right-4 z-10 select-none max-w-[calc(100%-2rem)]">
-      <div className="pointer-events-auto flex items-center gap-0.5 rounded-xl border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-md">
+      {peek}
+      <div className="pointer-events-auto relative z-10 flex items-center gap-0.5 rounded-xl border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-md">
         {sections.map((section, index) => (
           <React.Fragment key={index}>
             {index > 0 ? SEPARATOR : null}

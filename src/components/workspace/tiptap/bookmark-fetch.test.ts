@@ -1,13 +1,13 @@
 // @vitest-environment happy-dom
 import { Editor } from "@tiptap/core"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import "@/lib/i18n"
+import i18n from "@/lib/i18n"
+import { useAppNoticesStore } from "../notices/use-app-notices-store"
 
 const calls = vi.hoisted(() => ({
   fetchPageInfo:
     vi.fn<(address: string) => Promise<{ title: string; description: string | null }>>(),
   openWebAddress: vi.fn<(address: string) => Promise<void>>(),
-  showErrorMessage: vi.fn<(message: string) => Promise<void>>(),
 }))
 
 vi.mock("@/lib/storage", async (importOriginal) => ({
@@ -84,14 +84,15 @@ describe("the buttons of a bookmark card", () => {
 
   it("leaves the note alone and says why when the page is refused", async () => {
     calls.fetchPageInfo.mockRejectedValue(new Error("PrivateAddress"))
-    calls.showErrorMessage.mockResolvedValue()
+    useAppNoticesStore.setState(useAppNoticesStore.getInitialState())
     const { editor, buttons } = open()
     const before = docToMarkdown(editor.state.doc)
     buttons()[1].click()
     await settle()
     expect(docToMarkdown(editor.state.doc)).toBe(before)
-    expect(calls.showErrorMessage).toHaveBeenCalledTimes(1)
-    expect(calls.showErrorMessage.mock.calls[0][0]).toMatch(/локальной сети/u)
+    const { notices } = useAppNoticesStore.getState()
+    expect(notices).toHaveLength(1)
+    expect(i18n.t(notices[0].titleKey, notices[0].params)).toMatch(/локальной сети/u)
   })
 
   it("does not write the answer into text that was edited while it was on its way", async () => {

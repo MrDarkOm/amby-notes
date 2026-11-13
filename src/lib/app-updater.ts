@@ -4,6 +4,7 @@ import packageJson from "../../package.json"
 import { commands } from "@/lib/bindings"
 import type { UpdateChannelPref } from "@/components/workspace/app-config"
 import { errorType, logger } from "@/lib/logger"
+import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
 import { isTauri } from "@/lib/storage"
 
 const CHECK_TIMEOUT_MS = 30_000
@@ -131,8 +132,14 @@ async function installStartupUpdate(channel: UpdateChannelPref): Promise<Startup
     return "restarting"
   } catch (error) {
     logger.warn("updater.automatic_update_failed", { errorType: errorType(error) })
+    // Information for the journal of the notification centre (docs/notices.md, step 7): the person is not
+    // asked for anything, and the cause stays in the log as a code, not as text.
+    useNoticeJournalStore
+      .getState()
+      .record({ kind: "updateFailed", level: "info", subject: "automatic", params: {} })
     return "ready"
   } finally {
+    // Releasing the update handle: a failure changes nothing for the person.
     await update?.close().catch(() => {})
   }
 }

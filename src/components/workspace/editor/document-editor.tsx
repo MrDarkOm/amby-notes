@@ -1,5 +1,6 @@
 "use client"
 
+import type { RenameOutcome } from "../file-actions/rename-outcome"
 import * as React from "react"
 
 import type { EditorHandle } from "../tiptap/constants"
@@ -43,7 +44,7 @@ export interface DocumentEditorProps {
   onForward?: () => void
   canGoBack?: boolean
   canGoForward?: boolean
-  onRenameTitle?: (newName: string) => void
+  onRenameTitle?: (newName: string) => Promise<RenameOutcome | void> | void
   vault?: string
   isFocusMode?: boolean
   hideNavigation?: boolean
@@ -584,13 +585,15 @@ export function DocumentEditor({
           onScrollPositionChange={onScrollPositionChange}
           viewModeMenuOpen={viewModeMenuOpen}
           onViewModeMenuOpenChange={(open) => setExclusiveMenu("view", open)}
-        />
-        <NoteNotices
-          document={document}
-          warningKey={editingPolicy.warningKey}
-          canRestoreDeleted={canRestoreDeleted}
-          onRestoreDeleted={onRestoreDeleted}
-          onCloseTab={onCloseTab}
+          notices={
+            <NoteNotices
+              document={document}
+              warningKey={editingPolicy.warningKey}
+              canRestoreDeleted={canRestoreDeleted}
+              onRestoreDeleted={onRestoreDeleted}
+              onCloseTab={onCloseTab}
+            />
+          }
         />
       </div>
 

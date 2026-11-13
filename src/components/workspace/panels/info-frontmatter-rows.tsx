@@ -1,3 +1,6 @@
+import { parseOptionColors, parseOptions, optionColor, serializeOptions } from "../property-options"
+import { OptionChip, OptionPicker } from "./option-picker"
+import { PropertyOptionsEditor } from "./property-options-editor"
 import { PROPERTY_TYPE_FALLBACKS, frontmatterPropertyIcon } from "./info-property-icons"
 import { PropertyValueTextarea } from "./info-database-rows"
 import { AmbySelect } from "@/components/ui/amby-select"
@@ -14,6 +17,15 @@ function parseYamlList(value: string): string[] {
   const trimmed = value.trim()
   if (!trimmed) return []
   if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    // A list that holds a comma in an item is written as JSON (З62).
+    try {
+      const parsed: unknown = JSON.parse(trimmed)
+      if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
+        return parsed.filter(Boolean)
+      }
+    } catch {
+      /* a flow list in the YAML form below */
+    }
     return trimmed
       .slice(1, -1)
       .split(",")
@@ -41,17 +53,95 @@ function parseYamlList(value: string): string[] {
   return items.filter(Boolean)
 }
 
+/** The list as the text the backend turns into a YAML list; a comma inside an item needs JSON. */
+function listValueText(items: string[]): string {
+  return items.some((item) => /[,"[\]]/u.test(item)) ? JSON.stringify(items) : items.join(", ")
+}
+
+/** The value of a select or a multi-select: its chips, and the window that chooses (З63 г). */
+function OptionValue({
+  multi,
+  settings,
+  selected,
+  disabled,
+  onSelect,
+  onChangeSettings,
+}: {
+  multi: boolean
+  settings: string
+  selected: string[]
+  disabled?: boolean
+  onSelect: (selected: string[]) => void
+  onChangeSettings?: (settings: string) => Promise<void> | void
+}) {
+  const [local, setLocal] = React.useState(settings)
+  React.useEffect(() => setLocal(settings), [settings])
+  const parsed = parseOptions(local)
+  const colors = parseOptionColors(local)
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          data-testid="option-trigger"
+          disabled={disabled}
+          className="flex min-h-7 w-full flex-wrap items-center gap-1 rounded-md px-1 py-1 text-left text-xs outline-none hover:bg-accent/40 focus-visible:bg-accent/40"
+        >
+          {selected.length > 0 ? (
+            selected.map((value) => (
+              <OptionChip
+                key={value}
+                label={value}
+                color={parsed.options.includes(value) ? optionColor(value, colors) : "gray"}
+              />
+            ))
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        side="bottom"
+        sideOffset={4}
+        collisionPadding={16}
+        className="z-50 w-auto rounded-xl border border-border bg-popover p-2 text-popover-foreground shadow-lg"
+      >
+        <OptionPicker
+          options={parsed.options}
+          colors={colors}
+          selected={selected}
+          multi={multi}
+          disabled={disabled}
+          onSelect={onSelect}
+          onOptionsChange={(change) => {
+            const next = serializeOptions(change.options, parsed.default, change.colors)
+            setLocal(next)
+            if (next) void Promise.resolve(onChangeSettings?.(next)).catch(() => setLocal(settings))
+          }}
+        />
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export function FrontmatterPropertyValue({
   property,
   propertyType,
   settings = "",
   onSave,
+  onSaveList,
+  onChangeSettings,
   disabled,
 }: {
   property: FrontmatterProperty
   propertyType?: string
   settings?: string
+  /** The options and their colours are written to `settings` (З62, З63). */
+  onChangeSettings?: (settings: string) => Promise<void> | void
   onSave?: (value: string) => Promise<void>
+  /** A list is written as its items, never glued with commas (docs/sync-plan.md, З62). */
+  onSaveList?: (items: string[]) => Promise<void>
   disabled?: boolean
 }) {
   const effectiveType =
@@ -81,17 +171,13 @@ export function FrontmatterPropertyValue({
   const [isEditingList, setIsEditingList] = React.useState(false)
   React.useEffect(() => setValue(property.value), [property.value])
 
-  const options = React.useMemo(() => {
-    const list = settings
-      .split(",")
-      .map((option) => option.trim())
-      .filter(Boolean)
-    if (value && !list.includes(value)) {
-      list.unshift(value)
-    }
-    return list
-  }, [settings, value])
-
+  // The items of a list: from the header as they are; the text is only for the old payloads.
+  const [localItems, setLocalItems] = React.useState<string[] | null>(null)
+  React.useEffect(() => setLocalItems(null), [property.items, property.value])
+  const currentItems = React.useMemo(
+    () => localItems ?? (property.items?.length ? property.items : parseYamlList(value)),
+    [localItems, property.items, value],
+  )
   if (effectiveType === "checkbox") {
     const checked = value === "true"
     return (
@@ -122,19 +208,16 @@ export function FrontmatterPropertyValue({
 
   if (effectiveType === "select") {
     return (
-      <AmbySelect
-        size="sm"
-        variant="bare"
-        value={value}
+      <OptionValue
+        multi={false}
+        settings={settings}
+        selected={value ? [value] : []}
         disabled={disabled}
-        aria-label={property.key}
-        options={[
-          { value: "", label: "—" },
-          ...options.map((option) => ({ value: option, label: option })),
-        ]}
-        onValueChange={(next) => {
-          setValue(next)
-          void commitValue(next)
+        onChangeSettings={onChangeSettings}
+        onSelect={(next) => {
+          const chosen = next[0] ?? ""
+          setValue(chosen)
+          void commitValue(chosen)
         }}
       />
     )
@@ -176,6 +259,32 @@ export function FrontmatterPropertyValue({
           if (value !== property.value) void commitValue(value)
         }}
         className="h-7 w-full min-w-0 rounded-md bg-transparent px-1 text-xs text-foreground outline-none focus:bg-accent/40"
+      />
+    )
+  }
+
+  if (effectiveType === "list" && parseOptions(settings).options.length > 0) {
+    return (
+      <OptionValue
+        multi
+        settings={settings}
+        selected={currentItems}
+        disabled={disabled}
+        onChangeSettings={onChangeSettings}
+        onSelect={async (next) => {
+          setLocalItems(next)
+          if (onSaveList) {
+            try {
+              await onSaveList(next)
+            } catch {
+              /* The panel displays the write failure. */
+            }
+            return
+          }
+          const text = listValueText(next)
+          setValue(text)
+          await commitValue(text)
+        }}
       />
     )
   }
@@ -233,6 +342,7 @@ export function FrontmatterPropertyRow({
   onChangeType,
   onChangeSettings,
   onSave,
+  onSaveList,
   onDelete,
   disabled,
 }: {
@@ -244,6 +354,7 @@ export function FrontmatterPropertyRow({
   onRename?: (name: string) => Promise<void> | void
   onChangeType?: (type: string) => Promise<void> | void
   onChangeSettings?: (settings: string) => Promise<void> | void
+  onSaveList?: (items: string[]) => Promise<void>
   onSave?: (value: string) => Promise<void>
   onDelete?: () => Promise<void>
   disabled?: boolean
@@ -296,18 +407,24 @@ export function FrontmatterPropertyRow({
     }
   }, [popoverOpen, property.key, propertyType, settings])
 
+  // One rename at a time: the blur that follows Enter (the field is disabled while it goes on) and
+  // the closing of the popover would otherwise send it again with the old name.
+  const renaming = React.useRef(false)
   const commitRename = React.useCallback(async () => {
+    if (renaming.current) return
     const trimmed = nameDraft.trim()
     if (!trimmed || trimmed === property.key) {
       setNameDraft(property.key)
       return
     }
+    renaming.current = true
     try {
       setIsRenaming(true)
       await onRename?.(trimmed)
     } catch {
       setNameDraft(property.key)
     } finally {
+      renaming.current = false
       setIsRenaming(false)
     }
   }, [nameDraft, onRename, property.key])
@@ -460,7 +577,7 @@ export function FrontmatterPropertyRow({
                       value={selectedType}
                       aria-label={t("infoPanel.propertyType")}
                       options={(
-                        ["text", "number", "checkbox", "date", "select", "url"] as const
+                        ["text", "number", "checkbox", "date", "select", "list", "url"] as const
                       ).map((type) => ({
                         value: type,
                         label: t(`infoPanel.propertyTypes.${type}`, {
@@ -472,24 +589,16 @@ export function FrontmatterPropertyRow({
                   </div>
                 )}
 
-                {selectedType === "select" && (
-                  <div className="flex flex-col gap-1 px-1">
-                    <span className="text-[11px] text-muted-foreground">
-                      {t("infoPanel.propertyOptions")}
-                    </span>
-                    <input
-                      value={settingsDraft}
-                      onChange={(e) => setSettingsDraft(e.target.value)}
-                      onBlur={() => void handleSettingsCommit()}
-                      onKeyDown={(e) => {
-                        e.stopPropagation()
-                        if (e.key === "Enter") {
-                          e.preventDefault()
-                          void handleSettingsCommit()
-                        }
+                {(selectedType === "select" || selectedType === "list") && (
+                  <div className="px-1">
+                    <PropertyOptionsEditor
+                      settings={settingsDraft}
+                      onChange={setSettingsDraft}
+                      onCommit={(next) => {
+                        // A select needs an option: an empty list is not sent (З62).
+                        if (next && next !== settings)
+                          void Promise.resolve(onChangeSettings?.(next))
                       }}
-                      placeholder={t("infoPanel.propertyOptionsHint")}
-                      className="h-7 w-full rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
                     />
                   </div>
                 )}
@@ -526,6 +635,8 @@ export function FrontmatterPropertyRow({
           propertyType={propertyType}
           settings={settings}
           onSave={onSave}
+          onSaveList={onSaveList}
+          onChangeSettings={onChangeSettings}
           disabled={disabled}
         />
       </div>

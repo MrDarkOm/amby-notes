@@ -3,6 +3,8 @@ import * as React from "react"
 
 import { useTranslation } from "react-i18next"
 
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
 import { logger } from "@/lib/logger"
 
 import {
@@ -16,6 +18,7 @@ import {
   updateDatabaseViewConfig,
 } from "@/lib/storage"
 import { useDatabaseStore } from "./database-store"
+import { operationErrorText, reportOperationError } from "@/lib/operation-errors"
 
 interface UseDatabaseViewActionsParams {
   setMutationError: React.Dispatch<React.SetStateAction<string | null>>
@@ -69,11 +72,7 @@ export function useDatabaseViewActions({
         (result): result is PromiseRejectedResult => result.status === "rejected",
       )
       if (refreshFailure) {
-        setMutationError(
-          refreshFailure.reason instanceof Error
-            ? refreshFailure.reason.message
-            : String(refreshFailure.reason),
-        )
+        setMutationError(operationErrorText(refreshFailure.reason))
       }
       if (viewIdToSelect) setSelectedViewId(viewIdToSelect)
     },
@@ -118,7 +117,7 @@ export function useDatabaseViewActions({
       await refreshDatabaseViews()
     } catch (error) {
       logger.error("database.view_action_failed", { databaseId, viewDialogMode: "reorder", error })
-      setMutationError(error instanceof Error ? error.message : String(error))
+      setMutationError(operationErrorText(error))
       // Put the tabs back in the saved order.
       setViewOrder(database.views.map((view) => view.viewId))
     }
@@ -157,7 +156,7 @@ export function useDatabaseViewActions({
         })
         await refreshDatabaseViews(activeView.viewId)
       } catch (error) {
-        setMutationError(error instanceof Error ? error.message : String(error))
+        setMutationError(reportOperationError(error))
       } finally {
         setMutationBusy(false)
       }
@@ -277,7 +276,7 @@ export function useDatabaseViewActions({
         await refreshDatabaseViews(view.viewId)
       } catch (error) {
         logger.error("database.view_action_failed", { databaseId, viewDialogMode: "rename", error })
-        setMutationError(error instanceof Error ? error.message : String(error))
+        setMutationError(operationErrorText(error))
         throw error
       }
     },
@@ -328,7 +327,7 @@ export function useDatabaseViewActions({
         viewDialogMode: "create",
         error,
       })
-      setMutationError(error instanceof Error ? error.message : String(error))
+      setMutationError(operationErrorText(error))
     } finally {
       setMutationBusy(false)
     }
@@ -359,7 +358,10 @@ export function useDatabaseViewActions({
         return
       const target = database.views.find((view) => view.viewId === targetViewId)
       if (!target) return
-      if (action === "delete" && !globalThis.confirm(t("databaseWorkspace.confirmDeleteView")))
+      if (
+        action === "delete" &&
+        !(await confirm(confirmations.deleteDatabaseView({ name: target.title })))
+      )
         return
       setMutationBusy(true)
       setMutationError(null)
@@ -413,7 +415,7 @@ export function useDatabaseViewActions({
           targetViewId,
           error,
         })
-        setMutationError(error instanceof Error ? error.message : String(error))
+        setMutationError(operationErrorText(error))
       } finally {
         setMutationBusy(false)
       }
@@ -424,7 +426,6 @@ export function useDatabaseViewActions({
       isDatabaseLocked,
       mutationBusy,
       refreshDatabaseViews,
-      t,
       vaultGeneration,
       setMutationBusy,
       setMutationError,

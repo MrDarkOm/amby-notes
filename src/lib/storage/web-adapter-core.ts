@@ -31,6 +31,7 @@ import type {
   IdMigrationRecovery,
   IdMigrationRecoveryAction,
   ImportedAsset,
+  ImportFilesResult,
   PageInfo,
   LayerKind,
   LayerResult,
@@ -45,6 +46,8 @@ import type {
   SearchResult,
   SnapshotEntry,
   SnapshotText,
+  ArchiveEntry,
+  DeleteMode,
   TrashEntry,
   TrashPreview,
   TreeItem,
@@ -1500,6 +1503,22 @@ export class WebAdapterCore implements StoragePort {
     return webTrashUnavailable()
   }
 
+  async listArchive(): Promise<ArchiveEntry[]> {
+    return []
+  }
+
+  async readArchivePreview(_archiveId: string, _relativePath: string): Promise<TrashPreview> {
+    return webTrashUnavailable()
+  }
+
+  async restoreArchive(_archiveId: string): Promise<FsMutationResult> {
+    return webTrashUnavailable()
+  }
+
+  async purgeArchive(_archiveId: string, _mode: DeleteMode): Promise<void> {
+    return webTrashUnavailable()
+  }
+
   async previewRenameRefactor(
     _vaultPath: string,
     _path: string,
@@ -1549,6 +1568,10 @@ export class WebAdapterCore implements StoragePort {
     return null
   }
 
+  async importFiles(_targetDir: string | null, _sources: string[]): Promise<ImportFilesResult> {
+    return { imported: [], skipped: [] }
+  }
+
   async importAssetBytes(
     _vaultPath: string,
     _notePath: string,
@@ -1586,14 +1609,6 @@ export class WebAdapterCore implements StoragePort {
       }
       input.click()
     })
-  }
-
-  async confirmAction(message: string): Promise<boolean> {
-    return typeof window !== "undefined" ? window.confirm(message) : false
-  }
-
-  async showErrorMessage(message: string): Promise<void> {
-    if (typeof window !== "undefined") window.alert(message)
   }
 
   async readGlobalRaw(file: string): Promise<string | null> {

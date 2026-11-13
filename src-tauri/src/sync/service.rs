@@ -9,8 +9,9 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use amby_sync_client::{
-    disconnect_device, enroll_prepared, list_devices, prepare_account, recover_account, sign_in,
-    validate_username, ClientError, Connected, DeviceToken, PreparedAccount, ServerUrl, SyncClient,
+    change_password, disconnect_device, enroll_prepared, list_devices, prepare_account,
+    recover_account, sign_in, validate_username, ClientError, Connected, DeviceToken,
+    PreparedAccount, ServerUrl, SyncClient,
 };
 use amby_sync_core::crypto::keys::AccountKey;
 use amby_sync_core::crypto::random::{OsRandom, Random};
@@ -106,6 +107,7 @@ pub struct SyncService {
     secrets: Arc<dyn SecretStore>,
     connection: Arc<dyn ConnectionStore>,
     pending: Mutex<Option<Arc<Pending>>>,
+    identity: tokio::sync::Mutex<()>,
 }
 
 impl From<SecretError> for SyncError {
@@ -195,6 +197,7 @@ impl SyncService {
             secrets,
             connection,
             pending: Mutex::new(None),
+            identity: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -253,6 +256,12 @@ impl SyncService {
             host: url.host_display(),
             server_version: info.server_version,
             instance_id: info.instance_id,
+            registration_open: info
+                .rest
+                .get("registration")
+                .and_then(|value| value.get("open"))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
         })
     }
 
@@ -288,9 +297,10 @@ impl SyncService {
     /// earlier prepared account. Nothing is sent and nothing is stored.
     pub async fn prepare_account(
         &self,
-        request: PrepareRequest,
+        mut request: PrepareRequest,
     ) -> Result<PreparedAccountView, SyncError> {
         self.require_not_connected()?;
+        request.username = amby_sync_proto::normalize_username(&request.username);
         if !validate_username(&request.username) {
             return Err(SyncError::new("invalid_username"));
         }
@@ -435,8 +445,9 @@ impl SyncService {
     }
 
     /// Signs in on this device with the password (Р5).
-    pub async fn sign_in(&self, request: SignInRequest) -> Result<SyncStatus, SyncError> {
+    pub async fn sign_in(&self, mut request: SignInRequest) -> Result<SyncStatus, SyncError> {
         self.require_not_connected()?;
+        request.username = amby_sync_proto::normalize_username(&request.username);
         Self::require_device_name(&request.device_name)?;
         let url = Self::url_of(&request.endpoint)?;
         let client = Self::client_of(&url)?;
@@ -458,8 +469,9 @@ impl SyncService {
     }
 
     /// Replaces a forgotten password with the recovery code and signs in (Р5, О3).
-    pub async fn recover(&self, request: RecoverRequest) -> Result<SyncStatus, SyncError> {
+    pub async fn recover(&self, mut request: RecoverRequest) -> Result<SyncStatus, SyncError> {
         self.require_not_connected()?;
+        request.username = amby_sync_proto::normalize_username(&request.username);
         Self::require_device_name(&request.device_name)?;
         let code = RecoveryCode::parse(&request.recovery_code)
             .map_err(|_| SyncError::new("invalid_recovery_code"))?;
@@ -528,11 +540,101 @@ impl SyncService {
         }
     }
 
-    /// The devices of the account (П19). A revoked token (`token_revoked`) signs this device out
-    /// locally and is reported as such.
-    pub async fn list_devices(&self) -> Result<Vec<DeviceView>, SyncError> {
+    /// Renames an encrypted device label without changing its session.
+    pub async fn rename_device(&self, device_id: &str, name: &str) -> Result<(), SyncError> {
+        let name = name.trim();
+        if name.is_empty() || name.chars().any(char::is_control) {
+            return Err(SyncError::new("invalid_device_name"));
+        }
+        Self::require_device_name(name)?;
+        let _identity = self.identity.lock().await;
         let session = self.session()?;
         let client = Self::client_of_record(&session.record)?;
+        match amby_sync_client::rename_device(
+            &client,
+            &session.token,
+            &session.account_key,
+            device_id,
+            name,
+        )
+        .await
+        {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.forget_if_revoked(&error);
+                Err(error.into())
+            }
+        }
+    }
+
+    /// Changes the login with current-password proof and preserves account keys.
+    pub async fn rename_account(
+        &self,
+        username: &str,
+        current_password: &str,
+    ) -> Result<SyncStatus, SyncError> {
+        let username = amby_sync_proto::normalize_username(username);
+        if !validate_username(&username) {
+            return Err(SyncError::new("invalid_username"));
+        }
+        let _identity = self.identity.lock().await;
+        let session = self.session()?;
+        let client = Self::client_of_record(&session.record)?;
+        if let Err(error) = amby_sync_client::rename_account(
+            &client,
+            &session.token,
+            &session.record.username,
+            &username,
+            current_password,
+        )
+        .await
+        {
+            self.forget_if_revoked(&error);
+            if error.code() == "username_conflict" {
+                let current = client.account_username(&session.token).await?;
+                self.keep_username(&session.record, &current)?;
+            }
+            return Err(Self::identity_error(error));
+        }
+        self.keep_username(&session.record, &username)?;
+        self.status()
+    }
+
+    fn identity_error(error: ClientError) -> SyncError {
+        if matches!(error.code(), "not_found" | "method_not_allowed") {
+            SyncError::new("unsupported_server")
+        } else {
+            error.into()
+        }
+    }
+
+    // Never recreate a connection which was replaced or signed out while HTTP was in flight.
+    fn keep_username(&self, original: &ConnectionRecord, username: &str) -> Result<(), SyncError> {
+        if self.connection.load()?.as_ref() != Some(original) {
+            return Err(SyncError::new("not_connected"));
+        }
+        if original.username != username {
+            let mut updated = original.clone();
+            updated.username = username.to_string();
+            self.connection.save(&updated)?;
+        }
+        Ok(())
+    }
+
+    /// The devices and current account name. A revoked token signs this device out locally.
+    pub async fn list_devices(&self) -> Result<Vec<DeviceView>, SyncError> {
+        let _identity = self.identity.lock().await;
+        let session = self.session()?;
+        let client = Self::client_of_record(&session.record)?;
+        match client.account_username(&session.token).await {
+            Ok(username) => self.keep_username(&session.record, &username)?,
+            // Older servers have no rename API; listing their devices still works.
+            Err(error) if matches!(error.code(), "not_found" | "method_not_allowed") => {}
+            Err(error) => {
+                self.forget_if_revoked(&error);
+                return Err(error.into());
+            }
+        }
         match list_devices(&client, &session.token, &session.account_key).await {
             Ok(devices) => Ok(devices
                 .into_iter()
@@ -544,6 +646,38 @@ impl SyncService {
                     current: device.current,
                 })
                 .collect()),
+            Err(error) => {
+                self.forget_if_revoked(&error);
+                Err(error.into())
+            }
+        }
+    }
+
+    /// Changes the password of the account on this connected device (Р5, П18). Needs the old
+    /// password; AK, the token and the record of this device stay as they are.
+    pub async fn change_password(
+        &self,
+        old_password: &str,
+        new_password: &str,
+    ) -> Result<(), SyncError> {
+        let session = self.session()?;
+        Self::require_good_password(new_password, &session.record.username)?;
+        if old_password == new_password {
+            return Err(SyncError::new("password_unchanged"));
+        }
+        let client = Self::client_of_record(&session.record)?;
+        // The version is read right before the change: a change made from another device earlier
+        // is not a conflict, one made in between is.
+        let result = async {
+            let base = client.keys(&session.token).await?.keys_version;
+            change_password(&client, &session.token, base, old_password, new_password).await
+        }
+        .await;
+        match result {
+            Ok(_) => {
+                tracing::info!(event = "sync_password_changed");
+                Ok(())
+            }
             Err(error) => {
                 self.forget_if_revoked(&error);
                 Err(error.into())
@@ -571,6 +705,7 @@ impl SyncService {
     /// Signs this device out: the server is told (best effort), AK, the token and the record are
     /// removed here in every case.
     pub async fn sign_out(&self) -> Result<SignOutResult, SyncError> {
+        let _identity = self.identity.lock().await;
         let session = match self.session() {
             Ok(session) => Some(session),
             Err(error) if error.code == "not_connected" => None,

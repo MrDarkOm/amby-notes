@@ -4,11 +4,10 @@ import { serializeCanvas, validateAndSerializeCanvas } from "@/lib/canvas-format
 import {
   discardRecoveryDraft,
   migrateLegacyRecoveryDrafts,
-  readRecoveryDraft,
   scheduleRecoveryDraft,
   type RecoveryScope,
 } from "@/lib/recovery-drafts"
-import { confirmAction, readFile } from "@/lib/storage"
+import { readFile } from "@/lib/storage"
 import { recordAutosaveDiagnostic } from "@/lib/debug/autosave"
 import { logger, errorType } from "@/lib/logger"
 import { useDocStore } from "../use-doc-store"
@@ -16,13 +15,19 @@ import { canvasLayerPath } from "../workspace-tree-utils"
 import { FileConflictPausedError, FileRevisionTracker } from "../autosave/file-revision-tracker"
 import { AutosaveCoordinator, type AutosaveKey } from "../autosave/autosave-coordinator"
 import { registerAutosaveLifecycle } from "../autosave/autosave-lifecycle"
-import { recoveryNeedsConfirmation, resolveRecoveryContent } from "../recovery-restore"
+import { DeletedPaths } from "../autosave/deleted-paths"
+import { isPathInside } from "../workspace-mutations"
+import { settleLayerDraft } from "./layer-draft"
 import { CanvasLoadDeduplicator } from "./canvas-load-dedup"
 
 type CanvasAutosavePayload = { path: string; json: string }
 
 /** Owns Obsidian .canvas buffers and their recovery/autosave lifecycle. */
-export function useCanvasWorkspace(generation: number, t: TFunction, recoveryScope: RecoveryScope) {
+export function useCanvasWorkspace(
+  generation: number,
+  _t: TFunction,
+  recoveryScope: RecoveryScope,
+) {
   // Canvas editing already owns a React Flow buffer below. Keep the latest
   // serialized values in a ref so each drag/text checkpoint does not re-render
   // WorkspaceOrchestration and every cached document editor. Explicit buffer
@@ -43,6 +48,7 @@ export function useCanvasWorkspace(generation: number, t: TFunction, recoverySco
   const openCanvases = openCanvasesRef.current
   const canvasLoadsRef = React.useRef(new CanvasLoadDeduplicator())
   const revisionsRef = React.useRef(new FileRevisionTracker())
+  const deletedRef = React.useRef(new DeletedPaths())
   const vaultGenerationRef = React.useRef({ generation })
   vaultGenerationRef.current.generation = generation
 
@@ -98,6 +104,7 @@ export function useCanvasWorkspace(generation: number, t: TFunction, recoverySco
   const loadCanvasBuffer = React.useCallback(
     (path: string): Promise<string> =>
       canvasLoadsRef.current.run(generation, path, async () => {
+        deletedRef.current.lift(path)
         let diskContent: string
         try {
           await revisionsRef.current.baseline(path)
@@ -105,28 +112,29 @@ export function useCanvasWorkspace(generation: number, t: TFunction, recoverySco
         } catch {
           diskContent = serializeCanvas({ nodes: [], edges: [] })
         }
-        const recovery = (await readRecoveryDraft(path, recoveryScope))?.content
-        let recoveredContent: string | undefined
-        if (recovery !== undefined) {
-          try {
-            recoveredContent = validateAndSerializeCanvas(recovery)
-          } catch (error) {
-            console.error("Ignoring invalid canvas recovery draft:", error)
-          }
-        }
-        const restoreConfirmed = recoveryNeedsConfirmation(diskContent, recoveredContent)
-          ? await confirmAction(t("recovery.restorePrompt"))
-          : false
-        const resolved = resolveRecoveryContent(diskContent, recoveredContent, restoreConfirmed)
-        if (resolved.discardDraft) void discardRecoveryDraft(path, recoveryScope)
-        if (resolved.restored) {
-          scheduleRecoveryDraft(path, resolved.content, "canvas", path, recoveryScope)
-          autosave.enqueueImmediate(autosaveKey(path), { path, json: resolved.content })
-        }
-        setOpenCanvases((prev) => ({ ...prev, [path]: resolved.content }))
-        return resolved.content
+        return settleLayerDraft({
+          path,
+          recoveryScope,
+          disk: diskContent,
+          validate: validateAndSerializeCanvas,
+          onRestored: (content) => {
+            scheduleRecoveryDraft(path, content, "canvas", path, recoveryScope)
+            autosave.enqueueImmediate(autosaveKey(path), { path, json: content })
+          },
+          readDisk: async () => {
+            try {
+              return validateAndSerializeCanvas(await readFile(path))
+            } catch {
+              return serializeCanvas({ nodes: [], edges: [] })
+            }
+          },
+          setBuffer: (content) => setOpenCanvases((prev) => ({ ...prev, [path]: content })),
+        }).then((content) => {
+          setOpenCanvases((prev) => ({ ...prev, [path]: content }))
+          return content
+        })
       }),
-    [autosave, autosaveKey, generation, recoveryScope, setOpenCanvases, t],
+    [autosave, autosaveKey, generation, recoveryScope, setOpenCanvases],
   )
 
   const handleCanvasSave = React.useCallback(
@@ -138,10 +146,41 @@ export function useCanvasWorkspace(generation: number, t: TFunction, recoverySco
         console.error("Refusing to save invalid canvas:", error)
         return
       }
+      // Deleted by Amby: a closing editor must not queue a write (docs/notices.md, section 9).
+      if (deletedRef.current.covers(path)) return
       if (openCanvasesRef.current[path] === normalized) return
       openCanvasesRef.current = { ...openCanvasesRef.current, [path]: normalized }
       scheduleRecoveryDraft(path, normalized, "canvas", path, recoveryScope)
       autosave.schedule(autosaveKey(path), { path, json: normalized })
+    },
+    [autosave, autosaveKey, recoveryScope],
+  )
+
+  /**
+   * Amby deleted these paths (or folders): forget every canvas buffer under them, with its queued
+   * save, recovery draft and file baseline, and drop later saves for them until the path is opened again.
+   */
+  const discardDeleted = React.useCallback(
+    (deletedPaths: readonly string[]) => {
+      const inside = (path: string) => deletedPaths.some((root) => isPathInside(path, root))
+      const known = new Set<string>(deletedPaths)
+      for (const path of Object.keys(openCanvasesRef.current)) if (inside(path)) known.add(path)
+      for (const state of autosave.inspectAll()) {
+        if (state.key.kind === "canvas" && inside(state.key.documentId))
+          known.add(state.key.documentId)
+      }
+      for (const root of deletedPaths) deletedRef.current.add(root)
+      for (const path of known) {
+        autosave.discard(autosaveKey(path))
+        revisionsRef.current.forget(path)
+        void discardRecoveryDraft(path, recoveryScope)
+      }
+      if (Object.keys(openCanvasesRef.current).some(inside)) {
+        openCanvasesRef.current = Object.fromEntries(
+          Object.entries(openCanvasesRef.current).filter(([path]) => !inside(path)),
+        )
+        setCanvasRevision((revision) => revision + 1)
+      }
     },
     [autosave, autosaveKey, recoveryScope],
   )
@@ -196,6 +235,7 @@ export function useCanvasWorkspace(generation: number, t: TFunction, recoverySco
   return {
     autosave,
     autosaveKey,
+    discardDeleted,
     fileRevisions: revisionsRef.current,
     handleCanvasSave,
     loadCanvasBuffer,

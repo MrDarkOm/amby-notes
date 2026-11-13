@@ -2,15 +2,15 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
-import { readTrashPreview, type TrashEntry, type TrashPreview } from "@/lib/storage"
+import { readArchivePreview, type ArchiveEntry, type TrashPreview } from "@/lib/storage"
 import { ArchivePreview } from "./archive-preview"
 
-vi.mock("@/lib/storage", () => ({ readTrashPreview: vi.fn() }))
-const entry: TrashEntry = {
+vi.mock("@/lib/storage", () => ({ readArchivePreview: vi.fn() }))
+const entry: ArchiveEntry = {
   id: "archive",
   name: "Note.md",
   originalPath: "Folder/Note.md",
-  deletedAtMs: 1,
+  archivedAtMs: 1,
 }
 const text = (value: string, path = ""): TrashPreview => ({
   path,
@@ -52,7 +52,7 @@ afterEach(cleanup)
 describe("archive preview", () => {
   it("renders archived text literally without executing HTML or loading images", async () => {
     const content = '<script>alert(1)</script><img src="https://example.invalid/private">'
-    vi.mocked(readTrashPreview).mockResolvedValue(text(content))
+    vi.mocked(readArchivePreview).mockResolvedValue(text(content))
     const { onRestore } = mount()
     expect(await screen.findByText(content)).toBeTruthy()
     expect(document.querySelector("img, script")).toBeNull()
@@ -61,7 +61,7 @@ describe("archive preview", () => {
 
   it("navigates archived directories and ignores a cancelled file response", async () => {
     let resolveA!: (preview: TrashPreview) => void
-    vi.mocked(readTrashPreview).mockImplementation(async (_, path) => {
+    vi.mocked(readArchivePreview).mockImplementation(async (_, path) => {
       if (path === "") return folder
       if (path === "A.md")
         return new Promise((resolve) => {
@@ -82,7 +82,7 @@ describe("archive preview", () => {
   })
 
   it("reports a missing entry and retries without restoring it", async () => {
-    vi.mocked(readTrashPreview)
+    vi.mocked(readArchivePreview)
       .mockRejectedValueOnce(new Error("missing"))
       .mockResolvedValue(text("Recovered read"))
     const { onRestore } = mount()
@@ -93,7 +93,7 @@ describe("archive preview", () => {
   })
 
   it("makes restoration an explicit separate action", async () => {
-    vi.mocked(readTrashPreview).mockResolvedValue(text("Archived"))
+    vi.mocked(readArchivePreview).mockResolvedValue(text("Archived"))
     const { onRestore } = mount()
     await screen.findByText("Archived")
     fireEvent.click(screen.getByRole("button", { name: "Восстановить" }))

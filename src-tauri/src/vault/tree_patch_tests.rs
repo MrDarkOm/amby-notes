@@ -6,6 +6,7 @@
 
 use super::tree::TreeItem;
 use super::tree_patch::{TreePatch, TreePatchOp};
+use crate::commands::database::database_note_context_inner;
 use crate::commands::mutations::{
     create_note_inner, delete_item_inner, move_item_inner, rename_item_inner, sync_mutation_result,
 };
@@ -406,7 +407,7 @@ fn trash(context: &VaultContext, vault: &Vault, path: &str) -> FsMutationResult 
             context,
             &WatcherState::new(),
             vault.string(path),
-            DeleteMode::Vault,
+            DeleteMode::Archive,
         )
         .unwrap(),
     )
@@ -566,6 +567,31 @@ fn moving_a_note_into_a_database() {
     assert_point_equals_full(&fixture(), |context, vault| {
         move_to(context, vault, "Projects/Beta.md", "Db")
     });
+}
+
+/// The question "carry the properties over?" reads the note's place in the database right after the
+/// move, with the module on: the projection must already list the note then (no race).
+#[test]
+fn a_note_moved_into_a_database_is_listed_by_the_projection_at_once() {
+    let vault = fixture();
+    let note_id = vault.note("Mover.md", "mover");
+    let context = activate(&vault.0);
+    let runtime = DatabaseRuntimeState::default();
+    runtime.set_enabled(context.generation().unwrap(), true);
+    move_item_inner(
+        &context,
+        &runtime,
+        &WatcherState::new(),
+        &|_, _| {},
+        vault.string("Mover.md"),
+        vault.string("Db"),
+    )
+    .unwrap();
+    let found = database_note_context_inner(&context, &runtime, note_id.clone())
+        .expect("the context is readable")
+        .expect("the moved note is a member of the database");
+    assert_eq!(found.row.note_id, note_id);
+    assert_eq!(found.row.relative_path, "Db/Mover.md");
 }
 
 // ── delete ─────────────────────────────────────────────────────────────────────────────────
@@ -848,6 +874,26 @@ fn a_path_in_a_hidden_folder_changes_nothing_and_one_outside_the_vault_needs_the
 }
 
 // ── what a rename or a move must still do to the rest of the vault ─────────────────────────
+
+#[test]
+fn rename_reports_rewritten_sources_for_open_windows() {
+    let vault = fixture();
+    let context = activate(&vault.0);
+    let result = rename_item_inner(
+        &context,
+        &DatabaseRuntimeState::default(),
+        &WatcherState::new(),
+        &|_, _| {},
+        vault.string("Projects/Alpha.md"),
+        "Renamed alpha".to_string(),
+    )
+    .unwrap();
+    let (generation, paths) = result.rewritten_notes.expect("rewritten sources reported");
+    assert_eq!(generation, context.generation().unwrap());
+    assert!(paths.contains(&vault.path("Projects/Beta.md")));
+    assert!(paths.contains(&vault.path("Root note.md")));
+    assert!(!paths.contains(&vault.path("Folder/Loose.md")));
+}
 
 #[test]
 fn a_rename_still_rewrites_literal_references_in_notes_and_canvases() {

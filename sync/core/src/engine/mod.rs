@@ -13,9 +13,11 @@
 //! - [`model`]: the state kept on the device and the report of a pass;
 //! - [`names`]: names that cannot exist on this system, conflict copy names (Р7, Р9);
 //! - [`consistency`]: meaning of the header fields (Ф14 checks only their shape);
+//! - [`history`]: earlier versions and deleted files from the server (appendix И);
 //! - [`stream`]: opening a body as a stream (Ф24);
 //! - [`rules`]: what is not synchronised (Р4) and the mass-change threshold (Р8);
 //! - [`merge`]: the three-way merge of a note (Э4б, К1, appendix Г);
+//! - [`props_groups`]: the merge of the groups of note properties (appendix З);
 //! - [`conflict_set`]: the files of a conflict in `.amby/conflicts/` (Э4б, К2, appendix Г);
 //! - [`sync`]: the engine itself.
 
@@ -26,11 +28,13 @@ pub mod consistency;
 mod decide;
 mod feed;
 mod flow;
+pub mod history;
 pub mod merge;
 pub mod model;
 pub mod names;
 mod plan;
 pub mod ports;
+pub mod props_groups;
 mod push;
 pub mod rules;
 mod scan;
@@ -48,6 +52,6 @@ pub use ports::{
     AccountInfo, BlobState, ChangeEntry, ChangesPage, Clock, CommitAccepted, CommitItem,
     CommitReply, FsError, LimitSource, Listing, LocalEntry, LocalFs, LocalKind, NameRules, Remote,
     RemoteError, RootState, ServerInfo, SnapshotReason, StagedWrite, StateError, StateLock,
-    StateStore, TrashReason, VersionConflict,
+    StateStore, TrashReason, VersionConflict, VersionEntry,
 };
 pub use sync::{Engine, EngineBuilder, EngineConfig, Ports, SyncEngine};

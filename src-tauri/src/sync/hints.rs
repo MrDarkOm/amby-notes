@@ -15,6 +15,12 @@ use crate::model::PathChange;
 #[derive(Debug, Default)]
 pub struct RenameHints {
     pending: Mutex<Vec<RenameHint>>,
+    /// What the running pass took, until it ends ([`Self::finish_pass`]).
+    in_flight: Mutex<Vec<RenameHint>>,
+    /// What the running pass used (see [`Self::mark_applied`]).
+    applied: Mutex<Vec<RenameHint>>,
+    /// Hints that were carried over once because the pass did not see their rename yet.
+    carried: Mutex<Vec<RenameHint>>,
 }
 
 impl RenameHints {
@@ -55,6 +61,67 @@ impl RenameHints {
             .lock()
             .map(|mut list| std::mem::take(&mut *list))
             .unwrap_or_default()
+    }
+
+    /// What a running pass takes, as late as it can: after it has read the vault (a rename it saw
+    /// on disk had its hint recorded before, Д70). The hints stay known to the queue until
+    /// [`Self::finish_pass`] says what became of them.
+    pub fn take_for_pass(&self) -> Vec<RenameHint> {
+        let taken = self.take();
+        if let Ok(mut flight) = self.in_flight.lock() {
+            for hint in &taken {
+                if !flight.contains(hint) {
+                    flight.push(hint.clone());
+                }
+            }
+        }
+        taken
+    }
+
+    /// The engine says which hints of the running pass it used: a rename it saw on disk.
+    pub fn mark_applied(&self, applied: &[RenameHint]) {
+        if let Ok(mut list) = self.applied.lock() {
+            for hint in applied {
+                if !list.contains(hint) {
+                    list.push(hint.clone());
+                }
+            }
+        }
+    }
+
+    /// The pass ended. When it did not run to the end, its hints go back. When it did, those it
+    /// used are used up (Д70: once). A hint it did not use did not see its rename yet (the hint is
+    /// recorded before the rename on disk, and the rename may come after the pass read the
+    /// vault): it waits for one more pass, but only one, so a rename that never happens does not
+    /// keep it for ever.
+    pub fn finish_pass(&self, done: bool) {
+        let used = self
+            .in_flight
+            .lock()
+            .map(|mut list| std::mem::take(&mut *list))
+            .unwrap_or_default();
+        let applied = self
+            .applied
+            .lock()
+            .map(|mut list| std::mem::take(&mut *list))
+            .unwrap_or_default();
+        if !done {
+            self.restore(used);
+            return;
+        }
+        let Ok(mut carried) = self.carried.lock() else {
+            return;
+        };
+        let before = std::mem::take(&mut *carried);
+        let mut again = Vec::new();
+        for hint in used {
+            if !applied.contains(&hint) && !before.contains(&hint) {
+                carried.push(hint.clone());
+                again.push(hint);
+            }
+        }
+        drop(carried);
+        self.restore(again);
     }
 
     /// Puts hints back (a pass did not run); they go before newer ones.

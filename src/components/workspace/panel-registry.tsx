@@ -1,3 +1,4 @@
+import type { RenameOutcome } from "./file-actions/rename-outcome"
 import * as React from "react"
 import type {
   CustomProperty,
@@ -90,7 +91,7 @@ export interface PanelRenderProps {
   vault: string | null
   onSelect: (id: string) => void
   onOpenVault: () => void
-  onRename?: (id: string, newName: string) => void | Promise<void>
+  onRename?: (id: string, newName: string) => void | Promise<RenameOutcome | void>
   onDelete?: (id: string, mode?: "archive") => void
   onDeleteMany?: (ids: string[]) => void
   onNewFile?: (parentId: string | null) => void
@@ -157,6 +158,14 @@ export interface PanelRenderProps {
   onUpsertCustomProperty?: (property: CustomProperty) => Promise<CustomProperty>
   onDeleteCustomProperty?: (propertyId: string) => Promise<void>
   onReorderCustomProperties?: (propertyIds: string[]) => Promise<void>
+  /** Where the properties are changed by name (З60): one narrow command for each field. */
+  onCreateProperty?: (property: CustomProperty) => Promise<void>
+  onSetPropertyIcon?: (name: string, icon: string) => Promise<void>
+  onSetPropertySettings?: (name: string, settings: string) => Promise<void>
+  onRenameProperty?: (name: string, newName: string) => Promise<void>
+  onChangePropertyType?: (name: string, propertyType: string) => Promise<void>
+  onSetPropertyValue?: (name: string, value: string) => Promise<void>
+  onSetPropertyList?: (name: string, items: string[]) => Promise<void>
   onHistoryRestored?: (path?: string) => Promise<void>
   workspaceSwitcher?: React.ReactNode
 }

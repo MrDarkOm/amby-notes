@@ -64,6 +64,7 @@ export function UpdateSettings() {
     return () => {
       if (update && installingUpdateRef.current !== update) {
         foundChannelRef.current = null
+        // Releasing the update handle: a failure changes nothing for the person.
         void update.close().catch(() => {})
       }
     }
@@ -92,6 +93,7 @@ export function UpdateSettings() {
         requestedChannel !== channelRef.current ||
         requestedChannel !== prefsChannelRef.current
       ) {
+        // Releasing the update handle: a failure changes nothing for the person.
         await next?.close().catch(() => {})
         return
       }
@@ -145,6 +147,7 @@ export function UpdateSettings() {
       await update.install(onProgress)
       installingUpdateRef.current = null
       if (!mountedRef.current) {
+        // Releasing the update handle: a failure changes nothing for the person.
         await update.close().catch(() => {})
         return
       }
@@ -158,6 +161,7 @@ export function UpdateSettings() {
     } catch {
       installingUpdateRef.current = null
       if (!mountedRef.current) {
+        // Releasing the update handle: a failure changes nothing for the person.
         await update.close().catch(() => {})
         return
       }

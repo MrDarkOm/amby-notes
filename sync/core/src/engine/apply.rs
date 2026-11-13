@@ -3,23 +3,31 @@
 //! verified (Д68); every replacement leaves a snapshot (Д53); a state step follows every action
 //! (Д4).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 
 use crate::crypto::header::ItemKind;
 
+use super::classify::Lc;
 use super::conflict_set::{encode_meta, set_paths, SetMeta};
 use super::flow::{Flow, Res};
-use super::merge::{is_mergeable_path, merge_text, MergeOutcome, MERGE_MAX_BYTES};
+use super::merge::{merge_text, MergeOutcome};
 use super::model::{
-    ConflictRecord, CycleReport, ItemError, ItemErrorKind, StateOp, UnsyncedReason, UnsyncedRecord,
+    ConflictRecord, CycleReport, Direction, ItemError, ItemErrorKind, PlannedChange, PlannedKind,
+    StateOp, StopReason, SyncState, UnsyncedReason, UnsyncedRecord,
 };
 use super::plan::{Act, CopyPlan, KeepAct, LinkBase, MoveAct, Plan, PutAct, Srv};
 use super::ports::{FsError, RemoteError, SnapshotReason, StagedWrite, TrashReason};
+use super::props_groups::{
+    check_group, count_properties, kind_of_path, merge_group, pass_mass_loss, vanishing_properties,
+    GroupKind, GroupMergeOutcome, GroupWrite, PROPS_LOSS_MIN, PROPS_MERGE_MAX_BYTES,
+};
 use super::scan::Scan;
 use super::stream::{open_body_stream, StreamError};
 use super::sync::Engine;
-use super::util::{ancestors, base_eligible, depth, hash_of, UNMATERIALISED};
+use super::util::{
+    ancestors, base_eligible, depth, hash_of, is_merge_path, merge_limit, UNMATERIALISED,
+};
 
 /// How one action ended.
 enum Step {
@@ -48,17 +56,18 @@ pub(super) struct ApplyCtx<'a> {
 }
 
 /// A sink that writes into a staged file and remembers why it failed. With `keep` it also keeps
-/// the bytes of a note that may be the base of a merge (Г6), up to the size limit of Г5.
+/// the bytes of a file that may be the base of a merge (Г6), up to its size limit (Г5, З30).
 struct StagedSink<'a> {
     staged: &'a mut Box<dyn StagedWrite>,
     failure: Option<FsError>,
     keep: Option<Vec<u8>>,
+    limit: usize,
 }
 
 impl Write for StagedSink<'_> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         if let Some(kept) = self.keep.as_mut() {
-            if kept.len() + buf.len() <= MERGE_MAX_BYTES {
+            if kept.len() + buf.len() <= self.limit {
                 kept.extend_from_slice(buf);
             } else {
                 self.keep = None;
@@ -191,7 +200,9 @@ impl Engine {
             self.apply_keep(&keep, plan, ctx, report)?;
         }
 
-        // (4) Deletions, always to the trash (Д52).
+        // (4) Deletions, always to the trash (Д52). К3а: a folder of a super note whose files are
+        // all deleted by this pass goes to the trash as one item; anything else is trashed per file.
+        let trashes = self.trash_whole_super_notes(trashes, plan, report)?;
         for (seq, disk, expect, rec) in trashes {
             match self.ports.fs.read(&disk) {
                 Ok(bytes) if hash_of(&bytes) == expect => {
@@ -449,26 +460,72 @@ impl Engine {
             },
         };
         let note_path = srv.path.as_str();
-        let wants_base = is_mergeable_path(note_path) && srv.size <= MERGE_MAX_BYTES as u64;
+        let limit = merge_limit(note_path);
+        let wants_base = is_merge_path(note_path) && srv.size <= limit as u64;
+        let group = kind_of_path(note_path);
 
-        // К1, Г4: both sides changed a note that has a base: the merge comes before the copy.
         let mut server_bytes: Option<Vec<u8>> = None;
         let mut merged: Option<Vec<u8>> = None;
-        if let (true, Some(copy), Some(local)) = (put.merge, &put.copy, &local_bytes) {
-            if let Some(base) = &copy.base {
-                if wants_base && local.len() <= MERGE_MAX_BYTES {
-                    let server = match self.download_bytes(srv) {
-                        Ok(bytes) => bytes,
-                        Err(Failed::Item(kind)) => {
-                            fail(plan, put.seq, srv, kind);
+        // З33, З52: a group is looked at as a whole before anything is written.
+        if let (Some(kind), Some(local), true) = (group, &local_bytes, wants_base) {
+            let server = match self.download_bytes(srv) {
+                Ok(bytes) => bytes,
+                Err(Failed::Item(kind)) => {
+                    fail(plan, put.seq, srv, kind);
+                    return Ok(Step::Skipped);
+                }
+                Err(Failed::Fs(error)) => return Err(error.into()),
+                Err(Failed::Pass(flow)) => return Err(flow),
+            };
+            // An unreadable incoming group never replaces a readable local one: the local file
+            // stays on the path and the incoming one goes to a conflict set (Ж26, З33).
+            if check_group(kind, &server).is_err() && check_group(kind, local).is_ok() {
+                if let Some(mut copy) = put.copy.clone().or_else(|| put.guard.clone()) {
+                    copy.other_hash = hash_of(&server);
+                    copy.other_size = server.len() as u64;
+                    match self.write_copy(&copy, &server) {
+                        Ok(()) => {}
+                        Err(error @ (FsError::NoSpace | FsError::AccessDenied(_))) => {
+                            fail(plan, put.seq, srv, ItemErrorKind::Disk(error));
                             return Ok(Step::Skipped);
                         }
-                        Err(Failed::Fs(error)) => return Err(error.into()),
-                        Err(Failed::Pass(flow)) => return Err(flow),
-                    };
-                    if let MergeOutcome::Clean(bytes) = merge_text(base, local, &server) {
-                        merged = Some(bytes);
+                        Err(error) => return Err(error.into()),
                     }
+                    self.note_conflict(&copy, ctx, report)?;
+                    self.ports
+                        .state
+                        .apply(&vec![StateOp::PutItem(put.rec.clone())])?;
+                    return Ok(Step::Done);
+                }
+            }
+            server_bytes = Some(server);
+        }
+        // К1, Г4: both sides changed a note that has a base: the merge comes before the copy.
+        if let (true, Some(copy), Some(local)) = (put.merge, &put.copy, &local_bytes) {
+            if let Some(base) = &copy.base {
+                if wants_base && local.len() <= limit {
+                    let server = match server_bytes.take() {
+                        Some(bytes) => bytes,
+                        None => match self.download_bytes(srv) {
+                            Ok(bytes) => bytes,
+                            Err(Failed::Item(kind)) => {
+                                fail(plan, put.seq, srv, kind);
+                                return Ok(Step::Skipped);
+                            }
+                            Err(Failed::Fs(error)) => return Err(error.into()),
+                            Err(Failed::Pass(flow)) => return Err(flow),
+                        },
+                    };
+                    merged = match group {
+                        Some(kind) => match merge_group(kind, base, local, &server) {
+                            GroupMergeOutcome::Clean(bytes) => Some(bytes),
+                            _ => None,
+                        },
+                        None => match merge_text(base, local, &server) {
+                            MergeOutcome::Clean(bytes) => Some(bytes),
+                            _ => None,
+                        },
+                    };
                     server_bytes = Some(server);
                 }
             }
@@ -642,6 +699,7 @@ impl Engine {
             staged,
             failure: None,
             keep: keep.then(Vec::new),
+            limit: merge_limit(&srv.path),
         };
         let result = open_body_stream(
             &self.config.vk,
@@ -755,6 +813,170 @@ impl Engine {
         self.put_file(&paths.meta, &encode_meta(&meta))
     }
 
+    /// З32: the properties that vanish from the groups over the whole pass. Every group the
+    /// pass is about to write (merged or replaced from one side) and every group it is about to
+    /// send is compared with what is there now; if the sum reaches the thresholds of Д54, nothing
+    /// of the pass is written or sent, and the pass asks.
+    pub(super) fn property_loss(
+        &mut self,
+        state: &SyncState,
+        classes: &BTreeMap<[u8; 16], Lc>,
+        plan: &Plan,
+        scan: &Scan,
+    ) -> Res<Option<StopReason>> {
+        struct Part {
+            path: String,
+            before: Vec<u8>,
+            after: Vec<u8>,
+            incoming: bool,
+        }
+        let mut parts: Vec<Part> = Vec::new();
+        let mut touched: BTreeSet<[u8; 16]> = BTreeSet::new();
+        for act in &plan.acts {
+            match act {
+                Act::Put(put) if kind_of_path(&put.srv.path) == Some(GroupKind::Props) => {
+                    touched.insert(*put.srv.item.as_bytes());
+                    let Some(existing) = &put.existing else {
+                        continue;
+                    };
+                    if put.srv.size > PROPS_MERGE_MAX_BYTES as u64 || put.srv.deleted {
+                        continue;
+                    }
+                    let before = match self.ports.fs.read(&existing.disk) {
+                        Ok(bytes) => bytes,
+                        Err(FsError::NotFound(_) | FsError::AccessDenied(_)) => continue,
+                        Err(error) => return Err(error.into()),
+                    };
+                    let server = match self.download_bytes(&put.srv) {
+                        Ok(bytes) => bytes,
+                        Err(Failed::Item(_)) => continue,
+                        Err(Failed::Fs(error)) => return Err(error.into()),
+                        Err(Failed::Pass(flow)) => return Err(flow),
+                    };
+                    let after = if put.merge {
+                        let base = put.copy.as_ref().and_then(|c| c.base.as_ref());
+                        match base.map(|b| merge_group(GroupKind::Props, b, &before, &server)) {
+                            Some(GroupMergeOutcome::Clean(bytes)) => bytes,
+                            // A conflict or an unreadable side writes nothing to the path.
+                            _ => continue,
+                        }
+                    } else {
+                        server
+                    };
+                    parts.push(Part {
+                        path: put.target.clone(),
+                        before,
+                        after,
+                        incoming: true,
+                    });
+                }
+                Act::Trash { disk, rec, .. }
+                    if kind_of_path(&rec.path) == Some(GroupKind::Props) =>
+                {
+                    touched.insert(*rec.item_id.as_bytes());
+                    if let Ok(before) = self.ports.fs.read(disk) {
+                        parts.push(Part {
+                            path: rec.path.clone(),
+                            before,
+                            after: Vec::new(),
+                            incoming: true,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        for (key, lc) in classes {
+            if touched.contains(key) {
+                continue;
+            }
+            let Some(record) = state.items.get(key) else {
+                continue;
+            };
+            if record.kind != ItemKind::File
+                || record.deleted
+                || kind_of_path(&record.path) != Some(GroupKind::Props)
+            {
+                continue;
+            }
+            let local_path = match lc {
+                Lc::Edited | Lc::Deleted => record.path.clone(),
+                Lc::Moved { to, edited: true } => to.clone(),
+                _ => continue,
+            };
+            let Some(hash) = record.content_hash else {
+                continue;
+            };
+            let Some(before) = self.ports.state.base_get(&record.item_id, &hash)? else {
+                continue;
+            };
+            let after = match (lc, scan.files.get(&local_path)) {
+                (Lc::Deleted, _) => Vec::new(),
+                (_, Some(file)) => match self.ports.fs.read(&file.disk) {
+                    Ok(bytes) => bytes,
+                    Err(FsError::NotFound(_) | FsError::AccessDenied(_)) => continue,
+                    Err(error) => return Err(error.into()),
+                },
+                _ => continue,
+            };
+            parts.push(Part {
+                path: local_path,
+                before,
+                after,
+                incoming: false,
+            });
+        }
+        let lost: Vec<usize> = parts
+            .iter()
+            .map(|p| vanishing_properties(&p.before, &p.after))
+            .collect();
+        if lost.iter().sum::<usize>() < PROPS_LOSS_MIN {
+            return Ok(None);
+        }
+        let mut total = 0;
+        for (path, file) in &scan.files {
+            if kind_of_path(path) == Some(GroupKind::Props) {
+                if let Ok(bytes) = self.ports.fs.read(&file.disk) {
+                    total += count_properties(&bytes);
+                }
+            }
+        }
+        let writes: Vec<GroupWrite<'_>> = parts
+            .iter()
+            .map(|p| GroupWrite {
+                path: &p.path,
+                before: &p.before,
+                after: &p.after,
+            })
+            .collect();
+        if pass_mass_loss(&writes, total).is_none() {
+            return Ok(None);
+        }
+        let incoming = parts.iter().zip(&lost).any(|(p, n)| p.incoming && *n > 0);
+        let mut files: Vec<PlannedChange> = parts
+            .iter()
+            .zip(&lost)
+            .filter(|(p, n)| **n > 0 && p.incoming == incoming)
+            .map(|(p, _)| PlannedChange {
+                path: p.path.clone(),
+                kind: if incoming {
+                    PlannedKind::Overwrite
+                } else {
+                    PlannedKind::SendDelete
+                },
+            })
+            .collect();
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(Some(StopReason::MassChange {
+            direction: if incoming {
+                Direction::Incoming
+            } else {
+                Direction::Outgoing
+            },
+            files,
+        }))
+    }
+
     /// The file becomes the base of its record, unchanged (Г8 в): its bytes are kept when it is
     /// a note that can be merged, before the state says so (Г9).
     fn keep_base_of_file(&mut self, link: &LinkBase) -> Res<()> {
@@ -792,5 +1014,81 @@ impl Engine {
             report.conflicts.push(record);
         }
         Ok(())
+    }
+}
+
+/// The folder of the super note whose main note is `disk` (`Name/Name.md` → `Name`), if it is one.
+fn super_note_folder(disk: &str) -> Option<&str> {
+    let (dir, file) = disk.rsplit_once('/')?;
+    let stem = file.strip_suffix(".md")?;
+    let folder = dir.rsplit_once('/').map_or(dir, |(_, last)| last);
+    (!stem.is_empty() && folder == stem).then_some(dir)
+}
+
+type TrashAct = (Option<u64>, String, [u8; 32], super::model::ItemRecord);
+
+impl Engine {
+    /// К3а: for each folder `Name/` of a super note whose main note is deleted by this pass, the
+    /// folder goes to the trash as **one item** when every file in it is deleted by this pass too,
+    /// unchanged (the same content the server deleted), and the port finds nothing else in the
+    /// folder. Otherwise nothing is moved here and the files go one by one, as before. Returns the
+    /// deletions that are still to do.
+    fn trash_whole_super_notes(
+        &mut self,
+        mut trashes: Vec<TrashAct>,
+        plan: &mut Plan,
+        report: &mut CycleReport,
+    ) -> Res<Vec<TrashAct>> {
+        let mut folders: Vec<String> = trashes
+            .iter()
+            .filter_map(|(_, disk, _, _)| super_note_folder(disk).map(str::to_string))
+            .collect();
+        // The outer folder first: when it goes whole, the folders inside it go with it.
+        folders.sort_by_key(|folder| depth(folder));
+        folders.dedup();
+        for folder in folders {
+            let prefix = format!("{folder}/");
+            let members: Vec<usize> = trashes
+                .iter()
+                .enumerate()
+                .filter(|(_, (_, disk, _, _))| disk.starts_with(&prefix))
+                .map(|(index, _)| index)
+                .collect();
+            if members.is_empty() {
+                continue;
+            }
+            // Every file must still be what the server deleted; a changed one is decided by the
+            // next pass (С9) and keeps the folder where it is.
+            let unchanged = members.iter().all(|&index| {
+                let (_, disk, expect, _) = &trashes[index];
+                matches!(self.ports.fs.read(disk), Ok(bytes) if hash_of(&bytes) == *expect)
+            });
+            if !unchanged {
+                continue;
+            }
+            let files: Vec<String> = members
+                .iter()
+                .map(|&index| trashes[index].1.clone())
+                .collect();
+            let moved = matches!(
+                self.ports
+                    .fs
+                    .move_dir_to_trash(&folder, &files, TrashReason::RemoteDeletion),
+                Ok(true)
+            );
+            if !moved {
+                continue;
+            }
+            for &index in members.iter().rev() {
+                let (_, disk, _, rec) = trashes.remove(index);
+                report.trashed += 1;
+                report.trashed_paths.push(disk.clone());
+                for up in ancestors(&disk) {
+                    plan.cleanup.insert(up.to_string());
+                }
+                self.ports.state.apply(&vec![StateOp::PutItem(rec)])?;
+            }
+        }
+        Ok(trashes)
     }
 }

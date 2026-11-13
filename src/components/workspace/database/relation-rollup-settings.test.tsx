@@ -8,6 +8,8 @@ import type { RelationConfigState } from "./property-settings"
 import { RelationSettings } from "./relation-settings"
 import type { RollupDraft } from "./rollup-model"
 import { RollupSettings } from "./rollup-settings"
+import { ShownError } from "@/lib/operation-errors"
+import i18n from "@/lib/i18n"
 
 const hours: DatabasePropertySummary = {
   propertyId: "h",
@@ -113,15 +115,15 @@ describe("RelationSettings", () => {
     await chooseOption("Ограничение", "1 страница")
     await vi.waitFor(() => expect(onSave).toHaveBeenCalledTimes(1))
     expect(onSave.mock.calls[0][1]).toMatchObject({ maxItems: 1 })
-    expect(screen.queryByRole("alert")).toBeNull()
+    expect(screen.queryByTestId("notice-line")).toBeNull()
   })
 
   it("shows why a change was refused", async () => {
     mount({}, async () => {
-      throw new Error("Relation values must be cleared first")
+      throw new ShownError(i18n.t("databaseErrors.relationValues"))
     })
     await chooseOption("Ограничение", "1 страница")
-    expect((await screen.findByRole("alert")).textContent).toContain("cleared first")
+    expect((await screen.findByTestId("notice-line")).textContent).toContain("связанные страницы")
   })
 })
 

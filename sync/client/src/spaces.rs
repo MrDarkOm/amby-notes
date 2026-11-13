@@ -7,6 +7,7 @@ use std::time::Duration;
 use amby_sync_core::crypto::keys::{BodyId, ItemId};
 use amby_sync_core::engine::{
     BlobState, ChangeEntry, ChangesPage, CommitAccepted, CommitItem, CommitReply, VersionConflict,
+    VersionEntry,
 };
 use reqwest::{Method, StatusCode};
 use serde_json::{json, Value};
@@ -58,6 +59,10 @@ pub struct AccountPlan {
     pub title: Option<String>,
     /// The administrator pinned the user to this plan.
     pub pinned: bool,
+    /// The plan allows sending changes (Н6, Н8); `true` for a server without the field.
+    pub sync: bool,
+    /// When the pinning ends, in ms since the epoch (Н2, Н6); `None` is no end.
+    pub until_ms: Option<i64>,
 }
 
 /// The effective limits in `GET /v1/account`; `None` is no limit (П61).
@@ -324,6 +329,26 @@ fn entry_from(value: &Value) -> Result<ChangeEntry, ClientError> {
     })
 }
 
+fn version_entry_from(value: &Value) -> Result<VersionEntry, ClientError> {
+    let entry = entry_from(value)?;
+    let superseded_ms = match value.get("superseded_ms") {
+        None | Some(Value::Null) => None,
+        Some(_) => Some(signed_field(value, "superseded_ms")?),
+    };
+    Ok(VersionEntry {
+        item_id: entry.item_id,
+        version: entry.version,
+        seq: entry.seq,
+        header: entry.header,
+        blob_id: entry.blob_id,
+        blob_size: entry.blob_size,
+        deleted: entry.deleted,
+        device_id: entry.device_id,
+        committed_ms: entry.committed_ms,
+        superseded_ms,
+    })
+}
+
 fn bool_field(value: &Value, name: &'static str) -> Result<bool, ClientError> {
     value
         .get(name)
@@ -351,6 +376,25 @@ fn version_conflicts(bytes: &[u8]) -> Option<Vec<VersionConflict>> {
 }
 
 impl SyncClient {
+    /// `DELETE /v1/spaces/{space_id}` (Л1, Л2, Л5, Л9): removes the server copy only. The error
+    /// keeps its machine code; `not_found` also answers a repeat, which the caller decides on.
+    pub async fn delete_space(
+        &self,
+        token: &DeviceToken,
+        space_id: &[u8; 16],
+        auth_key: &amby_sync_core::crypto::keys::AuthKey,
+    ) -> Result<(), ClientError> {
+        // Ц1, Ц2: the sign-in key of the current password proves it.
+        self.send(
+            Method::DELETE,
+            &space_path(space_id, ""),
+            Some(token),
+            Some(json!({ "auth_key": hex::encode(auth_key.as_bytes()) })),
+        )
+        .await?;
+        Ok(())
+    }
+
     /// `GET /v1/spaces` (П20).
     pub async fn list_spaces(&self, token: &DeviceToken) -> Result<Vec<SpaceEntry>, ClientError> {
         let value = self
@@ -404,7 +448,15 @@ impl SyncClient {
         if let Some(limit) = limit {
             path.push_str(&format!("&limit={limit}"));
         }
-        let value = self.send(Method::GET, &path, Some(token), None).await?;
+        let value = self
+            .send_limited(
+                Method::GET,
+                &path,
+                Some(token),
+                None,
+                crate::api::MAX_FEED_ANSWER_BYTES,
+            )
+            .await?;
         let list = value
             .get("changes")
             .and_then(Value::as_array)
@@ -418,6 +470,25 @@ impl SyncClient {
             gap: bool_field(&value, "gap")?,
             changes: list.iter().map(entry_from).collect::<Result<_, _>>()?,
         })
+    }
+
+    /// `GET …/items/{item}/versions` (П33): every living version of an item, newest first.
+    pub async fn item_versions(
+        &self,
+        token: &DeviceToken,
+        space: &[u8; 16],
+        item: &ItemId,
+    ) -> Result<Vec<VersionEntry>, ClientError> {
+        let path = space_path(
+            space,
+            &format!("/items/{}/versions", hex16(item.as_bytes())),
+        );
+        let value = self.send(Method::GET, &path, Some(token), None).await?;
+        let list = value
+            .get("versions")
+            .and_then(Value::as_array)
+            .ok_or_else(|| bad("the list of versions is missing"))?;
+        list.iter().map(version_entry_from).collect()
     }
 
     /// `POST …/blobs` (П21): starts a body or finds out how far it got.
@@ -640,6 +711,9 @@ impl SyncClient {
                 name: optional_text(plan, "name"),
                 title: optional_text(plan, "title"),
                 pinned: bool_field(plan, "pinned")?,
+                // Н8: an old server has no such fields: `sync` is then `true`, no end.
+                sync: plan.get("sync").and_then(Value::as_bool).unwrap_or(true),
+                until_ms: plan.get("until_ms").and_then(Value::as_i64),
             },
             limits: AccountLimits {
                 max_spaces: optional_number(limits, "max_spaces")?,

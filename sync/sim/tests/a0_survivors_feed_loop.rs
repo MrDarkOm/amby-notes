@@ -1,5 +1,5 @@
 //! The one test of the feed that must not hang when its loop does not end (mutant of
-//! `engine/feed.rs`, docs/Road/sync-gates-survivors-report.md): it is alone in its file and its
+//! `engine/feed.rs`, docs/road/sync.md): it is alone in its file and its
 //! name sorts first, so that the run of the mutants meets it before any test that would wait for
 //! ever. The server is asked for the feed at most a few times in a pass, or the test fails. Real
 //! engine only.

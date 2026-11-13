@@ -271,6 +271,64 @@ async purgeTrash(trashId: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * The files of the archive `.amby/archive/` (docs/sync-plan.md, К6): the panel shows only these.
+ */
+async listArchive() : Promise<Result<ArchiveEntry[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_archive") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * A read-only look at an archived file (К6).
+ */
+async readArchivePreview(archiveId: string, relativePath: string) : Promise<Result<TrashPreview, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("read_archive_preview", { archiveId, relativePath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * «Вернуть» from the archive (К6): without replacing, a free name when the path is taken; the
+ * final path is `primary_path` of the mutation.
+ */
+async restoreArchive(archiveId: string) : Promise<Result<MutationOutcome, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_archive", { archiveId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * «Удалить из архива» (К6) by the setting of К4: the system trash, or for good.
+ */
+async purgeArchive(archiveId: string, mode: DeleteMode) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("purge_archive", { archiveId, mode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Developer command (К9, К11 (е)): puts the entries moved by the migration of the old trash back
+ * into `.amby/trash/` by the journal. Not wired to any button; called by hand from the console of
+ * the developer tools: `invoke("rollback_archive_migration")`.
+ */
+async rollbackArchiveMigration() : Promise<Result<string[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rollback_archive_migration") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async aiListChats(generation: number) : Promise<Result<ChatEntry[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("ai_list_chats", { generation }) };
@@ -446,33 +504,207 @@ async getNoteProperties(noteId: string) : Promise<Result<NoteProperties, string>
     else return { status: "error", error: e  as any };
 }
 },
-async upsertCustomProperty(noteId: string, property: CustomProperty) : Promise<Result<CustomProperty, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("upsert_custom_property", { noteId, property }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async deleteCustomProperty(noteId: string, propertyId: string) : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_custom_property", { noteId, propertyId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async reorderCustomProperties(noteId: string, propertyIds: string[]) : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("reorder_custom_properties", { noteId, propertyIds }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async backupCustomProperties(noteId: string) : Promise<Result<string, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("backup_custom_properties", { noteId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listPropertyTemplate() : Promise<PropertyTemplate> {
+    return await TAURI_INVOKE("list_property_template");
+},
+async getPropertyPanel(noteId: string) : Promise<Result<PropertyPanel, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_property_panel", { noteId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async restoreDormantProperty(noteId: string, name: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_dormant_property", { noteId, name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async purgeDormantProperty(noteId: string, name: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("purge_dormant_property", { noteId, name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async acceptPropertyRenameHint(noteId: string, hint: RenameHintView) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("accept_property_rename_hint", { noteId, hint }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async dismissPropertyRenameHint(noteId: string, hint: RenameHintView) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("dismiss_property_rename_hint", { noteId, hint }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async propertyStorageStatus() : Promise<Result<PropertyStorageStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("property_storage_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The first opening of the vault by the new version migrates the properties by itself, with no
+ * question; asked again it has nothing to do (З57, З59). Nothing is written when it does not
+ * migrate.
+ */
+async openVaultProperties() : Promise<Result<OpenPropertiesView, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_vault_properties") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * «Взять значение из старого файла»: an ordinary edit of the value (З58, З1).
+ */
+async takePropertyFileValue(noteId: string, fileName: string, name: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("take_property_file_value", { noteId, fileName, name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * A new property: the key goes into the header, the look into the record if it differs.
+ */
+async createNoteProperty(noteId: string, name: string, icon: string, propertyType: string, settings: string, value: string) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_note_property", { noteId, name, icon, propertyType, settings, value }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async renameNoteProperty(noteId: string, name: string, newName: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rename_note_property", { noteId, name, newName }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeNotePropertyType(noteId: string, name: string, propertyType: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_note_property_type", { noteId, name, propertyType }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setNotePropertyAppearance(noteId: string, name: string, icon: string | null, settings: string | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_note_property_appearance", { noteId, name, icon, settings }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setNotePropertyValue(noteId: string, name: string, value: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_note_property_value", { noteId, name, value }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setNotePropertyList(noteId: string, name: string, items: string[]) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_note_property_list", { noteId, name, items }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async reorderNoteProperties(noteId: string, names: string[]) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reorder_note_properties", { noteId, names }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteNoteProperty(noteId: string, name: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_note_property", { noteId, name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async rollbackPropertiesMigration(migrationId: string) : Promise<Result<RollbackView, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rollback_properties_migration", { migrationId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async checkOldVersionPropertyEdits() : Promise<Result<OldVersionReport, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("check_old_version_property_edits") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async resolveOldVersionPropertyConflict(noteId: string, keepHere: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("resolve_old_version_property_conflict", { noteId, keepHere }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async inspectProperties() : Promise<Result<PropertyInspection, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("inspect_properties") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listPropertyRebindOffers() : Promise<Result<RebindOfferView[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_property_rebind_offers") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async rebindNoteProperties(oldId: string, newId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rebind_note_properties", { oldId, newId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteOrphanProperties(noteId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_orphan_properties", { noteId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -681,6 +913,22 @@ async stopVaultWatcher() : Promise<Result<null, string>> {
 async getDatabaseModuleState() : Promise<Result<DatabaseModuleState, DatabaseError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_database_module_state") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async databaseLayoutStatus(expectedGeneration: number) : Promise<Result<LayoutStatus, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("database_layout_status", { expectedGeneration }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async upgradeDatabaseLayout(expectedGeneration: number) : Promise<Result<LayoutStatus, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("upgrade_database_layout", { expectedGeneration }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1258,6 +1506,14 @@ async importAssetBytes(notePath: string, bytes: number[], suggestedExt: string) 
     else return { status: "error", error: e  as any };
 }
 },
+async importFiles(targetDir: string | null, sources: string[]) : Promise<Result<ImportFilesResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("import_files", { targetDir, sources }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async pickAssetFile(imagesOnly: boolean) : Promise<Result<string | null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("pick_asset_file", { imagesOnly }) };
@@ -1515,6 +1771,39 @@ async syncSignOut() : Promise<Result<SignOutResult, SyncError>> {
 }
 },
 /**
+ * Changes the password of the account; needs the old one (Р5, П18).
+ */
+async syncChangePassword(oldPassword: string, newPassword: string) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_change_password", { oldPassword, newPassword }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Changes the login after current-password verification.
+ */
+async syncRenameAccount(username: string, currentPassword: string) : Promise<Result<SyncStatus, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_rename_account", { username, currentPassword }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Changes a sealed device label without replacing its token.
+ */
+async syncRenameDevice(deviceId: string, name: string) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_rename_device", { deviceId, name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * The state of the sync of the open vault; no network.
  */
 async syncVaultStatus() : Promise<VaultSyncStatus> {
@@ -1539,6 +1828,17 @@ async syncListSpaces() : Promise<Result<SpaceView[], SyncError>> {
 async syncAccountOverview(knownVaults: string[]) : Promise<Result<AccountOverview, SyncError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("sync_account_overview", { knownVaults }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Deletes the server copy of a space of the current account (appendix Л); local files stay.
+ */
+async syncDeleteSpace(spaceId: string, password: string) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_delete_space", { spaceId, password }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1617,6 +1917,84 @@ async syncReadConflictVersions(id: string) : Promise<Result<ConflictVersions, Sy
 async syncResolveConflictWithText(id: string, text: string, stamp: string) : Promise<Result<null, SyncError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("sync_resolve_conflict_with_text", { id, text, stamp }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The conflicting notes of a conflict of a group of note properties (З69).
+ */
+async syncReadGroupConflict(id: string) : Promise<Result<GroupConflictVersions, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_read_group_conflict", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Resolves a conflict of a group of note properties by notes (З69): a pick for every
+ * conflicting note; refused with `conflict_changed` when a file changed since it was read.
+ */
+async syncResolveGroupConflict(id: string, picks: Partial<{ [key in string]: NotePick }>, stamp: string) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_resolve_group_conflict", { id, picks, stamp }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The server versions of a note for its history panel (И1–И4, И19).
+ */
+async syncNoteVersions(path: string) : Promise<Result<NoteServerVersions, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_note_versions", { path }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The text of one server version of a note for the preview (И5, И19).
+ */
+async syncReadServerVersion(path: string, itemId: string, version: number) : Promise<Result<ServerVersionText, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_read_server_version", { path, itemId, version }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * "Вернуть" for a server version of a note (И6, И19).
+ */
+async syncRestoreServerVersion(path: string, itemId: string, version: number, expectedHash: string) : Promise<Result<RestoreVersionOutcome, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_restore_server_version", { path, itemId, version, expectedHash }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The "on the server" part of the archive (И9–И13, И19).
+ */
+async syncDeletedFiles() : Promise<Result<DeletedOnServer, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_deleted_files") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * "Вернуть" for deleted files of the server (И15, И17, И19).
+ */
+async syncRestoreDeleted(itemIds: string[]) : Promise<Result<RestoreDeletedOutcome, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_restore_deleted", { itemIds }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1961,9 +2339,34 @@ export type ApprovalKind =
  * Forget the link with the server and reconcile this vault with it again by content.
  */
 "resync"
+/**
+ * A file of the archive as the panel shows it (К6): one row per file, with its folders.
+ */
+export type ArchiveEntry = { 
+/**
+ * An identifier for `restore` / `purge` / `read_preview`; its form is not part of the contract.
+ */
+id: string; 
+/**
+ * The path in the vault the file is restored to: the path inside `.amby/archive/` (К1).
+ */
+originalPath: string; 
+/**
+ * The time of the move to the archive: `archivedAtMs` of the record, and the time of the file
+ * itself when there is no record (К8).
+ */
+archivedAtMs: number; 
+/**
+ * The name of the file.
+ */
+name: string }
 export type BackupCatalog = { vault: string; generation: number; backups: BackupInfo[] }
 export type BackupCondition = "unchecked" | "verified" | "damaged" | "incomplete" | "missing"
 export type BackupInfo = { id: string; createdMs: number; bytes: number; files: number; status: BackupCondition }
+/**
+ * A line of a group that cannot be used (З51).
+ */
+export type BadLineView = { file: string; number: number; noteId: string | null }
 export type CatalogModel = { model: string; label: string; supportsTools: boolean | null }
 export type ChangeDatabasePropertyTypeRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; propertyType: string; relationTargetDatabaseId?: string | null; relationMaxItems?: number | null; relationTwoWay?: boolean | null; relationInversePropertyName?: string | null; operationId?: string | null; expectedRelatedManifestRevisions?: DatabaseManifestRevision[] }
 export type ChangedDatabasePropertyType = { databaseId: string; propertyId: string; propertyType: string; manifestRevision: string; operationId: string | null; inversePropertyId: string | null; manifestRevisions: DatabaseManifestRevision[]; warnings: string[] }
@@ -2134,7 +2537,12 @@ export type DatabaseAggregateResult = { databaseId: string; groups: DatabaseAggr
 export type DatabaseChangedRequest = { kind: string; path: string; containerPath: string; generation: number; requiresFullRebuild: boolean }
 export type DatabaseCreateMode = "standalone" | "attached"
 export type DatabaseDiagnostic = { code: string; severity: string; path: string; message: string }
-export type DatabaseError = { kind: "moduleDisabled" } | { kind: "vaultNotOpen" } | { kind: "vaultGenerationConflict"; actual_generation: number } | { kind: "failed"; code: string; message: string }
+export type DatabaseError = { kind: "moduleDisabled" } | { kind: "vaultNotOpen" } | { kind: "vaultGenerationConflict"; actual_generation: number } | 
+/**
+ * `code` names the command that failed (for support and logs), `reason` says why in terms a
+ * person can act on; the interface words the reason and never shows `message`.
+ */
+{ kind: "failed"; code: string; reason: FailureReason; message: string }
 export type DatabaseFieldRef = { kind: "system"; field: string } | { kind: "property"; property_id: string }
 export type DatabaseFilterNode = { kind: "group"; operator: string; children: DatabaseFilterNode[] } | { kind: "condition"; field: DatabaseFieldRef; operator: string; value: string | null }
 export type DatabaseHistoryStatus = { databaseId: string; canUndo: boolean; canRedo: boolean }
@@ -2201,12 +2609,75 @@ export type DebugEvent = { id: string; timestamp: string; level: LogLevel; event
 export type DeleteDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string }
 export type DeleteDatabaseViewRequest = { expectedGeneration: number; databaseId: string; viewId: string; expectedViewRevision: string; expectedManifestRevision: string }
 /**
- * Where `delete_item` sends an item. `System` is the default; `Vault` keeps a
- * restorable copy under `.amby/trash`; `Permanent` removes the item for good
- * and must only be requested after an explicit user confirmation.
+ * Where `delete_item` sends an item (docs/sync-plan.md, К4). `System` is the default; `Archive`
+ * does what «В архив» does (К1); `Permanent` removes the item for good and must only be requested
+ * after an explicit user confirmation. The former value `vault` («Корзина хранилища») is read as
+ * `Archive` (К4).
  */
-export type DeleteMode = "system" | "vault" | "permanent"
+export type DeleteMode = "system" | "archive" | "permanent"
 export type DeletedDatabaseProperty = { databaseId: string; propertyId: string; manifestRevision: string; warnings: string[] }
+/**
+ * A deleted file in the "on the server" part of the archive (И10, И12).
+ */
+export type DeletedFileView = { 
+/**
+ * The item on the server, 32 hex digits. For a super note (И10в) the item of its main note.
+ */
+itemId: string; 
+/**
+ * Every item the row stands for, the main one first (И10в): one for an ordinary file, all
+ * the files of a super note for its single row. "Вернуть" restores them together.
+ */
+itemIds?: string[]; 
+/**
+ * Path of the last version with a body (for a super note: of its main note).
+ */
+path: string; 
+/**
+ * Size of that content in bytes.
+ */
+sizeBytes: number; 
+/**
+ * When the deletion reached the server, milliseconds.
+ */
+deletedMs: number; 
+/**
+ * Until when the server keeps it, milliseconds (a hint, И12).
+ */
+keptUntilMs: number | null; 
+/**
+ * This computer or another device deleted it.
+ */
+device: VersionDevice; 
+/**
+ * The name of the device when the server knows it.
+ */
+deviceName: string | null }
+/**
+ * The "on the server" part of the archive (И19).
+ */
+export type DeletedOnServer = { 
+/**
+ * Is the server part there? `false` is not an error (И13).
+ */
+available: boolean; 
+/**
+ * Why not.
+ */
+reason: ServerListUnavailable | null; 
+/**
+ * Newest deletion first, at most 500 (И13).
+ */
+files: DeletedFileView[]; 
+/**
+ * There were more than 500 deleted files: only the newest are shown (И13).
+ */
+truncated: boolean; 
+/**
+ * Local trash entries that match a deleted file of the server (И11а): they get a cloud, the
+ * file has no row of its own.
+ */
+trashOnServer?: TrashOnServer[] }
 /**
  * A device in the list (П19, Ф34).
  */
@@ -2231,6 +2702,10 @@ lastSeenMs: number;
  * This device.
  */
 current: boolean }
+/**
+ * A record without a key: grey, «нет в шапке» (З3).
+ */
+export type DormantView = { name: string; icon: string; propertyType: string; settings: string }
 export type DuplicateDatabaseRowRequest = { expectedGeneration: number; databaseId: string; noteId: string; 
 /**
  * Title of the copy; the caller localizes the "copy" wording.
@@ -2264,12 +2739,100 @@ revision: string;
  * Whether anything was written; `false` when every property that could exist already did.
  */
 changed: boolean; replayed: boolean; warnings: string[] }
+/**
+ * The meaning of a failure for a person, not the internal type that raised it.
+ */
+export type FailureReason = 
+/**
+ * The file changed after it was read (another window, another app, sync).
+ */
+"revision_conflict" | 
+/**
+ * The database is locked by its owner against edits.
+ */
+"locked" | 
+/**
+ * The database or view is in a newer format and is open for reading only.
+ */
+"read_only" | 
+/**
+ * The property, view, row or database is no longer there.
+ */
+"not_found" | 
+/**
+ * The name is already used.
+ */
+"name_taken" | 
+/**
+ * The name or title is empty, too long or not allowed.
+ */
+"invalid_name" | 
+/**
+ * A property type can change only after its values are cleared.
+ */
+"values_not_empty" | 
+/**
+ * Another property is computed from this one.
+ */
+"has_dependents" | 
+/**
+ * The formula does not parse.
+ */
+"formula_invalid" | 
+/**
+ * The last view of a database cannot be deleted.
+ */
+"last_view" | 
+/**
+ * The settings are not allowed for this property or view.
+ */
+"invalid_config" | 
+/**
+ * A relation is not valid: no reciprocal property, wrong target.
+ */
+"relation_invalid" | 
+/**
+ * A value or a file is not valid (a number, a date, a frontmatter value).
+ */
+"invalid_value" | 
+/**
+ * A file is too large or over a limit.
+ */
+"too_large" | 
+/**
+ * The operation failed half-way and was rolled back; nothing changed.
+ */
+"rolled_back" | 
+/**
+ * An earlier interrupted operation must finish first.
+ */
+"recovery_required" | 
+/**
+ * The result list moved on; the caller asks again from the start.
+ */
+"stale_cursor" | 
+/**
+ * The two sources of a value disagree and a person must choose.
+ */
+"yaml_conflict" | 
+/**
+ * A file could not be read or written.
+ */
+"io" | 
+/**
+ * Nothing more specific is known.
+ */
+"failed"
 export type FileMetadata = { created: number | null; modified: number | null; word_count: number }
 /**
  * Read-only view of a single YAML frontmatter entry. The original YAML stays
  * on disk untouched; `value` is only a display representation for the UI.
  */
-export type FrontmatterProperty = { key: string; value: string; valueKind: string }
+export type FrontmatterProperty = { key: string; value: string; valueKind: string; 
+/**
+ * The items when the value is a YAML list of scalars, as they are (never glued with commas).
+ */
+items?: string[] }
 export type FrontmatterStatus = "none" | "valid" | "invalid" | "unterminated"
 export type FsMutationResult = { primaryId: string | null; primaryPath: string | null; pathChanges: PathChange[]; deletedPaths: string[]; deletedIds: string[]; 
 /**
@@ -2279,6 +2842,75 @@ export type FsMutationResult = { primaryId: string | null; primaryPath: string |
  * the whole tree.
  */
 treePatch?: TreePatch | null }
+/**
+ * One conflicting note of a group of note properties (З17, З69).
+ */
+export type GroupConflictNote = { 
+/**
+ * The `amby-id` of the note.
+ */
+noteId: string; 
+/**
+ * The path of the note from `hint.path` of its line (the file on the path first).
+ */
+notePath: string | null; 
+/**
+ * The name of the note file without `.md`.
+ */
+noteTitle: string | null; 
+/**
+ * The properties whose look differs between the two computers, by name.
+ */
+changes: GroupPropertyChange[]; 
+/**
+ * The order of the properties differs between the two computers.
+ */
+orderDiffers: boolean; 
+/**
+ * The line of the note is gone from the file on the path (this computer removed it).
+ */
+currentRemoved: boolean; 
+/**
+ * The line of the note is gone from the second version (the other computer removed it).
+ */
+otherRemoved: boolean }
+/**
+ * A conflict of a group of note properties for the choice by notes (З69).
+ */
+export type GroupConflictVersions = { 
+/**
+ * The conflicting notes and how many lines merged by themselves.
+ */
+group: GroupConflictView; 
+/**
+ * A fingerprint of both files as they were read; `resolve_group_conflict` refuses picks made
+ * on versions that have changed since (`conflict_changed`).
+ */
+stamp: string }
+/**
+ * What a conflict of a group of note properties holds (З17, З69).
+ */
+export type GroupConflictView = { 
+/**
+ * The notes changed differently on the two computers, by `amby-id` ascending.
+ */
+notes: GroupConflictNote[]; 
+/**
+ * How many lines the merge settled by itself.
+ */
+autoMerged: number }
+/**
+ * One property of a conflicting note whose look differs between the two computers (З69).
+ */
+export type GroupPropertyChange = { name: string; 
+/**
+ * The look on this computer; `None` when the note does not change the property here.
+ */
+current: PropertyLook | null; 
+/**
+ * The look on the other computer; `None` when the note does not change the property there.
+ */
+other: PropertyLook | null }
 export type HistoryCleanupPreview = { removedCount: number; freedBytes: number; remaining: HistoryStats }
 export type HistoryCleanupResult = { removedCount: number; freedBytes: number; remaining: HistoryStats }
 export type HistoryRetention = { maxSnapshotsPerNote: number; maxAgeDays: number | null }
@@ -2290,6 +2922,16 @@ export type IdMigrationRecoveryAction = "resume" | "rollback" | "inspectOnly"
 export type IdMigrationResult = { backupPath: string; journalPath: string; modifiedPaths: string[]; status: IdMigrationStatus }
 export type IdMigrationStatus = "planned" | "inProgress" | "completed" | "rolledBack"
 export type ImportDatabaseAssetRequest = { expectedGeneration: number; databaseId: string; noteId: string; sourcePath: string }
+export type ImportFilesResult = { 
+/**
+ * Absolute paths of the copies that were made (a folder counts once, as its own path).
+ */
+imported: string[]; skipped: ImportSkipped[] }
+export type ImportSkipped = { name: string; 
+/**
+ * A machine code: `hidden`, `too_large`, `unreadable`, `link`, `into_itself`, `too_many`.
+ */
+reason: string }
 export type ImportedAsset = { relPath: string; absPath: string; fileName: string; kind: string }
 export type ImportedDatabaseAsset = { databaseId: string; noteId: string; assetId: string; name: string; relativePath: string; mimeType: string; sizeBytes: number }
 /**
@@ -2307,6 +2949,7 @@ export type InitWorkshopRequest = { expectedGeneration: number; operationId: str
 export type InstalledModuleInfo = { moduleId: string; activeVersion: string; installedVersions: string[]; installPath: string; entryPath: string; sizeBytes: number }
 export type JsonValue = null | boolean | number | string | JsonValue[] | Partial<{ [key in string]: JsonValue }>
 export type LayerResult = { notePath: string; layerPath: string; kind: string; pathChanges: PathChange[] }
+export type LayoutStatus = { pendingDatabases: number }
 /**
  * The limits in force; `None` is "no limit".
  */
@@ -2338,6 +2981,10 @@ export type LoadVaultResult = { generation: number; vaultPath: string; tree: Tre
 export type LoadedChat = { chat: Chat | null; raw: JsonValue | null; status: string; revision: string }
 export type LogLevel = "debug" | "info" | "warn" | "error"
 export type LogSource = "frontend" | "backend"
+/**
+ * A value of the old file that differs from the header of the note (З58).
+ */
+export type MismatchView = { noteId: string; name: string; fileValue: string; headerValue: string }
 export type ModuleManifest = { formatVersion: number; id: string; name: string; version: string; publisher: string; kind: string; minAppVersion: string; maxAppVersion: string | null; entry: string; permissions: string[]; checksums: Partial<{ [key in string]: string }>; signature: ModuleSignature; dependencies: Partial<{ [key in string]: string }> | null }
 export type ModuleSignature = { keyId: string; sig: string }
 export type MoveTextPageRequest = { expectedGeneration: number; operationId: string; storyId: string; noteId: string; newParentNoteId?: string | null; orderKey: string; expectedRevision: string }
@@ -2349,7 +2996,23 @@ export type MovedTextPage = { databaseId: string; noteId: string; parentNoteId: 
 export type MutationOutcome = { mutation: FsMutationResult; indexState: IndexState; warnings: OperationWarning[] }
 export type NoteLayers = { canvas: boolean; sketch: boolean; database: boolean; note: boolean }
 export type NoteMetadata = { created: number | null; modified: number | null; wordCount: number }
+/**
+ * The choice for one conflicting note of a group of note properties (З17, З69).
+ */
+export type NotePick = 
+/**
+ * The line of the file on the path («С этого компьютера»).
+ */
+"current" | 
+/**
+ * The line of the second version («С другого»).
+ */
+"other"
 export type NoteProperties = { hasFrontmatter: boolean; frontmatterStatus: FrontmatterStatus; bodyReadOnly: boolean; properties: FrontmatterProperty[]; parseError: string | null; customProperties: CustomProperty[] }
+/**
+ * A property of a note named in the inspection.
+ */
+export type NotePropertyRef = { noteId: string; name: string }
 /**
  * Editor text, its on-disk revision, and the complete source retained as a
  * restore template. Revisions hash unnormalised body bytes for stable IDs and
@@ -2370,6 +3033,36 @@ databaseId: string | null; databaseName: string | null; noteId: string;
  * None when the other page is not in the index (deleted or not yet indexed).
  */
 title: string | null }
+/**
+ * The server part of the history list of a note (И19).
+ */
+export type NoteServerVersions = { 
+/**
+ * Is the server part there? `false` is not an error (И4).
+ */
+available: boolean; 
+/**
+ * Why not, when `available` is `false`.
+ */
+reason: ServerListUnavailable | null; 
+/**
+ * Newest first (И2, И3).
+ */
+versions: ServerVersionView[]; 
+/**
+ * BLAKE3 of the note on the disk when this list was made, 64 hex digits: "Вернуть" passes it
+ * back as `expected_hash` so a note that changed meanwhile is not overwritten (И6).
+ */
+currentHash?: string | null; 
+/**
+ * Local snapshots whose text is also on the server (И3а): they get a cloud, the matching
+ * version has no row of its own.
+ */
+snapshotsOnServer?: SnapshotOnServer[]; 
+/**
+ * The file on the disk is the newest version on the server (И3а): one calm line.
+ */
+currentOnServer?: boolean }
 /**
  * One notebook: a plain folder inside the notes base (`docs/creative-format.md` §6).
  */
@@ -2406,8 +3099,33 @@ notebooks: Notebook[];
  * The folder tree was deeper or wider than a listing reads; the rest is left out.
  */
 truncated: boolean }
+/**
+ * The edits of an old version that were carried over, and the notes changed on both sides (З22).
+ */
+export type OldVersionReport = { transferred: string[]; conflicts: string[]; 
+/**
+ * «Свойства, изменённые старой версией Amby на другом устройстве, перенесены: N заметок».
+ */
+hintText: string | null }
+/**
+ * What the opening of the vault did with the properties (З57): `alreadyGroups`, `migrated`,
+ * `arrivedFromServer` or `readOnly` (with the reason `unreadableOldFile` or `waitingForSync`).
+ */
+export type OpenPropertiesView = { state: string; reason: string | null; migrationId: string | null; 
+/**
+ * The notes whose value in the old file differed from the header's (З58).
+ */
+diverged: MismatchView[] }
 export type OperationWarning = "indexRebuildRequired"
 export type PageInfo = { title: string; description: string | null }
+/**
+ * A property of the panel (З46).
+ */
+export type PanelProperty = { name: string; key: string; value: string; propertyType: string; icon: string; settings: string; fromTemplate: boolean; hasRecord: boolean; items: string[]; readOnly: boolean; typeMismatch: boolean; outsideOptions: boolean }
+/**
+ * What is wrong with the panel of a note.
+ */
+export type PanelWarningView = { kind: "ambiguousKey"; name: string } | { kind: "formatNewer" } | { kind: "badLineInGroup" }
 /**
  * What the last pass did.
  */
@@ -2429,7 +3147,7 @@ renamed: number;
  */
 trashed: number }
 /**
- * The verdict on a password (Р5: 12 characters and a sufficient `zxcvbn` score).
+ * The verdict on a password (Р5: 12 characters, the four kinds of characters and a sufficient `zxcvbn` score).
  */
 export type PasswordCheck = { 
 /**
@@ -2453,13 +3171,10 @@ minLength: number;
  */
 tooShort: boolean; 
 /**
- * A machine name of the main weakness found (`zxcvbn` warning), if any.
+ * What the password lacks, in the fixed order `length`, `lowercase`, `uppercase`, `digit`,
+ * `symbol`.
  */
-warning: string | null; 
-/**
- * Machine names of the advice of `zxcvbn`.
- */
-suggestions: string[] }
+missing: string[] }
 export type PathChange = { oldPath: string; newPath: string }
 /**
  * The answer to a refresh of a few paths: the tree patch and the sync report for them.
@@ -2481,7 +3196,15 @@ title: string | null;
 /**
  * The administrator pinned the user to this plan.
  */
-pinned: boolean }
+pinned: boolean; 
+/**
+ * The plan allows sending changes (appendix Н, Н10); `false` is "no subscription".
+ */
+sync: boolean; 
+/**
+ * When the pinning ends, ms since the epoch (Н2); `None` is no end.
+ */
+untilMs: number | null }
 /**
  * One file of a stop for a mass change (Р8, Д54).
  */
@@ -2546,7 +3269,44 @@ export type ProjectTextSummary = { databaseId: string | null; properties: TextPr
  * projection yet, but the typed boundary is established now.
  */
 export type ProjectionVersion = { epoch: string; seq: number }
+/**
+ * The inspection of the properties of the vault (З10).
+ */
+export type PropertyInspection = { dormant: NotePropertyRef[]; orphans: string[]; ambiguous: NotePropertyRef[]; reservedNames: NotePropertyRef[]; unfinishedOperations: string[]; badLines: BadLineView[] }
+/**
+ * What a note changes in a property against the template (З47), for showing it (З69).
+ */
+export type PropertyLook = { 
+/**
+ * An `IconValue`.
+ */
+icon: string | null; propertyType: string | null; 
+/**
+ * The settings of the type as JSON text (options, colors).
+ */
+settings: string | null }
+export type PropertyPanel = { unreadable: boolean; active: PanelProperty[]; dormant: DormantView[]; renameHint: RenameHintView | null; warnings: PanelWarningView[] }
+/**
+ * Where the properties of the open vault live (З6, З38) and whether an old version writes.
+ */
+export type PropertyStorageStatus = { 
+/**
+ * `legacy`, `groups` or `newer`.
+ */
+mode: string; 
+/**
+ * The sentence of З37 while an old version still writes `properties.json`.
+ */
+oldVersionWarning: string | null }
+/**
+ * The template of basic properties and its number (З45, З48).
+ */
+export type PropertyTemplate = { version: number; properties: TemplateEntry[] }
 export type PublishModuleResult = { success: boolean; moduleId: string; installedVersion: string; previousVersion: string | null; installPath: string }
+/**
+ * «У заметки сменился идентификатор. Привязать к ней её прежние свойства?» (З11, З35).
+ */
+export type RebindOfferView = { oldId: string; newId: string; path: string }
 export type RecordReference = { noteId: string; state: RecordReferenceState; title: string | null; path: string | null }
 export type RecordReferenceState = 
 /**
@@ -2579,6 +3339,10 @@ export type RemovedWorkshopSection = { operationId: string; workshopId: string; 
 export type RenameDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; name: string }
 export type RenameDatabaseRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string }
 export type RenameDatabaseViewRequest = { expectedGeneration: number; databaseId: string; viewId: string; expectedViewRevision: string; name: string }
+/**
+ * «Похоже, «Статус» переименовали в «Состояние»» (З3а).
+ */
+export type RenameHintView = { oldName: string; newName: string }
 export type RenamedDatabase = { databaseId: string; title: string; manifestRevision: string; warnings: string[] }
 export type RenamedDatabaseProperty = { databaseId: string; propertyId: string; name: string; manifestRevision: string; warnings: string[] }
 export type ReorderDatabasePropertiesRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; propertyIds: string[] }
@@ -2604,8 +3368,121 @@ export type ResolvedRecordReferences = {
  */
 references: RecordReference[] }
 export type RestoreDeletedNoteRequest = { expectedGeneration: number; noteId: string; path: string; content: string; sourceTemplate: string; originWindow: string }
+/**
+ * The answer to "Вернуть" in the archive (И17): one line under the button.
+ */
+export type RestoreDeletedOutcome = { 
+/**
+ * How many files were asked for.
+ */
+requested: number; 
+/**
+ * How many were written (also under another name).
+ */
+restored: number; 
+/**
+ * How many were damaged on the server.
+ */
+damaged: number; 
+/**
+ * Every file, in the order asked.
+ */
+results: RestoreFileResult[] }
+/**
+ * One row of the answer to a restore of several files (И17).
+ */
+export type RestoreFileResult = { 
+/**
+ * The item asked for.
+ */
+itemId: string; 
+/**
+ * How it went.
+ */
+status: RestoreFileStatus; 
+/**
+ * The path the file has now (relative to the vault), when it was written (И15).
+ */
+finalPath: string | null }
+/**
+ * How one file of a restore went (И15, И17).
+ */
+export type RestoreFileStatus = 
+/**
+ * Written to its own path.
+ */
+"restored" | 
+/**
+ * The path was taken: written next to it under a free name, nothing was replaced.
+ */
+"restoredRenamed" | 
+/**
+ * Damaged on the server: nothing written.
+ */
+"damaged" | 
+/**
+ * Too large: nothing written.
+ */
+"tooLarge" | 
+/**
+ * The server no longer has it, or it is not a deleted file of this vault: nothing written.
+ */
+"gone" | 
+/**
+ * The server could not be reached or the disk refused: nothing written.
+ */
+"failed" | 
+/**
+ * Sync of this vault is off: nothing written (И15).
+ */
+"syncOff" | 
+/**
+ * A service file (inside `.amby/`): never restored, even when asked for; nothing written
+ * (И10а).
+ */
+"notRestorable"
+/**
+ * The answer to "Вернуть" for a version (И6).
+ */
+export type RestoreVersionOutcome = { 
+/**
+ * How it went.
+ */
+status: RestoreVersionStatus }
+/**
+ * How a restore of a version went (И6). The person reads it under the button (И20).
+ */
+export type RestoreVersionStatus = 
+/**
+ * The bytes of the version are on the disk; the old content is in a `restore` snapshot.
+ */
+"restored" | 
+/**
+ * The file changed since the list was shown: nothing was written, the list is read again.
+ */
+"noteChanged" | 
+/**
+ * The version is damaged: nothing was written.
+ */
+"damaged" | 
+/**
+ * Too large to restore: nothing was written.
+ */
+"tooLarge" | 
+/**
+ * The server could not be reached: nothing was written.
+ */
+"offline" | 
+/**
+ * Sync of this vault is off: nothing was written, no snapshot was made (И6).
+ */
+"syncOff"
 export type RestoredBackup = { path: string }
 export type RollbackModuleResult = { success: boolean; moduleId: string; rolledBackToVersion: string; previousVersion: string; activeInstallPath: string }
+/**
+ * What a rollback did (З42).
+ */
+export type RollbackView = { headersRestored: string[]; notRestored: string[]; groupsRemoved: number }
 export type SearchRelationCandidatesRequest = { expectedGeneration: number; 
 /**
  * The database the Relation points to.
@@ -2647,7 +3524,92 @@ serverVersion: string;
 /**
  * `instance_id` (П10).
  */
-instanceId: string }
+instanceId: string; 
+/**
+ * Whether this server permits signup without an invitation (Рег1); older servers are closed.
+ */
+registrationOpen?: boolean }
+/**
+ * Why the server part of a list is not there (И4, И13). Not an error: the person has nothing to
+ * do, the panel shows one calm line.
+ */
+export type ServerListUnavailable = 
+/**
+ * Sync of this vault is off or this device is not signed in: "…when sync is on".
+ */
+"syncOff" | 
+/**
+ * The server could not be reached: "…when there is a connection".
+ */
+"offline"
+/**
+ * What opening a version for a preview gave (И5, И14).
+ */
+export type ServerVersionState = 
+/**
+ * The text is there.
+ */
+"ok" | 
+/**
+ * The body does not match the header: neither shown nor restorable.
+ */
+"damaged" | 
+/**
+ * Bigger than the memory limit (Д71): not downloaded.
+ */
+"tooLarge" | 
+/**
+ * The server could not be reached.
+ */
+"offline"
+/**
+ * The text of a version for the preview, the same as for a snapshot (И5).
+ */
+export type ServerVersionText = { 
+/**
+ * How it went.
+ */
+state: ServerVersionState; 
+/**
+ * The content as text when `state` is `Ok` and it is valid UTF-8.
+ */
+content: string | null }
+/**
+ * One version from the server in the history list of a note (И1).
+ */
+export type ServerVersionView = { 
+/**
+ * The item on the server, 32 hex digits.
+ */
+itemId: string; 
+/**
+ * The version number on the server.
+ */
+version: number; 
+/**
+ * The path this version had; differs from the note's path after a rename (И2-г).
+ */
+path: string; 
+/**
+ * Size of the content in bytes.
+ */
+sizeBytes: number; 
+/**
+ * BLAKE3 of the content, 64 hex digits.
+ */
+contentHash: string; 
+/**
+ * `committed_ms` of the server, for display only (Р3).
+ */
+committedMs: number; 
+/**
+ * This computer or another device.
+ */
+device: VersionDevice; 
+/**
+ * The name of the device when the server knows it.
+ */
+deviceName: string | null }
 /**
  * The result of signing out.
  */
@@ -2658,6 +3620,30 @@ export type SignOutResult = {
  */
 serverNotified: boolean }
 export type SnapshotEntry = { id: string; createdAtMs: number; reason: string; sizeBytes: number }
+/**
+ * A local snapshot that equals a version on the server (И3а).
+ */
+export type SnapshotOnServer = { 
+/**
+ * The local snapshot.
+ */
+snapshotId: string; 
+/**
+ * The newest server version with the same content.
+ */
+version: number; 
+/**
+ * This computer or another device made that version (I1).
+ */
+device: VersionDevice; 
+/**
+ * The name of the device when the server knows it.
+ */
+deviceName: string | null; 
+/**
+ * `committed_ms` of that version, for display only.
+ */
+committedMs: number }
 export type SnapshotText = { sourcePath: string; content: string }
 /**
  * Which space this vault is linked to.
@@ -2840,6 +3826,14 @@ deviceId: string | null;
 allowHttp: boolean }
 export type TagEntry = { tag: string; notes: IndexedNote[] }
 /**
+ * A basic property (З45).
+ */
+export type TemplateEntry = { propertyType: string; icon: string; names: TemplateName[] }
+/**
+ * A name of a basic property in one language of the interface, with its options (З45).
+ */
+export type TemplateName = { language: string; name: string; settings: string }
+/**
  * How an entry of the `text` block relates to the text database.
  */
 export type TextEntryState = 
@@ -2900,6 +3894,34 @@ export type TextStatusOptionSummary = { id: string; name: string; color: string;
  */
 group: string }
 export type TrashEntry = { id: string; originalPath: string; deletedAtMs: number; name: string }
+/**
+ * A local trash entry that is also on the server (И11а).
+ */
+export type TrashOnServer = { 
+/**
+ * The trash entry (`list_trash` id).
+ */
+trashId: string; 
+/**
+ * The item on the server, 32 hex digits.
+ */
+itemId: string; 
+/**
+ * When the deletion reached the server, milliseconds.
+ */
+deletedMs: number; 
+/**
+ * Until when the server keeps it (a hint, И12).
+ */
+keptUntilMs: number | null; 
+/**
+ * This computer or another device deleted it.
+ */
+device: VersionDevice; 
+/**
+ * The name of the device when the server knows it.
+ */
+deviceName: string | null }
 export type TrashPreview = { path: string; directory: boolean; text: string | null; children: TrashPreviewItem[]; truncated: boolean }
 export type TrashPreviewItem = { name: string; path: string; directory: boolean }
 export type TreeItem = { id: string; path: string; name: string; type: string; icon: string; created?: number | null; modified?: number | null; children?: TreeItem[] | null }
@@ -3106,6 +4128,18 @@ itemErrors: number;
  * What the last pass did.
  */
 last: PassSummary | null }
+/**
+ * Whose change a version is (И1).
+ */
+export type VersionDevice = 
+/**
+ * Made on this computer.
+ */
+"thisDevice" | 
+/**
+ * Made on another device.
+ */
+"otherDevice"
 export type WorkshopSectionSummary = { id: string; role: string; name: string; databaseId: string; 
 /**
  * The relative path recorded in the structure file (a hint).

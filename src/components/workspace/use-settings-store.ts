@@ -59,6 +59,11 @@ interface PreferencesChangedPayload {
   themes?: ThemeDefinition[]
 }
 
+/** The cause of a failed save as an `Error`; a thing that was not one is not turned into text. */
+function asError(cause: unknown): Error {
+  return cause instanceof Error ? cause : new Error("settingsSaveFailed")
+}
+
 function broadcastPreferences(payload: PreferencesChangedPayload): void {
   if (!isTauri()) return
   void Promise.allSettled([
@@ -94,7 +99,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       await saveSettingsPatch({ prefs })
       broadcastPreferences({ prefs })
     } catch (err) {
-      set({ lastSaveError: err instanceof Error ? err : new Error(String(err)) })
+      set({ lastSaveError: asError(err) })
       throw err
     }
   },
@@ -106,7 +111,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       await saveSettingsPatch({ experimental })
       broadcastPreferences({ experimental })
     } catch (err) {
-      set({ lastSaveError: err instanceof Error ? err : new Error(String(err)) })
+      set({ lastSaveError: asError(err) })
       throw err
     }
   },
@@ -117,7 +122,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       await saveSettingsPatch({ themes })
       broadcastPreferences({ themes })
     } catch (err) {
-      set({ lastSaveError: err instanceof Error ? err : new Error(String(err)) })
+      set({ lastSaveError: asError(err) })
       throw err
     }
   },

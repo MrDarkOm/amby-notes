@@ -1,3 +1,4 @@
+import type { RenameOutcome } from "../file-actions/rename-outcome"
 import { EMPTY_ROWS } from "./empty-collections"
 import { DatabaseTitleHeader } from "./database-title-header"
 import { DatabaseSettingsToggle } from "./database-settings-toggle"
@@ -9,6 +10,7 @@ import * as React from "react"
 
 import { Database, Search, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import i18n from "@/lib/i18n"
 
 import { Button } from "@/components/ui/button"
 
@@ -54,6 +56,8 @@ import { useViewGrouping } from "./use-view-grouping"
 import { useSelectedRow } from "./use-selected-row"
 import { useRowEditing } from "./use-row-editing"
 import { useViewStateStore } from "../use-view-state-store"
+import { warningNotices } from "@/lib/operation-errors"
+import { NoticeLevelIcon, NoticeShell } from "../notices/notice-level"
 
 interface DatabaseWorkspaceProps {
   databaseId: string
@@ -67,7 +71,7 @@ interface DatabaseWorkspaceProps {
   isLocked?: boolean
   onToggleLock?: () => void
   onOpenRowFullPage?: (row: DatabaseRow) => void
-  onRenameRow?: (rowId: string, name: string) => Promise<void> | void
+  onRenameRow?: (rowId: string, name: string) => Promise<RenameOutcome | void> | void
   onLoadRowDocument?: (row: DatabaseRow) => Promise<Document>
   onRowContentChange?: (fileId: string, content: string) => void
   onCatalogChanged?: () => Promise<void>
@@ -273,8 +277,13 @@ export function DatabaseWorkspace({
   const computedErrors = React.useMemo(() => {
     const errors: { formula?: string; rollup?: string } = {}
     for (const diagnostic of activeHost?.diagnostics ?? []) {
-      if (diagnostic.code === "formulaError") errors.formula ??= diagnostic.message
-      if (diagnostic.code === "rollupError") errors.rollup ??= diagnostic.message
+      // The diagnostic's own sentence is the developer's; the person gets the dictionary text.
+      if (diagnostic.code === "formulaError") {
+        errors.formula ??= i18n.t("databaseErrors.computed.formula")
+      }
+      if (diagnostic.code === "rollupError") {
+        errors.rollup ??= i18n.t("databaseErrors.computed.rollup")
+      }
     }
     return errors
   }, [activeHost?.diagnostics])
@@ -298,6 +307,8 @@ export function DatabaseWorkspace({
     editingDatabaseTitle,
     setEditingDatabaseTitle,
     commitDatabaseTitle,
+    cancelDatabaseTitle,
+    titleHint,
   } = useDatabaseTitle({
     title,
     icon,
@@ -385,9 +396,6 @@ export function DatabaseWorkspace({
     openRowDialogInLane,
     handleCreateRelationRow,
     moveRowToGroup,
-    yamlSyncState,
-    syncYamlForRow,
-    resolveYamlForRow,
   } = useDatabaseRowActions({
     databaseId,
     vaultGeneration,
@@ -470,7 +478,7 @@ export function DatabaseWorkspace({
     vaultGeneration,
     onSettled: async (outcome) => {
       if (outcome.ok && outcome.result?.warnings.length) {
-        setMutationError(outcome.result.warnings.join("; "))
+        setMutationError(warningNotices(outcome.result.warnings).join("; "))
       }
       await retry()
       if (outcome.ok) useDatabaseStore.getState().invalidateHosts()
@@ -514,6 +522,15 @@ export function DatabaseWorkspace({
         <p className="text-sm font-medium">{t("databaseWorkspace.notFound")}</p>
       </section>
     )
+  }
+
+  // A refusal of a dialog's own action is said in the dialog, under the field, and nowhere else
+  // (docs/notices.md, section 4): the line above the table waits until the dialog is closed.
+  const dialogOpen = viewDialogOpen || rowDialogOpen || propertyDialogOpen
+  // Cancelling a dialog takes its refusal away with it.
+  const closeDialog = (open: boolean, setOpen: (open: boolean) => void) => {
+    if (!open) setMutationError(null)
+    setOpen(open)
   }
 
   return (
@@ -571,6 +588,8 @@ export function DatabaseWorkspace({
               setEditingDatabaseTitle={setEditingDatabaseTitle}
               setDatabaseTitle={setDatabaseTitle}
               commitDatabaseTitle={commitDatabaseTitle}
+              cancelDatabaseTitle={cancelDatabaseTitle}
+              titleHint={titleHint}
               title={title}
             />
           )}
@@ -673,13 +692,16 @@ export function DatabaseWorkspace({
               )}
             </div>
           )}
-          {mutationError && (
-            <p
-              role="alert"
-              className="my-1 rounded-lg bg-destructive/5 px-3 py-2 text-xs text-destructive"
+          {mutationError && !dialogOpen && (
+            <NoticeShell
+              level="warning"
+              variant="calm"
+              data-testid="database-notice"
+              className="my-1 flex items-start gap-1.5 rounded-lg px-3 py-2 text-xs text-foreground"
             >
-              {mutationError}
-            </p>
+              <NoticeLevelIcon level="warning" className="mt-px size-3.5 shrink-0" />
+              <span className="min-w-0">{mutationError}</span>
+            </NoticeShell>
           )}
           <DatabaseViewContent
             contentAreaRef={contentAreaRef}
@@ -746,9 +768,6 @@ export function DatabaseWorkspace({
             commitPeekCell={commitPeekCell}
             selectedRowIndex={selectedRowIndex}
             selectAdjacentRow={selectAdjacentRow}
-            yamlSyncState={yamlSyncState}
-            syncYamlForRow={syncYamlForRow}
-            resolveYamlForRow={resolveYamlForRow}
             setSelectedRowId={setSelectedRowId}
             onOpenRowFullPage={onOpenRowFullPage}
             onLoadRowDocument={onLoadRowDocument}
@@ -763,7 +782,7 @@ export function DatabaseWorkspace({
         />
         <DatabaseViewDialog
           open={viewDialogOpen}
-          onOpenChange={setViewDialogOpen}
+          onOpenChange={(open) => closeDialog(open, setViewDialogOpen)}
           mode="create"
           viewName={viewName}
           onViewNameChange={setViewName}
@@ -782,7 +801,7 @@ export function DatabaseWorkspace({
         />
         <DatabaseRowDialog
           open={rowDialogOpen}
-          onOpenChange={setRowDialogOpen}
+          onOpenChange={(open) => closeDialog(open, setRowDialogOpen)}
           rowTitle={rowTitle}
           onRowTitleChange={setRowTitle}
           mutationBusy={mutationBusy}
@@ -792,7 +811,7 @@ export function DatabaseWorkspace({
         <DatabasePropertyDialog
           open={propertyDialogOpen}
           onOpenChange={(open) => {
-            setPropertyDialogOpen(open)
+            closeDialog(open, setPropertyDialogOpen)
             if (!open) setPropertyInsertBeforeId(undefined)
           }}
           propertyName={propertyName}

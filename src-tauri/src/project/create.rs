@@ -216,6 +216,9 @@ fn write_template(
     section: &PlannedSection,
     template: &PlannedTemplate,
 ) -> Result<(), Interrupt> {
+    if section.extras.layout_version >= 2 {
+        return Ok(());
+    }
     let bytes = template_file_bytes(&section.database_id, template).map_err(Interrupt::Error)?;
     let path = container
         .join(".ambd")
@@ -1059,6 +1062,7 @@ pub fn create_story(env: &Env, request: &CreateStoryRequest) -> Result<CreatedSt
                 view: None,
                 icon: None,
                 template_id: None,
+                ..NewDatabaseExtras::default()
             },
         )
         .map_err(|e| io_failure("manifest", e))?;
@@ -1164,6 +1168,7 @@ pub fn create_story(env: &Env, request: &CreateStoryRequest) -> Result<CreatedSt
                 view: None,
                 icon: None,
                 template_id: None,
+                ..NewDatabaseExtras::default()
             },
         )
         .map_err(Interrupt::Error)?;

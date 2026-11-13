@@ -9,11 +9,94 @@ use serde_json::{json, Value};
 use amby_sync_proto::error_code as code;
 
 use super::split;
+use super::throttle;
 use super::util::{
-    authenticate, field_hex, field_hex_vec, field_u64, hex, json_response, read_json, unhex_array,
-    ApiError, ApiResult, NAME_ENVELOPE_LEN, WRAPPED_KEY_LEN,
+    authenticate, client_addr, ct_eq, field_hex, field_hex_vec, field_u64, hex, json_response,
+    read_json, sha256, unhex_array, ApiError, ApiResult, NAME_ENVELOPE_LEN, WRAPPED_KEY_LEN,
 };
 use crate::state::AppState;
+use crate::store::BlobStore;
+
+/// `DELETE /v1/spaces/{space_id}` (Л1–Л5): the space of the signed-in user with all its records,
+/// versions, bodies and unfinished uploads. Rows go first and files after, under the lock.
+pub(crate) async fn remove(
+    State(state): State<AppState>,
+    params: super::Params,
+    request: Request,
+) -> ApiResult<Response> {
+    let (parts, body) = split(request);
+    // Ц1: sign-in (401), the space is the user's (404), the body (400), the throttle (429), the
+    // proof (403), and only then the removal (Л2, Л3, Т1).
+    let auth = authenticate(&state, &parts)?;
+    let space_text = params
+        .0
+        .get("space_id")
+        .map_or("", String::as_str)
+        .to_string();
+    state
+        .db
+        .call(|conn| owned_space(conn, auth.user_id, &space_text))?;
+    let request = read_json(&state, &parts, body).await?;
+    let proof = field_hex::<32>(&request, "auth_key")?;
+    let addr = client_addr(&state, &parts);
+    let now = state.clock.now_ms();
+    let config = state.config.clone();
+    let removed = state.db.write_then(
+        |tx| -> ApiResult<ApiResult<(OwnedSpace, Vec<crate::store::BlobKey>)>> {
+            // The same check as before, again in the transaction of the write (Т1).
+            let space = recheck(tx, &auth, &space_text)?;
+            let name: String = tx.query_row(
+                "SELECT username FROM users WHERE id = ?1",
+                [auth.user_id],
+                |row| row.get(0),
+            )?;
+            if let Some(seconds) = throttle::locked_for(tx, &config, now, &name, &addr)? {
+                return Ok(Err(ApiError::rate_limited(seconds)));
+            }
+            let stored: Vec<u8> = tx.query_row(
+                "SELECT auth_hash FROM users WHERE id = ?1",
+                [auth.user_id],
+                |row| row.get(0),
+            )?;
+            if !ct_eq(&stored, &sha256(&proof)) {
+                // The failed attempt is kept: this transaction commits.
+                throttle::record_failure(tx, now, &name, &addr)?;
+                return Ok(Err(ApiError::new(
+                    StatusCode::FORBIDDEN,
+                    code::INVALID_PROOF,
+                    "the proof is not valid",
+                )));
+            }
+            throttle::clear_pair(tx, &name, &addr)?;
+            let keys: Vec<crate::store::BlobKey> = {
+                let mut statement = tx.prepare("SELECT blob_id FROM blobs WHERE space = ?1")?;
+                let rows = statement.query_map([space.row], |row| row.get::<_, Vec<u8>>(0))?;
+                rows.filter_map(|blob| blob.ok().and_then(|blob| blob.try_into().ok()))
+                    .map(|blob_id| crate::store::BlobKey {
+                        space_id: space.space_id,
+                        blob_id,
+                    })
+                    .collect()
+            };
+            tx.execute("DELETE FROM spaces WHERE id = ?1", [space.row])?;
+            Ok(Ok((space, keys)))
+        },
+        |tx, outcome| {
+            if let Ok((_, keys)) = outcome {
+                for key in keys {
+                    if !crate::maintenance::row_exists(tx, key)? {
+                        state.files.delete(key)?;
+                    }
+                }
+            }
+            Ok(())
+        },
+    )??;
+    let _ = state.hub.send(crate::state::HubEvent::SpaceRemoved {
+        space_id: removed.0.space_id,
+    });
+    Ok(json_response(StatusCode::OK, &json!({ "ok": true })))
+}
 
 /// A space of the signed-in user.
 #[derive(Debug, Clone, Copy)]
@@ -23,6 +106,44 @@ pub(crate) struct OwnedSpace {
     pub(crate) space_id: [u8; 16],
     pub(crate) seq: u64,
     pub(crate) purged_seq: u64,
+}
+
+/// The check every write repeats inside its own transaction (Т1): the device token still
+/// exists and the space is still the user's. The row found before the body was read is never
+/// used for writing, because the space may have been removed and its row reused meanwhile.
+pub(crate) fn recheck(
+    conn: &Connection,
+    auth: &super::util::Auth,
+    space_id: &str,
+) -> ApiResult<OwnedSpace> {
+    let alive = conn
+        .query_row(
+            "SELECT 1 FROM devices WHERE token_hash = ?1",
+            [auth.token_hash.as_slice()],
+            |_| Ok(true),
+        )
+        .optional()?
+        .unwrap_or(false);
+    if !alive {
+        let revoked = conn
+            .query_row(
+                "SELECT 1 FROM revoked_tokens WHERE token_hash = ?1",
+                [auth.token_hash.as_slice()],
+                |_| Ok(true),
+            )
+            .optional()?
+            .unwrap_or(false);
+        return Err(if revoked {
+            ApiError::new(
+                StatusCode::UNAUTHORIZED,
+                code::TOKEN_REVOKED,
+                "this device was disconnected",
+            )
+        } else {
+            ApiError::unauthorized()
+        });
+    }
+    owned_space(conn, auth.user_id, space_id)
 }
 
 /// Finds the space `space_id` (hex from the path) of the user. A malformed id, an unknown space
@@ -62,6 +183,10 @@ pub(crate) async fn create(State(state): State<AppState>, request: Request) -> A
     let wrapped_vk = field_hex_vec(&request, "wrapped_vk", WRAPPED_KEY_LEN)?;
     let now = state.clock.now_ms();
     let exists = state.db.write(|tx| -> ApiResult<bool> {
+        // Н4, Н5: a new space needs a subscription; first, in the transaction of the write.
+        crate::quota::require_subscription(&state, tx, auth.user_id)?;
+        // Х1: no room on the disk, no new space.
+        crate::quota::require_free_space(&state)?;
         let taken: bool = tx
             .query_row(
                 "SELECT 1 FROM spaces WHERE space_id = ?1",

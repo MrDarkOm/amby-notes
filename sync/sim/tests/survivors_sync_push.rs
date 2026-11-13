@@ -1,5 +1,5 @@
 //! Tests written for the mutants of `engine/sync.rs`, `engine/push.rs` and `engine/util.rs` that
-//! survived the trial run of the gates (docs/Road/sync-gates-survivors-report.md): the state a
+//! survived the trial run of the gates (docs/road/sync.md): the state a
 //! pass leaves (cursor, head, times, versions), what a pass counts in its report, uploads that
 //! nobody will commit, the order of a split commit, the checks that must come first. Real engine
 //! only.

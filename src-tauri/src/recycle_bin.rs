@@ -11,17 +11,20 @@ const TRASH_DIR: &str = "trash";
 
 #[path = "recycle_bin_preview.rs"]
 mod preview;
+pub(crate) use preview::preview_payload;
 pub use preview::{read_preview, TrashPreview};
 
-/// Where `delete_item` sends an item. `System` is the default; `Vault` keeps a
-/// restorable copy under `.amby/trash`; `Permanent` removes the item for good
-/// and must only be requested after an explicit user confirmation.
+/// Where `delete_item` sends an item (docs/sync-plan.md, К4). `System` is the default; `Archive`
+/// does what «В архив» does (К1); `Permanent` removes the item for good and must only be requested
+/// after an explicit user confirmation. The former value `vault` («Корзина хранилища») is read as
+/// `Archive` (К4).
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum DeleteMode {
     #[default]
     System,
-    Vault,
+    #[serde(alias = "vault")]
+    Archive,
     Permanent,
 }
 
@@ -61,10 +64,19 @@ fn manifest_path(root: &Path, id: &str) -> PathBuf {
     root.join(format!("{id}.json"))
 }
 
+/// Is this file one of those the renderer holds open buffers of (notes, sketches, canvases)?
+pub(crate) fn markdown_like(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|extension| matches!(extension.to_str(), Some("md" | "canvas" | "excalidraw")))
+}
+
 fn collect_markdown_paths(path: &Path) -> Result<Vec<PathBuf>, String> {
     if path.is_file() {
         return Ok(
-            if path.extension().is_some_and(|extension| extension == "md") {
+            // Notes, and the sketch and canvas files the renderer holds open buffers of.
+            if path.extension().is_some_and(|extension| {
+                matches!(extension.to_str(), Some("md" | "canvas" | "excalidraw"))
+            }) {
                 vec![path.to_path_buf()]
             } else {
                 Vec::new()
@@ -193,6 +205,7 @@ pub fn move_exact_to_trash(vault: &Path, path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 pub fn move_to_trash(vault: &Path, path: &Path) -> Result<FsMutationResult, String> {
     let preview = preview_move_to_trash(vault, path)?;
     let original_path = preview.original_path;
@@ -508,6 +521,24 @@ mod tests {
     }
 
     #[test]
+    fn deleting_a_sketch_or_canvas_reports_its_path_as_deleted() {
+        // The renderer drops open buffers and the tree entry by `deleted_paths`.
+        let vault = std::env::temp_dir().join(format!("amby-layer-{}", Ulid::generate()));
+        fs::create_dir_all(&vault).unwrap();
+        let sketch = vault.join("Draw.excalidraw");
+        let canvas = vault.join("Map.canvas");
+        fs::write(&sketch, "{}").unwrap();
+        fs::write(&canvas, "{}").unwrap();
+        let moved = move_to_trash(&vault, &sketch).unwrap();
+        assert_eq!(moved.deleted_paths.len(), 1);
+        assert!(moved.deleted_paths[0].ends_with("Draw.excalidraw"));
+        let removed = delete_permanently(&vault, &canvas).unwrap();
+        assert_eq!(removed.deleted_paths.len(), 1);
+        assert!(removed.deleted_paths[0].ends_with("Map.canvas"));
+        fs::remove_dir_all(&vault).ok();
+    }
+
+    #[test]
     fn permanent_delete_removes_item_without_a_trash_copy() {
         let vault = std::env::temp_dir().join(format!("amby-perm-{}", Ulid::generate()));
         let tree = vault.join("Folder");
@@ -587,7 +618,8 @@ mod tests {
         let deleted = move_to_trash(&vault, &main).unwrap();
 
         assert!(!bundle.exists());
-        assert_eq!(deleted.deleted_paths.len(), 2);
+        // Two notes and the canvas and sketch layers of the bundle.
+        assert_eq!(deleted.deleted_paths.len(), 4);
         let entry = list(&vault).pop().unwrap();
         let restored = restore(&vault, &entry.id).unwrap();
 

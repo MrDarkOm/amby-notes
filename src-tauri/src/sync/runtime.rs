@@ -14,6 +14,7 @@ use zeroize::Zeroizing;
 
 use crate::sync::account_types::{AccountOverview, BoundVault};
 use crate::sync::backup;
+use crate::sync::conflict_store::NotePick;
 use crate::sync::connection::ConnectionStore;
 use crate::sync::gate;
 use crate::sync::hints::RenameHints;
@@ -26,7 +27,8 @@ use crate::sync::state_db::{
 };
 use crate::sync::types::SyncError;
 use crate::sync::vault_types::{
-    ApprovalKind, ConflictChoice, ConflictVersions, SpaceTarget, SpaceView, VaultSyncStatus,
+    ApprovalKind, ConflictChoice, ConflictVersions, GroupConflictVersions, SpaceTarget, SpaceView,
+    VaultSyncStatus,
 };
 
 /// Who this device is on the server.
@@ -68,6 +70,8 @@ pub struct SyncRuntime {
     hooks: Arc<dyn SessionHooks>,
     hints: Arc<RenameHints>,
     inner: Mutex<Inner>,
+    /// The list of deleted files of the server, kept until the next pass (appendix И, И13).
+    history_cache: Arc<crate::sync::server_history::ServerHistoryCache>,
     /// Counts the requests to open, close or switch on a vault: an answer that comes after a
     /// newer request is out of date and changes nothing.
     epoch: AtomicU64,
@@ -105,6 +109,104 @@ fn state_failure(error: &amby_sync_core::engine::StateError) -> SyncError {
 }
 
 impl SyncRuntime {
+    /// Who this device is right now, to tell afterwards whether an answer that took a while still
+    /// belongs to the same account (Л9): the device and the address of the record and the token.
+    fn identity(&self) -> Option<(String, String, String)> {
+        let record = self.connection.load().ok()??;
+        let token = self.secrets.get(SECRET_DEVICE_TOKEN).ok()??;
+        Some((record.server_url, record.device_id, token))
+    }
+
+    /// Removes the server copy of the space only (Л6–Л9); every local file stays. When the space is
+    /// the one of the open vault, its session is stopped (waiting for a running pass) and the
+    /// switched-off state is saved before the request; when the request is confirmed the link is
+    /// forgotten. A failure leaves the link, switched off, so the action can be repeated. An answer
+    /// that comes after another vault or account was taken does not touch the new one.
+    pub async fn delete_space(&self, space_id: &str, password: &str) -> Result<(), SyncError> {
+        let id = hex_16(space_id).ok_or_else(|| SyncError::new("invalid_space"))?;
+        let credentials = self.credentials()?;
+        // Ц2, Ц4: the password is checked on this device before anything is stopped, so a wrong one
+        // leaves the sync of the open vault as it was. The server checks the key again (Ц1).
+        let proof =
+            amby_sync_client::password_proof(&credentials.client, &credentials.token, password)
+                .await?;
+        let identity = self.identity();
+        let current_vault = self.inner().vault.clone();
+        // Is it the space of the open vault? (Read before anything is stopped.)
+        let linked_vault = match current_vault {
+            Some(vault) => Self::read_link(&vault)?
+                .filter(|link| link.space_id == id)
+                .map(|_| vault),
+            None => None,
+        };
+        // Ц4: whether sync was on, to put it back when the server refuses the proof.
+        let was_enabled = match &linked_vault {
+            Some(vault) => Self::read_link(vault)?.is_some_and(|link| link.enabled),
+            None => false,
+        };
+        let token = match &linked_vault {
+            Some(vault) => {
+                let token = self.next_epoch();
+                self.stop_session();
+                Self::set_enabled(vault, false)?;
+                if let Some(link) = Self::read_link(vault)? {
+                    self.rest_current(vault, self.resting_status(&link, None), token);
+                }
+                Some(token)
+            }
+            None => None,
+        };
+
+        match credentials
+            .client
+            .delete_space(&credentials.token, &id, &proof)
+            .await
+        {
+            Ok(()) => {}
+            // A space that is already gone (a repeat after a lost answer) counts only when the
+            // list of the server proves that the id is absent; an old server that does not know
+            // the request still lists it.
+            Err(amby_sync_client::ClientError::Api {
+                status: 404 | 405, ..
+            }) => {
+                let spaces = credentials.client.list_spaces(&credentials.token).await?;
+                if spaces.iter().any(|space| space.space_id == id) {
+                    return Err(SyncError::new("unsupported_server"));
+                }
+            }
+            // Ц4: the server refused the proof (a wrong key or too many attempts): nothing was
+            // deleted, so the sync of the open vault goes back to how it was.
+            Err(
+                error @ amby_sync_client::ClientError::Api {
+                    status: 403 | 429, ..
+                },
+            ) => {
+                if let Some(vault) = &linked_vault {
+                    if was_enabled && self.identity() == identity {
+                        Self::set_enabled(vault, true)?;
+                        let _ = self.activate_vault(vault).await;
+                    }
+                }
+                return Err(error.into());
+            }
+            Err(error) => return Err(error.into()),
+        }
+
+        // The answer is acted on only for the same account.
+        if let Some(vault) = linked_vault {
+            if self.identity() == identity {
+                let still_linked = Self::read_link(&vault)?.is_some_and(|link| link.space_id == id);
+                if still_linked {
+                    Self::forget_link(&vault)?;
+                    if let Some(token) = token {
+                        self.rest_current(&vault, VaultSyncStatus::off(gate::gate_closed()), token);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// A runtime that reads the credentials from `secrets` and `connection`, carries requests on
     /// `handle`, follows `schedule` and reports through `hooks`.
     pub fn new(
@@ -122,6 +224,7 @@ impl SyncRuntime {
             hooks,
             hints: Arc::new(RenameHints::new()),
             inner: Mutex::new(Inner::default()),
+            history_cache: Arc::default(),
             epoch: AtomicU64::new(0),
         }
     }
@@ -138,6 +241,17 @@ impl SyncRuntime {
 
     fn inner(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The session of the open vault as the history of the server needs it; `None` while sync of
+    /// the vault is not running (appendix И, И4).
+    pub fn history_link(&self) -> Option<crate::sync::server_history::HistoryLink> {
+        self.inner().session.as_ref()?.history_link()
+    }
+
+    /// The cache of the "on the server" list of the archive.
+    pub fn history_cache(&self) -> Arc<crate::sync::server_history::ServerHistoryCache> {
+        self.history_cache.clone()
     }
 
     /// The renames made through Amby, waiting for the next pass (Д70).
@@ -406,6 +520,7 @@ impl SyncRuntime {
             schedule: self.schedule,
             hooks: self.hooks.clone(),
             handle: self.handle.clone(),
+            hints: self.hints.clone(),
         })?;
         let status = session.status();
         let mut inner = self.inner();
@@ -423,6 +538,7 @@ impl SyncRuntime {
     }
 
     fn stop_session(&self) {
+        self.history_cache.invalidate();
         let session = self.inner().session.take();
         if let Some(session) = session {
             session.stop();
@@ -663,6 +779,7 @@ impl SyncRuntime {
 
     /// The vault was closed or another one is opened: stops the session.
     pub fn deactivate_vault(&self) {
+        self.history_cache.invalidate();
         self.next_epoch();
         self.stop_session();
         let mut inner = self.inner();
@@ -699,11 +816,6 @@ impl SyncRuntime {
             .unwrap_or_else(|| VaultSyncStatus::off(gate::gate_closed()))
     }
 
-    /// Hands the renames waiting in the queue to the session (Д70).
-    fn flush_hints(&self, session: &SyncSession) {
-        session.add_rename_hints(self.hints.take());
-    }
-
     fn with_session<T>(&self, action: impl FnOnce(&SyncSession) -> T) -> Result<T, SyncError> {
         let inner = self.inner();
         let session = inner
@@ -716,7 +828,6 @@ impl SyncRuntime {
     /// A pass now.
     pub fn sync_now(&self) -> Result<(), SyncError> {
         self.with_session(|session| {
-            self.flush_hints(session);
             session.sync_now();
         })
     }
@@ -724,7 +835,6 @@ impl SyncRuntime {
     /// A file changed in the open vault (from the watcher).
     pub fn notify_path(&self, path: &Path) {
         let _ = self.with_session(|session| {
-            self.flush_hints(session);
             session.notify_path(path);
         });
     }
@@ -732,7 +842,6 @@ impl SyncRuntime {
     /// An answer to a stop of Р8.
     pub fn approve(&self, kind: ApprovalKind) -> Result<(), SyncError> {
         self.with_session(|session| {
-            self.flush_hints(session);
             session.approve(kind);
         })
     }
@@ -755,6 +864,21 @@ impl SyncRuntime {
     /// The two versions of a conflict as text, for the comparison.
     pub fn read_conflict_versions(&self, id: &str) -> Result<ConflictVersions, SyncError> {
         self.with_session(|session| session.read_conflict_versions(id))?
+    }
+
+    /// The conflicting notes of a conflict of a group of note properties (З69).
+    pub fn read_group_conflict(&self, id: &str) -> Result<GroupConflictVersions, SyncError> {
+        self.with_session(|session| session.read_group_conflict(id))?
+    }
+
+    /// Resolves a conflict of a group of note properties by notes (З69).
+    pub fn resolve_group_conflict(
+        &self,
+        id: &str,
+        picks: std::collections::BTreeMap<String, NotePick>,
+        stamp: &str,
+    ) -> Result<(), SyncError> {
+        self.with_session(|session| session.resolve_group_conflict(id, picks, stamp))?
     }
 
     /// The person renamed or moved something through Amby (Д70): remembered for the next pass.

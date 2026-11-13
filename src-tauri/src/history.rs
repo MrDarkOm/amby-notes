@@ -421,6 +421,11 @@ pub const SOURCE_REWRITE_REASON: &str = "note-rewrite";
 /// is switched off for the vault: it is the only copy of what the replacement overwrites.
 pub const SYNC_OVERWRITE_REASON: &str = "sync-overwrite";
 
+/// A version of a note is put back. The text it replaces is kept even when the history is switched
+/// off: restoring is not asked about because nothing is lost by it, and that holds only if the current
+/// text becomes a version first.
+pub const RESTORE_REASON: &str = "restore";
+
 fn is_autosave_snapshot(reason: &str) -> bool {
     matches!(reason, "note-save" | "file-save")
 }
@@ -510,6 +515,7 @@ fn snapshot_before_write_at(
 ) -> Result<Option<String>, String> {
     if reason != SOURCE_REWRITE_REASON
         && reason != SYNC_OVERWRITE_REASON
+        && reason != RESTORE_REASON
         && !is_history_enabled(vault)
     {
         return Ok(None);
@@ -866,7 +872,7 @@ pub fn commit_snapshot_restore(
     vault: &Path,
     prepared: PreparedSnapshotRestore,
 ) -> Result<PathBuf, String> {
-    snapshot_before_write(vault, &prepared.path, &prepared.bytes, "restore")?;
+    snapshot_before_write(vault, &prepared.path, &prepared.bytes, RESTORE_REASON)?;
     frontmatter::atomic_write_bytes(&prepared.path, &prepared.bytes)?;
     Ok(prepared.path)
 }
@@ -1106,6 +1112,38 @@ mod tests {
         assert_eq!(
             read_snapshot_text(&vault, &id).unwrap().content,
             "1) one\n2) two\n"
+        );
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn restore_keeps_the_replaced_text_even_when_history_is_switched_off() {
+        // The restore of a version is not asked about because it keeps the current text: that
+        // must hold when the history was switched off after the old version was taken.
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "before").unwrap();
+        let id = snapshot_before_write(&vault, &note, b"after", "note-save")
+            .unwrap()
+            .unwrap();
+        fs::write(&note, "typed since").unwrap();
+        let amby_dir = vault.join(".amby");
+        fs::write(
+            amby_dir.join("workspace.json"),
+            r#"{"profile": {"id": "minimal"}}"#,
+        )
+        .unwrap();
+        assert!(!is_history_enabled(&vault));
+
+        restore_snapshot(&vault, &id).unwrap();
+
+        assert_eq!(fs::read_to_string(&note).unwrap(), "before");
+        let kept = list_snapshots(&vault, &note).unwrap();
+        assert_eq!(kept.len(), 2, "the replaced text must be a version");
+        let replaced = kept.iter().find(|entry| entry.id != id).unwrap();
+        assert_eq!(
+            read_snapshot_text(&vault, &replaced.id).unwrap().content,
+            "typed since"
         );
         fs::remove_dir_all(vault).unwrap();
     }

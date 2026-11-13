@@ -14,7 +14,7 @@ use amby_sync_core::crypto::keys::{BodyId, ItemId, SpaceId, SpaceKey};
 use amby_sync_core::engine::{
     AccountInfo, BlobState, ChangesPage, CommitItem, CommitReply, FsError, Listing, LocalFs,
     NameRules, Remote, RemoteError, RootState, ServerInfo, StagedWrite, StateError, StateLock,
-    StateStore, StateTx, SyncState, TrashReason,
+    StateStore, StateTx, SyncState, TrashReason, VersionEntry,
 };
 
 use crate::vfs::Hash;
@@ -365,6 +365,17 @@ impl<F: LocalFs> LocalFs for FaultyFs<F> {
             .map_err(|()| died_fs())?;
         self.inner.move_to_trash(path, reason)
     }
+    fn move_dir_to_trash(
+        &mut self,
+        dir: &str,
+        files: &[String],
+        reason: TrashReason,
+    ) -> Result<bool, FsError> {
+        self.faults
+            .tick(Port::Fs, "move_dir_to_trash", None)
+            .map_err(|()| died_fs())?;
+        self.inner.move_dir_to_trash(dir, files, reason)
+    }
     fn remove_empty_dir(&mut self, path: &str) -> Result<bool, FsError> {
         self.faults
             .tick(Port::Fs, "remove_empty_dir", None)
@@ -543,6 +554,11 @@ impl Remote for FaultyRemote {
             (result, _) => result,
         };
         self.post(fault, result)
+    }
+
+    /// Not a call of the engine (appendix И): the faults of a pass do not apply to it.
+    fn versions(&mut self, item: &ItemId) -> Result<Vec<VersionEntry>, RemoteError> {
+        self.inner.versions(item)
     }
 
     fn account(&mut self) -> Result<AccountInfo, RemoteError> {

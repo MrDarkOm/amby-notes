@@ -25,6 +25,8 @@ export interface FrontmatterProperty {
   key: string
   value: string
   valueKind: string
+  /** The items when the value is a YAML list, as they are; the browser adapter leaves it out. */
+  items?: string[]
 }
 
 export interface CustomProperty {
@@ -84,6 +86,9 @@ export interface RefactorPreview {
   notes: number
   replacements: number
 }
+
+/** A file of the hidden archive `.amby/archive/` (docs/sync-plan.md, К6). */
+export type { ArchiveEntry } from "../bindings"
 
 export interface TrashEntry {
   id: string
@@ -290,8 +295,18 @@ export interface ImportedAsset {
   kind: "image" | "file"
 }
 
+/** What a drop of files from the system onto the tree brought in, and what it left out. */
+export interface ImportFilesResult {
+  /** Absolute paths of the copies (a folder counts once). */
+  imported: string[]
+  skipped: Array<{
+    name: string
+    reason: "hidden" | "too_large" | "unreadable" | "link" | "into_itself" | "too_many"
+  }>
+}
+
 /** Where deleting an item sends it; `permanent` keeps no copy at all. */
-export type DeleteMode = "system" | "vault" | "permanent"
+export type DeleteMode = "system" | "archive" | "permanent"
 
 export type SettingsReadResult<T> =
   | { status: "found"; data: T }

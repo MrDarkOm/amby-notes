@@ -7,6 +7,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use amby_sync_proto::normalize_username;
 use rusqlite::{params, OptionalExtension};
 use sha2::{Digest, Sha256};
 
@@ -105,7 +106,8 @@ fn new_code() -> Result<String, AdminError> {
 /// hours (24 by default); for a name without a password it issues a new code and burns the old
 /// one.
 pub fn user_add(state: &AppState, username: &str) -> Result<UserAdded, AdminError> {
-    if !valid_username(username) {
+    let username = normalize_username(username);
+    if !valid_username(&username) {
         return Err(AdminError::InvalidName);
     }
     let code = new_code()?;
@@ -115,9 +117,9 @@ pub fn user_add(state: &AppState, username: &str) -> Result<UserAdded, AdminErro
         .now_ms()
         .saturating_add(hours.saturating_mul(3_600_000));
     let hash: [u8; 32] = Sha256::digest(normalize_code(&code).as_bytes()).into();
-    state.users.add_user(username, hash, expires_ms)?;
+    state.users.add_user(&username, hash, expires_ms)?;
     Ok(UserAdded {
-        username: username.to_string(),
+        username,
         enroll_code: code,
         expires_ms,
     })
@@ -130,7 +132,8 @@ pub fn user_list(state: &AppState) -> Result<Vec<UserRecord>, AdminError> {
 
 /// `user remove <name> --yes` (П38): removes the user, devices, spaces and bodies for good.
 pub fn user_remove(state: &AppState, username: &str) -> Result<(), AdminError> {
-    Ok(state.users.remove_user(username)?)
+    let username = normalize_username(username);
+    Ok(state.users.remove_user(&username)?)
 }
 
 /// `backup <dir>` (П38, Р11): an online copy of the database and of the bodies.
@@ -282,6 +285,8 @@ struct Words<'a> {
     yes: bool,
     default: bool,
     plan: Option<&'a str>,
+    /// `--until <day>`, as given (Н3).
+    until: Option<&'a str>,
 }
 
 fn split_words<'a>(args: &[&'a str]) -> Result<Words<'a>, CliOutput> {
@@ -291,6 +296,7 @@ fn split_words<'a>(args: &[&'a str]) -> Result<Words<'a>, CliOutput> {
         yes: false,
         default: false,
         plan: None,
+        until: None,
     };
     let mut args = args.iter().copied();
     while let Some(arg) = args.next() {
@@ -302,6 +308,12 @@ fn split_words<'a>(args: &[&'a str]) -> Result<Words<'a>, CliOutput> {
                 parsed.plan = Some(
                     args.next()
                         .ok_or_else(|| CliOutput::fail(2, "--plan needs a plan name"))?,
+                );
+            }
+            "--until" => {
+                parsed.until = Some(
+                    args.next()
+                        .ok_or_else(|| CliOutput::fail(2, "--until needs a date YYYY-MM-DD"))?,
                 );
             }
             flag if flag.starts_with("--") => {
@@ -331,7 +343,7 @@ pub fn is_cli_command(args: &[&str]) -> bool {
 }
 
 /// Runs the commands of appendix Е (П53) on a running state, as the command line does: `user add
-/// <name> [--plan <plan>] [--json]`, `user list [--json]`, `user plan set <name> <plan>|--default`,
+/// <name> [--plan <plan>] [--json]`, `user list [--json]`, `user plan set <name> <plan> [--until YYYY-MM-DD]|--default`,
 /// `user plan show <name> [--json]`, `plans list [--json]`, `plans check [<file>]`, `space list
 /// <name> [--json]`, `space remove <name> <space_id> --yes`. `main.rs` hands these to it; the
 /// suite calls it for a server in its own process.
@@ -343,8 +355,12 @@ pub fn run_cli(state: &AppState, args: &[&str]) -> CliOutput {
     let outcome = match parsed.words.as_slice() {
         ["user", "add", name] => cli_user_add(state, name, &parsed),
         ["user", "list"] => cli_user_list(state, &parsed),
-        ["user", "plan", "set", name, plan] => cli_plan_set(state, name, Some(plan)),
-        ["user", "plan", "set", name] if parsed.default => cli_plan_set(state, name, None),
+        ["user", "plan", "set", name, plan] => {
+            cli_plan_set(state, name, Some(plan), parsed.until)
+        }
+        ["user", "plan", "set", name] if parsed.default && parsed.until.is_none() => {
+            cli_plan_set(state, name, None, None)
+        }
         ["user", "plan", "show", name] => cli_plan_show(state, name, &parsed),
         ["plans", "list"] => cli_plans_list(state, &parsed),
         ["plans", "check"] => cli_plans_check(state, None),
@@ -353,7 +369,7 @@ pub fn run_cli(state: &AppState, args: &[&str]) -> CliOutput {
         ["space", "remove", name, space] => cli_space_remove(state, name, space, &parsed),
         _ => Err(CliOutput::fail(
             2,
-            "usage: user add <name> [--plan <plan>] | user list | user plan set <name> <plan>|--default | \
+            "usage: user add <name> [--plan <plan>] | user list | user plan set <name> <plan> [--until YYYY-MM-DD]|--default | \
              user plan show <name> | plans list | plans check [<file>] | space list <name> | \
              space remove <name> <space_id> --yes",
         )),
@@ -364,15 +380,18 @@ pub fn run_cli(state: &AppState, args: &[&str]) -> CliOutput {
 type CliResult = Result<CliOutput, CliOutput>;
 
 fn user_row(state: &AppState, name: &str) -> Result<i64, CliOutput> {
-    if !valid_username(name) {
+    let name = normalize_username(name);
+    if !valid_username(&name) {
         return Err(AdminError::InvalidName.into());
     }
     state
         .db
         .call(|conn| {
-            conn.query_row("SELECT id FROM users WHERE username = ?1", [name], |row| {
-                row.get(0)
-            })
+            conn.query_row(
+                "SELECT id FROM users WHERE username = ?1",
+                [name.as_str()],
+                |row| row.get(0),
+            )
             .optional()
         })?
         .ok_or_else(|| CliOutput::fail(1, "no such user"))
@@ -403,16 +422,17 @@ fn limits_json(limits: &crate::plans::EffectiveLimits) -> serde_json::Value {
 }
 
 fn cli_user_add(state: &AppState, name: &str, parsed: &Words<'_>) -> CliResult {
-    if !valid_username(name) {
+    let name = normalize_username(name);
+    if !valid_username(&name) {
         return Err(AdminError::InvalidName.into());
     }
     if let Some(plan) = parsed.plan {
         // Nobody is created for an unknown plan.
         known_plan(state, plan)?;
     }
-    let added = user_add(state, name)?;
+    let added = user_add(state, &name)?;
     if let Some(plan) = parsed.plan {
-        set_plan(state, name, Some(plan))?;
+        set_plan(state, &name, Some(plan), None)?;
     }
     let stdout = if parsed.json {
         format!(
@@ -436,7 +456,7 @@ fn cli_user_list(state: &AppState, parsed: &Words<'_>) -> CliResult {
     let cutoff = crate::quota::pending_cutoff(state);
     let rows = state.db.call(|conn| -> rusqlite::Result<Vec<_>> {
         let mut statement = conn.prepare(
-            "SELECT id, username, has_password, enroll_expires_ms, plan FROM users ORDER BY id",
+            "SELECT id, username, has_password, enroll_expires_ms, plan, plan_until_ms FROM users ORDER BY id",
         )?;
         let users = statement.query_map([], |row| {
             Ok((
@@ -445,26 +465,32 @@ fn cli_user_list(state: &AppState, parsed: &Words<'_>) -> CliResult {
                 row.get::<_, bool>(2)?,
                 row.get::<_, Option<i64>>(3)?,
                 row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<i64>>(5)?,
             ))
         })?;
         let mut out = Vec::new();
         for user in users {
-            let (id, username, has_password, expires, plan) = user?;
+            let (id, username, has_password, expires, plan, until) = user?;
             let used = crate::quota::user_usage(conn, id, cutoff)?.counted();
-            out.push((username, has_password, expires, plan, used));
+            out.push((username, has_password, expires, plan, until, used));
         }
         Ok(out)
     })?;
     let mut json = Vec::new();
     let mut text = String::new();
-    for (username, has_password, expires, pinned, used) in rows {
-        let resolved = crate::quota::resolve_plan(state, pinned.as_deref());
+    for (username, has_password, expires, pinned, until, used) in rows {
+        let expired = crate::quota::pin_expired(state, pinned.as_deref(), until);
+        let resolved = crate::quota::resolve_plan(state, pinned.as_deref(), until);
+        // The record of what was given stays after the end (Н2); a pin without a plan has none.
+        let until = pinned.as_ref().and(until);
         json.push(serde_json::json!({
             "username": username,
             "has_password": has_password,
             "enroll_expires_ms": expires,
             "plan": resolved.name,
-            "pinned": pinned.is_some(),
+            "pinned": resolved.pinned,
+            "plan_until_ms": until,
+            "plan_expired": expired,
             "used_bytes": used,
         }));
         let status = if has_password {
@@ -476,7 +502,12 @@ fn cli_user_list(state: &AppState, parsed: &Words<'_>) -> CliResult {
             }
         };
         let plan = resolved.name.as_deref().unwrap_or("-");
-        let pin = if pinned.is_some() { " (pinned)" } else { "" };
+        let pin = match (resolved.pinned, until, expired) {
+            (_, Some(end), true) => format!(" (pin ended {})", last_day(end)),
+            (true, Some(end), false) => format!(" (pinned until {})", last_day(end)),
+            (true, None, _) => " (pinned)".to_string(),
+            _ => String::new(),
+        };
         text.push_str(&format!(
             "{username}\t{status}\t{plan}{pin}\t{used} bytes\n"
         ));
@@ -488,27 +519,112 @@ fn cli_user_list(state: &AppState, parsed: &Words<'_>) -> CliResult {
     }))
 }
 
-/// Writes the pin of a user and returns the previous one.
-fn set_plan(state: &AppState, name: &str, plan: Option<&str>) -> Result<Option<String>, CliOutput> {
+/// Writes the pin of a user (and its end, Н2) and returns the previous plan name.
+fn set_plan(
+    state: &AppState,
+    name: &str,
+    plan: Option<&str>,
+    until_ms: Option<i64>,
+) -> Result<Option<String>, CliOutput> {
     let id = user_row(state, name)?;
     Ok(state.db.write(|tx| -> rusqlite::Result<Option<String>> {
         let before = crate::quota::pinned_plan(tx, id)?;
         tx.execute(
-            "UPDATE users SET plan = ?2 WHERE id = ?1",
-            params![id, plan],
+            "UPDATE users SET plan = ?2, plan_until_ms = ?3 WHERE id = ?1",
+            params![id, plan, until_ms],
         )?;
         Ok(before)
     })?)
 }
 
-fn cli_plan_set(state: &AppState, name: &str, plan: Option<&str>) -> CliResult {
-    if !valid_username(name) {
+const DAY_MS: i64 = 86_400_000;
+
+/// Days since 1970-01-01 of a civil date; `None` for a day that does not exist.
+fn days_from_civil(year: i64, month: i64, day: i64) -> Option<i64> {
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let month_days = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return None,
+    };
+    if !(1..=month_days).contains(&day) {
+        return None;
+    }
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some(era * 146_097 + doe - 719_468)
+}
+
+/// The inverse: `YYYY-MM-DD` of a day number.
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    (year, month, day)
+}
+
+/// The last day of access (UTC) of a pin that ends at `until_ms`, as `YYYY-MM-DD` (Н3).
+fn last_day(until_ms: i64) -> String {
+    let (year, month, day) = civil_from_days((until_ms - 1).div_euclid(DAY_MS));
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+/// `--until YYYY-MM-DD` (Н3): the access lasts through that UTC day, so the end is 00:00 UTC of
+/// the next one. A malformed date or a day that is already over is exit 2.
+fn parse_until(state: &AppState, text: &str) -> Result<i64, CliOutput> {
+    let malformed = || CliOutput::fail(2, format!("`{text}` is not a date of the form YYYY-MM-DD"));
+    let bytes = text.as_bytes();
+    let digits = |range: std::ops::Range<usize>| -> Option<i64> {
+        let part = text.get(range)?;
+        part.bytes()
+            .all(|byte| byte.is_ascii_digit())
+            .then(|| part.parse().ok())
+            .flatten()
+    };
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return Err(malformed());
+    }
+    let (Some(year), Some(month), Some(day)) = (digits(0..4), digits(5..7), digits(8..10)) else {
+        return Err(malformed());
+    };
+    let days = days_from_civil(year, month, day).ok_or_else(malformed)?;
+    let end = (days + 1) * DAY_MS;
+    if end <= state.clock.now_ms() {
+        return Err(CliOutput::fail(
+            2,
+            format!("{text} is in the past: the access would already be over"),
+        ));
+    }
+    Ok(end)
+}
+
+fn cli_plan_set(
+    state: &AppState,
+    name: &str,
+    plan: Option<&str>,
+    until: Option<&str>,
+) -> CliResult {
+    let name = normalize_username(name);
+    if !valid_username(&name) {
         return Err(AdminError::InvalidName.into());
     }
     if let Some(plan) = plan {
         known_plan(state, plan)?;
     }
-    let before = set_plan(state, name, plan)?;
+    // Everything is checked before anything is written (Н3).
+    let until_ms = until.map(|text| parse_until(state, text)).transpose()?;
+    let before = set_plan(state, &name, plan, until_ms)?;
     let label = |plan: Option<&str>| plan.map_or_else(|| "default".to_string(), str::to_string);
     let line = format!(
         "plan changed: user {name}, from {} to {}\n",
@@ -523,21 +639,26 @@ fn cli_plan_set(state: &AppState, name: &str, plan: Option<&str>) -> CliResult {
 }
 
 fn cli_plan_show(state: &AppState, name: &str, parsed: &Words<'_>) -> CliResult {
+    let name = normalize_username(name);
     let cutoff = crate::quota::pending_cutoff(state);
-    let id = user_row(state, name)?;
-    let (resolved, usage, spaces) = state.db.call(|conn| -> rusqlite::Result<_> {
+    let id = user_row(state, &name)?;
+    let (resolved, stored, usage, spaces) = state.db.call(|conn| -> rusqlite::Result<_> {
         let resolved = crate::quota::resolve_user(state, conn, id)?;
+        let stored = crate::quota::pin_of(conn, id)?;
         let usage = crate::quota::user_usage(conn, id, cutoff)?;
         let spaces: u64 = conn.query_row(
             "SELECT COUNT(*) FROM spaces WHERE user_id = ?1",
             [id],
             |row| row.get(0),
         )?;
-        Ok((resolved, usage, spaces))
+        Ok((resolved, stored, usage, spaces))
     })?;
     let plan = serde_json::json!({
         "name": resolved.name, "title": resolved.title, "pinned": resolved.pinned,
     });
+    // The record of what was given stays after the end (Н2).
+    let until = stored.0.as_ref().and(stored.1);
+    let expired = crate::quota::pin_expired(state, stored.0.as_deref(), stored.1);
     let usage = serde_json::json!({
         "live_bytes": usage.live, "pending_bytes": usage.pending,
         "history_bytes": usage.history, "spaces": spaces,
@@ -562,13 +683,16 @@ fn cli_plan_show(state: &AppState, name: &str, parsed: &Words<'_>) -> CliResult 
         return Ok(CliOutput::ok(format!(
             "{}\n",
             serde_json::json!({
-                "username": name, "plan": plan, "limits": limits,
+                "username": name, "plan": plan, "plan_until_ms": until,
+                "plan_expired": expired, "limits": limits,
                 "effective": effective, "usage": usage,
             })
         )));
     }
     Ok(CliOutput::ok(format!(
-        "user {name}\nplan: {plan}\nlimits: {limits}\neffective: {effective}\nusage: {usage}\n"
+        "user {name}\nplan: {plan}\nuntil: {until}{ended}\nlimits: {limits}\neffective: {effective}\nusage: {usage}\n",
+        until = until.map_or_else(|| "-".to_string(), last_day),
+        ended = if expired { " (ended)" } else { "" },
     )))
 }
 

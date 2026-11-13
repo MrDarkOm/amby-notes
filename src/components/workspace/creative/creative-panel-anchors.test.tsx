@@ -15,6 +15,7 @@ import {
   workshopSummary,
 } from "./project-fixtures.test-support"
 import { useProjectStore } from "./project-store"
+import { projectFailure } from "@/lib/test-utils/errors"
 
 const queryDatabase = vi.fn()
 const ensurePlotLinks = vi.fn()
@@ -245,9 +246,11 @@ describe("CreativePanel: the anchors when no single story is shown", () => {
 
   it("shows the failure of the relation and writes no anchor", async () => {
     act(() => useProjectStore.getState().setCatalog(world({ universeProperty: false })))
-    ensurePlotLinks.mockReset().mockRejectedValue(new Error("файл занят"))
+    ensurePlotLinks
+      .mockReset()
+      .mockRejectedValue(projectFailure("projectIndexFailed", "файл занят"))
     await addIn(/Мир/, "Пожар")
-    expect(await screen.findByText(/файл занят/)).toBeTruthy()
+    expect(await screen.findByText(/projectIndexFailed/)).toBeTruthy()
     expect(createWorkshopEntity).not.toHaveBeenCalled()
   })
 })
@@ -304,10 +307,13 @@ describe("CreativePanel: the anchors' relations after a base was made", () => {
   })
 
   it("shows the failure instead of swallowing it", async () => {
-    ensurePlotLinks.mockReset().mockRejectedValue(new Error("файл занят"))
+    ensurePlotLinks
+      .mockReset()
+      .mockRejectedValue(projectFailure("projectIndexFailed", "файл занят"))
     await createUniverse(true)
     const alert = await screen.findByRole("alert")
-    expect(alert.textContent).toContain("файл занят")
+    expect(alert.textContent).toContain("projectIndexFailed")
+    expect(alert.textContent).not.toContain("файл занят")
     expect(alert.textContent).toContain("Не удалось подготовить связи якорей")
   })
 })
@@ -446,7 +452,9 @@ describe("CreativePanel: the anchors' relations after a section was made", () =>
   })
 
   it("shows the failure instead of swallowing it, and still opens the new section", async () => {
-    ensurePlotLinks.mockReset().mockRejectedValue(new Error("файл занят"))
+    ensurePlotLinks
+      .mockReset()
+      .mockRejectedValue(projectFailure("projectIndexFailed", "файл занят"))
     const onOpenCreativeProject = vi.fn()
     act(() => useProjectStore.getState().setCatalog(workshopWith({ anchors: false })))
     render(
@@ -461,7 +469,8 @@ describe("CreativePanel: the anchors' relations after a section was made", () =>
       dialogs.section.current?.({ section: { sectionId: "anchors" } })
     })
     const alert = await screen.findByRole("alert")
-    expect(alert.textContent).toContain("файл занят")
+    expect(alert.textContent).toContain("projectIndexFailed")
+    expect(alert.textContent).not.toContain("файл занят")
     expect(alert.textContent).toContain("Не удалось подготовить связи якорей")
     expect(onOpenCreativeProject).toHaveBeenCalledWith("verse", "anchors")
   })

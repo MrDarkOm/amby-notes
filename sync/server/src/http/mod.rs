@@ -35,6 +35,7 @@ pub(crate) async fn info(State(state): State<AppState>) -> ApiResult<Response> {
         "protocol": { "min": amby_sync_proto::PROTOCOL_VERSION, "max": amby_sync_proto::PROTOCOL_VERSION },
         "formats": { "header": 1, "body": 1 },
         "instance_id": util::hex(&instance_id),
+        "registration": { "open": config.open_registration },
         "time_ms": state.clock.now_ms(),
         "limits": {
             "max_blob_bytes": config.max_blob_bytes,

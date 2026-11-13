@@ -97,6 +97,15 @@ struct TypedValueColumns {
 }
 
 /// Rebuild all database tables from the current durable filesystem snapshot.
+/// A watcher can report a database change before its Markdown index update is consumed.
+/// Reconcile pending paths first so newly arrived notes can become database members.
+pub fn rebuild_after_pending_index(
+    active: &crate::vault_context::ActiveVault,
+) -> Result<ProjectionReport, String> {
+    active.refresh_pending_index()?;
+    rebuild_database_projection(&active.connection, &active.root)
+}
+
 pub fn rebuild_database_projection(
     conn: &Connection,
     vault: &Path,
@@ -256,7 +265,7 @@ pub fn update_database_values_incremental(
                     let legacy_record_path = container
                         .join(".ambd/records")
                         .join(format!("{note_id}.json"));
-                    if legacy_record_path.is_file() {
+                    if manifest.value.format_version < 2 && legacy_record_path.is_file() {
                         if let Ok(shard_bytes) = fs::read(&legacy_record_path) {
                             if let Ok(parsed_shard) = parse_record(&shard_bytes) {
                                 if parsed_shard.value.database_id == *database_id
@@ -288,6 +297,7 @@ pub fn update_database_values_incremental(
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
                 Err(error) => return Err(error.to_string()),
             },
+            Err(_) if manifest.value.format_version >= 2 => None,
             Err(_) => {
                 let record_path = container
                     .join(".ambd/records")
@@ -614,7 +624,7 @@ fn load_records(
             .container_path
             .join(".ambd/records")
             .join(format!("{note_id}.json"));
-        if legacy_record_path.is_file() {
+        if manifest.format_version < 2 && legacy_record_path.is_file() {
             if let Ok(shard_bytes) = fs::read(&legacy_record_path) {
                 if let Ok(parsed_shard) = parse_record(&shard_bytes) {
                     if parsed_shard.value.database_id == manifest.database_id
@@ -660,6 +670,9 @@ fn load_records(
         });
     }
 
+    if manifest.format_version >= 2 {
+        return Ok(records);
+    }
     let directory = database.container_path.join(".ambd/records");
     if let Ok(entries) = fs::read_dir(directory) {
         let mut paths = entries
@@ -1210,7 +1223,20 @@ fn insert_views_and_templates(
     }
 
     let template_dir = input.database.container_path.join(".ambd/templates");
+    let inline_templates = input.manifest.value.templates()?;
     for (position, template_id) in input.manifest.value.template_order.iter().enumerate() {
+        if let Some(template) = inline_templates
+            .iter()
+            .find(|item| &item.template_id == template_id)
+        {
+            let bytes = serde_json::to_vec(template).map_err(|error| error.to_string())?;
+            let parsed = parse_template(&bytes).map_err(|error| error.to_string())?;
+            insert_template(tx, database_id, position, &parsed, state)?;
+            continue;
+        }
+        if input.manifest.value.format_version >= 2 {
+            continue;
+        }
         let path = template_dir.join(format!("{template_id}.json"));
         let Ok(bytes) = fs::read(path) else {
             continue;

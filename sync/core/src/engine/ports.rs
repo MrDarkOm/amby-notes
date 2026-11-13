@@ -9,7 +9,7 @@ use std::io::Read;
 
 use crate::crypto::keys::{BodyId, ItemId};
 
-use super::model::{StateTx, SyncState};
+use super::model::{RenameHint, StateTx, SyncState};
 
 // ----- clock -----
 
@@ -179,6 +179,18 @@ pub trait LocalFs {
     /// Moves a file to the trash of the vault (Р8, О4, Д52). The only way the engine removes a
     /// file.
     fn move_to_trash(&mut self, path: &str, reason: TrashReason) -> Result<(), FsError>;
+    /// К3а: moves the folder `dir` to the trash **as one item** when the files it holds are exactly
+    /// `files` (paths relative to the vault, all of them deleted by this pass). `Ok(false)` means
+    /// nothing was moved (the folder holds anything else, or the port does not group): the caller
+    /// then trashes the files one by one. Nothing is ever erased.
+    fn move_dir_to_trash(
+        &mut self,
+        _dir: &str,
+        _files: &[String],
+        _reason: TrashReason,
+    ) -> Result<bool, FsError> {
+        Ok(false)
+    }
     /// Removes a folder when it is empty; answers whether it did.
     fn remove_empty_dir(&mut self, path: &str) -> Result<bool, FsError>;
     /// Is there an unfinished journal of a multi-file operation (`.amby/recovery/`, Р8, Д59)?
@@ -192,6 +204,17 @@ pub trait LocalFs {
     fn batch_begin(&mut self);
     /// End of the batch; always called after `batch_begin`, also after an error.
     fn batch_end(&mut self);
+    /// Hints of the application about renames (Д70) that it recorded **since the pass began**.
+    /// The engine asks right after it has read the vault: a rename it saw on disk had its hint
+    /// recorded before the rename, so the hint is already here. Taking them any earlier lets a
+    /// rename that happens while the pass runs be read as a deletion and a creation. Nothing by
+    /// default.
+    fn take_rename_hints(&mut self) -> Vec<RenameHint> {
+        Vec::new()
+    }
+    /// Which of the hints the classification used (Д70). Those that are not named here were not
+    /// seen as renames on disk yet; the application may keep them for the next pass.
+    fn rename_hints_applied(&mut self, _applied: &[RenameHint]) {}
 }
 
 // ----- remote server -----
@@ -232,6 +255,8 @@ pub struct AccountInfo {
     pub live_bytes: u64,
     /// Bytes of started bodies no version refers to yet (П55).
     pub pending_bytes: u64,
+    /// The plan allows sending changes (Н9); `true` for a server without the field.
+    pub sync_allowed: bool,
 }
 
 /// One entry of the compressed change feed (П31).
@@ -255,6 +280,32 @@ pub struct ChangeEntry {
     pub device_id: [u8; 16],
     /// When the server accepted it.
     pub committed_ms: i64,
+}
+
+/// One version of an item as `GET …/items/{item}/versions` lists it (П33, appendix И). The
+/// header is still sealed: [`crate::engine::history::server_history`] opens and checks it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VersionEntry {
+    /// The item.
+    pub item_id: ItemId,
+    /// The version number.
+    pub version: u64,
+    /// Sequence number of the commit that made this version.
+    pub seq: u64,
+    /// The encrypted header envelope (Ф18).
+    pub header: Vec<u8>,
+    /// The body of this version, if any.
+    pub blob_id: Option<BodyId>,
+    /// Size of the sealed body, if any.
+    pub blob_size: Option<u64>,
+    /// The open deletion mark (not trusted, Р6).
+    pub deleted: bool,
+    /// The device that made the commit.
+    pub device_id: [u8; 16],
+    /// When the server accepted it (shown only, Р3).
+    pub committed_ms: i64,
+    /// When a newer version replaced this one; `None` for the latest (П35).
+    pub superseded_ms: Option<i64>,
 }
 
 /// A page of the change feed (П31).
@@ -381,6 +432,10 @@ pub trait Remote {
     fn blob_complete(&mut self, blob: &BodyId) -> Result<(), RemoteError>;
     /// `GET …/blobs/{id}`: the sealed body as a stream (П24).
     fn blob_download(&mut self, blob: &BodyId) -> Result<Box<dyn Read + '_>, RemoteError>;
+    /// `GET …/items/{item}/versions` (П33): every living version of the item, newest first. An
+    /// item the server does not have (also one removed by the cleanup, П36) is
+    /// `Rejected { status: 404, code: "not_found" }`. Appendix И, И2, И10, И18.
+    fn versions(&mut self, item: &ItemId) -> Result<Vec<VersionEntry>, RemoteError>;
     /// `POST …/commit` (П26–П28).
     fn commit(
         &mut self,

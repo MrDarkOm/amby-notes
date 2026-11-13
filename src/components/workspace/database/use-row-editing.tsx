@@ -1,3 +1,4 @@
+import type { RenameOutcome } from "../file-actions/rename-outcome"
 import type { ViewSettings } from "./view-config"
 import type { SettingsPatch } from "./view-config"
 import type { PropertyMutationRow } from "./use-property-mutation"
@@ -29,7 +30,7 @@ interface UseRowEditingParams {
   pendingCells: Set<string>
   cellErrors: Record<string, string>
   handleOpenNote: (noteId: string) => void
-  onRenameRow: ((rowId: string, name: string) => Promise<void> | void) | undefined
+  onRenameRow: ((rowId: string, name: string) => Promise<RenameOutcome | void> | void) | undefined
   retry: () => Promise<void>
   setSelectedRowSnapshot: React.Dispatch<React.SetStateAction<DatabaseRow | null>>
   database: DatabaseSummary | undefined

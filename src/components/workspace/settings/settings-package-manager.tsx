@@ -2,18 +2,9 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import {
-  AlertCircle,
-  CheckCircle2,
-  Download,
-  HardDrive,
-  Loader2,
-  RefreshCw,
-  RotateCcw,
-  Trash2,
-  Upload,
-} from "lucide-react"
+import { Download, HardDrive, Loader2, RefreshCw, RotateCcw, Trash2, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { NoticeLevelIcon, NoticeShell } from "../notices/notice-level"
 import {
   Dialog,
   DialogContent,
@@ -30,6 +21,10 @@ import {
   uninstallModule,
 } from "@/lib/modules/package-manager/installer"
 import { getCatalogModule } from "@/lib/modules/package-manager/catalog"
+import {
+  InvalidPackageError,
+  reportInstallFailure,
+} from "@/lib/modules/package-manager/install-errors"
 import {
   installBuiltinModule,
   isBuiltinModuleId,
@@ -147,18 +142,11 @@ export function ModulePackageManager({
       } else {
         setStatusMessage({
           type: "error",
-          text: t("settings.modules.packages.installError", {
-            error: result.error ?? result.errorCode ?? "Failed",
-          }),
+          text: reportInstallFailure(result.errorCode, result.error),
         })
       }
     } catch (err) {
-      setStatusMessage({
-        type: "error",
-        text: t("settings.modules.packages.installError", {
-          error: err instanceof Error ? err.message : String(err),
-        }),
-      })
+      setStatusMessage({ type: "error", text: reportInstallFailure(err) })
     } finally {
       setIsProcessing(false)
     }
@@ -184,10 +172,7 @@ export function ModulePackageManager({
         })
       }
     } catch (err) {
-      setStatusMessage({
-        type: "error",
-        text: String(err),
-      })
+      setStatusMessage({ type: "error", text: reportInstallFailure(err) })
     } finally {
       setIsCheckingUpdates(false)
     }
@@ -216,14 +201,11 @@ export function ModulePackageManager({
       } else {
         setStatusMessage({
           type: "error",
-          text: result.error ?? t("settings.modules.packages.installError", { error: "Unknown" }),
+          text: reportInstallFailure(result.errorCode, result.error),
         })
       }
     } catch (err) {
-      setStatusMessage({
-        type: "error",
-        text: String(err),
-      })
+      setStatusMessage({ type: "error", text: reportInstallFailure(err) })
     } finally {
       setIsProcessing(false)
     }
@@ -245,14 +227,11 @@ export function ModulePackageManager({
       } else {
         setStatusMessage({
           type: "error",
-          text: result.error ?? t("settings.modules.packages.installError", { error: "Unknown" }),
+          text: reportInstallFailure(result.errorCode, result.error),
         })
       }
     } catch (err) {
-      setStatusMessage({
-        type: "error",
-        text: String(err),
-      })
+      setStatusMessage({ type: "error", text: reportInstallFailure(err) })
     } finally {
       setIsProcessing(false)
     }
@@ -283,7 +262,7 @@ export function ModulePackageManager({
       }
 
       if (!manifest) {
-        throw new Error("Invalid package format: manifest missing")
+        throw new InvalidPackageError()
       }
 
       const result = await installPackage(manifest, files)
@@ -300,18 +279,11 @@ export function ModulePackageManager({
       } else {
         setStatusMessage({
           type: "error",
-          text: t("settings.modules.packages.installError", {
-            error: result.error ?? result.errorCode ?? "Validation failed",
-          }),
+          text: reportInstallFailure(result.errorCode, result.error),
         })
       }
     } catch (err) {
-      setStatusMessage({
-        type: "error",
-        text: t("settings.modules.packages.installError", {
-          error: err instanceof Error ? err.message : String(err),
-        }),
-      })
+      setStatusMessage({ type: "error", text: reportInstallFailure(err) })
     } finally {
       setIsProcessing(false)
       if (fileInputRef.current) {
@@ -429,20 +401,16 @@ export function ModulePackageManager({
 
       {/* Status message */}
       {statusMessage && (
-        <div
-          className={`mt-3 flex items-start gap-2 rounded-md p-2 text-xs ${
-            statusMessage.type === "success"
-              ? "border border-green-500/20 bg-green-500/10 text-green-600 dark:text-green-400"
-              : "border border-destructive/20 bg-destructive/10 text-destructive"
-          }`}
+        <NoticeShell
+          level={statusMessage.type === "success" ? "success" : "danger"}
+          className="mt-3 flex items-start gap-2 rounded-md border p-2 text-xs"
         >
-          {statusMessage.type === "success" ? (
-            <CheckCircle2 className="size-4 shrink-0" />
-          ) : (
-            <AlertCircle className="size-4 shrink-0" />
-          )}
+          <NoticeLevelIcon
+            level={statusMessage.type === "success" ? "success" : "danger"}
+            className="size-4 shrink-0"
+          />
           <span className="leading-snug">{statusMessage.text}</span>
-        </div>
+        </NoticeShell>
       )}
 
       {/* Update Available Dialog */}

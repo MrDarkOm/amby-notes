@@ -91,9 +91,12 @@ pub struct ServerCheck {
     pub server_version: String,
     /// `instance_id` (П10).
     pub instance_id: String,
+    /// Whether this server permits signup without an invitation (Рег1); older servers are closed.
+    #[serde(default)]
+    pub registration_open: bool,
 }
 
-/// The verdict on a password (Р5: 12 characters and a sufficient `zxcvbn` score).
+/// The verdict on a password (Р5: 12 characters, the four kinds of characters and a sufficient `zxcvbn` score).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PasswordCheck {
@@ -107,10 +110,9 @@ pub struct PasswordCheck {
     pub min_length: u32,
     /// The password is shorter than the least length.
     pub too_short: bool,
-    /// A machine name of the main weakness found (`zxcvbn` warning), if any.
-    pub warning: Option<String>,
-    /// Machine names of the advice of `zxcvbn`.
-    pub suggestions: Vec<String>,
+    /// What the password lacks, in the fixed order `length`, `lowercase`, `uppercase`, `digit`,
+    /// `symbol`.
+    pub missing: Vec<String>,
 }
 
 /// The recovery code of a prepared account and the groups the person has to type back.

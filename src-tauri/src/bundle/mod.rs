@@ -11,8 +11,8 @@ mod rollback;
 mod scan;
 
 pub(crate) use assets::{
-    assets_dir_for, build_imported_asset, now_millis, sanitize_ext, sniff_image_format,
-    unique_name, IMAGE_EXTS, MAX_ATTACHMENT_FILE_SIZE, MAX_PASTED_BYTES,
+    assets_dir_for, build_imported_asset, random_asset_name, sanitize_ext, sniff_image_format,
+    IMAGE_EXTS, MAX_ATTACHMENT_FILE_SIZE, MAX_PASTED_BYTES,
 };
 pub(crate) use execute::{move_item_impl, rename_item_impl};
 pub(crate) use layers::{
@@ -23,7 +23,8 @@ pub(crate) use layers::{
 pub(crate) use notes::create_note_impl;
 pub(crate) use notes::rollback_bundle_promotion;
 pub(crate) use notes::{
-    ensure_bundle_path, prepare_create_note_impl, resolve_item_root, CreateNotePlan,
+    ensure_bundle_path, prepare_create_note_impl, preview_ensure_bundle_path, resolve_item_root,
+    CreateNotePlan,
 };
 pub(crate) use path_ops::{file_stem, path_string};
 pub(crate) use planning::{preview_move_item, preview_rename_item};

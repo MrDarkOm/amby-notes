@@ -111,19 +111,21 @@ describe("database panel navigation", () => {
         ],
       },
     ])
+    // The person reads the dictionary text for the code, never the sentence the backend sent.
+    const text = i18n.t("databaseErrors.diagnostic.duplicateDatabaseId")
     const { onOpenDatabase } = mount()
-    const trigger = screen.getByRole("button", { name: "Duplicate ID" })
+    const trigger = screen.getByRole("button", { name: text })
     fireEvent.pointerEnter(trigger)
-    expect(await screen.findByText("Duplicate ID")).toBeTruthy()
+    expect(await screen.findByText(text)).toBeTruthy()
     fireEvent.pointerDown(trigger, { button: 0 })
     fireEvent.click(trigger)
     fireEvent.pointerLeave(trigger)
     await new Promise((resolve) => setTimeout(resolve, 180))
     expect(trigger.getAttribute("aria-expanded")).toBe("true")
-    expect(screen.getByText("Duplicate ID")).toBeTruthy()
+    expect(screen.getByText(text)).toBeTruthy()
     expect(screen.queryByText("duplicate title")).toBeNull()
     expect(onOpenDatabase).not.toHaveBeenCalled()
-    fireEvent.keyDown(screen.getByText("Duplicate ID"), { key: "Escape" })
+    fireEvent.keyDown(screen.getByText(text), { key: "Escape" })
     await waitFor(() => expect(trigger.getAttribute("aria-expanded")).toBe("false"))
   })
 

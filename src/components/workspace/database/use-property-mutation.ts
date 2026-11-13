@@ -6,6 +6,7 @@ import {
   type DatabasePropertySummary,
 } from "@/lib/storage"
 import { logger } from "@/lib/logger"
+import { reportOperationError } from "@/lib/operation-errors"
 
 /**
  * One write path for a property value, shared by the table, the info panel and
@@ -109,6 +110,8 @@ export function usePropertyMutation({
       })
       const operationId = createDatabaseOperationId("cell", `${row.noteId}-${property.propertyId}`)
       const task: Promise<void> = prior
+        // Keeps the queue going: the failure itself reaches the caller of the previous cell edit
+        // (`task`).
         .catch(() => {})
         .then(async () => {
           const expectedRevision = revisionOverrides.get(queueKey) ?? row.rowRevision
@@ -162,7 +165,7 @@ export function usePropertyMutation({
           revisionOverrides.delete(queueKey)
           setCellErrors((current) => ({
             ...current,
-            [key]: error instanceof Error ? error.message : String(error),
+            [key]: reportOperationError(error),
           }))
           await onSettledRef.current?.({ ok: false })
         })

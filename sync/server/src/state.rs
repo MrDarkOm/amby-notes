@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Semaphore};
 
 use crate::clock::Clock;
 use crate::config::Config;
@@ -23,6 +23,11 @@ pub(crate) enum HubEvent {
         device_id: [u8; 16],
         /// How many items the commit holds.
         items: usize,
+    },
+    /// A space was deleted by its owner: its streams end (Л4).
+    SpaceRemoved {
+        /// The space.
+        space_id: [u8; 16],
     },
     /// The token of a device was revoked: its streams end (П19, П34).
     Revoked {
@@ -50,6 +55,8 @@ pub struct AppState {
     pub(crate) db: Arc<Db>,
     pub(crate) files: Arc<FsBlobStore>,
     pub(crate) hub: broadcast::Sender<HubEvent>,
+    /// Places for JSON bodies over 1 MiB read at the same time (Х4).
+    pub(crate) large_bodies: Arc<Semaphore>,
 }
 
 impl AppState {
@@ -74,6 +81,9 @@ impl AppState {
             Ok(plans) => (plans, None),
             Err(error) => (PlansFile::default(), Some(error)),
         };
+        let large_bodies = Arc::new(Semaphore::new(
+            usize::try_from(config.max_large_bodies).unwrap_or(Semaphore::MAX_PERMITS),
+        ));
         Ok(Self {
             plans: Arc::new(plans),
             plans_error,
@@ -84,6 +94,7 @@ impl AppState {
             db,
             files,
             hub,
+            large_bodies,
         })
     }
 

@@ -10,6 +10,7 @@
 //!
 //! A pass that stops (Р8) waits for the person; nothing is retried until they answer.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
@@ -28,19 +29,23 @@ use amby_sync_core::engine::{
 };
 use sha2::{Digest, Sha256};
 
+use crate::sync::hints::RenameHints;
+
 use crate::sync::clock::SystemClock;
 use crate::sync::conflict_store::{
     copy_name_id, ConflictEntry, ConflictError, ConflictSource, ConflictStore, FileConflictStore,
-    Resolution,
+    NotePick, Resolution,
 };
 use crate::sync::gate;
 use crate::sync::remote::HttpRemote;
-use crate::sync::state_db::{state_dir, SqliteStateStore, META_DEVICE_ID, META_SPACE_ID};
+use crate::sync::state_db::{
+    state_dir, SqliteStateStore, META_DEVICE_ID, META_ENABLED, META_SPACE_ID,
+};
 use crate::sync::types::SyncError;
 use crate::sync::vault_fs::{FsHooks, VaultFs};
 use crate::sync::vault_types::{
-    ApprovalKind, ConflictChoice, ConflictVersions, ConflictView, PassSummary, PlannedView,
-    StopView, SyncPhase, UnsyncedView, VaultSyncStatus,
+    ApprovalKind, ConflictChoice, ConflictVersions, ConflictView, GroupConflictVersions,
+    PassSummary, PlannedView, StopView, SyncPhase, UnsyncedView, VaultSyncStatus,
 };
 
 /// When passes run (Д19).
@@ -162,6 +167,9 @@ pub struct SessionConfig {
     pub hooks: Arc<dyn SessionHooks>,
     /// The runtime that carries the requests.
     pub handle: tokio::runtime::Handle,
+    /// The renames the person made through Amby (Д70). The pass drains it after it has read the
+    /// vault, so a rename that happens while the pass runs is still read as a rename.
+    pub hints: Arc<RenameHints>,
 }
 
 /// Why the worker should look at the clock again.
@@ -184,7 +192,6 @@ struct Control {
     requested: u64,
     done: u64,
     approvals: Approvals,
-    hints: Vec<RenameHint>,
     shutdown: bool,
 }
 
@@ -278,6 +285,11 @@ impl SyncSession {
             Err(fs::TryLockError::Error(_)) => return Err(SyncError::new("storage_error")),
         }
 
+        // К10: the old trash is in the archive before the first pass of a session, whoever started
+        // it (the opening of the vault has done it already; this is for a vault that was never
+        // opened by the application, and a no-op once it is completed).
+        crate::archive_migration::run_when_opening(&config.vault);
+
         // The identity of this device (Р10): a state of another device or of another space is not
         // ours — a vault copied from another computer reconciles again by content instead of
         // posing as the old one. Nothing is deleted by that (Р8, Д56).
@@ -318,7 +330,6 @@ impl SyncSession {
                 requested: 0,
                 done: 0,
                 approvals: Approvals::default(),
-                hints: Vec::new(),
                 shutdown: false,
             }),
             changed: Condvar::new(),
@@ -350,6 +361,22 @@ impl SyncSession {
     /// The current status (no network).
     pub fn status(&self) -> VaultSyncStatus {
         self.shared.snapshot()
+    }
+
+    /// What the history of the server needs to talk to it (appendix И). `None` when the identity
+    /// of this device is not a 16-byte id.
+    pub fn history_link(&self) -> Option<crate::sync::server_history::HistoryLink> {
+        let config = &self.shared.config;
+        Some(crate::sync::server_history::HistoryLink {
+            vault: config.vault.clone(),
+            handle: config.handle.clone(),
+            client: config.client.clone(),
+            token: config.token.clone(),
+            account_key: config.account_key.clone(),
+            space_id: config.space_id,
+            vk: config.vk.clone(),
+            device_id: hex::decode(&config.device_id).ok()?.try_into().ok()?,
+        })
     }
 
     /// Asks for a pass now (no pause) and returns at once.
@@ -412,17 +439,23 @@ impl SyncSession {
         self.shared.trigger(Trigger::Now);
     }
 
+    /// Test only: holds the worker back after it took a pass off the clock and before the pass
+    /// reads the vault, as a long pass of the server round trips would.
+    #[cfg(test)]
+    pub(crate) fn hold_work_for_test(&self) -> MutexGuard<'_, ()> {
+        self.shared.work.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Test only: a pass was asked for, the worker took it and waits for the work lock.
+    #[cfg(test)]
+    pub(crate) fn pass_waits_for_work_for_test(&self) -> bool {
+        let control = self.shared.control();
+        control.requested > control.done && control.due.is_none()
+    }
+
     /// Renames the person made through Amby since the last pass (Д70).
     pub fn add_rename_hints(&self, hints: Vec<RenameHint>) {
-        if hints.is_empty() {
-            return;
-        }
-        let mut control = self.shared.control();
-        for hint in hints {
-            if !control.hints.contains(&hint) {
-                control.hints.push(hint);
-            }
-        }
+        self.shared.config.hints.restore(hints);
     }
 
     /// Resolves a conflict of the list (Р7): the files are changed as `choice` says, the entry
@@ -482,6 +515,42 @@ impl SyncSession {
             original: text(&conflict.path),
             copy: text(&conflict.other_path),
             stamp: conflict_stamp(vault, &conflict),
+        })
+    }
+
+    /// The conflicting notes of a conflict of a group of note properties and a fingerprint of both
+    /// files (З69). `conflict_not_group` when the person can only choose a whole file.
+    pub fn read_group_conflict(&self, id: &str) -> Result<GroupConflictVersions, SyncError> {
+        let shared = &self.shared;
+        let _work = shared.work.lock().unwrap_or_else(|e| e.into_inner());
+        let vault = &shared.config.vault;
+        let mut store = SqliteStateStore::open(vault).map_err(|e| state_error(&e))?;
+        let conflicts = list_conflicts(vault, &mut store).map_err(|e| state_error(&e))?;
+        let conflict = conflicts
+            .into_iter()
+            .find(|conflict| conflict.id == id)
+            .ok_or_else(|| SyncError::new("conflict_not_found"))?;
+        let (mut conflict_store, _files) =
+            conflict_store_of(vault, &mut store, shared).map_err(|e| state_error(&e))?;
+        let group = conflict_store
+            .read_group(&conflict.id)
+            .map_err(|error| SyncError::new(conflict_error_code(&error)))?;
+        Ok(GroupConflictVersions {
+            group,
+            stamp: conflict_stamp(vault, &conflict),
+        })
+    }
+
+    /// Resolves a conflict of a group of note properties by notes (З17, З69): written only when
+    /// both files are what `read_group_conflict` read (`conflict_changed`).
+    pub fn resolve_group_conflict(
+        &self,
+        id: &str,
+        picks: BTreeMap<String, NotePick>,
+        stamp: &str,
+    ) -> Result<(), SyncError> {
+        self.resolve_with(id, Some(stamp), |store, entry, _files, _vault| {
+            store.resolve(&entry.id, Resolution::Notes { picks })
         })
     }
 
@@ -721,6 +790,8 @@ fn conflict_error_code(error: &ConflictError) -> &'static str {
         ConflictError::Incomplete => "conflict_incomplete",
         ConflictError::OriginalMissing => "conflict_original_missing",
         ConflictError::NotText => "conflict_not_text",
+        ConflictError::NotGroup => "conflict_not_group",
+        ConflictError::IncompletePicks => "conflict_incomplete_picks",
         ConflictError::Storage(_) => "storage_error",
     }
 }
@@ -757,6 +828,7 @@ fn unsynced_view(record: &UnsyncedRecord) -> UnsyncedView {
         UnsyncedReason::NotUtf8 => ("notUtf8", None),
         UnsyncedReason::TooLarge { .. } => ("tooLarge", None),
         UnsyncedReason::QuotaFull => ("quotaFull", None),
+        UnsyncedReason::SubscriptionRequired => ("subscriptionRequired", None),
         UnsyncedReason::TooBigForMemory => ("tooBigForMemory", None),
         UnsyncedReason::ExcludedPath => ("excludedPath", None),
         UnsyncedReason::InvalidName(problem) => (
@@ -870,7 +942,7 @@ fn worker(shared: &Arc<Shared>) {
             control.due = None;
             let request = CycleRequest {
                 approvals: std::mem::take(&mut control.approvals),
-                rename_hints: std::mem::take(&mut control.hints),
+                rename_hints: Vec::new(),
             };
             (control.requested, request)
         };
@@ -951,7 +1023,10 @@ fn run_pass(shared: &Arc<Shared>, request: &CycleRequest) -> Outcome {
     };
     let fs_hooks: Arc<dyn FsHooks> = config.hooks.clone();
     let ports = Ports {
-        fs: Box::new(VaultFs::with_hooks(config.vault.clone(), fs_hooks)),
+        fs: Box::new(
+            VaultFs::with_hooks(config.vault.clone(), fs_hooks)
+                .with_rename_hints(config.hints.clone()),
+        ),
         remote: Box::new(HttpRemote::new(
             config.handle.clone(),
             config.client.clone(),
@@ -966,11 +1041,17 @@ fn run_pass(shared: &Arc<Shared>, request: &CycleRequest) -> Outcome {
         ports,
         EngineConfig::new(SpaceId::from_bytes(config.space_id), config.vk.clone()),
     );
-    match catch_unwind(AssertUnwindSafe(|| engine.sync_cycle(request))) {
+    let outcome = match catch_unwind(AssertUnwindSafe(|| engine.sync_cycle(request))) {
         Ok(Ok(report)) => Outcome::Report(Box::new(report)),
         Ok(Err(error)) => Outcome::Failed(error),
         Err(_) => Outcome::Panicked,
-    }
+    };
+    // Д70: a pass that did not run to the end gives its hints back; one that did uses up those
+    // it applied and keeps the others for one more pass (their rename may come after it read
+    // the vault).
+    let done = matches!(&outcome, Outcome::Report(report) if report.outcome == CycleOutcome::Done);
+    config.hints.finish_pass(done);
+    outcome
 }
 
 /// The machine code of a failure of the server.
@@ -1115,9 +1196,20 @@ fn settle(shared: &Arc<Shared>, outcome: Outcome, failures: &mut u32, schedule: 
             }
         }
         Outcome::Failed(error) => {
-            tracing::warn!(event = "sync_pass_failed", kind = %failure_kind(&error));
+            // The machine code says why (never a path or the text of the server).
+            let code = match &error {
+                EngineError::Remote(error) => remote_code(error),
+                _ => String::new(),
+            };
+            tracing::warn!(event = "sync_pass_failed", kind = %failure_kind(&error), failureCode = %code);
             match &error {
-                EngineError::Remote(error) => waiting(failures, remote_code(error), schedule),
+                EngineError::Remote(error) => {
+                    if is_not_found(error) && space_is_gone(shared) {
+                        space_deleted(shared)
+                    } else {
+                        waiting(failures, remote_code(error), schedule)
+                    }
+                }
                 EngineError::Locked => waiting(failures, "vault_locked".to_string(), schedule),
                 EngineError::Fs(_) => waiting(failures, "storage_error".to_string(), schedule),
                 EngineError::State(state) => match state_error(state).code.as_str() {
@@ -1149,6 +1241,56 @@ fn failure_kind(error: &EngineError) -> &'static str {
         EngineError::Fs(_) => "fs",
         EngineError::State(_) => "state",
         EngineError::Crypto(_) => "crypto",
+    }
+}
+
+fn is_not_found(error: &RemoteError) -> bool {
+    matches!(error, RemoteError::Rejected { status: 404, code } if code == "not_found")
+}
+
+/// Does the list of spaces of the account prove that the space of this session is gone (Л8)? A
+/// `404` alone is not enough: any failure to ask leaves the question open.
+fn space_is_gone(shared: &Arc<Shared>) -> bool {
+    let config = &shared.config;
+    config
+        .handle
+        .block_on(config.client.list_spaces(&config.token))
+        .is_ok_and(|spaces| spaces.iter().all(|space| space.space_id != config.space_id))
+}
+
+/// The server copy was deleted from another device (Л8): the exchange ends, the switch is saved
+/// as off, so it does not come back after a restart, and every local file stays as it is.
+fn space_deleted(shared: &Arc<Shared>) -> Next {
+    let saved = SqliteStateStore::open(&shared.config.vault)
+        .and_then(|mut store| store.set_meta(META_ENABLED, "0"))
+        .is_ok();
+    tracing::info!(
+        event = "sync_space_deleted",
+        failureCode = if saved {
+            "space_deleted"
+        } else {
+            "state_error"
+        }
+    );
+    shared.update(|status| {
+        status.phase = SyncPhase::Off;
+        status.enabled = false;
+        status.error_code = Some(
+            if saved {
+                "space_deleted"
+            } else {
+                "state_error"
+            }
+            .to_string(),
+        );
+        status.next_try_secs = None;
+        status.stop = None;
+    });
+    shared.shutdown_listener.notify_one();
+    Next {
+        hold: true,
+        retry_in: None,
+        poll: Duration::from_secs(60 * 60 * 24 * 365),
     }
 }
 

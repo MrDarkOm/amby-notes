@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { confirmAction, exportTextFile, importTextFile } from "@/lib/storage"
+import { exportTextFile, importTextFile } from "@/lib/storage"
 import {
   BUILTIN_THEME_FAMILIES,
   BUILTIN_THEMES,
@@ -26,6 +26,7 @@ import {
   type ThemeDefinition,
   type ThemeModePreference,
 } from "@/lib/themes"
+import { NoticeLevelIcon, NoticeShell } from "../notices/notice-level"
 import { Row, selectTrigger } from "./settings-common"
 
 function builtinThemeName(theme: BuiltinTheme, t: (key: string) => string): string {
@@ -71,6 +72,13 @@ export function ThemeLibrary({
 }) {
   const { t } = useTranslation()
   const [error, setError] = React.useState<string | null>(null)
+  // The theme that was just removed, so it can be put back (docs/notices.md, section 9: a reversible action is
+  // not asked about, it can be taken back).
+  const [removed, setRemoved] = React.useState<{
+    theme: ThemeDefinition
+    index: number
+    wasSelected: boolean
+  } | null>(null)
   const selected = themeById(selectedThemeId, themes)
   const selectedCustomTheme = themes.find((theme) => theme.id === selected.id)
   const selectedFamily = builtinThemeFamilyForId(selected.id)
@@ -124,11 +132,21 @@ export function ThemeLibrary({
     }
   }
 
-  async function removeTheme(theme: ThemeDefinition) {
-    if (!(await confirmAction(t("settings.appearance.themeRemoveConfirm", { name: theme.name }))))
-      return
+  function removeTheme(theme: ThemeDefinition) {
+    const index = themes.findIndex((item) => item.id === theme.id)
+    const wasSelected = selectedThemeId === theme.id
+    setRemoved({ theme, index, wasSelected })
     onThemesChange(themes.filter((item) => item.id !== theme.id))
-    if (selectedThemeId === theme.id) onSelect("dark")
+    if (wasSelected) onSelect("dark")
+  }
+
+  function restoreTheme() {
+    if (!removed) return
+    const next = themes.filter((item) => item.id !== removed.theme.id)
+    next.splice(Math.min(removed.index, next.length), 0, removed.theme)
+    onThemesChange(next)
+    if (removed.wasSelected) onSelect(removed.theme.id)
+    setRemoved(null)
   }
 
   return (
@@ -201,7 +219,7 @@ export function ThemeLibrary({
                 size="icon-sm"
                 title={t("settings.appearance.removeTheme")}
                 aria-label={t("settings.appearance.removeTheme")}
-                onClick={() => void removeTheme(selectedCustomTheme)}
+                onClick={() => removeTheme(selectedCustomTheme)}
                 className="hover:text-destructive"
               >
                 <Trash2 className="size-3.5" />
@@ -251,6 +269,22 @@ export function ThemeLibrary({
           </a>
         </div>
       </div>
+      {removed && (
+        <NoticeShell
+          level="info"
+          variant="calm"
+          data-testid="theme-removed"
+          className="mx-4 my-2 flex items-center gap-2 rounded-lg px-2.5 py-2 text-[12px]"
+        >
+          <NoticeLevelIcon level="info" className="size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1">
+            {t("settings.appearance.themeRemoved", { name: removed.theme.name })}
+          </span>
+          <Button type="button" variant="outline" size="sm" onClick={restoreTheme}>
+            {t("settings.appearance.themeUndo")}
+          </Button>
+        </NoticeShell>
+      )}
       {error && <p className="px-4 py-2 text-[11px] text-destructive">{error}</p>}
     </>
   )

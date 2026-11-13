@@ -767,6 +767,39 @@ pub fn init_logging() {
     let _ = subscriber.try_init();
 }
 
+/// The event name and dotted target of a backend tracing event. Amby's own events carry an explicit
+/// `event`. A record of a dependency carries none: one bridged from the `log` crate has target `log`
+/// and its real crate in `log.target`, and a dependency's own tracing event has its crate as target.
+/// Both are stored as `dependency.log` (an unknown name would become `diagnostic.invalid_event` and
+/// hide that something happened); the bridge's `log.*` fields are dropped, and the free-text message
+/// never survives metadata sanitizing.
+fn backend_event_name(target: &str, fields: &mut Map<String, Value>) -> (String, String) {
+    let bridged_target = if target == "log" {
+        fields
+            .get("log.target")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    } else {
+        None
+    };
+    fields.retain(|key, _| !key.starts_with("log."));
+    let real_target = bridged_target
+        .as_deref()
+        .unwrap_or(target)
+        .replace("::", ".");
+    let name = match fields
+        .remove("event")
+        .and_then(|value| value.as_str().map(str::to_owned))
+    {
+        Some(name) => name,
+        None if real_target == "amby_notes" || real_target.starts_with("amby_notes.") => {
+            real_target.clone()
+        }
+        None => "dependency.log".to_owned(),
+    };
+    (name, real_target)
+}
+
 struct DiagnosticsLayer(Arc<DebugRuntime>);
 #[derive(Clone)]
 struct CorrelationContext {
@@ -818,11 +851,7 @@ where
         event.record(&mut visitor);
         let metadata = event.metadata();
         let mut fields = visitor.values;
-        let target = metadata.target().replace("::", ".");
-        let event_name = fields
-            .remove("event")
-            .and_then(|v| v.as_str().map(str::to_owned))
-            .unwrap_or_else(|| target.clone());
+        let (event_name, target) = backend_event_name(metadata.target(), &mut fields);
         let operation_id = fields
             .remove("operation_id")
             .and_then(|value| value.as_str().map(str::to_owned))
@@ -934,17 +963,33 @@ fn allowed_event(value: &str) -> bool {
         "apply_database_value_batch",
         "autosave.error_dialog_failed",
         "autosave.failed",
+        "autosave.properties_read_failed",
         "autosave.queue",
         "autosave.rejected_document_mismatch",
         "autosave.save.started",
         "autosave.start",
         "autosave.success",
+        "backup.focus_failed",
+        "backup.open_failed",
         "canvas.save_failed",
         "change_database_property_type",
         "create_database_property",
         "create_database_row",
         "create_folder",
         "create_note",
+        "creative.plot.anchor_links_failed",
+        "database.copy_view_failed",
+        "database.save_view_failed",
+        "database.write_warnings",
+        "database_batch_journal_quarantined",
+        "database_batch_recovery_failed",
+        "database_container_kind_write_failed",
+        "database_manifest_name_update_failed",
+        "external_open.refused",
+        "file_revision.save_without_baseline",
+        "layer.set_primary",
+        "module_host.installed_module_execution_disabled",
+        "module_host.missing_dependency",
         "note.read",
         "note.write",
         "database.aggregate",
@@ -969,6 +1014,8 @@ fn allowed_event(value: &str) -> bool {
         "database.delete_row_failed",
         "database.mutate_view_failed",
         "database.projection_rebuild_failed",
+        "database.layout_upgrade_failed",
+        "database.layout_scan_failed",
         "database.query",
         "database.rebuild",
         "database.refresh",
@@ -988,6 +1035,7 @@ fn allowed_event(value: &str) -> bool {
         "database_projection_rebuild_failed",
         "database_row_index_update_failed",
         "debug.invalid_event",
+        "dependency.log",
         "debug.invalid_subsystem",
         "delete_custom_property",
         "delete_database_property",
@@ -1016,14 +1064,24 @@ fn allowed_event(value: &str) -> bool {
         "file.create_sketch",
         "file.create_sketch_failed",
         "file.delete",
+        "file.create_properties_read_failed",
+        "file.delete_failed",
+        "file.move_database_context_failed",
+        "file.move_refresh_failed",
+        "file.move_databases_refresh_failed",
+        "file.move_property_name_taken",
+        "file.move_properties_read_failed",
         "file.move",
         "file.move_failed",
         "file.rename",
         "file.rename_failed",
         "file.set_icon",
         "file.toggle_favorite",
+        "archive.server_list_failed",
+        "archive.server_restore_failed",
         "frontend_started",
         "history.operation_failed",
+        "history.server_versions_failed",
         "index.load",
         "index.rebuild",
         "index.refresh",
@@ -1031,11 +1089,49 @@ fn allowed_event(value: &str) -> bool {
         "layer.switch",
         "manual_save.failed",
         "media_drop.import_failed",
+        "note_notice.save_now_failed",
         "note_saved",
         "note_write_event_failed",
         "note_written.listen_failed",
         "note_written.open_document_reload_failed",
+        "notices.journal_damaged",
+        "notices.journal_unreadable",
+        "notices.journal_write_failed",
+        "operation.failed",
+        "modules.install_failed",
+        "modules.registry_save_failed",
+        "database.module_disable_failed",
+        "editor.diagram_failed",
+        "project_index_rebuild_failed",
+        "project_journal_quarantined",
+        "project_recovery_failed",
+        "properties.reread_failed",
+        "property.mutation_failed",
+        "property.notice_action_failed",
+        "property.take_file_value_failed",
+        "rename_retitle_failed",
+        "storage.add_story_links",
+        "storage.add_text_status",
+        "storage.complete_workshop",
+        "storage.create_story",
+        "storage.create_text_page",
+        "storage.create_workshop_entity",
+        "storage.create_workshop_section",
+        "storage.ensure_plot_links",
+        "storage.init_workshop",
+        "storage.move_text_page",
+        "storage.remove_workshop_section",
+        "storage.reorder_workshop_sections",
+        "storage.update_text_levels",
+        "storage.update_workshop",
+        "surface_render_error",
+        "sync.cancel_pending_failed",
+        "sync.compare_read_failed",
+        "sync.listen_failed",
         "property.delete",
+        "property.migration_failed",
+        "property.old_version_check_failed",
+        "property.reread_failed",
         "property.reorder",
         "property.upsert",
         "read_note",
@@ -1046,6 +1142,31 @@ fn allowed_event(value: &str) -> bool {
         "refresh_vault.failed",
         "refresh_vault.flush_failed",
         "rename_database_property",
+        "sync.restore_remote_deleted_failed",
+        "sync_account_prepared",
+        "sync_activation_failed",
+        "sync_connected",
+        "sync_device_revoked",
+        "sync_history_restore_failed",
+        "sync_history_version_skipped",
+        "sync_pass_failed",
+        "sync_pass_panicked",
+        "sync_password_changed",
+        "sync_signed_out",
+        "sync_space_deleted",
+        "system_trash_failed",
+        "archive_migration_done",
+        "archive_migration_failed",
+        "archive_migration_preflight",
+        "archive_record_failed",
+        "remote_deletion_system_trash_refused",
+        "tab.split_down",
+        "tab.split_right",
+        "text_page_index_update_failed",
+        "trash_anomaly",
+        "tree.import_files",
+        "tree.import_files_failed",
+        "tree_patch_failed",
         "update_database_property_config",
         "update_database_property_options",
         "rename_item",
@@ -1111,6 +1232,8 @@ fn allowed_event(value: &str) -> bool {
         "updater.automatic_update_failed",
         "updater.version_read_failed",
         "upsert_custom_property",
+        "vault.startup_failed",
+        "vault_open.recovery_notices",
         "vault_switch.activation_failed",
         "vault_switch.autosave_flush_failed",
         "vault_switch.broadcast_failed",
@@ -1121,7 +1244,19 @@ fn allowed_event(value: &str) -> bool {
         "watcher.event_received",
         "watcher.external_change_callback_failed",
         "watcher.listen_failed",
+        "history.change_listen_failed",
+        "watcher.properties_listen_failed",
+        "watcher.rewritten_listen_failed",
+        "watcher.moved_listen_failed",
+        "watcher.database_listen_failed",
+        "database_written_event_failed",
+        "properties_written_event_failed",
+        "published_files_event_failed",
+        "moved_paths_event_failed",
+        "database_change_event_failed",
+        "project_change_event_failed",
         "watcher.open_document_reload_failed",
+        "watcher.moved_note_read_failed",
         "watcher.process",
         "watcher.refresh_failed",
         "watcher.start",
@@ -1137,6 +1272,7 @@ fn allowed_event(value: &str) -> bool {
         "window_state.resize_listen_failed",
         "window_state.restore_failed",
         "window_state.save_failed",
+        "workshop_entity_index_update_failed",
         "write_note",
         "write_note.failed",
         "write_note.started",
@@ -1260,10 +1396,35 @@ fn numeric_key(key: &str) -> bool {
 fn code_key(key: &str) -> bool {
     matches!(
         key,
-        "errorCode" | "errorType" | "code" | "kind" | "reason" | "outcome" | "state" | "status"
+        "errorCode"
+            | "errorType"
+            | "failureCode"
+            | "code"
+            | "kind"
+            | "reason"
+            | "outcome"
+            | "state"
+            | "status"
     )
 }
+/// The code of a failed operation (`operationErrorCode` in the interface): a reason, a kind or a
+/// command code, never a sentence.
+fn is_failure_code(value: &str) -> bool {
+    let mut chars = value.chars();
+    (2..=64).contains(&value.len())
+        && chars
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
 fn safe_code(value: &str, key: &str) -> Option<String> {
+    if key == "failureCode" {
+        return Some(if is_failure_code(value) {
+            value.to_owned()
+        } else {
+            "unknown".to_owned()
+        });
+    }
     let allowed = match key {
         "errorCode" => matches!(
             value,
@@ -1502,6 +1663,54 @@ mod tests {
     }
 
     #[test]
+    fn a_dependency_log_record_keeps_a_known_name_instead_of_becoming_invalid() {
+        // The updater plugin reports a failed update check through the `log` crate: tracing sees
+        // target `log` and the real crate in `log.target`, with no `event` field. Such a record must
+        // be stored as `dependency.log`, never as `diagnostic.invalid_event`, and keep no free text.
+        let mut fields = serde_json::json!({
+            "log.target": "tauri_plugin_updater::updater",
+            "log.module_path": "tauri_plugin_updater::updater",
+            "log.file": "/Users/alice/.cargo/registry/src/tauri-plugin-updater/src/updater.rs",
+            "log.line": 642,
+            "message": "update endpoint did not respond with a successful status code"
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        let (name, target) = backend_event_name("log", &mut fields);
+        assert_eq!(name, "dependency.log");
+        assert_eq!(target, "tauri_plugin_updater.updater");
+        assert!(fields.keys().all(|key| !key.starts_with("log.")));
+
+        let runtime = DebugRuntime::new();
+        let mut event = sample(LogLevel::Error);
+        event.event = name;
+        event.source = LogSource::Backend;
+        event.metadata = Some(sanitize_metadata(fields, "session"));
+        let stored = runtime.ingest(event).unwrap();
+        assert_eq!(stored.event, "dependency.log");
+        assert!(!serde_json::to_string(&stored)
+            .unwrap()
+            .contains("did not respond"));
+
+        // A tracing event of another crate without `event` is a dependency record too.
+        let mut fields = Map::new();
+        assert_eq!(
+            backend_event_name("tao::platform_impl", &mut fields).0,
+            "dependency.log"
+        );
+        // Amby's own events keep their explicit name.
+        let mut fields = serde_json::json!({ "event": "vault.opened" })
+            .as_object()
+            .unwrap()
+            .clone();
+        assert_eq!(
+            backend_event_name("amby_notes::vault", &mut fields).0,
+            "vault.opened"
+        );
+    }
+
+    #[test]
     fn sanitizes_before_buffer_and_keeps_frontend_ids() {
         let runtime = DebugRuntime::new();
         runtime.ingest(sample(LogLevel::Error)).unwrap();
@@ -1535,6 +1744,46 @@ mod tests {
         assert_eq!(metadata.get("title"), None);
         assert_eq!(metadata["errorCode"], "UnknownError");
         assert_eq!(runtime.recent().len(), 0);
+    }
+
+    #[test]
+    fn failure_codes_of_notice_events_reach_the_log_and_free_text_does_not() {
+        // The frontend logs a failed operation as `operation.failed` with a stable code
+        // (docs/notices.md §13); the sentence of the failure itself is never kept.
+        let runtime = DebugRuntime::new();
+        for (index, name) in [
+            "operation.failed",
+            "modules.install_failed",
+            "file.delete_failed",
+            "property.migration_failed",
+            "sync.listen_failed",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut event = sample(LogLevel::Error);
+            event.id = format!("1700000000000-abc12{index}");
+            event.event = name.into();
+            event.metadata.as_mut().unwrap().insert(
+                "failureCode".into(),
+                Value::String("revision_conflict".into()),
+            );
+            let returned = runtime.ingest(event).unwrap();
+            assert_eq!(returned.event, name);
+            assert_eq!(
+                returned.metadata.unwrap()["failureCode"],
+                "revision_conflict"
+            );
+        }
+        let mut event = sample(LogLevel::Error);
+        event.id = "1700000000000-abc129".into();
+        event.event = "operation.failed".into();
+        event.metadata.as_mut().unwrap().insert(
+            "failureCode".into(),
+            Value::String("/Users/alice/Vault/Secret.md could not be written".into()),
+        );
+        let returned = runtime.ingest(event).unwrap();
+        assert_eq!(returned.metadata.unwrap()["failureCode"], "unknown");
     }
 
     #[test]

@@ -14,7 +14,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use amby_sync_proto::error_code as code;
 use amby_sync_proto::PART_SIZE;
 
-use super::spaces::owned_space;
+use super::spaces::{owned_space, recheck};
 use super::util::{
     authenticate, field_hex, field_u64, hex, json_response, read_json, read_limited, unhex_array,
     ApiError, ApiResult, ReadError,
@@ -114,8 +114,17 @@ pub(crate) async fn start(
         blob_id,
     };
     let now = state.clock.now_ms();
+    let space_text = space_param(&params).to_string();
     let outcome = state.db.write(|tx| -> ApiResult<(bool, BlobRow)> {
+        // Т1: the space and the token are looked up again, in this transaction.
+        let space = recheck(tx, &auth, &space_text)?;
         let plan = crate::quota::resolve_user(&state, tx, auth.user_id)?;
+        // Н4, Н5: no subscription, no new body; before every other check of the route.
+        if !plan.limits.sync {
+            return Err(crate::quota::subscription_required());
+        }
+        // Х1: no room on the disk, no new body.
+        crate::quota::require_free_space(&state)?;
         // Е.4: size (413), then a body that is already there (200/409), then the quota (507).
         if let Some(max) = plan.limits.max_file_bytes {
             if size > max {
@@ -200,6 +209,12 @@ pub(crate) async fn put_part(
     let space = state
         .db
         .call(|conn| owned_space(conn, auth.user_id, space_param(&params)))?;
+    // Н4, Н5: after ownership, before the other checks of the route.
+    state.db.call(|conn| -> ApiResult<()> {
+        crate::quota::require_subscription(&state, conn, auth.user_id)?;
+        // Х1: no room on the disk, no new data.
+        crate::quota::require_free_space(&state)
+    })?;
     let blob_id = blob_id_from(&params)?;
     let row = state
         .db
@@ -237,7 +252,9 @@ pub(crate) async fn put_part(
         .await
         .map_err(|error| match error {
             ReadError::TooLarge => bad_part(),
-            ReadError::Broken => ApiError::bad_request("the request body could not be read"),
+            ReadError::Broken | ReadError::Busy => {
+                ApiError::bad_request("the request body could not be read")
+            }
         })?;
     if data.len() as u64 != expected {
         return Err(bad_part());
@@ -255,11 +272,14 @@ pub(crate) async fn put_part(
     let now = state.clock.now_ms();
     // The part is on disk before the database hears of it; the activity restarts the 24 hours
     // (П25). A body removed in the meantime is not found any more.
-    let touched = state.db.call(|conn| {
-        conn.execute(
+    // Т1, Т2: the space is looked up again; a gone space is `404` and the file is swept.
+    let space_text = space_param(&params).to_string();
+    let touched = state.db.write(|tx| -> ApiResult<usize> {
+        let space = recheck(tx, &auth, &space_text)?;
+        Ok(tx.execute(
             "UPDATE blobs SET activity_ms = ?3 WHERE space = ?1 AND blob_id = ?2 AND complete = 0",
             params![space.row, blob_id.as_slice(), now],
-        )
+        )?)
     })?;
     if touched == 0 {
         return Err(ApiError::not_found());
@@ -281,6 +301,12 @@ pub(crate) async fn complete(
     let space = state
         .db
         .call(|conn| owned_space(conn, auth.user_id, space_param(&params)))?;
+    // Н4, Н5: after ownership, before the other checks of the route.
+    state.db.call(|conn| -> ApiResult<()> {
+        crate::quota::require_subscription(&state, conn, auth.user_id)?;
+        // Х1: no room on the disk, no new data.
+        crate::quota::require_free_space(&state)
+    })?;
     let blob_id = blob_id_from(&params)?;
     let row = state
         .db
@@ -316,12 +342,17 @@ pub(crate) async fn complete(
         .await
         .map_err(ApiError::internal)??;
     let now = state.clock.now_ms();
-    state.db.call(|conn| {
-        conn.execute(
+    let space_text = space_param(&params).to_string();
+    let done = state.db.write(|tx| -> ApiResult<usize> {
+        let space = recheck(tx, &auth, &space_text)?;
+        Ok(tx.execute(
             "UPDATE blobs SET complete = 1, activity_ms = ?3 WHERE space = ?1 AND blob_id = ?2",
             params![space.row, blob_id.as_slice(), now],
-        )
+        )?)
     })?;
+    if done == 0 {
+        return Err(ApiError::not_found());
+    }
     // Only a leftover on failure; the cleanup sweeps it.
     let _ = state.files.remove_parts(&key);
     Ok(json_response(StatusCode::OK, &finished))
@@ -474,8 +505,10 @@ pub(crate) async fn delete(
     };
     // The row goes first and the files after, under the lock (as in the cleanup): a body
     // started again under the same id keeps its new files.
+    let space_text = space_param(&params).to_string();
     state.db.write_then(
         |tx| -> ApiResult<()> {
+            let space = recheck(tx, &auth, &space_text)?;
             if blob_row(tx, space.row, &blob_id)?.is_none() {
                 return Err(ApiError::not_found());
             }

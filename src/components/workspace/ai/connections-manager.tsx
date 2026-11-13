@@ -28,14 +28,11 @@ import {
   aiLocalAppInstalled,
   aiModelCatalog,
 } from "@/lib/ai"
-import {
-  confirmAction,
-  deleteUnreferencedAiCredential,
-  openWebAddress,
-  showErrorMessage,
-  storeAiCredential,
-} from "@/lib/storage"
-import { findProvider, resolveAiConfig } from "../app-config"
+import { deleteUnreferencedAiCredential, openWebAddress, storeAiCredential } from "@/lib/storage"
+import { findProvider, isSettingsChangedError, resolveAiConfig } from "../app-config"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
+import { useAppNoticesStore } from "../notices/use-app-notices-store"
 import {
   addLocalAiModel,
   AI_CONNECTION_PROVIDERS,
@@ -136,8 +133,7 @@ export function ConnectionsManager({
           return next
         } catch (error) {
           // Another window saved in the meantime: take what it saved and make the change on that.
-          if (attempt > 0 || !onConflict || (error as Error)?.message !== "settingsChanged")
-            throw error
+          if (attempt > 0 || !onConflict || !isSettingsChangedError(error)) throw error
           const saved = await onConflict()
           if (!saved) throw error
           latest.current = saved
@@ -145,6 +141,7 @@ export function ConnectionsManager({
       }
     }
     const result = queue.current.then(run, run)
+    // Keeps the queue going: the failure itself reaches the caller of the commit (`result`).
     queue.current = result.catch(() => {})
     return result.finally(() => {
       waiting.current--
@@ -256,6 +253,8 @@ export function ConnectionsManager({
               <span>{t("aiConnections.notInstalled", { name: provider.label })}</span>
               <button
                 className={button}
+                // Opening the page of the app failed: nothing changed, the button can be pressed
+                // again.
                 onClick={() => void openWebAddress(installUrl).catch(() => {})}
               >
                 {t("aiConnections.downloadApp", { name: provider.label })}
@@ -510,7 +509,8 @@ function ConnectionCard({
         !next.connections.some((item) => item.credentialId === initial.credentialId)
       )
         await deleteUnreferencedAiCredential(initial.credentialId).catch(() =>
-          showErrorMessage(t("aiConnections.keyError")),
+          // The card is still here, so it says it itself; the connection is saved.
+          setError(t("aiConnections.oldKeyLeft")),
         )
     } catch {
       setError(t("aiConnections.saveError"))
@@ -519,7 +519,14 @@ function ConnectionCard({
     }
   }
   const remove = async () => {
-    if (!(await confirmAction(t("aiConnections.removeConfirm")))) return
+    if (
+      !(await confirm(
+        confirmations.removeAiConnection({
+          name: connection.label || findProvider(connection.provider)?.label || connection.provider,
+        }),
+      ))
+    )
+      return
     try {
       const next = await commit((previous) => ({
         ...previous,
@@ -542,7 +549,13 @@ function ConnectionCard({
         !next.connections.some((item) => item.credentialId === connection.credentialId)
       )
         await deleteUnreferencedAiCredential(connection.credentialId).catch(() =>
-          showErrorMessage(t("aiConnections.keyError")),
+          // The card is gone with the connection, so the old key's leftover is told in the centre.
+          useAppNoticesStore.getState().post({
+            id: `ai-key-left:${connection.credentialId}`,
+            level: "warning",
+            titleKey: "notices.app.aiKeyLeft.title",
+            lineKey: "notices.app.aiKeyLeft.line",
+          }),
         )
     } catch {
       setError(t("aiConnections.saveError"))
@@ -840,8 +853,10 @@ function ConnectionCard({
                   title={t("aiConnections.toolsHint")}
                   disabled={busy}
                   onClick={() => {
-                    void commit((previous) =>
-                      setAiModelTools(previous, model.id, !model.supportsTools),
+                    void commit(
+                      (previous) => setAiModelTools(previous, model.id, !model.supportsTools),
+                      // The failed save is already reported by the settings window
+                      // (emitSettingsSaveError); nothing more to do here.
                     ).catch(() => {})
                   }}
                 >
@@ -858,6 +873,8 @@ function ConnectionCard({
                   title={t("aiConnections.baseModelHint")}
                   disabled={busy || !model.enabled}
                   onClick={() => {
+                    // The failed save is already reported by the settings window
+                    // (emitSettingsSaveError); nothing more to do here.
                     void commit((previous) => setBaseAiModel(previous, model.id)).catch(() => {})
                   }}
                 >
@@ -878,8 +895,10 @@ function ConnectionCard({
                       busy || !!query || (direction < 0 ? index === 0 : index === models.length - 1)
                     }
                     onClick={() => {
-                      void commit((previous) =>
-                        moveAiModel(previous, model.id, direction as -1 | 1),
+                      void commit(
+                        (previous) => moveAiModel(previous, model.id, direction as -1 | 1),
+                        // The failed save is already reported by the settings window
+                        // (emitSettingsSaveError); nothing more to do here.
                       ).catch(() => {})
                     }}
                   >
@@ -896,6 +915,8 @@ function ConnectionCard({
                   checked={model.enabled}
                   disabled={busy}
                   onCheckedChange={(enabled) => {
+                    // The failed save is already reported by the settings window
+                    // (emitSettingsSaveError); nothing more to do here.
                     void commit((previous) => setAiModelEnabled(previous, model.id, enabled)).catch(
                       () => {},
                     )
@@ -925,6 +946,8 @@ function ConnectionCard({
                     addLocalAiModel(previous, connection.id, custom, custom),
                   )
                     .then(() => setCustom(""))
+                    // The failed save is already reported by the settings window
+                    // (emitSettingsSaveError); nothing more to do here.
                     .catch(() => {})
                 } catch {
                   setError(t("aiConnections.invalid"))

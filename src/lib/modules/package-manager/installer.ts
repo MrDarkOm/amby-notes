@@ -1,4 +1,5 @@
 import { getCurrentAppVersion } from "@/lib/app-updater"
+import { errorType } from "@/lib/logger"
 import { isTauri } from "@/lib/storage"
 import { commands, type ModuleManifest as BindingModuleManifest } from "@/lib/bindings"
 import { loadGlobalModulesRegistry, saveGlobalModulesRegistry } from "../global-registry"
@@ -352,18 +353,22 @@ export async function rollbackModule(moduleId: string): Promise<InstallResult> {
  */
 export async function uninstallModule(
   moduleId: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; errorCode?: InstallErrorCode }> {
   const canonicalId = toCanonicalModuleId(moduleId)
   const registry = await loadGlobalModulesRegistry()
 
   if (!registry.installed[canonicalId]) {
-    return { success: false, error: `Module ${canonicalId} is not installed` }
+    return {
+      success: false,
+      error: `Module ${canonicalId} is not installed`,
+      errorCode: "UNINSTALL_FAILED",
+    }
   }
 
   if (isTauri()) {
     const res = await commands.uninstallModulePackage(canonicalId)
     if (res.status === "error") {
-      return { success: false, error: res.error }
+      return { success: false, error: res.error, errorCode: "UNINSTALL_FAILED" }
     }
   }
 
@@ -460,7 +465,8 @@ export async function installFromRemoteUrl(
       return {
         success: false,
         moduleId: "unknown",
-        error: String(err),
+        // The reason is for the debug log; the person gets the text of the code.
+        error: errorType(err),
         errorCode: "STAGING_FAILED",
       }
     }

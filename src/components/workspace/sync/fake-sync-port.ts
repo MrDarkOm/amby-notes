@@ -126,7 +126,7 @@ export const SPACES: SpaceView[] = [
 /** The overview of the owner's "Standard" plan: one storage of 312 MB of 1 GB, the open vault. */
 export const ACCOUNT_STANDARD: AccountOverview = {
   limitsKnown: true,
-  plan: { name: "standard", title: "Стандарт", pinned: false },
+  plan: { name: "standard", title: "Стандарт", pinned: false, sync: true, untilMs: null },
   limits: {
     maxSpaces: 1,
     maxTotalBytes: 1_000_000_000,
@@ -203,25 +203,46 @@ export function emitRestoredAfterDeletion(paths: string[]): void {
   for (const listener of [...restoredListeners]) listener(paths)
 }
 
+const mergedListeners = new Set<(paths: string[]) => void>()
+
+/** Tells every listener that a pass merged the edits of two computers in these notes (paths in the vault). */
+export function emitMerged(paths: string[]): void {
+  for (const listener of [...mergedListeners]) listener(paths)
+}
+
+const ambyWrittenListeners = new Set<(paths: string[]) => void>()
+
+/** Tells every listener that a pass wrote these files of `.amby/` (paths relative to the vault). */
+export function emitAmbyWritten(paths: string[]): void {
+  for (const listener of [...ambyWrittenListeners]) listener(paths)
+}
+
 /** How many screens listen now (for "stops listening when closed"). */
 export function vaultListenerCount(): number {
   return vaultListeners.size
 }
 
-/** The fake's rule: under 12 characters is too short, a few well-known words are weak. */
+/** The fake's rule: the real one (12 characters, lower and upper case, a digit, a symbol) and a few well-known words are weak. */
 export function fakePasswordCheck(password: string): PasswordCheck {
   const length = [...password].length
   const tooShort = length < 12
   const weak = /password|12345|qwerty/i.test(password)
   const score = tooShort ? 1 : weak ? 1 : length > 20 ? 4 : 3
+  const chars = [...password]
+  const missing = [
+    tooShort && "length",
+    !chars.some((c) => c !== c.toUpperCase()) && "lowercase",
+    !chars.some((c) => c !== c.toLowerCase()) && "uppercase",
+    !chars.some((c) => /\p{N}/u.test(c)) && "digit",
+    !chars.some((c) => !/[\p{L}\p{N}\s]/u.test(c)) && "symbol",
+  ].filter((name): name is string => Boolean(name))
   return {
-    ok: !tooShort && !weak,
+    ok: missing.length === 0 && !weak,
     score,
     length,
     minLength: 12,
     tooShort,
-    warning: weak ? "common_password" : null,
-    suggestions: [],
+    missing,
   }
 }
 
@@ -234,6 +255,7 @@ export function createFakePort(overrides: Partial<SyncPort> = {}): FakePort {
       url,
       host: "sync.example.com",
       serverVersion: "0.1.0",
+      registrationOpen: false,
       instanceId: "00112233445566778899aabbccddeeff",
     }),
     checkPassword: async (password) => fakePasswordCheck(password),
@@ -249,13 +271,17 @@ export function createFakePort(overrides: Partial<SyncPort> = {}): FakePort {
     cancelPending: async () => {},
     signIn: async () => CONNECTED,
     recover: async () => CONNECTED,
+    renameDevice: async () => {},
+    renameAccount: async (username) => ({ ...CONNECTED, username }),
     listDevices: async () => DEVICES,
     disconnectDevice: async () => {},
     signOut: async () => ({ serverNotified: true }),
+    changePassword: async () => {},
     saveRecoveryCode: async () => "/Users/alice/amby-recovery-code.txt",
     vaultStatus: async () => VAULT_OFF,
     listSpaces: async () => SPACES,
     accountOverview: async () => ACCOUNT_STANDARD,
+    deleteSpace: async () => {},
     enableVault: async () => vaultStatus(),
     disableVault: async () => VAULT_OFF,
     runNow: async () => {},
@@ -267,6 +293,32 @@ export function createFakePort(overrides: Partial<SyncPort> = {}): FakePort {
       stamp: "stamp-1",
     }),
     resolveConflictWithText: async () => {},
+    readGroupConflict: async () => {
+      throw new SyncPortError("conflict_not_group")
+    },
+    resolveGroupConflict: async () => {},
+    noteVersions: async () => ({
+      available: true,
+      reason: null,
+      versions: [],
+      snapshotsOnServer: [],
+      currentOnServer: false,
+    }),
+    readServerVersion: async () => ({ state: "ok", content: "" }),
+    restoreServerVersion: async () => ({ status: "restored" }),
+    deletedFiles: async () => ({
+      available: true,
+      reason: null,
+      files: [],
+      truncated: false,
+      trashOnServer: [],
+    }),
+    restoreDeleted: async (itemIds) => ({
+      requested: itemIds.length,
+      restored: itemIds.length,
+      damaged: 0,
+      results: itemIds.map((itemId) => ({ itemId, status: "restored", finalPath: null })),
+    }),
     onVaultStatus: async (listener) => {
       vaultListeners.add(listener)
       return () => {
@@ -283,6 +335,18 @@ export function createFakePort(overrides: Partial<SyncPort> = {}): FakePort {
       restoredListeners.add(listener)
       return () => {
         restoredListeners.delete(listener)
+      }
+    },
+    onMerged: async (listener) => {
+      mergedListeners.add(listener)
+      return () => {
+        mergedListeners.delete(listener)
+      }
+    },
+    onAmbyWritten: async (listener) => {
+      ambyWrittenListeners.add(listener)
+      return () => {
+        ambyWrittenListeners.delete(listener)
       }
     },
     ...overrides,

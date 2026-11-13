@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { chooseOption } from "@/lib/test-utils/amby-select"
 import i18n from "@/lib/i18n"
 import { AMBY_SERVER_URL } from "@/lib/sync/amby-server"
 import { SyncPortError } from "@/lib/sync/sync-port"
@@ -14,15 +15,15 @@ import {
 } from "./fake-sync-port"
 
 const SERVER = "https://sync.example.com"
-const STRONG = "correct horse battery staple 42"
+const STRONG = "Correct-Horse-Battery-Staple-42!"
 
 function type(label: string, value: string) {
   fireEvent.change(screen.getByLabelText(label), { target: { value } })
 }
 
 /** Types an address of an own server: the Amby server is the default and has no address field. */
-function typeOwnAddress(value: string) {
-  fireEvent.click(screen.getByRole("radio", { name: /Свой сервер/ }))
+async function typeOwnAddress(value: string) {
+  await chooseOption("Сервер", "Свой сервер")
   type("Адрес сервера", value)
 }
 
@@ -45,9 +46,8 @@ function renderWizard(port: FakePort, props: { onConnected?: () => void } = {}) 
 /** Server step done: the address checked and found. */
 async function chooseServer(port: FakePort) {
   void port
-  typeOwnAddress(SERVER)
-  click("Проверить сервер")
-  await screen.findByText(/Сервер найден/)
+  await typeOwnAddress(SERVER)
+  await screen.findByText("Сервер доступен")
 }
 
 async function fillCreateForm(password = STRONG, repeat = password) {
@@ -60,10 +60,10 @@ async function fillCreateForm(password = STRONG, repeat = password) {
 
 async function reachRecoveryStep(port: FakePort) {
   await chooseServer(port)
-  click("Создать учётную запись")
+  click("Регистрация")
   await fillCreateForm()
-  await waitFor(() => expect(button("Продолжить").disabled).toBe(false))
-  click("Продолжить")
+  await waitFor(() => expect(button("Зарегистрироваться").disabled).toBe(false))
+  click("Зарегистрироваться")
   await screen.findByTestId("recovery-code")
 }
 
@@ -76,121 +76,135 @@ describe("the connect wizard", () => {
     vi.restoreAllMocks()
   })
 
-  it("offers account choice above the server and continues with the chosen sign-in", async () => {
+  it("shows the login form above the server selector with one primary action", async () => {
     const port = createFakePort()
     renderWizard(port)
-    const account = screen.getByRole("heading", { name: "Аккаунт" })
-    const server = screen.getByRole("group", { name: "Сервер" })
-    expect(account.compareDocumentPosition(server) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    click("Войти")
-    expect(port.signIn).not.toHaveBeenCalled()
-    click("Проверить сервер")
-    await screen.findByLabelText("Пароль")
-    expect(screen.getByLabelText("Имя пользователя")).toBeTruthy()
+    const user = screen.getByLabelText("Имя пользователя")
+    const server = screen.getByRole("combobox", { name: "Сервер" })
+    expect(user.compareDocumentPosition(server) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByLabelText("Пароль")).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "Проверить сервер" })).toBeNull()
+    expect(document.querySelectorAll('button[type="submit"]')).toHaveLength(1)
+    await screen.findByText("Сервер доступен")
     expect(port.checkServer).toHaveBeenCalledWith({ url: AMBY_SERVER_URL, allowHttp: false })
     expect(port.signIn).not.toHaveBeenCalled()
   })
 
-  describe("the server step", () => {
-    it("cannot check an empty address", () => {
-      renderWizard(createFakePort())
-      fireEvent.click(screen.getByRole("radio", { name: /Свой сервер/ }))
-      expect(button("Проверить сервер").disabled).toBe(true)
-      type("Адрес сервера", "  ")
-      expect(button("Проверить сервер").disabled).toBe(true)
-      typeOwnAddress(SERVER)
-      expect(button("Проверить сервер").disabled).toBe(false)
-    })
-
-    it("offers the Amby server first and checks it without typing an address", async () => {
+  describe("automatic server check", () => {
+    it("never checks an empty custom address", async () => {
       const port = createFakePort()
       renderWizard(port)
-      expect((screen.getByRole("radio", { name: /Сервер Amby/ }) as HTMLInputElement).checked).toBe(
-        true,
-      )
-      expect(screen.getByRole("radio", { name: /Свой сервер/ })).toBeTruthy()
-      expect(document.body.textContent).not.toMatch(/скоро/)
-      expect(document.body.textContent).toMatch(/коду приглашения/i)
-      expect(screen.queryByLabelText("Адрес сервера")).toBeNull()
-      expect(screen.queryByRole("button", { name: "Как поднять свой сервер" })).toBeNull()
-      click("Проверить сервер")
-      await screen.findByText(/Сервер найден/)
-      expect(port.checkServer).toHaveBeenCalledWith({ url: AMBY_SERVER_URL, allowHttp: false })
+      await chooseOption("Сервер", "Свой сервер")
+      port.checkServer.mockClear()
+      type("Адрес сервера", "  ")
+      await new Promise((resolve) => setTimeout(resolve, 350))
+      expect(port.checkServer).not.toHaveBeenCalled()
+      expect(button("Войти").disabled).toBe(true)
     })
 
-    it("shows the address field and the guide only for an own server", () => {
-      renderWizard(createFakePort())
-      fireEvent.click(screen.getByRole("radio", { name: /Свой сервер/ }))
-      expect(screen.getByLabelText("Адрес сервера")).toBeTruthy()
-      expect(screen.getByRole("button", { name: "Как поднять свой сервер" })).toBeTruthy()
-      fireEvent.click(screen.getByRole("radio", { name: /Сервер Amby/ }))
-      expect(screen.queryByLabelText("Адрес сервера")).toBeNull()
-    })
-
-    it("starts on the Amby server when that was the server of the record", () => {
-      render(
-        <ConnectWizard
-          port={createFakePort()}
-          onConnected={vi.fn()}
-          initial={{ url: AMBY_SERVER_URL, allowHttp: false, username: "alice" }}
-        />,
-      )
-      expect((screen.getByRole("radio", { name: /Сервер Amby/ }) as HTMLInputElement).checked).toBe(
-        true,
-      )
-    })
-
-    it("asks the port to check the address and offers the three ways on", async () => {
+    it("checks the custom server automatically without submitting credentials", async () => {
       const port = createFakePort()
       renderWizard(port)
       await chooseServer(port)
       expect(port.checkServer).toHaveBeenCalledWith({ url: SERVER, allowHttp: false })
-      expect(screen.getByText(/0\.1\.0/)).toBeTruthy()
-      expect(screen.getByRole("button", { name: "Создать учётную запись" })).toBeTruthy()
-      expect(screen.getByRole("button", { name: "Войти" })).toBeTruthy()
-      expect(screen.getByRole("button", { name: "Забыли пароль?" })).toBeTruthy()
+      expect(port.prepareAccount).not.toHaveBeenCalled()
+      expect(port.signIn).not.toHaveBeenCalled()
     })
 
     it.each([
       ["insecure_url", /https:\/\//],
-      ["network", /Не удалось связаться с сервером/],
+      ["network", /Не удалось связаться/],
       ["timeout", /не ответил/],
       ["bad_response", /не похож на ответ сервера/],
       ["unsupported_server", /другой версии/],
-    ])("tells what is wrong when the check fails with %s", async (code, message) => {
-      const port = createFakePort({
-        checkServer: async () => {
-          throw new SyncPortError(code)
-        },
-      })
-      renderWizard(port)
-      typeOwnAddress(SERVER)
-      click("Проверить сервер")
-      const alert = await screen.findByRole("alert")
-      expect(alert.textContent).toMatch(message)
-      click("Создать учётную запись")
-      expect(screen.queryByLabelText("Имя пользователя")).toBeNull()
-      expect(port.prepareAccount).not.toHaveBeenCalled()
-    })
+    ])(
+      "shows server failure %s beside the server and preserves the form",
+      async (code, message) => {
+        const port = createFakePort({
+          checkServer: async () => {
+            throw new SyncPortError(code)
+          },
+        })
+        renderWizard(port)
+        await typeOwnAddress(SERVER)
+        await screen.findByText(message)
+        expect(screen.getByLabelText("Имя пользователя")).toBeTruthy()
+        expect(button("Войти").disabled).toBe(true)
+        expect(port.signIn).not.toHaveBeenCalled()
+      },
+    )
 
-    it("warns about plain http and passes the choice on", async () => {
-      // П41, Р11: «в локальной сети» is an explicit switch with a warning
+    it("requires an explicit switch for plain HTTP", async () => {
       const port = createFakePort()
       renderWizard(port)
-      expect(screen.queryByText(/идут по сети открыто/)).toBeNull()
-      fireEvent.click(screen.getByRole("radio", { name: /Свой сервер/ }))
+      await typeOwnAddress("http://192.168.1.20:8080")
       fireEvent.click(screen.getByRole("switch", { name: /локальной сети/ }))
+      await screen.findByText("Сервер доступен")
       expect(screen.getByText(/идут по сети открыто/)).toBeTruthy()
-      typeOwnAddress("http://192.168.1.20:8080")
-      click("Проверить сервер")
-      await screen.findByText(/Сервер найден/)
       expect(port.checkServer).toHaveBeenCalledWith({
         url: "http://192.168.1.20:8080",
         allowHttp: true,
       })
     })
 
-    it("starts from the server of a record whose keys were lost", () => {
+    it("invalidates a successful check as soon as the address changes", async () => {
+      const port = createFakePort()
+      renderWizard(port)
+      await chooseServer(port)
+      type("Имя пользователя", "alice")
+      type("Пароль", STRONG)
+      expect(button("Войти").disabled).toBe(false)
+      type("Адрес сервера", "https://other.example.com")
+      expect(button("Войти").disabled).toBe(true)
+      expect(port.signIn).not.toHaveBeenCalled()
+    })
+
+    it("ignores a late result for a server the person has already changed", async () => {
+      let old: (value: Awaited<ReturnType<FakePort["checkServer"]>>) => void = () => {}
+      const port = createFakePort({
+        checkServer: ({ url }) =>
+          url === AMBY_SERVER_URL
+            ? new Promise((resolve) => {
+                old = resolve
+              })
+            : Promise.resolve({
+                url,
+                host: "sync.example.com",
+                serverVersion: "1",
+                instanceId: "id",
+                registrationOpen: true,
+              }),
+      })
+      renderWizard(port)
+      await waitFor(() => expect(port.checkServer).toHaveBeenCalledTimes(1))
+      await chooseServer(port)
+      old({
+        url: AMBY_SERVER_URL,
+        host: "old",
+        serverVersion: "old",
+        instanceId: "id",
+        registrationOpen: false,
+      })
+      click("Регистрация")
+      expect(screen.queryByLabelText("Код приглашения")).toBeNull()
+    })
+
+    it("rechecks connectivity when the network returns", async () => {
+      let online = false
+      const port = createFakePort({
+        checkServer: async ({ url }) => {
+          if (!online) throw new SyncPortError("network")
+          return { url, host: "sync.example.com", serverVersion: "1", instanceId: "id" }
+        },
+      })
+      renderWizard(port)
+      await screen.findByText(/Не удалось связаться/)
+      online = true
+      fireEvent(window, new Event("online"))
+      await screen.findByText("Сервер доступен")
+    })
+
+    it("starts with the recorded server and username when keys were lost", () => {
       render(
         <ConnectWizard
           port={createFakePort()}
@@ -199,6 +213,7 @@ describe("the connect wizard", () => {
         />,
       )
       expect((screen.getByLabelText("Адрес сервера") as HTMLInputElement).value).toBe(SERVER)
+      expect((screen.getByLabelText("Имя пользователя") as HTMLInputElement).value).toBe("alice")
     })
   })
 
@@ -207,7 +222,7 @@ describe("the connect wizard", () => {
       const port = createFakePort()
       renderWizard(port)
       await chooseServer(port)
-      click("Создать учётную запись")
+      click("Регистрация")
       expect(screen.getByLabelText("Имя пользователя")).toBeTruthy()
       expect(screen.getByLabelText("Код приглашения")).toBeTruthy()
       expect((screen.getByLabelText("Пароль") as HTMLInputElement).type).toBe("password")
@@ -222,13 +237,13 @@ describe("the connect wizard", () => {
       const port = createFakePort()
       renderWizard(port)
       await chooseServer(port)
-      click("Создать учётную запись")
+      click("Регистрация")
       await fillCreateForm("password12345678")
       await waitFor(() =>
-        expect(screen.getByTestId("password-strength").textContent).toMatch(/Слабый пароль/),
+        expect(screen.getByTestId("password-strength").textContent).toMatch(/^Нужно: /),
       )
-      expect(button("Продолжить").disabled).toBe(true)
-      click("Продолжить")
+      expect(button("Зарегистрироваться").disabled).toBe(true)
+      click("Зарегистрироваться")
       expect(port.prepareAccount).not.toHaveBeenCalled()
     })
 
@@ -236,42 +251,42 @@ describe("the connect wizard", () => {
       const port = createFakePort()
       renderWizard(port)
       await chooseServer(port)
-      click("Создать учётную запись")
+      click("Регистрация")
       await fillCreateForm("Short1!")
       await waitFor(() =>
         expect(screen.getByTestId("password-strength").textContent).toMatch(
-          /Не короче 12 символов/,
+          /Нужно: не короче 12 символов/,
         ),
       )
-      expect(button("Продолжить").disabled).toBe(true)
+      expect(button("Зарегистрироваться").disabled).toBe(true)
     })
 
     it("does not go on when the two passwords differ", async () => {
       const port = createFakePort()
       renderWizard(port)
       await chooseServer(port)
-      click("Создать учётную запись")
+      click("Регистрация")
       await fillCreateForm(STRONG, STRONG + "x")
       expect(screen.getByText("Пароли не совпадают")).toBeTruthy()
-      expect(button("Продолжить").disabled).toBe(true)
+      expect(button("Зарегистрироваться").disabled).toBe(true)
     })
 
     it("does not go on with an empty name or invitation code", async () => {
       const port = createFakePort()
       renderWizard(port)
       await chooseServer(port)
-      click("Создать учётную запись")
+      click("Регистрация")
       await fillCreateForm()
-      await waitFor(() => expect(button("Продолжить").disabled).toBe(false))
+      await waitFor(() => expect(button("Зарегистрироваться").disabled).toBe(false))
       type("Код приглашения", "")
-      expect(button("Продолжить").disabled).toBe(true)
+      expect(button("Зарегистрироваться").disabled).toBe(true)
     })
 
     it("shows the strength of a good password", async () => {
       const port = createFakePort()
       renderWizard(port)
       await chooseServer(port)
-      click("Создать учётную запись")
+      click("Регистрация")
       await fillCreateForm()
       await waitFor(() =>
         expect(screen.getByTestId("password-strength").textContent).toMatch(/Отличный|Хороший/),
@@ -294,6 +309,19 @@ describe("the connect wizard", () => {
       expect(port.confirmRecoveryCode).not.toHaveBeenCalled()
     })
 
+    it("canonicalizes a mixed-case username before preparing an account", async () => {
+      const port = createFakePort()
+      renderWizard(port)
+      await chooseServer(port)
+      click("Регистрация")
+      await fillCreateForm()
+      type("Имя пользователя", "BoB")
+      await waitFor(() => expect(button("Зарегистрироваться").disabled).toBe(false))
+      click("Зарегистрироваться")
+      await screen.findByTestId("recovery-code")
+      expect(port.prepareAccount).toHaveBeenCalledWith(expect.objectContaining({ username: "bob" }))
+    })
+
     it.each([
       ["invalid_username", /Имя пользователя: /],
       ["weak_password", /слишком простой/],
@@ -306,10 +334,10 @@ describe("the connect wizard", () => {
       })
       renderWizard(port)
       await chooseServer(port)
-      click("Создать учётную запись")
+      click("Регистрация")
       await fillCreateForm()
-      await waitFor(() => expect(button("Продолжить").disabled).toBe(false))
-      click("Продолжить")
+      await waitFor(() => expect(button("Зарегистрироваться").disabled).toBe(false))
+      click("Зарегистрироваться")
       const alert = await screen.findByRole("alert")
       expect(alert.textContent).toMatch(message)
       expect(screen.getByLabelText("Имя пользователя")).toBeTruthy()
@@ -325,11 +353,11 @@ describe("the connect wizard", () => {
       })
       renderWizard(port)
       await chooseServer(port)
-      click("Создать учётную запись")
+      click("Регистрация")
       await fillCreateForm()
-      await waitFor(() => expect(button("Продолжить").disabled).toBe(false))
-      click("Продолжить")
-      fireEvent.click(screen.getByRole("button", { name: /Продолжить|Подождите/ }))
+      await waitFor(() => expect(button("Зарегистрироваться").disabled).toBe(false))
+      click("Зарегистрироваться")
+      fireEvent.click(screen.getByRole("button", { name: /Зарегистрироваться|Подождите/ }))
       expect(port.prepareAccount).toHaveBeenCalledTimes(1)
       release?.()
       await screen.findByTestId("recovery-code")
@@ -578,7 +606,6 @@ describe("the connect wizard", () => {
   describe("signing in", () => {
     async function openSignIn(port: FakePort) {
       await chooseServer(port)
-      click("Войти")
     }
 
     it("asks for the name, the password and the device name", async () => {
@@ -619,6 +646,24 @@ describe("the connect wizard", () => {
       type("Пароль", STRONG)
       click("Войти")
       await waitFor(() => expect(onConnected).toHaveBeenCalledWith(CONNECTED))
+    })
+
+    it("canonicalizes a mixed-case username before signing in", async () => {
+      const port = createFakePort()
+      renderWizard(port)
+      await openSignIn(port)
+      type("Имя пользователя", "BoB")
+      type("Пароль", STRONG)
+      click("Войти")
+      await waitFor(() =>
+        expect(port.signIn).toHaveBeenCalledWith({
+          url: SERVER,
+          allowHttp: false,
+          username: "bob",
+          password: STRONG,
+          deviceName: "Mac mini",
+        }),
+      )
     })
 
     it("does not judge the strength of a password that already exists", async () => {
@@ -677,12 +722,13 @@ describe("the connect wizard", () => {
       expect((await screen.findByRole("alert")).textContent).toMatch(/Не удалось связаться/)
     })
 
-    it("goes back to the server step", async () => {
+    it("switches to registration without carrying the password", async () => {
       const port = createFakePort()
       renderWizard(port)
       await openSignIn(port)
-      click("Назад")
-      expect(screen.getByRole("button", { name: "Создать учётную запись" })).toBeTruthy()
+      type("Пароль", "private")
+      click("Регистрация")
+      expect((screen.getByLabelText("Пароль") as HTMLInputElement).value).toBe("")
     })
   })
 
@@ -711,7 +757,7 @@ describe("the connect wizard", () => {
       type("Новый пароль", "password12345678")
       type("Повторите новый пароль", "password12345678")
       await waitFor(() =>
-        expect(screen.getByTestId("password-strength").textContent).toMatch(/Слабый/),
+        expect(screen.getByTestId("password-strength").textContent).toMatch(/^Нужно: /),
       )
       expect(button("Восстановить доступ").disabled).toBe(true)
     })
@@ -735,6 +781,28 @@ describe("the connect wizard", () => {
         newPassword: STRONG,
         deviceName: "Mac mini",
       })
+    })
+
+    it("canonicalizes a mixed-case username before recovery", async () => {
+      const port = createFakePort()
+      renderWizard(port)
+      await openRecover(port)
+      type("Имя пользователя", "BoB")
+      type("Код восстановления", FAKE_CODE.toLowerCase())
+      type("Новый пароль", STRONG)
+      type("Повторите новый пароль", STRONG)
+      await waitFor(() => expect(button("Восстановить доступ").disabled).toBe(false))
+      click("Восстановить доступ")
+      await waitFor(() =>
+        expect(port.recover).toHaveBeenCalledWith({
+          url: SERVER,
+          allowHttp: false,
+          username: "bob",
+          recoveryCode: FAKE_CODE.toLowerCase(),
+          newPassword: STRONG,
+          deviceName: "Mac mini",
+        }),
+      )
     })
 
     it.each([
@@ -763,58 +831,81 @@ describe("the connect wizard", () => {
     const port = createFakePort()
     const { container } = renderWizard(port)
     await chooseServer(port)
-    click("Создать учётную запись")
+    click("Регистрация")
     await fillCreateForm()
     expect(container.textContent ?? "").not.toContain(STRONG)
   })
 })
 
-describe("the action rows of the connect wizard", () => {
+describe("one primary authentication action", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("ru")
   })
-  afterEach(() => {
-    cleanup()
-    vi.restoreAllMocks()
-  })
-
-  const rowOf = () => screen.getByTestId("wizard-actions")
-  const labels = (row: HTMLElement) =>
-    Array.from(row.querySelectorAll("button")).map((b) => b.textContent?.trim())
-
-  it("keeps the server step's actions in one row, the primary one first", () => {
-    renderWizard(createFakePort())
-    expect(labels(rowOf())).toEqual(["Проверить сервер"])
-    fireEvent.click(screen.getByRole("radio", { name: /Свой сервер/ }))
-    expect(labels(rowOf())).toEqual(["Проверить сервер", "Как поднять свой сервер"])
-  })
-
-  it("puts every action of the choice step, Back included, in one row", async () => {
-    const port = createFakePort()
-    renderWizard(port)
-    await chooseServer(port)
-    expect(labels(rowOf())).toEqual(["Создать учётную запись", "Войти", "Забыли пароль?", "Назад"])
-    expect(screen.getAllByTestId("wizard-actions")).toHaveLength(1)
-  })
-
+  afterEach(cleanup)
   it.each([
-    ["Создать учётную запись", "Продолжить"],
-    ["Войти", "Войти"],
-    ["Забыли пароль?", "Восстановить доступ"],
-  ])("puts the primary action before Back on the step '%s'", async (choice, primary) => {
-    const port = createFakePort()
+    ["Вход", "Войти"],
+    ["Регистрация", "Зарегистрироваться"],
+  ])("has one submit in %s mode", async (mode, primary) => {
+    renderWizard(createFakePort())
+    click(mode)
+    expect(
+      [...document.querySelectorAll('button[type="submit"]')].map((button) =>
+        button.textContent?.trim(),
+      ),
+    ).toEqual([primary])
+    expect(screen.queryByRole("button", { name: "Проверить сервер" })).toBeNull()
+  })
+})
+
+// Open registration is advertised by the server; recovery acknowledgement still precedes enrolment.
+describe("open registration", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("ru")
+  })
+  afterEach(cleanup)
+
+  function openPort() {
+    return createFakePort({
+      checkServer: async ({ url }) => ({
+        url,
+        host: "sync.example.com",
+        serverVersion: "0.2.0",
+        instanceId: "00112233445566778899aabbccddeeff",
+        registrationOpen: true,
+      }),
+    })
+  }
+
+  it("creates an account without asking for an invitation and still shows recovery before sending", async () => {
+    const port = openPort()
     renderWizard(port)
     await chooseServer(port)
-    click(choice)
-    const row = rowOf()
-    expect(labels(row)).toEqual([primary, "Назад"])
-    expect(screen.getAllByTestId("wizard-actions")).toHaveLength(1)
+    click("Регистрация")
+    expect(screen.queryByLabelText("Код приглашения")).toBeNull()
+    type("Имя пользователя", "alice")
+    type("Пароль", STRONG)
+    type("Повторите пароль", STRONG)
+    await waitFor(() => expect(button("Зарегистрироваться").disabled).toBe(false))
+    click("Зарегистрироваться")
+    await screen.findByTestId("recovery-code")
+    expect(port.prepareAccount).toHaveBeenCalledWith(
+      expect.objectContaining({ enrollCode: "", username: "alice" }),
+    )
+    expect(port.confirmRecoveryCode).not.toHaveBeenCalled()
   })
 
-  it("puts the primary action before Back on the recovery code step", async () => {
-    const port = createFakePort()
+  it("can still use an invitation for a name reserved by the administrator on an open server", async () => {
+    const port = openPort()
     renderWizard(port)
-    await reachRecoveryStep(port)
-    expect(labels(rowOf())).toEqual(["Подтвердить и подключиться", "Назад"])
+    await chooseServer(port)
+    click("Регистрация")
+    fireEvent.click(screen.getByRole("checkbox", { name: "У меня есть код приглашения" }))
+    await fillCreateForm()
+    await waitFor(() => expect(button("Зарегистрироваться").disabled).toBe(false))
+    click("Зарегистрироваться")
+    await screen.findByTestId("recovery-code")
+    expect(port.prepareAccount).toHaveBeenCalledWith(
+      expect.objectContaining({ enrollCode: "AAAA-BBBB-CCCC-DDDD-EEEE" }),
+    )
   })
 })

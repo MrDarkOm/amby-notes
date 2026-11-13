@@ -249,6 +249,7 @@ pub fn sync_mutation_result(
                 mutation: result,
                 index_state: IndexState::Healthy,
                 warnings: Vec::new(),
+                rewritten_notes: None,
             }
         }
         Err(error) => {
@@ -262,6 +263,7 @@ pub fn sync_mutation_result(
                 mutation: result,
                 index_state: IndexState::RebuildRequired,
                 warnings: vec![OperationWarning::IndexRebuildRequired],
+                rewritten_notes: None,
             }
         }
     }
@@ -475,6 +477,74 @@ mod failure_tests {
     }
 
     #[test]
+    fn a_note_made_into_a_super_note_is_noted_as_a_move_before_it_moves() {
+        // Д70а: the hint goes first, so a pass cannot read the move as a deletion and a new file.
+        let root =
+            std::env::temp_dir().join(format!("amby-ensure-bundle-{}", ulid::Ulid::generate()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("Idea.md"), "text of the idea").unwrap();
+        let context = VaultContext::new();
+        context
+            .activate(root.to_str().unwrap(), |_| Ok(()), |_, _| ())
+            .unwrap();
+        let root = context.root().unwrap();
+        let old = root.join("Idea.md");
+        let new = root.join("Idea").join("Idea.md");
+        let seen = std::cell::RefCell::new(Vec::new());
+        let record = |vault: &Path, changes: &[PathChange]| {
+            seen.borrow_mut().push((
+                vault.to_path_buf(),
+                old.is_file() && !new.exists(),
+                changes
+                    .iter()
+                    .map(|change| (change.old_path.clone(), change.new_path.clone()))
+                    .collect::<Vec<_>>(),
+            ));
+        };
+        let outcome =
+            ensure_bundle_inner(&context, &WatcherState::new(), &record, path_string(&old))
+                .unwrap();
+        assert_eq!(outcome.mutation.primary_path, Some(path_string(&new)));
+        assert!(new.is_file() && !old.exists());
+        let seen = seen.into_inner();
+        assert_eq!(seen.len(), 1, "one call with the one change");
+        assert_eq!(seen[0].0, root);
+        assert!(seen[0].1, "the hint is recorded before the file moves");
+        assert_eq!(seen[0].2, vec![(path_string(&old), path_string(&new))]);
+        drop(context);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_note_that_is_already_a_super_note_records_no_hint() {
+        let root =
+            std::env::temp_dir().join(format!("amby-ensure-bundle-{}", ulid::Ulid::generate()));
+        fs::create_dir_all(root.join("Idea")).unwrap();
+        fs::write(root.join("Idea/Idea.md"), "text").unwrap();
+        let context = VaultContext::new();
+        context
+            .activate(root.to_str().unwrap(), |_| Ok(()), |_, _| ())
+            .unwrap();
+        let root = context.root().unwrap();
+        let calls = std::cell::Cell::new(0);
+        let record = |_: &Path, changes: &[PathChange]| {
+            if !changes.is_empty() {
+                calls.set(calls.get() + 1);
+            }
+        };
+        ensure_bundle_inner(
+            &context,
+            &WatcherState::new(),
+            &record,
+            path_string(&root.join("Idea/Idea.md")),
+        )
+        .unwrap();
+        assert_eq!(calls.get(), 0);
+        drop(context);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn failed_index_after_filesystem_success_does_not_relock_vault() {
         let (sender, receiver) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
@@ -508,12 +578,39 @@ mod failure_tests {
 #[tauri::command]
 #[specta::specta]
 pub fn ensure_bundle(
+    app: tauri::AppHandle,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
+    sync_runtime: tauri::State<'_, crate::sync::runtime::SyncRuntime>,
+    path: String,
+) -> Result<MutationOutcome, String> {
+    let outcome = ensure_bundle_inner(
+        &db,
+        &watcher_state,
+        &|root, changes| sync_runtime.note_renames(root, changes),
+        path,
+    )?;
+    notify_structural_mutation(&app, &db, &outcome);
+    Ok(outcome)
+}
+
+/// The body of `ensure_bundle` without the Tauri state wrappers (see `rename_item_inner`).
+pub(crate) fn ensure_bundle_inner(
+    db: &VaultContext,
+    watcher_state: &WatcherState,
+    note_renames: &dyn Fn(&Path, &[PathChange]),
     path: String,
 ) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
-    let path = paths::guard(&db, &path)?;
+    let path = paths::guard(db, &path)?;
+    // Synchronisation learns that this is a move, before the file moves (Д70а): a pass that starts
+    // between the move and a later hint would read it as a deletion and a new file.
+    let expected = preview_ensure_bundle_path(&path);
+    if !expected.is_empty() {
+        if let Ok(root) = db.root() {
+            note_renames(&root, &expected);
+        }
+    }
     let (primary, path_changes) = ensure_bundle_path(&path)?;
     let result = FsMutationResult {
         tree_patch: None,
@@ -526,18 +623,40 @@ pub fn ensure_bundle(
     };
     watcher_state.mark_write(mutation_paths(&result));
     let vault = db.root()?;
-    Ok(sync_mutation_result(&db, &vault, result))
+    let mut outcome = sync_mutation_result(db, &vault, result);
+    outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
+    Ok(outcome)
+}
+
+/// Publish structural changes to every window after the durable mutation succeeded.
+fn notify_structural_mutation(
+    app: &tauri::AppHandle,
+    db: &VaultContext,
+    outcome: &MutationOutcome,
+) {
+    if let Some((generation, rewritten)) = &outcome.rewritten_notes {
+        if let Ok(vault) = db.root() {
+            let mut paths = mutation_paths(&outcome.mutation);
+            paths.extend(rewritten.iter().cloned());
+            paths.sort();
+            paths.dedup();
+            watcher::notify_published_files(app, &vault, *generation, &paths, None);
+        }
+    }
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn create_note(
+    app: tauri::AppHandle,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
     parent_path: String,
     name: String,
 ) -> Result<MutationOutcome, String> {
-    create_note_inner(&db, &watcher_state, parent_path, name)
+    let outcome = create_note_inner(&db, &watcher_state, parent_path, name)?;
+    notify_structural_mutation(&app, &db, &outcome);
+    Ok(outcome)
 }
 
 /// The body of `create_note` without the Tauri state wrappers (see `rename_item_inner`).
@@ -562,7 +681,8 @@ pub(crate) fn create_note_inner(
         }
     };
     let vault = db.root()?;
-    let outcome = sync_mutation_result(db, &vault, result);
+    let mut outcome = sync_mutation_result(db, &vault, result);
+    outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
     tracing::info!(
         event = "create_note",
         parent = %parent_path.display(),
@@ -575,6 +695,7 @@ pub(crate) fn create_note_inner(
 #[tauri::command]
 #[specta::specta]
 pub fn create_layer(
+    app: tauri::AppHandle,
     scope: tauri::State<paths::VaultScope>,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
@@ -593,7 +714,7 @@ pub fn create_layer(
             paths.push(PathBuf::from(&change.new_path));
         }
     }
-    watcher_state.mark_write(paths);
+    watcher_state.mark_write(&paths);
     let vault = scope.get()?;
     let mut changes = result.path_changes.clone();
     if crate::vault::scan::is_markdown(Path::new(&result.layer_path)) {
@@ -603,12 +724,14 @@ pub fn create_layer(
         });
     }
     sync_path_changes(&db, &vault, &changes)?;
+    watcher::notify_published_files(&app, &vault, db.generation()?, &paths, None);
     Ok(result)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn create_canvas(
+    app: tauri::AppHandle,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
     parent_path: String,
@@ -618,12 +741,20 @@ pub fn create_canvas(
     let parent_path = paths::guard(&db, &parent_path)?;
     let path = create_canvas_impl(&parent_path, &name)?;
     watcher_state.mark_write([path.as_path()]);
+    watcher::notify_published_files(
+        &app,
+        &db.root()?,
+        db.generation()?,
+        std::slice::from_ref(&path),
+        None,
+    );
     Ok(path_string(&path))
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn attach_canvas_to_note(
+    app: tauri::AppHandle,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
     canvas_path: String,
@@ -633,12 +764,16 @@ pub fn attach_canvas_to_note(
     let result = attach_canvas_impl(&canvas_path)?;
     watcher_state.mark_write(mutation_paths(&result));
     let vault = db.root()?;
-    Ok(sync_mutation_result(&db, &vault, result))
+    let mut outcome = sync_mutation_result(&db, &vault, result);
+    outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
+    notify_structural_mutation(&app, &db, &outcome);
+    Ok(outcome)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn create_sketch(
+    app: tauri::AppHandle,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
     parent_path: String,
@@ -648,12 +783,20 @@ pub fn create_sketch(
     let parent_path = paths::guard(&db, &parent_path)?;
     let path = create_sketch_impl(&parent_path, &name)?;
     watcher_state.mark_write([path.as_path()]);
+    watcher::notify_published_files(
+        &app,
+        &db.root()?,
+        db.generation()?,
+        std::slice::from_ref(&path),
+        None,
+    );
     Ok(path_string(&path))
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn attach_sketch_to_note(
+    app: tauri::AppHandle,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
     sketch_path: String,
@@ -663,12 +806,16 @@ pub fn attach_sketch_to_note(
     let result = attach_sketch_impl(&sketch_path)?;
     watcher_state.mark_write(mutation_paths(&result));
     let vault = db.root()?;
-    Ok(sync_mutation_result(&db, &vault, result))
+    let mut outcome = sync_mutation_result(&db, &vault, result);
+    outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
+    notify_structural_mutation(&app, &db, &outcome);
+    Ok(outcome)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn unlink_layer(
+    app: tauri::AppHandle,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
     note_path: String,
@@ -679,12 +826,16 @@ pub fn unlink_layer(
     let result = unlink_layer_impl(&note_path, &kind)?;
     watcher_state.mark_write(mutation_paths(&result));
     let vault = db.root()?;
-    Ok(sync_mutation_result(&db, &vault, result))
+    let mut outcome = sync_mutation_result(&db, &vault, result);
+    outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
+    notify_structural_mutation(&app, &db, &outcome);
+    Ok(outcome)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn delete_layer(
+    app: tauri::AppHandle,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
     note_path: String,
@@ -696,7 +847,10 @@ pub fn delete_layer(
     let result = delete_layer_impl(&vault, &note_path, &kind)?;
     watcher_state.mark_write(mutation_paths(&result));
     let vault = db.root()?;
-    Ok(sync_mutation_result(&db, &vault, result))
+    let mut outcome = sync_mutation_result(&db, &vault, result);
+    outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
+    notify_structural_mutation(&app, &db, &outcome);
+    Ok(outcome)
 }
 
 #[tauri::command]
@@ -754,9 +908,47 @@ mod layer_tests {
     }
 }
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MovedPathsEvent {
+    generation: u64,
+    origin_window: String,
+    path_changes: Vec<PathChange>,
+}
+
+fn notify_moved_paths(app: &tauri::AppHandle, origin_window: &str, outcome: &MutationOutcome) {
+    use tauri::Emitter;
+    let Some((generation, _)) = &outcome.rewritten_notes else {
+        return;
+    };
+    let path_changes: Vec<_> = outcome
+        .mutation
+        .path_changes
+        .iter()
+        .filter(|change| !change.old_path.is_empty() && !change.new_path.is_empty())
+        .cloned()
+        .collect();
+    if path_changes.is_empty() {
+        return;
+    }
+    if let Err(error) = app.emit(
+        "amby:paths-moved",
+        MovedPathsEvent {
+            generation: *generation,
+            origin_window: origin_window.to_owned(),
+            path_changes,
+        },
+    ) {
+        tracing::warn!(event = "moved_paths_event_failed", %error);
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
+#[allow(clippy::too_many_arguments)]
 pub fn move_item(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     db: tauri::State<'_, VaultContext>,
     runtime: tauri::State<'_, DatabaseRuntimeState>,
     watcher_state: tauri::State<'_, WatcherState>,
@@ -764,14 +956,17 @@ pub fn move_item(
     source_path: String,
     target_path: String,
 ) -> Result<MutationOutcome, String> {
-    move_item_inner(
+    let outcome = move_item_inner(
         &db,
         &runtime,
         &watcher_state,
         &|root, changes| sync_runtime.note_renames(root, changes),
         source_path,
         target_path,
-    )
+    )?;
+    notify_moved_paths(&app, window.label(), &outcome);
+    notify_structural_mutation(&app, &db, &outcome);
+    Ok(outcome)
 }
 
 /// The body of `move_item` without the Tauri state wrappers (see `rename_item_inner`).
@@ -906,6 +1101,7 @@ pub(crate) fn move_item_inner(
         return Err("Vault changed while applying move".to_string());
     }
     refresh_database_projection(runtime, conn, &mut outcome, &rewritten_paths);
+    outcome.rewritten_notes = Some((generation, rewritten_paths));
     Ok(outcome)
 }
 
@@ -951,6 +1147,7 @@ fn refresh_database_projection(
 #[tauri::command]
 #[specta::specta]
 pub fn create_file(
+    app: tauri::AppHandle,
     scope: tauri::State<paths::VaultScope>,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
@@ -973,12 +1170,20 @@ pub fn create_file(
             return Err(error);
         }
     }
+    watcher::notify_published_files(
+        &app,
+        &db.root()?,
+        db.generation()?,
+        std::slice::from_ref(&path),
+        None,
+    );
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn create_folder(
+    app: tauri::AppHandle,
     scope: tauri::State<paths::VaultScope>,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
@@ -994,6 +1199,13 @@ pub fn create_folder(
         Ok(()) => {
             watcher_state.confirm_prepared_write(&prepared);
             tracing::info!(event = "create_folder", path = %path.display());
+            watcher::notify_published_files(
+                &app,
+                &db.root()?,
+                db.generation()?,
+                std::slice::from_ref(&path),
+                None,
+            );
             Ok(())
         }
         Err(error) => {
@@ -1041,7 +1253,10 @@ fn retitle_renamed_note(
 
 #[tauri::command]
 #[specta::specta]
+#[allow(clippy::too_many_arguments)]
 pub fn rename_item(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     db: tauri::State<'_, VaultContext>,
     runtime: tauri::State<'_, DatabaseRuntimeState>,
     watcher_state: tauri::State<'_, WatcherState>,
@@ -1049,14 +1264,17 @@ pub fn rename_item(
     path: String,
     new_name: String,
 ) -> Result<MutationOutcome, String> {
-    rename_item_inner(
+    let outcome = rename_item_inner(
         &db,
         &runtime,
         &watcher_state,
         &|root, changes| sync_runtime.note_renames(root, changes),
         path,
         new_name,
-    )
+    )?;
+    notify_moved_paths(&app, window.label(), &outcome);
+    notify_structural_mutation(&app, &db, &outcome);
+    Ok(outcome)
 }
 
 /// The body of `rename_item` without the Tauri state wrappers, so the large-vault
@@ -1167,6 +1385,7 @@ pub(crate) fn rename_item_inner(
         return Err("Vault changed while applying rename".to_string());
     }
     refresh_database_projection(runtime, conn, &mut outcome, &rewritten_paths);
+    outcome.rewritten_notes = Some((generation, rewritten_paths));
     tracing::info!(
         event = "rename_item",
         path = %path.display(),
@@ -1178,12 +1397,15 @@ pub(crate) fn rename_item_inner(
 #[tauri::command]
 #[specta::specta]
 pub fn delete_item(
+    app: tauri::AppHandle,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
     mode: recycle_bin::DeleteMode,
 ) -> Result<MutationOutcome, String> {
-    delete_item_inner(&db, &watcher_state, path, mode)
+    let outcome = delete_item_inner(&db, &watcher_state, path, mode)?;
+    notify_structural_mutation(&app, &db, &outcome);
+    Ok(outcome)
 }
 
 /// The body of `delete_item` without the Tauri state wrappers (see `rename_item_inner`).
@@ -1211,7 +1433,8 @@ pub(crate) fn delete_item_inner(
     let prepared = watcher_state.prepare_write(writes);
     let removal = match mode {
         recycle_bin::DeleteMode::System => system_recycle_bin::move_to_system_trash(&vault, &path),
-        recycle_bin::DeleteMode::Vault => recycle_bin::move_to_trash(&vault, &path),
+        // К4: the setting «Переносить в архив» does what «В архив» does.
+        recycle_bin::DeleteMode::Archive => crate::archive::move_to_archive(&vault, &path),
         recycle_bin::DeleteMode::Permanent => recycle_bin::delete_permanently(&vault, &path),
     };
     let result = match removal {
@@ -1225,18 +1448,33 @@ pub(crate) fn delete_item_inner(
         }
     };
     let vault = db.root()?;
-    Ok(sync_mutation_result(db, &vault, result))
+    let mut outcome = sync_mutation_result(db, &vault, result);
+    outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
+    Ok(outcome)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn archive_item(
+    app: tauri::AppHandle,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
 ) -> Result<MutationOutcome, String> {
+    let outcome = archive_item_inner(&db, &watcher_state, path)?;
+    notify_structural_mutation(&app, &db, &outcome);
+    Ok(outcome)
+}
+
+/// The body of `archive_item` without the Tauri state wrappers (see `delete_item_inner`): «В архив»
+/// (docs/sync-plan.md, К1).
+pub(crate) fn archive_item_inner(
+    db: &VaultContext,
+    watcher_state: &WatcherState,
+    path: String,
+) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
-    let path = paths::guard(&db, &path)?;
+    let path = paths::guard(db, &path)?;
     let vault = db.root()?;
     let preview = recycle_bin::preview_move_to_trash(&vault, &path)?;
     let mut writes = vec![(preview.original_path.clone(), PathFingerprint::Missing)];
@@ -1248,7 +1486,7 @@ pub fn archive_item(
             .map(|path| (path, PathFingerprint::Missing)),
     );
     let prepared = watcher_state.prepare_write(writes);
-    let result = match recycle_bin::move_to_trash(&vault, &path) {
+    let result = match crate::archive::move_to_archive(&vault, &path) {
         Ok(result) => {
             watcher_state.confirm_prepared_write(&prepared);
             result
@@ -1259,5 +1497,7 @@ pub fn archive_item(
         }
     };
     let vault = db.root()?;
-    Ok(sync_mutation_result(&db, &vault, result))
+    let mut outcome = sync_mutation_result(db, &vault, result);
+    outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
+    Ok(outcome)
 }

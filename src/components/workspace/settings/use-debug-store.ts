@@ -120,6 +120,7 @@ export const useDebugStore = create<DebugStore>((set, get) => ({
     try {
       const [history, health] = await Promise.all([
         loadLogHistory(),
+        // No health snapshot is a normal answer here; the log history is shown without it.
         collectDebugHealth().catch(() => null),
       ])
       set({
@@ -144,6 +145,7 @@ export const useDebugStore = create<DebugStore>((set, get) => ({
     try {
       const [history, health] = await Promise.all([
         loadLogHistory(),
+        // No health snapshot is a normal answer here; the log history is shown without it.
         collectDebugHealth().catch(() => null),
       ])
       set({

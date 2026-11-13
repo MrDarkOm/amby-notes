@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next"
 import type { DatabaseRow, Notebook } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { formatModified } from "../../workspace-tree-utils"
-import { projectErrorText } from "../project-error"
 import { QuickCreate } from "../workshop/quick-create"
 import type { StoryLabels } from "../workshop/workshop-model"
 import {
@@ -14,6 +13,7 @@ import {
   notebookLabel,
   notesInTab,
 } from "./notes-board-model"
+import { projectErrorText } from "@/lib/operation-errors"
 
 interface NotesBoardProps {
   /** The rows of the notes base; `undefined` while they are being read. */

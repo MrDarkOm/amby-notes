@@ -21,18 +21,25 @@ import {
   SyncPortError,
   type ApprovalKind,
   type ConflictChoice,
+  type NotePick,
   type SpaceView,
   type SyncPort,
   type VaultSyncStatus,
 } from "@/lib/sync/sync-port"
+import { propertyStorageStatus } from "@/lib/properties/property-groups-port"
+import { SyncCompareDialog } from "./sync-compare-dialog"
 import { ConflictList, StopNotice, UnsyncedList } from "./sync-vault-parts"
+import { clearSyncListenFailed, reportSyncListenFailed } from "./listen-failure"
+import { SubscriptionOffer } from "./subscription-offer"
+
+const LISTEN_RETRIES = 3
+const LISTEN_RETRY_MS = 10_000
 
 export interface SyncVaultPanelProps {
   /** The port to use. */
   port: SyncPort
   vault?: string | null
   onConnectionChange?: () => void
-  renderAccountHeader?: (syncControl: React.ReactNode) => React.ReactNode
 }
 
 type Mode = "new" | "existing"
@@ -45,7 +52,6 @@ type Mode = "new" | "existing"
 export function SyncVaultPanel({
   port,
   vault: givenVault,
-  renderAccountHeader,
   onConnectionChange,
 }: SyncVaultPanelProps) {
   const { t, i18n } = useTranslation()
@@ -57,6 +63,8 @@ export function SyncVaultPanel({
   const [errorCode, setErrorCode] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [resolving, setResolving] = React.useState<string | null>(null)
+  // The comparison of the settings is a window of its own: the choice between two versions is made there.
+  const [comparingId, setComparingId] = React.useState<string | null>(null)
   const [mode, setMode] = React.useState<Mode>("new")
   const [name, setName] = React.useState("")
   const [spaces, setSpaces] = React.useState<SpaceView[] | null>(null)
@@ -64,9 +72,27 @@ export function SyncVaultPanel({
   // A guard that does not wait for a render: two clicks in one tick are one request.
   const working = React.useRef(false)
 
+  // An old version of Amby still writes the old file of properties (З22, З37).
+  const [oldVersionWarning, setOldVersionWarning] = React.useState<string | null>(null)
+  const lastSyncMs = status?.lastSyncMs ?? null
+  React.useEffect(() => {
+    let alive = true
+    propertyStorageStatus()
+      .then((next) => alive && setOldVersionWarning(next?.oldVersionWarning ?? null))
+      .catch(() => alive && setOldVersionWarning(null))
+    return () => {
+      alive = false
+    }
+  }, [lastSyncMs])
+
+  // The status is pushed to this screen. When the subscription fails, the screen cannot tell how sync is
+  // doing, so it says so (instead of the last state it saw) and subscribes again, a few times, later.
+  const [listenFailed, setListenFailed] = React.useState(false)
+  const [listenAttempt, setListenAttempt] = React.useState(0)
   React.useEffect(() => {
     let alive = true
     let unlisten: (() => void) | null = null
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
     port
       .vaultStatus()
       .then((next) => alive && setStatus((current) => current ?? next))
@@ -76,13 +102,25 @@ export function SyncVaultPanel({
       .then((off) => {
         if (alive) unlisten = off
         else off()
+        if (alive) {
+          setListenFailed(false)
+          clearSyncListenFailed()
+        }
       })
-      .catch(() => {})
+      .catch((error: unknown) => {
+        if (!alive) return
+        reportSyncListenFailed(error)
+        setListenFailed(true)
+        if (listenAttempt < LISTEN_RETRIES) {
+          retryTimer = setTimeout(() => setListenAttempt((count) => count + 1), LISTEN_RETRY_MS)
+        }
+      })
     return () => {
       alive = false
+      clearTimeout(retryTimer)
       unlisten?.()
     }
-  }, [port, t])
+  }, [port, t, listenAttempt])
 
   const act = async (action: () => Promise<void>): Promise<void> => {
     if (working.current) return
@@ -166,11 +204,24 @@ export function SyncVaultPanel({
       })
   }
 
+  const groupActions = React.useMemo(
+    () => ({
+      read: (id: string) => port.readGroupConflict(id),
+      resolve: (id: string, picks: Record<string, NotePick>, stamp: string) => {
+        setError(null)
+        return port.resolveGroupConflict(id, picks, stamp)
+      },
+      onError: (caught: unknown) => setError(syncErrorMessage(caught, t)),
+    }),
+    [port, t],
+  )
+
   const errorLine = error && (
     <div className="space-y-1.5">
       <p role="alert" className="text-[12px] text-destructive">
         {error}
       </p>
+      {errorCode === "subscription_required" && <SubscriptionOffer disabled={busy} />}
       {errorCode === "space_limit" && (
         <Button
           type="button"
@@ -204,11 +255,16 @@ export function SyncVaultPanel({
       />
     </label>
   )
-  const frame = (content: React.ReactNode) => (
-    <>
-      {renderAccountHeader ? renderAccountHeader(syncControl) : syncControl}
+  const frame = (content: React.ReactNode, controlInCard = false) => (
+    <section className="sync-zone" aria-labelledby="sync-zone-storage">
+      <div className="sync-zone-heading">
+        <h2 id="sync-zone-storage" className="sync-zone-title">
+          {t("sync.layout.zoneStorage")}
+        </h2>
+        {!controlInCard && syncControl}
+      </div>
       <div className="sync-vault-zone">{content}</div>
-    </>
+    </section>
   )
 
   if (!status) {
@@ -233,6 +289,7 @@ export function SyncVaultPanel({
                 {status.spaceName ?? t("sync.vault.unnamedSpace")}
               </h3>
             </div>
+            {syncControl}
             <Button type="button" size="sm" disabled={busy} onClick={() => void resumeAfterOff()}>
               {t("sync.vault.resume")}
             </Button>
@@ -248,6 +305,7 @@ export function SyncVaultPanel({
           {backupInfo && <div className="sync-vault-footer">{backupInfo}</div>}
           {errorLine}
         </section>,
+        true,
       )
     }
     return frame(
@@ -341,6 +399,7 @@ export function SyncVaultPanel({
   }
 
   // ----- switched on -----
+  const comparing = status.conflicts.find((item) => item.id === comparingId)
   const lastSync = status.lastSyncMs === null ? null : new Date(status.lastSyncMs)
   let line: string
   switch (status.phase) {
@@ -358,9 +417,10 @@ export function SyncVaultPanel({
     default:
       line = t("sync.vault.status.idle")
   }
-  const state = refreshSyncState(status)
+  const state = listenFailed ? "unknown" : refreshSyncState(status)
   const StatusIcon = state === "problem" ? TriangleAlert : state === "synced" ? CircleCheck : Cloud
-  if (state === "problem" && status.phase === "idle") line = t("sync.layout.attention")
+  if (state === "unknown") line = t("sync.vault.status.unknown")
+  else if (state === "problem" && status.phase === "idle") line = t("sync.layout.attention")
   if (state === "pending") line = t("sync.refresh.pending")
   return frame(
     <section data-testid="sync-vault" className="sync-vault-card" data-sync-state={state}>
@@ -370,42 +430,52 @@ export function SyncVaultPanel({
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="sync-vault-name">{status.spaceName ?? t("sync.vault.unnamedSpace")}</h3>
+          <div data-testid="sync-status" role="status" className="sync-vault-status">
+            <p className="sync-status-line">
+              <span className="sync-status-dot" />
+              {line}
+            </p>
+            {status.phase === "idle" && (
+              <p className="sync-status-time">
+                {lastSync
+                  ? t("sync.vault.status.lastSync", {
+                      date: lastSync.toLocaleString(i18n.language),
+                    })
+                  : t("sync.vault.status.never")}
+              </p>
+            )}
+            {status.phase === "waiting" && status.errorCode && (
+              <p data-testid="sync-status-detail" className="sync-status-time">
+                {syncCodeMessage(status.errorCode, t)}
+              </p>
+            )}
+            {oldVersionWarning && (
+              <p role="status" className="sync-vault-old-version">
+                {oldVersionWarning}
+              </p>
+            )}
+          </div>
         </div>
-        <Button
-          type="button"
-          size="sm"
-          disabled={busy || status.phase === "running"}
-          onClick={() => void act(() => port.runNow())}
-        >
-          {busy || status.phase === "running" ? (
-            <MotionSpinner>
+        <div className="sync-vault-actions">
+          {syncControl}
+          <Button
+            type="button"
+            size="sm"
+            variant={state === "problem" || state === "pending" ? "default" : "outline"}
+            disabled={busy || status.phase === "running"}
+            onClick={() => void act(() => port.runNow())}
+          >
+            {busy || status.phase === "running" ? (
+              <MotionSpinner>
+                <RefreshCw />
+              </MotionSpinner>
+            ) : (
               <RefreshCw />
-            </MotionSpinner>
-          ) : (
-            <RefreshCw />
-          )}
-          {t("sync.vault.runNow")}
-        </Button>
+            )}
+            {t("sync.vault.runNow")}
+          </Button>
+        </div>
       </div>
-      <div data-testid="sync-status" role="status" className="sync-vault-status">
-        <p className="sync-status-line">
-          <span className="sync-status-dot" />
-          {line}
-        </p>
-        {status.phase === "idle" && (
-          <p className="sync-status-time">
-            {lastSync
-              ? t("sync.vault.status.lastSync", { date: lastSync.toLocaleString(i18n.language) })
-              : t("sync.vault.status.never")}
-          </p>
-        )}
-        {status.phase === "waiting" && status.errorCode && (
-          <p data-testid="sync-status-detail" className="sync-status-time">
-            {syncCodeMessage(status.errorCode, t)}
-          </p>
-        )}
-      </div>
-
       {status.stop && (
         <StopNotice
           stop={status.stop}
@@ -429,10 +499,20 @@ export function SyncVaultPanel({
       )}
       {errorLine}
 
-      <ConflictList items={status.conflicts} busyId={resolving} onResolve={resolve} />
+      <ConflictList
+        items={status.conflicts}
+        busyId={resolving}
+        onResolve={resolve}
+        onCompare={setComparingId}
+        groups={groupActions}
+      />
+      {comparing && (
+        <SyncCompareDialog port={port} conflict={comparing} onClose={() => setComparingId(null)} />
+      )}
       <UnsyncedList items={status.unsynced} />
 
       {backupInfo && <div className="sync-vault-footer">{backupInfo}</div>}
     </section>,
+    true,
   )
 }

@@ -431,6 +431,7 @@ export function GalleryCard({
             <CardTitleInput
               value={row.title}
               className="text-sm font-semibold"
+              refusalHint
               onCommit={(name) => cardEdit.onRename!(row, name)}
             />
           ) : (

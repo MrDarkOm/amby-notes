@@ -8,7 +8,9 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
+
+use crate::lock_util::LockExt;
 
 use crate::sync::session::SessionHooks;
 use crate::sync::vault_fs::FsHooks;
@@ -40,6 +42,10 @@ pub const RESTORED_EVENT: &str = "sync-restored-after-deletion";
 /// list of paths in the vault.
 pub const MERGED_EVENT: &str = "sync-merged";
 
+/// The event for the files of `.amby/` that a pass wrote (the groups of note properties, З65); the
+/// payload is the list of paths relative to the vault. The watcher does not look into `.amby/`.
+pub const AMBY_WRITTEN_EVENT: &str = "sync-amby-written";
+
 /// Hooks that talk to the windows of the application.
 pub struct AppHooks {
     app: tauri::AppHandle,
@@ -58,9 +64,22 @@ impl FsHooks for AppHooks {
         self.batch.begin();
     }
 
+    fn amby_written(&self, paths: &[String]) {
+        let _ = self.app.emit(AMBY_WRITTEN_EVENT, paths);
+    }
+
     fn batch_end(&self) {
-        for event in self.batch.end() {
-            let _ = self.app.emit("vault-file-changed", event);
+        let changes = self.batch.end();
+        let context = self.app.state::<crate::vault_context::VaultContext>();
+        let (vault, generation) = {
+            let guard = context.conn.lock_or_recover();
+            let Some(active) = guard.as_ref() else { return };
+            (active.root.clone(), active.generation)
+        };
+        for change in changes {
+            if change.generation == generation {
+                crate::watcher::emit_external_change(&self.app, &vault, generation, change);
+            }
         }
     }
 }

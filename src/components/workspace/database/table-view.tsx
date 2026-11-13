@@ -1,3 +1,4 @@
+import type { RenameOutcome } from "../file-actions/rename-outcome"
 import * as React from "react"
 import { motion } from "motion/react"
 import { MotionSpinner } from "@/lib/motion"
@@ -125,7 +126,7 @@ interface TableViewProps {
   newPageLabel?: string
   titleColumnName?: string
   onTitleColumnNameChange?: (name: string) => void
-  onRenameRow?: (rowId: string, name: string) => Promise<void> | void
+  onRenameRow?: (rowId: string, name: string) => Promise<RenameOutcome | void> | void
   onRenameProperty?: (propertyId: string, name: string) => Promise<void> | void
   onChangePropertyType?: (propertyId: string, propertyType: string) => Promise<void> | void
   /** The settings of a property (options, formats, ...) for its menu; `null` when it has none. */
@@ -1260,7 +1261,7 @@ export function PropertyHeaderMenu({
   trigger?: React.ReactNode
   iconValue?: string
   onIconChange?: (icon: string) => Promise<void> | void
-  onRename: (name: string) => Promise<void> | void
+  onRename: (name: string) => Promise<RenameOutcome | void> | void
   onChangeType?: (propertyType: string) => Promise<void> | void
   /** The settings of the property, shown in a submenu; `null` when it has none. */
   settingsEditor?: React.ReactNode

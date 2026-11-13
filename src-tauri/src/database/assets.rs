@@ -4,7 +4,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use super::discovery::discover_vault;
-use crate::bundle::{sanitize_ext, unique_name, MAX_ATTACHMENT_FILE_SIZE};
+use crate::bundle::{random_asset_name, sanitize_ext, MAX_ATTACHMENT_FILE_SIZE};
 use crate::frontmatter::{self, AtomicCreateError};
 use crate::paths;
 use crate::watcher::{self, WatcherState};
@@ -65,9 +65,9 @@ pub fn import_database_asset(
     if metadata.len() > MAX_ATTACHMENT_FILE_SIZE {
         return Err("Source asset exceeds the attachment size limit".to_owned());
     }
-    let stem = source
-        .file_stem()
-        .map(|value| value.to_string_lossy().to_string())
+    let original_name = source
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_else(|| "asset".to_owned());
     let extension = source
         .extension()
@@ -75,14 +75,24 @@ pub fn import_database_asset(
         .unwrap_or_default();
     let extension = sanitize_ext(&extension);
     let asset_id = ulid::Ulid::generate().to_string();
+    let compact = fs::read(&database.manifest_path)
+        .map_err(|error| error.to_string())
+        .and_then(|bytes| super::format::parse_manifest(&bytes).map_err(|error| error.to_string()))?
+        .value
+        .format_version
+        >= 2;
     let assets_dir = database
         .container_path
-        .join(".ambd/assets")
-        .join(&request.note_id);
+        .join(if compact { "assets" } else { ".ambd/assets" });
+    let assets_dir = if compact {
+        assets_dir
+    } else {
+        assets_dir.join(&request.note_id)
+    };
     let assets_dir = paths::confine(vault, &assets_dir)?;
     fs::create_dir_all(&assets_dir).map_err(|error| error.to_string())?;
     for _ in 0..1_000 {
-        let name = unique_name(&assets_dir, &stem, &extension);
+        let name = random_asset_name(&extension);
         let destination = paths::confine(vault, &assets_dir.join(&name))?;
         let prepared = watcher.prepare_write([(&destination, watcher::path_fingerprint(source))]);
         match frontmatter::atomic_copy_file_new(source, &destination, MAX_ATTACHMENT_FILE_SIZE) {
@@ -92,8 +102,12 @@ pub fn import_database_asset(
                     database_id: request.database_id.clone(),
                     note_id: request.note_id.clone(),
                     asset_id,
-                    name: name.clone(),
-                    relative_path: format!("assets/{}/{}", request.note_id, name),
+                    name: original_name.clone(),
+                    relative_path: if compact {
+                        format!("assets/{name}")
+                    } else {
+                        format!("assets/{}/{}", request.note_id, name)
+                    },
                     mime_type: mime_type_for(&name),
                     size_bytes: metadata.len(),
                 });
@@ -141,7 +155,17 @@ pub fn resolve_database_asset_paths(
         ));
     }
     let container = super::mutations::find_database_container(vault, &request.database_id)?;
-    let assets_root = container.join(".ambd");
+    let compact = fs::read(super::discovery::manifest_path_for_container(&container))
+        .map_err(|error| error.to_string())
+        .and_then(|bytes| super::format::parse_manifest(&bytes).map_err(|error| error.to_string()))?
+        .value
+        .format_version
+        >= 2;
+    let assets_root = if compact {
+        container
+    } else {
+        container.join(".ambd")
+    };
     let paths = request
         .relative_paths
         .iter()
@@ -152,12 +176,14 @@ pub fn resolve_database_asset_paths(
 
 fn resolve_one_asset(vault: &Path, base: &Path, relative: &str) -> Option<String> {
     let segments: Vec<&str> = relative.split('/').collect();
-    let [assets, note_id, name] = segments.as_slice() else {
-        return None;
+    let (assets, note_id, name) = match segments.as_slice() {
+        [assets, note_id, name] => (*assets, Some(*note_id), *name),
+        [assets, name] => (*assets, None, *name),
+        _ => return None,
     };
     let extension = name.rsplit_once('.')?.1.to_ascii_lowercase();
-    if *assets != "assets"
-        || ulid::Ulid::from_string(note_id).is_err()
+    if assets != "assets"
+        || note_id.is_some_and(|id| ulid::Ulid::from_string(id).is_err())
         || name.is_empty()
         || name.starts_with('.')
         || name.contains(['\\', ':'])
@@ -168,7 +194,8 @@ fn resolve_one_asset(vault: &Path, base: &Path, relative: &str) -> Option<String
     // `confine` resolves links, so check every link in the chain lexically: a
     // link anywhere (`.ambd`, `assets`, the row folder or the file) is refused.
     let mut path = base.to_path_buf();
-    for part in [".", assets, note_id, name] {
+    let parts = [Some("."), Some(assets), note_id, Some(name)];
+    for part in parts.into_iter().flatten() {
         if part != "." {
             path.push(part);
         }
@@ -214,7 +241,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn imports_assets_into_a_row_scoped_directory() {
+    fn imports_assets_with_random_names_into_the_shared_assets_directory() {
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -258,10 +285,7 @@ mod tests {
         )
         .unwrap();
         assert!(asset.relative_path.starts_with("assets/"));
-        assert!(vault
-            .join("Media/.ambd")
-            .join(&asset.relative_path)
-            .is_file());
+        assert!(vault.join("Media").join(&asset.relative_path).is_file());
         let _ = std::fs::remove_dir_all(vault);
     }
 
@@ -284,7 +308,7 @@ mod tests {
         )
         .unwrap();
         let note_id = ulid::Ulid::generate().to_string();
-        let dir = vault.join("Media/.ambd/assets").join(&note_id);
+        let dir = vault.join("Media/assets").join(&note_id);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("cover.png"), b"png").unwrap();
         std::fs::write(dir.join("notes.txt"), b"text").unwrap();

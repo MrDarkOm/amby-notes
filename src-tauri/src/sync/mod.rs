@@ -24,6 +24,7 @@ pub mod password;
 pub mod remote;
 pub mod runtime;
 pub mod secrets;
+pub mod server_history;
 pub mod service;
 pub mod session;
 pub mod space;
@@ -84,11 +85,15 @@ pub fn deactivate_for_closed_vault(app: &tauri::AppHandle) {
 #[cfg(test)]
 mod account_overview_tests;
 #[cfg(test)]
+mod archive_sync_tests;
+#[cfg(test)]
 mod backup_boundary_tests;
 #[cfg(test)]
 mod backup_tests;
 #[cfg(test)]
 mod base_store_tests;
+#[cfg(test)]
+mod conflict_store_group_tests;
 #[cfg(test)]
 mod conflict_store_tests;
 #[cfg(test)]
@@ -108,7 +113,17 @@ mod rules_doc_tests;
 #[cfg(test)]
 mod runtime_backup_tests;
 #[cfg(test)]
+mod runtime_delete_proof_tests;
+#[cfg(test)]
+mod runtime_delete_space_tests;
+#[cfg(test)]
 mod runtime_tests;
+#[cfg(test)]
+mod server_history_tests;
+#[cfg(test)]
+mod service_identity_tests;
+#[cfg(test)]
+mod service_password_change_tests;
 #[cfg(test)]
 mod service_tests;
 #[cfg(test)]

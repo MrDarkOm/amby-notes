@@ -422,6 +422,27 @@ export async function discardRecoveryDraft(id: string, scope?: RecoveryScope): P
   }
 }
 
+function recoveryVersions(id: string, scope?: RecoveryScope) {
+  return [...recoveryQueue.values()]
+    .filter((state) => state.id === id && sameScope(state.scope, scope))
+    .map((state) => [state, state.version] as const)
+}
+
+function recoveryVersionsMatch(
+  id: string,
+  scope: RecoveryScope | undefined,
+  snapshot: ReturnType<typeof recoveryVersions>,
+) {
+  const current = recoveryVersions(id, scope)
+  return (
+    current.length === snapshot.length &&
+    snapshot.every(
+      ([state, version]) =>
+        current.some(([currentState]) => currentState === state) && state.version === version,
+    )
+  )
+}
+
 /** Move a draft alongside a renamed or moved document without losing recovery. */
 export async function remapRecoveryDraft(
   fromId: string,
@@ -432,7 +453,9 @@ export async function remapRecoveryDraft(
 ): Promise<void> {
   if (fromId === toId) {
     if (newPathHint) {
+      const versions = recoveryVersions(fromId, scope)
       const draft = await readRecoveryDraft(fromId, scope)
+      if (!recoveryVersionsMatch(fromId, scope, versions)) return
       if (draft && draft.pathHint !== newPathHint) {
         await saveRecoveryDraft(
           fromId,
@@ -445,8 +468,17 @@ export async function remapRecoveryDraft(
     }
     return
   }
+  const versions = recoveryVersions(fromId, scope)
   const draft = await readRecoveryDraft(fromId, scope)
   if (!draft) return
+  // A destination draft may belong to a newer edit (or another recovered
+  // document). Never replace it with a snapshot captured before this await.
+  // Keep the source too: its contents may be independently recoverable.
+  const destination = await readRecoveryDraft(toId, scope)
+  const destinationQueued = [...recoveryQueue.values()].some(
+    (state) => state.id === toId && sameScope(state.scope, scope),
+  )
+  if (destination || destinationQueued || !recoveryVersionsMatch(fromId, scope, versions)) return
   await saveRecoveryDraft(
     toId,
     draft.content,
@@ -454,7 +486,7 @@ export async function remapRecoveryDraft(
     newPathHint ?? toId,
     scope,
   )
-  await discardRecoveryDraft(fromId, scope)
+  if (recoveryVersionsMatch(fromId, scope, versions)) await discardRecoveryDraft(fromId, scope)
 }
 
 /**

@@ -3,7 +3,7 @@
 import { IS_SITE_DEMO } from "@/lib/site-demo"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, motion, type MotionValue } from "motion/react"
 import {
   Columns2,
   Rows2,
@@ -33,6 +33,7 @@ import { IconValue } from "./icon-value"
 import { isRichIconValue } from "./icon-values"
 import { KNOWN_ICONS } from "./tree/tree-types"
 import { handleDragStart } from "./editor/document-header-utils"
+import { useEdgeProgress, usePanelLength } from "./orchestration/use-panel-presence"
 import { beginTabPointerDown } from "./pane-dnd"
 import {
   DropdownMenu,
@@ -255,6 +256,9 @@ interface HeaderTabsProps {
   onUnsplitAll?: () => void
   /** When true and `isSplit` is active, each pane renders its own tab bar and HeaderTabs hides the center strip. */
   hideCenterTabsWhenSplit?: boolean
+  /** How far each side panel is open (Motion); the header columns follow it. */
+  leftPanelProgress?: MotionValue<number>
+  rightPanelProgress?: MotionValue<number>
 }
 
 // Keep the title-bar controls aligned with the activity rails.
@@ -490,6 +494,8 @@ export function HeaderTabs({
   onCloseOtherTabs,
   onUnsplitAll,
   hideCenterTabsWhenSplit = false,
+  leftPanelProgress,
+  rightPanelProgress,
 }: HeaderTabsProps) {
   const { t } = useTranslation()
   const hideCenterStrip = isSplit && hideCenterTabsWhenSplit
@@ -504,10 +510,31 @@ export function HeaderTabs({
     : isMac
       ? `max(0px, calc(var(--amby-left-panel-width, ${leftTreeWidth}px) + ${ACTIVITY_BAR_WIDTH} - 80px))`
       : `var(--amby-left-panel-width, ${leftTreeWidth}px)`
-  const rightHeaderInsetCss =
-    rightPanelEnabled && isRightSidebarOpen && isRightDockPinned
-      ? `max(${isMac ? MACOS_SIDEBAR_TOGGLE_WIDTH : WINDOW_CONTROLS_WIDTH}px, calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth}))`
-      : `${isMac ? MACOS_SIDEBAR_TOGGLE_WIDTH : WINDOW_CONTROLS_WIDTH}px`
+  // The header columns follow the progress of the side panels they line up with
+  // (orchestration/use-panel-presence.ts): Motion moves it, the lengths are calc()s of it.
+  const edgeControlsWidth = `${isMac ? MACOS_SIDEBAR_TOGGLE_WIDTH : WINDOW_CONTROLS_WIDTH}px`
+  const rightPinned = rightPanelEnabled && isRightDockPinned
+  const leftProgress = useEdgeProgress(leftPanelProgress, isLeftSidebarOpen)
+  const rightProgress = useEdgeProgress(
+    rightPanelProgress,
+    Boolean(rightPanelEnabled && isRightSidebarOpen),
+  )
+  const leftHeaderWidth = usePanelLength(leftProgress, "0px", leftPanelHeaderCssWidth)
+  const rightHeaderInset = usePanelLength(
+    rightProgress,
+    edgeControlsWidth,
+    rightPinned
+      ? `max(${edgeControlsWidth}, calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth}))`
+      : edgeControlsWidth,
+  )
+  const rightColumnClosed = isMac ? "0px" : rightDockWidth
+  const rightColumnWidth = usePanelLength(
+    rightProgress,
+    rightColumnClosed,
+    rightPinned
+      ? `(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth})`
+      : rightColumnClosed,
+  )
   const [isMaximized, setIsMaximized] = React.useState(false)
   const lastClickTimeRef = React.useRef(0)
 
@@ -517,12 +544,15 @@ export function HeaderTabs({
     win
       .isMaximized()
       .then(setIsMaximized)
+      // The window state is only for the icon of the button; it is read again on the next resize.
       .catch(() => {})
     return adoptAsyncDisposer(
       win.onResized(() => {
         win
           .isMaximized()
           .then(setIsMaximized)
+          // The window state is only for the icon of the button; it is read again on the next
+          // resize.
           .catch(() => {})
       }),
     )
@@ -541,6 +571,8 @@ export function HeaderTabs({
     } else {
       getCurrentWindow()
         .startDragging()
+        // Window gesture of the system: if it is refused nothing is lost and the person can repeat
+        // it.
         .catch(() => {})
     }
   }
@@ -627,9 +659,9 @@ export function HeaderTabs({
   )
 
   const viewControls = hideCenterStrip ? null : (
-    <div
+    <motion.div
       className="absolute top-1.5 z-10 flex items-center gap-1"
-      style={{ right: rightHeaderInsetCss }}
+      style={{ right: rightHeaderInset }}
     >
       {onToggleSplit && (
         <motion.button
@@ -673,7 +705,7 @@ export function HeaderTabs({
         onSplitDown={onSplitDown ? () => onSplitDown(activeTabKey) : undefined}
         onUnsplitAll={isSplit ? onUnsplitAll : undefined}
       />
-    </div>
+    </motion.div>
   )
 
   return (
@@ -688,6 +720,8 @@ export function HeaderTabs({
         if (isTauri())
           getCurrentWindow()
             .toggleMaximize()
+            // Window gesture of the system: if it is refused nothing is lost and the person can
+            // repeat it.
             .catch(() => {})
       }}
     >
@@ -716,46 +750,45 @@ export function HeaderTabs({
       )}
 
       {/* Workspace switcher (left panel header column, only when panel open) */}
-      {isLeftSidebarOpen && (
-        <div
-          className="pointer-events-auto flex shrink-0 items-center bg-background"
-          style={{ width: leftPanelHeaderCssWidth }}
-          onMouseDown={handleDragStart}
-        >
-          <div className="flex min-w-0 flex-1 items-center px-3">
-            {showWorkspacePicker && (
-              <WorkspacePicker
-                vaults={vaults}
-                currentPath={currentVaultPath}
-                onSelect={onSwitchVault}
-                onAdd={onAddVault}
-                onManage={onManageVaults}
+      <motion.div
+        className="pointer-events-auto flex shrink-0 items-center overflow-hidden bg-background"
+        style={{ width: leftHeaderWidth }}
+        aria-hidden={!isLeftSidebarOpen || undefined}
+        onMouseDown={handleDragStart}
+      >
+        <div className="flex min-w-0 flex-1 items-center px-3">
+          {showWorkspacePicker && (
+            <WorkspacePicker
+              vaults={vaults}
+              currentPath={currentVaultPath}
+              onSelect={onSwitchVault}
+              onAdd={onAddVault}
+              onManage={onManageVaults}
+            >
+              <motion.button
+                type="button"
+                title={t("vaultPicker.vaults")}
+                className="flex min-w-0 items-center gap-2 rounded px-2 py-1 text-left outline-none hover:bg-accent"
+                onMouseDown={(e) => e.stopPropagation()}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                transition={motionTransitions.fast}
               >
-                <motion.button
-                  type="button"
-                  title={t("vaultPicker.vaults")}
-                  className="flex min-w-0 items-center gap-2 rounded px-2 py-1 text-left outline-none hover:bg-accent"
-                  onMouseDown={(e) => e.stopPropagation()}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  transition={motionTransitions.fast}
-                >
-                  <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 leading-tight">
-                    <span className="block whitespace-nowrap text-[8px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
-                      {t("vaultPicker.workspaceLabel")}
-                    </span>
-                    <span className="block truncate text-sm font-medium text-foreground">
-                      {vaultName ?? t("workspace.name")}
-                    </span>
+                <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 leading-tight">
+                  <span className="block whitespace-nowrap text-[8px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
+                    {t("vaultPicker.workspaceLabel")}
                   </span>
-                  <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-                </motion.button>
-              </WorkspacePicker>
-            )}
-          </div>
+                  <span className="block truncate text-sm font-medium text-foreground">
+                    {vaultName ?? t("workspace.name")}
+                  </span>
+                </span>
+                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+              </motion.button>
+            </WorkspacePicker>
+          )}
         </div>
-      )}
+      </motion.div>
 
       {/* Editor area (flex-1). Tabs share the width and shrink with the window;
           the strip ends right where the view-controls cluster begins. */}
@@ -842,15 +875,8 @@ export function HeaderTabs({
       )}
       {/* Match the exact body dock width. This keeps the right toggle attached
           to the panel divider and prevents the large jump when it is closed. */}
-      <div
-        style={{
-          width:
-            rightPanelEnabled && isRightSidebarOpen && isRightDockPinned
-              ? `calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth})`
-              : isMac
-                ? 0
-                : rightDockWidth,
-        }}
+      <motion.div
+        style={{ width: rightColumnWidth }}
         className="pointer-events-auto shrink-0 bg-background"
         onMouseDown={handleDragStart}
       />
@@ -866,9 +892,11 @@ export function HeaderTabs({
       )}
 
       {/* Windows: the right toggle stays immediately before the native-style
-          controls instead of jumping to the opposite side of the header. */}
+          controls instead of jumping to the opposite side of the header.
+          z-20 keeps them above the tab strip (z-index 2 in app.css), which
+          reaches under them when the right panel is closed. */}
       {!isMac && (
-        <div className="amby-window-controls pointer-events-auto absolute right-0 top-0 flex h-11 w-48 items-center justify-end bg-background">
+        <div className="amby-window-controls pointer-events-auto absolute right-0 top-0 z-20 flex h-11 w-48 items-center justify-end bg-background">
           {rightPanelEnabled && (
             <div className="flex h-11 w-12 shrink-0 items-center justify-center">
               {rightSidebarToggle}

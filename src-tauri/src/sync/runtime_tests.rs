@@ -488,8 +488,8 @@ fn the_renames_of_amby_reach_the_next_pass() {
             .is_some_and(|list| list.len() == 2)
     });
 
-    std::fs::rename(vault.root.join("old.md"), vault.root.join("new.md")).unwrap();
-    vault.put("new.md", b"entirely different text after the rename");
+    // The hint goes first, as `rename_item` does it: a pass that starts between the rename on
+    // disk and a later hint would read the rename as a deletion and a new file.
     pc.runtime.hints().record(
         &vault.root,
         &[PathChange {
@@ -497,6 +497,8 @@ fn the_renames_of_amby_reach_the_next_pass() {
             new_path: vault.root.join("new.md").to_string_lossy().into_owned(),
         }],
     );
+    std::fs::rename(vault.root.join("old.md"), vault.root.join("new.md")).unwrap();
+    vault.put("new.md", b"entirely different text after the rename");
     pc.runtime.sync_now().unwrap();
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         wait_until("the rename reaches the server", || {
@@ -523,6 +525,66 @@ fn the_renames_of_amby_reach_the_next_pass() {
     }
     assert!(pc.runtime.hints().is_empty(), "the hints were used");
     pc.runtime.deactivate_vault();
+}
+
+#[test]
+fn a_note_made_into_a_super_note_moves_on_the_other_computer_and_is_not_trashed() {
+    // Д70а: the conversion records its hint like a rename, so it travels as a move of the same
+    // item, and the other computer moves the file instead of putting it in the trash.
+    let env = Env::new();
+    let first = computer(&env, &env.account);
+    let (a, b) = (TempVault::new("bundle-a"), TempVault::new("bundle-b"));
+    let text = b"the text of a note that is long enough to be recognised after the move";
+    a.put("Idea.md", text);
+    a.put("keep.md", b"keep");
+    let made = run(
+        &env,
+        first
+            .runtime
+            .enable(&a.root, SpaceTarget::New { name: "B".into() }, true),
+    )
+    .unwrap();
+    first.runtime.sync_now().unwrap();
+    let id = made.space_id.clone().unwrap();
+    let second = computer(&env, &env.another_computer("Second"));
+    run(
+        &env,
+        second.runtime.enable(
+            &b.root,
+            SpaceTarget::Existing {
+                space_id: id.clone(),
+            },
+            true,
+        ),
+    )
+    .unwrap();
+    wait_until("the vault arrives", || b.bytes("Idea.md").is_some());
+
+    let old = a.root.join("Idea.md");
+    let primary = a.root.join("Idea").join("Idea.md");
+    let changes = crate::bundle::preview_ensure_bundle_path(&old);
+    assert_eq!(changes.len(), 1);
+    first.runtime.note_renames(&a.root, &changes);
+    let (moved_to, real_changes) = crate::bundle::ensure_bundle_path(&old).unwrap();
+    assert_eq!(moved_to, primary);
+    assert_eq!(real_changes.len(), 1);
+    first.runtime.sync_now().unwrap();
+
+    wait_until("the file moves on the other computer", || {
+        b.bytes("Idea/Idea.md").as_deref() == Some(&text[..]) && b.bytes("Idea.md").is_none()
+    });
+    let page = env
+        .account
+        .get(&format!("/v1/spaces/{id}/changes?since=0"))
+        .json();
+    let list = page["changes"].as_array().unwrap();
+    assert!(
+        list.iter().all(|change| change["deleted"] != true),
+        "a move is not a deletion on the server: {page}"
+    );
+    assert_eq!(list.len(), 2, "the same two items, not a third: {page}");
+    first.runtime.deactivate_vault();
+    second.runtime.deactivate_vault();
 }
 
 #[test]
@@ -932,4 +994,71 @@ fn a_retyped_address_does_not_make_a_link_stale() {
         assert_eq!(status.space_id.as_deref(), Some(space.as_str()));
         again.runtime.deactivate_vault();
     }
+}
+
+#[test]
+fn k10_the_old_trash_is_migrated_before_the_first_pass_and_the_archive_reaches_the_other_computer()
+{
+    // К10: "Переход идёт до первого прохода синхронизации"; "перенесённые файлы уходят на сервер
+    // как новые файлы архива"; К7: a service entry stays in the service trash and does not leave.
+    let env = Env::new();
+    let first = computer(&env, &env.account);
+    let a = TempVault::new("k10-a");
+    let gone = a.put("Notes/gone.md", b"deleted long ago");
+    crate::recycle_bin::move_to_trash(&a.root, &gone).unwrap();
+    let service = a.put(".amby/conflicts/c1/meta.json", b"closed set");
+    crate::recycle_bin::move_exact_to_trash(&a.root, &service).unwrap();
+    a.put("Keep/k.md", b"stays");
+    let made = run(
+        &env,
+        first.runtime.enable(
+            &a.root,
+            SpaceTarget::New {
+                name: "K10".to_string(),
+            },
+            true,
+        ),
+    )
+    .unwrap();
+    first.runtime.sync_now().unwrap();
+
+    let second = computer(&env, &env.another_computer("Second"));
+    let b = TempVault::new("k10-b");
+    run(
+        &env,
+        second.runtime.enable(
+            &b.root,
+            SpaceTarget::Existing {
+                space_id: made.space_id.clone().unwrap(),
+            },
+            true,
+        ),
+    )
+    .unwrap();
+    // Both files are awaited: the pass applies `.amby/…` before `Keep/…` (frozen-test fix).
+    wait_until(
+        "the archived file and the kept one arrive on the second computer",
+        || {
+            b.text(".amby/archive/Notes/gone.md").as_deref() == Some("deleted long ago")
+                && b.text("Keep/k.md").as_deref() == Some("stays")
+        },
+    );
+    assert_eq!(b.text("Keep/k.md").as_deref(), Some("stays"));
+    assert!(
+        b.text("Notes/gone.md").is_none(),
+        "it arrives as an archived file, not as a live one"
+    );
+    // On the first computer the migration happened: the file is in the archive, not in the trash,
+    // and the service entry is still in the service trash and nowhere else.
+    assert_eq!(
+        a.text(".amby/archive/Notes/gone.md").as_deref(),
+        Some("deleted long ago")
+    );
+    assert_eq!(a.trashed(), vec![".amby/conflicts/c1/meta.json"]);
+    assert!(b.trashed().is_empty());
+    assert!(b
+        .text(".amby/archive/.amby/conflicts/c1/meta.json")
+        .is_none());
+    first.runtime.deactivate_vault();
+    second.runtime.deactivate_vault();
 }

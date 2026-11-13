@@ -1,5 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
+import { noticeTextClass } from "../notices/notice-look"
 import type { DatabasePropertySummary } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { dateInputValue, storedDate } from "./date-input"
@@ -98,7 +99,7 @@ export function DateCell({ property, value, compact, pending, error, onCommit }:
         "flex h-full w-full min-w-0 cursor-pointer items-center rounded-md text-left outline-none hover:bg-accent/40 focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60",
         compact ? "min-h-7 px-1 text-xs" : "px-2 text-sm",
         !text && "text-muted-foreground",
-        error && "text-destructive",
+        error && noticeTextClass("warning"),
       )}
       onClick={(event) => {
         event.stopPropagation()

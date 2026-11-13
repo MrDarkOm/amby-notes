@@ -1,5 +1,4 @@
 import * as React from "react"
-import { useTranslation } from "react-i18next"
 import { useVaultStore } from "./use-vault-store"
 import { deduplicateVaultRecords, reconcileVaultRecord } from "./vault-records"
 import { useDocStore } from "./use-doc-store"
@@ -15,6 +14,9 @@ import {
   WORKSPACES_SCHEMA_VERSION,
 } from "./app-config"
 import { remapRecoveryDraft } from "@/lib/recovery-drafts"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
+import { useAppNoticesStore } from "./notices/use-app-notices-store"
 import { adoptAsyncDisposer } from "@/lib/async-disposable"
 import { applySessionRemap, reconcileTreeBackedTabTitles } from "./workspace-mutations"
 import {
@@ -24,6 +26,7 @@ import {
   applyIconOverrides,
   newTabKey,
 } from "./workspace-tree-utils"
+import { rereadOpenNoteProperties } from "./orchestration/reread-note-properties"
 import { buildLinkGraph } from "./wiki-links"
 import { applyTreePatchOps, patchedItems, removePaths } from "./tree-patch"
 import type { TreeItem } from "./sidebar-tree"
@@ -41,8 +44,6 @@ import {
   getLinkGraph,
   startVaultWatcher,
   stopVaultWatcher,
-  confirmAction,
-  showErrorMessage,
   type LinkGraph,
   type TreePatch,
 } from "@/lib/storage"
@@ -64,9 +65,11 @@ import {
   planVaultStartup,
   type VaultActivatedPayload,
 } from "./windows/vault-window-lifecycle"
+import { findArchivedCopy, isArchivePath } from "./sync/restore-archived-note"
 import {
   filterLocalTreeWatcherChanges,
   hasActiveLocalTreeMutation,
+  confirmDeletionAgainstFullTree,
   planOpenDocumentTreeChanges,
   watcherChangeAffectsDocument,
 } from "./watcher-tree-reconciliation"
@@ -84,15 +87,17 @@ const VAULT_ACTIVATED_EVENT = "amby:vault-activated"
  */
 export interface UseVaultDataOptions {
   onExternalChange?: (changes: Array<{ kind: string; path: string }>) => Promise<void>
+  onPathsMoved?: (changes: Array<{ oldPath: string; newPath: string }>) => void
 }
 
 /** More watcher events than this in one batch are handled by a full refresh. */
 const WATCHER_PATH_REFRESH_LIMIT = 200
 
 export function useVaultData(options: UseVaultDataOptions = {}) {
-  const { t } = useTranslation()
   const onExternalChangeRef = React.useRef(options.onExternalChange)
   onExternalChangeRef.current = options.onExternalChange
+  const onPathsMovedRef = React.useRef(options.onPathsMoved)
+  onPathsMovedRef.current = options.onPathsMoved
   const desktop = isTauri()
   const windowLabel = desktop ? getCurrentWindow().label : MAIN_WINDOW_LABEL
   // Keep the launch target in the URL so a browser note window also retains
@@ -276,7 +281,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         } catch (error) {
           logger.warn("vault_switch.autosave_flush_failed", { errorType: errorType(error) })
         }
-        if (!flush.flushed && !(await confirmAction(t("recovery.switchAfterSaveFailure")))) return
+        if (!flush.flushed && !(await confirm(confirmations.switchAfterSaveFailure()))) return
       }
       if (activateBackend && !path) {
         if (currentVault && ownsPersistence) {
@@ -314,15 +319,15 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         let preflight = await preflightVault(path)
         let unfinished = preflight.unfinishedMigrations[0]
         while (unfinished) {
-          const resume = await confirmAction(
-            t("workspace.migrationResumeConfirm", { files: unfinished.files.length }),
+          const resume = await confirm(
+            confirmations.resumeMigration({ files: unfinished.files.length }),
           )
           if (resume) {
             await recoverIdMigration(path, unfinished.journalPath, "resume")
             preflight = await preflightVault(path)
             unfinished = preflight.unfinishedMigrations[0]
           } else {
-            const rollback = await confirmAction(t("workspace.migrationRollbackConfirm"))
+            const rollback = await confirm(confirmations.rollbackMigration())
             if (rollback) {
               await recoverIdMigration(path, unfinished.journalPath, "rollback")
             }
@@ -354,16 +359,19 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         warning.startsWith("recovery:"),
       )
       if (recoveryNotices.length > 0) {
-        // Stuck recovery data was preserved, not applied or deleted; tell the user.
-        void showErrorMessage(
-          t("errors.recoveryNotices", {
-            count: recoveryNotices.length,
-            details: recoveryNotices
-              .slice(0, 3)
-              .map((notice) => notice.replace(/^recovery:/, ""))
-              .join("\n"),
-          }),
-        ).catch(() => undefined)
+        // Stuck recovery data was preserved, not applied or deleted. Nothing is lost and nothing waits for the
+        // person, so it is a warning in the centre (docs/notices.md, section 2.1); the kinds go to the log.
+        logger.warn("vault_open.recovery_notices", {
+          count: recoveryNotices.length,
+          kinds: recoveryNotices.map((notice) => notice.split(":")[1] ?? "unknown"),
+        })
+        useAppNoticesStore.getState().post({
+          id: "recovery-notices",
+          level: "warning",
+          titleKey: "notices.app.recoveryNotices.title",
+          params: { count: recoveryNotices.length },
+          lineKey: "notices.app.recoveryNotices.line",
+        })
       }
       setTreeItems(tree)
       setLinkGraph({ nodes: [], edges: [] })
@@ -433,16 +441,21 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     } catch (err) {
       if (switchRef.current.requestId === requestId) {
         logger.error("vault_switch.activation_failed", { errorType: errorType(err) })
-        const details = err instanceof Error ? err.message : String(err)
-        await showErrorMessage(
-          t(activateBackend && !path ? "errors.vaultCloseFailed" : "errors.vaultOpenFailed", {
-            details,
-          }),
-        ).catch((dialogError) =>
-          logger.warn("vault_switch.error_dialog_failed", {
-            errorType: errorType(dialogError),
-          }),
-        )
+        // The vault did not open (or close). Nothing was lost and the person has to try again or choose another
+        // vault: a decision in the centre, announced by a toast. The cause is in the log, not in the words.
+        useAppNoticesStore.getState().post({
+          id: activateBackend && !path ? "vault-close-failed" : "vault-open-failed",
+          level: "decision",
+          titleKey:
+            activateBackend && !path
+              ? "notices.app.vaultCloseFailed.title"
+              : "notices.app.vaultOpenFailed.title",
+          params: { name: path?.split(/[\\/]/u).filter(Boolean).pop() ?? "" },
+          lineKey:
+            activateBackend && !path
+              ? "notices.app.vaultCloseFailed.line"
+              : "notices.app.vaultOpenFailed.line",
+        })
       }
     } finally {
       if (switchRef.current.requestId === requestId) {
@@ -666,35 +679,65 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         // reports a move out of the watched vault as `rename`, not `remove`;
         // absence of the stable ID after refresh is therefore the portable
         // external-deletion signal.
-        for (const treeChange of planOpenDocumentTreeChanges(openDocs, tree)) {
+        let treeChanges = planOpenDocumentTreeChanges(openDocs, tree)
+        // A partial refresh can read the old path of a moved note before the new one; look in the
+        // whole vault before calling a note deleted (Д70а).
+        if (
+          changes.length <= WATCHER_PATH_REFRESH_LIMIT &&
+          treeChanges.some((change) => change.kind === "deleted")
+        ) {
+          const fullTree = await refreshTree(vault)
+          if (!isCurrent()) return
+          treeChanges = confirmDeletionAgainstFullTree(treeChanges, openDocs, fullTree)
+        }
+        for (const treeChange of treeChanges) {
           if (!isCurrent()) return
           const id = treeChange.fileId
           const doc = openDocs[id]
           if (!doc) continue
           if (treeChange.kind === "deleted") {
-            const isSpecial =
-              id.startsWith("database:") ||
+            // Canvas and sketch buffers have their own autosave/recovery lifecycle. A missing old
+            // path may be an external move; closing here could discard a dirty buffer before its
+            // revision tracker can report the conflict.
+            if (
               id.endsWith(".canvas") ||
               id.endsWith(".excalidraw") ||
               doc.path.endsWith(".canvas") ||
               doc.path.endsWith(".excalidraw")
-            if (isSpecial) {
-              useDocStore.getState().dropDocs([id])
-              setTabs((prev) => {
-                const surviving = prev.filter((t) => t.fileId !== id && t.fileId !== doc.path)
-                if (surviving.length !== prev.length) {
-                  const activeKey = useTabsStore.getState().activeTabKey
-                  if (!surviving.some((t) => t.key === activeKey)) {
-                    setActiveTabKey(surviving[surviving.length - 1]?.key ?? "")
-                  }
-                }
-                return surviving
-              })
+            )
               continue
-            }
+            // A database tab holds the text of its note as well, so it is a note like any other
+            // (К15): it keeps its tab and its text and gets the card, it is never dropped.
             const latest = useDocStore.getState().openDocs[id] ?? doc
             if (!latest.externallyDeleted) {
-              patchDoc(id, { externallyDeleted: true })
+              // Another computer may have put the note into the archive (К13): the file is then in
+              // `.amby/archive/`, and the card says so. Where the archive cannot be read, it is "deleted".
+              const archived = await findArchivedCopy(vault, latest.path).then(
+                (entry) => Boolean(entry),
+                () => false,
+              )
+              if (!isCurrent()) return
+              patchDoc(
+                id,
+                archived
+                  ? { externallyDeleted: true, externallyArchived: true }
+                  : { externallyDeleted: true },
+              )
+              setExternalConflict({
+                fileId: id,
+                path: latest.path,
+                localContent: latest.content,
+                externalContent: null,
+                sourceTemplate: latest.source,
+              })
+            }
+            continue
+          }
+          if (treeChange.kind === "relocated" && isArchivePath(treeChange.path)) {
+            // К13: the file went into the archive; the tab does not follow it there, it keeps its text.
+            const latest = useDocStore.getState().openDocs[id] ?? doc
+            if (!latest.externallyDeleted) {
+              patchDoc(id, { externallyDeleted: true, externallyArchived: true })
               setExternalConflict({
                 fileId: id,
                 path: latest.path,
@@ -706,6 +749,9 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
             continue
           }
           if (treeChange.kind === "relocated") {
+            const wasDeleted = Boolean(
+              (useDocStore.getState().openDocs[id] ?? doc).externallyDeleted,
+            )
             patchDoc(id, { path: treeChange.path, title: treeChange.title })
             void remapRecoveryDraft(id, id, "markdown", treeChange.path, recoveryScope)
             void remapRecoveryDraft(
@@ -721,6 +767,36 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
                 ...conflict,
                 path: treeChange.path,
               })
+            }
+            // К14: the note was called deleted by an earlier, partial refresh and has now turned
+            // up at another path. The tab follows it and the card of the deletion goes: the text
+            // on disk is compared with the open one, and a difference is an ordinary conflict.
+            if (wasDeleted) {
+              let found: Awaited<ReturnType<typeof readNote>> | null = null
+              try {
+                found = await readNote(vault, doc.noteId ?? id)
+              } catch (err) {
+                logger.warn("watcher.moved_note_read_failed", { errorType: errorType(err) })
+              }
+              if (!isCurrent()) return
+              const latest = useDocStore.getState().openDocs[id]
+              if (found && latest) {
+                patchDoc(id, { externallyDeleted: false, externallyArchived: false })
+                if (found.content === latest.content) {
+                  patchDoc(id, { revision: found.revision, source: found.source })
+                  markSaved(id)
+                  clearExternalConflict(id)
+                } else {
+                  setExternalConflict({
+                    fileId: id,
+                    path: treeChange.path,
+                    localContent: latest.content,
+                    externalContent: found.content,
+                    externalRevision: found.revision,
+                    sourceTemplate: found.source,
+                  })
+                }
+              }
             }
           }
         }
@@ -754,7 +830,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
               if (!latest) continue
               const currentConflict = useDocStore.getState().externalConflicts[id]
               if (latest.externallyDeleted || currentConflict?.externalContent === null) {
-                patchDoc(id, { externallyDeleted: false })
+                patchDoc(id, { externallyDeleted: false, externallyArchived: false })
                 if (note.content === latest.content) {
                   patchDoc(id, {
                     revision: note.revision,
@@ -800,6 +876,8 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
                   source: note.source,
                 })
                 markSaved(id)
+                // The header changed with the text, so the panel reads the properties again (З65).
+                void rereadOpenNoteProperties(vault, useVaultStore.getState().generation, [id])
               }
             } catch (err) {
               logger.warn("watcher.open_document_reload_failed", { errorType: errorType(err) })
@@ -823,14 +901,98 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
       }
     }
 
+    // Own property changes can touch only .amby, which the watcher excludes.
+    const cleanupProperties = adoptAsyncDisposer(
+      listen<number>("amby:properties-written", (event) => {
+        if (event.payload !== useVaultStore.getState().backendGeneration) return
+        void rereadOpenNoteProperties(vault, useVaultStore.getState().generation)
+      }),
+      (error) => logger.warn("watcher.properties_listen_failed", { errorType: errorType(error) }),
+    )
+
+    // Structural actions may rewrite open notes. Even the initiating window
+    // must reconcile their buffers rather than filtering the event as a local echo.
+    const cleanupRewritten = adoptAsyncDisposer(
+      listen<{ generation: number; paths: string[]; originWindow?: string | null }>(
+        "amby:files-changed",
+        (event) => {
+          if (event.payload.generation !== useVaultStore.getState().backendGeneration) return
+          if (event.payload.originWindow === windowLabel) return
+          for (const path of event.payload.paths) {
+            const change = { kind: "modify", path, duringLocalMutation: false }
+            pending.set(`${change.kind}:${normalize(path)}`, change)
+          }
+          if (refreshTimer) clearTimeout(refreshTimer)
+          refreshTimer = setTimeout(() => void flushPendingChanges(), 300)
+        },
+      ),
+      (error) => logger.warn("watcher.rewritten_listen_failed", { errorType: errorType(error) }),
+    )
+
+    const cleanupMoved = adoptAsyncDisposer(
+      listen<{
+        generation: number
+        originWindow: string
+        pathChanges: Array<{ oldPath: string; newPath: string }>
+      }>("amby:paths-moved", (event) => {
+        if (event.payload.generation !== useVaultStore.getState().backendGeneration) return
+        if (event.payload.originWindow === windowLabel) return
+        onPathsMovedRef.current?.(event.payload.pathChanges)
+      }),
+      (error) => logger.warn("watcher.moved_listen_failed", { errorType: errorType(error) }),
+    )
+
+    const cleanupDatabase = adoptAsyncDisposer(
+      listen<{ generation: number; paths: string[]; noteIds: string[]; allNotes?: boolean }>(
+        "amby:database-written",
+        (event) => {
+          if (event.payload.generation !== useVaultStore.getState().backendGeneration) return
+          const paths = new Set(event.payload.paths)
+          const affected = new Set(event.payload.noteIds)
+          for (const doc of Object.values(useDocStore.getState().openDocs)) {
+            if (event.payload.allNotes || affected.has(doc.noteId ?? doc.id)) paths.add(doc.path)
+          }
+          for (const path of paths) {
+            const change = { kind: "modify", path, duringLocalMutation: false }
+            pending.set(`${change.kind}:${normalize(path)}`, change)
+          }
+          if (paths.size === 0) return
+          if (refreshTimer) clearTimeout(refreshTimer)
+          refreshTimer = setTimeout(() => void flushPendingChanges(), 300)
+        },
+      ),
+      (error) => logger.warn("watcher.database_listen_failed", { errorType: errorType(error) }),
+    )
+
     const cleanupListener = adoptAsyncDisposer(
       listen<{ kind: string; path: string }>("vault-file-changed", (event) => {
         const change = {
           ...event.payload,
           duringLocalMutation: hasActiveLocalTreeMutation(),
         }
-        pending.set(`${change.kind}:${normalize(change.path)}`, change)
+        const key = `${change.kind}:${normalize(change.path)}`
+        // Never let a later local watcher echo hide a definite rewritten-note event.
+        if (pending.get(key)?.duringLocalMutation === false) change.duringLocalMutation = false
+        pending.set(key, change)
         logger.debug("watcher.event_received", { count: pending.size })
+        if (refreshTimer) clearTimeout(refreshTimer)
+        refreshTimer = setTimeout(() => void flushPendingChanges(), 300)
+      }),
+      (error) => logger.warn("watcher.listen_failed", { errorType: errorType(error) }),
+    )
+
+    // Sync knows these files were removed even when notify misses a directory move to the
+    // system trash. Reconcile through the same tree/ID checks, rather than depending on a
+    // second OS event to pause autosave and show the deletion card for an open document.
+    const cleanupRemoteDeleted = adoptAsyncDisposer(
+      listen<{ vault: string; paths: string[] }>("sync-remote-deleted", (event) => {
+        if (event.payload.vault !== vault || useVaultStore.getState().vault !== vault) return
+        for (const relative of event.payload.paths) {
+          const path = `${normalize(vault).replace(/\/+$/, "")}/${normalize(relative)}`
+          const change = { kind: "remove", path, duringLocalMutation: false }
+          pending.set(`${change.kind}:${normalize(path)}`, change)
+        }
+        if (!event.payload.paths.length) return
         if (refreshTimer) clearTimeout(refreshTimer)
         refreshTimer = setTimeout(() => void flushPendingChanges(), 300)
       }),
@@ -841,6 +1003,11 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
       if (refreshTimer) clearTimeout(refreshTimer)
       pending.clear()
       cleanupListener()
+      cleanupRewritten()
+      cleanupMoved()
+      cleanupProperties()
+      cleanupDatabase()
+      cleanupRemoteDeleted()
     }
     // refreshTree is recreated every render but only reads `vault`, which is in the deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -907,6 +1074,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
   // the last vault if the user has that setting enabled.
   React.useEffect(() => {
     let cancelled = false
+    const resolved = () => useVaultStore.setState({ startupResolved: true })
     ;(async () => {
       await useSettingsStore.getState().hydrate()
       const reopen = useSettingsStore.getState().prefs.startup.reopenLastVault
@@ -917,7 +1085,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
       const currentVault = useVaultStore.getState().vault
       if (currentVault) {
         workspacesHydrated.current = true
-        await loadVault(currentVault)
+        await loadVault(currentVault).finally(resolved)
         return
       }
       setVaults(deduplicateVaultRecords(file.recent))
@@ -929,9 +1097,14 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         reopenLastVault: reopen,
         hasRecentVaults: file.recent.length > 0,
       })
-      if (startup.kind === "activate") void loadVault(startup.path)
-      else if (startup.kind === "attach-active") void loadVault(null, false)
-    })()
+      if (startup.kind === "activate") void loadVault(startup.path).finally(resolved)
+      else if (startup.kind === "attach-active") void loadVault(null, false).finally(resolved)
+      else resolved()
+    })().catch((error) => {
+      // A failed startup must not leave the loader up over the list of vaults.
+      logger.warn("vault.startup_failed", { errorType: errorType(error) })
+      if (!cancelled) resolved()
+    })
     return () => {
       cancelled = true
     }

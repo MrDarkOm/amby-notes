@@ -132,7 +132,7 @@ pub fn validate_manifest(manifest: &DatabaseManifest) -> ValidationReport {
         );
     }
     if let Some(cover) = &manifest.cover {
-        validate_cover(&mut report, cover);
+        validate_cover(&mut report, cover, manifest.format_version);
     }
 
     if manifest.properties.len() > MAX_PROPERTIES {
@@ -183,6 +183,38 @@ pub fn validate_manifest(manifest: &DatabaseManifest) -> ValidationReport {
                 "defaultTemplateId",
                 "default template must be listed in templateOrder",
             );
+        }
+    }
+    if manifest.format_version >= 2 {
+        match manifest.templates() {
+            Ok(templates) => {
+                let mut ids = HashSet::new();
+                for template in &templates {
+                    if !ids.insert(template.template_id.clone()) {
+                        report.error(
+                            ValidationCode::DuplicateId,
+                            "templates",
+                            "template ID is repeated",
+                        );
+                    }
+                    report.merge(validate_template(template, Some(manifest)));
+                }
+                for id in &manifest.template_order {
+                    if !ids.contains(id) {
+                        report.error(
+                            ValidationCode::MissingReference,
+                            "templates",
+                            "template is missing",
+                        );
+                    }
+                }
+                for id in &manifest.view_order {
+                    if !manifest.views.iter().any(|view| &view.view_id == id) {
+                        report.error(ValidationCode::MissingReference, "views", "view is missing");
+                    }
+                }
+            }
+            Err(error) => report.error(ValidationCode::InvalidFormat, "templates", error),
         }
     }
     report
@@ -541,7 +573,7 @@ fn validate_header(report: &mut ValidationReport, format: &str, version: u64, pa
             format!("{path}.formatVersion"),
             "unsupported format version",
         );
-    } else if version > 1 {
+    } else if version > if path == "manifest" { 2 } else { 1 } {
         report.read_only_warning(
             ValidationCode::InvalidFormat,
             format!("{path}.formatVersion"),
@@ -573,7 +605,11 @@ fn validate_name(report: &mut ValidationReport, value: &str, path: &str) {
     }
 }
 
-fn validate_cover(report: &mut ValidationReport, cover: &super::format::DatabaseCover) {
+fn validate_cover(
+    report: &mut ValidationReport,
+    cover: &super::format::DatabaseCover,
+    version: u64,
+) {
     if cover.kind != "asset" {
         report.error(
             ValidationCode::InvalidValue,
@@ -586,7 +622,11 @@ fn validate_cover(report: &mut ValidationReport, cover: &super::format::Database
         report,
         &cover.relative_path,
         "cover.relativePath",
-        ".ambd/assets/",
+        if version >= 2 {
+            "assets/"
+        } else {
+            ".ambd/assets/"
+        },
     );
     if cover.mime_type.is_empty() {
         report.error(
@@ -1743,7 +1783,7 @@ mod tests {
     fn future_format_version_is_read_only_warning() {
         let raw = serde_json::json!({
             "format": "amby-database",
-            "formatVersion": 2,
+            "formatVersion": 3,
             "databaseId": "01J00000000000000000000000",
             "name": "Future DB",
             "icon": null,

@@ -1,3 +1,5 @@
+import type { RenameOutcome } from "../file-actions/rename-outcome"
+import { isTauri } from "@/lib/storage"
 import type { AttachmentItem, LinkGraph, PanelRenderProps } from "../panel-registry"
 import type { CustomProperty, NoteLayers, NoteProperties } from "@/lib/storage/types"
 import { type DatabaseSummary, readFile, readNote, openInExplorer } from "@/lib/storage"
@@ -20,7 +22,7 @@ interface UsePanelRenderPropsParams {
   vault: string | null
   handleTreeSelect: (id: string) => void
   handleOpenVault: () => Promise<void>
-  handleRenameFile: (id: string, newName: string) => Promise<void>
+  handleRenameFile: (id: string, newName: string) => Promise<RenameOutcome>
   handleDeleteFile: (id: string, mode?: DeleteMode) => Promise<void>
   handleDeleteFiles: (ids: string[], mode?: DeleteMode) => Promise<void>
   handleNewFileIn: (
@@ -95,6 +97,13 @@ interface UsePanelRenderPropsParams {
   handleUpsertCustomProperty: (property: CustomProperty) => Promise<CustomProperty>
   handleDeleteCustomProperty: (propertyId: string) => Promise<void>
   handleReorderCustomProperties: (propertyIds: string[]) => Promise<void>
+  handleCreateProperty: (property: CustomProperty) => Promise<void>
+  handleSetPropertyIcon: (name: string, icon: string) => Promise<void>
+  handleSetPropertySettings: (name: string, settings: string) => Promise<void>
+  handleRenameProperty: (name: string, newName: string) => Promise<void>
+  handleChangePropertyType: (name: string, propertyType: string) => Promise<void>
+  handleSetPropertyValue: (name: string, value: string) => Promise<void>
+  handleSetPropertyList: (name: string, items: string[]) => Promise<void>
   handleHistoryRestored: (path?: string) => Promise<void>
   vaults: VaultRecord[]
   loadVault: (path: string | null, activateBackend?: boolean) => Promise<void>
@@ -152,6 +161,13 @@ export function usePanelRenderProps({
   handleUpsertCustomProperty,
   handleDeleteCustomProperty,
   handleReorderCustomProperties,
+  handleCreateProperty,
+  handleSetPropertyIcon,
+  handleSetPropertySettings,
+  handleRenameProperty,
+  handleChangePropertyType,
+  handleSetPropertyValue,
+  handleSetPropertyList,
   handleHistoryRestored,
   vaults,
   loadVault,
@@ -228,6 +244,18 @@ export function usePanelRenderProps({
       onUpsertCustomProperty: handleUpsertCustomProperty,
       onDeleteCustomProperty: handleDeleteCustomProperty,
       onReorderCustomProperties: handleReorderCustomProperties,
+      // Where the properties are changed by name (docs/sync-plan.md, З60) the rows use these.
+      ...(isTauri()
+        ? {
+            onCreateProperty: handleCreateProperty,
+            onSetPropertyIcon: handleSetPropertyIcon,
+            onSetPropertySettings: handleSetPropertySettings,
+            onRenameProperty: handleRenameProperty,
+            onChangePropertyType: handleChangePropertyType,
+            onSetPropertyValue: handleSetPropertyValue,
+            onSetPropertyList: handleSetPropertyList,
+          }
+        : {}),
       onHistoryRestored: handleHistoryRestored,
       workspaceSwitcher: (
         <WorkspacePicker
@@ -302,6 +330,13 @@ export function usePanelRenderProps({
       handleUpsertCustomProperty,
       handleDeleteCustomProperty,
       handleReorderCustomProperties,
+      handleCreateProperty,
+      handleSetPropertyIcon,
+      handleSetPropertySettings,
+      handleRenameProperty,
+      handleChangePropertyType,
+      handleSetPropertyValue,
+      handleSetPropertyList,
       linkGraph,
       currentDoc?.id,
       currentDoc?.path,

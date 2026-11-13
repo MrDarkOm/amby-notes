@@ -98,6 +98,9 @@ pub fn describe(code: &str) -> String {
         "unauthorized" => "This device is not signed in.",
         "token_revoked" => "This device was disconnected from the account.",
         "invalid_credentials" => "Wrong user name, password or recovery code.",
+        "registration_unavailable" => {
+            "This name is unavailable for registration. Choose another or sign in."
+        }
         "invalid_enroll_code" => "The invitation code is wrong or was already used.",
         "enroll_code_expired" => "The invitation code has expired.",
         "invalid_proof" => "The old password or the recovery code is wrong.",

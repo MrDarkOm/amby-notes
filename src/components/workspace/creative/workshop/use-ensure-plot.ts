@@ -12,6 +12,7 @@ import { linkLabels } from "../project-labels"
 import { useProjectStore } from "../project-store"
 import { anchorLinksMissing } from "./plot-views"
 import type { EnsurePlot } from "./use-plot-binding"
+import { ShownError } from "@/lib/operation-errors"
 
 export interface PlotEnsurer {
   /** Makes the missing link properties of a story's text or of the anchors (`ensure_plot_links`). */
@@ -40,10 +41,10 @@ export function usePlotEnsurer(onChanged?: () => Promise<void>): PlotEnsurer {
       workshop: WorkshopSummary
       story?: StorySummary
     }): Promise<EnsuredPlotLinks> => {
-      if (vaultGeneration === null) throw new Error(t("creative.errors.vaultChanged"))
+      if (vaultGeneration === null) throw new ShownError(t("creative.errors.vaultChanged"))
       const { target, workshop: owner, story } = request
       const expectedRevision = target === "story" ? story?.fileRevision : owner.fileRevision
-      if (!expectedRevision) throw new Error(t("creative.errors.projectNotFound"))
+      if (!expectedRevision) throw new ShownError(t("creative.errors.projectNotFound"))
       const key = `${target}:${owner.workshopId}:${story?.storyId ?? ""}:${expectedRevision}`
       let operationId = operations.current.get(key)
       if (!operationId) {

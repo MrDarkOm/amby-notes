@@ -8,7 +8,7 @@ import "@/lib/i18n"
 import "@/themes/app.css"
 import { DesktopAdapter } from "../../src/lib/storage/desktop-adapter"
 import { joinStoragePath } from "../../src/lib/storage/storage-path"
-import { SyncSettings } from "@/components/workspace/sync/sync-settings"
+import { SettingsDialog } from "@/components/workspace/settings-dialog"
 import { createDesktopSyncPort } from "@/lib/sync/sync-port"
 
 interface Config {
@@ -21,8 +21,8 @@ const config = (window as unknown as { __AMBY_NATIVE_SYNC__: Config }).__AMBY_NA
 if (!root || !("__TAURI_INTERNALS__" in window))
   throw new Error("A real native test runtime is required")
 
-const PASSWORD = "correct horse battery staple 42"
-const NEW_PASSWORD = "an entirely different password about owls 77"
+const PASSWORD = "Correct horse battery staple 42!"
+const NEW_PASSWORD = "An entirely different password about owls 77!"
 const results: Array<{ name: string; passed: boolean; error?: string }> = []
 const port = createDesktopSyncPort()
 
@@ -48,17 +48,20 @@ function field(label: string): HTMLInputElement | null {
   return found?.htmlFor ? (document.getElementById(found.htmlFor) as HTMLInputElement | null) : null
 }
 
-/** The radio of the own server: the Amby server is the default and has no address field. */
-function ownRadio(): HTMLInputElement | null {
-  const label = [...document.querySelectorAll("label")].find(
-    (l) => l.textContent?.trim() === "Свой сервер",
-  )
-  return label?.querySelector("input") ?? null
+/** The shared server selector: Amby is the default and has no address field. */
+function serverChoice(): HTMLButtonElement | null {
+  return document.querySelector<HTMLButtonElement>('[role="combobox"]')
 }
 
 async function chooseOwnServer() {
-  const radio = await waitFor("the own server option", () => ownRadio())
-  radio.click()
+  const select = await waitFor("the server selector", () => serverChoice())
+  select.click()
+  const own = await waitFor("the own server option", () =>
+    [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(
+      (option) => option.textContent?.trim() === "Свой сервер",
+    ),
+  )
+  own.click()
   await waitFor("the server field", () => field("Адрес сервера"))
 }
 
@@ -86,8 +89,18 @@ async function press(name: string) {
   target.click()
 }
 
+const progressAdapter = new DesktopAdapter()
+let progressReady = false
 async function step(name: string, run: () => Promise<void>) {
   try {
+    if (!progressReady) {
+      await progressAdapter.loadVaultData(root)
+      progressReady = true
+    }
+    await progressAdapter.writeFile(
+      joinStoragePath(root, "progress.json"),
+      JSON.stringify({ running: name, completed: results }),
+    )
     await run()
     results.push({ name, passed: true })
   } catch (error) {
@@ -99,8 +112,7 @@ async function step(name: string, run: () => Promise<void>) {
 async function checkServer() {
   await chooseOwnServer()
   type("Адрес сервера", config.url!)
-  await press("Проверить сервер")
-  await waitFor("the server to be found", () => text().includes("Сервер найден"))
+  await waitFor("the server to be found", () => text().includes("Сервер доступен"))
 }
 
 async function readCode(): Promise<string> {
@@ -112,47 +124,59 @@ async function readCode(): Promise<string> {
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <div style={{ maxWidth: 640, margin: "0 auto", padding: 24 }}>
-      <SyncSettings port={port} />
-    </div>
+    <SettingsDialog
+      open
+      standalone
+      vault={null}
+      activeModules={[]}
+      navigationTarget={{ section: "sync" }}
+      onOpenChange={() => {}}
+      onModuleEnabledChange={() => {}}
+    />
   </React.StrictMode>,
 )
 
 let recoveryCode = ""
 try {
-  if (!config?.url || !config.username || !config.enrollCode)
-    throw new Error("The server, the user and the invitation code come from the environment")
+  if (!config?.url || !config.username || config.enrollCode === null)
+    throw new Error("The server, user and invitation mode come from the environment")
 
-  await step("the screen starts with server selection", async () => {
+  await step("the full settings window shows authentication and server selection", async () => {
     await chooseOwnServer()
     if (text().includes("в тестовом режиме")) throw new Error("obsolete banner is shown")
   })
 
   await step("a server that is not there is reported, a good one is found", async () => {
     type("Адрес сервера", "http://127.0.0.1:1")
-    await press("Проверить сервер")
     await waitFor("a network error", () => text().includes("Не удалось связаться с сервером"))
     type("Адрес сервера", "http://example.com")
-    await press("Проверить сервер")
     await waitFor("the https rule", () => text().includes("https://"))
     await checkServer()
   })
 
   await step("a weak password is not accepted, a strong one is", async () => {
-    await press("Создать учётную запись")
-    type("Имя пользователя", config.username!)
-    type("Код приглашения", config.enrollCode!)
+    await press("Регистрация")
+    type("Имя пользователя", config.username!.toUpperCase())
+    if (config.enrollCode) {
+      const invitation = [...document.querySelectorAll("label")]
+        .find((label) => label.textContent?.trim() === "У меня есть код приглашения")
+        ?.querySelector<HTMLInputElement>("input")
+      invitation?.click()
+      type("Код приглашения", config.enrollCode)
+    } else if (field("Код приглашения")) {
+      throw new Error("An open server must not ask for an invitation")
+    }
     type("Пароль", "password12345678")
     type("Повторите пароль", "password12345678")
-    await waitFor("a weak verdict", () => text().includes("Слабый пароль"))
-    if (!button("Продолжить")!.disabled) throw new Error("Continue must be disabled")
+    await waitFor("a weak verdict", () => text().includes("Нужно: заглавная буква, спецсимвол"))
+    if (!button("Зарегистрироваться")!.disabled) throw new Error("Continue must be disabled")
     type("Пароль", PASSWORD)
     type("Повторите пароль", PASSWORD)
     await waitFor("a good verdict", () => /Отличный пароль|Хороший пароль/.test(text()))
   })
 
   await step("the recovery code is shown and cannot be skipped", async () => {
-    await press("Продолжить")
+    await press("Зарегистрироваться")
     recoveryCode = await readCode()
     if (recoveryCode.split("-").length !== 14) throw new Error(`Not 14 groups: ${recoveryCode}`)
     if (!/не вернёт никто/.test(text())) throw new Error("no honest warning")
@@ -190,15 +214,14 @@ try {
 
   await step("signing out empties the device and returns the wizard", async () => {
     await press("Выйти на этом устройстве")
-    await waitFor("the wizard", () => ownRadio())
+    await waitFor("the wizard", () => serverChoice())
     const status = await port.status()
     if (status.connected || status.keysMissing) throw new Error("still connected")
   })
 
   await step("a wrong password is told apart and the right one signs in", async () => {
     await checkServer()
-    await press("Войти")
-    type("Имя пользователя", config.username!)
+    type("Имя пользователя", config.username!.toUpperCase())
     type("Пароль", "not the password at all")
     await press("Войти")
     await waitFor("invalid credentials", () => text().includes("Неверное имя пользователя, пароль"))
@@ -209,10 +232,10 @@ try {
 
   await step("the forgotten password is replaced by the recovery code", async () => {
     await press("Выйти на этом устройстве")
-    await waitFor("the wizard", () => ownRadio())
+    await waitFor("the wizard", () => serverChoice())
     await checkServer()
     await press("Забыли пароль?")
-    type("Имя пользователя", config.username!)
+    type("Имя пользователя", config.username!.toUpperCase())
     type("Код восстановления", recoveryCode.toLowerCase().split("-").join(" "))
     type("Новый пароль", NEW_PASSWORD)
     type("Повторите новый пароль", NEW_PASSWORD)
@@ -223,10 +246,9 @@ try {
 
   await step("after recovery the old password is refused and the new one works", async () => {
     await press("Выйти на этом устройстве")
-    await waitFor("the wizard", () => ownRadio())
+    await waitFor("the wizard", () => serverChoice())
     await checkServer()
-    await press("Войти")
-    type("Имя пользователя", config.username!)
+    type("Имя пользователя", config.username!.toUpperCase())
     type("Пароль", PASSWORD)
     await press("Войти")
     await waitFor("invalid credentials", () => text().includes("Неверное имя пользователя, пароль"))
@@ -236,9 +258,52 @@ try {
     await waitFor("one device", () => text().includes("Это устройство"))
   })
 
+  await step("the current device can be renamed without replacing its session", async () => {
+    const current = (await port.listDevices()).find((device) => device.current)!
+    const before = await port.status()
+    await press(`Переименовать устройство «${current.name}»`)
+    type("Имя устройства", "Mac native renamed")
+    await press("Сохранить")
+    await waitFor(
+      "the updated device name",
+      () => text().includes("Mac native renamed") && !field("Имя устройства"),
+    )
+    const after = await port.status()
+    if (after.deviceId !== before.deviceId || !after.connected)
+      throw new Error("device identity was replaced")
+  })
+
+  const renamedUsername = `${config.username}-renamed`
+  await step("the account login can be renamed with the current password", async () => {
+    await press("Изменить имя аккаунта")
+    type("Новое имя пользователя", renamedUsername.toUpperCase())
+    type("Текущий пароль", NEW_PASSWORD)
+    await press("Сохранить")
+    await waitFor(
+      "the updated account name",
+      () => text().includes(renamedUsername) && !field("Текущий пароль"),
+    )
+    const status = await port.status()
+    if (!status.connected || status.username !== renamedUsername)
+      throw new Error("account rename did not persist")
+  })
+
+  await step("the new account name signs in with the existing password", async () => {
+    await press("Выйти на этом устройстве")
+    await waitFor("the wizard", () => serverChoice())
+    await checkServer()
+    type("Имя пользователя", renamedUsername.toUpperCase())
+    type("Пароль", NEW_PASSWORD)
+    await press("Войти")
+    await waitFor(
+      "the renamed connection",
+      () => /Подключено к/.test(text()) && text().includes(renamedUsername),
+    )
+  })
+
   await step("the final sign-out leaves nothing behind", async () => {
     await press("Выйти на этом устройстве")
-    await waitFor("the wizard", () => ownRadio())
+    await waitFor("the wizard", () => serverChoice())
     const status = await port.status()
     if (status.connected || status.username) throw new Error("a record is left")
   })

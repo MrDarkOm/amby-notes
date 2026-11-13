@@ -10,6 +10,7 @@ import {
 import { useDatabaseStore } from "./database-store"
 import { safeOptionColor } from "./value-format"
 import { EMPTY_BOARD_LANE, moveRowToBoardLane } from "./layouts/board-model"
+import { reportOperationError } from "@/lib/operation-errors"
 
 const LANE_PAGE_SIZE = 50
 const MAX_GROUPS = 256
@@ -63,7 +64,7 @@ function withLane(
   return filter ? { kind: "group", operator: "and", children: [filter, lane] } : lane
 }
 
-const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
+const message = (error: unknown) => reportOperationError(error)
 
 /**
  * Board data that does not depend on which rows happen to be loaded: group

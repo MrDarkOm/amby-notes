@@ -8,14 +8,15 @@ const native = vi.hoisted(() => ({
   getBundleType: vi.fn(),
   check: vi.fn(),
   relaunch: vi.fn(),
-  confirmAction: vi.fn(),
+  confirm: vi.fn(),
   warn: vi.fn(),
 }))
 
 vi.mock("@/lib/storage", () => ({
   isTauri: native.isTauri,
-  confirmAction: native.confirmAction,
 }))
+// The updater never asks a question: an update is installed on the person's own command.
+vi.mock("@/lib/confirm", () => ({ confirm: native.confirm }))
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: native.getCurrentWindow }))
 vi.mock("@tauri-apps/api/app", () => ({ getBundleType: native.getBundleType }))
 vi.mock("@tauri-apps/plugin-updater", () => ({
@@ -95,7 +96,7 @@ describe("silent startup updates", () => {
       await vi.waitFor(() => expect(update.downloadAndInstall).toHaveBeenCalledOnce())
       expect(result).toBeUndefined()
       expect(native.relaunch).not.toHaveBeenCalled()
-      expect(native.confirmAction).not.toHaveBeenCalled()
+      expect(native.confirm).not.toHaveBeenCalled()
       finishInstall()
       await task
       expect(result).toBe("restarting")
@@ -109,7 +110,7 @@ describe("silent startup updates", () => {
     expect(await runAutomaticAppUpdate()).toBe("ready")
     expect(native.check).not.toHaveBeenCalled()
     expect(native.relaunch).not.toHaveBeenCalled()
-    expect(native.confirmAction).not.toHaveBeenCalled()
+    expect(native.confirm).not.toHaveBeenCalled()
   })
 
   it("opens without updating when the native bundle type cannot be read", async () => {
@@ -117,7 +118,7 @@ describe("silent startup updates", () => {
     const { runAutomaticAppUpdate } = await import("./app-updater")
     expect(await runAutomaticAppUpdate()).toBe("ready")
     expect(native.check).not.toHaveBeenCalled()
-    expect(native.confirmAction).not.toHaveBeenCalled()
+    expect(native.confirm).not.toHaveBeenCalled()
   })
 
   it("keeps manual updates available for an existing Linux package installation", async () => {
@@ -135,7 +136,7 @@ describe("silent startup updates", () => {
     const { runAutomaticAppUpdate } = await import("./app-updater")
     expect(await runAutomaticAppUpdate()).toBe("ready")
     expect(native.check).toHaveBeenCalledWith("stable", 5000)
-    expect(native.confirmAction).not.toHaveBeenCalled()
+    expect(native.confirm).not.toHaveBeenCalled()
     expect(native.relaunch).not.toHaveBeenCalled()
   })
 
@@ -151,7 +152,7 @@ describe("silent startup updates", () => {
     })
     expect(native.relaunch).toHaveBeenCalledOnce()
     expect(update.close).toHaveBeenCalledOnce()
-    expect(native.confirmAction).not.toHaveBeenCalled()
+    expect(native.confirm).not.toHaveBeenCalled()
   })
 
   it("shares an in-flight check and install across repeated startup calls", async () => {
@@ -177,10 +178,22 @@ describe("silent startup updates", () => {
     expect(await runAutomaticAppUpdate()).toBe("ready")
     expect(await runAutomaticAppUpdate()).toBe("ready")
     expect(native.check).toHaveBeenCalledOnce()
-    expect(native.confirmAction).not.toHaveBeenCalled()
+    expect(native.confirm).not.toHaveBeenCalled()
     expect(native.warn).toHaveBeenCalledWith("updater.automatic_update_failed", {
       errorType: "Error",
     })
+  })
+
+  it("writes a failed automatic update into the journal of the notification centre", async () => {
+    native.check.mockRejectedValue(new Error("Synthetic network failure"))
+    const { runAutomaticAppUpdate } = await import("./app-updater")
+    const { useNoticeJournalStore } = await import("@/lib/notices/use-notice-journal-store")
+    expect(await runAutomaticAppUpdate()).toBe("ready")
+    const entries = useNoticeJournalStore.getState().entries
+    expect(entries).toHaveLength(1)
+    // Information, not an alarm; the cause is a code, never the text of the error.
+    expect(entries[0]).toMatchObject({ kind: "updateFailed", level: "info" })
+    expect(JSON.stringify(entries)).not.toMatch(/Synthetic/)
   })
 
   it("opens the existing version if download or signature verification fails", async () => {
@@ -191,7 +204,7 @@ describe("silent startup updates", () => {
     expect(await runAutomaticAppUpdate()).toBe("ready")
     expect(update.close).toHaveBeenCalledOnce()
     expect(native.relaunch).not.toHaveBeenCalled()
-    expect(native.confirmAction).not.toHaveBeenCalled()
+    expect(native.confirm).not.toHaveBeenCalled()
   })
 
   it("opens if restarting fails and still releases the update resource", async () => {

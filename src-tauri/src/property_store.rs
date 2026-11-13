@@ -1,12 +1,17 @@
-use crate::{frontmatter, model::CustomProperty};
-use rusqlite::{params, Connection, OptionalExtension};
+//! The first format of the properties, `.amby/properties.json`. The new version only **reads** it
+//! (the list shown before the migration, appendix З: З59); the writers below remain for the tests.
+
+#[cfg(test)]
+use crate::frontmatter;
+use crate::model::CustomProperty;
+#[cfg(test)]
+use rusqlite::OptionalExtension;
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    fs,
-    path::Path,
-    time::{SystemTime, UNIX_EPOCH},
-};
+#[cfg(test)]
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::{collections::HashMap, fs, path::Path};
+#[cfg(test)]
 use ulid::Ulid;
 
 const FORMAT_VERSION: u32 = 1;
@@ -18,6 +23,7 @@ struct PropertyFile {
     notes: HashMap<String, Vec<CustomProperty>>,
 }
 
+#[cfg(test)]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PropertyBackup<'a> {
@@ -52,6 +58,7 @@ fn read(vault: &Path) -> Result<PropertyFile, String> {
     Ok(file)
 }
 
+#[cfg(test)]
 fn write(vault: &Path, file: &PropertyFile) -> Result<(), String> {
     let raw = serde_json::to_string_pretty(file).map_err(|error| error.to_string())? + "\n";
     frontmatter::atomic_write(&path(vault), &raw)
@@ -121,6 +128,7 @@ pub fn list(conn: &Connection, note_id: &str) -> Result<Vec<CustomProperty>, Str
         .map_err(|error| error.to_string())
 }
 
+#[cfg(test)]
 pub fn upsert(
     conn: &Connection,
     vault: &Path,
@@ -207,6 +215,7 @@ pub fn upsert(
     Ok(property)
 }
 
+#[cfg(test)]
 pub fn delete(
     conn: &Connection,
     vault: &Path,
@@ -272,6 +281,7 @@ pub fn delete(
     Ok(())
 }
 
+#[cfg(test)]
 pub fn reorder(
     conn: &Connection,
     vault: &Path,
@@ -304,6 +314,7 @@ pub fn reorder(
     replace_note_cache(conn, note_id, &reordered)
 }
 
+#[cfg(test)]
 pub fn backup_and_clear(conn: &Connection, vault: &Path, note_id: &str) -> Result<String, String> {
     crate::index::identity::ensure_unique_identity(conn, note_id)?;
     ensure_frontmatter_properties_available(conn, vault, note_id)?;
@@ -348,6 +359,7 @@ pub fn backup_and_clear(conn: &Connection, vault: &Path, note_id: &str) -> Resul
         .ok_or_else(|| "Property backup path is not valid UTF-8".to_owned())
 }
 
+#[cfg(test)]
 fn ensure_frontmatter_properties_available(
     conn: &Connection,
     vault: &Path,

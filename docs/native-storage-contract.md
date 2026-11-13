@@ -87,3 +87,5 @@ The native updater scenario checks the compiled release identity against the app
 version and verifies that the generic plugin check (including a downgrade flag)
 is denied by real WebView capabilities. It makes no update request and performs
 no installation. This does not certify signed artifact replacement.
+
+Database layout coverage also checks read-only v1 detection, explicit conversion through IPC, embedded template preservation and use, asset relocation without changing stored relative paths, and unique typed attachment filenames with original display names. All scenarios use disposable vaults.

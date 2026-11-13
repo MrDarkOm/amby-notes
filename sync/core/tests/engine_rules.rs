@@ -94,3 +94,42 @@ fn the_threshold_does_not_overflow() {
     assert!(!mass_change_reached(usize::MAX / 20, usize::MAX, 20, 10));
     assert!(mass_change_reached(20, 0, 20, 10));
 }
+
+#[test]
+fn the_archive_and_its_records_are_synchronised_like_ordinary_files() {
+    // К1, К8 (docs/sync-plan.md, appendix К): `.amby/archive/` and `.amby/archive/.meta/` are
+    // synchronised; the archive is Р4's one more named folder of `.amby/`.
+    for path in [
+        ".amby/archive",
+        ".amby/archive/Notes/a.md",
+        ".amby/archive/Заметки/Ёлка.md",
+        ".amby/archive/Proj/sub/deep/b.bin",
+        ".amby/archive/.meta",
+        ".amby/archive/.meta/01JABC.json",
+        ".amby/archive/.obsidian/app.json",
+        ".amby/archive/.trash/old.md",
+    ] {
+        assert!(!is_excluded_path(path), "{path} must be synchronised");
+    }
+}
+
+#[test]
+fn the_archive_does_not_widen_what_is_excluded() {
+    // К1, К5, Р4: the service trash stays out; litter and temporary files stay out of the archive
+    // too; a folder whose name only begins like `archive` is not the archive.
+    for path in [
+        ".amby/trash/x.md",
+        ".amby/trash/01/Notes/a.md",
+        ".amby/archived/x.md",
+        ".amby/archive-old/x.md",
+        ".amby/archive.json",
+        ".amby/archive/.DS_Store",
+        ".amby/archive/Notes/.DS_Store",
+        ".amby/archive/Notes/._a.md",
+        ".amby/archive/Notes/.a.md.amby-tmp-7",
+        ".amby/archive/.git/config",
+        ".amby/archive/Thumbs.db",
+    ] {
+        assert!(is_excluded_path(path), "{path} must not be synchronised");
+    }
+}

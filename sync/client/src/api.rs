@@ -18,6 +18,9 @@ use crate::url::ServerUrl;
 /// The biggest answer the client reads (the answers of this part of the protocol are small; a
 /// hostile server must not be able to fill the memory).
 pub(crate) const MAX_ANSWER_BYTES: usize = 4 * 1024 * 1024;
+/// The largest answer of `GET …/changes` (Т5): a commit of up to the server's `max_json_bytes`
+/// (64 MiB by default) with the fields of the feed.
+pub(crate) const MAX_FEED_ANSWER_BYTES: usize = 96 * 1024 * 1024;
 /// Time to connect.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Time for a whole request.
@@ -340,14 +343,22 @@ pub(crate) fn retry_after(response: &reqwest::Response) -> Option<u64> {
 }
 
 /// Reads the body of an answer, at most [`MAX_ANSWER_BYTES`].
-pub(crate) async fn read_body(mut response: reqwest::Response) -> Result<Vec<u8>, ClientError> {
+pub(crate) async fn read_body(response: reqwest::Response) -> Result<Vec<u8>, ClientError> {
+    read_body_limited(response, MAX_ANSWER_BYTES).await
+}
+
+/// Reads the body of an answer, at most `max` bytes; reading stops at the limit.
+pub(crate) async fn read_body_limited(
+    mut response: reqwest::Response,
+    max: usize,
+) -> Result<Vec<u8>, ClientError> {
     let mut body = Vec::new();
     while let Some(chunk) = response
         .chunk()
         .await
         .map_err(|error| transport_error(&error))?
     {
-        if body.len() + chunk.len() > MAX_ANSWER_BYTES {
+        if body.len() + chunk.len() > max {
             return Err(bad("the answer is too large"));
         }
         body.extend_from_slice(&chunk);
@@ -415,6 +426,19 @@ impl SyncClient {
         token: Option<&DeviceToken>,
         body: Option<Value>,
     ) -> Result<Value, ClientError> {
+        self.send_limited(method, path, token, body, MAX_ANSWER_BYTES)
+            .await
+    }
+
+    /// As [`Self::send`], with another limit on the size of the answer.
+    pub(crate) async fn send_limited(
+        &self,
+        method: Method,
+        path: &str,
+        token: Option<&DeviceToken>,
+        body: Option<Value>,
+        max_answer: usize,
+    ) -> Result<Value, ClientError> {
         let mut request = self.http.request(method, self.base.endpoint(path));
         if let Some(token) = token {
             request = request.bearer_auth(token.expose());
@@ -428,7 +452,7 @@ impl SyncClient {
             .map_err(|error| transport_error(&error))?;
         let status = response.status();
         let wait = retry_after(&response);
-        let bytes = read_body(response).await?;
+        let bytes = read_body_limited(response, max_answer).await?;
         if status.is_success() {
             if status == StatusCode::NO_CONTENT {
                 return Ok(Value::Null);
@@ -467,7 +491,7 @@ impl SyncClient {
                 Method::POST,
                 "/v1/auth/prelogin",
                 None,
-                Some(json!({ "username": username })),
+                Some(json!({ "username": amby_sync_proto::normalize_username(username) })),
             )
             .await?;
         Ok(Prelogin {
@@ -480,7 +504,7 @@ impl SyncClient {
     pub async fn enroll(&self, request: &EnrollRequest<'_>) -> Result<Session, ClientError> {
         let account = request.account;
         let body = json!({
-            "username": request.username,
+            "username": amby_sync_proto::normalize_username(request.username),
             "enroll_code": request.enroll_code,
             "salt": hex::encode(account.password.salt),
             "params": params_to(&account.password.params),
@@ -504,7 +528,7 @@ impl SyncClient {
         device_name_enc: &[u8],
     ) -> Result<LoginAnswer, ClientError> {
         let body = json!({
-            "username": username,
+            "username": amby_sync_proto::normalize_username(username),
             "auth_key": hex::encode(auth_key.as_bytes()),
             "device": { "name_enc": hex::encode(device_name_enc) },
         });
@@ -527,9 +551,50 @@ impl SyncClient {
         device_name_enc: &[u8],
     ) -> Result<RecoverAnswer, ClientError> {
         let body = json!({
-            "username": username,
+            "username": amby_sync_proto::normalize_username(username),
             "recovery_auth_key": hex::encode(recovery_auth_key.as_bytes()),
             "device": { "name_enc": hex::encode(device_name_enc) },
+        });
+        let value = self
+            .send(Method::POST, "/v1/auth/recover", None, Some(body))
+            .await?;
+        Ok(RecoverAnswer {
+            session: session_from(&value)?,
+            wrapped_ak_recovery: hex_bytes(&value, "wrapped_ak_recovery")?,
+        })
+    }
+
+    /// `POST /v1/auth/login` without a device name (appendix М, М1, М7): the device is created with
+    /// an empty name, set afterwards with `rename_device`.
+    pub async fn login_unnamed(
+        &self,
+        username: &str,
+        auth_key: &AuthKey,
+    ) -> Result<LoginAnswer, ClientError> {
+        let body = json!({
+            "username": amby_sync_proto::normalize_username(username),
+            "auth_key": hex::encode(auth_key.as_bytes()),
+        });
+        let value = self
+            .send(Method::POST, "/v1/auth/login", None, Some(body))
+            .await?;
+        Ok(LoginAnswer {
+            session: session_from(&value)?,
+            salt: hex_array(&value, "salt")?,
+            params: params_from(&value)?,
+            wrapped_ak: hex_bytes(&value, "wrapped_ak")?,
+        })
+    }
+
+    /// `POST /v1/auth/recover` without a device name (appendix М, М1, М7).
+    pub async fn recover_unnamed(
+        &self,
+        username: &str,
+        recovery_auth_key: &AuthKey,
+    ) -> Result<RecoverAnswer, ClientError> {
+        let body = json!({
+            "username": amby_sync_proto::normalize_username(username),
+            "recovery_auth_key": hex::encode(recovery_auth_key.as_bytes()),
         });
         let value = self
             .send(Method::POST, "/v1/auth/recover", None, Some(body))
@@ -602,6 +667,56 @@ impl SyncClient {
                 })
             })
             .collect()
+    }
+
+    /// Current login name by authenticated identity; no password or keys in the response.
+    pub async fn account_username(&self, token: &DeviceToken) -> Result<String, ClientError> {
+        let value = self
+            .send(Method::GET, "/v1/account/username", Some(token), None)
+            .await?;
+        let username = string_field(&value, "username")?;
+        if !crate::flows::validate_username(username) {
+            return Err(bad("invalid account username"));
+        }
+        Ok(username.to_string())
+    }
+
+    /// Renames only the login, with password proof and a base name for concurrent edits.
+    pub async fn rename_account(
+        &self,
+        token: &DeviceToken,
+        base: &str,
+        username: &str,
+        auth_key: &AuthKey,
+    ) -> Result<(), ClientError> {
+        self.send(Method::PUT, "/v1/account/username", Some(token), Some(json!({
+            "username": amby_sync_proto::normalize_username(username), "base_username": amby_sync_proto::normalize_username(base), "auth_key": hex::encode(auth_key.as_bytes()),
+        }))).await?;
+        Ok(())
+    }
+
+    /// Replaces a device's sealed label, preserving its identity and token.
+    pub async fn rename_device(
+        &self,
+        token: &DeviceToken,
+        device_id: &str,
+        name_enc: &[u8],
+    ) -> Result<(), ClientError> {
+        if device_id.len() != 32 || !device_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(ClientError::Api {
+                status: 404,
+                code: "not_found".to_string(),
+                retry_after_secs: None,
+            });
+        }
+        self.send(
+            Method::PUT,
+            &format!("/v1/devices/{device_id}"),
+            Some(token),
+            Some(json!({"name_enc": hex::encode(name_enc)})),
+        )
+        .await?;
+        Ok(())
     }
 
     /// `DELETE /v1/devices/{id}` (П19).

@@ -190,3 +190,34 @@ export const DATABASE_OPTION_COLORS = [
   { id: "purple", hex: "#8b5cf6" },
   { id: "pink", hex: "#ec4899" },
 ] as const
+
+/** The names an option colour can have (docs/sync-plan.md, З63); `gray` is also the colour of a value that is not an option. */
+export const OPTION_COLOR_NAMES = [
+  "gray",
+  "brown",
+  "orange",
+  "yellow",
+  "green",
+  "blue",
+  "purple",
+  "pink",
+  "red",
+] as const
+
+export type OptionColorName = (typeof OPTION_COLOR_NAMES)[number]
+
+/** The chip of an option: background and text for the light and for the dark theme. */
+export const OPTION_COLOR_SHADES: Record<
+  OptionColorName,
+  { light: { bg: string; fg: string }; dark: { bg: string; fg: string } }
+> = {
+  gray: { light: { bg: "#e3e2e0", fg: "#37352f" }, dark: { bg: "#454b4e", fg: "#e6e6e4" } },
+  brown: { light: { bg: "#eee0da", fg: "#442a1e" }, dark: { bg: "#8a5d44", fg: "#fbece5" } },
+  orange: { light: { bg: "#fadec9", fg: "#5c3b23" }, dark: { bg: "#9c5b2b", fg: "#fdebd9" } },
+  yellow: { light: { bg: "#fdecc8", fg: "#402c1b" }, dark: { bg: "#8f7425", fg: "#fcf2d3" } },
+  green: { light: { bg: "#dbeddb", fg: "#1c3829" }, dark: { bg: "#3f7455", fg: "#e1f3e6" } },
+  blue: { light: { bg: "#d3e5ef", fg: "#183347" }, dark: { bg: "#3a6f95", fg: "#e0eefa" } },
+  purple: { light: { bg: "#e8deee", fg: "#412454" }, dark: { bg: "#7a58a0", fg: "#f1e8f8" } },
+  pink: { light: { bg: "#f5e0e9", fg: "#4c2337" }, dark: { bg: "#a1486f", fg: "#fae5ee" } },
+  red: { light: { bg: "#ffe2dd", fg: "#5d1715" }, dark: { bg: "#a14a47", fg: "#fbe4e1" } },
+}

@@ -9,7 +9,7 @@ use rusqlite::Connection;
 
 use crate::{
     model::{IndexState, PathChange},
-    property_store, vault_index,
+    property_groups, vault_index,
 };
 
 /// The answer to a refresh of a few paths: the tree patch and the sync report for them.
@@ -57,6 +57,14 @@ impl ActiveVault {
         })
     }
 
+    /// Reconcile watcher changes before rebuilding projections that depend on the note index.
+    pub fn refresh_pending_index(&self) -> Result<(), String> {
+        if !self.index_changes.lock_or_recover().is_empty() {
+            self.refresh()?;
+        }
+        Ok(())
+    }
+
     /// Bring the index and the tree up to date for `changed` only. `None` means the change is
     /// not one a point refresh can cover (the vault root, too many paths, an identity clash that
     /// needs the whole picture) and the caller has to run `refresh`.
@@ -86,7 +94,7 @@ impl ActiveVault {
     }
 
     pub fn reindex(&self) -> Result<vault_index::LoadVaultResult, String> {
-        let _ = property_store::restore_cache(&self.connection, &self.root);
+        let _ = property_groups::restore_cache_any(&self.connection, &self.root);
         let mut changed = HashSet::new();
         changed.insert(self.root.clone());
         self.index_changes.lock_or_recover().clear();
@@ -170,6 +178,11 @@ impl VaultContext {
             return Err(format!("Vault is not a directory: {}", root.display()));
         }
 
+        // К11 (ж): the old trash moves into the archive when the vault is opened, before the index,
+        // the watcher and the synchronisation look at it. A failure leaves everything in place (the
+        // journal resumes it at the next opening) and does not stop the vault from opening.
+        crate::archive_migration::run_when_opening(&root);
+
         // Preflight is read-only and must complete before the active state can
         // change. Opening the connection verifies schema initialization too.
         let preflight = vault_index::preflight_vault(&root)?;
@@ -198,7 +211,12 @@ impl VaultContext {
         )
         .map_err(|error| format!("Relation schema recovery blocked vault activation: {error}"))?;
         let connection = vault_index::open_connection(&root)?;
-        property_store::restore_cache(&connection, &root)?;
+        // What this device began before it stopped is finished first (З29); then the mirror.
+        if property_groups::in_groups(&root) {
+            let _ = property_groups::recover_operations(&connection, &root);
+            property_groups::check_old_version_on_open(&connection, &root);
+        }
+        property_groups::restore_cache_any(&connection, &root)?;
         let _ = crate::recovery::sweep_expired_recovery(&root);
         // Notices for the user, prefixed `recovery:` so the renderer shows only
         // these from the sync warnings. Evidence is always preserved.

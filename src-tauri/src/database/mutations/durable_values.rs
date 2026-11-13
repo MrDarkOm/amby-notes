@@ -15,6 +15,20 @@ pub(super) fn ensure_property_has_no_durable_values(
     let canonical_vault = vault.canonicalize().map_err(|error| error.to_string())?;
     let vault = canonical_vault.as_path();
     let property_id = property.id().unwrap_or_default();
+    let manifest_path = crate::database::discovery::manifest_path_for_container(container);
+    let manifest = crate::database::format::parse_manifest(
+        &fs::read(manifest_path).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    for template in manifest
+        .value
+        .templates()
+        .map_err(|error| format!("A template cannot be read: {error}"))?
+    {
+        if template.values.get(property_id).is_some_and(|value| !matches!(value, crate::database::format::PropertyValue::Relation { target_note_ids, .. } if target_note_ids.is_empty())) {
+            return Err("Property type can only be changed after its template values are cleared".to_owned());
+        }
+    }
     let prop_name = property.name();
     let prop_key = property.frontmatter_key();
 
@@ -122,7 +136,7 @@ pub(super) fn ensure_property_has_no_durable_values(
             let parsed = crate::database::format::parse_record(
                 &fs::read(entry.path()).map_err(|error| error.to_string())?,
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| format!("Cannot inspect durable record values: {error}"))?;
             if !parsed.is_writable() {
                 return Err("A record is read-only; property type was not changed".to_owned());
             }

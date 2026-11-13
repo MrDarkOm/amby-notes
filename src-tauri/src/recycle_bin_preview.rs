@@ -55,13 +55,19 @@ pub fn read_preview(vault: &Path, id: &str, relative_path: &str) -> Result<Trash
     // Check the whole service path before using the payload itself as a scope. This also
     // rejects a linked manifest, container, or payload (including links inside the vault).
     let payload = confine_rel_no_symlinks(vault, &format!(".amby/trash/{id}/{}", entry.name))?;
+    preview_payload(&payload, relative_path)
+}
+
+/// A read-only look at `relative_path` inside `payload` (a file or a folder of the trash or of the
+/// archive); `payload` itself must already be confined by the caller (К6 uses it for the archive).
+pub(crate) fn preview_payload(payload: &Path, relative_path: &str) -> Result<TrashPreview, String> {
     if relative_path.contains('\\') {
         return Err("Unsafe archive preview path".into());
     }
     let path = if relative_path.is_empty() {
-        payload.clone()
+        payload.to_path_buf()
     } else {
-        confine_rel_no_symlinks(&payload, relative_path)?
+        confine_rel_no_symlinks(payload, relative_path)?
     };
     let metadata = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
     let mut preview = TrashPreview {

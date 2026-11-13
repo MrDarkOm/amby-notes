@@ -23,7 +23,8 @@ vi.mock("./note-pdf-export", () => ({ NotePdfExport: () => null, NotePdfExportDi
 vi.mock("./document-body", () => ({
   DocumentBody: (props: DocumentBodyProps) => {
     rendered.bodies.push(props)
-    return <main data-testid="body" />
+    // the real body hands the strip to the floating bar, which draws it peeking out from behind itself
+    return <main data-testid="body">{props.notices}</main>
   },
 }))
 
@@ -84,12 +85,10 @@ describe("DocumentEditor notices", () => {
     )
     const stack = screen.getByTestId("note-notices-stack")
     const body = screen.getByTestId("body")
-    // everything that warns is inside the stack, which comes after the body (it floats above the bar)
+    // everything that warns is inside the stack, which the body draws with its floating bar
     expect(within(stack).getByText("Автосохранение приостановлено")).toBeTruthy()
-    expect(
-      within(stack).getByText("Пришла другая версия заметки с другого компьютера"),
-    ).toBeTruthy()
-    expect(body.compareDocumentPosition(stack) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(stack).getByText("Заметка «идея» изменена на двух компьютерах")).toBeTruthy()
+    expect(body.contains(stack)).toBe(true)
     const outside = [...container.querySelectorAll('[role="alert"], [role="status"]')].filter(
       (element) => !stack.contains(element),
     )
@@ -103,12 +102,12 @@ describe("DocumentEditor notices", () => {
       <DocumentEditor document={note({ externallyDeleted: true })} onRestoreDeleted={vi.fn()} />,
     )
     const stack = screen.getByTestId("note-notices-stack")
-    expect(within(stack).getByRole("button", { name: "Восстановить файл" })).toBeTruthy()
+    expect(within(stack).getByRole("button", { name: "Вернуть" })).toBeTruthy()
   })
 
   it("shows nothing and no bulb for a note that has nothing to say", () => {
     render(<DocumentEditor document={note()} />)
-    expect(screen.queryByTestId("note-notices-bulb")).toBeNull()
+    expect(screen.queryByTestId("note-notices-strip")).toBeNull()
     expect(rendered.bodies[rendered.bodies.length - 1]?.isLocked).toBe(false)
   })
 

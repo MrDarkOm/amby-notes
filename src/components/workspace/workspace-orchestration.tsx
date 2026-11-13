@@ -1,11 +1,15 @@
 "use client"
 
+import { activateNoteTab } from "./notices/activate-note-tab"
+import { remapExternalLayers } from "./orchestration/remap-external-layers"
+import { remapLayerAutosave } from "./autosave/remap-layer-autosave"
+
 import { useTagFocusStore } from "./tags/tag-focus-store"
 import { findModule } from "./modules"
 import { GRAPH_TAB_FILE_ID, useTabsStore } from "./use-tabs-store"
 import type { ActionContext } from "./panel-registry"
 import { computeSplitLayout } from "./split-tree"
-import { nextAvailableNoteName } from "./workspace-tree-utils"
+import { flattenFileItems, nextAvailableNoteName, noteLayerPath } from "./workspace-tree-utils"
 import { parseCreativeFileId } from "./creative/creative-history"
 import { flushEditorSerializations } from "./tiptap/editor-serialization-lifecycle"
 import {
@@ -39,6 +43,9 @@ import { spotlightCreateActions } from "./spotlight-create-actions"
 import type { HelpContext } from "./help-modal"
 import { WorkspaceProfileModal } from "./modules/workspace-profile-modal"
 import type { ProfileId } from "@/lib/modules"
+import { useOpenPanelRequests } from "./panel-navigation"
+import { useOpenNoteRequests } from "./notices/note-open-request"
+import { relativeToVault } from "./editor/document-breadcrumbs-utils"
 import { OPEN_SETTINGS_REQUEST_EVENT, type SettingsNavigationTarget } from "./settings-navigation"
 import { useSettingsStore } from "./use-settings-store"
 import { useLinkSuggestionSources } from "./orchestration/use-link-suggestion-sources"
@@ -54,6 +61,7 @@ import {
   watcherChangeAffectsDocument,
 } from "./watcher-tree-reconciliation"
 import { flushAutosaveGeneration } from "./autosave/autosave-lifecycle"
+import { emitAutosaveConflictResolution } from "./autosave/conflict-events"
 import { errorType, logger } from "@/lib/logger"
 import type { TreeItem } from "./sidebar-tree"
 import { useDatabaseController } from "./database/use-database-controller"
@@ -65,7 +73,7 @@ import { resolveProjectTarget } from "./creative/project-tree-model"
 import { projectTargetIcon } from "./creative/section-icons"
 import { useDatabaseStore } from "./database/database-store"
 import type { DatabaseRowActions } from "./database/use-row-menu"
-import { discardRecoveryDraft, remapRecoveryDraft } from "@/lib/recovery-drafts"
+import { remapRecoveryDraft } from "@/lib/recovery-drafts"
 import { useCanvasWorkspace } from "./orchestration/use-canvas-workspace"
 import { useSketchWorkspace } from "./orchestration/use-sketch-workspace"
 import { usePropertyActions } from "./orchestration/use-property-actions"
@@ -95,11 +103,13 @@ export function WorkspaceOrchestration() {
     [backendGeneration, vault],
   )
   const vaults = useVaultStore((s) => s.vaults)
+  const startupResolved = useVaultStore((s) => s.startupResolved)
   const { setVaults } = useVaultStore.getState()
 
   const {
     autosave: canvasAutosave,
     autosaveKey: canvasAutosaveKey,
+    discardDeleted: discardDeletedCanvases,
     fileRevisions: canvasRevisions,
     handleCanvasSave,
     loadCanvasBuffer,
@@ -111,6 +121,7 @@ export function WorkspaceOrchestration() {
   const {
     autosave: sketchAutosave,
     autosaveKey: sketchAutosaveKey,
+    discardDeleted: discardDeletedSketches,
     fileRevisions: sketchRevisions,
     handleSketchSave,
     loadSketchBuffer,
@@ -137,6 +148,42 @@ export function WorkspaceOrchestration() {
     [openCanvases, openSketches, reloadExternalCanvas, reloadExternalSketch, vault],
   )
 
+  const onPathsMoved = React.useCallback(
+    (changes: Array<{ oldPath: string; newPath: string }>) => {
+      remapExternalLayers(
+        changes,
+        [
+          {
+            kind: "canvas",
+            setBuffers: setOpenCanvases,
+            autosave: canvasAutosave,
+            key: canvasAutosaveKey,
+            revisions: canvasRevisions,
+          },
+          {
+            kind: "sketch",
+            setBuffers: setOpenSketches,
+            autosave: sketchAutosave,
+            key: sketchAutosaveKey,
+            revisions: sketchRevisions,
+          },
+        ],
+        recoveryScope,
+      )
+    },
+    [
+      setOpenCanvases,
+      canvasAutosave,
+      canvasAutosaveKey,
+      canvasRevisions,
+      setOpenSketches,
+      sketchAutosave,
+      sketchAutosaveKey,
+      sketchRevisions,
+      recoveryScope,
+    ],
+  )
+
   const {
     treeItems,
     setTreeItems,
@@ -149,7 +196,7 @@ export function WorkspaceOrchestration() {
     patchTree,
     reloadVaultData,
     windowLabel,
-  } = useVaultData({ onExternalChange })
+  } = useVaultData({ onExternalChange, onPathsMoved })
   useLinkSuggestionSources(vault, treeItems)
   useRefreshTreeOnArchiveChange(refreshTree, refreshTreePaths)
 
@@ -261,6 +308,8 @@ export function WorkspaceOrchestration() {
   const updateWindowPrefs = React.useCallback(
     (patch: Partial<WindowPreferences>) => {
       const current = useSettingsStore.getState().prefs.window
+      // The failed save is already reported by the settings window (emitSettingsSaveError); nothing
+      // more to do here.
       void setPrefs({ window: { ...current, ...patch } }).catch(() => {})
     },
     [setPrefs],
@@ -529,6 +578,8 @@ export function WorkspaceOrchestration() {
     favoritesPanelPref,
     setPrefs,
   })
+  // A card of a note that says a version went to the history asks for the panel with this event.
+  useOpenPanelRequests(activatePanelAnywhere)
 
   const vaultName = vault?.replace(/\\/g, "/").split("/").pop() ?? undefined
 
@@ -557,7 +608,10 @@ export function WorkspaceOrchestration() {
       activeTab.kind === "database" ||
       activeTab.kind === "canvas" ||
       activeTab.kind === "sketch")
-      ? (treeItemById.get(activeTab.fileId)?.id ?? activeTab.fileId)
+      ? ((
+          treeItemById.get(activeTab.fileId) ??
+          treeItemById.get(openDocs[activeTab.fileId]?.noteId ?? "")
+        )?.id ?? activeTab.fileId)
       : ""
 
   // Current file icon (from iconOverrides or tree)
@@ -621,19 +675,19 @@ export function WorkspaceOrchestration() {
       }
     }
 
-    const deletedCanvasPaths = new Set(result.deletedPaths)
+    // Deleted by Amby: no later save of the closing editor may reach the missing file.
+    discardDeletedCanvases(result.deletedPaths)
     setOpenCanvases((previous) => {
       const next: Record<string, string> = {}
       for (const [path, json] of Object.entries(previous)) {
-        if (deletedCanvasPaths.has(path)) {
-          canvasAutosave.discard(canvasAutosaveKey(path))
-          void discardRecoveryDraft(path, recoveryScope)
-          continue
-        }
         const nextPath = remapFn(path)
         if (nextPath !== path) {
-          canvasAutosave.remapKey(canvasAutosaveKey(path), canvasAutosaveKey(nextPath))
-          canvasRevisions.rename(path, nextPath)
+          remapLayerAutosave(
+            canvasAutosave,
+            canvasRevisions,
+            canvasAutosaveKey(path),
+            canvasAutosaveKey(nextPath),
+          )
           void remapRecoveryDraft(path, nextPath, "canvas", nextPath, recoveryScope)
         }
         next[nextPath] = json
@@ -641,19 +695,18 @@ export function WorkspaceOrchestration() {
       return next
     })
 
-    const deletedSketchPaths = new Set(result.deletedPaths)
+    discardDeletedSketches(result.deletedPaths)
     setOpenSketches((previous) => {
       const next: Record<string, string> = {}
       for (const [path, json] of Object.entries(previous)) {
-        if (deletedSketchPaths.has(path)) {
-          sketchAutosave.discard(sketchAutosaveKey(path))
-          void discardRecoveryDraft(path, recoveryScope)
-          continue
-        }
         const nextPath = remapFn(path)
         if (nextPath !== path) {
-          sketchAutosave.remapKey(sketchAutosaveKey(path), sketchAutosaveKey(nextPath))
-          sketchRevisions.rename(path, nextPath)
+          remapLayerAutosave(
+            sketchAutosave,
+            sketchRevisions,
+            sketchAutosaveKey(path),
+            sketchAutosaveKey(nextPath),
+          )
           void remapRecoveryDraft(path, nextPath, "sketch", nextPath, recoveryScope)
         }
         next[nextPath] = json
@@ -753,19 +806,18 @@ export function WorkspaceOrchestration() {
       if (!vault) return
       const document = useDocStore.getState().openDocs[fileId]
       if (!document?.externallyDeleted) return
-      if (
-        fileId.startsWith("database:") ||
-        fileId.endsWith(".canvas") ||
-        fileId.endsWith(".excalidraw")
-      ) {
-        return
-      }
+      if (fileId.endsWith(".canvas") || fileId.endsWith(".excalidraw")) return
+      // К15: the tab of a database holds the text of its note; "Вернуть" writes that note back.
+      const isDatabase = fileId.startsWith("database:")
+      if (isDatabase && !document.noteId) return
+      const noteId = isDatabase ? (document.noteId ?? fileId) : fileId
+      const notePath = isDatabase ? noteLayerPath(document.path) : document.path
       try {
         const conflict = useDocStore.getState().externalConflicts[fileId]
         const outcome = await restoreDeletedNote(
           vault,
-          fileId,
-          document.path,
+          noteId,
+          notePath,
           document.content,
           conflict?.sourceTemplate ?? document.source,
           backendGeneration,
@@ -776,9 +828,12 @@ export function WorkspaceOrchestration() {
           source: conflict?.sourceTemplate ?? document.source,
           externallyDeleted: false,
         })
-        markSaved(fileId)
+        // Text typed while the file was being written is still unsaved: autosave takes it up.
+        const hasNewerEdits = useDocStore.getState().openDocs[fileId]?.content !== document.content
+        if (!hasNewerEdits) markSaved(fileId)
         clearExternalConflict(fileId)
-        await refreshTreePaths([document.path], vault)
+        emitAutosaveConflictResolution(fileId, hasNewerEdits ? "resume" : "discard")
+        await refreshTreePaths([notePath], vault)
       } catch (error) {
         logger.warn("document.restore_deleted_failed", { errorType: errorType(error) })
         throw error
@@ -854,6 +909,22 @@ export function WorkspaceOrchestration() {
     refreshDatabaseCatalog,
   })
 
+  // The notification centre and its toasts lead to a note by its id (an open note) or by its path in the vault
+  // (the journal remembers only that).
+  useOpenNoteRequests((request) => {
+    if (request.id !== undefined) {
+      // An open note has its tab, even when its file is gone and the tree no longer knows it.
+      if (!activateNoteTab(request.id)) void handleSelect(request.id)
+      return
+    }
+    const wanted = request.path.normalize("NFC")
+    const item = flattenFileItems(displayTreeItems).find(
+      (candidate) =>
+        vault !== null && relativeToVault(candidate.path, vault).normalize("NFC") === wanted,
+    )
+    if (item) void handleSelect(item.id)
+  })
+
   // Embedded database views open pages and databases through the app, not on their own.
   React.useEffect(
     () =>
@@ -873,8 +944,9 @@ export function WorkspaceOrchestration() {
 
   const handleRenameDatabaseRow = React.useCallback(
     async (rowId: string, name: string) => {
-      await handleRenameFile(rowId, name)
+      const outcome = await handleRenameFile(rowId, name)
       await refreshDatabaseCatalog()
+      return outcome
     },
     [handleRenameFile, refreshDatabaseCatalog],
   )
@@ -1144,6 +1216,13 @@ export function WorkspaceOrchestration() {
     handleUpsertCustomProperty,
     handleDeleteCustomProperty,
     handleReorderCustomProperties,
+    handleCreateProperty,
+    handleSetPropertyIcon,
+    handleSetPropertySettings,
+    handleRenameProperty,
+    handleChangePropertyType,
+    handleSetPropertyValue,
+    handleSetPropertyList,
   } = usePropertyActions({
     activeTab,
     currentDoc,
@@ -1311,6 +1390,13 @@ export function WorkspaceOrchestration() {
     handleUpsertCustomProperty,
     handleDeleteCustomProperty,
     handleReorderCustomProperties,
+    handleCreateProperty,
+    handleSetPropertyIcon,
+    handleSetPropertySettings,
+    handleRenameProperty,
+    handleChangePropertyType,
+    handleSetPropertyValue,
+    handleSetPropertyList,
     handleHistoryRestored,
     vaults,
     loadVault,
@@ -1460,6 +1546,7 @@ export function WorkspaceOrchestration() {
         leftSidebar={null}
         noVault={
           <StartScreen
+            loading={!startupResolved}
             vaults={vaults}
             onSelect={loadVault}
             onOpenVault={handleOpenVault}

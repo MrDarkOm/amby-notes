@@ -679,6 +679,9 @@ fn diagnose_shards(
         let Some(parsed_manifest) = &boundary.parsed else {
             continue;
         };
+        if parsed_manifest.value.format_version >= 2 {
+            continue;
+        }
         for (directory, kind) in [
             ("records", ShardKind::Record),
             ("views", ShardKind::View),

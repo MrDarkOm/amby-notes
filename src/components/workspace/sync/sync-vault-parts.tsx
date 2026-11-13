@@ -5,6 +5,9 @@ import { AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { formatSize } from "@/lib/sync/format-size"
 import type { ApprovalKind, ConflictChoice, VaultSyncStatus } from "@/lib/sync/sync-port"
+import { appDataConflictKind, isPropertyGroupPath } from "./app-data-conflict"
+import { conflictName } from "./conflict-outcome"
+import { GroupConflictChooser, type GroupConflictActions } from "./sync-group-conflict"
 
 type Stop = NonNullable<VaultSyncStatus["stop"]>
 type Conflict = VaultSyncStatus["conflicts"][number]
@@ -16,6 +19,7 @@ const UNSYNCED_REASONS = [
   "notUtf8",
   "tooLarge",
   "quotaFull",
+  "subscriptionRequired",
   "tooBigForMemory",
   "excludedPath",
   "invalidName",
@@ -83,18 +87,107 @@ export function UnsyncedList({ items }: { items: Unsynced[] }) {
   )
 }
 
-/** The conflicts waiting for the person (Р7): the file, its copy and three ways out. */
+/**
+ * What a conflict of the data Amby keeps for itself says and offers: a sentence and its two choices, or, for a
+ * group of note properties that has a base, the choice by notes (З69). Worn by the list of the settings and by
+ * the card of the notification centre.
+ */
+export function AppDataConflictBody({
+  item,
+  busy,
+  onResolve,
+  groups,
+}: {
+  item: Conflict
+  busy: boolean
+  onResolve: (id: string, choice: ConflictChoice) => void
+  groups?: GroupConflictActions
+}) {
+  const { t } = useTranslation()
+  const appData = appDataConflictKind(item.originalPath)
+  if (!appData) return null
+  // З69: the set is synchronised. On the computer that did not make it, the version in the file came
+  // from the other computer and the second version is this one's, so the names of the sides swap.
+  const swapped = item.createdHere === false
+  const byNotes =
+    groups !== undefined && item.hasBase === true && isPropertyGroupPath(item.originalPath)
+  const choices = (
+    <div className="flex flex-wrap gap-2">
+      {(
+        [
+          [
+            "keepOriginal",
+            swapped
+              ? "sync.vault.conflicts.appData.keepOther"
+              : "sync.vault.conflicts.appData.keepThis",
+          ],
+          [
+            "keepCopy",
+            swapped
+              ? "sync.vault.conflicts.appData.keepThis"
+              : "sync.vault.conflicts.appData.keepOther",
+          ],
+        ] as const
+      ).map(([choice, key]) => (
+        <Button
+          key={choice}
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          onClick={() => onResolve(item.id, choice)}
+        >
+          {t(key)}
+        </Button>
+      ))}
+    </div>
+  )
+  if (byNotes) {
+    return (
+      <GroupConflictChooser
+        id={item.id}
+        actions={groups}
+        disabled={busy}
+        swapped={swapped}
+        fallback={
+          <>
+            <p className="text-[12px]">{t("sync.vault.conflicts.appData.properties")}</p>
+            {choices}
+            <p className="text-[11px] text-muted-foreground">
+              {t("sync.vault.conflicts.appData.hint")}
+            </p>
+          </>
+        }
+      />
+    )
+  }
+  return (
+    <>
+      <p className="text-[12px]">{t(`sync.vault.conflicts.appData.${appData}`)}</p>
+      {choices}
+    </>
+  )
+}
+
+/**
+ * The conflicts waiting for the person (Р7), in the settings of the sync. A conflict of a note is a title, one
+ * line that both versions are safe and one button: the choice is made in the comparison, where both versions
+ * are seen (docs/notices.md, section 10). The notification centre shows the same conflicts as cards.
+ */
 export function ConflictList({
   items,
   busyId,
   onResolve,
   onCompare,
+  groups,
 }: {
   items: Conflict[]
   busyId: string | null
   onResolve: (id: string, choice: ConflictChoice) => void
-  /** Adds a "Compare" button that opens the two versions side by side. */
-  onCompare?: (id: string) => void
+  /** Opens the two versions of a note side by side. */
+  onCompare: (id: string) => void
+  /** The choice by notes for a group of note properties that has a base (З69). */
+  groups?: GroupConflictActions
 }) {
   const { t } = useTranslation()
   if (items.length === 0) return null
@@ -104,45 +197,49 @@ export function ConflictList({
         {t("sync.vault.conflicts.title", { count: items.length })}
       </h4>
       <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
-        {items.map((item) => (
-          <li key={item.id} className="space-y-2 px-3 py-2.5">
-            <p className="text-[12px]">
-              {t(
-                item.kind === "bothCreated"
-                  ? "sync.vault.conflicts.bothCreated"
-                  : "sync.vault.conflicts.bothEdited",
-                { original: item.originalPath, copy: item.copyPath },
-              )}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {onCompare && (
-                <Button type="button" size="sm" onClick={() => onCompare(item.id)}>
-                  {t("sync.notices.compare")}
-                </Button>
-              )}
-              {(
-                [
-                  ["keepOriginal", "sync.vault.conflicts.keepOriginal"],
-                  ["keepCopy", "sync.vault.conflicts.keepCopy"],
-                  ["keepBoth", "sync.vault.conflicts.keepBoth"],
-                ] as const
-              ).map(([choice, key]) => (
-                <Button
-                  key={choice}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={busyId !== null}
-                  onClick={() => onResolve(item.id, choice)}
-                >
-                  {t(key)}
-                </Button>
-              ))}
-            </div>
-          </li>
-        ))}
+        {items.map((item) =>
+          appDataConflictKind(item.originalPath) ? (
+            <li key={item.id} className="space-y-2 px-3 py-2.5">
+              <AppDataConflictBody
+                item={item}
+                busy={busyId !== null}
+                onResolve={onResolve}
+                groups={groups}
+              />
+            </li>
+          ) : (
+            <li key={item.id} className="space-y-2 px-3 py-2.5">
+              <p className="text-[13px] font-medium">
+                {t(
+                  item.kind === "bothCreated"
+                    ? "sync.vault.conflicts.createdTitle"
+                    : "sync.vault.conflicts.editedTitle",
+                  { name: conflictName(item.originalPath) },
+                )}
+              </p>
+              <p className="text-[12px] text-muted-foreground">
+                {t("sync.vault.conflicts.bothSafe")}
+              </p>
+              <Button type="button" size="sm" onClick={() => onCompare(item.id)}>
+                {t("sync.notices.compare")}
+              </Button>
+            </li>
+          ),
+        )}
       </ul>
-      <p className="text-[11px] text-muted-foreground">{t("sync.vault.conflicts.hint")}</p>
+      {items.some(
+        (item) =>
+          appDataConflictKind(item.originalPath) &&
+          !(
+            groups !== undefined &&
+            item.hasBase === true &&
+            isPropertyGroupPath(item.originalPath)
+          ),
+      ) && (
+        <p className="text-[11px] text-muted-foreground">
+          {t("sync.vault.conflicts.appData.hint")}
+        </p>
+      )}
     </section>
   )
 }

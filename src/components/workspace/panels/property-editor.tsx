@@ -1,8 +1,9 @@
 "use client"
 
 import { AmbySelect } from "@/components/ui/amby-select"
+import { NoticeLine } from "../notices/notice-line"
 import * as React from "react"
-import { CalendarDays, CheckSquare, Hash, Link2, List, Trash2, Type } from "lucide-react"
+import { Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
@@ -12,8 +13,27 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import type { CustomProperty } from "@/lib/storage"
 import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
 import { IconValue } from "../icon-value"
+import {
+  parseOptionColors,
+  parseOptions,
+  serializeOptions,
+  validateOptions,
+} from "../property-options"
+import { propertyTypeIcon } from "../property-type-icons"
+import { PropertyOptionsEditor } from "./property-options-editor"
 
-const CUSTOM_PROPERTY_TYPES = ["text", "number", "checkbox", "date", "select", "url"] as const
+const CUSTOM_PROPERTY_TYPES = [
+  "text",
+  "number",
+  "checkbox",
+  "date",
+  "select",
+  "list",
+  "url",
+] as const
+
+/** A select and a multi-select list their values in `settings` (docs/sync-plan.md, З62). */
+const hasOptions = (type: string) => type === "select" || type === "list"
 
 export interface PropertyEditorProps {
   property: CustomProperty | null
@@ -43,6 +63,7 @@ export function PropertyEditor({
   })
   const [emojiOpen, setEmojiOpen] = React.useState(false)
   const emojiRef = React.useRef<HTMLButtonElement>(null)
+  const nameRef = React.useRef<HTMLInputElement>(null)
   const saveAttempt = React.useRef(0)
   const [saving, setSaving] = React.useState(false)
   const [error, setError] = React.useState("")
@@ -64,34 +85,42 @@ export function PropertyEditor({
     )
     setEmojiOpen(false)
     setError("")
+    setOptionsInvalid(false)
     setAddToDatabase(true)
   }, [open, property])
 
-  const options = draft.settings
-    .split(",")
-    .map((option) => option.trim())
-    .filter(Boolean)
-
-  const PropertyTypeIcon =
-    draft.propertyType === "checkbox"
-      ? CheckSquare
-      : draft.propertyType === "number"
-        ? Hash
-        : draft.propertyType === "date"
-          ? CalendarDays
-          : draft.propertyType === "select"
-            ? List
-            : draft.propertyType === "url"
-              ? Link2
-              : Type
+  const [optionsInvalid, setOptionsInvalid] = React.useState(false)
+  const options = parseOptions(draft.settings).options
+  const PropertyTypeIcon = propertyTypeIcon(draft.propertyType)
 
   async function save() {
     if (!draft.name.trim() || saving) return
+    if (hasOptions(draft.propertyType) && !validateOptions(options)) {
+      setOptionsInvalid(true)
+      return
+    }
+    // A new select starts with its default option, a new multi-select with a list of it (З62).
+    const parsed = parseOptions(draft.settings)
+    const toSave =
+      hasOptions(draft.propertyType) && !draft.id && !draft.value && parsed.default
+        ? {
+            ...draft,
+            value:
+              draft.propertyType === "list" ? JSON.stringify([parsed.default]) : parsed.default,
+            settings: serializeOptions(
+              parsed.options,
+              parsed.default,
+              parseOptionColors(draft.settings),
+            ),
+          }
+        : draft
     const attempt = saveAttempt.current
     setSaving(true)
     setError("")
     try {
-      await onSave(draft, { addToDatabase: Boolean(databaseContext && !draft.id && addToDatabase) })
+      await onSave(toSave, {
+        addToDatabase: Boolean(databaseContext && !draft.id && addToDatabase),
+      })
       if (attempt === saveAttempt.current) onOpenChange(false)
     } catch {
       if (attempt === saveAttempt.current) setError(t("infoPanel.saveFailed"))
@@ -102,15 +131,20 @@ export function PropertyEditor({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm gap-3 border-border bg-popover p-4 text-foreground">
+      <DialogContent
+        className="max-w-sm gap-3 border-border bg-popover p-4 text-foreground"
+        onOpenAutoFocus={(event) => {
+          // A new property starts in its name: the button stays off until there is one.
+          if (!draft.id) {
+            event.preventDefault()
+            nameRef.current?.focus()
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="text-sm">{t("infoPanel.propertyEditor")}</DialogTitle>
         </DialogHeader>
-        {error && (
-          <p role="alert" className="text-xs text-destructive">
-            {error}
-          </p>
-        )}
+        {error && <NoticeLine text={error} />}
         <div className="flex items-center gap-2">
           <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
             <PopoverTrigger asChild>
@@ -151,12 +185,16 @@ export function PropertyEditor({
             </PopoverContent>
           </Popover>
           <Input
+            ref={nameRef}
             value={draft.name}
             onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))}
             placeholder={t("infoPanel.propertyName")}
             className="h-9 text-xs"
           />
         </div>
+        {!draft.name.trim() && (
+          <p className="-mt-1 text-xs text-muted-foreground">{t("infoPanel.nameRequired")}</p>
+        )}
         <label className="grid gap-1 text-[10px] text-muted-foreground">
           {t("infoPanel.propertyType")}
           <AmbySelect
@@ -171,66 +209,58 @@ export function PropertyEditor({
             }
           />
         </label>
-        {draft.propertyType === "select" && (
+        {hasOptions(draft.propertyType) && (
+          <PropertyOptionsEditor
+            settings={draft.settings}
+            invalid={optionsInvalid}
+            autoDefault={!draft.id}
+            onChange={(settings) => {
+              setOptionsInvalid(false)
+              setDraft((value) => ({ ...value, settings }))
+            }}
+          />
+        )}
+        {!hasOptions(draft.propertyType) && (
           <label className="grid gap-1 text-[10px] text-muted-foreground">
-            {t("infoPanel.propertyOptions")}
-            <Input
-              value={draft.settings}
-              onChange={(event) =>
-                setDraft((value) => ({ ...value, settings: event.target.value }))
-              }
-              placeholder={t("infoPanel.propertyOptionsHint")}
-              className="h-9 text-xs"
-            />
+            {t("infoPanel.propertyValue")}
+            {draft.propertyType === "checkbox" ? (
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={draft.value === "true"}
+                className="flex h-9 items-center justify-between rounded-md border border-border px-3 text-xs text-foreground"
+                onClick={() =>
+                  setDraft((value) => ({
+                    ...value,
+                    value: value.value === "true" ? "false" : "true",
+                  }))
+                }
+              >
+                {draft.value === "true" ? t("common.yes") : t("common.no")}
+                <span>{draft.value === "true" ? "✓" : "○"}</span>
+              </button>
+            ) : (
+              <Input
+                type={
+                  draft.propertyType === "number"
+                    ? "number"
+                    : draft.propertyType === "date"
+                      ? "date"
+                      : draft.propertyType === "url"
+                        ? "url"
+                        : "text"
+                }
+                value={draft.value}
+                onChange={(event) => setDraft((value) => ({ ...value, value: event.target.value }))}
+                className={
+                  draft.propertyType === "number"
+                    ? "amby-property-number h-9 text-xs"
+                    : "h-9 text-xs"
+                }
+              />
+            )}
           </label>
         )}
-        <label className="grid gap-1 text-[10px] text-muted-foreground">
-          {t("infoPanel.propertyValue")}
-          {draft.propertyType === "checkbox" ? (
-            <button
-              type="button"
-              role="checkbox"
-              aria-checked={draft.value === "true"}
-              className="flex h-9 items-center justify-between rounded-md border border-border px-3 text-xs text-foreground"
-              onClick={() =>
-                setDraft((value) => ({
-                  ...value,
-                  value: value.value === "true" ? "false" : "true",
-                }))
-              }
-            >
-              {draft.value === "true" ? t("common.yes") : t("common.no")}
-              <span>{draft.value === "true" ? "✓" : "○"}</span>
-            </button>
-          ) : draft.propertyType === "select" ? (
-            <AmbySelect
-              value={draft.value}
-              aria-label={t("infoPanel.propertyValue", { defaultValue: draft.name })}
-              options={[
-                { value: "", label: "—" },
-                ...options.map((option) => ({ value: option, label: option })),
-              ]}
-              onValueChange={(next) => setDraft((value) => ({ ...value, value: next }))}
-            />
-          ) : (
-            <Input
-              type={
-                draft.propertyType === "number"
-                  ? "number"
-                  : draft.propertyType === "date"
-                    ? "date"
-                    : draft.propertyType === "url"
-                      ? "url"
-                      : "text"
-              }
-              value={draft.value}
-              onChange={(event) => setDraft((value) => ({ ...value, value: event.target.value }))}
-              className={
-                draft.propertyType === "number" ? "amby-property-number h-9 text-xs" : "h-9 text-xs"
-              }
-            />
-          )}
-        </label>
         {databaseContext && !draft.id && (
           <div className="rounded-lg border border-border bg-accent/30 p-2.5 space-y-2">
             <div className="text-xs font-medium text-foreground">

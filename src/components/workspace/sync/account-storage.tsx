@@ -1,13 +1,28 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { RefreshCw, Database } from "lucide-react"
+import { RefreshCw, Database, MoreHorizontal } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { confirmWithSecret } from "@/lib/confirm"
 import { cn } from "@/lib/utils"
 import { formatSize } from "@/lib/sync/format-size"
 import { syncErrorMessage } from "@/lib/sync/sync-errors"
-import { resolveSyncPort, type AccountOverview, type SyncPort } from "@/lib/sync/sync-port"
+import {
+  resolveSyncPort,
+  SyncPortError,
+  type AccountOverview,
+  type SyncPort,
+} from "@/lib/sync/sync-port"
+import { NOTICE_LOOK } from "../notices/notice-look"
 import { useVaultStore } from "../use-vault-store"
+import { reportSyncListenFailed } from "./listen-failure"
+import { SubscriptionOffer } from "./subscription-offer"
 
 export interface AccountStorageProps {
   /** The port to use; the application's own by default. */
@@ -25,7 +40,7 @@ function levelOf(used: number, limit: number): Level {
 
 const LEVEL_CLASS: Record<Level, string> = {
   ok: "bg-primary",
-  warn: "bg-amber-500",
+  warn: NOTICE_LOOK.warning.dot,
   full: "bg-destructive",
 }
 
@@ -33,7 +48,7 @@ const LEVEL_CLASS: Record<Level, string> = {
  * The section "Хранилища аккаунта" of the synchronisation settings (docs/sync-plan.md, appendix
  * Е, У1, У2, У4): the plan and its limits, the gauge of the used place, and one row per storage.
  * It reads on open, manual refresh, successful connection changes and a pass with a limit;
- * never on a timer. There is no way to delete a storage yet (Э5).
+ * never on a timer. A row can delete the server copy (appendix Л); local files stay.
  */
 export function AccountStorage({ port: given, revision = 0 }: AccountStorageProps) {
   const { t, i18n } = useTranslation()
@@ -45,6 +60,13 @@ export function AccountStorage({ port: given, revision = 0 }: AccountStorageProp
   const vaultPaths = React.useMemo(() => vaults.map((vault) => vault.path), [vaults])
   const paths = React.useRef(vaultPaths)
   paths.current = vaultPaths
+  // The deletion of a server copy (Л10, Л11): one request at a time, one result line under the list.
+  const [deleting, setDeleting] = React.useState(false)
+  const [deleted, setDeleted] = React.useState(false)
+  const [deleteError, setDeleteError] = React.useState<string | null>(null)
+  // Another account or revision: what was asked or answered for the old one is dropped.
+  const generation = React.useRef(0)
+  const askAbort = React.useRef<AbortController | null>(null)
   const reading = React.useRef(false)
   const pending = React.useRef(false)
 
@@ -71,27 +93,103 @@ export function AccountStorage({ port: given, revision = 0 }: AccountStorageProp
   }, [port, t])
 
   React.useEffect(() => {
+    generation.current += 1
+    askAbort.current?.abort()
+    askAbort.current = null
+    setDeleting(false)
+    setDeleted(false)
+    setDeleteError(null)
     void load()
+    return () => {
+      generation.current += 1
+      askAbort.current?.abort()
+      askAbort.current = null
+    }
   }, [load, revision])
 
-  // A pass that ends with a limit announced asks the server again (the numbers moved).
+  const deleteFromServer = async (space: AccountOverview["spaces"][number]) => {
+    if (deleting) return
+    const mine = generation.current
+    const named = space.name !== null && space.name !== ""
+    // Ц4: the question asks for the current password too, and is asked again while it is wrong.
+    let wrong: string | undefined
+    for (;;) {
+      const controller = new AbortController()
+      askAbort.current = controller
+      const password = await confirmWithSecret({
+        title: named
+          ? t("sync.account.deleteTitle", { name: space.name })
+          : t("sync.account.deleteTitleUnnamed", { id: space.spaceId }),
+        description: t("sync.account.deleteDescription", {
+          live: formatSize(space.liveBytes, i18n.language),
+          history: formatSize(space.historyBytes, i18n.language),
+        }),
+        confirmLabel: t("sync.account.deleteConfirm"),
+        destructive: true,
+        requiredText: {
+          value: named ? (space.name as string) : space.spaceId,
+          label: t(named ? "sync.account.deleteField" : "sync.account.deleteFieldId"),
+        },
+        secret: { label: t("sync.account.deletePassword"), error: wrong },
+        signal: controller.signal,
+      })
+      if (askAbort.current === controller) askAbort.current = null
+      if (password === null || generation.current !== mine) return
+      setDeleting(true)
+      setDeleted(false)
+      setDeleteError(null)
+      try {
+        await port.deleteSpace(space.spaceId, password)
+        if (generation.current !== mine) return
+        setDeleted(true)
+        await load()
+        return
+      } catch (caught) {
+        if (generation.current !== mine) return
+        if (caught instanceof SyncPortError && caught.code === "invalid_proof") {
+          wrong = t("sync.account.deleteWrongPassword")
+          continue
+        }
+        setDeleteError(syncErrorMessage(caught, t))
+        return
+      } finally {
+        if (generation.current === mine) setDeleting(false)
+      }
+    }
+  }
+
+  // A pass that ends with a limit announced, or that sent or removed something, asks the server again.
   React.useEffect(() => {
     let alive = true
     let unlisten: (() => void) | null = null
+    // The pass after which the sizes were read last: a pass that sent or removed something moves
+    // them (the confirmation of a deletion names them, appendix Л), once per pass.
+    let readAfter: number | null = null
     port
       .onVaultStatus((status) => {
-        if (
-          alive &&
-          status.unsynced.some((item) => item.reason === "tooLarge" || item.reason === "quotaFull")
-        ) {
-          void load()
-        }
+        if (!alive) return
+        const limit = status.unsynced.some(
+          (item) =>
+            item.reason === "tooLarge" ||
+            item.reason === "quotaFull" ||
+            item.reason === "subscriptionRequired",
+        )
+        const moved =
+          status.last !== null &&
+          status.last.uploaded + status.last.trashed > 0 &&
+          status.lastSyncMs !== null &&
+          status.lastSyncMs !== readAfter
+        if (moved) readAfter = status.lastSyncMs
+        if (limit || moved) void load()
       })
       .then((off) => {
         if (alive) unlisten = off
         else off()
       })
-      .catch(() => {})
+      .catch((error: unknown) => {
+        // The numbers are not pushed to this screen; they are read when it opens and on refresh. Said in the centre.
+        reportSyncListenFailed(error)
+      })
     return () => {
       alive = false
       unlisten?.()
@@ -149,7 +247,28 @@ export function AccountStorage({ port: given, revision = 0 }: AccountStorageProp
           {plan
             ? t("sync.account.plan", { name: plan.title ?? plan.name })
             : t("sync.account.ownServerUnlimited")}
+          {plan?.sync && plan.untilMs !== null && (
+            <span data-testid="plan-until" className="font-normal text-muted-foreground">
+              {" "}
+              {t("sync.account.planUntil", {
+                date: new Intl.DateTimeFormat(i18n.language, {
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                  timeZone: "UTC",
+                }).format(new Date(plan.untilMs - 1)),
+              })}
+            </span>
+          )}
         </p>
+        {plan && !plan.sync && (
+          <div className="space-y-1.5">
+            <p data-testid="subscription-none" className="text-[12px]">
+              {t("sync.account.noSubscription")}
+            </p>
+            <SubscriptionOffer />
+          </div>
+        )}
         {quota !== null && level !== null ? (
           <div className="space-y-1">
             <div
@@ -237,9 +356,44 @@ export function AccountStorage({ port: given, revision = 0 }: AccountStorageProp
                 </p>
               )}
             </div>
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  title={t("sync.account.rowActions")}
+                  aria-label={t("sync.account.rowActions")}
+                  disabled={deleting}
+                  className="flex size-6 shrink-0 items-center justify-center rounded outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+                >
+                  <MoreHorizontal className="size-3.5 text-muted-foreground" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                className="border-border bg-popover text-foreground"
+                align="end"
+                onCloseAutoFocus={(event) => event.preventDefault()}
+              >
+                <DropdownMenuItem
+                  className="text-[13px] focus:bg-accent focus:text-white"
+                  onSelect={() => void deleteFromServer(space)}
+                >
+                  {t("sync.account.deleteFromServer")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </li>
         ))}
       </ul>
+      {deleted && (
+        <p role="status" className="text-[12px] text-muted-foreground">
+          {t("sync.account.deleteDone")}
+        </p>
+      )}
+      {deleteError && (
+        <p role="alert" className="text-[12px] text-destructive">
+          {deleteError}
+        </p>
+      )}
     </section>
   )
 }

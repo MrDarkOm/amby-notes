@@ -18,7 +18,7 @@
 //! The ceiling: a latest version is never pruned, and early removal goes oldest first.
 //!
 //! The scenarios exist to be run against the real engine; the mini-engines know no limits, so
-//! the checks themselves are not shown to catch broken engines (docs/Road/sync-plans-tests-report.md).
+//! the checks themselves are not shown to catch broken engines (sync-plans-tests-report.md (local archive)).
 
 use std::collections::BTreeMap;
 

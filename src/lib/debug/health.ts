@@ -121,6 +121,7 @@ async function collectLocalDebugHealth(): Promise<DebugHealthSnapshot> {
       enabled: moduleHost.getActiveModuleIds().length,
       safeMode: safeModeState.isEnabled(),
     },
+    // The backend status is optional in the snapshot; `null` means unavailable.
     backend: isTauri() ? await getDebugStatus().catch(() => null) : null,
   }
 }
@@ -130,6 +131,7 @@ export async function collectDebugHealth(): Promise<DebugHealthSnapshot> {
     const { getCurrentWindow } = await import("@tauri-apps/api/window")
     if (getCurrentWindow().label === "settings") {
       const projection = await requestWorkspaceDebugHealth()
+      // The backend status is optional in the snapshot; `null` means unavailable.
       return { ...projection, backend: await getDebugStatus().catch(() => null) }
     }
   }

@@ -10,6 +10,7 @@ import type {
   IdMigrationRecovery,
   IdMigrationRecoveryAction,
   ImportedAsset,
+  ImportFilesResult,
   PageInfo,
   LayerKind,
   LayerResult,
@@ -23,6 +24,7 @@ import type {
   SearchResult,
   SnapshotEntry,
   SnapshotText,
+  ArchiveEntry,
   TrashEntry,
   TrashPreview,
   TreeItem,
@@ -140,6 +142,13 @@ export interface StoragePort extends DatabasePort, ProjectPort {
   listTrash(): Promise<TrashEntry[]>
   restoreTrash(trashId: string): Promise<FsMutationResult>
   purgeTrash(trashId: string): Promise<void>
+  /** The files of the archive `.amby/archive/` (К6). */
+  listArchive(): Promise<ArchiveEntry[]>
+  readArchivePreview(archiveId: string, relativePath: string): Promise<TrashPreview>
+  /** Without replacing: the final path is `primaryPath` of the result (К6). */
+  restoreArchive(archiveId: string): Promise<FsMutationResult>
+  /** «Удалить из архива» by the setting of К4; `archive` here means the system trash. */
+  purgeArchive(archiveId: string, mode: DeleteMode): Promise<void>
   previewRenameRefactor(vaultPath: string, path: string, newName: string): Promise<RefactorPreview>
   previewMoveRefactor(
     vaultPath: string,
@@ -163,6 +172,8 @@ export interface StoragePort extends DatabasePort, ProjectPort {
     notePath: string,
     sourcePath: string,
   ): Promise<ImportedAsset | null>
+  /** Copies files and folders from outside into a vault folder (the root when `null`); never replaces. */
+  importFiles(targetDir: string | null, sources: string[]): Promise<ImportFilesResult>
   importAssetBytes(
     vaultPath: string,
     notePath: string,
@@ -172,8 +183,6 @@ export interface StoragePort extends DatabasePort, ProjectPort {
   toAssetUrl(absPath: string): Promise<string>
   exportTextFile(contents: string, defaultName: string): Promise<string | null>
   importTextFile(): Promise<string | null>
-  confirmAction(message: string): Promise<boolean>
-  showErrorMessage(message: string): Promise<void>
 
   // Tiered Settings & App Data
   readGlobalRaw(file: string): Promise<string | null>

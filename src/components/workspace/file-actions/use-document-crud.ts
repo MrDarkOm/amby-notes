@@ -1,11 +1,12 @@
 import * as React from "react"
 import i18n from "@/lib/i18n"
 import { discardRecoveryDraft, saveRecoveryDraft } from "@/lib/recovery-drafts"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
 import {
   attachCanvasToNote,
   attachSketchToNote,
   archiveItem,
-  confirmAction,
   createCanvasFile,
   createSketchFile,
   createFolder,
@@ -13,14 +14,15 @@ import {
   deleteItem,
   getNoteProperties,
   readNote,
-  showErrorMessage,
   type TreeItem,
 } from "@/lib/storage"
 import { createDefaultSketch, serializeSketch } from "@/lib/sketch-format"
 import { loadWorkspaceConfig, saveWorkspaceConfigPatch } from "../app-config"
 import { DeleteConfirmationDialog } from "../delete-confirmation-dialog"
 import { logger } from "@/lib/logger"
+import { operationErrorCode } from "@/lib/operation-errors"
 import { useSettingsStore } from "../use-settings-store"
+import { useTreeMessageStore } from "../tree/use-tree-message-store"
 import { useDocStore, type Document } from "../use-doc-store"
 import { useTabsStore } from "../use-tabs-store"
 import { useViewStateStore } from "../use-view-state-store"
@@ -147,6 +149,7 @@ export function useDocumentCrud({
   const [pendingDelete, setPendingDelete] = React.useState<{
     ids: string[]
     name: string
+    kind: TreeItem["type"]
     count: number
     isDirtyOrConflicted: boolean
     resolve: (action: DeleteResolution, dontAskAgain?: boolean) => void
@@ -159,6 +162,7 @@ export function useDocumentCrud({
       ids: string[],
       names: string[],
       isDirtyOrConflicted: boolean,
+      kind: TreeItem["type"] = "file",
     ): Promise<DeleteResolution> => {
       const count = ids.length
       if (isDirtyOrConflicted)
@@ -166,6 +170,7 @@ export function useDocumentCrud({
           setPendingDelete({
             ids,
             name: names[0] ?? ids[0] ?? "",
+            kind,
             count,
             isDirtyOrConflicted: true,
             resolve,
@@ -177,6 +182,7 @@ export function useDocumentCrud({
         setPendingDelete({
           ids,
           name: names[0] ?? ids[0] ?? "",
+          kind,
           count,
           isDirtyOrConflicted: false,
           resolve,
@@ -220,13 +226,11 @@ export function useDocumentCrud({
       if (
         mode !== "archive" &&
         deleteMode === "permanent" &&
-        !(await confirmAction(
-          t(
-            targets.length > 1
-              ? "workspace.deletePermanentManyConfirm"
-              : "workspace.deletePermanentConfirm",
-            { count: targets.length, name: targets[0]?.name ?? "" },
-          ),
+        !(await confirm(
+          confirmations.deletePermanent({
+            count: targets.length,
+            name: targets[0]?.name ?? "",
+          }),
         ))
       ) {
         return
@@ -240,6 +244,7 @@ export function useDocumentCrud({
                 targets.map((target) => target.id),
                 targets.map((target) => target.name),
                 hasDirtyDocuments,
+                targets[0]?.type,
               )
       if (resolution === "cancel") return
       logger.info("file.delete", {
@@ -250,7 +255,6 @@ export function useDocumentCrud({
       const finishLocalMutation = beginLocalTreeMutation()
       recordLocalTreePaths(targets.flatMap((target) => [target.path, target.root]))
       let failed = 0
-      let firstFailure = ""
       try {
         for (const target of targets) {
           const targetDocuments = affected.filter(
@@ -286,9 +290,11 @@ export function useDocumentCrud({
             }
           } catch (error) {
             failed += 1
-            const reason = error instanceof Error ? error.message : String(error)
-            firstFailure ||= reason
-            logger.error("file.delete_failed", { path: target.path, mode: resolution, reason })
+            logger.error("file.delete_failed", {
+              path: target.path,
+              mode: resolution,
+              failureCode: operationErrorCode(error),
+            })
             console.error("Failed to delete:", error)
           }
         }
@@ -352,8 +358,14 @@ export function useDocumentCrud({
         }
 
         if (failed > 0) {
-          const summary = t("workspace.deleteManyFailed", { failed, total: targets.length })
-          void showErrorMessage(firstFailure ? `${summary}\n\n${firstFailure}` : summary)
+          // Said under the tree; the reason of the first failure is in the log (docs/notices.md, section 10).
+          useTreeMessageStore.getState().show({
+            id: "delete-failed",
+            level: "warning",
+            titleKey: "workspace.deleteManyFailed",
+            params: { failed, total: targets.length },
+            lineKey: "notices.tree.deleteLine",
+          })
         }
       } finally {
         finishLocalMutation()
@@ -366,7 +378,6 @@ export function useDocumentCrud({
       recoveryScope,
       refreshDatabaseCatalog,
       requestDeleteConfirmation,
-      t,
       treeItems,
       vault,
     ],
@@ -432,7 +443,13 @@ export function useDocumentCrud({
         if (!id) return
         const [note, noteProperties] = await Promise.all([
           readNote(vault, id),
-          getNoteProperties(vault, id).catch(() => undefined),
+          getNoteProperties(vault, id).catch((error: unknown) => {
+            // The new note opens without its properties panel filled; the note itself is fine.
+            logger.debug("file.create_properties_read_failed", {
+              failureCode: operationErrorCode(error),
+            })
+            return undefined
+          }),
         ])
         if (!stillActive()) return
         const actualTitle = result.primaryPath ? wsPathStem(result.primaryPath) : title
@@ -701,6 +718,7 @@ export function useDocumentCrud({
     deleteConfirmationDialog: pendingDelete
       ? React.createElement(DeleteConfirmationDialog, {
           name: pendingDelete.name,
+          kind: pendingDelete.kind,
           count: pendingDelete.count,
           isDirtyOrConflicted: pendingDelete.isDirtyOrConflicted,
           onCancel: () => settleDeleteConfirmation("cancel"),

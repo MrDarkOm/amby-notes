@@ -232,8 +232,6 @@ pub fn start_vault_watcher(
     context: tauri::State<'_, vault_context::VaultContext>,
 ) -> Result<(), String> {
     use notify::Watcher;
-    use tauri::Emitter;
-
     let (vault, generation, index_changes) = {
         let active = context.conn.lock_or_recover();
         let active = active.as_ref().ok_or("No vault open")?;
@@ -266,41 +264,10 @@ pub fn start_vault_watcher(
             generation,
             &index_changes,
         );
-        // While synchronisation writes a batch, the events wait and go out once afterwards (Р8).
-        for change in batch.push(changes.clone()) {
-            let _ = app_handle.emit("vault-file-changed", change);
-        }
-        let database_changes = changes
-            .iter()
-            .filter_map(|change| {
-                crate::database::events::classify_path(
-                    &watched_vault,
-                    Path::new(&change.path),
-                    generation,
-                )
-            })
-            .collect::<Vec<_>>();
-        let coalesced = crate::database::events::coalesce(database_changes.iter().cloned());
-        tracing::debug!(
-            changed_paths = coalesced.changed_paths.len(),
-            containers = coalesced.containers.len(),
-            requires_full_rebuild = coalesced.requires_full_rebuild,
-            "coalesced database watcher invalidations"
-        );
-        for database_change in database_changes {
-            let _ = app_handle.emit("database:changed", database_change);
-        }
-        // Projects follow the structure file and whole-folder moves; the
-        // renderer debounces these and asks for `refresh_projects`.
-        for project_change in changes.iter().filter_map(|change| {
-            crate::project::events::classify_path(
-                &watched_vault,
-                Path::new(&change.path),
-                &change.kind,
-                generation,
-            )
-        }) {
-            let _ = app_handle.emit("project:changed", project_change);
+        // All renderer notifications, including database and project invalidation,
+        // are released together after a sync batch is complete.
+        for change in batch.push(changes) {
+            watcher::emit_external_change(&app_handle, &watched_vault, generation, change);
         }
     })
     .map_err(|e| e.to_string())?;

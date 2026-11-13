@@ -6,7 +6,7 @@ use crate::frontmatter;
 use crate::history;
 use crate::model::*;
 use crate::paths;
-use crate::property_store;
+use crate::property_groups;
 use crate::vault_context::VaultContext;
 use crate::vault_index;
 use crate::watcher::{self, WatcherState};
@@ -51,6 +51,7 @@ fn file_revision(path: &std::path::Path) -> Result<String, String> {
 #[tauri::command]
 #[specta::specta]
 pub fn write_file(
+    window: tauri::WebviewWindow,
     scope: tauri::State<paths::VaultScope>,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
@@ -59,9 +60,11 @@ pub fn write_file(
     expected_revision: Option<String>,
 ) -> Result<String, crate::model::WriteFileError> {
     use crate::model::WriteFileError;
+    use tauri::Manager;
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(&scope, &path).map_err(WriteFileError::failed)?;
     let vault = scope.get().map_err(WriteFileError::failed)?;
+    let generation = db.generation().map_err(WriteFileError::failed)?;
     if let Some(expected) = &expected_revision {
         let actual = file_revision(&path).map_err(WriteFileError::failed)?;
         if &actual != expected {
@@ -81,6 +84,13 @@ pub fn write_file(
     match result {
         Ok(()) => {
             watcher_state.confirm_prepared_write(&prepared);
+            watcher::notify_published_files(
+                window.app_handle(),
+                &vault,
+                generation,
+                std::slice::from_ref(&path),
+                Some(window.label()),
+            );
             Ok(crate::database::format::raw_revision(&bytes))
         }
         Err(error) => {
@@ -93,6 +103,7 @@ pub fn write_file(
 #[tauri::command]
 #[specta::specta]
 pub fn save_conflict_copy(
+    app: tauri::AppHandle,
     scope: tauri::State<paths::VaultScope>,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
@@ -101,6 +112,8 @@ pub fn save_conflict_copy(
 ) -> Result<String, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let original = paths::guard(&scope, &path)?;
+    let vault = scope.get()?;
+    let generation = db.generation()?;
     let parent = original
         .parent()
         .ok_or_else(|| "Cannot create a copy without a parent directory".to_string())?;
@@ -123,6 +136,13 @@ pub fn save_conflict_copy(
         match frontmatter::atomic_write_new(&candidate, &content) {
             Ok(()) => {
                 watcher_state.confirm_prepared_write(&prepared);
+                watcher::notify_published_files(
+                    &app,
+                    &vault,
+                    generation,
+                    std::slice::from_ref(&candidate),
+                    None,
+                );
                 return Ok(candidate.to_string_lossy().to_string());
             }
             Err(frontmatter::AtomicCreateError::AlreadyExists) => {
@@ -374,7 +394,7 @@ pub fn restore_deleted_note(
     let revision = vault_index::body_revision(if opaque { &persisted } else { &body });
     let index_result =
         vault_index::upsert_note_index(conn, &conn.root, &request.note_id, &body, &path)
-            .and_then(|_| property_store::restore_cache(conn, &conn.root));
+            .and_then(|_| property_groups::restore_cache_any(conn, &conn.root));
     let path_string = path.to_string_lossy().to_string();
     drop(conn_guard);
 
@@ -413,6 +433,7 @@ pub fn restore_deleted_note(
         watcher::VaultFileChangedPayload {
             kind: "create".to_string(),
             path: path_string,
+            generation: request.expected_generation,
         },
     ) {
         tracing::warn!(event = "restored_note_tree_event_failed", error = %error);
@@ -478,75 +499,6 @@ pub fn get_note_properties(
 
 #[tauri::command]
 #[specta::specta]
-pub fn upsert_custom_property(
-    db: tauri::State<'_, VaultContext>,
-    note_id: String,
-    property: CustomProperty,
-) -> Result<CustomProperty, String> {
-    let _mutation_guard = db.mutation_gate.lock_or_recover();
-    let conn_guard = db.conn.lock_or_recover();
-    let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    let name = property.name.clone();
-    let prop_type = property.property_type.clone();
-    let prop_id = property.id.clone();
-    let res = property_store::upsert(conn, &conn.root, &note_id, property);
-    if res.is_ok() {
-        tracing::info!(
-            event = "upsert_custom_property",
-            note_id = %note_id,
-            property_id = %prop_id,
-            name = %name,
-            property_type = %prop_type,
-        );
-    }
-    res
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn delete_custom_property(
-    db: tauri::State<'_, VaultContext>,
-    note_id: String,
-    property_id: String,
-) -> Result<(), String> {
-    let _mutation_guard = db.mutation_gate.lock_or_recover();
-    let conn_guard = db.conn.lock_or_recover();
-    let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    let res = property_store::delete(conn, &conn.root, &note_id, &property_id);
-    if res.is_ok() {
-        tracing::info!(
-            event = "delete_custom_property",
-            note_id = %note_id,
-            property_id = %property_id,
-        );
-    }
-    res
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn reorder_custom_properties(
-    db: tauri::State<'_, VaultContext>,
-    note_id: String,
-    property_ids: Vec<String>,
-) -> Result<(), String> {
-    let _mutation_guard = db.mutation_gate.lock_or_recover();
-    let conn_guard = db.conn.lock_or_recover();
-    let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    let count = property_ids.len();
-    let res = property_store::reorder(conn, &conn.root, &note_id, &property_ids);
-    if res.is_ok() {
-        tracing::info!(
-            event = "reorder_custom_properties",
-            note_id = %note_id,
-            count = count,
-        );
-    }
-    res
-}
-
-#[tauri::command]
-#[specta::specta]
 pub fn backup_custom_properties(
     db: tauri::State<'_, VaultContext>,
     note_id: String,
@@ -554,7 +506,7 @@ pub fn backup_custom_properties(
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    property_store::backup_and_clear(conn, &conn.root, &note_id)
+    property_groups::backup_if_any(conn, &conn.root, &note_id)
 }
 
 #[tauri::command]

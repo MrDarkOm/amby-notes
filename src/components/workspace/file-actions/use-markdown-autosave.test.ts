@@ -6,6 +6,9 @@ import { useDocStore, type Document } from "../use-doc-store"
 import { beginPropertyMutation } from "../note-mutation-queue"
 import { useMarkdownAutosave } from "./use-markdown-autosave"
 import * as storage from "@/lib/storage"
+import * as recoveryDrafts from "@/lib/recovery-drafts"
+import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
+import { useNoticeToastStore } from "../notices/use-notice-toasts-store"
 import {
   clearSourceRewriteSnapshots,
   pendingSourceRewriteSnapshot,
@@ -279,5 +282,121 @@ describe("useMarkdownAutosave", () => {
     expect(useDocStore.getState().openDocs["note-1"]?.content).toBe("Hello world (edited)")
     const pending = result.current.autosave.inspect(result.current.autosaveKey("note-1"))
     expect(pending?.dirty).toBe(true)
+  })
+
+  describe("a failed autosave of a note that is no longer open (docs/notices.md, step 2)", () => {
+    const closedDoc: Document = {
+      id: "note-1",
+      title: "идея",
+      content: "saved",
+      created: "",
+      modified: "",
+      wordCount: 1,
+      path: "/vault/Заметки/идея.md",
+      revision: "rev-1",
+      source: "saved",
+    }
+
+    function mountAutosave() {
+      useDocStore.getState().setDoc(closedDoc.id, closedDoc)
+      return renderHook(() =>
+        useMarkdownAutosave({
+          vault: "/vault",
+          autosaveGeneration: 1,
+          backendGeneration: 1,
+          windowLabel: "main",
+          applyMutationResult: vi.fn(),
+        }),
+      )
+    }
+
+    /** Edits the note, closes it while the save is in flight, and lets the save fail. */
+    async function failWhileClosed(result: ReturnType<typeof mountAutosave>["result"]) {
+      let fail!: (error: Error) => void
+      vi.spyOn(storage, "writeNote").mockImplementation(
+        () =>
+          new Promise((_resolve, reject) => {
+            fail = reject
+          }),
+      )
+      act(() => result.current.handleContentChange(closedDoc.id, "new text"))
+      let saving!: Promise<void>
+      act(() => {
+        saving = result.current.autosave.flush(result.current.autosaveKey(closedDoc.id))
+      })
+      await vi.waitFor(() => expect(storage.writeNote).toHaveBeenCalled())
+      act(() => useDocStore.getState().dropDocs([closedDoc.id]))
+      await act(async () => {
+        fail(new Error("disk full"))
+        await saving.catch(() => {})
+      })
+    }
+
+    beforeEach(() => {
+      useNoteNoticesStore.setState(useNoteNoticesStore.getInitialState())
+      useNoticeToastStore.setState(useNoticeToastStore.getInitialState())
+    })
+
+    it("does not open a window: it is a record of danger in the centre and a toast", async () => {
+      const { result } = mountAutosave()
+      await failWhileClosed(result)
+      expect(useNoteNoticesStore.getState().closedSaveFailed).toEqual({
+        "note-1": { name: "идея", path: "Заметки/идея.md" },
+      })
+      const [toast] = useNoticeToastStore.getState().toasts
+      expect(toast).toMatchObject({
+        id: "closed-save-failed:note-1",
+        level: "danger",
+        target: { kind: "note", id: "note-1" },
+      })
+      result.current.autosave.cancelGeneration(1)
+    })
+
+    it("keeps the recovery draft: nothing discards it until the save has gone through", async () => {
+      const discard = vi.spyOn(recoveryDrafts, "discardRecoveryDraft")
+      const { result } = mountAutosave()
+      await failWhileClosed(result)
+      expect(discard).not.toHaveBeenCalled()
+      result.current.autosave.cancelGeneration(1)
+    })
+
+    it("takes the record and the toast away once the save has gone through", async () => {
+      const { result } = mountAutosave()
+      await failWhileClosed(result)
+      vi.spyOn(storage, "writeNote").mockResolvedValue({
+        path: closedDoc.path,
+        revision: "after",
+        indexState: "healthy",
+        warnings: [],
+      })
+      await act(async () => {
+        result.current.autosave.enqueueImmediate(result.current.autosaveKey(closedDoc.id), {
+          fileId: closedDoc.id,
+          path: closedDoc.path,
+          content: "new text",
+          backendGeneration: 1,
+          expectedRevision: "rev-1",
+        })
+        await result.current.autosave.flush(result.current.autosaveKey(closedDoc.id))
+      })
+      expect(useNoteNoticesStore.getState().closedSaveFailed).toEqual({})
+      expect(useNoticeToastStore.getState().toasts).toEqual([])
+      result.current.autosave.cancelGeneration(1)
+    })
+
+    it("leaves a note that is still open to its own card and does not add a record", async () => {
+      const { result } = mountAutosave()
+      vi.spyOn(storage, "writeNote").mockRejectedValue(new Error("disk full"))
+      act(() => result.current.handleContentChange(closedDoc.id, "new text"))
+      await act(async () => {
+        await result.current.autosave
+          .flush(result.current.autosaveKey(closedDoc.id))
+          .catch(() => {})
+      })
+      expect(useNoteNoticesStore.getState().saveFailed[closedDoc.id]).toBe(true)
+      expect(useNoteNoticesStore.getState().closedSaveFailed).toEqual({})
+      expect(useNoticeToastStore.getState().toasts).toEqual([])
+      result.current.autosave.cancelGeneration(1)
+    })
   })
 })

@@ -11,7 +11,7 @@ use crate::crypto::header::{canonical_header_json, seal_header, Header, ItemKind
 use crate::crypto::keys::{BodyId, ItemId};
 use crate::crypto::padme::sealed_body_len;
 
-use super::classify::{classify, Lc};
+use super::classify::{applied_hints, classify, Lc};
 use super::flow::{Flow, Res};
 use super::model::{
     CycleReport, ItemRecord, PassLimits, PendingCommit, PendingUpload, RenameHint, StateOp,
@@ -34,13 +34,23 @@ struct Out {
 }
 
 impl Engine {
+    /// Adds the hints the application recorded while the pass ran (Д70); call it right after a
+    /// scan, before the classification.
+    pub(super) fn absorb_late_hints(&mut self, hints: &mut Vec<RenameHint>) {
+        for hint in self.ports.fs.take_rename_hints() {
+            if !hints.contains(&hint) {
+                hints.push(hint);
+            }
+        }
+    }
+
     /// Sends what differs from the bases. Returns the disk as it was seen, for the list of files
     /// that are not synchronised.
     pub(super) fn push(
         &mut self,
         info: &ServerInfo,
         undelete: &BTreeMap<String, Undelete>,
-        hints: &[RenameHint],
+        hints: &mut Vec<RenameHint>,
         report: &mut CycleReport,
     ) -> Res<Option<Scan>> {
         if self.ports.fs.recovery_pending()? {
@@ -55,7 +65,11 @@ impl Engine {
             self.config.max_file_bytes,
             (report.limits.max_file_bytes, report.limits.max_file_source),
         )?;
+        self.absorb_late_hints(hints);
         let classes = classify(&state.items, &disk, hints);
+        self.ports
+            .fs
+            .rename_hints_applied(&applied_hints(&state.items, &classes, hints));
 
         // Files that were written by us or only touched: remember size and time, so that the next
         // pass does not read them again (Д12).
@@ -322,6 +336,12 @@ impl Engine {
             });
         }
 
+        // Н9: without a subscription only deletions go, in commits of their own (Н4); the rest
+        // waits with the reason, and its begun uploads stay.
+        if report.limits.subscription_required {
+            outs = only_deletions(outs, &mut skipped);
+        }
+
         // Uploads that no change of this pass refers to are forgotten: the file changed again or
         // is gone (the server removes the orphaned body itself, П25).
         let used: BTreeSet<[u8; 16]> = outs
@@ -334,7 +354,7 @@ impl Engine {
             .filter(|key| !used.contains(*key))
             .map(|key| StateOp::RemoveUpload(BodyId::from_bytes(*key)))
             .collect();
-        if !stale.is_empty() {
+        if !stale.is_empty() && !report.limits.subscription_required {
             self.ports.state.apply(&stale)?;
             // Д75: a begun body nobody will commit gives its place back at once. By possibility:
             // a failing call is not a failing pass, the cleanup of the server (П25) comes anyway.
@@ -353,19 +373,35 @@ impl Engine {
                 .cmp(&rank(b))
                 .then_with(|| a.header.path.cmp(&b.header.path))
         });
-        let limit = (info.max_commit_items as usize).max(1);
+        let limit = (info.max_commit_items as usize).clamp(1, MAX_COMMIT_ENTRIES);
         let mut held = false;
-        for chunk in outs.chunks(limit) {
+        for chunk in split_commits(&outs, limit) {
             if held {
                 // A commit refused for lack of room is still the record of what is being sent
                 // (С2, Д7): nothing else may replace it in this pass.
                 mark_waiting(chunk, UnsyncedReason::QuotaFull, &mut skipped);
                 continue;
             }
-            match self.commit_chunk(chunk, report)? {
+            let mut chunk = chunk.to_vec();
+            if report.limits.subscription_required {
+                chunk = only_deletions(chunk, &mut skipped);
+                if chunk.is_empty() {
+                    continue;
+                }
+            }
+            match self.commit_chunk(&chunk, report)? {
                 ChunkOutcome::Sent => {}
+                // Н9: a `403` on the commit; the deletions of the chunk go on alone.
+                ChunkOutcome::NoSubscription => {
+                    let deletions = only_deletions(chunk, &mut skipped);
+                    if !deletions.is_empty() {
+                        if let ChunkOutcome::NoRoom(_) = self.commit_chunk(&deletions, report)? {
+                            held = true;
+                        }
+                    }
+                }
                 ChunkOutcome::TooLarge(reason) => {
-                    mark_too_large(chunk, &reason, &mut skipped);
+                    mark_too_large(&chunk, &reason, &mut skipped);
                 }
                 ChunkOutcome::NoRoom(waiting) => {
                     held = true;
@@ -412,6 +448,14 @@ impl Engine {
             skipped.push(UnsyncedRecord {
                 path: path.to_string(),
                 reason: UnsyncedReason::ExcludedPath,
+            });
+            return Ok(None);
+        }
+        // Н9: no subscription, nothing new or edited is sent; the file waits with the reason.
+        if report.limits.subscription_required {
+            skipped.push(UnsyncedRecord {
+                path: path.to_string(),
+                reason: UnsyncedReason::SubscriptionRequired,
             });
             return Ok(None);
         }
@@ -491,6 +535,10 @@ impl Engine {
                 Err(reason) => {
                     if reason == UnsyncedReason::QuotaFull {
                         report.limits.quota_full = true;
+                    }
+                    // Н9: the answer holds for the whole account; the other files are not tried.
+                    if reason == UnsyncedReason::SubscriptionRequired {
+                        report.limits.subscription_required = true;
                     }
                     skipped.push(UnsyncedRecord {
                         path: path.to_string(),
@@ -599,17 +647,38 @@ impl Engine {
                     .apply(&vec![StateOp::RemoveUpload(blob_id)])?;
                 return Ok(Err(UnsyncedReason::QuotaFull));
             }
+            // Н9: the begun record stays, so that the upload goes on once the subscription is
+            // there; this is a result, not a failure.
+            Err(RemoteError::Rejected { code: reason, .. })
+                if reason == code::SUBSCRIPTION_REQUIRED =>
+            {
+                return Ok(Err(UnsyncedReason::SubscriptionRequired));
+            }
             Err(error) => return Err(error.into()),
         };
         if !state.complete {
             for (index, part) in sealed.chunks(PART_SIZE as usize).enumerate() {
                 if !state.uploaded.contains(&(index as u64)) {
-                    self.ports
+                    match self
+                        .ports
                         .remote
-                        .blob_put_part(&blob_id, index as u64, part)?;
+                        .blob_put_part(&blob_id, index as u64, part)
+                    {
+                        Ok(()) => {}
+                        Err(error) if is_subscription(&error) => {
+                            return Ok(Err(UnsyncedReason::SubscriptionRequired));
+                        }
+                        Err(error) => return Err(error.into()),
+                    }
                 }
             }
-            self.ports.remote.blob_complete(&blob_id)?;
+            match self.ports.remote.blob_complete(&blob_id) {
+                Ok(_) => {}
+                Err(error) if is_subscription(&error) => {
+                    return Ok(Err(UnsyncedReason::SubscriptionRequired));
+                }
+                Err(error) => return Err(error.into()),
+            }
         }
         Ok(Ok(blob_id))
     }
@@ -682,6 +751,14 @@ impl Engine {
                     source: report.limits.max_file_source,
                 }))
             }
+            // Н9: refused as a whole; the changes with bodies keep their uploads and wait.
+            Err(RemoteError::Rejected { code: reason, .. })
+                if reason == code::SUBSCRIPTION_REQUIRED =>
+            {
+                self.ports.state.apply(&vec![StateOp::SetCommit(None)])?;
+                report.limits.subscription_required = true;
+                Ok(ChunkOutcome::NoSubscription)
+            }
             // A body of the commit is gone from the server: nothing was applied, the record and
             // the begun uploads of these items go, and the pass is made again from the disk.
             Err(RemoteError::Rejected { code: reason, .. }) if reason == code::UNKNOWN_BLOB => {
@@ -725,7 +802,9 @@ impl Engine {
                     // The forecast can differ from the server (for example, two items can
                     // reference one body). Never replace a still-pending plain commit.
                     ChunkOutcome::NoRoom(_) => Ok(ChunkOutcome::NoRoom(chunk.to_vec())),
-                    refused @ ChunkOutcome::TooLarge(_) => Ok(refused),
+                    refused @ (ChunkOutcome::TooLarge(_) | ChunkOutcome::NoSubscription) => {
+                        Ok(refused)
+                    }
                 }
             }
             Err(error) => Err(error.into()),
@@ -758,6 +837,60 @@ enum ChunkOutcome {
     TooLarge(UnsyncedReason),
     /// Refused for the quota (`507`); only these changes still wait after a split commit.
     NoRoom(Vec<Out>),
+    /// Refused for the subscription (`403`); the record of the commit is dropped (Н9).
+    NoSubscription,
+}
+
+/// Н9: keeps the deletions of `outs`; every other change waits with the reason.
+/// Most entries the engine puts in one commit (Т4).
+const MAX_COMMIT_ENTRIES: usize = 1000;
+/// Most bytes of request JSON the engine puts in one commit (Т4).
+const MAX_COMMIT_BYTES: usize = 1024 * 1024;
+/// Fields of an item besides the header in the request JSON, by estimate.
+const ENTRY_OVERHEAD_BYTES: usize = 200;
+
+/// Splits the outgoing entries, in order, into commits of at most `limit` entries and about
+/// [`MAX_COMMIT_BYTES`] of request JSON (Т4). An entry always goes, however large.
+fn split_commits(outs: &[Out], limit: usize) -> Vec<&[Out]> {
+    let mut chunks = Vec::new();
+    let (mut start, mut bytes) = (0, 0usize);
+    for (index, out) in outs.iter().enumerate() {
+        let size = header_size_estimate(out) * 2 + ENTRY_OVERHEAD_BYTES;
+        if index > start && (index - start >= limit || bytes + size > MAX_COMMIT_BYTES) {
+            chunks.push(&outs[start..index]);
+            start = index;
+            bytes = 0;
+        }
+        bytes += size;
+    }
+    if start < outs.len() {
+        chunks.push(&outs[start..]);
+    }
+    chunks
+}
+
+/// The size of the sealed header of an entry: the canonical JSON (path, fixed fields, hash)
+/// padded to 256 bytes (Ф17) plus the envelope head and tag.
+fn header_size_estimate(out: &Out) -> usize {
+    let json = out.header.path.len() * 2 + 260 + out.header.extra.len() * 40;
+    json.div_ceil(256) * 256 + 64
+}
+
+fn only_deletions(outs: Vec<Out>, skipped: &mut Vec<UnsyncedRecord>) -> Vec<Out> {
+    let (deletions, rest): (Vec<Out>, Vec<Out>) =
+        outs.into_iter().partition(|out| out.header.deleted);
+    for out in rest {
+        skipped.push(UnsyncedRecord {
+            path: out.header.path,
+            reason: UnsyncedReason::SubscriptionRequired,
+        });
+    }
+    deletions
+}
+
+/// Whether the server refused for the lack of a subscription (Н4).
+fn is_subscription(error: &RemoteError) -> bool {
+    matches!(error, RemoteError::Rejected { code: reason, .. } if reason == code::SUBSCRIPTION_REQUIRED)
 }
 
 /// The files of a refused commit that carry a body wait on disk with the reason.

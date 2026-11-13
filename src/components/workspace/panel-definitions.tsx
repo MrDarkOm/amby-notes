@@ -1,5 +1,6 @@
 import {
   Archive,
+  Bell,
   FolderTree,
   HelpCircle,
   Info,
@@ -23,6 +24,7 @@ import {
 } from "./panel-registry"
 import { ArchivePanel } from "./panels/archive-panel"
 import { moduleHost } from "@/lib/modules/host"
+import { useNoticesStackStore } from "./notices/use-notices-stack-store"
 
 /**
  * Core built-in panels that do not belong to optional modules.
@@ -96,6 +98,15 @@ export const ACTION_DEFS: ActionDef[] = [
     invoke: (context) => context.openHelp?.(),
   },
   {
+    // The notification centre (docs/notices.md, section 5): the bell opens and closes its stack of cards.
+    id: "notices",
+    labelKey: "actions.notifications",
+    icon: Bell,
+    kind: "action",
+    persistent: true,
+    invoke: () => useNoticesStackStore.getState().toggle(),
+  },
+  {
     id: "settings",
     labelKey: "actions.settings",
     icon: Settings,
@@ -124,6 +135,7 @@ export const PERSISTENT_ACTION_BUTTONS: ActivityButton[] = [
   { defId: "refresh", side: "left", order: 1 },
   { defId: "presets", side: "left", order: 3 },
   { defId: "help", side: "left", order: 4 },
+  { defId: "notices", side: "left", order: 4.5 },
   { defId: "settings", side: "left", order: 5 },
 ]
 

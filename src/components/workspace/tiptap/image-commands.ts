@@ -1,11 +1,11 @@
 import type { Editor } from "@tiptap/core"
 import type { Node as PMNode } from "@tiptap/pm/model"
 
-import i18n from "@/lib/i18n"
-import { importAsset, isTauri, pickAssetFile, showErrorMessage } from "@/lib/storage"
+import { importAsset, isTauri, pickAssetFile } from "@/lib/storage"
 import { getAssetContext } from "./asset-resolver"
 import { copyImageToClipboard } from "./image-actions"
 import { updateImageNode } from "./image-edit"
+import { reportImageFailure } from "./image-failure"
 import { saveNoteImage } from "./image-save"
 import type { CropRequest } from "./ImageCropDialog"
 
@@ -46,10 +46,6 @@ export function requestImageCrop(editor: Editor, pos: number, src: string): void
   editor.view.dom.dispatchEvent(new CustomEvent(CROP_IMAGE_EVENT, { detail: request }))
 }
 
-function reportFailure() {
-  void showErrorMessage(i18n.t("editorToolbar.imageFailed"))
-}
-
 /** Puts the picture on the clipboard; whether it worked. */
 export async function copyImageAt(editor: Editor, pos: number): Promise<boolean> {
   const image = shownImageAt(editor, pos)
@@ -58,7 +54,7 @@ export async function copyImageAt(editor: Editor, pos: number): Promise<boolean>
     await copyImageToClipboard(image)
     return true
   } catch {
-    reportFailure()
+    reportImageFailure()
     return false
   }
 }
@@ -80,6 +76,6 @@ export async function replaceImageAt(editor: Editor, pos: number, src: string): 
     if (!asset) throw new Error("The picture was not imported")
     updateImageNode(editor, pos, src, { src: asset.relPath, height: null })
   } catch {
-    reportFailure()
+    reportImageFailure()
   }
 }

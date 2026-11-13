@@ -43,7 +43,6 @@ import { ProjectSettingsDialog } from "./project-settings-dialog"
 import { ScopeDesk } from "./scope-desk"
 import { ScopedSection } from "./scoped-section"
 import { usePlotEnsurer } from "./workshop/use-ensure-plot"
-import { projectErrorText } from "./project-error"
 import { useScopeData } from "./workshop/use-scope-data"
 import { useUniverses } from "./workshop/use-universes"
 import { scopeSections, type PanelFilter } from "./workshop/workshop-model"
@@ -63,6 +62,7 @@ import { projectTargetIcon, sectionRoleIcon } from "./section-icons"
 import { useStoryLinks } from "./use-story-links"
 import { useStoryUniverse } from "./use-story-universe"
 import { useTextStats } from "./use-text-stats"
+import { projectErrorText } from "@/lib/operation-errors"
 
 interface ProjectPageProps {
   projectId: string

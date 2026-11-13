@@ -24,9 +24,25 @@ fn manifest_json() -> Vec<u8> {
   "defaultTemplateId": null,
   "futureField": {"preserve": true}
 }
+
 "###
     .as_bytes()
     .to_vec()
+}
+
+#[test]
+fn compact_manifest_accepts_embedded_templates_and_rejects_oversized_writes() {
+    let mut value: Value = serde_json::from_slice(&manifest_json()).unwrap();
+    value["formatVersion"] = Value::from(2);
+    value["templates"] = serde_json::json!([]);
+    let parsed = parse_manifest(&serde_json::to_vec(&value).unwrap()).unwrap();
+    assert_eq!(parsed.value.format_version, 2);
+    let mut changed = parsed.value.clone();
+    changed.name = "x".repeat(MAX_JSON_BYTES);
+    assert!(matches!(
+        prepare_json(&parsed, &changed),
+        Err(FormatError::TooLarge { .. })
+    ));
 }
 
 #[test]
