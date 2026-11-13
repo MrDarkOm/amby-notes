@@ -26,11 +26,14 @@ export function GroupConflictChooser({
   actions,
   disabled,
   fallback,
+  swapped = false,
 }: {
   id: string
   actions: GroupConflictActions
   disabled: boolean
   fallback: React.ReactNode
+  /** The set was made on the other computer: the version in the file is the other one's (З69). */
+  swapped?: boolean
 }) {
   const { t } = useTranslation()
   const [read, setRead] = React.useState<GroupConflictVersions | null>(null)
@@ -115,6 +118,7 @@ export function GroupConflictChooser({
                       key={side}
                       note={note}
                       side={side}
+                      swapped={swapped}
                       checked={picks[note.noteId] === side}
                       disabled={disabled || saving}
                       onChoose={() => choose(note.noteId, side)}
@@ -164,12 +168,14 @@ const hasOptions = (type: string | null | undefined) => type === "select" || typ
 function SideCard({
   note,
   side,
+  swapped,
   checked,
   disabled,
   onChoose,
 }: {
   note: GroupNote
   side: NotePick
+  swapped: boolean
   checked: boolean
   disabled: boolean
   onChoose: () => void
@@ -219,7 +225,9 @@ function SideCard({
           {checked && <span className="size-1.5 rounded-full bg-primary" />}
         </span>
         <span id={labelId} className="text-[12px] font-medium">
-          {t(`sync.vault.conflicts.appData.group.${side}`)}
+          {t(
+            `sync.vault.conflicts.appData.group.${swapped ? (side === "current" ? "other" : "current") : side}`,
+          )}
         </span>
       </span>
       <span className="flex flex-col gap-1 text-[12px] text-muted-foreground">

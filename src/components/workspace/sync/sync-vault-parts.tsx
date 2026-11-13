@@ -106,14 +106,27 @@ export function AppDataConflictBody({
   const { t } = useTranslation()
   const appData = appDataConflictKind(item.originalPath)
   if (!appData) return null
+  // З69: the set is synchronised. On the computer that did not make it, the version in the file came
+  // from the other computer and the second version is this one's, so the names of the sides swap.
+  const swapped = item.createdHere === false
   const byNotes =
     groups !== undefined && item.hasBase === true && isPropertyGroupPath(item.originalPath)
   const choices = (
     <div className="flex flex-wrap gap-2">
       {(
         [
-          ["keepOriginal", "sync.vault.conflicts.appData.keepThis"],
-          ["keepCopy", "sync.vault.conflicts.appData.keepOther"],
+          [
+            "keepOriginal",
+            swapped
+              ? "sync.vault.conflicts.appData.keepOther"
+              : "sync.vault.conflicts.appData.keepThis",
+          ],
+          [
+            "keepCopy",
+            swapped
+              ? "sync.vault.conflicts.appData.keepThis"
+              : "sync.vault.conflicts.appData.keepOther",
+          ],
         ] as const
       ).map(([choice, key]) => (
         <Button
@@ -135,6 +148,7 @@ export function AppDataConflictBody({
         id={item.id}
         actions={groups}
         disabled={busy}
+        swapped={swapped}
         fallback={
           <>
             <p className="text-[12px]">{t("sync.vault.conflicts.appData.properties")}</p>

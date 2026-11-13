@@ -735,6 +735,58 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
     expect(readGroupConflict).not.toHaveBeenCalled()
   })
 
+  // З69, fixed 13 November: a set is synchronised, so on the computer that did not make it the
+  // version in the file came from the other computer and the second version is this one's.
+  it("swaps the sides of a group set made on the other computer", async () => {
+    const resolveGroupConflict = vi.fn(async () => {})
+    await show(vaultStatus({ conflicts: [{ ...groupConflict, createdHere: false }] }), {
+      readGroupConflict: vi.fn(async () => groupRead),
+      resolveGroupConflict,
+    })
+    const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+    const notes = await within(row).findByTestId("sync-group-notes")
+    const [first, second] = within(notes).getAllByRole("radiogroup")
+    // the version in the file ("current") is now named after the other computer
+    expect(within(first).getByRole("radio", { name: "Другой компьютер" }).textContent).toMatch(
+      /Выбор/,
+    )
+    expect(within(second).getByRole("radio", { name: "Этот компьютер" }).textContent).toMatch(
+      /Оформление заметки удалено/,
+    )
+    fireEvent.click(within(first).getByRole("radio", { name: "Этот компьютер" }))
+    fireEvent.click(within(second).getByRole("radio", { name: "Другой компьютер" }))
+    fireEvent.click(within(row).getByRole("button", { name: "Применить" }))
+    await waitFor(() =>
+      expect(resolveGroupConflict).toHaveBeenCalledWith(
+        "0123456789ab",
+        { A: "other", B: "current" },
+        "stamp-g",
+      ),
+    )
+  })
+
+  it("swaps the whole-file buttons of an app-data set made on the other computer", async () => {
+    const port = await show(
+      vaultStatus({ conflicts: [{ ...groupConflict, hasBase: false, createdHere: false }] }),
+    )
+    const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+    fireEvent.click(within(row).getByRole("button", { name: "Оставить с этого компьютера" }))
+    await waitFor(() =>
+      expect(port.resolveConflict).toHaveBeenCalledWith("0123456789ab", "keepCopy"),
+    )
+  })
+
+  it("keeps the sides of a set made here", async () => {
+    const port = await show(
+      vaultStatus({ conflicts: [{ ...groupConflict, hasBase: false, createdHere: true }] }),
+    )
+    const row = within(await screen.findByTestId("sync-conflicts")).getAllByRole("listitem")[0]
+    fireEvent.click(within(row).getByRole("button", { name: "Оставить с этого компьютера" }))
+    await waitFor(() =>
+      expect(port.resolveConflict).toHaveBeenCalledWith("0123456789ab", "keepOriginal"),
+    )
+  })
+
   it("words a conflict of two creations differently", async () => {
     await show(vaultStatus({ conflicts: [{ ...conflict, kind: "bothCreated" }] }))
     const list = await screen.findByTestId("sync-conflicts")
