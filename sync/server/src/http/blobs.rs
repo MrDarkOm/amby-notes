@@ -14,7 +14,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use amby_sync_proto::error_code as code;
 use amby_sync_proto::PART_SIZE;
 
-use super::spaces::owned_space;
+use super::spaces::{owned_space, recheck};
 use super::util::{
     authenticate, field_hex, field_u64, hex, json_response, read_json, read_limited, unhex_array,
     ApiError, ApiResult, ReadError,
@@ -114,7 +114,10 @@ pub(crate) async fn start(
         blob_id,
     };
     let now = state.clock.now_ms();
+    let space_text = space_param(&params).to_string();
     let outcome = state.db.write(|tx| -> ApiResult<(bool, BlobRow)> {
+        // Т1: the space and the token are looked up again, in this transaction.
+        let space = recheck(tx, &auth, &space_text)?;
         let plan = crate::quota::resolve_user(&state, tx, auth.user_id)?;
         // Н4, Н5: no subscription, no new body; before every other check of the route.
         if !plan.limits.sync {
@@ -263,11 +266,14 @@ pub(crate) async fn put_part(
     let now = state.clock.now_ms();
     // The part is on disk before the database hears of it; the activity restarts the 24 hours
     // (П25). A body removed in the meantime is not found any more.
-    let touched = state.db.call(|conn| {
-        conn.execute(
+    // Т1, Т2: the space is looked up again; a gone space is `404` and the file is swept.
+    let space_text = space_param(&params).to_string();
+    let touched = state.db.write(|tx| -> ApiResult<usize> {
+        let space = recheck(tx, &auth, &space_text)?;
+        Ok(tx.execute(
             "UPDATE blobs SET activity_ms = ?3 WHERE space = ?1 AND blob_id = ?2 AND complete = 0",
             params![space.row, blob_id.as_slice(), now],
-        )
+        )?)
     })?;
     if touched == 0 {
         return Err(ApiError::not_found());
@@ -328,12 +334,17 @@ pub(crate) async fn complete(
         .await
         .map_err(ApiError::internal)??;
     let now = state.clock.now_ms();
-    state.db.call(|conn| {
-        conn.execute(
+    let space_text = space_param(&params).to_string();
+    let done = state.db.write(|tx| -> ApiResult<usize> {
+        let space = recheck(tx, &auth, &space_text)?;
+        Ok(tx.execute(
             "UPDATE blobs SET complete = 1, activity_ms = ?3 WHERE space = ?1 AND blob_id = ?2",
             params![space.row, blob_id.as_slice(), now],
-        )
+        )?)
     })?;
+    if done == 0 {
+        return Err(ApiError::not_found());
+    }
     // Only a leftover on failure; the cleanup sweeps it.
     let _ = state.files.remove_parts(&key);
     Ok(json_response(StatusCode::OK, &finished))
@@ -486,8 +497,10 @@ pub(crate) async fn delete(
     };
     // The row goes first and the files after, under the lock (as in the cleanup): a body
     // started again under the same id keeps its new files.
+    let space_text = space_param(&params).to_string();
     state.db.write_then(
         |tx| -> ApiResult<()> {
+            let space = recheck(tx, &auth, &space_text)?;
             if blob_row(tx, space.row, &blob_id)?.is_none() {
                 return Err(ApiError::not_found());
             }

@@ -441,7 +441,15 @@ impl SyncClient {
         if let Some(limit) = limit {
             path.push_str(&format!("&limit={limit}"));
         }
-        let value = self.send(Method::GET, &path, Some(token), None).await?;
+        let value = self
+            .send_limited(
+                Method::GET,
+                &path,
+                Some(token),
+                None,
+                crate::api::MAX_FEED_ANSWER_BYTES,
+            )
+            .await?;
         let list = value
             .get("changes")
             .and_then(Value::as_array)
