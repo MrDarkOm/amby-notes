@@ -22,7 +22,13 @@ function ConfirmDialog({ question }: { question: PendingConfirm }) {
   // An irreversible action that asks for the exact name first (Л10): nothing is confirmed until it matches.
   const [typed, setTyped] = React.useState("")
   const required = question.requiredText
-  const allowed = !required || typed === required.value
+  const secret = question.secret
+  const [hidden, setHidden] = React.useState("")
+  const allowed = (!required || typed === required.value) && (!secret || hidden !== "")
+  const choose = () => {
+    if (secret) secret.onSubmit?.(hidden)
+    settle(question.id, "yes")
+  }
   // What had the focus when the question came; it gets it back (Radix returns it only to a trigger, and there is none).
   const [opener] = React.useState(() =>
     document.activeElement instanceof HTMLElement ? document.activeElement : null,
@@ -60,9 +66,25 @@ function ConfirmDialog({ question }: { question: PendingConfirm }) {
             spellCheck={false}
             onChange={(event) => setTyped(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && allowed) settle(question.id, "yes")
+              if (event.key === "Enter" && allowed) choose()
             }}
           />
+        ) : null}
+        {secret ? (
+          <div className="space-y-1">
+            <Input
+              type="password"
+              aria-label={secret.label}
+              placeholder={secret.label}
+              value={hidden}
+              autoComplete="current-password"
+              onChange={(event) => setHidden(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && allowed) choose()
+              }}
+            />
+            {secret.error ? <p className="text-[12px] text-destructive">{secret.error}</p> : null}
+          </div>
         ) : null}
         <DialogFooter>
           <Button
@@ -80,7 +102,7 @@ function ConfirmDialog({ question }: { question: PendingConfirm }) {
             variant={destructive ? "destructive" : "default"}
             size="sm"
             disabled={!allowed}
-            onClick={() => settle(question.id, "yes")}
+            onClick={choose}
           >
             {question.confirmLabel}
           </Button>

@@ -18,6 +18,11 @@ export interface ConfirmOptions {
   destructive?: boolean
   /** Exact text required before confirming an irreversible server-space deletion (Л10). */
   requiredText?: { value: string; label: string }
+  /**
+   * A hidden field that must not be empty, such as the current password (appendix Ц, Ц4). The value goes only
+   * to `onSubmit`, never into the store; `error` is shown under the field when the question is asked again.
+   */
+  secret?: { label: string; error?: string; onSubmit?: (value: string) => void }
   /** Dismisses a question whose account or action is no longer current (Л11). */
   signal?: AbortSignal
 }
@@ -85,4 +90,24 @@ export function confirmChoice(options: ConfirmOptions): Promise<ConfirmOutcome> 
  */
 export async function confirm(options: ConfirmOptions): Promise<boolean> {
   return (await confirmChoice(options)) === "yes"
+}
+
+/**
+ * Asks with a hidden field (`secret`) and gives what was typed in it, or `null` when the action was not chosen.
+ * The value is handed over once and is not kept anywhere else.
+ */
+export async function confirmWithSecret(
+  options: ConfirmOptions & { secret: { label: string; error?: string } },
+): Promise<string | null> {
+  let value: string | null = null
+  const chosen = await confirm({
+    ...options,
+    secret: {
+      ...options.secret,
+      onSubmit: (typed) => {
+        value = typed
+      },
+    },
+  })
+  return chosen ? value : null
 }

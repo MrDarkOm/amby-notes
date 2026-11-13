@@ -9,11 +9,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { confirm } from "@/lib/confirm"
+import { confirmWithSecret } from "@/lib/confirm"
 import { cn } from "@/lib/utils"
 import { formatSize } from "@/lib/sync/format-size"
 import { syncErrorMessage } from "@/lib/sync/sync-errors"
-import { resolveSyncPort, type AccountOverview, type SyncPort } from "@/lib/sync/sync-port"
+import {
+  resolveSyncPort,
+  SyncPortError,
+  type AccountOverview,
+  type SyncPort,
+} from "@/lib/sync/sync-port"
 import { NOTICE_LOOK } from "../notices/notice-look"
 import { useVaultStore } from "../use-vault-store"
 import { reportSyncListenFailed } from "./listen-failure"
@@ -105,42 +110,51 @@ export function AccountStorage({ port: given, revision = 0 }: AccountStorageProp
   const deleteFromServer = async (space: AccountOverview["spaces"][number]) => {
     if (deleting) return
     const mine = generation.current
-    const controller = new AbortController()
-    askAbort.current = controller
     const named = space.name !== null && space.name !== ""
-    const question = {
-      title: named
-        ? t("sync.account.deleteTitle", { name: space.name })
-        : t("sync.account.deleteTitleUnnamed", { id: space.spaceId }),
-      description: t("sync.account.deleteDescription", {
-        live: formatSize(space.liveBytes, i18n.language),
-        history: formatSize(space.historyBytes, i18n.language),
-      }),
-      confirmLabel: t("sync.account.deleteConfirm"),
-      destructive: true,
-      requiredText: {
-        value: named ? (space.name as string) : space.spaceId,
-        label: t(named ? "sync.account.deleteField" : "sync.account.deleteFieldId"),
-      },
-      signal: controller.signal,
-    }
-    const agreed = await confirm(question)
-    if (askAbort.current === controller) askAbort.current = null
-    if (!agreed || generation.current !== mine) return
-    setDeleting(true)
-    setDeleted(false)
-    setDeleteError(null)
-    try {
-      // Interface stub (appendix Ц, Ц4): the dialog does not ask for the password yet.
-      await port.deleteSpace(space.spaceId, "")
-      if (generation.current !== mine) return
-      setDeleted(true)
-      await load()
-    } catch (caught) {
-      if (generation.current !== mine) return
-      setDeleteError(syncErrorMessage(caught, t))
-    } finally {
-      if (generation.current === mine) setDeleting(false)
+    // Ц4: the question asks for the current password too, and is asked again while it is wrong.
+    let wrong: string | undefined
+    for (;;) {
+      const controller = new AbortController()
+      askAbort.current = controller
+      const password = await confirmWithSecret({
+        title: named
+          ? t("sync.account.deleteTitle", { name: space.name })
+          : t("sync.account.deleteTitleUnnamed", { id: space.spaceId }),
+        description: t("sync.account.deleteDescription", {
+          live: formatSize(space.liveBytes, i18n.language),
+          history: formatSize(space.historyBytes, i18n.language),
+        }),
+        confirmLabel: t("sync.account.deleteConfirm"),
+        destructive: true,
+        requiredText: {
+          value: named ? (space.name as string) : space.spaceId,
+          label: t(named ? "sync.account.deleteField" : "sync.account.deleteFieldId"),
+        },
+        secret: { label: t("sync.account.deletePassword"), error: wrong },
+        signal: controller.signal,
+      })
+      if (askAbort.current === controller) askAbort.current = null
+      if (password === null || generation.current !== mine) return
+      setDeleting(true)
+      setDeleted(false)
+      setDeleteError(null)
+      try {
+        await port.deleteSpace(space.spaceId, password)
+        if (generation.current !== mine) return
+        setDeleted(true)
+        await load()
+        return
+      } catch (caught) {
+        if (generation.current !== mine) return
+        if (caught instanceof SyncPortError && caught.code === "invalid_proof") {
+          wrong = t("sync.account.deleteWrongPassword")
+          continue
+        }
+        setDeleteError(syncErrorMessage(caught, t))
+        return
+      } finally {
+        if (generation.current === mine) setDeleting(false)
+      }
     }
   }
 

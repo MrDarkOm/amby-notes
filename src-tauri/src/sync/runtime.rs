@@ -123,11 +123,13 @@ impl SyncRuntime {
     /// forgotten. A failure leaves the link, switched off, so the action can be repeated. An answer
     /// that comes after another vault or account was taken does not touch the new one.
     pub async fn delete_space(&self, space_id: &str, password: &str) -> Result<(), SyncError> {
-        // Interface stub (appendix Ц, Ц4): the password is not checked or sent yet.
-        let _ = password;
-        let proof = amby_sync_core::crypto::keys::AuthKey::from_bytes([0u8; 32]);
         let id = hex_16(space_id).ok_or_else(|| SyncError::new("invalid_space"))?;
         let credentials = self.credentials()?;
+        // Ц2, Ц4: the password is checked on this device before anything is stopped, so a wrong one
+        // leaves the sync of the open vault as it was. The server checks the key again (Ц1).
+        let proof =
+            amby_sync_client::password_proof(&credentials.client, &credentials.token, password)
+                .await?;
         let identity = self.identity();
         let current_vault = self.inner().vault.clone();
         // Is it the space of the open vault? (Read before anything is stopped.)
@@ -136,6 +138,11 @@ impl SyncRuntime {
                 .filter(|link| link.space_id == id)
                 .map(|_| vault),
             None => None,
+        };
+        // Ц4: whether sync was on, to put it back when the server refuses the proof.
+        let was_enabled = match &linked_vault {
+            Some(vault) => Self::read_link(vault)?.is_some_and(|link| link.enabled),
+            None => false,
         };
         let token = match &linked_vault {
             Some(vault) => {
@@ -166,6 +173,21 @@ impl SyncRuntime {
                 if spaces.iter().any(|space| space.space_id == id) {
                     return Err(SyncError::new("unsupported_server"));
                 }
+            }
+            // Ц4: the server refused the proof (a wrong key or too many attempts): nothing was
+            // deleted, so the sync of the open vault goes back to how it was.
+            Err(
+                error @ amby_sync_client::ClientError::Api {
+                    status: 403 | 429, ..
+                },
+            ) => {
+                if let Some(vault) = &linked_vault {
+                    if was_enabled && self.identity() == identity {
+                        Self::set_enabled(vault, true)?;
+                        let _ = self.activate_vault(vault).await;
+                    }
+                }
+                return Err(error.into());
             }
             Err(error) => return Err(error.into()),
         }
