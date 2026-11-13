@@ -5,7 +5,8 @@
 //! *live* (the latest, not deleted version of some item refers to it), *pending* (no version
 //! refers to it: started or complete but not committed, by the declared size) and *history*
 //! (only replaced versions or deleted items refer to it). Live and pending count against the
-//! quota; history is shown apart (П55).
+//! quota; history is shown apart (П55). The lengths of the headers count too (Х5): those of the
+//! current versions are live, those of replaced and deleted versions are history.
 
 use std::collections::HashMap;
 
@@ -105,6 +106,30 @@ pub(crate) fn space_usage(
             usage.history = bytes;
             usage.live = usage.live.saturating_sub(bytes);
         }
+    }
+    // Х5: the headers. A current version that is not a deletion is live; a replaced version and a
+    // deletion record are history until the cleanup removes them.
+    let mut headers = conn.prepare(
+        "SELECT v.space, \
+                COALESCE(SUM(CASE WHEN v.superseded_ms IS NULL AND v.deleted = 0 \
+                                  THEN LENGTH(v.header) ELSE 0 END), 0), \
+                COALESCE(SUM(CASE WHEN v.superseded_ms IS NULL AND v.deleted = 0 \
+                                  THEN 0 ELSE LENGTH(v.header) END), 0) \
+         FROM versions v WHERE v.space IN (SELECT id FROM spaces WHERE user_id = ?1) \
+         GROUP BY v.space",
+    )?;
+    let rows = headers.query_map([user_id], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, u64>(1)?,
+            row.get::<_, u64>(2)?,
+        ))
+    })?;
+    for row in rows {
+        let (space, live, history) = row?;
+        let usage = spaces.entry(space).or_default();
+        usage.live += live;
+        usage.history += history;
     }
     Ok(spaces)
 }
@@ -228,6 +253,38 @@ pub(crate) fn require_subscription(
     } else {
         Err(subscription_required())
     }
+}
+
+/// Х1: `507 server_storage_full` when the volume of the data directory has less than
+/// `min_free_bytes` free; `Ok` when the check is off, the space is enough or it cannot be read.
+/// Call it inside the transaction of an adding request, after the checks of Н4. The answer is the
+/// plain error of П4 and says nothing about the disk.
+pub(crate) fn require_free_space(state: &AppState) -> Result<(), crate::http::util::ApiError> {
+    let minimum = state.config.min_free_bytes;
+    if minimum == 0 {
+        return Ok(());
+    }
+    match free_bytes(&state.config.data_dir) {
+        Some(free) if free < minimum => Err(crate::http::util::ApiError::new(
+            axum::http::StatusCode::INSUFFICIENT_STORAGE,
+            amby_sync_proto::error_code::SERVER_STORAGE_FULL,
+            "the server has no room for new data",
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// Bytes available to unprivileged writers on the volume of `dir`; `None` when unknown.
+#[cfg(unix)]
+fn free_bytes(dir: &std::path::Path) -> Option<u64> {
+    let stat = rustix::fs::statvfs(dir).ok()?;
+    Some(stat.f_bavail.saturating_mul(stat.f_frsize))
+}
+
+/// Other systems are not measured: "enough".
+#[cfg(not(unix))]
+fn free_bytes(_dir: &std::path::Path) -> Option<u64> {
+    None
 }
 
 /// The error of Н4: an ordinary one, with no details about the plan.

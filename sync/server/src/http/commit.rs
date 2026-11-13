@@ -173,6 +173,31 @@ pub(crate) async fn commit(
         if !plan.limits.sync && !only_deletions {
             return Ok(Outcome::Refused(crate::quota::subscription_required()));
         }
+        // Х6: without a subscription a deletion must free something: it names the current live
+        // version of an existing item. Anything else is an addition and refuses the whole commit.
+        if !plan.limits.sync {
+            for entry in &entries {
+                let current: Option<(u64, bool)> = tx
+                    .query_row(
+                        "SELECT version, deleted FROM versions \
+                         WHERE space = ?1 AND item_id = ?2 AND superseded_ms IS NULL",
+                        params![space.row, entry.item_id.as_slice()],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .optional()?;
+                let frees = entry.base_version >= 1
+                    && current == Some((entry.base_version, false));
+                if !frees {
+                    return Ok(Outcome::Refused(crate::quota::subscription_required()));
+                }
+            }
+        }
+        // Х1: no room on the disk, nothing is added; a commit of deletions only still passes.
+        if entries.iter().any(|entry| !entry.deleted) {
+            if let Err(error) = crate::quota::require_free_space(&state) {
+                return Ok(Outcome::Refused(error));
+            }
+        }
         // П30 first: every body must be complete and in this space.
         for entry in &entries {
             if let Some(blob) = &entry.blob_id {

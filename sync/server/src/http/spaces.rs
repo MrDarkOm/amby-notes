@@ -149,6 +149,8 @@ pub(crate) async fn create(State(state): State<AppState>, request: Request) -> A
     let exists = state.db.write(|tx| -> ApiResult<bool> {
         // Н4, Н5: a new space needs a subscription; first, in the transaction of the write.
         crate::quota::require_subscription(&state, tx, auth.user_id)?;
+        // Х1: no room on the disk, no new space.
+        crate::quota::require_free_space(&state)?;
         let taken: bool = tx
             .query_row(
                 "SELECT 1 FROM spaces WHERE space_id = ?1",
