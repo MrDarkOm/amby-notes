@@ -4190,6 +4190,9 @@ const ru = {
         "На вашем тарифе больше нет места для новых хранилищ. Подключите существующее или обратитесь к владельцу сервера.",
       subscription_required:
         "Синхронизация доступна по подписке. Аккаунт работает, но отправлять файлы на сервер без неё нельзя.",
+      server_storage_full:
+        "На сервере заканчивается место, новое пока не принимается. Файлы остались на этом компьютере; удаления и получение работают. Сообщите владельцу сервера.",
+      server_busy: "Сервер сейчас занят. Попробуем снова чуть позже, ничего не потеряно.",
       unknown: "Что-то пошло не так. Код ошибки: {{code}}.",
     },
     account: {
@@ -8690,6 +8693,9 @@ const en: typeof ru = {
         "Your plan has no room for another storage. Connect an existing one or ask the owner of the server.",
       subscription_required:
         "Sync needs a subscription. The account works, but files cannot be sent to the server without one.",
+      server_storage_full:
+        "The server is running out of space and does not accept new files for now. Your files stay on this computer; deletions and incoming changes work. Tell the owner of the server.",
+      server_busy: "The server is busy right now. We will try again shortly; nothing is lost.",
       unknown: "Something went wrong. Error code: {{code}}.",
     },
     account: {
