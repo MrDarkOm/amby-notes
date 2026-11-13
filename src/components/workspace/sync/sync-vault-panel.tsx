@@ -30,6 +30,7 @@ import { propertyStorageStatus } from "@/lib/properties/property-groups-port"
 import { SyncCompareDialog } from "./sync-compare-dialog"
 import { ConflictList, StopNotice, UnsyncedList } from "./sync-vault-parts"
 import { clearSyncListenFailed, reportSyncListenFailed } from "./listen-failure"
+import { SubscriptionOffer } from "./subscription-offer"
 
 const LISTEN_RETRIES = 3
 const LISTEN_RETRY_MS = 10_000
@@ -220,6 +221,7 @@ export function SyncVaultPanel({
       <p role="alert" className="text-[12px] text-destructive">
         {error}
       </p>
+      {errorCode === "subscription_required" && <SubscriptionOffer disabled={busy} />}
       {errorCode === "space_limit" && (
         <Button
           type="button"

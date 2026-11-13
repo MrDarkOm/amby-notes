@@ -47,7 +47,7 @@ Backup manager: [backup-panel.tsx](../backup/backup-panel.tsx). See [the backup 
 Tests sit beside the files. The manual check in a native window, against a server in Docker, is the
 section "Синхронизация" of [native-ui-smoke.md](../../../../docs/native-ui-smoke.md).
 
-Appendix Е (limits of plans): [account-storage.tsx](account-storage.tsx) the storages of the account, plan and gauge (У1, У2, У4); connection changes refresh the list, including a queued read; [limit-notices.ts](limit-notices.ts) the cards of У3; sizes in decimal units [format-size.ts](../../../lib/sync/format-size.ts); the records are drawn by the [centre](../notices/notices-stack.tsx), the reasons with their limit by `UnsyncedList`, and `space_limit` is met by [sync-vault-panel.tsx](sync-vault-panel.tsx); tests `account-storage.test.tsx`, `sync-limits.test.tsx`.
+Appendices Е, Н (plans, subscription): [account-storage.tsx](account-storage.tsx) account storages, plan, gauge; [limit-notices.ts](limit-notices.ts) cards of У3; sizes [format-size.ts](../../../lib/sync/format-size.ts); records drawn by the [centre](../notices/notices-stack.tsx); `space_limit` and `subscription_required` met by [sync-vault-panel.tsx](sync-vault-panel.tsx); purchase stub [subscription-offer.tsx](subscription-offer.tsx).
 
 Dock: [use-refresh-sync.ts](use-refresh-sync.ts). Inactive: [sync-inactive-menu.tsx](sync-inactive-menu.tsx), [sync-inactive.ts](sync-inactive.ts). Two zones: Account (`SyncSettings`), Storage (`SyncVaultPanel`, with the switch).
 
