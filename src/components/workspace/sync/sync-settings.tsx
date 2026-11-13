@@ -14,6 +14,7 @@ import {
   type SyncStatus,
 } from "@/lib/sync/sync-port"
 import { ChangePasswordForm } from "./change-password"
+import { DisconnectOthers } from "./disconnect-others"
 import { RenameIdentityForm } from "./rename-identity"
 import { AccountStorage } from "./account-storage"
 import { ConnectWizard } from "./connect-wizard"
@@ -289,6 +290,7 @@ export function SyncSettings({ port: given, vault: givenVault }: SyncSettingsPro
           {t("sync.changePassword.done")}
         </p>
       )}
+      {passwordChanged && <DisconnectOthers port={port} onDone={() => void loadDevices()} />}
       {changing && (
         <ChangePasswordForm
           port={port}

@@ -262,6 +262,25 @@ impl Account {
         self.api.delete(path, Some(&self.token))
     }
 
+    /// `DELETE` with a JSON body (appendix Ц, Ц1).
+    pub fn delete_json(&self, path: &str, body: Value) -> Resp {
+        self.api.send(
+            "DELETE",
+            path,
+            Some(&self.token),
+            &[],
+            crate::http::Body::Json(body),
+        )
+    }
+
+    /// `DELETE /v1/spaces/{id}` under proof of the current password (appendix Ц, Ц1).
+    pub fn delete_space_with_proof(&self, space: &SpaceId) -> Resp {
+        self.delete_json(
+            &format!("/v1/spaces/{}", hex16(space.as_bytes())),
+            json!({ "auth_key": hex::encode(self.password_auth_key().as_bytes()) }),
+        )
+    }
+
     /// `GET /v1/account` (П61), checked to be 200.
     pub fn overview(&self) -> Value {
         self.get("/v1/account").expect(200).json()

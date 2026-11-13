@@ -283,8 +283,9 @@ pub async fn sync_account_overview(
 pub async fn sync_delete_space(
     runtime: State<'_, SyncRuntime>,
     space_id: String,
+    password: String,
 ) -> Result<(), SyncError> {
-    runtime.delete_space(&space_id).await
+    runtime.delete_space(&space_id, &password).await
 }
 
 /// Switches sync on for the open vault after a complete external backup.

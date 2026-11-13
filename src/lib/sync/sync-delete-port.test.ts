@@ -10,8 +10,8 @@ describe("server-space deletion through IPC (Л9)", () => {
 
   it("passes only the selected space ID to the generated command", async () => {
     commands.syncDeleteSpace.mockResolvedValue({ status: "ok", data: null })
-    await createDesktopSyncPort().deleteSpace("ab".repeat(16))
-    expect(commands.syncDeleteSpace).toHaveBeenCalledExactlyOnceWith("ab".repeat(16))
+    await createDesktopSyncPort().deleteSpace("ab".repeat(16), "password")
+    expect(commands.syncDeleteSpace).toHaveBeenCalledExactlyOnceWith("ab".repeat(16), "password")
   })
 
   it("keeps the machine error and retry delay for the action's inline result", async () => {
@@ -19,7 +19,9 @@ describe("server-space deletion through IPC (Л9)", () => {
       status: "error",
       error: { code: "rate_limited", retryAfterSecs: 9 },
     })
-    await expect(createDesktopSyncPort().deleteSpace("ab".repeat(16))).rejects.toMatchObject({
+    await expect(
+      createDesktopSyncPort().deleteSpace("ab".repeat(16), "password"),
+    ).rejects.toMatchObject({
       code: "rate_limited",
       retryAfterSecs: 9,
     })
@@ -27,7 +29,7 @@ describe("server-space deletion through IPC (Л9)", () => {
 
   it("maps an IPC failure without exposing its raw text", async () => {
     commands.syncDeleteSpace.mockRejectedValue(new Error("private device details"))
-    await expect(createDesktopSyncPort().deleteSpace("ab".repeat(16))).rejects.toEqual(
+    await expect(createDesktopSyncPort().deleteSpace("ab".repeat(16), "password")).rejects.toEqual(
       new SyncPortError("ipc_failed"),
     )
   })

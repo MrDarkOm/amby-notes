@@ -255,9 +255,12 @@ fn every_other_route_of_h4_still_works_without_sync() {
         .unwrap_or_else(|answer| panic!("events: HTTP {} {}", answer.status, answer.text()));
     // DELETE of a started body, DELETE of the space
     d.space.delete_blob(&d.started).expect(204);
-    d.space
-        .api
-        .delete(&d.space.path(""), Some(&d.space.token))
+    // Ц1: deleting a space proves the password — the new one, set above.
+    account
+        .delete_json(
+            &d.space.path(""),
+            serde_json::json!({ "auth_key": hex::encode(envelope.auth_key.as_bytes()) }),
+        )
         .expect(200);
     assert_eq!(
         account.get("/v1/spaces").expect(200).json()["spaces"]

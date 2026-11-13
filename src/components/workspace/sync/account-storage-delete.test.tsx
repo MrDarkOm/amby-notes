@@ -79,8 +79,12 @@ function actionButton(box: HTMLElement) {
   return within(box).getByRole("button", { name: DELETE_LABEL })
 }
 
+/** Ц4: the question also asks for the current password; these Л10 tests give one and check the name. */
+const PASSWORD = "Correct-Horse-Battery-Staple-42!"
+
 function fillExact(box: HTMLElement, value = SPACE_NAME) {
   fireEvent.change(requiredInput(box), { target: { value } })
+  fireEvent.change(within(box).getByLabelText("Текущий пароль"), { target: { value: PASSWORD } })
 }
 
 function settleRadix() {
@@ -148,7 +152,9 @@ describe("the server-space action in an account-storage row (Л10)", () => {
     expect(box.textContent).toContain(unnamed.spaces[0].spaceId)
     fillExact(box, unnamed.spaces[0].spaceId)
     fireEvent.click(actionButton(box))
-    await waitFor(() => expect(port.deleteSpace).toHaveBeenCalledWith(unnamed.spaces[0].spaceId))
+    await waitFor(() =>
+      expect(port.deleteSpace).toHaveBeenCalledWith(unnamed.spaces[0].spaceId, PASSWORD),
+    )
   })
 
   it("does nothing for Cancel, with focus initially on the safe button", async () => {
@@ -207,7 +213,7 @@ describe("the request and its result (Л11)", () => {
     fillExact(box)
     fireEvent.click(actionButton(box))
 
-    await waitFor(() => expect(port.deleteSpace).toHaveBeenCalledWith(SPACE_ID))
+    await waitFor(() => expect(port.deleteSpace).toHaveBeenCalledWith(SPACE_ID, PASSWORD))
     await waitFor(() => expect(accountOverview).toHaveBeenCalledTimes(2))
     expect(port.deleteSpace.mock.invocationCallOrder[0]).toBeLessThan(
       accountOverview.mock.invocationCallOrder[1],
