@@ -44,6 +44,15 @@ export async function getCurrentAppVersion(): Promise<string> {
   }
 }
 
+/**
+ * Why an update could not be installed, as a code the journal may keep (docs/notices.md: no raw
+ * error text). Interface stub: the cause is not told apart yet.
+ */
+export function updateFailureCode(error: unknown): string {
+  void error
+  return "UnknownError"
+}
+
 export function calculateDownloadPercent(downloaded: number, total?: number): number | null {
   if (!total || total <= 0) return null
   return Math.min(100, Math.max(0, Math.round((downloaded / total) * 100)))

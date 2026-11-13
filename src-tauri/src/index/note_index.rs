@@ -132,6 +132,19 @@ pub fn body_revision(body: &str) -> String {
     format!("{:x}", Sha256::digest(body.as_bytes()))
 }
 
+/// Why reading a note failed, as a code the journal may keep: no text, no path
+/// (`docs/notices.md`). `NoteNotIndexed` — the id is not in the index; the others follow the
+/// kind of the system error: `FileNotFound`, `InvalidData` (not UTF-8), `PermissionDenied`,
+/// `IoError`.
+pub fn read_note_with_reason(
+    conn: &Connection,
+    vault: &Path,
+    note_id: &str,
+) -> Result<NoteReadOutcome, (String, &'static str)> {
+    // Interface stub: the reason is not told apart yet.
+    read_note(conn, vault, note_id).map_err(|error| (error, "OperationFailed"))
+}
+
 pub fn read_note(
     conn: &Connection,
     vault: &Path,
