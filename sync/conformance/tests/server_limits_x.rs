@@ -164,12 +164,8 @@ fn with_too_little_free_space_login_reading_download_and_freeing_still_work() {
     s.space.delete_blob(&s.started).expect(204);
     let gone = s.space.deletion(&s.kept.item, 1, "kept.md");
     s.space.commit_ok(&[gone]);
-    s.account
-        .delete(&format!(
-            "/v1/spaces/{}",
-            amby_sync_conformance::client::hex16(s.spare.id.as_bytes())
-        ))
-        .expect(200);
+    // Ц1: deleting a space proves the password.
+    s.account.delete_space_with_proof(&s.spare.id).expect(200);
 }
 
 #[test]
