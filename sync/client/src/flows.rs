@@ -539,8 +539,25 @@ pub async fn password_proof(
     token: &DeviceToken,
     password: &str,
 ) -> Result<AuthKey, ClientError> {
-    let _ = (client, token, password);
-    todo!("appendix Ц, Ц2")
+    let keys = client.keys(token).await?;
+    keys.params.validate()?;
+    let password = zeroize::Zeroizing::new(password.to_string());
+    let derived = blocking(move || {
+        let derived = derive_password_keys(&password, &keys.salt, &keys.params)?;
+        // Detect a wrong password on the device, without a request to the server.
+        unwrap_account_key(&derived.kek, &keys.wrapped_ak)?;
+        Ok(derived)
+    })
+    .await
+    .map_err(|error| match error {
+        ClientError::Crypto(CryptoError::Authentication) => ClientError::Api {
+            status: 403,
+            code: "invalid_proof".to_string(),
+            retry_after_secs: None,
+        },
+        other => other,
+    })?;
+    Ok(derived.auth_key)
 }
 
 /// Renames a login under proof of the current password, without rewrapping any key.

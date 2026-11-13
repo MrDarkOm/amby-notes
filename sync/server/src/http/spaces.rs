@@ -9,9 +9,10 @@ use serde_json::{json, Value};
 use amby_sync_proto::error_code as code;
 
 use super::split;
+use super::throttle;
 use super::util::{
-    authenticate, field_hex, field_hex_vec, field_u64, hex, json_response, read_json, unhex_array,
-    ApiError, ApiResult, NAME_ENVELOPE_LEN, WRAPPED_KEY_LEN,
+    authenticate, client_addr, ct_eq, field_hex, field_hex_vec, field_u64, hex, json_response,
+    read_json, sha256, unhex_array, ApiError, ApiResult, NAME_ENVELOPE_LEN, WRAPPED_KEY_LEN,
 };
 use crate::state::AppState;
 use crate::store::BlobStore;
@@ -23,17 +24,50 @@ pub(crate) async fn remove(
     params: super::Params,
     request: Request,
 ) -> ApiResult<Response> {
-    let (parts, _) = split(request);
-    // Sign-in first, then the id (Л2).
+    let (parts, body) = split(request);
+    // Ц1: sign-in (401), the space is the user's (404), the body (400), the throttle (429), the
+    // proof (403), and only then the removal (Л2, Л3, Т1).
     let auth = authenticate(&state, &parts)?;
     let space_text = params
         .0
         .get("space_id")
         .map_or("", String::as_str)
         .to_string();
+    state
+        .db
+        .call(|conn| owned_space(conn, auth.user_id, &space_text))?;
+    let request = read_json(&state, &parts, body).await?;
+    let proof = field_hex::<32>(&request, "auth_key")?;
+    let addr = client_addr(&state, &parts);
+    let now = state.clock.now_ms();
+    let config = state.config.clone();
     let removed = state.db.write_then(
-        |tx| -> ApiResult<(OwnedSpace, Vec<crate::store::BlobKey>)> {
+        |tx| -> ApiResult<ApiResult<(OwnedSpace, Vec<crate::store::BlobKey>)>> {
+            // The same check as before, again in the transaction of the write (Т1).
             let space = recheck(tx, &auth, &space_text)?;
+            let name: String = tx.query_row(
+                "SELECT username FROM users WHERE id = ?1",
+                [auth.user_id],
+                |row| row.get(0),
+            )?;
+            if let Some(seconds) = throttle::locked_for(tx, &config, now, &name, &addr)? {
+                return Ok(Err(ApiError::rate_limited(seconds)));
+            }
+            let stored: Vec<u8> = tx.query_row(
+                "SELECT auth_hash FROM users WHERE id = ?1",
+                [auth.user_id],
+                |row| row.get(0),
+            )?;
+            if !ct_eq(&stored, &sha256(&proof)) {
+                // The failed attempt is kept: this transaction commits.
+                throttle::record_failure(tx, now, &name, &addr)?;
+                return Ok(Err(ApiError::new(
+                    StatusCode::FORBIDDEN,
+                    code::INVALID_PROOF,
+                    "the proof is not valid",
+                )));
+            }
+            throttle::clear_pair(tx, &name, &addr)?;
             let keys: Vec<crate::store::BlobKey> = {
                 let mut statement = tx.prepare("SELECT blob_id FROM blobs WHERE space = ?1")?;
                 let rows = statement.query_map([space.row], |row| row.get::<_, Vec<u8>>(0))?;
@@ -45,17 +79,19 @@ pub(crate) async fn remove(
                     .collect()
             };
             tx.execute("DELETE FROM spaces WHERE id = ?1", [space.row])?;
-            Ok((space, keys))
+            Ok(Ok((space, keys)))
         },
-        |tx, (_, keys)| {
-            for key in keys {
-                if !crate::maintenance::row_exists(tx, key)? {
-                    state.files.delete(key)?;
+        |tx, outcome| {
+            if let Ok((_, keys)) = outcome {
+                for key in keys {
+                    if !crate::maintenance::row_exists(tx, key)? {
+                        state.files.delete(key)?;
+                    }
                 }
             }
             Ok(())
         },
-    )?;
+    )??;
     let _ = state.hub.send(crate::state::HubEvent::SpaceRemoved {
         space_id: removed.0.space_id,
     });

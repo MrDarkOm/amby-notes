@@ -384,10 +384,14 @@ impl SyncClient {
         space_id: &[u8; 16],
         auth_key: &amby_sync_core::crypto::keys::AuthKey,
     ) -> Result<(), ClientError> {
-        // Interface stub (appendix Ц, Ц1, Ц2): the proof is not sent yet.
-        let _ = auth_key;
-        self.send(Method::DELETE, &space_path(space_id, ""), Some(token), None)
-            .await?;
+        // Ц1, Ц2: the sign-in key of the current password proves it.
+        self.send(
+            Method::DELETE,
+            &space_path(space_id, ""),
+            Some(token),
+            Some(json!({ "auth_key": hex::encode(auth_key.as_bytes()) })),
+        )
+        .await?;
         Ok(())
     }
 
