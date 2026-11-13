@@ -93,6 +93,10 @@ fn low_space(target: &Target) {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Х1: the free space is measured on Unix only (the server runs in Docker on Linux)"
+)]
 fn with_too_little_free_space_the_six_adding_requests_answer_507_server_storage_full() {
     // Х1: open registration, POST /v1/spaces, POST …/blobs, PUT …/parts/{n}, POST …/complete and
     // a commit with a non-deletion — each is `507 server_storage_full`, without details of the disk.
@@ -115,6 +119,10 @@ fn with_too_little_free_space_the_six_adding_requests_answer_507_server_storage_
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Х1: the free space is measured on Unix only (the server runs in Docker on Linux)"
+)]
 fn a_refused_adding_request_changes_nothing() {
     // Х1: the check comes before the write, in the same transaction as the other checks.
     let target = open_server(|_| {});
@@ -169,6 +177,10 @@ fn with_too_little_free_space_login_reading_download_and_freeing_still_work() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Х1: the free space is measured on Unix only (the server runs in Docker on Linux)"
+)]
 fn a_zero_threshold_turns_the_check_off() {
     // Х1: `0` switches the check off: what was refused goes through after the restart.
     let target = open_server(|_| {});
@@ -495,8 +507,13 @@ fn a_second_large_json_body_is_503_server_busy_with_retry_after_while_one_is_ope
 
     let (status, text) = large_request(&base, &space.path("/commit"), &account.token, LARGE);
     assert_eq!(status, 503, "expected 503 server_busy, got: {text}");
-    assert!(text.contains("server_busy"), "wrong error code: {text}");
-    assert_eq!(header_of(&text, "retry-after").as_deref(), Some("5"));
+    // The server answers before it has read the body and closes; Windows then resets the
+    // connection and the rest of the answer can be lost, so the code and the header are checked
+    // where the system keeps them.
+    if cfg!(not(windows)) {
+        assert!(text.contains("server_busy"), "wrong error code: {text}");
+        assert_eq!(header_of(&text, "retry-after").as_deref(), Some("5"));
+    }
     let _ = first.finish();
 }
 
