@@ -113,6 +113,8 @@ mod rules_doc_tests;
 #[cfg(test)]
 mod runtime_backup_tests;
 #[cfg(test)]
+mod runtime_delete_proof_tests;
+#[cfg(test)]
 mod runtime_delete_space_tests;
 #[cfg(test)]
 mod runtime_tests;

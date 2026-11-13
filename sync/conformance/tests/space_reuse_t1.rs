@@ -102,9 +102,8 @@ fn files_of(root: &Path) -> Vec<String> {
 }
 
 fn delete_space(account: &Account, space: &Space) {
-    account
-        .delete(&format!("/v1/spaces/{}", hex16(space.id.as_bytes())))
-        .expect(200);
+    // Ц1: the deletion carries the proof of the current password.
+    account.delete_space_with_proof(&space.id).expect(200);
 }
 
 /// A user with a space that has the highest row, so that its row is handed out again.

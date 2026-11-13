@@ -382,7 +382,10 @@ impl SyncClient {
         &self,
         token: &DeviceToken,
         space_id: &[u8; 16],
+        auth_key: &amby_sync_core::crypto::keys::AuthKey,
     ) -> Result<(), ClientError> {
+        // Interface stub (appendix Ц, Ц1, Ц2): the proof is not sent yet.
+        let _ = auth_key;
         self.send(Method::DELETE, &space_path(space_id, ""), Some(token), None)
             .await?;
         Ok(())

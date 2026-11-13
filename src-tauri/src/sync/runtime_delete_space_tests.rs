@@ -459,6 +459,9 @@ impl Drop for HeldDeleteServer {
     }
 }
 
+/// The password of `Env::account` (`test_support`): the deletion proves it (appendix Ц, Ц4).
+const ACCOUNT_PASSWORD: &str = "a long enough password for tests";
+
 #[test]
 fn deleting_the_current_space_stops_sync_forgets_the_link_and_keeps_local_bytes() {
     // Л6, Л7, Л8: stop before DELETE; preserve notes (BOM/CRLF), attachments and durable data;
@@ -470,7 +473,7 @@ fn deleting_the_current_space_stops_sync_forgets_the_link_and_keeps_local_bytes(
     let expected = snapshot(&vault, &paths);
     let space_id = enable_new(&env, &pc, &vault, "Delete me");
 
-    let result = run(&env, pc.runtime.delete_space(&space_id));
+    let result = run(&env, pc.runtime.delete_space(&space_id, ACCOUNT_PASSWORD));
     assert!(
         result.is_ok(),
         "confirmed deletion must succeed: {result:?}"
@@ -513,7 +516,7 @@ fn the_stopped_state_is_persisted_before_the_delete_request() {
     let pc = computer_at(&env, &env.account, &server.url);
     let space_id = enable_new(&env, &pc, &vault, "Order");
 
-    let result = run(&env, pc.runtime.delete_space(&space_id));
+    let result = run(&env, pc.runtime.delete_space(&space_id, ACCOUNT_PASSWORD));
     assert!(
         result.is_ok(),
         "confirmed deletion must succeed: {result:?}"
@@ -567,7 +570,7 @@ fn delete_waits_for_an_active_pass_before_sending_the_request() {
     std::thread::scope(|scope| {
         let delete_thread = scope.spawn(|| {
             started_tx.send(()).unwrap();
-            run(&env, pc.runtime.delete_space(&space_id))
+            run(&env, pc.runtime.delete_space(&space_id, ACCOUNT_PASSWORD))
         });
         started_rx.recv().unwrap();
         thread::sleep(Duration::from_millis(150));
@@ -613,7 +616,10 @@ fn a_stale_delete_response_cannot_disable_a_new_current_vault() {
     std::thread::scope(|scope| {
         let delete_thread = scope.spawn(move || {
             started_tx.send(()).unwrap();
-            run(env_ref, old_runtime.delete_space(old_id_ref))
+            run(
+                env_ref,
+                old_runtime.delete_space(old_id_ref, ACCOUNT_PASSWORD),
+            )
         });
         started_rx.recv().unwrap();
         wait_until("the old DELETE reaches the stale-response server", || {
@@ -700,7 +706,10 @@ fn a_stale_delete_response_cannot_replace_switched_account_credentials() {
     std::thread::scope(|scope| {
         let delete_thread = scope.spawn(move || {
             started_tx.send(()).unwrap();
-            run(env_ref, pc_runtime.delete_space(old_id_ref))
+            run(
+                env_ref,
+                pc_runtime.delete_space(old_id_ref, ACCOUNT_PASSWORD),
+            )
         });
         started_rx.recv().unwrap();
         wait_until("the old account DELETE reaches the server", || {
@@ -767,7 +776,7 @@ fn reactivating_after_deletion_does_not_recreate_the_server_space() {
     let vault = TempVault::new("delete-reactivate");
     let space_id = enable_new(&env, &pc, &vault, "Do not revive");
 
-    let result = run(&env, pc.runtime.delete_space(&space_id));
+    let result = run(&env, pc.runtime.delete_space(&space_id, ACCOUNT_PASSWORD));
     assert!(
         result.is_ok(),
         "confirmed deletion must succeed: {result:?}"
@@ -791,7 +800,7 @@ fn deleting_another_space_leaves_the_current_vault_running() {
     let other = env.account.create_space_named("Other");
     let other_id = hex::encode(other.id.as_bytes());
 
-    let result = run(&env, pc.runtime.delete_space(&other_id));
+    let result = run(&env, pc.runtime.delete_space(&other_id, ACCOUNT_PASSWORD));
     assert!(
         result.is_ok(),
         "deleting another space must succeed: {result:?}"
@@ -820,7 +829,7 @@ fn a_server_refusal_keeps_local_files_and_is_not_reported_as_success() {
         .set(SECRET_DEVICE_TOKEN, &"00".repeat(32))
         .unwrap();
 
-    let error = run(&env, pc.runtime.delete_space(&space_id)).unwrap_err();
+    let error = run(&env, pc.runtime.delete_space(&space_id, ACCOUNT_PASSWORD)).unwrap_err();
     assert_eq!(error.code, "unauthorized");
 
     let status = pc.runtime.status();
@@ -853,7 +862,7 @@ fn a_lost_delete_response_keeps_the_link_disabled_and_can_be_retried() {
     let expected = snapshot(&vault, &paths);
     server.control.drop_delete.store(true, Ordering::SeqCst);
 
-    let error = run(&env, pc.runtime.delete_space(&space_id)).unwrap_err();
+    let error = run(&env, pc.runtime.delete_space(&space_id, ACCOUNT_PASSWORD)).unwrap_err();
     assert!(!error.code.is_empty());
     assert!(!pc.runtime.status().enabled);
     assert!(pc.runtime.status().linked);
@@ -878,7 +887,7 @@ fn a_lost_delete_response_keeps_the_link_disabled_and_can_be_retried() {
     server.control.drop_delete.store(false, Ordering::SeqCst);
     *server.control.delete_status.lock().unwrap() = 404;
     server.control.spaces.lock().unwrap().clear();
-    let retry = run(&env, pc.runtime.delete_space(&space_id));
+    let retry = run(&env, pc.runtime.delete_space(&space_id, ACCOUNT_PASSWORD));
     assert!(
         retry.is_ok(),
         "absence confirmed by GET should succeed: {retry:?}"
@@ -896,7 +905,7 @@ fn an_old_server_404_or_405_is_not_reported_as_a_confirmed_deletion() {
     for delete_status in [404, 405] {
         let (server_url, requests, server_thread) = old_server(listing.clone(), delete_status);
         let pc = computer_at(&env, &env.account, &server_url);
-        let error = run(&env, pc.runtime.delete_space(&space_id)).unwrap_err();
+        let error = run(&env, pc.runtime.delete_space(&space_id, ACCOUNT_PASSWORD)).unwrap_err();
         assert!(
             matches!(
                 error.code.as_str(),
@@ -930,7 +939,7 @@ fn a_repeat_delete_accepts_absence_only_after_the_space_list_is_empty() {
     let (server_url, requests, server_thread) = old_server(r#"{"spaces":[]}"#.to_string(), 404);
     let pc = computer_at(&env, &env.account, &server_url);
 
-    let result = run(&env, pc.runtime.delete_space(&space_id));
+    let result = run(&env, pc.runtime.delete_space(&space_id, ACCOUNT_PASSWORD));
     assert!(
         result.is_ok(),
         "absence confirmed by GET should be success: {result:?}"
@@ -965,7 +974,12 @@ fn an_invalid_space_id_is_rejected_without_touching_the_open_vault() {
     let listing = env.account.get("/v1/spaces").expect(200).text();
     let (spy_url, requests, spy_thread) = old_server(listing, 404);
     let spy = computer_at(&env, &env.account, &spy_url);
-    let error = run(&env, spy.runtime.delete_space("not-a-16-byte-hex-id")).unwrap_err();
+    let error = run(
+        &env,
+        spy.runtime
+            .delete_space("not-a-16-byte-hex-id", ACCOUNT_PASSWORD),
+    )
+    .unwrap_err();
     assert_eq!(error.code, "invalid_space");
     spy_thread.join().unwrap();
     let requests = requests.lock().unwrap().clone();
@@ -974,7 +988,12 @@ fn an_invalid_space_id_is_rejected_without_touching_the_open_vault() {
         "invalid id sent a request: {requests:?}"
     );
 
-    let error = run(&env, pc.runtime.delete_space("not-a-16-byte-hex-id")).unwrap_err();
+    let error = run(
+        &env,
+        pc.runtime
+            .delete_space("not-a-16-byte-hex-id", ACCOUNT_PASSWORD),
+    )
+    .unwrap_err();
     assert_eq!(error.code, "invalid_space");
 
     let status = pc.runtime.status();
@@ -1001,7 +1020,7 @@ fn an_unwritable_sync_state_prevents_the_delete_request() {
     state.pragma_update(None, "user_version", 999u32).unwrap();
     drop(state);
 
-    let error = run(&env, pc.runtime.delete_space(&space_id)).unwrap_err();
+    let error = run(&env, pc.runtime.delete_space(&space_id, ACCOUNT_PASSWORD)).unwrap_err();
     assert_eq!(error.code, "state_newer");
     assert!(server_has_space(&env, &space_id), "DELETE was not sent");
     assert_snapshot(&vault, &expected);
@@ -1036,7 +1055,10 @@ fn another_device_keeps_all_local_files_after_the_space_is_deleted() {
     wait_for_completed_pass_after(&second, before_baseline);
     let baseline_passes = second.recorder.passes_started();
 
-    let result = run(&env, first.runtime.delete_space(&space_id));
+    let result = run(
+        &env,
+        first.runtime.delete_space(&space_id, ACCOUNT_PASSWORD),
+    );
     assert!(
         result.is_ok(),
         "confirmed deletion must succeed: {result:?}"

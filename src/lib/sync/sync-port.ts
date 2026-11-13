@@ -160,7 +160,8 @@ export interface SyncPort {
    */
   accountOverview(knownVaults: string[]): Promise<AccountOverview>
   /** Deletes only the server copy and its versions; local user files remain (Л6–Л11). */
-  deleteSpace(spaceId: string): Promise<void>
+  /** Removes the server copy of a space; `password` proves the account (appendix Ц, Ц1, Ц4). */
+  deleteSpace(spaceId: string, password: string): Promise<void>
   /** Switches sync on for the open vault: a new space or an existing one. */
   enableVault(target: SpaceTarget, testVault: boolean): Promise<VaultSyncStatus>
   /** Switches sync off for the open vault; the link with the space stays. */
@@ -306,8 +307,8 @@ export function createDesktopSyncPort(): SyncPort {
     },
     listSpaces: () => call(commands.syncListSpaces()),
     accountOverview: (knownVaults) => call(commands.syncAccountOverview(knownVaults)),
-    deleteSpace: async (spaceId) => {
-      await call(commands.syncDeleteSpace(spaceId))
+    deleteSpace: async (spaceId, password) => {
+      await call(commands.syncDeleteSpace(spaceId, password))
     },
     enableVault: (target, testVault) => call(commands.syncEnableVault(target, testVault)),
     disableVault: () => call(commands.syncDisableVault()),

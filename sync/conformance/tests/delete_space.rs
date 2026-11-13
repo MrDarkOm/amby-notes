@@ -50,9 +50,7 @@ fn an_owner_deletes_a_space_with_an_empty_200_ok_answer() {
     let account = enroll(&target, PASSWORD);
     let space = account.create_space_named("Only the client can decrypt this name");
 
-    let answer = account
-        .delete(&delete_path(space.id.as_bytes()))
-        .expect(200);
+    let answer = account.delete_space_with_proof(&space.id).expect(200);
     assert_eq!(answer.json(), json!({"ok": true}));
 }
 
@@ -65,7 +63,7 @@ fn access_failures_are_indistinguishable_and_do_not_change_any_space() {
     let probe = owner.create_space();
     // Ensure this test meets the DELETE endpoint before an assertion that could pass on a missing
     // route: the current tests-first server stub must fail this 200 expectation.
-    owner.delete(&delete_path(probe.id.as_bytes())).expect(200);
+    owner.delete_space_with_proof(&probe.id).expect(200);
 
     let owned = owner.create_space_named("owned");
     let other = enroll(&target, PASSWORD);
@@ -175,7 +173,7 @@ fn deletion_removes_all_versions_bodies_parts_and_quota_only_for_that_space() {
     assert_eq!(before["usage"]["live_bytes"], 1_200);
 
     // This is the first DELETE in the test and must be 200, not the 501 stub.
-    owner.delete(&delete_path(doomed.id.as_bytes())).expect(200);
+    owner.delete_space_with_proof(&doomed.id).expect(200);
 
     let listing = owner.get("/v1/spaces").expect(200).json();
     assert!(!has_space(&listing, doomed.id.as_bytes()));
@@ -240,9 +238,7 @@ fn deletion_is_serialized_with_a_commit_and_an_upload() {
     let account = enroll(&target, PASSWORD);
     let probe = account.create_space();
     // Hit the tests-first DELETE stub before starting the race itself.
-    account
-        .delete(&delete_path(probe.id.as_bytes()))
-        .expect(200);
+    account.delete_space_with_proof(&probe.id).expect(200);
     let space = account.create_space();
     let item = new_item();
     space.commit_ok(&[space.file(&item, 0, "before.md", b"before")]);
@@ -257,9 +253,17 @@ fn deletion_is_serialized_with_a_commit_and_an_upload() {
         let delete_api = account.api.clone();
         let delete_token = account.token.clone();
         let delete_path = path.clone();
+        // Ц1: the proof of the current password rides in the body of every deletion.
+        let proof = json!({"auth_key": hex::encode(account.password_auth_key().as_bytes())});
         let deleted = scope.spawn(move || {
             delete_barrier.wait();
-            delete_api.delete(&delete_path, Some(&delete_token))
+            delete_api.send(
+                "DELETE",
+                &delete_path,
+                Some(&delete_token),
+                &[],
+                amby_sync_conformance::http::Body::Json(proof),
+            )
         });
 
         let commit_barrier = &barrier;
@@ -310,9 +314,7 @@ fn deleting_one_space_closes_only_its_sse_and_survives_restart() {
     let account = enroll(&target, PASSWORD);
     let probe = account.create_space();
     // Hit the tests-first DELETE stub before opening streams or doing restart work.
-    account
-        .delete(&delete_path(probe.id.as_bytes()))
-        .expect(200);
+    account.delete_space_with_proof(&probe.id).expect(200);
     let doomed = account.create_space();
     let survivor = account.create_space();
 
@@ -323,9 +325,7 @@ fn deleting_one_space_closes_only_its_sse_and_survives_restart() {
     assert_eq!(survivor_stream.next_real_event().unwrap().name, "hello");
 
     // The first DELETE must hit the real contract, not pass on the 501 stub.
-    account
-        .delete(&delete_path(doomed.id.as_bytes()))
-        .expect(200);
+    account.delete_space_with_proof(&doomed.id).expect(200);
 
     let started = Instant::now();
     loop {
@@ -369,11 +369,9 @@ fn repeating_delete_is_not_a_success_and_has_no_side_effects() {
     let foreign = other.create_space();
 
     // The first DELETE is intentionally before the repeat assertion, so the stub is red.
+    account.delete_space_with_proof(&doomed.id).expect(200);
     account
-        .delete(&delete_path(doomed.id.as_bytes()))
-        .expect(200);
-    account
-        .delete(&delete_path(doomed.id.as_bytes()))
+        .delete_space_with_proof(&doomed.id)
         .expect_error(404, "not_found");
 
     assert!(has_space(

@@ -531,6 +531,18 @@ pub async fn change_password(
         .await
 }
 
+/// The key that proves the password (appendix Ц, Ц2): derived from the password with the salt and
+/// the parameters of the account (`GET /v1/keys`) and checked on the device by opening the wrapped
+/// AK. A wrong password is `403 invalid_proof` without a request beyond reading the keys.
+pub async fn password_proof(
+    client: &SyncClient,
+    token: &DeviceToken,
+    password: &str,
+) -> Result<AuthKey, ClientError> {
+    let _ = (client, token, password);
+    todo!("appendix Ц, Ц2")
+}
+
 /// Renames a login under proof of the current password, without rewrapping any key.
 pub async fn rename_account(
     client: &SyncClient,

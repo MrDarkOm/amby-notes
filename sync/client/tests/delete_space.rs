@@ -11,16 +11,22 @@ use std::sync::{
 use amby_sync_client::{ClientError, DeviceToken};
 use amby_sync_conformance::client::enroll;
 use amby_sync_conformance::Target;
+use amby_sync_core::crypto::keys::AuthKey;
 use common::{client_of, Canned, FakeServer, PASSWORD};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+
+/// A key for the tests whose server is fake: it only has to be sent, nobody checks it.
+fn some_key() -> AuthKey {
+    AuthKey::from_bytes([7u8; 32])
+}
 
 fn token_of(account: &amby_sync_conformance::client::Account) -> DeviceToken {
     DeviceToken::new(account.token.clone())
 }
 
 #[tokio::test]
-async fn delete_space_uses_the_exact_id_and_owner_token_without_a_body() {
+async fn delete_space_uses_the_exact_id_and_owner_token() {
     // Л1, Л9: the client sends DELETE /v1/spaces/{id}; identity is only the bearer token and the
     // opaque id, never an open name or local path.
     let space_id = [0x5au8; 16];
@@ -28,7 +34,7 @@ async fn delete_space_uses_the_exact_id_and_owner_token_without_a_body() {
     let token = DeviceToken::new("ab".repeat(32));
 
     client_of_url(&url)
-        .delete_space(&token, &space_id)
+        .delete_space(&token, &space_id, &some_key())
         .await
         .unwrap();
 
@@ -42,19 +48,15 @@ async fn delete_space_uses_the_exact_id_and_owner_token_without_a_body() {
         request.target,
         format!("/v1/spaces/{}", hex::encode(space_id))
     );
-    assert!(
-        request.body.is_empty(),
-        "DELETE carried body bytes: {:?}",
-        request.body
-    );
+    // Ц2 replaces "no body" with the proof body; its exact content is checked in
+    // `password_proof_c.rs`. Here: the body names nothing open either.
+    let body = String::from_utf8_lossy(&request.body);
+    assert!(!body.contains("open name"));
+    assert!(!body.contains("/Users/private/vault"));
     assert!(request
         .headers
         .to_ascii_lowercase()
         .contains(&format!("authorization: bearer {}", "ab".repeat(32))));
-    assert!(!request
-        .headers
-        .to_ascii_lowercase()
-        .contains("content-type: application/json"));
     assert!(!request.headers.contains("open name"));
     assert!(!request.headers.contains("/Users/private/vault"));
 }
@@ -69,7 +71,11 @@ async fn delete_space_preserves_unauthorized_and_foreign_not_found_codes() {
     let client = client_of(&target);
 
     let unauthorized = client
-        .delete_space(&DeviceToken::new("00".repeat(32)), space.id.as_bytes())
+        .delete_space(
+            &DeviceToken::new("00".repeat(32)),
+            space.id.as_bytes(),
+            &owner.password_auth_key(),
+        )
         .await
         .unwrap_err();
     assert!(matches!(
@@ -82,7 +88,11 @@ async fn delete_space_preserves_unauthorized_and_foreign_not_found_codes() {
     ));
 
     let not_found = client
-        .delete_space(&token_of(&foreign), space.id.as_bytes())
+        .delete_space(
+            &token_of(&foreign),
+            space.id.as_bytes(),
+            &foreign.password_auth_key(),
+        )
         .await
         .unwrap_err();
     assert!(matches!(
@@ -106,12 +116,13 @@ async fn repeating_delete_returns_not_found_instead_of_success() {
     let token = token_of(&account);
 
     // The first call must meet the tests-first server/client stubs and expect their real contract.
+    let key = account.password_auth_key();
     client
-        .delete_space(&token, space.id.as_bytes())
+        .delete_space(&token, space.id.as_bytes(), &key)
         .await
         .unwrap();
     let error = client
-        .delete_space(&token, space.id.as_bytes())
+        .delete_space(&token, space.id.as_bytes(), &key)
         .await
         .unwrap_err();
     assert!(matches!(
@@ -136,7 +147,7 @@ async fn delete_space_does_not_turn_server_errors_into_success() {
         let server = FakeServer::start(move |_| Canned::json(status, &body)).await;
         let error = server
             .client()
-            .delete_space(&DeviceToken::new("cd".repeat(32)), &[0x11; 16])
+            .delete_space(&DeviceToken::new("cd".repeat(32)), &[0x11; 16], &some_key())
             .await
             .unwrap_err();
         match error {
@@ -159,12 +170,18 @@ async fn a_lost_delete_answer_is_not_treated_as_success_and_retry_keeps_404() {
     let token = DeviceToken::new("ef".repeat(32));
     let space_id = [0x22u8; 16];
 
-    let first = client.delete_space(&token, &space_id).await.unwrap_err();
+    let first = client
+        .delete_space(&token, &space_id, &some_key())
+        .await
+        .unwrap_err();
     assert!(
         matches!(first, ClientError::Network | ClientError::Timeout),
         "lost response must remain a transport error, got {first:?}"
     );
-    let second = client.delete_space(&token, &space_id).await.unwrap_err();
+    let second = client
+        .delete_space(&token, &space_id, &some_key())
+        .await
+        .unwrap_err();
     assert!(matches!(
         second,
         ClientError::Api {

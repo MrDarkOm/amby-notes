@@ -131,7 +131,8 @@ export function AccountStorage({ port: given, revision = 0 }: AccountStorageProp
     setDeleted(false)
     setDeleteError(null)
     try {
-      await port.deleteSpace(space.spaceId)
+      // Interface stub (appendix Ц, Ц4): the dialog does not ask for the password yet.
+      await port.deleteSpace(space.spaceId, "")
       if (generation.current !== mine) return
       setDeleted(true)
       await load()
