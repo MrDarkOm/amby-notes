@@ -36,12 +36,13 @@ pub(super) fn same_filesystem_entry(source: &Path, target: &Path) -> Result<bool
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error.to_string()),
     };
-    if source_real == target_real {
-        return Ok(true);
-    }
+    let same_path = source_real == target_real;
 
     #[cfg(unix)]
     {
+        if same_path {
+            return Ok(true);
+        }
         use std::os::unix::fs::MetadataExt;
         let source_metadata = fs::metadata(source).map_err(|error| error.to_string())?;
         let target_metadata = fs::metadata(target).map_err(|error| error.to_string())?;
@@ -50,7 +51,7 @@ pub(super) fn same_filesystem_entry(source: &Path, target: &Path) -> Result<bool
     }
 
     #[cfg(not(unix))]
-    Ok(false)
+    Ok(same_path)
 }
 
 fn rename_temp_sibling(source: &Path) -> Result<PathBuf, String> {
