@@ -137,6 +137,7 @@ impl Remote for HttpRemote {
             max_total_bytes: body["limits"]["max_total_bytes"].as_u64(),
             live_bytes: body["usage"]["live_bytes"].as_u64().unwrap_or(0),
             pending_bytes: body["usage"]["pending_bytes"].as_u64().unwrap_or(0),
+            sync_allowed: body["plan"]["sync"].as_bool().unwrap_or(true),
         })
     }
 

@@ -66,6 +66,8 @@ pub mod error_code {
     pub const UNKNOWN_BLOB: &str = "unknown_blob";
     /// Too many failed sign-in attempts (П16).
     pub const RATE_LIMITED: &str = "rate_limited";
+    /// The plan of the user does not allow sending changes (appendix Н, Н4).
+    pub const SUBSCRIPTION_REQUIRED: &str = "subscription_required";
     /// The user's quota would be exceeded (П42).
     pub const QUOTA_EXCEEDED: &str = "quota_exceeded";
     /// The user already has as many spaces as the plan allows (appendix Е, П59).

@@ -828,6 +828,7 @@ fn unsynced_view(record: &UnsyncedRecord) -> UnsyncedView {
         UnsyncedReason::NotUtf8 => ("notUtf8", None),
         UnsyncedReason::TooLarge { .. } => ("tooLarge", None),
         UnsyncedReason::QuotaFull => ("quotaFull", None),
+        UnsyncedReason::SubscriptionRequired => ("subscriptionRequired", None),
         UnsyncedReason::TooBigForMemory => ("tooBigForMemory", None),
         UnsyncedReason::ExcludedPath => ("excludedPath", None),
         UnsyncedReason::InvalidName(problem) => (

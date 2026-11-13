@@ -108,6 +108,8 @@ pub enum UnsyncedReason {
     },
     /// The quota of the user is full: the file is not sent, receiving goes on (Д75).
     QuotaFull,
+    /// The plan of the user does not allow sending: the file waits, receiving goes on (Н9).
+    SubscriptionRequired,
     /// The file is larger than this device's memory limit for a file (Д71).
     TooBigForMemory,
     /// An incoming path the rules exclude (`.git/`, temporary files, …).

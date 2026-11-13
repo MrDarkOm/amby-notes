@@ -16,6 +16,10 @@ pub struct PlanView {
     pub title: Option<String>,
     /// The administrator pinned the user to this plan.
     pub pinned: bool,
+    /// The plan allows sending changes (appendix Н, Н10); `false` is "no subscription".
+    pub sync: bool,
+    /// When the pinning ends, ms since the epoch (Н2); `None` is no end.
+    pub until_ms: Option<i64>,
 }
 
 /// The limits in force; `None` is "no limit".

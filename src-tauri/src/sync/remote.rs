@@ -117,6 +117,7 @@ impl Remote for HttpRemote {
             max_total_bytes: view.limits.max_total_bytes,
             live_bytes: view.usage.live_bytes,
             pending_bytes: view.usage.pending_bytes,
+            sync_allowed: view.plan.sync,
         })
     }
 

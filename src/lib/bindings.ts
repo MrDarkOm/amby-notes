@@ -3196,7 +3196,15 @@ title: string | null;
 /**
  * The administrator pinned the user to this plan.
  */
-pinned: boolean }
+pinned: boolean; 
+/**
+ * The plan allows sending changes (appendix Н, Н10); `false` is "no subscription".
+ */
+sync: boolean; 
+/**
+ * When the pinning ends, ms since the epoch (Н2); `None` is no end.
+ */
+untilMs: number | null }
 /**
  * One file of a stop for a mass change (Р8, Д54).
  */
