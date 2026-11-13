@@ -33,7 +33,7 @@ pub(crate) async fn remove(
         .to_string();
     let removed = state.db.write_then(
         |tx| -> ApiResult<(OwnedSpace, Vec<crate::store::BlobKey>)> {
-            let space = owned_space(tx, auth.user_id, &space_text)?;
+            let space = recheck(tx, &auth, &space_text)?;
             let keys: Vec<crate::store::BlobKey> = {
                 let mut statement = tx.prepare("SELECT blob_id FROM blobs WHERE space = ?1")?;
                 let rows = statement.query_map([space.row], |row| row.get::<_, Vec<u8>>(0))?;
@@ -70,6 +70,44 @@ pub(crate) struct OwnedSpace {
     pub(crate) space_id: [u8; 16],
     pub(crate) seq: u64,
     pub(crate) purged_seq: u64,
+}
+
+/// The check every write repeats inside its own transaction (Т1): the device token still
+/// exists and the space is still the user's. The row found before the body was read is never
+/// used for writing, because the space may have been removed and its row reused meanwhile.
+pub(crate) fn recheck(
+    conn: &Connection,
+    auth: &super::util::Auth,
+    space_id: &str,
+) -> ApiResult<OwnedSpace> {
+    let alive = conn
+        .query_row(
+            "SELECT 1 FROM devices WHERE token_hash = ?1",
+            [auth.token_hash.as_slice()],
+            |_| Ok(true),
+        )
+        .optional()?
+        .unwrap_or(false);
+    if !alive {
+        let revoked = conn
+            .query_row(
+                "SELECT 1 FROM revoked_tokens WHERE token_hash = ?1",
+                [auth.token_hash.as_slice()],
+                |_| Ok(true),
+            )
+            .optional()?
+            .unwrap_or(false);
+        return Err(if revoked {
+            ApiError::new(
+                StatusCode::UNAUTHORIZED,
+                code::TOKEN_REVOKED,
+                "this device was disconnected",
+            )
+        } else {
+            ApiError::unauthorized()
+        });
+    }
+    owned_space(conn, auth.user_id, space_id)
 }
 
 /// Finds the space `space_id` (hex from the path) of the user. A malformed id, an unknown space

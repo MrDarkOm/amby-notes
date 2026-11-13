@@ -18,6 +18,9 @@ use crate::url::ServerUrl;
 /// The biggest answer the client reads (the answers of this part of the protocol are small; a
 /// hostile server must not be able to fill the memory).
 pub(crate) const MAX_ANSWER_BYTES: usize = 4 * 1024 * 1024;
+/// The largest answer of `GET …/changes` (Т5): a commit of up to the server's `max_json_bytes`
+/// (64 MiB by default) with the fields of the feed.
+pub(crate) const MAX_FEED_ANSWER_BYTES: usize = 96 * 1024 * 1024;
 /// Time to connect.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Time for a whole request.
@@ -340,14 +343,22 @@ pub(crate) fn retry_after(response: &reqwest::Response) -> Option<u64> {
 }
 
 /// Reads the body of an answer, at most [`MAX_ANSWER_BYTES`].
-pub(crate) async fn read_body(mut response: reqwest::Response) -> Result<Vec<u8>, ClientError> {
+pub(crate) async fn read_body(response: reqwest::Response) -> Result<Vec<u8>, ClientError> {
+    read_body_limited(response, MAX_ANSWER_BYTES).await
+}
+
+/// Reads the body of an answer, at most `max` bytes; reading stops at the limit.
+pub(crate) async fn read_body_limited(
+    mut response: reqwest::Response,
+    max: usize,
+) -> Result<Vec<u8>, ClientError> {
     let mut body = Vec::new();
     while let Some(chunk) = response
         .chunk()
         .await
         .map_err(|error| transport_error(&error))?
     {
-        if body.len() + chunk.len() > MAX_ANSWER_BYTES {
+        if body.len() + chunk.len() > max {
             return Err(bad("the answer is too large"));
         }
         body.extend_from_slice(&chunk);
@@ -415,6 +426,19 @@ impl SyncClient {
         token: Option<&DeviceToken>,
         body: Option<Value>,
     ) -> Result<Value, ClientError> {
+        self.send_limited(method, path, token, body, MAX_ANSWER_BYTES)
+            .await
+    }
+
+    /// As [`Self::send`], with another limit on the size of the answer.
+    pub(crate) async fn send_limited(
+        &self,
+        method: Method,
+        path: &str,
+        token: Option<&DeviceToken>,
+        body: Option<Value>,
+        max_answer: usize,
+    ) -> Result<Value, ClientError> {
         let mut request = self.http.request(method, self.base.endpoint(path));
         if let Some(token) = token {
             request = request.bearer_auth(token.expose());
@@ -428,7 +452,7 @@ impl SyncClient {
             .map_err(|error| transport_error(&error))?;
         let status = response.status();
         let wait = retry_after(&response);
-        let bytes = read_body(response).await?;
+        let bytes = read_body_limited(response, max_answer).await?;
         if status.is_success() {
             if status == StatusCode::NO_CONTENT {
                 return Ok(Value::Null);
