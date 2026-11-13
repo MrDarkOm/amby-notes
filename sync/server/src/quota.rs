@@ -5,8 +5,7 @@
 //! *live* (the latest, not deleted version of some item refers to it), *pending* (no version
 //! refers to it: started or complete but not committed, by the declared size) and *history*
 //! (only replaced versions or deleted items refer to it). Live and pending count against the
-//! quota; history is shown apart (П55). The lengths of the headers count too (Х5): those of the
-//! current versions are live, those of replaced and deleted versions are history.
+//! quota; history is shown apart (П55).
 
 use std::collections::HashMap;
 
@@ -106,30 +105,6 @@ pub(crate) fn space_usage(
             usage.history = bytes;
             usage.live = usage.live.saturating_sub(bytes);
         }
-    }
-    // Х5: the headers. A current version that is not a deletion is live; a replaced version and a
-    // deletion record are history until the cleanup removes them.
-    let mut headers = conn.prepare(
-        "SELECT v.space, \
-                COALESCE(SUM(CASE WHEN v.superseded_ms IS NULL AND v.deleted = 0 \
-                                  THEN LENGTH(v.header) ELSE 0 END), 0), \
-                COALESCE(SUM(CASE WHEN v.superseded_ms IS NULL AND v.deleted = 0 \
-                                  THEN 0 ELSE LENGTH(v.header) END), 0) \
-         FROM versions v WHERE v.space IN (SELECT id FROM spaces WHERE user_id = ?1) \
-         GROUP BY v.space",
-    )?;
-    let rows = headers.query_map([user_id], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, u64>(1)?,
-            row.get::<_, u64>(2)?,
-        ))
-    })?;
-    for row in rows {
-        let (space, live, history) = row?;
-        let usage = spaces.entry(space).or_default();
-        usage.live += live;
-        usage.history += history;
     }
     Ok(spaces)
 }
