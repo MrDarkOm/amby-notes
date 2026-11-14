@@ -13,6 +13,7 @@ import {
   type UpdateInstallProgress,
 } from "@/lib/app-updater"
 import { openWebAddressInBrowser } from "../tiptap/external-open"
+import { ManualDownloadLink } from "../manual-download-link"
 import { useSettingsStore } from "../use-settings-store"
 import { Row } from "./settings-common"
 import type { UpdateChannelPref } from "../app-config"
@@ -27,6 +28,7 @@ type UpdateUiState =
   | { phase: "downloading"; percent: number | null }
   | { phase: "installing" | "restarting" }
   | { phase: "error" }
+  | { phase: "installError"; version: string }
 
 export function UpdateSettings() {
   const { t } = useTranslation()
@@ -169,29 +171,39 @@ export function UpdateSettings() {
         foundChannelRef.current = null
         setUpdate(null)
       }
-      setState({ phase: "error" })
+      // The version stays downloadable by hand from its release (the updater says why in the log).
+      setState({ phase: "installError", version: update.version })
     }
   }
 
-  const status = !supported
-    ? t("settings.updates.installedOnly")
-    : state.phase === "checking"
-      ? t("settings.updates.checking")
-      : state.phase === "current"
-        ? t("settings.updates.current")
-        : state.phase === "available"
-          ? t("settings.updates.available", { version: state.version })
-          : state.phase === "downloading"
-            ? state.percent === null
-              ? t("settings.updates.downloading")
-              : t("settings.updates.downloadingProgress", { progress: state.percent })
-            : state.phase === "installing"
-              ? t("settings.updates.installing")
-              : state.phase === "restarting"
-                ? t("settings.updates.restarting")
-                : state.phase === "error"
-                  ? t("settings.updates.error")
-                  : t("settings.updates.checkHint")
+  const status: React.ReactNode = !supported ? (
+    t("settings.updates.installedOnly")
+  ) : state.phase === "checking" ? (
+    t("settings.updates.checking")
+  ) : state.phase === "current" ? (
+    t("settings.updates.current")
+  ) : state.phase === "available" ? (
+    t("settings.updates.available", { version: state.version })
+  ) : state.phase === "downloading" ? (
+    state.percent === null ? (
+      t("settings.updates.downloading")
+    ) : (
+      t("settings.updates.downloadingProgress", { progress: state.percent })
+    )
+  ) : state.phase === "installing" ? (
+    t("settings.updates.installing")
+  ) : state.phase === "restarting" ? (
+    t("settings.updates.restarting")
+  ) : state.phase === "error" ? (
+    t("settings.updates.error")
+  ) : state.phase === "installError" ? (
+    <>
+      {t("settings.updates.installError", { version: state.version })}{" "}
+      <ManualDownloadLink version={state.version} />
+    </>
+  ) : (
+    t("settings.updates.checkHint")
+  )
   const busy = ["checking", "downloading", "installing", "restarting"].includes(state.phase)
 
   return (

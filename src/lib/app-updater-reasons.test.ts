@@ -14,6 +14,16 @@ const cases: Array<[string, string]> = [
   ],
   ["Temp directory is not on the same mount point as the AppImage", "TempDirNotOnSameMountPoint"],
   ["Signature verification failed: Invalid signature", "SignatureInvalid"],
+  // tauri-plugin-updater 2.14: the version in the signature is not the version the feed announced
+  // (beta 4 → beta 5 on 13 November), or the signature names no version at all.
+  [
+    "The update was signed for version 0.1.9 but the update endpoint announced version 0.1.9-beta.5. The endpoint response may have been tampered with to force installing a different release.",
+    "SignedVersionMismatch",
+  ],
+  [
+    "The update signature does not specify the version it was signed for, which `requireSignedVersion` requires. Re-sign and re-publish this release, or disable `requireSignedVersion`.",
+    "SignedVersionMissing",
+  ],
   ["error sending request for url (https://api.github.com/...)", "NetworkError"],
   ["operation timed out", "NetworkError"],
   ["something else entirely", "UnknownError"],

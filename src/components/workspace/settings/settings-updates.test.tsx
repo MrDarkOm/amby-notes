@@ -27,7 +27,8 @@ vi.mock("@/lib/app-updater", () => ({
   isAppUpdaterAvailable: updater.available,
 }))
 
-vi.mock("../tiptap/external-open", () => ({ openWebAddressInBrowser: vi.fn() }))
+const browser = vi.hoisted(() => ({ open: vi.fn() }))
+vi.mock("../tiptap/external-open", () => ({ openWebAddressInBrowser: browser.open }))
 
 function availableUpdate() {
   return {
@@ -53,6 +54,7 @@ beforeEach(async () => {
   updater.check.mockReset().mockResolvedValue(null)
   updater.currentVersion.mockReset().mockResolvedValue("0.1.9")
   updater.available.mockReset().mockReturnValue(true)
+  browser.open.mockReset()
 })
 
 afterEach(cleanup)
@@ -183,5 +185,38 @@ describe("update channel preference", () => {
     expect(update.close).not.toHaveBeenCalled()
 
     finishInstall?.()
+  })
+})
+
+// When the updater cannot install a version, the person can still get it: the line under the button
+// says so and links to the release of that version on GitHub (docs/notices.md: the answer is shown
+// where the person clicked).
+describe("a failed update install", () => {
+  it("says the version was not installed and links to its release for a manual download", async () => {
+    const update = availableUpdate()
+    update.install.mockRejectedValue(new Error("Synthetic signed version mismatch"))
+    updater.check.mockResolvedValue(update)
+    render(<UpdateSettings />)
+    fireEvent.click(screen.getByRole("button", { name: "Проверить" }))
+    fireEvent.click(await screen.findByRole("button", { name: /Установить 0\.2\.0/ }))
+
+    expect(await screen.findByText(/Не удалось установить 0\.2\.0/)).toBeTruthy()
+    expect(screen.queryByText(/Synthetic/)).toBeNull()
+    const link = screen.getByRole("link", { name: "Скачать версию вручную" })
+    expect(link.getAttribute("href")).toBe(
+      "https://github.com/MrDarkOm/amby-notes/releases/tag/v0.2.0",
+    )
+    fireEvent.click(link)
+    expect(browser.open).toHaveBeenCalledWith(
+      "https://github.com/MrDarkOm/amby-notes/releases/tag/v0.2.0",
+    )
+  })
+
+  it("offers no download when only the check failed, as no version is known", async () => {
+    updater.check.mockRejectedValue(new Error("Synthetic network failure"))
+    render(<UpdateSettings />)
+    fireEvent.click(screen.getByRole("button", { name: "Проверить" }))
+    expect(await screen.findByText(/Не удалось проверить обновления/)).toBeTruthy()
+    expect(screen.queryByRole("link", { name: "Скачать версию вручную" })).toBeNull()
   })
 })

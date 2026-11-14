@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath, URL } from "node:url"
+import { Buffer } from "node:buffer"
 import process from "node:process"
 
 import semver from "semver"
@@ -71,7 +72,41 @@ export function windowsInstallerVersion(rootVersion, tag) {
   return `${root.major}.${root.minor}.${build}`
 }
 
-function validateReleaseAsset(asset, target, owner, repo) {
+/**
+ * The version a Tauri updater signature was made for: the `version:` field of the trusted comment of
+ * the minisign file (base64). The updater (tauri-plugin-updater 2.14+) refuses a package whose signed
+ * version differs from the version its feed announces, so a release must agree with its feed.
+ * The cryptographic check stays with the updater; this only reads what the signature names.
+ */
+export function signedVersion(signature) {
+  let text
+  try {
+    text = Buffer.from(signature, "base64").toString("utf8")
+  } catch {
+    return null
+  }
+  const trusted = text
+    .split(/\r?\n/)
+    .find((line) => line.startsWith("trusted comment: "))
+    ?.slice("trusted comment: ".length)
+  if (trusted === undefined) return null
+  const field = trusted.split("\t").find((part) => part.startsWith("version:"))
+  return field === undefined ? null : field.slice("version:".length)
+}
+
+function validateSignedVersion(asset, target, version) {
+  const signed = signedVersion(asset.signature)
+  if (signed === null) fail(`Signature for ${target} does not name the version it was signed for`)
+  const same =
+    semver.valid(signed) && semver.valid(version) ? semver.eq(signed, version) : signed === version
+  if (!same) {
+    fail(
+      `Signature for ${target} was signed for version ${signed}, but the feed announces ${version}`,
+    )
+  }
+}
+
+function validateReleaseAsset(asset, target, owner, repo, version) {
   if (!asset || typeof asset !== "object") fail(`Missing platform target: ${target}`)
   if (typeof asset.signature !== "string" || !asset.signature.trim()) {
     fail(`Missing signature for platform target: ${target}`)
@@ -108,15 +143,18 @@ function validateReleaseAsset(asset, target, owner, repo) {
   if (!releaseDownload && !releaseAssetApi) {
     fail(`Platform URL is outside ${owner}/${repo}: ${target}`)
   }
+  validateSignedVersion(asset, target, version)
 }
 
 function validateCandidate(manifest, release, owner, repo) {
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
     fail("Invalid latest.json manifest")
   }
-  if (manifest.version !== release.baseVersion) {
+  // The build is versioned as the release, beta number included (see the `config` command), so
+  // Tauri signs every package for the version the feed will announce.
+  if (manifest.version !== release.version) {
     fail(
-      `Manifest version ${String(manifest.version)} does not match tag base version ${release.baseVersion}`,
+      `Manifest version ${String(manifest.version)} does not match release version ${release.version}`,
     )
   }
   if (
@@ -127,10 +165,10 @@ function validateCandidate(manifest, release, owner, repo) {
     fail("Invalid platforms object in latest.json")
   }
   for (const target of RELEASE_TARGETS) {
-    validateReleaseAsset(manifest.platforms[target], target, owner, repo)
+    validateReleaseAsset(manifest.platforms[target], target, owner, repo, release.version)
   }
   for (const [target, asset] of Object.entries(manifest.platforms)) {
-    validateReleaseAsset(asset, target, owner, repo)
+    validateReleaseAsset(asset, target, owner, repo, release.version)
   }
 }
 
@@ -212,6 +250,11 @@ function runCli(args) {
     const wixVersion = windowsInstallerVersion(rootVersion, tag)
     const outputPath = resolve(options.output)
     writeJson(outputPath, {
+      // The full release version, beta number included: Tauri writes it into every updater
+      // signature, and the updater refuses a signature whose version differs from the feed's.
+      // MSI takes its own numeric version below; macOS strips the beta suffix from its bundle
+      // version and NSIS from its numeric file version by themselves.
+      version: parseReleaseTag(tag, rootVersion).version,
       bundle: {
         createUpdaterArtifacts: true,
         windows: { wix: { version: wixVersion } },

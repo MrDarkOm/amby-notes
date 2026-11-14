@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import test from "node:test"
+import { Buffer } from "node:buffer"
 import process from "node:process"
 
 import {
@@ -17,7 +18,22 @@ const repo = "amby-notes"
 const rootVersion = "0.1.9"
 const packageVersion = JSON.parse(readFileSync(resolve("package.json"), "utf8")).version
 
-function manifest(version = rootVersion) {
+// A Tauri updater signature: a minisign file in base64 whose trusted comment carries the version the
+// artifact was signed for (`version:` is left out when `signedVersion` is null, as older CLIs did).
+function signature(target, signedVersion) {
+  const trusted = [`timestamp:1794602713`, `file:${target}.tar.gz`]
+  if (signedVersion !== null) trusted.push(`version:${signedVersion}`)
+  const text = [
+    "untrusted comment: signature from tauri secret key",
+    "RUQEWioPWxBJW2o2p4dML+KlybqZUAK5nUTSE7A6WVEpneW0HWgQSJ/1CE6utSY+I+q7KvipdBU1aj20WaowAT0Um2SBrD1H+AA=",
+    `trusted comment: ${trusted.join("\t")}`,
+    "PvX+o6oYjuWU/6jIwAyA55hGLvush+ia3TWaToAEleInUHhxlm1afcOz7s1v7RJEajvIQy75SamUFFRl58dUDQ==",
+    "",
+  ].join("\n")
+  return Buffer.from(text, "utf8").toString("base64")
+}
+
+function manifest(version = rootVersion, signedVersion = version) {
   const platforms = Object.fromEntries(
     [
       "darwin-aarch64",
@@ -29,7 +45,7 @@ function manifest(version = rootVersion) {
     ].map((target, index) => [
       target,
       {
-        signature: `signature-${target}`,
+        signature: signature(target, signedVersion),
         url: `https://github.com/${owner}/${repo}/releases/download/v0.1.9/asset-${index}`,
       },
     ]),
@@ -77,7 +93,7 @@ test("maps MSI versions monotonically within one public version", () => {
 
 test("beta feed uses SemVer ordering, including beta.2 before beta.10", () => {
   const feeds = currentFeeds("0.1.8", "0.1.9-beta.2")
-  const result = applyReleaseToFeeds(feeds, manifest(), "v0.1.9-beta.10", {
+  const result = applyReleaseToFeeds(feeds, manifest("0.1.9-beta.10"), "v0.1.9-beta.10", {
     rootVersion,
     owner,
     repo,
@@ -97,7 +113,7 @@ test("stable publish advances both feeds and a later older beta cannot roll them
   assert.equal(betaFeeds.stable.version, "0.1.9")
   assert.equal(betaFeeds.beta.version, "0.1.9")
 
-  const lateBeta = applyReleaseToFeeds(betaFeeds, manifest(), "v0.1.9-beta.10", {
+  const lateBeta = applyReleaseToFeeds(betaFeeds, manifest("0.1.9-beta.10"), "v0.1.9-beta.10", {
     rootVersion,
     owner,
     repo,
@@ -108,7 +124,7 @@ test("stable publish advances both feeds and a later older beta cannot roll them
 
 test("beta publish changes only beta and keeps stable manifest intact", () => {
   const feeds = currentFeeds("0.1.8", "0.1.9-beta.1")
-  const result = applyReleaseToFeeds(feeds, manifest(), "v0.1.9-beta.2", {
+  const result = applyReleaseToFeeds(feeds, manifest("0.1.9-beta.2"), "v0.1.9-beta.2", {
     rootVersion,
     owner,
     repo,
@@ -119,7 +135,7 @@ test("beta publish changes only beta and keeps stable manifest intact", () => {
 })
 
 test("manifest validation preserves signatures and rejects missing, unsigned, or foreign URLs", () => {
-  const valid = manifest()
+  const valid = manifest("0.1.9-beta.2")
   const updated = applyReleaseToFeeds(currentFeeds(null, null), valid, "v0.1.9-beta.2", {
     rootVersion,
     owner,
@@ -129,7 +145,7 @@ test("manifest validation preserves signatures and rejects missing, unsigned, or
     assert.deepEqual(updated.beta.platforms[target], valid.platforms[target])
   }
 
-  const missingTarget = manifest()
+  const missingTarget = manifest("0.1.9-beta.2")
   delete missingTarget.platforms["linux-aarch64"]
   assert.throws(
     () =>
@@ -141,7 +157,7 @@ test("manifest validation preserves signatures and rejects missing, unsigned, or
     /platform|target/i,
   )
 
-  const unsigned = manifest()
+  const unsigned = manifest("0.1.9-beta.2")
   unsigned.platforms["windows-x86_64"].signature = ""
   assert.throws(
     () =>
@@ -153,7 +169,7 @@ test("manifest validation preserves signatures and rejects missing, unsigned, or
     /signature/i,
   )
 
-  const foreign = manifest()
+  const foreign = manifest("0.1.9-beta.2")
   foreign.platforms["darwin-aarch64"].url = "https://example.org/asset"
   assert.throws(
     () =>
@@ -166,16 +182,63 @@ test("manifest validation preserves signatures and rejects missing, unsigned, or
   )
 })
 
-test("manifest numeric version must equal the tag base version", () => {
+test("manifest version must equal the full release version, beta number included", () => {
+  for (const version of ["0.1.8", "0.1.9"]) {
+    assert.throws(
+      () =>
+        applyReleaseToFeeds(currentFeeds(null, null), manifest(version), "v0.1.9-beta.2", {
+          rootVersion,
+          owner,
+          repo,
+        }),
+      /version/i,
+    )
+  }
+})
+
+// 13 November: beta 5 was signed as `0.1.9` while the beta feed announced `0.1.9-beta.5`, and the
+// updater of beta 4 (tauri-plugin-updater 2.14.1) refused it as a possibly tampered feed. A release
+// whose signatures name another version than the feed must not be published.
+test("every signature must be bound to the version the feed announces", () => {
+  const options = { rootVersion, owner, repo }
   assert.throws(
     () =>
-      applyReleaseToFeeds(currentFeeds(null, null), manifest("0.1.8"), "v0.1.9-beta.2", {
-        rootVersion,
-        owner,
-        repo,
-      }),
-    /version/i,
+      applyReleaseToFeeds(
+        currentFeeds(null, null),
+        manifest("0.1.9-beta.5", "0.1.9"),
+        "v0.1.9-beta.5",
+        options,
+      ),
+    /signed for version 0\.1\.9.*0\.1\.9-beta\.5/i,
   )
+  assert.throws(
+    () =>
+      applyReleaseToFeeds(
+        currentFeeds(null, null),
+        manifest("0.1.9-beta.5", null),
+        "v0.1.9-beta.5",
+        options,
+      ),
+    /signature.*version/i,
+  )
+  const garbled = manifest("0.1.9-beta.5")
+  garbled.platforms["linux-x86_64"].signature = "not a minisign signature"
+  assert.throws(
+    () => applyReleaseToFeeds(currentFeeds(null, null), garbled, "v0.1.9-beta.5", options),
+    /signature/i,
+  )
+  const extra = manifest("0.1.9-beta.5")
+  extra.platforms["windows-x86_64-msi"] = {
+    signature: signature("windows-x86_64-msi", "0.1.9"),
+    url: `https://github.com/${owner}/${repo}/releases/download/v0.1.9-beta.5/asset.msi`,
+  }
+  assert.throws(
+    () => applyReleaseToFeeds(currentFeeds(null, null), extra, "v0.1.9-beta.5", options),
+    /signed for version/i,
+  )
+
+  const stable = applyReleaseToFeeds(currentFeeds(null, null), manifest("0.1.9"), "v0.1.9", options)
+  assert.equal(stable.stable.version, "0.1.9")
 })
 
 test("feeds CLI accepts --feed-dir and writes the beta feed", (context) => {
@@ -183,7 +246,7 @@ test("feeds CLI accepts --feed-dir and writes the beta feed", (context) => {
   context.after(() => rmSync(directory, { recursive: true, force: true }))
   const manifestPath = join(directory, "latest manifest.json")
   const feedDirectory = join(directory, "feed files")
-  writeFileSync(manifestPath, JSON.stringify({ ...manifest(), version: packageVersion }), "utf8")
+  writeFileSync(manifestPath, JSON.stringify(manifest(`${packageVersion}-beta.2`)), "utf8")
 
   execFileSync(
     process.execPath,
@@ -205,9 +268,9 @@ test("feeds CLI accepts --feed-dir and writes the beta feed", (context) => {
 })
 
 test("validates every installer-qualified asset in latest.json", () => {
-  const candidate = manifest()
+  const candidate = manifest("0.1.9-beta.2")
   candidate.platforms["windows-x86_64-msi"] = {
-    signature: "signature-windows-x86_64-msi",
+    signature: signature("windows-x86_64-msi", "0.1.9-beta.2"),
     url: "https://example.org/foreign-installer.msi",
   }
 
@@ -242,9 +305,31 @@ test("config CLI handles spaced output paths and prints a normalized path", (con
 
   assert.equal(stdout.trim(), resolve(outputPath).replaceAll("\\", "/"))
   const config = JSON.parse(readFileSync(outputPath, "utf8"))
+  // The build is versioned as the beta, so Tauri signs it for the version its feed announces.
+  assert.equal(config.version, `${packageVersion}-beta.2`)
   assert.equal(config.bundle.createUpdaterArtifacts, true)
   assert.equal(
     config.bundle.windows.wix.version,
     windowsInstallerVersion(packageVersion, `v${packageVersion}-beta.2`),
+  )
+})
+
+test("config CLI versions a stable build with its plain version", (context) => {
+  const directory = mkdtempSync(join(tmpdir(), "amby release config "))
+  context.after(() => rmSync(directory, { recursive: true, force: true }))
+  const outputPath = join(directory, "stable.json")
+  execFileSync(process.execPath, [
+    resolve("scripts/update-channels.mjs"),
+    "config",
+    "--tag",
+    `v${packageVersion}`,
+    "--output",
+    outputPath,
+  ])
+  const config = JSON.parse(readFileSync(outputPath, "utf8"))
+  assert.equal(config.version, packageVersion)
+  assert.equal(
+    config.bundle.windows.wix.version,
+    windowsInstallerVersion(packageVersion, `v${packageVersion}`),
   )
 })
