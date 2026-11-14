@@ -13,6 +13,7 @@ import {
   type NotePick,
   type SyncPort,
 } from "@/lib/sync/sync-port"
+import { ManualDownloadLink } from "../manual-download-link"
 import { OPEN_SETTINGS_REQUEST_EVENT } from "../settings-navigation"
 import { appDataConflictKind } from "../sync/app-data-conflict"
 import { AppDataConflictBody } from "../sync/sync-vault-parts"
@@ -213,7 +214,10 @@ function journalWords(
     case "backupReady":
       return t("notices.journal.backupReady")
     case "updateFailed":
-      return t("notices.journal.updateFailed")
+      // With a version, the update was found and could not be installed; without one, the check failed.
+      return entry.params.version
+        ? t("notices.journal.updateInstallFailed", { version: entry.params.version })
+        : t("notices.journal.updateFailed")
     default:
       return t("notices.journal.unknown")
   }
@@ -260,6 +264,9 @@ function JournalRow({ entry }: { entry: JournalEntry }) {
             >
               {t("notices.centre.open")}
             </button>
+          )}
+          {entry.kind === "updateFailed" && entry.params.version && (
+            <ManualDownloadLink version={entry.params.version} />
           )}
         </div>
       </div>

@@ -120,6 +120,8 @@ export const RAW_ERROR_TEXT_EXCEPTIONS: Record<string, string> = {
   "src/components/workspace/tree/tree-message.tsx":
     "`state.message` is the line under the tree: keys of the locale, not a failure.",
   // Reading a code that is in the text
+  "src/lib/app-updater.ts":
+    "`updateFailureCode` reads only the kind of an updater failure from its message into a code for the journal; nothing of the text is shown or kept.",
   "src/components/workspace/app-config.ts":
     "Reads the codes our own errors carry as their message (`settingsChanged`); free text gives no code.",
   "src/components/workspace/tiptap/external-open.ts":

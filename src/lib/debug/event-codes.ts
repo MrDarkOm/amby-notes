@@ -250,6 +250,7 @@ const EVENT_CODES = new Set([
   "unhandled_promise_rejection",
   "unhandled_window_error",
   "updater.automatic_update_failed",
+  "updater.install_failed",
   "updater.version_read_failed",
   "upsert_custom_property",
   "vault_open.recovery_notices",

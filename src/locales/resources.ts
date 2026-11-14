@@ -601,7 +601,8 @@ const ru = {
       downloadingProgress: "Загрузка обновления: {{progress}}%",
       installing: "Установка обновления…",
       restarting: "Перезапуск приложения…",
-      error: "Не удалось проверить или установить обновление. Повторите попытку позже.",
+      error: "Не удалось проверить обновления. Повторите попытку позже.",
+      installError: "Не удалось установить {{version}}.",
     },
     data: {
       location: "Папка настроек",
@@ -722,6 +723,7 @@ const ru = {
     yes: "Да",
     no: "Нет",
     settings: "Настройки",
+    downloadManually: "Скачать версию вручную",
   },
   emojiPicker: {
     emoji: "Эмодзи",
@@ -1978,6 +1980,7 @@ const ru = {
       merged: "«{{name}}»: правки двух компьютеров объединены",
       backupReady: "Резервная копия готова",
       updateFailed: "Не удалось проверить обновления, попробуем позже",
+      updateInstallFailed: "Не удалось установить обновление {{version}}",
       unknown: "Событие",
     },
   },
@@ -5129,7 +5132,8 @@ const en: typeof ru = {
       downloadingProgress: "Downloading update: {{progress}}%",
       installing: "Installing update…",
       restarting: "Restarting the app…",
-      error: "Could not check for or install the update. Try again later.",
+      error: "Could not check for updates. Try again later.",
+      installError: "Could not install {{version}}.",
     },
     data: {
       location: "Settings folder",
@@ -5252,6 +5256,7 @@ const en: typeof ru = {
     yes: "Yes",
     no: "No",
     settings: "Settings",
+    downloadManually: "Download this version manually",
   },
   emojiPicker: {
     emoji: "Emoji",
@@ -6508,6 +6513,7 @@ const en: typeof ru = {
       merged: "“{{name}}”: the edits of two computers were merged",
       backupReady: "The backup is ready",
       updateFailed: "Could not check for updates; we will try later",
+      updateInstallFailed: "Could not install the update {{version}}",
       unknown: "Event",
     },
   },

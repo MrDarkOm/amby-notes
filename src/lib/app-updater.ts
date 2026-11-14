@@ -44,6 +44,35 @@ export async function getCurrentAppVersion(): Promise<string> {
   }
 }
 
+/**
+ * Why an update could not be installed, as a code the journal may keep (docs/notices.md: no raw
+ * error text): only the kind is read from the message of the updater, nothing of it is kept.
+ */
+export function updateFailureCode(error: unknown): string {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase()
+  if (message.includes("previous app")) return "PreviousAppNotRestored"
+  if (message.includes("same mount point")) return "TempDirNotOnSameMountPoint"
+  // tauri-plugin-updater 2.14+: the signature names another version than the feed, or none.
+  if (message.includes("signed for version")) return "SignedVersionMismatch"
+  if (message.includes("does not specify the version")) return "SignedVersionMissing"
+  if (message.includes("signature")) return "SignatureInvalid"
+  if (
+    message.includes("permission denied") ||
+    message.includes("operation not permitted") ||
+    message.includes("os error 13") ||
+    message.includes("os error 1)")
+  )
+    return "PermissionDenied"
+  if (
+    message.includes("sending request") ||
+    message.includes("timed out") ||
+    message.includes("network") ||
+    message.includes("connect")
+  )
+    return "NetworkError"
+  return "UnknownError"
+}
+
 export function calculateDownloadPercent(downloaded: number, total?: number): number | null {
   if (!total || total <= 0) return null
   return Math.min(100, Math.max(0, Math.round((downloaded / total) * 100)))
@@ -73,10 +102,16 @@ function wrapUpdate(update: Update): AvailableAppUpdate {
         }
       }
 
-      await update.downloadAndInstall(report, {
-        timeout: DOWNLOAD_TIMEOUT_MS,
-        restartAfterInstall: true,
-      })
+      try {
+        await update.downloadAndInstall(report, {
+          timeout: DOWNLOAD_TIMEOUT_MS,
+          restartAfterInstall: true,
+        })
+      } catch (error) {
+        // The journal keeps why it failed as a code (docs/notices.md), for the setting and for the start.
+        logger.warn("updater.install_failed", { failureCode: updateFailureCode(error) })
+        throw error
+      }
       onProgress?.({ phase: "restarting" })
       const { relaunch } = await import("@tauri-apps/plugin-process")
       await relaunch()
@@ -117,6 +152,8 @@ export function runAutomaticAppUpdate(
 
 async function installStartupUpdate(channel: UpdateChannelPref): Promise<StartupUpdateResult> {
   let update: AvailableAppUpdate | null = null
+  // Set once a found update starts to install: the journal then names it and offers it for download.
+  let installing: string | null = null
   try {
     if (getCurrentWindow().label !== "main") return "ready"
     const { getBundleType } = await import("@tauri-apps/api/app")
@@ -127,6 +164,7 @@ async function installStartupUpdate(channel: UpdateChannelPref): Promise<Startup
     update = await checkForAppUpdate(channel, STARTUP_CHECK_TIMEOUT_MS)
     if (!update) return "ready"
 
+    installing = update.version
     await update.install()
     // Keep the old workspace unopened while the process is being replaced.
     return "restarting"
@@ -134,9 +172,12 @@ async function installStartupUpdate(channel: UpdateChannelPref): Promise<Startup
     logger.warn("updater.automatic_update_failed", { errorType: errorType(error) })
     // Information for the journal of the notification centre (docs/notices.md, step 7): the person is not
     // asked for anything, and the cause stays in the log as a code, not as text.
-    useNoticeJournalStore
-      .getState()
-      .record({ kind: "updateFailed", level: "info", subject: "automatic", params: {} })
+    useNoticeJournalStore.getState().record({
+      kind: "updateFailed",
+      level: "info",
+      subject: "automatic",
+      params: installing ? { version: installing } : {},
+    })
     return "ready"
   } finally {
     // Releasing the update handle: a failure changes nothing for the person.
