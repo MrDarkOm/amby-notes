@@ -29,8 +29,24 @@ Release binaries embed `AMBY_RELEASE_TAG` during compilation, for example
 and the final `0.1.9` sort after beta 2. The three numeric version sources stay
 `0.1.9` throughout that cycle. A local build without a release tag uses its
 numeric package version and does not treat itself as an earlier beta.
+
+The generated release config also sets the Tauri `version` to the full release
+version (`0.1.9-beta.2`), because Tauri writes it into every updater signature
+and `tauri-plugin-updater` 2.14+ refuses a package whose signed version differs
+from the version its feed announces (a guard against a tampered, unsigned feed).
+Betas up to 0.1.9-beta.5 were signed as plain `0.1.9`, so beta 4 (the first
+build with plugin 2.14) could not install beta 5. The check concerns the package
+being installed, so every earlier build installs 0.1.9-beta.6 and later.
+macOS strips the beta suffix from its bundle versions and NSIS from its numeric
+file version by themselves; MSI uses its own number below. Before a release is
+published, `update-channels.mjs feeds` rejects a `latest.json` whose version or
+any signature's version differs from the release version.
 Previously published binaries do not gain channel selection until upgraded to a
 build containing it; use a manual installation for that initial beta transition.
+
+When an update cannot be installed, the settings line and the journal entry of
+the automatic update name the version and link to its GitHub release
+(`releases/tag/v<version>`) so it can be downloaded by hand.
 
 Windows MSI compares only three numeric fields. Release automation assigns its
 internal version automatically: `major.minor.(patch * 100 + betaNumber)` for

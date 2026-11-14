@@ -192,7 +192,24 @@ describe("silent startup updates", () => {
     const entries = useNoticeJournalStore.getState().entries
     expect(entries).toHaveLength(1)
     // Information, not an alarm; the cause is a code, never the text of the error.
-    expect(entries[0]).toMatchObject({ kind: "updateFailed", level: "info" })
+    expect(entries[0]).toMatchObject({ kind: "updateFailed", level: "info", params: {} })
+    expect(JSON.stringify(entries)).not.toMatch(/Synthetic/)
+  })
+
+  it("names the version that could not be installed, so the journal can offer it for download", async () => {
+    const update = availableUpdate()
+    update.downloadAndInstall.mockRejectedValue(new Error("Synthetic rejected update"))
+    native.check.mockResolvedValue(update)
+    const { runAutomaticAppUpdate } = await import("./app-updater")
+    const { useNoticeJournalStore } = await import("@/lib/notices/use-notice-journal-store")
+    expect(await runAutomaticAppUpdate()).toBe("ready")
+    const entries = useNoticeJournalStore.getState().entries
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      kind: "updateFailed",
+      level: "info",
+      params: { version: "0.1.6" },
+    })
     expect(JSON.stringify(entries)).not.toMatch(/Synthetic/)
   })
 

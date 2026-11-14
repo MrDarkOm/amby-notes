@@ -175,11 +175,17 @@ pub fn read_note(
     let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     tracing::debug!(event = "read_note", note_id = %note_id);
-    let result = vault_index::read_note(conn, &conn.root, &note_id);
-    if result.is_ok() {
-        telemetry.succeed();
+    // The journal keeps why a read failed as a code, never the text or the path.
+    match vault_index::read_note_with_reason(conn, &conn.root, &note_id) {
+        Ok(outcome) => {
+            telemetry.succeed();
+            Ok(outcome)
+        }
+        Err((error, code)) => {
+            telemetry.fail(code);
+            Err(error)
+        }
     }
-    result
 }
 
 #[tauri::command]

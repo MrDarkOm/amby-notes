@@ -132,41 +132,63 @@ pub fn body_revision(body: &str) -> String {
     format!("{:x}", Sha256::digest(body.as_bytes()))
 }
 
+/// Why reading a note failed, as a code the journal may keep: no text, no path
+/// (`docs/notices.md`). `NoteNotIndexed` — the id is not in the index; the others follow the
+/// kind of the system error: `FileNotFound`, `InvalidData` (not UTF-8), `PermissionDenied`,
+/// `IoError`.
+pub fn read_note_with_reason(
+    conn: &Connection,
+    vault: &Path,
+    note_id: &str,
+) -> Result<NoteReadOutcome, (String, &'static str)> {
+    let note = note_by_id(conn, vault, note_id).map_err(|error| (error, "NoteNotIndexed"))?;
+    let source = fs::read_to_string(Path::new(&note.path)).map_err(|error| {
+        let code = match error.kind() {
+            std::io::ErrorKind::NotFound => "FileNotFound",
+            std::io::ErrorKind::InvalidData => "InvalidData",
+            std::io::ErrorKind::PermissionDenied => "PermissionDenied",
+            _ => "IoError",
+        };
+        (error.to_string(), code)
+    })?;
+    Ok(note_read_outcome(note_id, source))
+}
+
 pub fn read_note(
     conn: &Connection,
     vault: &Path,
     note_id: &str,
 ) -> Result<NoteReadOutcome, String> {
-    let note = note_by_id(conn, vault, note_id)?;
-    fs::read_to_string(Path::new(&note.path))
-        .map(|source| {
-            let parsed = frontmatter::parse_markdown(&source);
-            // Normalize CRLF → LF for the frontend.  The editor works exclusively
-            // with LF; `preserve_text_format` converts back on write.  Without
-            // this, the watcher reads CRLF from disk while the editor holds LF,
-            // triggering false external-conflict detection that pauses autosave.
-            let revision = body_revision(if note_id.starts_with(OPAQUE_PREFIX) {
-                &source
-            } else {
-                &parsed.body
-            });
-            let editor_content = if note_id.starts_with(OPAQUE_SOURCE_PREFIX) {
-                source.clone()
-            } else {
-                parsed.body
-            };
-            let content = if editor_content.contains("\r\n") {
-                editor_content.replace("\r\n", "\n")
-            } else {
-                editor_content
-            };
-            NoteReadOutcome {
-                content,
-                revision,
-                source,
-            }
-        })
-        .map_err(|error| error.to_string())
+    read_note_with_reason(conn, vault, note_id).map_err(|(error, _)| error)
+}
+
+/// What the editor gets for the text of a note read from disk.
+fn note_read_outcome(note_id: &str, source: String) -> NoteReadOutcome {
+    let parsed = frontmatter::parse_markdown(&source);
+    // Normalize CRLF → LF for the frontend.  The editor works exclusively
+    // with LF; `preserve_text_format` converts back on write.  Without
+    // this, the watcher reads CRLF from disk while the editor holds LF,
+    // triggering false external-conflict detection that pauses autosave.
+    let revision = body_revision(if note_id.starts_with(OPAQUE_PREFIX) {
+        &source
+    } else {
+        &parsed.body
+    });
+    let editor_content = if note_id.starts_with(OPAQUE_SOURCE_PREFIX) {
+        source.clone()
+    } else {
+        parsed.body
+    };
+    let content = if editor_content.contains("\r\n") {
+        editor_content.replace("\r\n", "\n")
+    } else {
+        editor_content
+    };
+    NoteReadOutcome {
+        content,
+        revision,
+        source,
+    }
 }
 
 pub fn note_properties(

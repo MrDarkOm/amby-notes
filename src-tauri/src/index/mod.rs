@@ -31,3 +31,6 @@ mod incremental_tests;
 
 #[cfg(test)]
 mod malformed_tests;
+
+#[cfg(test)]
+mod read_reason_tests;

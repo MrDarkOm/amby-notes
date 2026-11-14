@@ -176,6 +176,11 @@ impl OperationGuard {
         self.complete = true;
         self.record("succeeded", None);
     }
+    /// Ends the operation as failed with a code the journal may keep (`sanitized_error_code`).
+    pub fn fail(mut self, code: &str) {
+        self.complete = true;
+        self.record("failed", Some(code));
+    }
     pub fn operation_id(&self) -> Option<&str> {
         self.operation_id.as_deref()
     }
@@ -1230,6 +1235,7 @@ fn allowed_event(value: &str) -> bool {
         "unhandled_promise_rejection",
         "unhandled_window_error",
         "updater.automatic_update_failed",
+        "updater.install_failed",
         "updater.version_read_failed",
         "upsert_custom_property",
         "vault.startup_failed",
@@ -1417,6 +1423,12 @@ fn is_failure_code(value: &str) -> bool {
             .is_some_and(|first| first.is_ascii_alphabetic())
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
+/// The value of `errorCode` after the privacy filter: a known code as it is, anything else
+/// `UnknownError`.
+#[cfg(test)]
+pub(crate) fn sanitized_error_code(value: &str) -> Option<String> {
+    safe_code(value, "errorCode")
+}
 fn safe_code(value: &str, key: &str) -> Option<String> {
     if key == "failureCode" {
         return Some(if is_failure_code(value) {
@@ -1441,6 +1453,7 @@ fn safe_code(value: &str, key: &str) -> Option<String> {
                 | "FlushTimedOut"
                 | "LockPoisoned"
                 | "OperationFailed"
+                | "NoteNotIndexed"
         ),
         "errorType" => matches!(
             value,

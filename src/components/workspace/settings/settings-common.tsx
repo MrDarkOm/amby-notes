@@ -6,7 +6,7 @@ export function Row({
   children,
 }: {
   label: string
-  hint?: string
+  hint?: React.ReactNode
   children: React.ReactNode
 }) {
   return (

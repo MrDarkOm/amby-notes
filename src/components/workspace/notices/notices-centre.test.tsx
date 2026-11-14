@@ -624,6 +624,37 @@ describe("the copies of the cards of the open notes", () => {
 describe("the journal ('Earlier')", () => {
   beforeEach(() => useNoticesStackStore.setState({ isOpen: true }))
 
+  // The automatic update could not install a version: the journal names it and links to its release
+  // for a manual download; a failed check names nothing and offers no link.
+  it("offers a failed automatic update for a manual download", () => {
+    useNoticeJournalStore.getState().record({
+      kind: "updateFailed",
+      level: "info",
+      subject: "automatic",
+      params: { version: "0.1.9-beta.6" },
+    })
+    render(<NoticesStack port={createFakePort()} />)
+    const row = screen.getByTestId("notices-journal-entry")
+    expect(row.textContent).toMatch(/Не удалось установить обновление 0\.1\.9-beta\.6/)
+    const link = within(row).getByRole("link", { name: "Скачать версию вручную" })
+    expect(link.getAttribute("href")).toBe(
+      "https://github.com/MrDarkOm/amby-notes/releases/tag/v0.1.9-beta.6",
+    )
+  })
+
+  it("has no download link when only the check of updates failed", () => {
+    useNoticeJournalStore.getState().record({
+      kind: "updateFailed",
+      level: "info",
+      subject: "automatic",
+      params: {},
+    })
+    render(<NoticesStack port={createFakePort()} />)
+    const row = screen.getByTestId("notices-journal-entry")
+    expect(row.textContent).toMatch(/Не удалось проверить обновления/)
+    expect(within(row).queryByRole("link")).toBeNull()
+  })
+
   const record = (name: string, subject = `${name}.md`) =>
     useNoticeJournalStore.getState().record({
       kind: "restored",
