@@ -91,6 +91,63 @@ describe("useMarkdownAutosave", () => {
     result.current.autosave.cancelGeneration(1)
   })
 
+  // SAVE-03: a finished save whose text equals the buffer must not mark the note clean while a newer
+  // snapshot (here: type, then undo back to the same text) is still queued. A clean-looking buffer is
+  // replaced by the next external change, and the queued save then writes over that change.
+  it("keeps the note unsaved when a newer save is still queued after an equal-text save", async () => {
+    const doc: Document = {
+      id: "note-q",
+      title: "Note",
+      path: "/vault/Note.md",
+      content: "saved",
+      source: "saved",
+      revision: "before",
+      created: "",
+      modified: "",
+      wordCount: 1,
+    }
+    useDocStore.getState().setDoc(doc.id, doc)
+    let finishWrite!: () => void
+    vi.spyOn(storage, "writeNote").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishWrite = () =>
+            resolve({ path: doc.path, revision: "after", indexState: "healthy", warnings: [] })
+        }),
+    )
+    vi.spyOn(storage, "getNoteProperties").mockResolvedValue({
+      hasFrontmatter: false,
+      properties: [],
+      customProperties: [],
+    })
+    const { result } = renderHook(() =>
+      useMarkdownAutosave({
+        vault: "/vault",
+        autosaveGeneration: 1,
+        backendGeneration: 1,
+        windowLabel: "main",
+        applyMutationResult: vi.fn(),
+      }),
+    )
+    const key = result.current.autosaveKey(doc.id)
+    act(() => result.current.handleContentChange(doc.id, "X"))
+    let saving!: Promise<void>
+    act(() => {
+      saving = result.current.autosave.flush(key)
+    })
+    await vi.waitFor(() => expect(storage.writeNote).toHaveBeenCalledOnce())
+    act(() => result.current.handleContentChange(doc.id, "Y"))
+    act(() => result.current.handleContentChange(doc.id, "X"))
+    result.current.autosave.pause(key)
+    await act(async () => {
+      finishWrite()
+      await saving
+    })
+    expect(result.current.autosave.inspect(key)?.dirty).toBe(true)
+    expect(useDocStore.getState().unsavedFileIds.has(doc.id)).toBe(true)
+    result.current.autosave.cancelGeneration(1)
+  })
+
   it("does not replace a newly edited property with an older autosave read", async () => {
     const old = {
       hasFrontmatter: true,

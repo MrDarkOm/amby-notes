@@ -3,6 +3,7 @@ import {
   cancelAutosaveGeneration,
   flushAutosaveGeneration,
   flushBeforeLeaving,
+  hasUnsavedAutosave,
   mayLeaveAfterFlush,
   registerAutosaveLifecycle,
   inspectAutosaveGeneration,
@@ -258,5 +259,32 @@ describe("autosave lifecycle", () => {
       await expect(mayLeaveAfterFlush(999, notAsked)).resolves.toBe(true)
       expect(notAsked).not.toHaveBeenCalled()
     })
+  })
+
+  // SAVE-03: the editor and the watcher ask the queue, not only the store flag, whether a note is clean.
+  it("reports a document with a queued, unsaved snapshot", async () => {
+    vi.useFakeTimers()
+    const coordinator = new AutosaveCoordinator<string>({
+      delayMs: 500,
+      save: async () => {},
+    })
+    unregister.push(
+      registerAutosaveLifecycle({
+        generation: 31,
+        flush: () => coordinator.flushAll(),
+        cancel: () => {},
+        hasDirtyBuffers: () => false,
+        inspect: () => coordinator.inspectAll(),
+      }),
+    )
+    const key = { generation: 31, kind: "markdown" as const, documentId: "queued" }
+    expect(hasUnsavedAutosave(key)).toBe(false)
+    coordinator.schedule(key, "text")
+    expect(hasUnsavedAutosave(key)).toBe(true)
+    expect(hasUnsavedAutosave({ ...key, documentId: "other" })).toBe(false)
+    expect(hasUnsavedAutosave({ ...key, generation: 30 })).toBe(false)
+    await coordinator.flush(key)
+    expect(hasUnsavedAutosave(key)).toBe(false)
+    vi.useRealTimers()
   })
 })

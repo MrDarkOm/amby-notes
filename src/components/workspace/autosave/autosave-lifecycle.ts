@@ -44,6 +44,25 @@ export function inspectAutosaveGeneration(generation: number) {
   }
 }
 
+/**
+ * True while a queue of `key.generation` holds a newer, not yet saved snapshot of this document. The
+ * store's unsaved flag alone is not enough: an edit that returns to the saved text marks the buffer
+ * clean while its save is still queued, and a "clean" buffer is then replaced by an external change
+ * that the queued save writes over (SAVE-03). Ask this before treating a document as clean.
+ */
+export function hasUnsavedAutosave(key: AutosaveKey): boolean {
+  return [...participants].some(
+    (participant) =>
+      participant.generation === key.generation &&
+      (participant.inspect?.() ?? []).some(
+        (state) =>
+          state.key.kind === key.kind &&
+          state.key.documentId === key.documentId &&
+          (state.dirty || state.scheduled),
+      ),
+  )
+}
+
 export function registerAutosaveLifecycle(participant: AutosaveLifecycleParticipant): () => void {
   participants.add(participant)
   return () => participants.delete(participant)

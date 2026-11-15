@@ -21,6 +21,8 @@ import { databaseContentWidthKey, EMPTY_LAYERS } from "./workspace-constants"
 import { CANONICAL_EMPTY_CANVAS } from "@/lib/canvas-format"
 import { defaultSketchJson } from "@/lib/sketch-format"
 import { useDocStore, type Document } from "../use-doc-store"
+import { hasUnsavedAutosave } from "../autosave/autosave-lifecycle"
+import { useVaultStore } from "../use-vault-store"
 import type { DocumentViewMode } from "../document-editor"
 import {
   exportDatabaseCsv,
@@ -323,7 +325,16 @@ export function usePaneEditorProps({
       },
       onContentClean: (sourceDocumentId?: string) => {
         const targetId = sourceDocumentId || tab?.fileId
-        if (targetId) {
+        // The text is back to what the editor last published, but a save of an earlier edit may
+        // still be queued: the note stays unsaved until it finishes (SAVE-03).
+        if (
+          targetId &&
+          !hasUnsavedAutosave({
+            generation: useVaultStore.getState().generation,
+            kind: "markdown",
+            documentId: targetId,
+          })
+        ) {
           useDocStore.getState().markSaved(targetId)
         }
       },

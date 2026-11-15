@@ -55,6 +55,7 @@ import {
   cancelAutosaveGeneration,
   flushAutosaveGeneration,
   flushBeforeLeaving,
+  hasUnsavedAutosave,
   mayLeaveAfterFlush,
   waitForInFlightAutosave,
 } from "./autosave/autosave-lifecycle"
@@ -870,7 +871,15 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
                 }
                 continue
               }
-              if (useDocStore.getState().unsavedFileIds.has(id)) {
+              // A queued save counts as unsaved even when the store flag says clean (SAVE-03).
+              const hasLocalEdits = () =>
+                useDocStore.getState().unsavedFileIds.has(id) ||
+                hasUnsavedAutosave({
+                  generation: useVaultStore.getState().generation,
+                  kind: "markdown",
+                  documentId: id,
+                })
+              if (hasLocalEdits()) {
                 setExternalConflict({
                   fileId: id,
                   path: latest.path,
@@ -883,7 +892,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
               }
               // Do not replace a buffer if the user started editing during
               // the asynchronous refresh.
-              if (!useDocStore.getState().unsavedFileIds.has(id)) {
+              if (!hasLocalEdits()) {
                 patchDoc(id, {
                   content: note.content,
                   revision: note.revision,
