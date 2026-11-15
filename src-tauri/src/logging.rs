@@ -1179,6 +1179,7 @@ fn allowed_event(value: &str) -> bool {
         "rename_item",
         "reorder_custom_properties",
         "reorder_database_properties",
+        "quit_window_close_failed",
         "restore_window_failed",
         "restored_note_tree_event_failed",
         "session.document_load_failed",

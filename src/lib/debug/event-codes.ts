@@ -197,6 +197,7 @@ const EVENT_CODES = new Set([
   "property.reread_failed",
   "property.reorder",
   "reorder_database_properties",
+  "quit_window_close_failed",
   "restore_window_failed",
   "restored_note_tree_event_failed",
   "search.notes",
