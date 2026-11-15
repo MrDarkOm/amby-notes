@@ -17,7 +17,9 @@ Use this map for app bootstrap, permissions and packaging; use
 `lib.rs` composes state/plugins/windows and the Specta command builder. Put new
 commands in `src/commands/` and domain behavior in the owning service. The main
 window lifecycle (restore/recreate on Dock click or a second launch, closing the
-hidden settings window with it) lives in `src/state.rs`.
+hidden settings window with it) lives in `src/state.rs`. Its `handle_run_event` is also used by the isolated
+native UI harness in `src/native_contract.rs` so smoke tests exercise the same
+helper-window cleanup and restore path.
 Vault access is granted dynamically to the selected canonical vault; do not
 add broad static filesystem scopes or relax CSP to silence tests.
 

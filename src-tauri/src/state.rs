@@ -71,6 +71,26 @@ pub fn close_main_window_helpers<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     }
 }
 
+/// Shared by the production app and the isolated native UI smoke harness.
+pub fn handle_run_event<R: tauri::Runtime>(handle: &tauri::AppHandle<R>, event: tauri::RunEvent) {
+    match event {
+        // The Dock icon was clicked. tao leaves a minimized window alone, and a
+        // closed main window is not created again on its own.
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Reopen { .. } => {
+            if let Err(error) = show_and_focus_main_window(handle) {
+                tracing::warn!(event = "restore_window_failed", error = %error);
+            }
+        }
+        tauri::RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::Destroyed,
+            ..
+        } if label == MAIN_WINDOW_LABEL => close_main_window_helpers(handle),
+        _ => {}
+    }
+}
+
 pub fn report_startup_error(error: &tauri::Error) {
     let message = format!(
         "Amby could not create its main window. On Windows, verify that the Microsoft Edge WebView2 Runtime is installed.\n\nDetails: {error}"

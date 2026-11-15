@@ -417,22 +417,7 @@ pub fn run() {
             return;
         }
     };
-    app.run(|handle, event| match event {
-        // The Dock icon was clicked. tao leaves a minimized window alone, and a
-        // closed main window is not created again on its own.
-        #[cfg(target_os = "macos")]
-        tauri::RunEvent::Reopen { .. } => {
-            if let Err(error) = show_and_focus_main_window(handle) {
-                tracing::warn!(event = "restore_window_failed", error = %error);
-            }
-        }
-        tauri::RunEvent::WindowEvent {
-            label,
-            event: tauri::WindowEvent::Destroyed,
-            ..
-        } if label == MAIN_WINDOW_LABEL => close_main_window_helpers(handle),
-        _ => {}
-    });
+    app.run(handle_run_event);
 }
 
 #[cfg(test)]

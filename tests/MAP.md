@@ -42,8 +42,9 @@ of a click from a later `selectionchange`), so a case never needs a pause after 
 `AMBY_E2E_JANK=<ms>` keeps the page's main thread busy in bursts and reproduces a loaded
 machine; run it with `--repeat-each` before trusting a new case that types. The suite is not part of `npm run verify` (it needs the browser binary); CI runs it on
 macOS as the "Editor in WebKit" job of [verify.yml](../.github/workflows/verify.yml), with
-one retry and the traces of failed cases kept as an artifact. It does not cover the native
-window, the Rust side or the system webview's own painting.
+one retry and the traces of failed cases kept as an artifact. `asset-csp.spec.ts` separately applies the production CSP to Windows-style
+asset URLs and checks that unrelated image hosts remain blocked. The browser
+suite does not cover the native window, the Rust side or the system webview's own painting.
 
 Preserve fixture BOM/CRLF bytes. Add meaningful acceptance and rejection/failure
 cases for format and persistence changes; avoid tests that just mirror code.
