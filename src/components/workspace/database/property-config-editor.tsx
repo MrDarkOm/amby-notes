@@ -33,6 +33,7 @@ import { RollupSettings } from "./rollup-settings"
 import type { RollupDraft } from "./rollup-model"
 import { DATE_FORMAT_IDS, dateDisplayOf, formatDateValue } from "./value-format"
 import { reportOperationError, ShownError } from "@/lib/operation-errors"
+import { isEnterKey } from "@/lib/keyboard"
 
 /** What a settings change sets; the rest of the request is the property's identity. */
 export type PropertyConfigPatch = Omit<
@@ -311,7 +312,7 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
                   onChange={(event) => setGroupName(event.target.value)}
                   onBlur={() => addToGroup(group)}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter") {
+                    if (isEnterKey(event)) {
                       event.preventDefault()
                       addToGroup(group)
                     }
@@ -377,7 +378,7 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
             className="amby-inset-icon-input h-8 w-full rounded-lg border border-dashed border-input bg-transparent pl-7 pr-2 text-[13px] outline-none placeholder:text-muted-foreground hover:border-foreground/30 focus:border-solid focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60"
             onChange={(event) => setNewName(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key !== "Enter") return
+              if (!isEnterKey(event)) return
               event.preventDefault()
               add()
             }}

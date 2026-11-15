@@ -8,6 +8,7 @@ import { requestOpenNote } from "./note-open-request"
 import { useBellAnchor } from "./use-bell-anchor"
 import { useNoticeToastStore, type NoticeToast } from "./use-notice-toasts-store"
 import { useNoticesStackStore } from "./use-notices-stack-store"
+import { isEnterKey } from "@/lib/keyboard"
 
 /** How long a toast stays, in milliseconds (docs/notices.md, section 6). */
 export const TOAST_MS = 10_000
@@ -55,7 +56,7 @@ function ToastCard({ toast }: { toast: NoticeToast }) {
       onClick={openStack}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return
-        if (event.key === "Enter" || event.key === " ") {
+        if (isEnterKey(event) || event.key === " ") {
           event.preventDefault()
           openStack()
         }

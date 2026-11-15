@@ -12,6 +12,7 @@ import { renameFailureText, type RenameOutcome } from "../file-actions/rename-ou
 import { RenameHint } from "../notices/rename-hint"
 import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
 import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "../tiptap/floating-menu-events"
+import { isEnterKey } from "@/lib/keyboard"
 
 export interface DocumentTitleProps {
   title: string
@@ -102,7 +103,7 @@ export function DocumentTitle({
   }
 
   function handleTitleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter") {
+    if (isEnterKey(e)) {
       e.preventDefault()
       void commitTitleRename().then((closed) => {
         if (!closed) return

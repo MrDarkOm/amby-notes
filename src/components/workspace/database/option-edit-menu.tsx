@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import { PickerShell } from "./picker-shell"
 import { OPTION_COLORS, STATUS_GROUPS, type OptionDraft, type StatusGroup } from "./option-model"
 import { reportOperationError } from "@/lib/operation-errors"
+import { isEnterKey } from "@/lib/keyboard"
 
 const ITEM =
   "flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-left text-[13px] outline-none hover:bg-accent focus-visible:bg-accent disabled:opacity-50"
@@ -58,7 +59,7 @@ export function OptionEditMenu({ draft, status, onChange, onRemove, onDone }: Op
         onBlur={() => void commitName()}
         onKeyDown={(event) => {
           event.stopPropagation()
-          if (event.key === "Enter") {
+          if (isEnterKey(event)) {
             event.preventDefault()
             void commitName().then(onDone)
           }

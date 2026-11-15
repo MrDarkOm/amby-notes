@@ -148,6 +148,7 @@ function suggestion(editor: Editor, kind: InlineSuggestKind) {
           notify()
           return true
         }
+        // eslint-disable-next-line no-restricted-syntax -- // ProseMirror plugin; the editor handles composition
         if (event.key === "Enter" || event.key === "Tab") {
           state.select(state.index)
           return true

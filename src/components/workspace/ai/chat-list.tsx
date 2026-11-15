@@ -7,6 +7,7 @@ import { PanelSearch } from "../panels/panel-header"
 import { useClipped } from "@/lib/use-clipped"
 import { useAiChatStore } from "./use-ai-chat-store"
 import type { ChatEntry } from "@/lib/storage"
+import { isEnterKey } from "@/lib/keyboard"
 
 function group(entry: ChatEntry): "today" | "yesterday" | "earlier" {
   if (!entry.updatedAt) return "earlier"
@@ -115,7 +116,7 @@ export function ChatList({ onOpen }: { onOpen: () => void }) {
                           value={title}
                           onChange={(event) => setTitle(event.target.value)}
                           onKeyDown={(event) => {
-                            if (event.key === "Enter") void rename(entry)
+                            if (isEnterKey(event)) void rename(entry)
                             if (event.key === "Escape") setEditing(null)
                           }}
                           className="min-w-0 flex-1 rounded border border-border bg-card px-1 text-sm"

@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import type { DatabaseSummary } from "@/lib/storage"
+import { isEnterKey } from "@/lib/keyboard"
 
 const PROPERTY_TYPE_IDS = [
   "text",
@@ -79,7 +80,7 @@ export function DatabaseViewDialog({
           aria-label={t("databaseWorkspace.viewName")}
           onChange={(event) => onViewNameChange(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter") void onSave()
+            if (isEnterKey(event)) void onSave()
           }}
         />
         {(mode === "create" || mode === "edit") && (
@@ -147,7 +148,7 @@ export function DatabaseRowDialog({
           aria-label={t("databaseWorkspace.pageTitle")}
           onChange={(event) => onRowTitleChange(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter") void onCreate()
+            if (isEnterKey(event)) void onCreate()
           }}
         />
         {mutationError && <RenameHint text={mutationError} />}

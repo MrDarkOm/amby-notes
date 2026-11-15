@@ -12,6 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import type { FrontmatterProperty } from "@/lib/storage"
 import { IconValue } from "../icon-value"
 import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
+import { isEnterKey } from "@/lib/keyboard"
 
 function parseYamlList(value: string): string[] {
   const trimmed = value.trim()
@@ -237,7 +238,7 @@ export function FrontmatterPropertyValue({
           if (value !== property.value) void commitValue(value)
         }}
         onKeyDown={(event) => {
-          if (event.key === "Enter") event.currentTarget.blur()
+          if (isEnterKey(event)) event.currentTarget.blur()
           if (event.key === "Escape") {
             setValue(property.value)
             event.currentTarget.blur()
@@ -552,7 +553,7 @@ export function FrontmatterPropertyRow({
                       onBlur={() => void commitRename()}
                       onKeyDown={(e) => {
                         e.stopPropagation()
-                        if (e.key === "Enter") {
+                        if (isEnterKey(e)) {
                           e.preventDefault()
                           void commitRename().then(() => setPopoverOpen(false))
                         }

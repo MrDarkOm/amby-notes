@@ -22,6 +22,7 @@ import { caseInsensitiveRange } from "./search-text"
 import { isInSearchScope, type SearchScope } from "./search-scope"
 import { rankQuickOpenFiles } from "./quick-open-utils"
 import { spotlightResizeTransition } from "./spotlight-motion"
+import { isEnterKey } from "@/lib/keyboard"
 
 interface SearchResult {
   item: TreeItem
@@ -259,7 +260,7 @@ export function SidebarSearch({
     } else if (e.key === "ArrowUp") {
       e.preventDefault()
       setSelectedIndex((i) => Math.max(i - 1, 0))
-    } else if (e.key === "Enter") {
+    } else if (isEnterKey(e)) {
       e.preventDefault()
       if (results.length === 0 && searching) openFirstWhenReadyRef.current = true
       else activate(selectedIndex)

@@ -79,6 +79,23 @@ describe("required-text confirmation in the shared host", () => {
     expect(screen.queryByRole("alertdialog")).toBeNull()
   })
 
+  it("ignores Enter that confirms an IME composition, but Enter still confirms otherwise", async () => {
+    render(<ConfirmDialogHost />)
+    const result = ask(typedQuestion)
+    const input = screen.getByRole("textbox")
+    fireEvent.change(input, { target: { value: typedQuestion.requiredText.value } })
+
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true })
+    fireEvent.keyDown(input, { key: "Enter", keyCode: 229 })
+    await flush()
+    expect(result.answer).toBeNull()
+    expect(screen.getByRole("alertdialog")).toBeTruthy()
+
+    fireEvent.keyDown(input, { key: "Enter", keyCode: 13 })
+    await flush()
+    expect(result.answer).toBe(true)
+  })
+
   it("aborts only its own queued exact-name question and resolves it false", async () => {
     render(<ConfirmDialogHost />)
     const controller = new AbortController()

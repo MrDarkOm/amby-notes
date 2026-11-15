@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' asset: https://asset.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https://asset.localhost data: blob:; font-src 'self' data:; connect-src 'self'",
+      "csp": "default-src 'self' asset: http://asset.localhost https://asset.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost https://asset.localhost data: blob:; font-src 'self' data:; connect-src 'self'",
       "assetProtocol": {
         "enable": true,
         "scope": []
@@ -45,9 +45,7 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVCNDkxMDVCMEYyQTVBMDQKUldRRVdpb1BXeEJKVy9rWUJPY0Q2eEhkdzY3L3F1Wkg3Z1p1YVJFZ2ZQNTlPbUMraXZJWnUxMHMK",
-      "endpoints": [
-        "https://github.com/MrDarkOm/amby-notes/releases/latest/download/latest.json"
-      ],
+      "endpoints": ["https://github.com/MrDarkOm/amby-notes/releases/latest/download/latest.json"],
       "windows": {
         "installMode": "quiet"
       }

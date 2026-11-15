@@ -59,6 +59,7 @@ import type { Preset } from "../presets"
 import { loadGlobalModulesRegistry } from "@/lib/modules/global-registry"
 import { getCatalogModule } from "@/lib/modules/package-manager/catalog"
 import { installFromRemoteUrl } from "@/lib/modules/package-manager/installer"
+import { isEnterKey } from "@/lib/keyboard"
 
 const MODULE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   tags: Tags,
@@ -1213,7 +1214,7 @@ export function ModulesTab({
               className="h-8 w-full rounded-md border border-border bg-card px-2.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
               autoFocus
               onKeyDown={(e) => {
-                if (e.key === "Enter") void handleCreateNewPreset()
+                if (isEnterKey(e)) void handleCreateNewPreset()
               }}
             />
           </div>
@@ -1247,7 +1248,7 @@ export function ModulesTab({
               className="h-8 w-full rounded-md border border-border bg-card px-2.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
               autoFocus
               onKeyDown={(e) => {
-                if (e.key === "Enter") void handleSaveRenamePreset()
+                if (isEnterKey(e)) void handleSaveRenamePreset()
               }}
             />
           </div>

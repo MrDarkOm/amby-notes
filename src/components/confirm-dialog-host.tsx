@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useConfirmStore, type PendingConfirm } from "@/lib/confirm"
+import { isEnterKey } from "@/lib/keyboard"
 
 function ConfirmDialog({ question }: { question: PendingConfirm }) {
   const { t } = useTranslation()
@@ -66,7 +67,7 @@ function ConfirmDialog({ question }: { question: PendingConfirm }) {
             spellCheck={false}
             onChange={(event) => setTyped(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && allowed) choose()
+              if (isEnterKey(event) && allowed) choose()
             }}
           />
         ) : null}
@@ -80,7 +81,7 @@ function ConfirmDialog({ question }: { question: PendingConfirm }) {
               autoComplete="current-password"
               onChange={(event) => setHidden(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && allowed) choose()
+                if (isEnterKey(event) && allowed) choose()
               }}
             />
             {secret.error ? <p className="text-[12px] text-destructive">{secret.error}</p> : null}

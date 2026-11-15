@@ -22,6 +22,7 @@ import { bookmarkParagraph, parseBookmarkAddress } from "./bookmark-card"
 import { isTauri } from "@/lib/storage"
 import { useSmartPlacement, type AnchorRect } from "./use-smart-placement"
 import { motionTransitions } from "@/lib/motion-config"
+import { isEnterKey } from "@/lib/keyboard"
 
 type Mode = "list" | "url" | "emoji" | "database"
 type UrlPurpose = "image" | "bookmark"
@@ -212,7 +213,7 @@ export function BlockInsertPanel({
         else onClose()
         return true
       }
-      if (event.key === "Enter" || event.key === "Tab") {
+      if (isEnterKey(event) || event.key === "Tab") {
         const item = filtered[active]
         if (item) choose(item)
         return true
@@ -246,7 +247,7 @@ export function BlockInsertPanel({
   }, [handleListKey, mode, source])
 
   function onUrlKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter") {
+    if (isEnterKey(e)) {
       e.preventDefault()
       applyUrl()
     } else if (e.key === "Escape") {

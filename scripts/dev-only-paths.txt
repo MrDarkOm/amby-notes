@@ -5,6 +5,7 @@ AGENTS.md
 CLAUDE.md
 GEMINI.md
 .aiignore
+.claude/skills
 .vscode
 :(glob)**/MAP.md
 docs/ai

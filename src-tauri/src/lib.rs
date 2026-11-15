@@ -408,11 +408,16 @@ pub fn run() {
             // lifecycle and guarantees exactly one `main` window per process.
             show_and_focus_main_window(app.handle())
         })
-        .run(tauri::generate_context!());
+        .build(tauri::generate_context!());
 
-    if let Err(error) = result {
-        report_startup_error(&error);
-    }
+    let app = match result {
+        Ok(app) => app,
+        Err(error) => {
+            report_startup_error(&error);
+            return;
+        }
+    };
+    app.run(handle_run_event);
 }
 
 #[cfg(test)]

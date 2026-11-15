@@ -20,6 +20,7 @@ import { ReorderableRow } from "./reorderable-row"
 import { StatusBadge } from "./property-value"
 import { missingOptionChip, safeOptionColor, type DisplayChip } from "./value-format"
 import { ShownError, reportOperationError } from "@/lib/operation-errors"
+import { isEnterKey } from "@/lib/keyboard"
 
 interface OptionCellProps {
   property: DatabasePropertySummary
@@ -186,7 +187,7 @@ export function OptionCell({
         onChange={(event) => setQuery(event.target.value)}
         onKeyDown={(event) => {
           event.stopPropagation()
-          if (event.key !== "Enter") return
+          if (!isEnterKey(event)) return
           event.preventDefault()
           if (exactMatch) {
             toggle(exactMatch.optionId)

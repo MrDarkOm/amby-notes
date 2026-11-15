@@ -60,6 +60,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { isEnterKey } from "@/lib/keyboard"
 
 const DEFAULT_ROW_HEIGHT = 40
 const WRAPPED_ROW_HEIGHT = 76
@@ -1409,7 +1410,7 @@ export function PropertyHeaderMenu({
               onClick={(event) => event.stopPropagation()}
               onKeyDown={(event) => {
                 event.stopPropagation()
-                if (event.key === "Enter") {
+                if (isEnterKey(event)) {
                   event.preventDefault()
                   void commit().then(() => setOpen(false))
                 }

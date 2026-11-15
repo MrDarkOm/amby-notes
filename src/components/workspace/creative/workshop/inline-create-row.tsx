@@ -2,6 +2,7 @@ import * as React from "react"
 import { treeIndent } from "./tree-indent"
 import { useTranslation } from "react-i18next"
 import { projectErrorText } from "@/lib/operation-errors"
+import { isEnterKey } from "@/lib/keyboard"
 
 /**
  * A row starts from a menu or a dialog that is still closing and keeps focus trapped for a moment,
@@ -98,7 +99,7 @@ export function InlineCreateRow({
           }}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing) return
-            if (event.key === "Enter") {
+            if (isEnterKey(event)) {
               event.preventDefault()
               void submit()
             } else if (event.key === "Escape") {

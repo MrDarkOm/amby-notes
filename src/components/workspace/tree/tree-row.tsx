@@ -43,6 +43,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { RenameHint } from "../notices/rename-hint"
 import { TreeItemIcon, TreeItemStatusIcon } from "./tree-icons"
 import { treeItemHasChildren, type AttachableLayer, type TreeNodeProps } from "./tree-types"
+import { isEnterKey } from "@/lib/keyboard"
 
 export const TreeNode = React.memo(
   function TreeNode({
@@ -153,7 +154,7 @@ export const TreeNode = React.memo(
     }
 
     function handleKeyDown(e: React.KeyboardEvent) {
-      if (e.key === "Enter") commitRename()
+      if (isEnterKey(e)) commitRename()
       if (e.key === "Escape") onFinishEdit(item.id, null)
       e.stopPropagation()
     }
@@ -483,7 +484,7 @@ export const TreeNode = React.memo(
           showCloseButton={false}
           className="w-72 border-border bg-popover p-4 text-foreground sm:max-w-xs"
           onKeyDown={(e) => {
-            if (e.key === "Enter") {
+            if (isEnterKey(e)) {
               e.preventDefault()
               if (pendingAttach) {
                 onAttachLayer?.(item.id, pendingAttach)

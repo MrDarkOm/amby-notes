@@ -9,6 +9,7 @@ import type { Chat, TreeItem } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { MAX_ATTACHED_CHARS } from "./context"
 import { toRelativeVaultPath } from "../workspace-tree-utils"
+import { isEnterKey } from "@/lib/keyboard"
 
 interface OpenDoc {
   title?: string
@@ -361,7 +362,7 @@ export function Composer({
             value={input}
             onChange={(event) => onInput(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey && !mentionOpen) {
+              if (isEnterKey(event) && !event.shiftKey && !mentionOpen) {
                 event.preventDefault()
                 onSend()
               }

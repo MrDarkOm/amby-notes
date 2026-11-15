@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { OPTION_COLOR_NAMES, OPTION_COLOR_SHADES, type OptionColorName } from "@/themes/palettes"
 import { optionColor } from "../property-options"
+import { isEnterKey } from "@/lib/keyboard"
 
 /** A value or an option as a coloured chip; the shades come from the palette of the theme. */
 export function OptionChip({
@@ -131,7 +132,7 @@ export function OptionPicker({
         onChange={(event) => setQuery(event.target.value)}
         onKeyDown={(event) => {
           event.stopPropagation()
-          if (event.key === "Enter") {
+          if (isEnterKey(event)) {
             event.preventDefault()
             create()
           }

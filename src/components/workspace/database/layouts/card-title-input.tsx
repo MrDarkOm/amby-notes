@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { renameFailureText } from "../../file-actions/rename-outcome"
 import { RenameHint } from "../../notices/rename-hint"
+import { isEnterKey } from "@/lib/keyboard"
 
 interface CardTitleInputProps {
   value: string
@@ -96,7 +97,7 @@ export function CardTitleInput({
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
         event.stopPropagation()
-        if (event.key === "Enter") {
+        if (isEnterKey(event)) {
           event.preventDefault()
           event.currentTarget.blur()
         }

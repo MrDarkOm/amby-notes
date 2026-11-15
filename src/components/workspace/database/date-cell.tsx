@@ -5,6 +5,7 @@ import type { DatabasePropertySummary } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { dateInputValue, storedDate } from "./date-input"
 import { dateDisplayOf, formatDateValue } from "./value-format"
+import { isEnterKey } from "@/lib/keyboard"
 
 interface DateCellProps {
   property: DatabasePropertySummary
@@ -78,7 +79,7 @@ export function DateCell({ property, value, compact, pending, error, onCommit }:
           onBlur={commit}
           onKeyDown={(event) => {
             event.stopPropagation()
-            if (event.key === "Enter") event.currentTarget.blur()
+            if (isEnterKey(event)) event.currentTarget.blur()
             if (event.key === "Escape") {
               setDraft(dateInputValue(start, display.includeTime))
               setEditing(false)

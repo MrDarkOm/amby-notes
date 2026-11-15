@@ -16,6 +16,7 @@ import { OptionCell } from "./option-cell"
 import { RelationChip } from "./relation-chip"
 import { RelationPickerPopover } from "./relation-picker-popover"
 import { useRecordReferences } from "./use-record-references"
+import { isEnterKey } from "@/lib/keyboard"
 
 const MAX_VISIBLE_RELATIONS = 3
 
@@ -355,7 +356,7 @@ export function DatabaseCell({
         onBlur={commitDraft}
         onKeyDown={(event) => {
           event.stopPropagation()
-          if (event.key === "Enter") event.currentTarget.blur()
+          if (isEnterKey(event)) event.currentTarget.blur()
           if (event.key === "Escape") {
             setDraft(initial)
             event.currentTarget.blur()

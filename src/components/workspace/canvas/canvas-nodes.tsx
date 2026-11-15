@@ -23,6 +23,7 @@ import { useCanvasCtx } from "./canvas-context"
 import { IMAGE_RE, pathStem, renderCardHtml, resolveVaultFilePath } from "./canvas-markdown"
 import { useViewStateStore } from "../use-view-state-store"
 import { TreeIcon } from "../tree/tree-icons"
+import { isEnterKey } from "@/lib/keyboard"
 
 const SIDES: Array<{ side: "top" | "right" | "bottom" | "left"; pos: Position }> = [
   { side: "top", pos: Position.Top },
@@ -371,7 +372,7 @@ export function GroupNode({ id, data, selected }: NodeProps) {
             onChange={(e) => updateNodeData(id, { label: e.target.value })}
             onBlur={() => setEditing(false)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === "Escape") {
+              if (isEnterKey(e) || e.key === "Escape") {
                 e.preventDefault()
                 setEditing(false)
               }

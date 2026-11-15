@@ -22,6 +22,15 @@ the rest of the edited file byte-for-byte.
 
 This harness is full React lifecycle evidence, but it does not claim installer,
 code-signing, removable/network-filesystem, or multi-window acceptance.
+The main window uses the production `state::handle_run_event` callback and an
+isolated main-window configuration: closing it destroys the prewarmed settings
+window, and macOS reopen events use the production restore/recreate path. The
+harness does not install the production single-instance plugin.
+
+Window smoke: wait for settings to prewarm, close the main window, and verify
+that the test process exits. Reopen the same disposable profile and check a
+local image through the insert menu and clipboard. On Windows, repeat against
+a normal build and verify a second launch after closing and while minimized.
 
 ## Творческая мастерская: ручная проверка в нативном окне (этапы 7 и 8)
 

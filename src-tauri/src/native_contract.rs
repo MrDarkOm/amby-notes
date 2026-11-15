@@ -90,7 +90,13 @@ fn run_native_ui(root: std::path::PathBuf) {
     let profile = root.join(".webview");
     let app_data_root = root.join(".app-data");
     let mut context = tauri::generate_context!();
-    context.config_mut().app.windows.clear();
+    // Keep the main configuration for the production restore/recreate path,
+    // but use only the disposable WebView profile and create it in setup.
+    for window in &mut context.config_mut().app.windows {
+        window.create = false;
+        window.data_directory = Some(profile.clone());
+        window.title = "Amby native UI smoke (isolated profile)".into();
+    }
     crate::state::init_logging();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -114,20 +120,11 @@ fn run_native_ui(root: std::path::PathBuf) {
                         .map_err(std::io::Error::other)?,
                 )
                 .map_err(std::io::Error::other)?;
-            tauri::WebviewWindowBuilder::new(
-                app,
-                "main",
-                tauri::WebviewUrl::App("index.html".into()),
-            )
-            .title("Amby native UI smoke (isolated profile)")
-            .inner_size(1280.0, 800.0)
-            .decorations(false)
-            .data_directory(profile)
-            .build()?;
-            Ok(())
+            crate::state::show_and_focus_main_window(app.handle())
         })
-        .run(context)
-        .expect("native UI startup");
+        .build(context)
+        .expect("native UI startup")
+        .run(crate::state::handle_run_event);
 }
 
 pub fn run_native_contract() {

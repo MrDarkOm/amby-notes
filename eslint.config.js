@@ -50,5 +50,22 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Enter that confirms an IME composition must not fire actions (WebKit sends it
+    // with isComposing=false, keyCode 229). Use isEnterKey() from src/lib/keyboard.ts.
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/lib/keyboard.ts", "**/*.test.{ts,tsx}"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "BinaryExpression[operator=/^[!=]==?$/]:has(MemberExpression[property.name=/^(key|code)$/]):has(Literal[value='Enter'])",
+          message:
+            'Do not compare event.key/code with "Enter" directly: it fires during IME composition. Use isEnterKey(event) from "@/lib/keyboard".',
+        },
+      ],
+    },
+  },
   prettier,
 )

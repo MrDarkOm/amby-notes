@@ -27,6 +27,7 @@ import { InlinePickers } from "./inline-pickers"
 import { PageIcon } from "./page-icon"
 import { closeFloatingMenus } from "./close-floating-menus"
 import { watchBlockedDrag } from "./layouts/use-row-reorder"
+import { isEnterKey } from "@/lib/keyboard"
 
 /** What the row menu can do. An action that is absent is not offered. */
 export interface RowMenuModel {
@@ -456,7 +457,7 @@ function RowHeader({
           onChange={(event) => setName(event.target.value)}
           onBlur={commit}
           onKeyDown={(event) => {
-            if (event.key === "Enter") {
+            if (isEnterKey(event)) {
               event.preventDefault()
               event.currentTarget.blur()
             }

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils"
 import { renameFailureText, type RenameOutcome } from "../file-actions/rename-outcome"
 import { RenameHint } from "../notices/rename-hint"
+import { isEnterKey } from "@/lib/keyboard"
 
 /**
  * A row's name: a plain label that is a pointer, and a click lifts a larger field over it (as
@@ -106,7 +107,7 @@ export function RowTitleEditor({
               onPointerDown={(event) => event.stopPropagation()}
               onKeyDown={(event) => {
                 event.stopPropagation()
-                if (event.key === "Enter") {
+                if (isEnterKey(event)) {
                   event.preventDefault()
                   finish(true)
                 }

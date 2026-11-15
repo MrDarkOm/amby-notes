@@ -18,6 +18,7 @@ import {
 import type { TreeItem } from "../sidebar-tree"
 import { relativeToVault } from "./document-breadcrumbs-utils"
 import type { EditorLayer } from "./use-document-view-mode"
+import { isEnterKey } from "@/lib/keyboard"
 
 export type LayerKind = "canvas" | "database" | "sketch" | "note"
 
@@ -102,7 +103,7 @@ export function LayerConfirmDialog({
         showCloseButton={false}
         className="w-72 border-border bg-popover p-4 text-foreground sm:max-w-xs"
         onKeyDown={(e) => {
-          if (e.key === "Enter") {
+          if (isEnterKey(e)) {
             e.preventDefault()
             if (layerConfirm) onConfirm(layerConfirm)
           }
@@ -222,7 +223,7 @@ export function FilePickerModal({
       setActiveIndex(event.key === "Home" ? 0 : Math.max(options.length - 1, 0))
       return
     }
-    if (event.key === "Enter") {
+    if (isEnterKey(event)) {
       event.preventDefault()
       if (event.shiftKey && isMoveMode) {
         const folderName = filePickerQuery.trim()

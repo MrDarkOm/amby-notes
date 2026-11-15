@@ -16,6 +16,7 @@ import { IconValue } from "../icon-value"
 import { isRichIconValue } from "../icon-values"
 import { isSuperCanvasItem, isSuperNoteItem, isSuperSketchItem } from "../workspace-tree-utils"
 import { KNOWN_ICONS, type TreeItem } from "./tree-types"
+import { isEnterKey } from "@/lib/keyboard"
 
 export function BrainIcon({ className }: { className?: string }) {
   return (
@@ -170,7 +171,7 @@ export function TreeItemStatusIcon({
       onKeyDown={
         isInteractive
           ? (event) => {
-              if (event.key !== "Enter" && event.key !== " ") return
+              if (!isEnterKey(event) && event.key !== " ") return
               event.preventDefault()
               event.stopPropagation()
               onActivate?.()
