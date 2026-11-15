@@ -343,6 +343,7 @@ pub fn run() {
         .manage(database::history::DatabaseHistoryState::default())
         .manage(DebugState(logging::global_runtime()))
         .invoke_handler(builder.invoke_handler())
+        .on_menu_event(handle_menu_event)
         .setup(|app| {
             let debug = logging::global_runtime();
             debug.set_app(app.handle().clone());
@@ -406,6 +407,9 @@ pub fn run() {
             // Tauri creates this window from the configuration before calling
             // `setup`. Keeping creation declarative avoids a dev-only window
             // lifecycle and guarantees exactly one `main` window per process.
+            // SAVE-04: Cmd+Q must reach the close handlers that save the last edits.
+            #[cfg(target_os = "macos")]
+            app.set_menu(app_menu(app.handle())?)?;
             show_and_focus_main_window(app.handle())
         })
         .build(tauri::generate_context!());

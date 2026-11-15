@@ -110,8 +110,11 @@ fn run_native_ui(root: std::path::PathBuf) {
         .manage(crate::ai::AiStreamState::default())
         .manage(crate::logging::DebugState(crate::logging::global_runtime()))
         .invoke_handler(crate::specta_builder().invoke_handler())
+        .on_menu_event(crate::state::handle_menu_event)
         .setup(move |app| {
             manage_harness_sync(app, &app_data_root);
+            #[cfg(target_os = "macos")]
+            app.set_menu(crate::state::app_menu(app.handle())?)?;
             let debug = crate::logging::global_runtime();
             debug.set_app(app.handle().clone());
             debug

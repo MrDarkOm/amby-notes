@@ -19,7 +19,11 @@ commands in `src/commands/` and domain behavior in the owning service. The main
 window lifecycle (restore/recreate on Dock click or a second launch, closing the
 hidden settings window with it) lives in `src/state.rs`. Its `handle_run_event` is also used by the isolated
 native UI harness in `src/native_contract.rs` so smoke tests exercise the same
-helper-window cleanup and restore path.
+helper-window cleanup and restore path. On macOS both also install `app_menu`: the default menu with
+Amby's own Quit item (`QUIT_MENU_ID`, Cmd+Q). `request_quit` asks every editing window to close, so
+each saves its edits in its own close handler; the predefined Quit item would end the process without a
+close request. Dock → Quit and logout still send `terminate:` directly (tao has no
+`applicationShouldTerminate`), so they are not covered yet.
 Vault access is granted dynamically to the selected canonical vault; do not
 add broad static filesystem scopes or relax CSP to silence tests.
 
