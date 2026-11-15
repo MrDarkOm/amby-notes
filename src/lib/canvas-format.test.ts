@@ -17,9 +17,25 @@ describe("validateAndSerializeCanvas", () => {
     expect(validateAndSerializeCanvas("{}")).toBe('{\n  "nodes": [],\n  "edges": []\n}\n')
   })
 
+  // SAVE-01: these real files used to fail the strict check and open as an empty canvas.
+  it("accepts a UTF-8 BOM and a canvas without nodes or edges (both are optional in JSON Canvas)", () => {
+    expect(validateAndSerializeCanvas('\uFEFF{"nodes":[],"edges":[]}')).toBe(
+      validateAndSerializeCanvas('{"nodes":[],"edges":[]}'),
+    )
+    const onlyNodes = JSON.parse(
+      validateAndSerializeCanvas(
+        '{"nodes":[{"id":"a","type":"text","x":0,"y":0,"width":1,"height":1,"text":"t"}],"extra":1}',
+      ),
+    )
+    expect(onlyNodes.nodes).toHaveLength(1)
+    expect(onlyNodes.edges).toEqual([])
+    expect(onlyNodes.extra).toBe(1)
+    expect(JSON.parse(validateAndSerializeCanvas('{"edges":[]}')).nodes).toEqual([])
+  })
+
   it("rejects malformed or incomplete Canvas JSON", () => {
     expect(() => validateAndSerializeCanvas("not json")).toThrow("valid JSON")
-    expect(() => validateAndSerializeCanvas('{"nodes":[]}')).toThrow("nodes and edges")
+    expect(() => validateAndSerializeCanvas('{"nodes":{}}')).toThrow("nodes and edges")
   })
 
   it("preserves unknown top-level, node, link, group, and edge fields", () => {

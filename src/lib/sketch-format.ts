@@ -178,7 +178,8 @@ export function parseSketch(json: string | null | undefined): ExcalidrawFile {
 export function validateAndSerializeSketch(json: string): string {
   let data: unknown
   try {
-    data = JSON.parse(json)
+    // A byte order mark is not JSON. The file write puts the BOM back from the file on disk.
+    data = JSON.parse(json.replace(/^\uFEFF/u, ""))
   } catch {
     throw new Error("Sketch content must be valid JSON")
   }

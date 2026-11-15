@@ -11,7 +11,9 @@ import { readFile } from "@/lib/storage"
 import { recordAutosaveDiagnostic } from "@/lib/debug/autosave"
 import { logger, errorType } from "@/lib/logger"
 import { useDocStore } from "../use-doc-store"
-import { canvasLayerPath } from "../workspace-tree-utils"
+import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
+import { operationErrorCode } from "@/lib/operation-errors"
+import { LayerUnreadableError, layerDocIds } from "./layer-draft"
 import { FileConflictPausedError, FileRevisionTracker } from "../autosave/file-revision-tracker"
 import { AutosaveCoordinator, type AutosaveKey } from "../autosave/autosave-coordinator"
 import { registerAutosaveLifecycle } from "../autosave/autosave-lifecycle"
@@ -49,6 +51,7 @@ export function useCanvasWorkspace(
   const canvasLoadsRef = React.useRef(new CanvasLoadDeduplicator())
   const revisionsRef = React.useRef(new FileRevisionTracker())
   const deletedRef = React.useRef(new DeletedPaths())
+  const unreadableRef = React.useRef(new Set<string>())
   const vaultGenerationRef = React.useRef({ generation })
   vaultGenerationRef.current.generation = generation
 
@@ -77,21 +80,21 @@ export function useCanvasWorkspace(
             void discardRecoveryDraft(value.path, recoveryScope)
             const docStore = useDocStore.getState()
             docStore.markSaved(value.path)
-            for (const [docId, doc] of Object.entries(docStore.openDocs)) {
-              if (
-                doc.path === value.path ||
-                canvasLayerPath(doc.path) === value.path ||
-                doc.id === value.path
-              ) {
-                docStore.markSaved(docId)
-              }
+            for (const docId of layerDocIds(value.path)) {
+              docStore.markSaved(docId)
+              useNoteNoticesStore.getState().setSaveFailed(docId, false)
             }
           }
         },
-        onSaveFailure: (_snapshot, error) =>
-          error instanceof FileConflictPausedError
-            ? undefined
-            : logger.error("canvas.save_failed", { errorType: errorType(error) }),
+        onSaveFailure: ({ key, value }, error) => {
+          if (error instanceof FileConflictPausedError) return
+          logger.error("canvas.save_failed", { errorType: errorType(error) })
+          // Said on the note the layer belongs to, like a failed note save (SAVE-05). The draft
+          // stays, and the note keeps its unsaved mark until a save succeeds.
+          if (vaultGenerationRef.current.generation !== key.generation) return
+          for (const docId of layerDocIds(value.path))
+            useNoteNoticesStore.getState().setSaveFailed(docId, true)
+        },
       }),
     }
   }
@@ -109,7 +112,16 @@ export function useCanvasWorkspace(
         try {
           await revisionsRef.current.baseline(path)
           diskContent = validateAndSerializeCanvas(await readFile(path))
-        } catch {
+          unreadableRef.current.delete(path)
+        } catch (error) {
+          // A file that is not there yet opens empty. A file that is there but cannot be read or
+          // parsed must never become an empty editable buffer: its first edit would replace the
+          // file (SAVE-01). The open fails, and saves for the path are refused until it reads.
+          if (operationErrorCode(error) !== "notFound") {
+            unreadableRef.current.add(path)
+            logger.warn("canvas.load_failed", { failureCode: operationErrorCode(error) })
+            throw new LayerUnreadableError(path)
+          }
           diskContent = serializeCanvas({ nodes: [], edges: [] })
         }
         return settleLayerDraft({
@@ -124,8 +136,12 @@ export function useCanvasWorkspace(
           readDisk: async () => {
             try {
               return validateAndSerializeCanvas(await readFile(path))
-            } catch {
-              return serializeCanvas({ nodes: [], edges: [] })
+            } catch (error) {
+              // Never an empty buffer in place of a file that is there (SAVE-01).
+              if (operationErrorCode(error) === "notFound")
+                return serializeCanvas({ nodes: [], edges: [] })
+              unreadableRef.current.add(path)
+              throw new LayerUnreadableError(path)
             }
           },
           setBuffer: (content) => setOpenCanvases((prev) => ({ ...prev, [path]: content })),
@@ -142,15 +158,19 @@ export function useCanvasWorkspace(
       let normalized: string
       try {
         normalized = validateAndSerializeCanvas(json)
-      } catch (error) {
-        console.error("Refusing to save invalid canvas:", error)
+      } catch {
+        // Editor output is always valid; this guards the file against a broken serializer.
+        logger.error("canvas.invalid_serialization")
         return
       }
+      // The file could not be read: an empty board shown in its place must not replace it (SAVE-01).
+      if (unreadableRef.current.has(path)) return
       // Deleted by Amby: a closing editor must not queue a write (docs/notices.md, section 9).
       if (deletedRef.current.covers(path)) return
       if (openCanvasesRef.current[path] === normalized) return
       openCanvasesRef.current = { ...openCanvasesRef.current, [path]: normalized }
       scheduleRecoveryDraft(path, normalized, "canvas", path, recoveryScope)
+      for (const docId of layerDocIds(path)) useDocStore.getState().markUnsaved(docId)
       autosave.schedule(autosaveKey(path), { path, json: normalized })
     },
     [autosave, autosaveKey, recoveryScope],
@@ -207,7 +227,7 @@ export function useCanvasWorkspace(
         void discardRecoveryDraft(path, recoveryScope)
         return true
       } catch (error) {
-        console.error("Failed to reload external canvas:", error)
+        logger.warn("canvas.reload_failed", { failureCode: operationErrorCode(error) })
         return false
       }
     },

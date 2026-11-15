@@ -2993,6 +2993,9 @@ const ru = {
     deleteKeepRecovery: "Сохранить черновик",
     deleteDiscard: "Удалить без сохранения",
     deleteManyFailed: "Не удалось удалить {{failed}} из {{total}}.",
+    layerUnreadable: "Не удалось прочитать «{{name}}»",
+    layerUnreadableLine:
+      "Файл повреждён или недоступен, поэтому он не открыт. Сам файл не изменён.",
     dontAskAgain: "Больше не показывать это подтверждение",
     graphTab: "Граф связей",
     newModel: "Новая модель",
@@ -7537,6 +7540,9 @@ const en: typeof ru = {
     deleteKeepRecovery: "Keep a draft",
     deleteDiscard: "Delete without saving",
     deleteManyFailed: "Could not delete {{failed}} of {{total}}.",
+    layerUnreadable: "Could not read «{{name}}»",
+    layerUnreadableLine:
+      "The file is damaged or unavailable, so it was not opened. The file itself is unchanged.",
     dontAskAgain: "Don't show this confirmation again",
     graphTab: "Link graph",
     newModel: "New model",

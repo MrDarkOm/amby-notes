@@ -120,7 +120,8 @@ export const CANONICAL_EMPTY_CANVAS = '{\n  "nodes": [],\n  "edges": []\n}\n'
 export function validateAndSerializeCanvas(json: string): string {
   let data: unknown
   try {
-    data = JSON.parse(json)
+    // A byte order mark is not JSON. The file write puts the BOM back from the file on disk.
+    data = JSON.parse(json.replace(/^\uFEFF/u, ""))
   } catch {
     throw new Error("Canvas content must be valid JSON")
   }
@@ -131,12 +132,15 @@ export function validateAndSerializeCanvas(json: string): string {
   if (Object.keys(file).length === 0) {
     return serializeCanvas({ nodes: [], edges: [] })
   }
-  if (!Array.isArray(file.nodes) || !Array.isArray(file.edges)) {
+  // JSON Canvas 1.0 makes both arrays optional: a missing one is empty (SAVE-01).
+  const nodes = file.nodes ?? []
+  const edges = file.edges ?? []
+  if (!Array.isArray(nodes) || !Array.isArray(edges)) {
     throw new Error("Canvas content must contain nodes and edges arrays")
   }
   // Keep future/third-party top-level fields intact; nodes and edges themselves
   // are likewise carried through untouched.
-  const { nodes, edges, ...unknownFields } = file
+  const { nodes: _nodes, edges: _edges, ...unknownFields } = file
   return JSON.stringify({ nodes, edges, ...unknownFields }, null, 2) + "\n"
 }
 

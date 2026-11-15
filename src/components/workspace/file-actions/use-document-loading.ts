@@ -33,6 +33,9 @@ import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
 import { moduleHost } from "@/lib/modules/host"
 import { flushEditorSerializations } from "../tiptap/editor-serialization-lifecycle"
 import { logger } from "@/lib/logger"
+import { operationErrorCode } from "@/lib/operation-errors"
+import { LayerUnreadableError } from "../orchestration/layer-draft"
+import { useTreeMessageStore } from "../tree/use-tree-message-store"
 
 type Params = Pick<
   UseFileActionsParams,
@@ -376,7 +379,17 @@ export function useDocumentLoading({
           await loadDoc(target.fileId, target.title)
         }
       } catch (error) {
-        console.error("Failed to load file:", error)
+        if (error instanceof LayerUnreadableError) {
+          // An unreadable canvas or sketch is not opened; the answer goes under the tree (SAVE-01).
+          useTreeMessageStore.getState().show({
+            id: `layer-unreadable:${error.path}`,
+            level: "warning",
+            titleKey: "workspace.layerUnreadable",
+            params: { name: target.title },
+            lineKey: "workspace.layerUnreadableLine",
+          })
+        }
+        logger.warn("document.open_failed", { failureCode: operationErrorCode(error) })
         return
       }
       const currentVault = useVaultStore.getState()

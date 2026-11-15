@@ -3,6 +3,7 @@
 import { act, renderHook } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { defaultSketchJson } from "@/lib/sketch-format"
+import * as storage from "@/lib/storage"
 import { useSketchWorkspace } from "./use-sketch-workspace"
 
 describe("useSketchWorkspace", () => {
@@ -99,5 +100,24 @@ describe("useSketchWorkspace: a sketch deleted by Amby", () => {
     })
     act(() => save(result, sampleJson(1)))
     expect(result.current.autosave.inspect(result.current.autosaveKey(path))?.dirty).toBe(true)
+  })
+})
+
+// SAVE-01: a sketch that cannot be read is not opened as an empty drawing, and nothing is saved over it.
+describe("useSketchWorkspace: an unreadable sketch", () => {
+  it("refuses to open it and never saves over it", async () => {
+    const t = ((k: string) => k) as never
+    const path = "/vault-unreadable/Broken.excalidraw"
+    vi.spyOn(storage, "readFile").mockResolvedValue("{ not json")
+    const { result } = renderHook(() =>
+      useSketchWorkspace(1, t, { vault: "/vault-unreadable", generation: 1 }),
+    )
+    vi.spyOn(result.current.fileRevisions, "baseline").mockResolvedValue()
+    await expect(result.current.loadSketchBuffer(path)).rejects.toThrow()
+    act(() => result.current.handleSketchSave(path, defaultSketchJson()))
+    expect(result.current.autosave.inspect(result.current.autosaveKey(path))?.dirty ?? false).toBe(
+      false,
+    )
+    vi.restoreAllMocks()
   })
 })

@@ -154,3 +154,10 @@ describe("sketch-format", () => {
     expect(reparsed.appState.collaborators).toBeUndefined()
   })
 })
+
+describe("a sketch file with a byte order mark (SAVE-01)", () => {
+  it("reads like the same file without it", () => {
+    const plain = '{"type":"excalidraw","version":2,"elements":[],"appState":{},"files":{}}'
+    expect(validateAndSerializeSketch("\uFEFF" + plain)).toBe(validateAndSerializeSketch(plain))
+  })
+})
