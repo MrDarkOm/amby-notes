@@ -408,11 +408,31 @@ pub fn run() {
             // lifecycle and guarantees exactly one `main` window per process.
             show_and_focus_main_window(app.handle())
         })
-        .run(tauri::generate_context!());
+        .build(tauri::generate_context!());
 
-    if let Err(error) = result {
-        report_startup_error(&error);
-    }
+    let app = match result {
+        Ok(app) => app,
+        Err(error) => {
+            report_startup_error(&error);
+            return;
+        }
+    };
+    app.run(|handle, event| match event {
+        // The Dock icon was clicked. tao leaves a minimized window alone, and a
+        // closed main window is not created again on its own.
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Reopen { .. } => {
+            if let Err(error) = show_and_focus_main_window(handle) {
+                tracing::warn!(event = "restore_window_failed", error = %error);
+            }
+        }
+        tauri::RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::Destroyed,
+            ..
+        } if label == MAIN_WINDOW_LABEL => close_main_window_helpers(handle),
+        _ => {}
+    });
 }
 
 #[cfg(test)]

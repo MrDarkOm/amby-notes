@@ -29,6 +29,7 @@ import { CALLOUT_DEFAULTS } from "./callout-node"
 import { wrapSelectionInCallout } from "./block-insert-items"
 import { aiChat, aiErrorMessage } from "@/lib/ai"
 import { activeModel, loadSettings, resolveAiConfig } from "../app-config"
+import { isEnterKey } from "@/lib/keyboard"
 
 type Panel = "heading" | "color" | "list" | "tag" | "link" | "wikilink" | "ai" | null
 
@@ -335,7 +336,7 @@ export function BubbleToolbar({
 
   // Shared input key handler
   function handleInputKey(e: React.KeyboardEvent<HTMLInputElement>, onEnter: () => void) {
-    if (e.key === "Enter") {
+    if (isEnterKey(e)) {
       e.preventDefault()
       onEnter()
       closePanel()

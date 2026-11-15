@@ -29,6 +29,7 @@ import {
   saveImageAt,
 } from "./image-commands"
 import { refocusPicture, updateImageNode, type ImagePatch } from "./image-edit"
+import { isEnterKey } from "@/lib/keyboard"
 
 interface ImageToolbarProps {
   editor: Editor
@@ -234,7 +235,7 @@ export function ImageToolbar({ editor, left, right, top, hidden = false }: Image
                 onChange={(event) => setCaption(event.target.value)}
                 onKeyDown={(event) => {
                   event.stopPropagation()
-                  if (event.key === "Enter") {
+                  if (isEnterKey(event)) {
                     event.preventDefault()
                     applyCaption()
                   }

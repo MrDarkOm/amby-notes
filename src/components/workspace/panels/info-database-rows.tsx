@@ -16,6 +16,7 @@ import type {
 import { IconValue } from "../icon-value"
 import { DatabaseCell } from "../database/database-cell"
 import { PropertyHeaderMenu } from "../database/table-view"
+import { isEnterKey } from "@/lib/keyboard"
 
 export function PropertyDragIcon({
   icon,
@@ -489,7 +490,7 @@ export function PropertyRow({
             onChange={(event) => setValue(event.target.value)}
             onBlur={() => void saveValue()}
             onKeyDown={(event) => {
-              if (event.key === "Enter") {
+              if (isEnterKey(event)) {
                 event.currentTarget.blur()
               }
             }}

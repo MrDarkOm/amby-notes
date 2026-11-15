@@ -33,6 +33,7 @@ import { ItemActionsContext } from "./item-actions"
 import type { NotebookTarget } from "./notebook-model"
 import type { PlotKind } from "./plot-model"
 import type { ArrangeKey } from "./text-tree-model"
+import { isEnterKey } from "@/lib/keyboard"
 
 /**
  * Where a note can be moved from its menu: the notebooks to choose from and the root of the base
@@ -177,7 +178,7 @@ export function InlineRename({
         onChange={(event) => setName(event.target.value)}
         onBlur={() => finish(true)}
         onKeyDown={(event) => {
-          if (event.key === "Enter") {
+          if (isEnterKey(event)) {
             event.preventDefault()
             finish(true)
           } else if (event.key === "Escape") {

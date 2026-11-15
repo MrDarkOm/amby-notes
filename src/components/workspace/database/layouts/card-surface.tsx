@@ -2,6 +2,7 @@ import * as React from "react"
 import { motion } from "motion/react"
 import { motionTransition, motionTransitions } from "@/lib/motion-config"
 import { cardEnter, liftVariants } from "../database-motion"
+import { isEnterKey } from "@/lib/keyboard"
 
 /** Handlers whose types differ between React and motion; cards use none of them. */
 type Conflicting =
@@ -59,7 +60,7 @@ export function CardSurface({
       onKeyDown={(event) => {
         onKeyDown?.(event)
         if (event.defaultPrevented || disabled || event.target !== event.currentTarget) return
-        if (event.key === "Enter" || event.key === " ") {
+        if (isEnterKey(event) || event.key === " ") {
           event.preventDefault()
           onOpen?.()
         }

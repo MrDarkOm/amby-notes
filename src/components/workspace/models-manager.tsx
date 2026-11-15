@@ -35,6 +35,7 @@ import {
   type AiModel,
   type AiSettings,
 } from "./app-config"
+import { isEnterKey } from "@/lib/keyboard"
 
 // ── Models library manager ────────────────────────────────────────────────────
 
@@ -397,7 +398,7 @@ function ModelEditor({
                 if (inputKey) void handleSaveKey(inputKey)
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && inputKey) {
+                if (isEnterKey(e) && inputKey) {
                   e.preventDefault()
                   void handleSaveKey(inputKey)
                 }

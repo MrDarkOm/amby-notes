@@ -60,6 +60,18 @@ Rendered tags and wiki links may expose editor-only controls such as unlink-on-h
 
 The repository has been normalized to consistent Prettier and Rustfmt standards (with revisions tracked in `.git-blame-ignore-revs`). Maintain clean formatting: format touched frontend files with Prettier and touched Rust files with Rustfmt. `npm run format:check` and `npm run rust:fmt` are enforced as clean gates. Lefthook runs ESLint fixes and Prettier on staged frontend files.
 
+## Browser engines
+
+Amby is not a browser app: it runs in the system web engine of each platform. macOS uses WKWebView, whose WebKit is the Safari version of the user's macOS (Tauri's default minimum is macOS 10.13 because `tauri.conf.json` sets no `minimumSystemVersion`). Windows uses WebView2 (evergreen Chromium). Linux uses WebKitGTK (`webkit2gtk-4.1`, building on Ubuntu 22.04). The oldest WebKit is the real constraint.
+
+- Baseline "widely available" web features are fine to use.
+- Newer features need feature detection (`@supports`, `CSS.supports`, `'x' in obj`) and an equivalent fallback that keeps behavior on all three engines.
+- Never replace an existing library (Radix, motion, floating positioning, virtualization) with a platform feature that is missing in WebKitGTK or older Safari.
+- Do not add polyfills that bring new dependencies.
+- Chrome-only features (built-in AI, interest invokers and similar) are out.
+- `::-webkit-scrollbar` works in every engine we ship. Standard `scrollbar-color` / `scrollbar-width` make Chromium ignore `::-webkit-scrollbar` and change the look on WebView2, so do not add them casually.
+- Enter in our own key handlers goes through `isEnterKey()` from `src/lib/keyboard.ts` so the Enter that commits an IME composition (WebKit sends it with `isComposing=false`, `keyCode` 229) never fires an action. ESLint enforces this; Tiptap/ProseMirror and CodeMirror keymaps handle composition themselves.
+
 ## Localization and Themes
 
 Do not hard-code user-facing text in TSX. Add the Russian source string and every supported translation under the same stable dotted key in `src/locales/resources.ts`; `src/lib/i18n.ts` only initializes i18next. Keep language resources structurally identical. `src/lib/localization-guard.test.ts` enforces this boundary.
@@ -109,6 +121,10 @@ For Markdown/editor changes, add a focused round-trip test or fixture and verify
 ## Security and Permissions
 
 Keep Tauri permissions narrow in `src-tauri/capabilities/default.json`. Vault access is granted dynamically for the selected canonical vault; do not add broad static filesystem scopes. Validate and canonicalize paths through the existing vault guards, and treat filesystem access, asset protocol scopes, imported themes, AI credentials, and external URL/path opening as security-sensitive.
+
+Capabilities restrict only core and plugin commands. App commands have no permission manifest (`src-tauri/permissions/` does not exist), so every window, including note and settings windows, can call every registered app command. Each command therefore validates its own input: vault paths through `paths::guard`, web addresses through `parse_web_address`, openable files through the attachment allowlist in `commands/external.rs`. Never pass a raw frontend string to `std::process::Command` or a system opener.
+
+Do not enable `app.security.freezePrototype` as it stands: on 2026-11-15 a bundle with `Object.prototype` frozen (exactly what Tauri injects) failed all 103 browser tests at startup, because d3-color assigns `prototype.constructor` while loading. Instead, keep records keyed by user data (property, tag, folder or option names) in a `Map` or an `Object.create(null)` object. Never write `obj[userKey][x] = …` on a plain object: a key of `__proto__` would change `Object.prototype` for the whole app.
 
 Do not commit vault contents, `.amby/` metadata, secrets, generated bundles, machine-specific files, or local recovery data.
 

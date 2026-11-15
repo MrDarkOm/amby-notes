@@ -9,6 +9,7 @@ import { motionTransitions } from "@/lib/motion-config"
 import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
 import { IconValue } from "../icon-value"
 import { RenameHint } from "../notices/rename-hint"
+import { isEnterKey } from "@/lib/keyboard"
 
 interface DatabaseTitleHeaderProps {
   iconTriggerRef: React.RefObject<HTMLButtonElement | null>
@@ -97,7 +98,7 @@ export function DatabaseTitleHeader({
           onChange={(event) => setDatabaseTitle(event.target.value)}
           onBlur={commitDatabaseTitle}
           onKeyDown={(event) => {
-            if (event.key === "Enter") commitDatabaseTitle()
+            if (isEnterKey(event)) commitDatabaseTitle()
             if (event.key === "Escape") cancelDatabaseTitle()
           }}
           className="h-8 min-w-0 w-full cursor-text border-0 bg-transparent p-0 text-2xl font-semibold leading-none tracking-tight text-foreground outline-none sm:h-10 sm:text-3xl"

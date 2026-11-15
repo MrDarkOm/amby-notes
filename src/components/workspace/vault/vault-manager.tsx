@@ -30,6 +30,7 @@ import { cn } from "@/lib/utils"
 import type { Language } from "../app-config"
 import { useSettingsStore } from "../use-settings-store"
 import type { VaultRecord } from "../workspace-picker"
+import { isEnterKey } from "@/lib/keyboard"
 
 export interface VaultManagerProps {
   vaults: VaultRecord[]
@@ -105,7 +106,7 @@ export function VaultManager({
                       onChange={(e) => setRenameValue(e.target.value)}
                       onBlur={() => commitRename(vault.id)}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") commitRename(vault.id)
+                        if (isEnterKey(e)) commitRename(vault.id)
                         if (e.key === "Escape") setRenamingId(null)
                         e.stopPropagation()
                       }}

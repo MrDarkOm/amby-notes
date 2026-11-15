@@ -30,6 +30,7 @@ import { sectionRoleIcon } from "./section-icons"
 import { levelsProblem, MAX_TEXT_LEVELS } from "./text-schema-presets"
 import { useOperationId } from "./use-operation-id"
 import { projectErrorText } from "@/lib/operation-errors"
+import { isEnterKey } from "@/lib/keyboard"
 
 type SettingsTab = "general" | "sections" | "levels"
 
@@ -511,7 +512,7 @@ export function ProjectSettingsDialog({
                           void handleRenameSection(section.id, section.databaseId, currentName)
                         }
                         onKeyDown={(event) => {
-                          if (event.key === "Enter") {
+                          if (isEnterKey(event)) {
                             event.preventDefault()
                             void handleRenameSection(section.id, section.databaseId, currentName)
                           }

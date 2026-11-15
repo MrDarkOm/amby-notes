@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils"
 import { RelationChip } from "./relation-chip"
 import { useRecordReferences } from "./use-record-references"
 import { useRelationCandidates } from "./use-relation-candidates"
+import { isEnterKey } from "@/lib/keyboard"
 
 export interface RelationItem {
   noteId: string
@@ -151,7 +152,7 @@ export function RelationPickerPopover({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && canCreate) {
+            if (isEnterKey(e) && canCreate) {
               e.preventDefault()
               void handleCreate()
             }
@@ -273,7 +274,7 @@ export function RelationPickerPopover({
                   )}
                   onClick={() => handleToggleNote(item.noteId)}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
+                    if (isEnterKey(event) || event.key === " ") {
                       event.preventDefault()
                       handleToggleNote(item.noteId)
                     }

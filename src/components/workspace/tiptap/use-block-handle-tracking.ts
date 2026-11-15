@@ -491,6 +491,7 @@ export function useBlockHandleTracking({
         e.key.length === 1 ||
         e.key === "Backspace" ||
         e.key === "Delete" ||
+        // eslint-disable-next-line no-restricted-syntax -- // activity detection, not an action
         e.key === "Enter" ||
         e.key === "Process" ||
         e.isComposing

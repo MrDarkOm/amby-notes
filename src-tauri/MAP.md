@@ -15,7 +15,9 @@ Use this map for app bootstrap, permissions and packaging; use
 | Frontend integration guards                        | [tauri-capabilities.test.ts](../src/lib/tauri-capabilities.test.ts), [tauri-build-config.test.ts](../src/lib/tauri-build-config.test.ts) |
 
 `lib.rs` composes state/plugins/windows and the Specta command builder. Put new
-commands in `src/commands/` and domain behavior in the owning service.
+commands in `src/commands/` and domain behavior in the owning service. The main
+window lifecycle (restore/recreate on Dock click or a second launch, closing the
+hidden settings window with it) lives in `src/state.rs`.
 Vault access is granted dynamically to the selected canonical vault; do not
 add broad static filesystem scopes or relax CSP to silence tests.
 

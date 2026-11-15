@@ -7,6 +7,7 @@ import { ChevronDown, ChevronUp, X } from "lucide-react"
 import type { Editor } from "@tiptap/react"
 
 import { clearFind, readFind, setFindQuery, stepFind } from "./find-in-note"
+import { isEnterKey } from "@/lib/keyboard"
 
 interface FindBarProps {
   editor: Editor
@@ -112,7 +113,7 @@ export function FindBar({ editor, initialQuery, request, onClose }: FindBarProps
           className="w-44 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter") {
+            if (isEnterKey(event)) {
               event.preventDefault()
               step(event.shiftKey ? -1 : 1)
             } else if (event.key === "Escape") {

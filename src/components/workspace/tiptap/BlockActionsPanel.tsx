@@ -49,6 +49,7 @@ import { updateImageNode, type ImagePatch } from "./image-edit"
 import { useSmartPlacement, type AnchorRect } from "./use-smart-placement"
 import { BLOCK_TEXT_COLORS as TEXT_COLORS, CALLOUT_SWATCHES } from "@/lib/themes"
 import { motionTransitions } from "@/lib/motion-config"
+import { isEnterKey } from "@/lib/keyboard"
 
 const MotionRowButton = React.forwardRef<
   HTMLButtonElement,
@@ -1075,7 +1076,7 @@ function ImageContext({
                   onBlur={() => patch({ title: caption.trim() || null })}
                   onKeyDown={(e) => {
                     e.stopPropagation()
-                    if (e.key === "Enter") {
+                    if (isEnterKey(e)) {
                       e.preventDefault()
                       patch({ title: caption.trim() || null })
                     }
@@ -1091,7 +1092,7 @@ function ImageContext({
                   onBlur={() => patch({ alt: alt || null })}
                   onKeyDown={(e) => {
                     e.stopPropagation()
-                    if (e.key === "Enter") {
+                    if (isEnterKey(e)) {
                       e.preventDefault()
                       patch({ alt: alt || null })
                     }
@@ -1269,7 +1270,7 @@ function CodeBlockContext({
         onChange={(e) => setLang(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
-          if (e.key === "Enter") {
+          if (isEnterKey(e)) {
             e.preventDefault()
             commit()
           }
