@@ -6,7 +6,9 @@ use crate::model::{FsMutationResult, PathChange};
 use super::notes::resolve_item_root;
 use super::path_ops::{ensure_rename_target_available, file_name, file_stem};
 use super::path_string;
-use super::scan::{is_bundle_main_note, is_supported_document};
+use super::scan::{
+    is_bundle_main_note, is_bundle_main_note_in, is_supported_document, is_vault_root,
+};
 
 pub(super) fn collect_refactor_paths(root: &Path) -> Result<Vec<PathBuf>, String> {
     if root.is_file() {
@@ -78,13 +80,20 @@ pub(super) fn bundle_rename_path_changes(
         .collect()
 }
 
-pub(crate) fn preview_rename_item(path: &Path, new_name: &str) -> Result<FsMutationResult, String> {
+pub(crate) fn preview_rename_item(
+    vault: &Path,
+    path: &Path,
+    new_name: &str,
+) -> Result<FsMutationResult, String> {
     let trimmed = new_name.trim();
     if trimmed.is_empty() || trimmed.contains('/') || trimmed.contains('\\') {
         return Err("Invalid item name".to_string());
     }
+    if is_vault_root(vault, path) {
+        return Err("The vault itself cannot be renamed".to_string());
+    }
 
-    if is_bundle_main_note(path) {
+    if is_bundle_main_note_in(vault, path) {
         let bundle_dir = path
             .parent()
             .ok_or_else(|| "Bundle note has no parent".to_string())?;
@@ -151,6 +160,7 @@ pub(crate) fn preview_rename_item(path: &Path, new_name: &str) -> Result<FsMutat
 }
 
 pub(crate) fn preview_move_item(
+    vault: &Path,
     source_path: &Path,
     target_path: &Path,
 ) -> Result<FsMutationResult, String> {
@@ -204,7 +214,10 @@ pub(crate) fn preview_move_item(
         ));
     }
 
-    let source_root = resolve_item_root(source_path);
+    let source_root = resolve_item_root(vault, source_path);
+    if is_vault_root(vault, &source_root) {
+        return Err("The vault itself cannot be moved".to_string());
+    }
     if !source_root.exists() {
         return Err(format!("Source not found: {}", path_string(source_path)));
     }
@@ -225,7 +238,7 @@ pub(crate) fn preview_move_item(
         &source_root,
         &destination,
     ));
-    let primary_path = if is_bundle_main_note(source_path) {
+    let primary_path = if is_bundle_main_note_in(vault, source_path) {
         Some(path_string(
             &destination.join(format!("{}.md", file_stem(source_path)?)),
         ))

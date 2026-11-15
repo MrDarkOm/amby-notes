@@ -49,10 +49,17 @@ function pathName(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1)
 }
 
-function deletionRoot(item: { path: string; type: TreeItem["type"] }): string {
+// What a delete removes: the bundle folder for a bundle's main note, the item itself otherwise. A note
+// directly in the vault root is never a bundle's main note, even when the vault folder has its name
+// (`/Notes/Notes.md`): its "bundle" would be the whole vault (CORE-01, the same rule as in Rust).
+function deletionRoot(
+  item: { path: string; type: TreeItem["type"] },
+  vault: string | null,
+): string {
   const path = normalizeFsPath(item.path)
   if (item.type !== "file") return path
   const parent = path.slice(0, Math.max(0, path.lastIndexOf("/")))
+  if (vault && parent === normalizeFsPath(vault)) return path
   const stem = pathName(path).replace(/\.[^.]+$/u, "")
   return pathName(parent) === stem ? parent : path
 }
@@ -64,6 +71,7 @@ function isPathInside(path: string, root: string): boolean {
 }
 
 function deleteTargets(
+  vault: string | null,
   items: Array<{
     id: string
     name: string
@@ -71,7 +79,7 @@ function deleteTargets(
     type: TreeItem["type"]
   }>,
 ) {
-  const candidates = items.map((item) => ({ ...item, root: deletionRoot(item) }))
+  const candidates = items.map((item) => ({ ...item, root: deletionRoot(item, vault) }))
   const uniqueCandidates = candidates.filter(
     (candidate, index) => candidates.findIndex((other) => other.root === candidate.root) === index,
   )
@@ -206,7 +214,7 @@ export function useDocumentCrud({
       const items = ids
         .map((id) => findTreeItem(treeItems, id))
         .filter((item): item is NonNullable<typeof item> => Boolean(item))
-      const targets = deleteTargets(items)
+      const targets = deleteTargets(vault, items)
       if (targets.length === 0) return
       const openDocuments = Object.values(useDocStore.getState().openDocs)
       const affected = openDocuments.filter((document) =>

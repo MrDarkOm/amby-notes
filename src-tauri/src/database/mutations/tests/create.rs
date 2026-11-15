@@ -152,7 +152,7 @@ fn creates_standalone_database_with_named_json_file() {
     assert_eq!(parsed_after.value.properties.len(), 1);
 
     // Rename the database item via crate::bundle::rename_item_impl
-    crate::bundle::rename_item_impl(&db_dir, "All Tasks").unwrap();
+    crate::bundle::rename_item_impl(&vault, &db_dir, "All Tasks").unwrap();
 
     let new_db_dir = vault.join("All Tasks");
     assert!(new_db_dir.is_dir());

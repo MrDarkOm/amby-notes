@@ -5,9 +5,10 @@ use crate::model::FsMutationResult;
 
 use super::path_ops::{file_name, file_stem, rename_path_case_safe};
 use super::path_string;
-use super::scan::{is_bundle_main_note, is_bundle_main_path, is_markdown};
+use super::scan::{is_bundle_main_note, is_bundle_main_path_in, is_markdown, is_vault_root};
 
 pub(crate) fn rollback_rename_item(
+    vault: &Path,
     original_path: &Path,
     result: &FsMutationResult,
 ) -> Result<(), String> {
@@ -16,8 +17,12 @@ pub(crate) fn rollback_rename_item(
         .as_deref()
         .map(Path::new)
         .ok_or("Rename result has no primary path")?;
+    // A root note named like the vault was renamed as a plain file (CORE-01).
     if is_markdown(original_path)
         && original_path.parent().and_then(|parent| parent.file_name()) == original_path.file_stem()
+        && !original_path
+            .parent()
+            .is_some_and(|parent| is_vault_root(vault, parent))
     {
         let old_dir = original_path.parent().ok_or("Bundle note has no parent")?;
         let old_stem = file_stem(original_path)?;
@@ -44,11 +49,12 @@ pub(crate) fn rollback_rename_item(
 
 /// Undo a completed move after a later transaction stage fails.
 pub(crate) fn rollback_move_item(
+    vault: &Path,
     original_source: &Path,
     original_target: &Path,
     result: &FsMutationResult,
 ) -> Result<(), String> {
-    let source_root = if is_bundle_main_path(original_source) {
+    let source_root = if is_bundle_main_path_in(vault, original_source) {
         original_source
             .parent()
             .ok_or("Bundle note has no parent")?

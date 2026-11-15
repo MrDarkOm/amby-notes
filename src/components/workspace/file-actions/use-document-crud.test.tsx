@@ -32,13 +32,13 @@ const deleted: FsMutationResult = {
   deletedPaths: ["/v/План.md"],
 }
 
-function setup() {
+function setup(tree: TreeItem[] = TREE) {
   return renderHook(() =>
     useDocumentCrud({
       vault: "/v",
-      treeItems: TREE,
+      treeItems: tree,
       setTreeItems: vi.fn(),
-      refreshTreePaths: vi.fn().mockResolvedValue(TREE),
+      refreshTreePaths: vi.fn().mockResolvedValue(tree),
       setOpenCanvases: vi.fn(),
       setOpenSketches: vi.fn(),
       setPendingRenameId: vi.fn(),
@@ -111,5 +111,21 @@ describe("a failed deletion", () => {
     const { result } = setup()
     await act(() => result.current.handleDeleteFiles(["n1"]))
     expect(useTreeMessageStore.getState().message).toBeNull()
+  })
+})
+
+describe("a root note named like the vault folder (CORE-01)", () => {
+  // The vault is `/v`, so `/v/v.md` looks like the main note of a bundle whose folder is the vault.
+  const ROOT_TREE: TreeItem[] = [
+    { id: "r1", path: "/v/v.md", name: "v", type: "file" },
+    { id: "n2", path: "/v/Идея.md", name: "Идея", type: "file" },
+  ]
+
+  it("is deleted as a note, and the other selected note is deleted too", async () => {
+    const { result } = setup(ROOT_TREE)
+    await act(() => result.current.handleDeleteFiles(["r1", "n2"]))
+    expect(deleteItem).toHaveBeenCalledWith("/v", "/v/v.md", "permanent")
+    expect(deleteItem).toHaveBeenCalledWith("/v", "/v/Идея.md", "permanent")
+    expect(deleteItem).toHaveBeenCalledTimes(2)
   })
 })

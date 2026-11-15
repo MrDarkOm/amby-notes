@@ -378,7 +378,7 @@ pub fn preview_rename_refactor(
 ) -> Result<vault_index::RefactorPreview, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(&db, &path)?;
-    let preview = crate::bundle::preview_rename_item(&path, &new_name)?;
+    let preview = crate::bundle::preview_rename_item(&db.root()?, &path, &new_name)?;
     let (vault, inputs) = {
         let conn_guard = db.conn.lock_or_recover();
         let conn = conn_guard.as_ref().ok_or("No vault open")?;
@@ -403,7 +403,7 @@ pub fn preview_move_refactor(
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let source_path = paths::guard(&db, &source_path)?;
     let target_path = paths::guard(&db, &target_path)?;
-    let preview = crate::bundle::preview_move_item(&source_path, &target_path)?;
+    let preview = crate::bundle::preview_move_item(&db.root()?, &source_path, &target_path)?;
     let (vault, generation, inputs) = {
         let conn_guard = db.conn.lock_or_recover();
         let conn = conn_guard.as_ref().ok_or("No vault open")?;

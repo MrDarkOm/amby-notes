@@ -137,6 +137,7 @@ fn prepare_note_creation(
 /// second full tree refresh while the optimistic tree is already in place.
 fn prepare_move_paths(
     watcher_state: &WatcherState,
+    vault: &Path,
     source_path: &Path,
     target_path: &Path,
     changes: &[PathChange],
@@ -161,7 +162,7 @@ fn prepare_move_paths(
         );
     }
 
-    let source_root = resolve_item_root(source_path);
+    let source_root = resolve_item_root(vault, source_path);
     let target_dir = if target_path.is_file() {
         if is_bundle_main_note(target_path) {
             target_path
@@ -981,7 +982,8 @@ pub(crate) fn move_item_inner(
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let source_path = paths::guard(db, &source_path)?;
     let target_path = paths::guard(db, &target_path)?;
-    let preview = preview_move_item(&source_path, &target_path)?;
+    let vault = db.root()?;
+    let preview = preview_move_item(&vault, &source_path, &target_path)?;
     // Synchronisation learns that this is a move, before the change reaches the disk (Д70).
     if let Ok(root) = db.root() {
         note_renames(&root, &preview.path_changes);
@@ -1028,11 +1030,12 @@ pub(crate) fn move_item_inner(
     }
     let prepared_move = prepare_move_paths(
         watcher_state,
+        &vault,
         &source_path,
         &target_path,
         &preview.path_changes,
     )?;
-    let result = match move_item_impl(&source_path, &target_path) {
+    let result = match move_item_impl(&vault, &source_path, &target_path) {
         Ok(result) => {
             watcher_state.confirm_prepared_write(&prepared_move);
             result
@@ -1046,7 +1049,9 @@ pub(crate) fn move_item_inner(
         Ok(rewritten) => rewritten,
         Err(error) => {
             watcher_state.cancel_prepared_write(&prepared_move);
-            if let Err(rollback_error) = rollback_move_item(&source_path, &target_path, &result) {
+            if let Err(rollback_error) =
+                rollback_move_item(&vault, &source_path, &target_path, &result)
+            {
                 return Err(format!(
                     "Reference update failed: {error}; filesystem rollback also failed: {rollback_error}"
                 ));
@@ -1289,7 +1294,8 @@ pub(crate) fn rename_item_inner(
 ) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(db, &path)?;
-    let preview = preview_rename_item(&path, &new_name)?;
+    let vault = db.root()?;
+    let preview = preview_rename_item(&vault, &path, &new_name)?;
     // Synchronisation learns that this is a rename, before the change reaches the disk (Д70).
     if let Ok(root) = db.root() {
         note_renames(&root, &preview.path_changes);
@@ -1310,7 +1316,7 @@ pub(crate) fn rename_item_inner(
         return Err("Vault changed before rename".to_string());
     }
     let prepared_rename = prepare_path_changes(watcher_state, &preview.path_changes);
-    let result = match rename_item_impl(&path, &new_name) {
+    let result = match rename_item_impl(&vault, &path, &new_name) {
         Ok(result) => {
             watcher_state.confirm_prepared_write(&prepared_rename);
             result
@@ -1324,7 +1330,7 @@ pub(crate) fn rename_item_inner(
         Ok(rewritten) => rewritten,
         Err(error) => {
             watcher_state.cancel_prepared_write(&prepared_rename);
-            if let Err(rollback_error) = rollback_rename_item(&path, &result) {
+            if let Err(rollback_error) = rollback_rename_item(&vault, &path, &result) {
                 return Err(format!(
                     "Reference update failed: {error}; filesystem rollback also failed: {rollback_error}"
                 ));

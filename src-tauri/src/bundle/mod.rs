@@ -33,3 +33,5 @@ pub(crate) use scan::is_bundle_main_note;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod vault_root_tests;

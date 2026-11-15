@@ -358,7 +358,7 @@ fn moving_note_onto_note_creates_target_bundle() {
     fs::write(&source, "a").unwrap();
     fs::write(&target, "b").unwrap();
 
-    let result = move_item_impl(&source, &target).unwrap();
+    let result = move_item_impl(&vault, &source, &target).unwrap();
 
     assert!(vault.join("B").join("B.md").exists());
     assert!(vault.join("B").join("A.md").exists());
@@ -381,7 +381,9 @@ fn failed_move_restores_a_promoted_target_note() {
     let target = vault.join("Target.md");
     fs::write(&target, "target").unwrap();
 
-    let error = move_item_impl(&missing_source, &target).err().unwrap();
+    let error = move_item_impl(&vault, &missing_source, &target)
+        .err()
+        .unwrap();
 
     assert!(error.contains("Source not found"));
     assert_eq!(fs::read_to_string(&target).unwrap(), "target");
@@ -397,7 +399,7 @@ fn renaming_bundle_renames_container_main_note_and_sidecars() {
     fs::write(vault.join("Old").join("Old.excalidraw"), "").unwrap();
     fs::write(vault.join("Old").join("Child.md"), "").unwrap();
 
-    let result = rename_item_impl(&vault.join("Old").join("Old.md"), "New").unwrap();
+    let result = rename_item_impl(&vault, &vault.join("Old").join("Old.md"), "New").unwrap();
 
     assert!(vault.join("New").join("New.md").exists());
     assert!(vault.join("New").join("New.canvas").exists());
@@ -431,8 +433,8 @@ fn rename_rejects_distinct_file_and_folder_collisions() {
     fs::create_dir(&first_folder).unwrap();
     fs::create_dir(&second_folder).unwrap();
 
-    assert!(rename_item_impl(&first_file, "Second").is_err());
-    assert!(rename_item_impl(&first_folder, "Second").is_err());
+    assert!(rename_item_impl(&vault, &first_file, "Second").is_err());
+    assert!(rename_item_impl(&vault, &first_folder, "Second").is_err());
     assert_eq!(fs::read_to_string(&first_file).unwrap(), "first");
     assert_eq!(fs::read_to_string(&second_file).unwrap(), "second");
     assert!(first_folder.is_dir());
@@ -449,8 +451,8 @@ fn case_only_file_and_folder_renames_use_a_temporary_sibling() {
     fs::create_dir(&folder).unwrap();
     fs::write(folder.join("Child.md"), "child").unwrap();
 
-    rename_item_impl(&file, "note").unwrap();
-    rename_item_impl(&folder, "folder").unwrap();
+    rename_item_impl(&vault, &file, "note").unwrap();
+    rename_item_impl(&vault, &folder, "folder").unwrap();
 
     assert_eq!(fs::read_to_string(vault.join("note.md")).unwrap(), "note");
     assert_eq!(
@@ -476,7 +478,7 @@ fn case_only_bundle_rename_keeps_main_and_sidecars_consistent() {
     fs::write(vault.join("Note").join("Note.canvas"), "canvas").unwrap();
     fs::write(vault.join("Note").join("Note.excalidraw"), "excalidraw").unwrap();
 
-    let result = rename_item_impl(&vault.join("Note").join("Note.md"), "note").unwrap();
+    let result = rename_item_impl(&vault, &vault.join("Note").join("Note.md"), "note").unwrap();
 
     assert_eq!(
         result.primary_path,
@@ -503,7 +505,7 @@ fn bundle_rename_conflict_is_rejected_before_any_file_moves() {
     fs::write(vault.join("Old").join("Old.md"), "main").unwrap();
     fs::write(vault.join("Old").join("New.md"), "child").unwrap();
 
-    let error = rename_item_impl(&vault.join("Old").join("Old.md"), "New")
+    let error = rename_item_impl(&vault, &vault.join("Old").join("Old.md"), "New")
         .err()
         .unwrap();
 
@@ -528,8 +530,8 @@ fn rollback_bundle_rename_restores_every_bundle_file() {
     fs::write(vault.join("Old").join("Child.md"), "child").unwrap();
     let original = vault.join("Old").join("Old.md");
 
-    let result = rename_item_impl(&original, "New").unwrap();
-    rollback_rename_item(&original, &result).unwrap();
+    let result = rename_item_impl(&vault, &original, "New").unwrap();
+    rollback_rename_item(&vault, &original, &result).unwrap();
 
     assert_eq!(
         fs::read_to_string(vault.join("Old").join("Old.md")).unwrap(),
@@ -557,7 +559,7 @@ fn bundle_rename_failure_after_first_inner_step_rolls_back_every_file() {
     fs::write(bundle.join("Child.md"), b"child bytes").unwrap();
 
     super::execute::fail_bundle_rename_before_inner_step(2);
-    let error = match rename_item_impl(&bundle.join("Old.md"), "New") {
+    let error = match rename_item_impl(&vault, &bundle.join("Old.md"), "New") {
         Ok(_) => panic!("injected bundle rename unexpectedly succeeded"),
         Err(error) => error,
     };
@@ -593,8 +595,8 @@ fn rollback_move_restores_standalone_target_from_temporary_bundle() {
     fs::write(&source, "source").unwrap();
     fs::write(&target, "target").unwrap();
 
-    let result = move_item_impl(&source, &target).unwrap();
-    rollback_move_item(&source, &target, &result).unwrap();
+    let result = move_item_impl(&vault, &source, &target).unwrap();
+    rollback_move_item(&vault, &source, &target, &result).unwrap();
 
     assert_eq!(fs::read_to_string(&source).unwrap(), "source");
     assert_eq!(fs::read_to_string(&target).unwrap(), "target");
@@ -613,8 +615,8 @@ fn rollback_move_restores_an_entire_super_note() {
     fs::write(bundle.join("A.canvas"), "canvas").unwrap();
     fs::write(bundle.join("Child.md"), "child").unwrap();
 
-    let result = move_item_impl(&main, &target).unwrap();
-    rollback_move_item(&main, &target, &result).unwrap();
+    let result = move_item_impl(&vault, &main, &target).unwrap();
+    rollback_move_item(&vault, &main, &target, &result).unwrap();
 
     assert_eq!(fs::read_to_string(&main).unwrap(), "main");
     assert_eq!(
@@ -639,8 +641,8 @@ fn rollback_super_note_move_restores_a_promoted_target_note() {
     fs::write(bundle.join("A.canvas"), "canvas").unwrap();
     fs::write(&target, "target").unwrap();
 
-    let result = move_item_impl(&main, &target).unwrap();
-    rollback_move_item(&main, &target, &result).unwrap();
+    let result = move_item_impl(&vault, &main, &target).unwrap();
+    rollback_move_item(&vault, &main, &target, &result).unwrap();
 
     assert_eq!(fs::read_to_string(&main).unwrap(), "main");
     assert_eq!(
@@ -659,7 +661,7 @@ fn preview_move_matches_bundle_conversion_paths() {
     fs::write(&source, "source").unwrap();
     fs::write(&target, "target").unwrap();
 
-    let preview = preview_move_item(&source, &target).unwrap();
+    let preview = preview_move_item(&vault, &source, &target).unwrap();
 
     assert!(preview
         .path_changes

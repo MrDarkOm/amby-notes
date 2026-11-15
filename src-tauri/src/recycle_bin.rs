@@ -97,12 +97,25 @@ fn collect_markdown_paths(path: &Path) -> Result<Vec<PathBuf>, String> {
 
 pub fn preview_move_to_trash(vault: &Path, path: &Path) -> Result<TrashMovePreview, String> {
     let requested_path = path.canonicalize().map_err(|error| error.to_string())?;
-    let original_path = resolve_item_root(&requested_path)
+    let vault_path = vault.canonicalize().map_err(|error| error.to_string())?;
+    let original_path = resolve_item_root(&vault_path, &requested_path)
         .canonicalize()
         .map_err(|error| error.to_string())?;
-    let vault_path = vault.canonicalize().map_err(|error| error.to_string())?;
     if !original_path.starts_with(&vault_path) {
         return Err("Cannot trash a path outside the vault".to_string());
+    }
+    // Every delete mode (system trash, archive, permanent) starts here, so the vault itself and
+    // Amby's own service files are refused for all of them, as the archive always did (CORE-01).
+    let relative = original_path
+        .strip_prefix(&vault_path)
+        .map_err(|_| "Cannot trash a path outside the vault".to_string())?
+        .to_string_lossy()
+        .replace('\\', "/");
+    if relative.is_empty() {
+        return Err("The vault itself cannot be deleted".to_string());
+    }
+    if amby_sync_core::engine::history::is_service_path(&relative) {
+        return Err("Service files cannot be deleted".to_string());
     }
     Ok(TrashMovePreview {
         deleted_paths: collect_markdown_paths(&original_path)?,

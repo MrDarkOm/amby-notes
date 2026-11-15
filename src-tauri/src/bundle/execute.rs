@@ -11,7 +11,7 @@ use super::path_string;
 use super::planning::{
     bundle_rename_path_changes, collect_refactor_paths, path_changes_for_prefix,
 };
-use super::scan::is_bundle_main_note;
+use super::scan::{is_bundle_main_note, is_bundle_main_note_in, is_vault_root};
 
 #[cfg(test)]
 thread_local! {
@@ -46,13 +46,20 @@ fn rollback_partial_bundle_rename(
     rename_path_case_safe(new_dir, old_dir)
 }
 
-pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutationResult, String> {
+pub(crate) fn rename_item_impl(
+    vault: &Path,
+    path: &Path,
+    new_name: &str,
+) -> Result<FsMutationResult, String> {
     let trimmed = new_name.trim();
     if trimmed.is_empty() || trimmed.contains('/') || trimmed.contains('\\') {
         return Err("Invalid item name".to_string());
     }
+    if is_vault_root(vault, path) {
+        return Err("The vault itself cannot be renamed".to_string());
+    }
 
-    if is_bundle_main_note(path) {
+    if is_bundle_main_note_in(vault, path) {
         let bundle_dir = path
             .parent()
             .ok_or_else(|| "Bundle note has no parent".to_string())?;
@@ -207,6 +214,7 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
 }
 
 pub(crate) fn move_item_impl(
+    vault: &Path,
     source_path: &Path,
     target_path: &Path,
 ) -> Result<FsMutationResult, String> {
@@ -217,7 +225,7 @@ pub(crate) fn move_item_impl(
             .parent()
             .ok_or_else(|| format!("Bundle note has no parent: {}", path_string(&main_note)))?
             .to_path_buf();
-        let mut result = match move_item_to_dir(source_path, &dir) {
+        let mut result = match move_item_to_dir(vault, source_path, &dir) {
             Ok(result) => result,
             Err(error) => {
                 if promoted_target {
@@ -237,10 +245,14 @@ pub(crate) fn move_item_impl(
         target_path.to_path_buf()
     };
 
-    move_item_to_dir(source_path, &target_dir)
+    move_item_to_dir(vault, source_path, &target_dir)
 }
 
-fn move_item_to_dir(source_path: &Path, target_dir: &Path) -> Result<FsMutationResult, String> {
+fn move_item_to_dir(
+    vault: &Path,
+    source_path: &Path,
+    target_dir: &Path,
+) -> Result<FsMutationResult, String> {
     if !target_dir.is_dir() {
         return Err(format!(
             "Target is not a directory: {}",
@@ -248,7 +260,10 @@ fn move_item_to_dir(source_path: &Path, target_dir: &Path) -> Result<FsMutationR
         ));
     }
 
-    let source_root = resolve_item_root(source_path);
+    let source_root = resolve_item_root(vault, source_path);
+    if is_vault_root(vault, &source_root) {
+        return Err("The vault itself cannot be moved".to_string());
+    }
     if !source_root.exists() {
         return Err(format!("Source not found: {}", path_string(source_path)));
     }
@@ -269,7 +284,7 @@ fn move_item_to_dir(source_path: &Path, target_dir: &Path) -> Result<FsMutationR
     let path_changes = path_changes_for_prefix(&markdown_paths, &source_root, &destination);
     fs::rename(&source_root, &destination).map_err(|e| e.to_string())?;
 
-    let primary_path = if is_bundle_main_note(source_path) {
+    let primary_path = if is_bundle_main_note_in(vault, source_path) {
         let stem = file_stem(source_path)?;
         let ext = source_path
             .extension()

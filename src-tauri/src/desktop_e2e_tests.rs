@@ -304,7 +304,7 @@ fn desktop_e2e_failed_save_and_rename_leave_existing_data_and_index_intact() {
             assert!(matches!(error, WriteNoteError::RevisionConflict { .. }));
             assert_eq!(fs::read_to_string(&path).unwrap(), external);
 
-            assert!(crate::bundle::rename_item_impl(&path, "Taken").is_err());
+            assert!(crate::bundle::rename_item_impl(&active.root, &path, "Taken").is_err());
             assert_eq!(fs::read_to_string(&path).unwrap(), external);
             assert_eq!(
                 frontmatter::parse_markdown(&fs::read_to_string(&collision).unwrap()).body,

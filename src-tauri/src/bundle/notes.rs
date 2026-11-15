@@ -110,8 +110,10 @@ pub(crate) fn rollback_bundle_promotion(
     fs::remove_dir(bundle_dir).map_err(|error| error.to_string())
 }
 
-pub(crate) fn resolve_item_root(path: &Path) -> PathBuf {
-    if is_bundle_main_note(path) {
+/// The item a delete, archive or move acts on: the bundle folder for a bundle's main note, the path
+/// itself otherwise. Never the vault root (CORE-01).
+pub(crate) fn resolve_item_root(vault: &Path, path: &Path) -> PathBuf {
+    if super::scan::is_bundle_main_note_in(vault, path) {
         path.parent().unwrap_or(path).to_path_buf()
     } else {
         path.to_path_buf()
