@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
 import { confirm } from "@/lib/confirm"
 import * as storage from "@/lib/storage"
-import { flushAutosaveGeneration } from "./autosave/autosave-lifecycle"
+import { flushBeforeLeaving } from "./autosave/autosave-lifecycle"
 import { useVaultData } from "./use-vault-data"
 import { useVaultStore } from "./use-vault-store"
 import { useAppNoticesStore } from "./notices/use-app-notices-store"
@@ -18,16 +18,29 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(async () => () => {}),
   emit: vi.fn(async () => {}),
 }))
+const closeWindow = vi.hoisted(() => ({
+  handler: null as null | ((event: { preventDefault: () => void }) => Promise<void>),
+  destroy: vi.fn(async () => {}),
+}))
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
     label: "main",
-    onCloseRequested: async () => () => {},
+    onCloseRequested: async (handler: NonNullable<typeof closeWindow.handler>) => {
+      closeWindow.handler = handler
+      return () => {}
+    },
     onFocusChanged: async () => () => {},
+    destroy: closeWindow.destroy,
   }),
 }))
 vi.mock("./autosave/autosave-lifecycle", async (original) => ({
   ...(await original<typeof import("./autosave/autosave-lifecycle")>()),
-  flushAutosaveGeneration: vi.fn(),
+  flushBeforeLeaving: vi.fn(),
+  // The real rule, over the mocked flush above.
+  mayLeaveAfterFlush: async (generation: number, ask: () => Promise<boolean>) => {
+    const { flushBeforeLeaving } = await import("./autosave/autosave-lifecycle")
+    return (await flushBeforeLeaving(generation)).safe || (await ask())
+  },
 }))
 vi.mock("@/lib/storage", async (original) => ({
   ...(await original<typeof import("@/lib/storage")>()),
@@ -75,9 +88,9 @@ beforeEach(async () => {
     .mockReset()
     .mockResolvedValue(undefined as never)
   vi.mocked(storage.loadVaultData).mockReset().mockResolvedValue(loaded())
-  vi.mocked(flushAutosaveGeneration)
+  vi.mocked(flushBeforeLeaving)
     .mockReset()
-    .mockResolvedValue({ flushed: true, participants: 1 })
+    .mockResolvedValue({ flushed: true, participants: 1, safe: true })
   useVaultStore.setState({ ...useVaultStore.getInitialState(), vault: null })
   useAppNoticesStore.setState(useAppNoticesStore.getInitialState())
   useNoticeToastStore.setState(useNoticeToastStore.getInitialState())
@@ -87,7 +100,7 @@ afterEach(cleanup)
 describe("switching a vault after a failed save", () => {
   beforeEach(() => {
     useVaultStore.setState({ vault: "/old", generation: 1 })
-    vi.mocked(flushAutosaveGeneration).mockResolvedValue({ flushed: false, participants: 1 })
+    vi.mocked(flushBeforeLeaving).mockResolvedValue({ flushed: false, participants: 1, safe: true })
   })
 
   it("asks in the application and says that the drafts are kept; the button is a verb", async () => {
@@ -113,10 +126,28 @@ describe("switching a vault after a failed save", () => {
   })
 
   it("does not ask when everything was saved", async () => {
-    vi.mocked(flushAutosaveGeneration).mockResolvedValue({ flushed: true, participants: 1 })
+    vi.mocked(flushBeforeLeaving).mockResolvedValue({ flushed: true, participants: 1, safe: true })
     await load()
     expect(confirm).not.toHaveBeenCalled()
     expect(storage.loadVaultData).toHaveBeenCalledWith("/new")
+  })
+
+  // SAVE-02: the draft could not be written either, so the question must not promise one.
+  it("says the text would be lost when the recovery draft was not written, and stays on Cancel", async () => {
+    vi.mocked(flushBeforeLeaving).mockResolvedValue({
+      flushed: false,
+      participants: 1,
+      safe: false,
+    })
+    vi.mocked(confirm).mockResolvedValue(false)
+    await load()
+    expect(confirm).toHaveBeenCalledTimes(1)
+    const question = vi.mocked(confirm).mock.calls[0][0]
+    expect(question.destructive).toBe(true)
+    expect(question.description).toMatch(/пропадут/iu)
+    expect(question.description).not.toMatch(/черновики восстановления сохранены/iu)
+    expect(storage.loadVaultData).not.toHaveBeenCalled()
+    expect(useVaultStore.getState().vault).toBe("/old")
   })
 })
 
@@ -180,5 +211,53 @@ describe("what is said in the centre", () => {
   it("says nothing when there is no recovery data", async () => {
     await load()
     expect(useAppNoticesStore.getState().notices).toEqual([])
+  })
+})
+
+// SAVE-02: closing the window must not lose text that is neither in its file nor in a recovery draft.
+describe("closing the window", () => {
+  async function requestClose() {
+    await load(null)
+    expect(closeWindow.handler).not.toBeNull()
+    await act(async () => {
+      await closeWindow.handler!({ preventDefault: () => {} })
+    })
+  }
+
+  beforeEach(() => {
+    closeWindow.handler = null
+    closeWindow.destroy.mockClear()
+  })
+
+  it("closes without a question when every edit is saved or in a draft", async () => {
+    await requestClose()
+    expect(confirm).not.toHaveBeenCalled()
+    expect(closeWindow.destroy).toHaveBeenCalledOnce()
+  })
+
+  it("stays open when the text would be lost and the person keeps the window", async () => {
+    vi.mocked(flushBeforeLeaving).mockResolvedValue({
+      flushed: false,
+      participants: 1,
+      safe: false,
+    })
+    vi.mocked(confirm).mockResolvedValue(false)
+    await requestClose()
+    expect(confirm).toHaveBeenCalledTimes(1)
+    const question = vi.mocked(confirm).mock.calls[0][0]
+    expect(question.destructive).toBe(true)
+    expect(question.description).toMatch(/пропадут/iu)
+    expect(closeWindow.destroy).not.toHaveBeenCalled()
+  })
+
+  it("closes when the person chooses to close without saving", async () => {
+    vi.mocked(flushBeforeLeaving).mockResolvedValue({
+      flushed: false,
+      participants: 1,
+      safe: false,
+    })
+    vi.mocked(confirm).mockResolvedValue(true)
+    await requestClose()
+    expect(closeWindow.destroy).toHaveBeenCalledOnce()
   })
 })

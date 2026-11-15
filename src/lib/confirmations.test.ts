@@ -17,6 +17,8 @@ interface Case {
 
 const cases: Record<string, Case> = {
   deleteVersion: { destructive: true, ask: () => confirmations.deleteVersion() },
+  closeWithUnsavedText: { destructive: true, ask: () => confirmations.closeWithUnsavedText() },
+  switchWithUnsavedText: { destructive: true, ask: () => confirmations.switchWithUnsavedText() },
   cleanHistory: {
     destructive: true,
     names: ["32"],

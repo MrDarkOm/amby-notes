@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   cancelAutosaveGeneration,
   flushAutosaveGeneration,
+  flushBeforeLeaving,
+  mayLeaveAfterFlush,
   registerAutosaveLifecycle,
   inspectAutosaveGeneration,
   waitForInFlightAutosave,
@@ -170,5 +172,91 @@ describe("autosave lifecycle", () => {
 
     await expect(flushAutosaveGeneration(12)).rejects.toThrow("disk full")
     expect(primaryFlush).toHaveBeenCalledOnce()
+  })
+
+  // SAVE-02: leaving (closing the window, switching the vault) is safe only when every edit is in its
+  // file or in a durable recovery draft. A full disk breaks both at once.
+  describe("before leaving", () => {
+    // Each case has its own recovery scope, so drafts left failed by one case do not leak into the next.
+    const scope = (generation: number) => ({ vault: `/vault-${generation}`, generation })
+    function failRecovery(id: string, generation: number) {
+      vi.stubGlobal("window", { __TAURI_INTERNALS__: {} })
+      vi.spyOn(commands, "saveRecovery").mockRejectedValue(new Error("disk full"))
+      scheduleRecoveryDraft(id, "latest", "markdown", `/vault/${id}.md`, scope(generation))
+    }
+
+    afterEach(() => {
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+    })
+
+    it("is not safe when the save and the recovery draft both failed", async () => {
+      failRecovery("both-failed", 21)
+      unregister.push(
+        registerAutosaveLifecycle({
+          generation: 21,
+          recoveryScope: scope(21),
+          flush: async () => {
+            throw new Error("disk full")
+          },
+          cancel: vi.fn(),
+          hasDirtyBuffers: () => true,
+        }),
+      )
+      await expect(flushBeforeLeaving(21)).resolves.toMatchObject({ safe: false, flushed: false })
+    })
+
+    it("is safe when the draft failed but every note was saved", async () => {
+      failRecovery("saved-anyway", 22)
+      unregister.push(
+        registerAutosaveLifecycle({
+          generation: 22,
+          recoveryScope: scope(22),
+          flush: async () => {},
+          cancel: vi.fn(),
+          hasDirtyBuffers: () => false,
+        }),
+      )
+      await expect(flushBeforeLeaving(22)).resolves.toMatchObject({ safe: true, flushed: true })
+    })
+
+    it("is safe when the save failed but the draft was written", async () => {
+      unregister.push(
+        registerAutosaveLifecycle({
+          generation: 23,
+          recoveryScope: scope(23),
+          flush: async () => {
+            throw new Error("permission denied")
+          },
+          cancel: vi.fn(),
+          hasDirtyBuffers: () => true,
+        }),
+      )
+      await expect(flushBeforeLeaving(23)).resolves.toMatchObject({ safe: true, flushed: false })
+    })
+
+    it("asks before leaving only when the text would be lost, and follows the answer", async () => {
+      failRecovery("ask", 24)
+      unregister.push(
+        registerAutosaveLifecycle({
+          generation: 24,
+          recoveryScope: scope(24),
+          flush: async () => {
+            throw new Error("disk full")
+          },
+          cancel: vi.fn(),
+          hasDirtyBuffers: () => true,
+        }),
+      )
+      const stay = vi.fn(async () => false)
+      await expect(mayLeaveAfterFlush(24, stay)).resolves.toBe(false)
+      expect(stay).toHaveBeenCalledOnce()
+      const leave = vi.fn(async () => true)
+      await expect(mayLeaveAfterFlush(24, leave)).resolves.toBe(true)
+
+      const notAsked = vi.fn(async () => false)
+      await expect(mayLeaveAfterFlush(999, notAsked)).resolves.toBe(true)
+      expect(notAsked).not.toHaveBeenCalled()
+    })
   })
 })

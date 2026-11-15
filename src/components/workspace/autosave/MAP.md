@@ -23,7 +23,10 @@ intents are blocked while `useVaultStore.switching` changes the backend context.
 
 [use-vault-data.ts](../use-vault-data.ts) closes the active workspace with `loadVault(null)`:
 flush autosaves and persist its session before clearing buffers and returning to the start screen.
-Canceling a failed-save confirmation leaves the vault attached. Detached records stay in
+Canceling a failed-save confirmation leaves the vault attached. Window close and vault switch go through
+`flushBeforeLeaving` / `mayLeaveAfterFlush` in [autosave-lifecycle.ts](autosave-lifecycle.ts): leaving is safe when every
+edit is in its file or in a written recovery draft. When a save and its draft both failed (a full disk), the window stays
+open and the switch stays put unless the person answers `closeWithUnsavedText` / `switchWithUnsavedText`. Detached records stay in
 recent history (`VaultRecord.detached`); successful activation reconnects them.
 
 A failed save of an open note sets `saveFailed` in [note-notices](../note-notices/MAP.md) (cleared by the next successful save or a

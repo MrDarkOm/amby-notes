@@ -40,6 +40,9 @@ export const confirmations = {
     ask(params.count > 1 ? "deletePermanentMany" : "deletePermanent", params, true),
   // The vault: a switch after a failed save, the migration of ids
   switchAfterSaveFailure: () => ask("switchAfterSaveFailure", {}, true),
+  // Leaving when a note is neither saved nor in a recovery draft (a full disk): its text would be lost
+  closeWithUnsavedText: () => ask("closeWithUnsavedText", {}, true),
+  switchWithUnsavedText: () => ask("switchWithUnsavedText", {}, true),
   resumeMigration: (params: { files: number }) => ask("resumeMigration", params),
   rollbackMigration: () => ask("rollbackMigration", {}, true),
   // Recovery and conflicts

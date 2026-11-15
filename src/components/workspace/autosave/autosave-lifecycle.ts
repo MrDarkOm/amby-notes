@@ -49,7 +49,14 @@ export function registerAutosaveLifecycle(participant: AutosaveLifecycleParticip
   return () => participants.delete(participant)
 }
 
-export async function flushAutosaveGeneration(generation: number): Promise<AutosaveFlushResult> {
+interface SettledFlush {
+  flushed: boolean
+  participants: number
+  recoveryError?: unknown
+  saveError?: unknown
+}
+
+async function settleAutosaveGeneration(generation: number): Promise<SettledFlush> {
   // Publish the final debounced ProseMirror transaction before inspecting or
   // draining coordinator buffers. An untouched editor is a no-op participant.
   flushEditorSerializations()
@@ -61,18 +68,56 @@ export async function flushAutosaveGeneration(generation: number): Promise<Autos
     scopes.length > 0
       ? Promise.all(scopes.map((scope) => flushAllRecoveryDrafts(scope)))
       : flushAllRecoveryDrafts()
-  const results = await Promise.allSettled([
+  const [recovery, ...saves] = await Promise.allSettled([
     recoveryPromise,
     ...current.map((participant) => participant.flush()),
   ])
-  const firstError = results.find(
+  const failedSave = saves.find(
     (result): result is PromiseRejectedResult => result.status === "rejected",
   )
-  if (firstError) throw firstError.reason
   return {
-    flushed: current.every((participant) => !participant.hasDirtyBuffers()),
+    flushed: !failedSave && current.every((participant) => !participant.hasDirtyBuffers()),
     participants: current.length,
+    recoveryError: recovery.status === "rejected" ? recovery.reason : undefined,
+    saveError: failedSave?.reason,
   }
+}
+
+export async function flushAutosaveGeneration(generation: number): Promise<AutosaveFlushResult> {
+  const settled = await settleAutosaveGeneration(generation)
+  const firstError = settled.recoveryError ?? settled.saveError
+  if (firstError !== undefined) throw firstError
+  return { flushed: settled.flushed, participants: settled.participants }
+}
+
+export interface LeaveFlushResult extends AutosaveFlushResult {
+  /**
+   * Every edit is in its file or in a written recovery draft. False when a note could not be saved
+   * and its draft could not be written either (a full disk breaks both): leaving would lose text.
+   */
+  safe: boolean
+}
+
+/** Flush before the window closes or the vault changes, and say whether leaving keeps every edit. */
+export async function flushBeforeLeaving(generation: number): Promise<LeaveFlushResult> {
+  const settled = await settleAutosaveGeneration(generation)
+  return {
+    flushed: settled.flushed,
+    participants: settled.participants,
+    safe: settled.flushed || settled.recoveryError === undefined,
+  }
+}
+
+/**
+ * Flush, then decide whether to leave. `askToLeaveAnyway` is asked only when leaving would lose text
+ * (SAVE-02); a failed flush itself is never a reason to lose it silently.
+ */
+export async function mayLeaveAfterFlush(
+  generation: number,
+  askToLeaveAnyway: () => Promise<boolean>,
+): Promise<boolean> {
+  const result = await flushBeforeLeaving(generation)
+  return result.safe || (await askToLeaveAnyway())
 }
 
 export function cancelAutosaveGeneration(generation: number): void {

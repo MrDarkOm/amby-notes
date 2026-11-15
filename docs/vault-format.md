@@ -502,8 +502,10 @@ next durable checkpoint forever. There is at most one write in flight and one
 latest pending snapshot per document. Close, visibility, vault-switch, restore,
 rename, and move boundaries flush the queue before releasing the document owner;
 an explicit durable save still waits for its write to finish. A process crash can
-therefore lose only the stated pending window plus an in-flight write, while a
-recovery write error is reported and never treated as a successful filesystem
+therefore lose only the stated pending window plus an in-flight write. When a
+filesystem save and its recovery write both fail (for example on a full disk), the
+window does not close and the vault does not switch unless the person explicitly
+chooses to lose the text. A recovery write error is never treated as a successful filesystem
 save.
 
 ## Backup and Git policy

@@ -685,6 +685,18 @@ const ru = {
       description: "Часть изменений не сохранилась, но черновики восстановления сохранены.",
       confirm: "Всё равно переключить",
     },
+    closeWithUnsavedText: {
+      title: "Закрыть окно и потерять несохранённый текст?",
+      description:
+        "Заметка не сохранилась, и черновик восстановления тоже не записался — скорее всего, на диске нет места. Если закрыть окно, последние правки пропадут. Освободите место и сохраните заметку снова.",
+      confirm: "Закрыть без сохранения",
+    },
+    switchWithUnsavedText: {
+      title: "Переключить хранилище и потерять несохранённый текст?",
+      description:
+        "Заметка не сохранилась, и черновик восстановления тоже не записался — скорее всего, на диске нет места. Если переключить хранилище, последние правки пропадут. Освободите место и сохраните заметку снова.",
+      confirm: "Переключить без сохранения",
+    },
     resumeMigration: {
       title: "Продолжить незавершённую миграцию ID?",
       description: "Затронуто файлов: {{files}}. Если отказаться, вас спросят про откат.",
@@ -2020,7 +2032,7 @@ const ru = {
     panelTitle: "Уведомления заметки · {{count}}",
     saveFailedTitle: "Не удалось сохранить заметку",
     saveFailedDescription:
-      "Текст остаётся в редакторе и во временном черновике. Проверьте место на диске и доступ к папке.",
+      "Текст остаётся в редакторе. Проверьте место на диске и доступ к папке и сохраните снова. Если текст может пропасть, Amby спросит перед закрытием окна.",
     saveNow: "Сохранить сейчас",
     mergedTitle: "Правки двух компьютеров объединены",
     mergedLine: "Прежняя версия — в истории",
@@ -5217,6 +5229,18 @@ const en: typeof ru = {
       description: "Some changes were not saved, but the recovery drafts are kept.",
       confirm: "Switch anyway",
     },
+    closeWithUnsavedText: {
+      title: "Close the window and lose the unsaved text?",
+      description:
+        "The note was not saved, and its recovery draft could not be written either — most likely the disk is full. If you close the window, the latest edits will be lost. Free up space and save the note again.",
+      confirm: "Close without saving",
+    },
+    switchWithUnsavedText: {
+      title: "Switch the vault and lose the unsaved text?",
+      description:
+        "The note was not saved, and its recovery draft could not be written either — most likely the disk is full. If you switch the vault, the latest edits will be lost. Free up space and save the note again.",
+      confirm: "Switch without saving",
+    },
     resumeMigration: {
       title: "Resume the unfinished ID migration?",
       description: "Files affected: {{files}}. If you decline, you will be asked about a rollback.",
@@ -6553,7 +6577,7 @@ const en: typeof ru = {
     panelTitle: "Note notices · {{count}}",
     saveFailedTitle: "The note could not be saved",
     saveFailedDescription:
-      "The text stays in the editor and in a temporary draft. Check the free space and access to the folder.",
+      "The text stays in the editor. Check the free space and access to the folder, then save again. If the text could be lost, Amby asks before the window closes.",
     saveNow: "Save now",
     mergedTitle: "The edits of two computers were merged",
     mergedLine: "The earlier version is in the history",

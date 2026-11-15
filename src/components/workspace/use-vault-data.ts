@@ -54,6 +54,8 @@ import { errorType, logger, flushLogs, beginOperation } from "@/lib/logger"
 import {
   cancelAutosaveGeneration,
   flushAutosaveGeneration,
+  flushBeforeLeaving,
+  mayLeaveAfterFlush,
   waitForInFlightAutosave,
 } from "./autosave/autosave-lifecycle"
 import { isUnchangedNoteRevision } from "./external-note-reconciliation"
@@ -275,13 +277,17 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     const oldGeneration = useVaultStore.getState().generation
     try {
       if (currentVault) {
-        let flush = { flushed: false, participants: 0 }
-        try {
-          flush = await flushAutosaveGeneration(oldGeneration)
-        } catch (error) {
-          logger.warn("vault_switch.autosave_flush_failed", { errorType: errorType(error) })
+        // A failed save keeps its recovery draft, so a switch may go on after a question. When the draft
+        // could not be written either (a full disk), the question says the text would be lost (SAVE-02).
+        const flush = await flushBeforeLeaving(oldGeneration)
+        if (!flush.safe) {
+          logger.warn("vault_switch.autosave_flush_failed", {
+            failureCode: "recovery_draft_failed",
+          })
+          if (!(await confirm(confirmations.switchWithUnsavedText()))) return
+        } else if (!flush.flushed && !(await confirm(confirmations.switchAfterSaveFailure()))) {
+          return
         }
-        if (!flush.flushed && !(await confirm(confirmations.switchAfterSaveFailure()))) return
       }
       if (activateBackend && !path) {
         if (currentVault && ownsPersistence) {
@@ -499,8 +505,9 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     return () => document.removeEventListener("visibilitychange", onVisibilityChange)
   }, [])
 
-  // A close request must wait for all queues in this renderer. Failed saves
-  // already have recovery drafts, so closing remains safe after the flush.
+  // A close request must wait for all queues in this renderer. A failed save keeps its recovery draft,
+  // so the window may close after it. When the draft could not be written either (a full disk), the
+  // window stays open unless the person chooses to lose the text (SAVE-02).
   React.useEffect(() => {
     if (!desktop) return
     let closing = false
@@ -511,25 +518,32 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         closing = true
         try {
           const generation = useVaultStore.getState().generation
-          const result = await flushAutosaveGeneration(generation)
-          if (!result.flushed) logger.warn("window_close.autosave_recovery_retained")
+          const leave = await mayLeaveAfterFlush(generation, async () => {
+            logger.warn("window_close.autosave_flush_failed", {
+              failureCode: "recovery_draft_failed",
+            })
+            return confirm(confirmations.closeWithUnsavedText())
+          })
+          if (!leave) {
+            closing = false
+            return
+          }
           await flushWindowStatePersistence()
         } catch (error) {
           logger.warn("window_close.autosave_flush_failed", { errorType: errorType(error) })
-        } finally {
-          try {
-            await flushLogs()
-          } catch {
-            // A logging failure must not reverse the completed document/recovery flush.
-          }
-          try {
-            await getCurrentWindow().destroy()
-          } catch (error) {
-            // A transient native/permission failure must not make the still-open
-            // window permanently ignore subsequent close attempts.
-            closing = false
-            logger.warn("window_close.failed", { errorType: errorType(error) })
-          }
+        }
+        try {
+          await flushLogs()
+        } catch {
+          // A logging failure must not reverse the completed document/recovery flush.
+        }
+        try {
+          await getCurrentWindow().destroy()
+        } catch (error) {
+          // A transient native/permission failure must not make the still-open
+          // window permanently ignore subsequent close attempts.
+          closing = false
+          logger.warn("window_close.failed", { errorType: errorType(error) })
         }
       }),
       (error) => logger.warn("window_close.listen_failed", { errorType: errorType(error) }),
