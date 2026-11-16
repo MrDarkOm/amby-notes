@@ -101,6 +101,6 @@ mod tests {
 
         let state = runtime.state(Some(3));
         assert!(state.enabled);
-        assert_eq!(runtime.set_enabled(3, false).enabled, false);
+        assert!(!runtime.set_enabled(3, false).enabled);
     }
 }
