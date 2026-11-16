@@ -189,3 +189,57 @@ fn test_rename_with_retry_fails_when_non_retryable() {
     assert!(result.is_err());
     assert_eq!(count, 1);
 }
+
+#[cfg(unix)]
+#[test]
+fn atomic_write_keeps_the_permissions_of_the_replaced_file() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!(
+        "amby-atomic-mode-{}-{}",
+        std::process::id(),
+        TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("private.md");
+    fs::write(&path, "old").unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+
+    atomic_write_bytes(&path, b"new").unwrap();
+
+    assert_eq!(fs::read(&path).unwrap(), b"new");
+    let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "mode after the atomic replace: {mode:o}");
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn atomic_write_saves_a_file_whose_name_is_close_to_the_limit() {
+    let dir = std::env::temp_dir().join(format!(
+        "amby-atomic-long-{}-{}",
+        std::process::id(),
+        TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir_all(&dir).unwrap();
+    let name = format!("{}.md", "a".repeat(237));
+    assert_eq!(name.len(), 240);
+    let path = dir.join(&name);
+    fs::write(&path, "old").unwrap();
+
+    atomic_write_bytes(&path, b"new").unwrap();
+    assert_eq!(fs::read(&path).unwrap(), b"new");
+    let created = dir.join(format!("{}.md", "b".repeat(237)));
+    atomic_write_bytes_new(&created, b"fresh").unwrap();
+    assert_eq!(fs::read(&created).unwrap(), b"fresh");
+    assert_eq!(fs::read_dir(&dir).unwrap().count(), 2);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn temp_name_keeps_the_recognised_shape_and_stays_short() {
+    let long = "я".repeat(120);
+    let temp = temp_sibling(Path::new("/vault"), &long);
+    let name = temp.file_name().unwrap().to_string_lossy().to_string();
+    assert!(name.starts_with('.'));
+    assert!(name.find(".amby-tmp-").is_some_and(|at| at >= 2));
+    assert!(name.len() <= 120, "{} bytes", name.len());
+}

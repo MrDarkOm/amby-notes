@@ -106,6 +106,37 @@ fn fail_if_requested(_stage: u64) -> Result<(), String> {
     Ok(())
 }
 
+/// How many bytes of the target name a temporary sibling keeps. A file name is
+/// limited to about 255 bytes by most filesystems, so a temp name that embeds the
+/// whole target name (plus the marker, pid and counter) could not be created for a
+/// long name. The prefix keeps the `.<name>.amby-tmp-*` shape that the watcher and
+/// the sync rules recognise.
+const TEMP_NAME_PREFIX_BYTES: usize = 64;
+
+/// A unique temporary sibling for a publication into `parent`.
+fn temp_sibling(parent: &Path, name: &str) -> std::path::PathBuf {
+    let mut end = name.len().min(TEMP_NAME_PREFIX_BYTES);
+    while !name.is_char_boundary(end) {
+        end -= 1;
+    }
+    let suffix = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    parent.join(format!(
+        ".{}.amby-tmp-{}-{suffix}",
+        &name[..end],
+        std::process::id()
+    ))
+}
+
+/// Give the replacement the permission bits of the file it replaces, so an atomic
+/// save does not widen (or narrow) the access the user set. Extended attributes
+/// (Finder tags, quarantine) are not copied: there is no portable std API and the
+/// project has no xattr dependency.
+fn copy_existing_permissions(target: &Path, temp: &Path) {
+    if let Ok(metadata) = fs::metadata(target) {
+        let _ = fs::set_permissions(temp, metadata.permissions());
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum AtomicCreateError {
     AlreadyExists,
@@ -235,8 +266,7 @@ pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> Result<(), String> {
         .ok_or_else(|| format!("Path has no parent: {}", path.to_string_lossy()))?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let name = path.file_name().unwrap_or_default().to_string_lossy();
-    let suffix = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let tmp = parent.join(format!(".{name}.amby-tmp-{}-{suffix}", std::process::id()));
+    let tmp = temp_sibling(parent, &name);
 
     let nth_fault = nth_write_fault();
     let write_result = (|| -> Result<(), String> {
@@ -254,6 +284,7 @@ pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> Result<(), String> {
         file.sync_all().map_err(|e| e.to_string())?;
         fail_if_requested(3)?;
         drop(file);
+        copy_existing_permissions(path, &tmp);
         fail_if_requested(4)?;
         atomic_rename_with_retry(&tmp, path).map_err(|e| e.to_string())?;
         if nth_fault == Some(true) {
@@ -280,8 +311,7 @@ pub fn atomic_write_bytes_new(path: &Path, content: &[u8]) -> Result<(), AtomicC
     })?;
     fs::create_dir_all(parent).map_err(|err| AtomicCreateError::Other(err.to_string()))?;
     let name = path.file_name().unwrap_or_default().to_string_lossy();
-    let suffix = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let tmp = parent.join(format!(".{name}.amby-tmp-{}-{suffix}", std::process::id()));
+    let tmp = temp_sibling(parent, &name);
 
     let write_result = (|| -> Result<(), AtomicCreateError> {
         let mut file = fs::OpenOptions::new()
@@ -320,8 +350,7 @@ pub fn atomic_copy_file_new(
     })?;
     fs::create_dir_all(parent).map_err(|err| AtomicCreateError::Other(err.to_string()))?;
     let name = path.file_name().unwrap_or_default().to_string_lossy();
-    let suffix = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let tmp = parent.join(format!(".{name}.amby-tmp-{}-{suffix}", std::process::id()));
+    let tmp = temp_sibling(parent, &name);
 
     let copy_result = (|| -> Result<u64, AtomicCreateError> {
         let mut reader =
