@@ -36,6 +36,7 @@ import {
 import { insertTreeItemOptimistically, mutationPaths, removeTreeItem } from "../workspace-mutations"
 import { beginLocalTreeMutation, recordLocalTreePaths } from "../watcher-tree-reconciliation"
 import { dispatchArchiveChanged } from "../use-archive-tree-refresh"
+import { reportTreeActionFailure } from "./action-failure"
 import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
 
 type DeleteResolution = "confirm" | "archive" | "keep_recovery" | "discard" | "cancel"
@@ -485,7 +486,7 @@ export function useDocumentCrud({
       } catch (error) {
         logger.error("file.create_note_failed", { error })
         setTreeItems((current) => removeTreeItem(current, optimisticId))
-        console.error("Failed to create file:", error)
+        reportTreeActionFailure("createNote")
       } finally {
         reservedNames.delete(title.toLocaleLowerCase())
         if (reservedNames.size === 0) noteNameReservationsRef.current.delete(reservationKey)
@@ -540,7 +541,7 @@ export function useDocumentCrud({
         )
       } catch (error) {
         logger.error("file.create_folder_failed", { title, error })
-        console.error("Failed to create folder:", error)
+        reportTreeActionFailure("createFolder")
       } finally {
         finishLocalMutation()
       }
@@ -575,7 +576,7 @@ export function useDocumentCrud({
         void releaseUnusedDocumentBuffers()
       } catch (error) {
         logger.error("file.create_canvas_failed", { error })
-        console.error("Failed to create canvas:", error)
+        reportTreeActionFailure("createCanvas")
       }
     },
     [
@@ -660,7 +661,7 @@ export function useDocumentCrud({
         void releaseUnusedDocumentBuffers()
       } catch (error) {
         logger.error("file.create_sketch_failed", { error })
-        console.error("Failed to create sketch:", error)
+        reportTreeActionFailure("createSketch")
       }
     },
     [

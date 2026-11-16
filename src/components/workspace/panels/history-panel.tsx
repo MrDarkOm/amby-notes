@@ -11,6 +11,7 @@ import { HistoryPreview } from "../history/history-preview"
 import { useHistory } from "../history/use-history"
 import { findTreeItem } from "../workspace-tree-utils"
 import { PanelHeader, PanelSearch } from "./panel-header"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 const PAGE_SIZE = 40
 
@@ -150,9 +151,7 @@ function HistoryContents({
         placeholder={t("historyPanel.searchVersions")}
       />
       {history.error && !history.selected && !history.selectedServer && (
-        <p role="alert" className="shrink-0 border-b px-4 py-3 text-xs text-destructive">
-          {history.error}
-        </p>
+        <NoticeLine role="alert" text={history.error} className="shrink-0 border-b px-4 py-3" />
       )}
       {history.notice && (
         <p role="status" className="shrink-0 border-b px-4 py-3 text-xs text-muted-foreground">

@@ -44,6 +44,7 @@ import {
 } from "../workshop/text-tree-model"
 import type { PlotBinding } from "../workshop/use-plot-binding"
 import { projectErrorText } from "@/lib/operation-errors"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 const MOVE_ITEMS: Array<{ key: ArrangeKey; icon: LucideIcon }> = [
   { key: "up", icon: ArrowUp },
@@ -292,11 +293,7 @@ export function ChaptersWidget({
           </button>
         )}
       </div>
-      {moveError && (
-        <p role="alert" className="break-words text-xs text-destructive">
-          {moveError}
-        </p>
-      )}
+      {moveError && <NoticeLine role="alert" text={moveError} className="break-words" />}
       {hasAnchors && (
         <div className="flex flex-col gap-2 rounded-xl bg-accent/40 px-3 py-2.5">
           <div className="flex flex-wrap items-center gap-2">
@@ -368,9 +365,7 @@ export function ChaptersWidget({
             <p className="text-xs text-muted-foreground">{t("creative.desk.aheadHint")}</p>
           )}
           {binding?.error && (
-            <p role="alert" className="break-words text-xs text-destructive">
-              {binding.error.text}
-            </p>
+            <NoticeLine role="alert" text={binding.error.text} className="break-words" />
           )}
         </div>
       )}

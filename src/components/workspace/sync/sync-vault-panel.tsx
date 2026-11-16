@@ -31,6 +31,7 @@ import { SyncCompareDialog } from "./sync-compare-dialog"
 import { ConflictList, StopNotice, UnsyncedList } from "./sync-vault-parts"
 import { clearSyncListenFailed, reportSyncListenFailed } from "./listen-failure"
 import { SubscriptionOffer } from "./subscription-offer"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 const LISTEN_RETRIES = 3
 const LISTEN_RETRY_MS = 10_000
@@ -218,9 +219,7 @@ export function SyncVaultPanel({
 
   const errorLine = error && (
     <div className="space-y-1.5">
-      <p role="alert" className="text-[12px] text-destructive">
-        {error}
-      </p>
+      <NoticeLine role="alert" text={error} />
       {errorCode === "subscription_required" && <SubscriptionOffer disabled={busy} />}
       {errorCode === "space_limit" && (
         <Button
@@ -296,11 +295,12 @@ export function SyncVaultPanel({
           </div>
           <p className="text-[13px]">{t("sync.vault.off")}</p>
           {status.errorCode && (
-            <p role="alert" className="text-[12px] text-destructive">
-              {t("sync.vault.cannotStart", {
+            <NoticeLine
+              role="alert"
+              text={t("sync.vault.cannotStart", {
                 reason: syncCodeMessage(status.errorCode, t),
               })}
-            </p>
+            />
           )}
           {backupInfo && <div className="sync-vault-footer">{backupInfo}</div>}
           {errorLine}

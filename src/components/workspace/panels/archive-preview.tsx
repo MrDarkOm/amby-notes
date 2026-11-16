@@ -8,6 +8,7 @@ import { readArchivePreview, type ArchiveEntry, type TrashPreview } from "@/lib/
 import { SnapshotModeToggle, SnapshotPreview, type SnapshotMode } from "../common/snapshot-preview"
 import { useVaultStore } from "../use-vault-store"
 import { archiveEntryLabel } from "./archive-model"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 export function ArchivePreview({
   entry,
@@ -157,11 +158,7 @@ export function ArchivePreview({
         {preview?.truncated && (
           <p className="text-xs text-muted-foreground">{t("archivePanel.previewTruncated")}</p>
         )}
-        {actionError && (
-          <p role="alert" className="text-xs text-destructive">
-            {actionError}
-          </p>
-        )}
+        {actionError && <NoticeLine role="alert" text={actionError} />}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={onClose}>
             {t("common.close")}

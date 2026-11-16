@@ -37,6 +37,7 @@ import { logger } from "@/lib/logger"
 import { operationErrorCode } from "@/lib/operation-errors"
 import { LayerUnreadableError } from "../orchestration/layer-draft"
 import { useTreeMessageStore } from "../tree/use-tree-message-store"
+import { reportTreeActionFailure } from "./action-failure"
 
 /** The layer has no ID or revision from the backend: the text is shown, nothing is written. */
 const LAYER_UNRESOLVED_PROPERTIES: NoteProperties = {
@@ -473,7 +474,8 @@ export function useDocumentLoading({
         setPendingRenameId(id)
         setTimeout(() => setPendingRenameId((current) => (current === id ? null : current)), 500)
       } catch (error) {
-        console.error("Failed to clone file:", error)
+        logger.warn("file.clone_failed", { failureCode: operationErrorCode(error) })
+        reportTreeActionFailure("cloneNote")
       }
     },
     [

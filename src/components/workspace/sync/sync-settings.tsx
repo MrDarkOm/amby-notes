@@ -20,6 +20,7 @@ import { AccountStorage } from "./account-storage"
 import { ConnectWizard } from "./connect-wizard"
 import { useVaultStore } from "../use-vault-store"
 import { SyncVaultPanel } from "./sync-vault-panel"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 export interface SyncSettingsProps {
   /** The port to use; the application's own by default. */
@@ -142,9 +143,7 @@ export function SyncSettings({ port: given, vault: givenVault }: SyncSettingsPro
       <div className="sync-settings-page">
         {error ? (
           <div className="space-y-2">
-            <p role="alert" className="text-[12px] text-destructive">
-              {error}
-            </p>
+            <NoticeLine role="alert" text={error} />
             <Button
               type="button"
               variant="outline"
@@ -179,11 +178,7 @@ export function SyncSettings({ port: given, vault: givenVault }: SyncSettingsPro
             {notice}
           </p>
         )}
-        {error && (
-          <p role="alert" className="text-[12px] text-destructive">
-            {error}
-          </p>
-        )}
+        {error && <NoticeLine role="alert" text={error} />}
         <ConnectWizard
           port={port}
           onConnected={onConnected}
@@ -306,11 +301,7 @@ export function SyncSettings({ port: given, vault: givenVault }: SyncSettingsPro
 
   return (
     <div className="sync-settings-page">
-      {error && (
-        <p role="alert" className="text-[12px] text-destructive">
-          {error}
-        </p>
-      )}
+      {error && <NoticeLine role="alert" text={error} />}
 
       <SyncVaultPanel port={port} vault={vault} onConnectionChange={refreshStorage} />
 

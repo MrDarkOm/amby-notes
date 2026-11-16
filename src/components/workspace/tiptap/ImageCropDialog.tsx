@@ -25,6 +25,7 @@ import {
   type CropHandle,
   type CropRect,
 } from "./image-crop"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface ImageCropDialogProps {
   /** The address the picture is shown from; the dialog is open while it is set. */
@@ -215,11 +216,7 @@ export function ImageCropDialog({ src, onCancel, onApply, error = null }: ImageC
             </Button>
           </div>
         </div>
-        {error && (
-          <p role="alert" className="amby-crop-error px-4 py-2 text-[12px] text-destructive">
-            {error}
-          </p>
-        )}
+        {error && <NoticeLine role="alert" text={error} className="amby-crop-error px-4 py-2" />}
         <div className="amby-crop-stage">
           {src && (
             <div className="relative inline-block max-w-full select-none">

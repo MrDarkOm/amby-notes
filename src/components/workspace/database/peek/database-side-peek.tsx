@@ -15,6 +15,7 @@ import type {
   DatabaseYamlResolution,
   DatabaseYamlSyncResult,
 } from "@/lib/storage"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface DatabaseSidePeekProps {
   row: DatabaseRow
@@ -161,11 +162,7 @@ export function DatabaseSidePeek({
         ) : (
           <p className="text-sm text-muted-foreground">{t("databasePeek.bodyPlaceholder")}</p>
         )}
-        {yamlSync?.error && (
-          <p role="alert" className="m-4 text-xs text-destructive">
-            {yamlSync.error}
-          </p>
-        )}
+        {yamlSync?.error && <NoticeLine role="alert" text={yamlSync.error} className="m-4" />}
         {yamlSync?.result && yamlSync.result.conflicts.length > 0 && (
           <section className="m-4 max-h-64 space-y-2 overflow-y-auto rounded-md border border-destructive/30 bg-destructive/5 p-3">
             <h3 className="text-xs font-semibold">

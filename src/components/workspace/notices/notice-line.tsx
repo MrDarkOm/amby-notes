@@ -10,17 +10,21 @@ import { noticeTextClass } from "./notice-look"
 export function NoticeLine({
   text,
   level = "warning",
+  role,
   className,
   id,
 }: {
   text: string
   level?: NoticeLevel
+  /** `alert` for the refusal of a form that the reader of the screen must hear at once. */
+  role?: "alert" | "status"
   className?: string
   id?: string
 }) {
   return (
     <NoticeShell
       level={level}
+      role={role}
       variant="plain"
       id={id}
       data-testid="notice-line"

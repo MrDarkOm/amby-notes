@@ -49,6 +49,7 @@ import {
   type AiConnectionsSettings,
   type AiConnectionMethod,
 } from "./connections"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 const field = "w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
 const button =
@@ -204,11 +205,7 @@ export function ConnectionsManager({
   }
   return (
     <div className="flex flex-col gap-3 p-3">
-      {error && (
-        <p role="alert" className="text-xs text-destructive">
-          {error}
-        </p>
-      )}
+      {error && <NoticeLine role="alert" text={error} />}
       {!settings.connections.length && (
         <p className="text-xs text-muted-foreground">{t("aiConnections.noConnection")}</p>
       )}
@@ -690,11 +687,7 @@ function ConnectionCard({
         </button>
       </div>
       <div className={open ? "space-y-3 border-t border-border p-3" : "hidden"}>
-        {error && (
-          <p role="alert" className="text-xs text-destructive">
-            {error}
-          </p>
-        )}
+        {error && <NoticeLine role="alert" text={error} />}
         {needsAction && cli && status && (
           <div className="space-y-2 rounded-lg bg-muted/40 p-3 text-xs">
             <p>

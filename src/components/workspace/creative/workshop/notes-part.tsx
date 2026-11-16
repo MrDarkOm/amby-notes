@@ -27,6 +27,7 @@ import type { NotebookActions } from "./use-notebook-actions"
 import { treeIndent } from "./tree-indent"
 import type { StoryLabels, WorkshopDraft } from "./workshop-model"
 import { reportOperationError } from "@/lib/operation-errors"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface NotesPartProps {
   /** The notebooks and notes the filter lets through; every notebook is in it, empty or not. */
@@ -371,11 +372,7 @@ export function NotesPart({
           onClick={link.onLink}
         />
       )}
-      {link?.error && (
-        <p role="alert" className="px-2 py-1 text-[11px] text-destructive">
-          {link.error}
-        </p>
-      )}
+      {link?.error && <NoticeLine role="alert" text={link.error} className="px-2 py-1" />}
       {actions.error && (
         <div
           role="alert"
