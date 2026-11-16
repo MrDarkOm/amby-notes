@@ -670,6 +670,24 @@ export function resolveAiConfig(model: AiModel): AiConfig {
   }
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/**
+ * The normalized value laid over what was read from the file: keys the normalizer does not know
+ * (written by another build) survive, at every depth of nested objects; known keys take the
+ * normalized value.
+ */
+function overlayKnownKeys(raw: unknown, normalized: unknown): unknown {
+  if (!isPlainRecord(raw) || !isPlainRecord(normalized)) return normalized
+  const merged: Record<string, unknown> = { ...raw }
+  for (const [key, value] of Object.entries(normalized)) {
+    merged[key] = overlayKnownKeys(raw[key], value)
+  }
+  return merged
+}
+
 export function saveSettingsPatch(
   patch: Partial<GlobalSettings>,
   options?: { expectedAi?: AiSettings["connectionSettings"] },
@@ -706,9 +724,12 @@ export function saveSettingsPatch(
       void _ai
       if (!connectionsChange || Object.keys(rest).length > 0 || beforeSettings === null) {
         let rawSection: unknown
+        let rawSettings: Record<string, unknown> = {}
         if (beforeSettings !== null) {
           try {
-            rawSection = (JSON.parse(beforeSettings.replace(/^\uFEFF/, "")) as { ai?: unknown }).ai
+            const parsed: unknown = JSON.parse(beforeSettings.replace(/^\uFEFF/, ""))
+            if (isPlainRecord(parsed)) rawSettings = parsed
+            rawSection = rawSettings.ai
           } catch {
             rawSection = undefined
           }
@@ -717,6 +738,10 @@ export function saveSettingsPatch(
           ...cur,
           ...rest,
           schemaVersion: SETTINGS_SCHEMA_VERSION,
+        }
+        // The sections rebuilt from a fixed list of keys keep the keys another build wrote.
+        for (const key of ["prefs", "experimental"] as const) {
+          next[key] = overlayKnownKeys(rawSettings[key], next[key])
         }
         if (rawSection === undefined) delete next.ai
         else next.ai = rawSection

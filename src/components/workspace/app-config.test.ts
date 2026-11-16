@@ -155,6 +155,30 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     expect(JSON.parse(store.get("amby:g:" + SETTINGS_FILE)!).ai).toEqual(stockLegacy)
   })
 
+  it("keeps unknown settings keys, including nested ones, when another setting is saved", async () => {
+    store.set(
+      "amby:g:" + SETTINGS_FILE,
+      JSON.stringify({
+        foreign: { keep: true },
+        prefs: {
+          theme: "dark",
+          futureTopLevel: { a: 1 },
+          editor: { autosaveMs: 800, futureEditorKey: "keep" },
+          shortcuts: { futureShortcut: "Mod+K" },
+        },
+      }),
+    )
+    await saveSettingsPatch({ defaultTheme: "dark" })
+    await saveSettingsPatch({ prefs: { ...(await loadSettings()).prefs, density: "compact" } })
+    const saved = JSON.parse(store.get("amby:g:" + SETTINGS_FILE)!)
+    expect(saved.foreign).toEqual({ keep: true })
+    expect(saved.prefs.futureTopLevel).toEqual({ a: 1 })
+    expect(saved.prefs.editor.futureEditorKey).toBe("keep")
+    expect(saved.prefs.editor.autosaveMs).toBe(800)
+    expect(saved.prefs.shortcuts.futureShortcut).toBe("Mod+K")
+    expect(saved.prefs.density).toBe("compact")
+  })
+
   const connectionsOf = (id: string, enabled = true) => ({
     version: 1,
     activeModelId: id,
