@@ -28,7 +28,7 @@ hooks and surfaces (pane renderers, layouts, dock, splits: [orchestration/](orch
 | Sync settings and connect screen       | [sync map](sync/MAP.md)                                                                                                                                                                                                                                                                                                                 |
 | Optional feature registration/profiles | [module host map](../../lib/modules/MAP.md), [modules/](modules/), feature `*-module.tsx` files                                                                                                                                                                                                                                         |
 
-A crashed tab or panel is isolated by [surface-error-boundary.tsx](surface-error-boundary.tsx) (used in [panel-host.tsx](panel-host.tsx) and `SurfaceSuspense` in the orchestration).
+A crashed tab or panel is isolated by [surface-error-boundary.tsx](surface-error-boundary.tsx) (used by [panel-host.tsx](panel-host.tsx), `SurfaceSuspense`).
 
 AI provider definitions and versioned connection domain: [providers.ts](ai/providers.ts), [connections.ts](ai/connections.ts); [connections-manager.tsx](ai/connections-manager.tsx) owns connection editing, catalog choices and the shared card for the Codex and Claude Code CLI methods (status, install guidance, sign-in/out; `cliProviderId` maps a method to its wire provider).
 
@@ -55,14 +55,13 @@ A tab's history is a list of ids: notes, `__graph__` (`GRAPH_TAB_FILE_ID`) and w
 `creative:<projectId>`). A step within a page, such as a workshop section, goes through `openItem(target, false, { inPlace: true })`
 so it never jumps to another tab; Back and Forward need no file for the graph or a workshop page.
 Link graph: [lazy store](use-link-graph-store.ts).
+Dialogs: [store](use-overlays-store.ts), shown by [workspace-overlays.tsx](orchestration/workspace-overlays.tsx).
 
-Folder selection opens a `folder` tab; derive content from the existing `TreeItem`
-hierarchy. Icons share `EmojiPickerPanel`, `IconValue` and view-state overrides.
+Folder selection opens a `folder` tab; derive content from the `TreeItem` tree. Icons share `EmojiPickerPanel`, `IconValue` and view-state overrides.
 The root `sidebar-tree.tsx`, `document-editor.tsx`, `canvas-editor.tsx` and
 `sketch-editor.tsx` are compatibility entry points; follow their re-exports.
 
 Filesystem behavior crosses the [storage boundary](../../lib/storage/MAP.md).
-Test changed pure logic beside its owner, and interactions using the scenarios in
-[the tests map](../../../tests/MAP.md). Browser tests cannot certify native I/O.
+Tests: [the tests map](../../../tests/MAP.md); browser tests cannot certify native I/O.
 
 Backup recovery: [map](backup/MAP.md). Notification centre: [map](notices/MAP.md).

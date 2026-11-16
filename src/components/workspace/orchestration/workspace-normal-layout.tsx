@@ -8,25 +8,19 @@ import { type SplitPaneOptions, type Tab, useTabsStore } from "../use-tabs-store
 import type { SpotlightCreateAction } from "../sidebar-search"
 import type { VaultRecord } from "../workspace-picker"
 import * as React from "react"
-import { useTranslation } from "react-i18next"
 import { ActivityBar } from "../activity-bar"
 import { PanelHost } from "../panel-host"
 import { ResizeHandle } from "../resize-handle"
 import { HeaderTabs, type HeaderTab } from "../header-tabs"
-import { QuickOpenModal } from "../quick-open-modal"
-import { SearchModal } from "../search-modal"
-import { SPOTLIGHT_ORIGIN } from "../spotlight-motion"
-import { SettingsDialog } from "../settings-dialog"
-import { HelpModal, type HelpContext } from "../help-modal"
+import type { HelpContext } from "../help-modal"
 import type { SettingsNavigationTarget } from "../settings-navigation"
 import { cn } from "@/lib/utils"
 import { PaneDropOverlay, SplitResizeHandle } from "../pane-tab-bar"
 import type { TreeItem } from "../sidebar-tree"
-import { searchNotes, revealVaultFolder } from "@/lib/storage"
-import { PresetNameDialog } from "../preset-name-dialog"
-import { VaultManagerDialog } from "../vault/vault-manager"
 import { flushEditorSerializations } from "../tiptap/editor-serialization-lifecycle"
 import { motion, useTransform } from "motion/react"
+import { useOverlaysStore } from "../use-overlays-store"
+import { WorkspaceOverlays } from "./workspace-overlays"
 import { type PanelPresence, usePanelLength, usePanelPresence } from "./use-panel-presence"
 
 interface WorkspaceNormalLayoutProps {
@@ -41,13 +35,11 @@ interface WorkspaceNormalLayoutProps {
   leftDockPinned: boolean
   rightDockPinned: boolean
   setDockPinned: (side: Side, pinned: boolean) => void
-  setQuickOpenMode: React.Dispatch<React.SetStateAction<"current" | "new" | null>>
   vaultName: string | undefined
   vaults: VaultRecord[]
   vault: string
   loadVault: (path: string | null, activateBackend?: boolean) => Promise<void>
   handleOpenVault: () => Promise<void>
-  setVaultManagerOpen: React.Dispatch<React.SetStateAction<boolean>>
   handleCloseAllTabs: () => void
   isCompactLayout: boolean
   leftWidth: number
@@ -104,7 +96,6 @@ interface WorkspaceNormalLayoutProps {
   paneDnd: { tabDrag: ActiveTabDragState | null; hoverTarget: ActivePaneHoverTarget | null }
   isRightSidebarOpen: boolean
   rightButtons: ActivityButton[]
-  quickOpenMode: "current" | "new" | null
   displayTreeItems: TreeItem[]
   handleOpenInNewTab: (fileId: string) => Promise<void>
   handleSelect: (fileId: string, displayTitle?: string) => Promise<void>
@@ -115,24 +106,13 @@ interface WorkspaceNormalLayoutProps {
   ) => Promise<void>
   activeFileId: string | null
   quickOpenCreateActions: SpotlightCreateAction[]
-  searchOpen: boolean
-  setSearchOpen: React.Dispatch<React.SetStateAction<boolean>>
-  vaultManagerOpen: boolean
   handleRenameVault: (id: string, name: string) => void
   handleDeleteVault: (id: string) => Promise<void>
   handleMoveVault: (id: string) => Promise<void>
-  settingsOpen: boolean
-  setSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>
-  setSettingsTarget: React.Dispatch<React.SetStateAction<SettingsNavigationTarget | null>>
-  settingsTarget: SettingsNavigationTarget | null
   activeModules: string[]
   setModuleEnabled: (id: string, enabled: boolean, ctx: ModuleContext) => Promise<boolean>
   adoptPreset: (id: string) => Promise<void>
-  isHelpOpen: boolean
-  setIsHelpOpen: React.Dispatch<React.SetStateAction<boolean>>
   workspaceProfileDialog: React.JSX.Element
-  presetNameOpen: boolean
-  setPresetNameOpen: React.Dispatch<React.SetStateAction<boolean>>
   savePresetAs: (label: string) => void
 }
 
@@ -148,13 +128,11 @@ export function WorkspaceNormalLayout({
   leftDockPinned,
   rightDockPinned,
   setDockPinned,
-  setQuickOpenMode,
   vaultName,
   vaults,
   vault,
   loadVault,
   handleOpenVault,
-  setVaultManagerOpen,
   handleCloseAllTabs,
   isCompactLayout,
   leftWidth,
@@ -187,34 +165,21 @@ export function WorkspaceNormalLayout({
   renderPaneLeaf,
   paneDnd,
   rightButtons,
-  quickOpenMode,
   displayTreeItems,
   handleOpenInNewTab,
   handleSelect,
   handleNewFileIn,
   activeFileId,
   quickOpenCreateActions,
-  searchOpen,
-  setSearchOpen,
-  vaultManagerOpen,
   handleRenameVault,
   handleDeleteVault,
   handleMoveVault,
-  settingsOpen,
-  setSettingsOpen,
-  setSettingsTarget,
-  settingsTarget,
   activeModules,
   setModuleEnabled,
   adoptPreset,
-  isHelpOpen,
-  setIsHelpOpen,
   workspaceProfileDialog,
-  presetNameOpen,
-  setPresetNameOpen,
   savePresetAs,
 }: WorkspaceNormalLayoutProps) {
-  const { t } = useTranslation()
   // One progress per side, for the pinned panel, its overlay and the header alike.
   const leftPanel = usePanelPresence(isLeftSidebarVisible)
   const rightPanel = usePanelPresence(rightPanelEnabled && isRightSidebarVisible)
@@ -246,13 +211,13 @@ export function WorkspaceNormalLayout({
         isRightDockPinned={rightDockPinned}
         onSetLeftDockPinned={(pinned) => setDockPinned("left", pinned)}
         onSetRightDockPinned={(pinned) => setDockPinned("right", pinned)}
-        onOpenPlusModal={() => setQuickOpenMode("new")}
+        onOpenPlusModal={() => useOverlaysStore.getState().setQuickOpenMode("new")}
         vaultName={vaultName}
         vaults={vaults}
         currentVaultPath={vault}
         onSwitchVault={loadVault}
         onAddVault={handleOpenVault}
-        onManageVaults={() => setVaultManagerOpen(true)}
+        onManageVaults={() => useOverlaysStore.getState().setVaultManagerOpen(true)}
         onCloseAllTabs={handleCloseAllTabs}
         leftTreeWidth={isCompactLayout ? 0 : leftWidth}
         rightPanelWidth={isCompactLayout || !rightDockPinned || !rightPanelEnabled ? 0 : rightWidth}
@@ -493,66 +458,27 @@ export function WorkspaceNormalLayout({
         )}
       </div>
 
-      <QuickOpenModal
-        open={quickOpenMode !== null}
-        onClose={() => setQuickOpenMode(null)}
-        treeItems={displayTreeItems}
+      <WorkspaceOverlays
         vault={vault}
-        onSelectFile={quickOpenMode === "new" ? handleOpenInNewTab : handleSelect}
-        onNewNote={() => handleNewFileIn(null, quickOpenMode === "new")}
-        searchNotes={searchNotes}
-        contextItemId={activeFileId}
-        createActions={quickOpenCreateActions}
-        originSelector={quickOpenMode === "new" ? SPOTLIGHT_ORIGIN.newTab : undefined}
-      />
-
-      <SearchModal
-        open={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        items={displayTreeItems}
-        onSelect={handleSelect}
-        searchNotes={searchNotes}
-        vault={vault}
-        contextItemId={activeFileId}
-        originSelector={SPOTLIGHT_ORIGIN.dockSearch}
-      />
-
-      <VaultManagerDialog
-        open={vaultManagerOpen}
-        onOpenChange={setVaultManagerOpen}
+        displayTreeItems={displayTreeItems}
+        activeFileId={activeFileId}
+        quickOpenCreateActions={quickOpenCreateActions}
+        handleSelect={handleSelect}
+        handleOpenInNewTab={handleOpenInNewTab}
+        handleNewFileIn={handleNewFileIn}
         vaults={vaults}
-        currentPath={vault}
-        onSelect={loadVault}
-        onOpenVault={handleOpenVault}
-        onRename={handleRenameVault}
-        onDelete={handleDeleteVault}
-        onMove={handleMoveVault}
-        onRevealVault={revealVaultFolder}
-      />
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={(open) => {
-          setSettingsOpen(open)
-          if (!open) setSettingsTarget(null)
-        }}
-        vault={vault}
-        navigationTarget={settingsTarget}
+        loadVault={loadVault}
+        handleOpenVault={handleOpenVault}
+        handleRenameVault={handleRenameVault}
+        handleDeleteVault={handleDeleteVault}
+        handleMoveVault={handleMoveVault}
         activeModules={activeModules}
-        onModuleEnabledChange={(id, enabled) => setModuleEnabled(id, enabled, { vault })}
-        onPresetChange={(id) => void adoptPreset(id)}
-      />
-      <HelpModal
-        open={isHelpOpen}
-        onOpenChange={setIsHelpOpen}
-        initialContext={currentHelpContext}
+        setModuleEnabled={setModuleEnabled}
+        adoptPreset={adoptPreset}
+        currentHelpContext={currentHelpContext}
+        savePresetAs={savePresetAs}
       />
       {workspaceProfileDialog}
-      <PresetNameDialog
-        open={presetNameOpen}
-        initialName={t("settings.modules.newPresetDefaultName")}
-        onClose={() => setPresetNameOpen(false)}
-        onConfirm={savePresetAs}
-      />
     </div>
   )
 }

@@ -15,6 +15,7 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import type { SettingsNavigationTarget } from "../settings-navigation"
 import type { TreeItem } from "../sidebar-tree"
+import { useOverlaysStore } from "../use-overlays-store"
 
 interface UsePanelRenderPropsParams {
   displayTreeItems: TreeItem[]
@@ -107,7 +108,6 @@ interface UsePanelRenderPropsParams {
   handleHistoryRestored: (path?: string) => Promise<void>
   vaults: VaultRecord[]
   loadVault: (path: string | null, activateBackend?: boolean) => Promise<void>
-  setVaultManagerOpen: React.Dispatch<React.SetStateAction<boolean>>
   vaultName: string | undefined
 }
 
@@ -170,7 +170,6 @@ export function usePanelRenderProps({
   handleHistoryRestored,
   vaults,
   loadVault,
-  setVaultManagerOpen,
   vaultName,
 }: UsePanelRenderPropsParams) {
   const { t } = useTranslation()
@@ -261,7 +260,7 @@ export function usePanelRenderProps({
           currentPath={vault}
           onSelect={loadVault}
           onAdd={handleOpenVault}
-          onManage={() => setVaultManagerOpen(true)}
+          onManage={() => useOverlaysStore.getState().setVaultManagerOpen(true)}
         >
           <button className="flex w-full items-center gap-2 rounded-lg border border-border bg-background/70 px-3 py-2.5 text-left outline-none hover:bg-accent">
             <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
@@ -342,7 +341,6 @@ export function usePanelRenderProps({
       vaultName,
       loadVault,
       t,
-      setVaultManagerOpen,
     ],
   )
   return { panelRenderProps }

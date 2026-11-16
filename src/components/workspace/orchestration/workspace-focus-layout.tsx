@@ -12,18 +12,13 @@ import { motion } from "motion/react"
 import { ActivityBar } from "../activity-bar"
 import { PanelHost } from "../panel-host"
 import { GraphTabView, SurfaceSuspense } from "./lazy-surfaces"
-import { QuickOpenModal } from "../quick-open-modal"
-import { SearchModal } from "../search-modal"
-import { SPOTLIGHT_ORIGIN } from "../spotlight-motion"
-import { SettingsDialog } from "../settings-dialog"
-import { HelpModal, type HelpContext } from "../help-modal"
+import type { HelpContext } from "../help-modal"
 import type { SettingsNavigationTarget } from "../settings-navigation"
 import { FolderView } from "../folder-view"
 import type { TreeItem } from "../sidebar-tree"
 import { ModuleRequiredFallback } from "../editor/module-required-fallback"
-import { searchNotes, revealVaultFolder } from "@/lib/storage"
-import { VaultManagerDialog } from "../vault/vault-manager"
 import { motionTransitions } from "@/lib/motion-config"
+import { WorkspaceOverlays } from "./workspace-overlays"
 
 interface WorkspaceFocusLayoutProps {
   setFocusShowLeft: React.Dispatch<React.SetStateAction<boolean>>
@@ -93,29 +88,17 @@ interface WorkspaceFocusLayoutProps {
   panelRenderProps: PanelRenderProps
   focusShowRight: boolean
   rightButtons: ActivityButton[]
-  quickOpenMode: "current" | "new" | null
-  setQuickOpenMode: React.Dispatch<React.SetStateAction<"current" | "new" | null>>
   displayTreeItems: TreeItem[]
   activeFileId: string | null
   quickOpenCreateActions: SpotlightCreateAction[]
-  searchOpen: boolean
-  setSearchOpen: React.Dispatch<React.SetStateAction<boolean>>
-  vaultManagerOpen: boolean
-  setVaultManagerOpen: React.Dispatch<React.SetStateAction<boolean>>
   vaults: VaultRecord[]
   loadVault: (path: string | null, activateBackend?: boolean) => Promise<void>
   handleOpenVault: () => Promise<void>
   handleRenameVault: (id: string, name: string) => void
   handleDeleteVault: (id: string) => Promise<void>
   handleMoveVault: (id: string) => Promise<void>
-  settingsOpen: boolean
-  setSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>
-  setSettingsTarget: React.Dispatch<React.SetStateAction<SettingsNavigationTarget | null>>
-  settingsTarget: SettingsNavigationTarget | null
   activeModules: string[]
   adoptPreset: (id: string) => Promise<void>
-  isHelpOpen: boolean
-  setIsHelpOpen: React.Dispatch<React.SetStateAction<boolean>>
   workspaceProfileDialog: React.JSX.Element
   deleteConfirmationDialog: React.ReactNode
   propertyMigrationDialog: React.JSX.Element
@@ -160,29 +143,17 @@ export function WorkspaceFocusLayout({
   panelRenderProps,
   focusShowRight,
   rightButtons,
-  quickOpenMode,
-  setQuickOpenMode,
   displayTreeItems,
   activeFileId,
   quickOpenCreateActions,
-  searchOpen,
-  setSearchOpen,
-  vaultManagerOpen,
-  setVaultManagerOpen,
   vaults,
   loadVault,
   handleOpenVault,
   handleRenameVault,
   handleDeleteVault,
   handleMoveVault,
-  settingsOpen,
-  setSettingsOpen,
-  setSettingsTarget,
-  settingsTarget,
   activeModules,
   adoptPreset,
-  isHelpOpen,
-  setIsHelpOpen,
   workspaceProfileDialog,
   deleteConfirmationDialog,
   propertyMigrationDialog,
@@ -330,58 +301,24 @@ export function WorkspaceFocusLayout({
         </motion.div>
       )}
 
-      <QuickOpenModal
-        open={quickOpenMode !== null}
-        onClose={() => setQuickOpenMode(null)}
-        treeItems={displayTreeItems}
+      <WorkspaceOverlays
         vault={vault}
-        onSelectFile={quickOpenMode === "new" ? handleOpenInNewTab : handleSelect}
-        onNewNote={() => handleNewFileIn(null, quickOpenMode === "new")}
-        searchNotes={searchNotes}
-        contextItemId={activeFileId}
-        createActions={quickOpenCreateActions}
-        originSelector={quickOpenMode === "new" ? SPOTLIGHT_ORIGIN.newTab : undefined}
-      />
-
-      <SearchModal
-        open={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        items={displayTreeItems}
-        onSelect={handleSelect}
-        searchNotes={searchNotes}
-        vault={vault}
-        contextItemId={activeFileId}
-        originSelector={SPOTLIGHT_ORIGIN.dockSearch}
-      />
-
-      <VaultManagerDialog
-        open={vaultManagerOpen}
-        onOpenChange={setVaultManagerOpen}
+        displayTreeItems={displayTreeItems}
+        activeFileId={activeFileId}
+        quickOpenCreateActions={quickOpenCreateActions}
+        handleSelect={handleSelect}
+        handleOpenInNewTab={handleOpenInNewTab}
+        handleNewFileIn={handleNewFileIn}
         vaults={vaults}
-        currentPath={vault}
-        onSelect={loadVault}
-        onOpenVault={handleOpenVault}
-        onRename={handleRenameVault}
-        onDelete={handleDeleteVault}
-        onMove={handleMoveVault}
-        onRevealVault={revealVaultFolder}
-      />
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={(open) => {
-          setSettingsOpen(open)
-          if (!open) setSettingsTarget(null)
-        }}
-        vault={vault}
-        navigationTarget={settingsTarget}
+        loadVault={loadVault}
+        handleOpenVault={handleOpenVault}
+        handleRenameVault={handleRenameVault}
+        handleDeleteVault={handleDeleteVault}
+        handleMoveVault={handleMoveVault}
         activeModules={activeModules}
-        onModuleEnabledChange={(id, enabled) => setModuleEnabled(id, enabled, { vault })}
-        onPresetChange={(id) => void adoptPreset(id)}
-      />
-      <HelpModal
-        open={isHelpOpen}
-        onOpenChange={setIsHelpOpen}
-        initialContext={currentHelpContext}
+        setModuleEnabled={setModuleEnabled}
+        adoptPreset={adoptPreset}
+        currentHelpContext={currentHelpContext}
       />
       {workspaceProfileDialog}
       {deleteConfirmationDialog}
