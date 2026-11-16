@@ -7,6 +7,7 @@
 
 use std::fs;
 use std::path::Path;
+use std::time::{Duration, SystemTime};
 
 use super::journal::{
     self, read_journal_file, remove_journal, replace_journal, Journal, STATUS_COMPLETED,
@@ -277,6 +278,24 @@ fn quarantine(path: &Path) -> Result<(), String> {
     fs::rename(path, directory.join(name)).map_err(|error| error.to_string())
 }
 
+/// A completed journal only answers a repeat of its own operation ID, which a client sends
+/// within one session. After this long it has no job left, so activation removes it. Only
+/// completed journals are pruned; unfinished and unreadable ones are recovery data and stay.
+const COMPLETED_JOURNAL_RETENTION: Duration = Duration::from_secs(30 * 86_400);
+
+fn prune_completed(path: &Path) {
+    let age = fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|modified| SystemTime::now().duration_since(modified).ok());
+    if !age.is_some_and(|age| age > COMPLETED_JOURNAL_RETENTION) {
+        return;
+    }
+    if let Err(error) = fs::remove_file(path) {
+        tracing::warn!(event = "project_journal_prune_failed", error = %error);
+    }
+}
+
 pub fn recover_pending_projects(vault: &Path) -> Result<ProjectRecoveryReport, String> {
     let mut report = ProjectRecoveryReport::default();
     for dir in [
@@ -305,7 +324,10 @@ pub fn recover_pending_projects(vault: &Path) -> Result<ProjectRecoveryReport, S
             let failure = match read_journal_file(&path) {
                 Err(error) => Some(error.to_string()),
                 Ok(None) => None,
-                Ok(Some(journal)) if journal.status == STATUS_COMPLETED => None,
+                Ok(Some(journal)) if journal.status == STATUS_COMPLETED => {
+                    prune_completed(&path);
+                    None
+                }
                 Ok(Some(mut journal)) => {
                     debug_assert_eq!(journal.status, STATUS_IN_PROGRESS);
                     match rollback(vault, &journal) {

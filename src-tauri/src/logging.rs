@@ -1116,6 +1116,7 @@ fn allowed_event(value: &str) -> bool {
         "database.module_disable_failed",
         "editor.diagram_failed",
         "project_index_rebuild_failed",
+        "project_journal_prune_failed",
         "project_journal_quarantined",
         "project_recovery_failed",
         "properties.reread_failed",
