@@ -29,6 +29,9 @@ mod contract_test;
 #[path = "create_test.rs"]
 mod create_test;
 #[cfg(test)]
+#[path = "create_test_support.rs"]
+mod create_test_support;
+#[cfg(test)]
 #[path = "discovery_test.rs"]
 mod discovery_test;
 #[cfg(test)]

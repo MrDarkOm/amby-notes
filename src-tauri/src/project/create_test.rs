@@ -7,9 +7,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::create::{
-    clear_step_hook, create_story, create_workshop, create_workshop_section, set_step_hook, Env,
-    Fault, Step,
+    clear_step_hook, create_story, create_workshop_section, set_step_hook, Env, Fault, Step,
 };
+use super::create_test_support::create_workshop;
 use super::discovery::discover_projects;
 use super::format::{parse_story_file, parse_workshop_file};
 use super::journal::{journal_dir, read_journal, STATUS_COMPLETED};

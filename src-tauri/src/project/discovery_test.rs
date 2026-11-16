@@ -7,7 +7,8 @@ use std::path::PathBuf;
 use rusqlite::Connection;
 use serde_json::json;
 
-use super::create::{create_story, create_workshop, Env};
+use super::create::{create_story, Env};
+use super::create_test_support::create_workshop;
 use super::discovery::discover_projects;
 use super::index::{is_built, load_catalog, rebuild_project_index};
 use super::model::{
