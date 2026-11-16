@@ -56,7 +56,8 @@ jobs:
           echo "Code changed: $code"
 
   # Always runs, also for documentation-only changes: the maps and entry points are checked,
-  # and every file (documentation included) must be formatted.
+  # the version is the same in every manifest, the update-channel script is tested, and every
+  # file (documentation included) must be formatted.
   docs:
     name: Documentation and formatting
     runs-on: ubuntu-latest
@@ -69,6 +70,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run docs:check
+      - run: npm run version:check
+      - run: npm run test:update-channels
       - run: npm run format:check
 
   frontend:
