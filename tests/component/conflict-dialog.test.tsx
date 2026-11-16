@@ -62,7 +62,7 @@ describe("ExternalConflictDialog component", () => {
 
   it("closes with the cross, preserves unsaved edits, and can be reopened explicitly", () => {
     showConflict()
-    fireEvent.click(screen.getByRole("button", { name: "Закрыть", exact: true }))
+    fireEvent.click(screen.getByRole("button", { name: "Закрыть" }))
     expect(screen.queryByRole("dialog")).toBeNull()
     expect(useDocStore.getState().openDocs["note-1"].content).toBe("Local draft content")
     expect(useDocStore.getState().unsavedFileIds.has("note-1")).toBe(true)
@@ -81,7 +81,7 @@ describe("ExternalConflictDialog component", () => {
 
   it("shows the latest local buffer after the user dismissed the conflict and continued editing", () => {
     showConflict()
-    fireEvent.click(screen.getByRole("button", { name: "Закрыть", exact: true }))
+    fireEvent.click(screen.getByRole("button", { name: "Закрыть" }))
     act(() => {
       useDocStore.getState().patchDoc("note-1", { content: "More recent edits" })
       useDocStore.getState().openConflictDialog("note-1")
@@ -123,7 +123,7 @@ describe("ExternalConflictDialog component", () => {
   })
 
   it("preserves edits that arrive while the local version is saving", async () => {
-    let finish!: () => void
+    let finish!: (value: string) => void
     vi.spyOn(storage, "writeFile").mockImplementation(
       () =>
         new Promise((resolve) => {
@@ -135,9 +135,9 @@ describe("ExternalConflictDialog component", () => {
     try {
       showConflict()
       fireEvent.click(screen.getByRole("button", { name: "Сохранить текст из Amby" }))
-      expect(screen.queryByRole("button", { name: "Закрыть", exact: true })).toBeNull()
+      expect(screen.queryByRole("button", { name: "Закрыть" })).toBeNull()
       act(() => useDocStore.getState().patchDoc("note-1", { content: "Newer edits during save" }))
-      await act(async () => finish())
+      await act(async () => finish(""))
       expect(useDocStore.getState().unsavedFileIds.has("note-1")).toBe(true)
       expect(useDocStore.getState().openDocs["note-1"].content).toBe("Newer edits during save")
       expect((resolved.mock.calls[0][0] as CustomEvent).detail.resolution).toBe("resume")

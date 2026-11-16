@@ -18,15 +18,21 @@ describe("Vault switch state reset component lifecycle", () => {
         id: "note-1",
         path: "vault1/note1.md",
         content: "Vault 1 content",
-        isDirty: true,
-        viewMode: "live",
+        title: "Note 1",
+        created: "",
+        modified: "",
+        wordCount: 0,
+        source: "Vault 1 content",
       })
       useDocStore.getState().setDoc("note-2", {
         id: "note-2",
         path: "vault1/note2.md",
         content: "Vault 1 note 2",
-        isDirty: false,
-        viewMode: "source",
+        title: "Note 2",
+        created: "",
+        modified: "",
+        wordCount: 0,
+        source: "Vault 1 note 2",
       })
       useDocStore.getState().markUnsaved("note-1")
       useDocStore.getState().setExternalConflict({

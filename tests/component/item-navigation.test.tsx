@@ -40,13 +40,18 @@ function params(): Parameters<typeof useDocumentLoading>[0] {
         type: "canvas",
       },
     ],
-    refreshTree: vi.fn(async () => []),
     loadCanvas: vi.fn(async () => {}),
+    loadSketch: vi.fn(async () => {}),
     setPendingRenameId: vi.fn(),
-    autosave: new AutosaveCoordinator<MarkdownAutosavePayload>({ save: async () => {} }),
+    autosave: new AutosaveCoordinator<MarkdownAutosavePayload>({
+      delayMs: 0,
+      save: async () => {},
+    }),
     autosaveKey: (documentId) => ({ generation: 1, kind: "markdown", documentId }),
     handleApplyMutation: vi.fn(),
     handleContentChange: vi.fn(),
+    handleContentDirty: vi.fn(),
+    recoveryScope: { vault: "/vault", generation: 1 },
     releaseUnusedDocumentBuffers: vi.fn(async () => {}),
   }
 }
@@ -63,7 +68,6 @@ beforeEach(() => {
   vi.mocked(getNoteProperties).mockResolvedValue({
     hasFrontmatter: false,
     properties: [],
-    parseError: null,
     customProperties: [],
   })
   vi.mocked(readRecoveryDraft).mockResolvedValue(null)

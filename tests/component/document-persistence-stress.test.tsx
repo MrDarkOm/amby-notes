@@ -289,24 +289,6 @@ describe("Fierce Document Persistence & Switching Stress Tests", () => {
       savedSketchContent = json
     }
 
-    // Simulate tab list containing the sketch and a markdown note
-    const _sketchTab: Tab = {
-      key: "tab-sketch",
-      fileId: sketchPath,
-      kind: "sketch",
-      title: "Design",
-      history: [sketchPath],
-      historyIndex: 0,
-    }
-    const _noteTab: Tab = {
-      key: "tab-note",
-      fileId: "/vault/Notes.md",
-      kind: "document",
-      title: "Notes",
-      history: ["/vault/Notes.md"],
-      historyIndex: 0,
-    }
-
     const doc: Document = {
       id: sketchPath,
       title: "Design",
@@ -690,7 +672,6 @@ describe("Fierce Document Persistence & Switching Stress Tests", () => {
   it("STRESS TEST 8: Database note layer preservation under single-tab tree switching and buffer eviction", async () => {
     const dbFileId = "database-ulid-123"
     const dbPath = "/test-vault/PaLooVerse"
-    const _dbNotePath = "/test-vault/PaLooVerse/PaLooVerse.md"
     const note2Id = "note-2.md"
     const note3Id = "note-3.md"
 
@@ -861,7 +842,6 @@ describe("Fierce Document Persistence & Switching Stress Tests", () => {
     const usageAfter = collectDocumentBufferUsage(
       useTabsStore.getState().tabs,
       useTabsStore.getState().activeTabKey,
-      null,
     )
     expect(usageAfter.get(dbFileId)?.tabRefs).toBe(1)
     expect(usageAfter.get(dbFileId)?.paneRefs).toBe(1)

@@ -174,6 +174,7 @@ describe("a whole super note deleted on another computer while its note is open 
             patch: {
               ops: [{ kind: "remove", parentPath: "/vault", paths: ["/vault/Note/Note.md"] }],
             },
+            sync: { inserted: 0, updated: 0, deleted: 0, warnings: [], pathToId: {} },
           }
         : null,
     )
