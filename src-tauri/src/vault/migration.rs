@@ -21,6 +21,9 @@ pub struct VaultPreflight {
     pub duplicate_ids: Vec<String>,
     pub planned_id_writes: Vec<String>,
     pub unfinished_migrations: Vec<IdMigrationRecovery>,
+    /// Notes that could not be read (not UTF-8, no access). They are left out of the migration
+    /// and never written; one such file must not stop the vault from opening (CORE-02).
+    pub unreadable_notes: Vec<String>,
 }
 
 #[derive(Serialize, Clone, Debug, specta::Type)]
@@ -520,6 +523,7 @@ pub fn preflight_vault(vault: &Path) -> Result<VaultPreflight, String> {
         duplicate_ids: Vec::new(),
         planned_id_writes: Vec::new(),
         unfinished_migrations: unfinished_id_migrations(vault)?,
+        unreadable_notes: Vec::new(),
     };
     let mut ids = HashMap::<String, String>::new();
     let mut duplicates = HashSet::new();
@@ -543,7 +547,10 @@ pub fn preflight_vault(vault: &Path) -> Result<VaultPreflight, String> {
             .map(normalize_rel_path)
             .map_err(|e| e.to_string())?;
         report.notes += 1;
-        let content = fs::read_to_string(path).map_err(|error| error.to_string())?;
+        let Ok(content) = fs::read_to_string(path) else {
+            report.unreadable_notes.push(rel_path);
+            continue;
+        };
         let parsed = frontmatter::parse_markdown(&content);
         if parsed.has_frontmatter && !parsed.yaml_is_map {
             report.malformed_frontmatter.push(rel_path);

@@ -243,10 +243,12 @@ automatic link replacement because their YAML boundary is unknown. Invalid YAML
 is never a reason to discard the source, apply a frontmatter migration, or hide
 its text from the tree/search.
 
-Recoverable YAML warnings acknowledge completed watcher events. Filesystem or
-UTF-8 read failures abort the scan before index changes, keeping the previous
-cache and pending events available for retry instead of treating unreadable notes
-as deleted.
+Recoverable YAML warnings acknowledge completed watcher events. A note that
+cannot be read (not UTF-8, no access) is never treated as deleted: the scan
+reports it in a warning, leaves it out and keeps its indexed row, if it had one.
+One such note does not stop the vault from loading or other notes from being
+read; the ID preflight lists it in `unreadableNotes` and never writes it. Once
+the file can be read again, its next watcher event or a rescan indexes it.
 
 ### Lossless ID insertion
 

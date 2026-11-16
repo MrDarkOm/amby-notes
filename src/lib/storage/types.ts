@@ -136,6 +136,8 @@ export interface VaultPreflight {
   duplicateIds: string[]
   plannedIdWrites: string[]
   unfinishedMigrations: IdMigrationRecovery[]
+  /** Notes that could not be read (not UTF-8, no access): left out and never written. */
+  unreadableNotes: string[]
 }
 
 type IdMigrationStatus = "planned" | "inProgress" | "completed" | "rolledBack"

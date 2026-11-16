@@ -34,3 +34,6 @@ mod malformed_tests;
 
 #[cfg(test)]
 mod read_reason_tests;
+
+#[cfg(test)]
+mod unreadable_tests;

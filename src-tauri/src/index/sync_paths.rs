@@ -121,6 +121,7 @@ pub fn sync_paths(
     //    that note in, so the two are judged together exactly as a full scan judges them.
     let mut warnings = Vec::new();
     let mut notes = Vec::new();
+    let mut kept_ids = HashSet::<String>::new();
     let mut scanned = BTreeSet::<String>::new();
     let mut queue = files.iter().cloned().collect::<Vec<_>>();
     while let Some(relative) = queue.pop() {
@@ -133,7 +134,29 @@ pub fn sync_paths(
             mtime_ns,
             size,
         } = metadata_stamp(&path)?;
-        let note = read_scanned_note(&path, relative, mtime, mtime_ns, size, &mut warnings)?;
+        let note = match read_scanned_note(
+            &path,
+            relative.clone(),
+            mtime,
+            mtime_ns,
+            size,
+            &mut warnings,
+        ) {
+            Ok(note) => note,
+            // An unreadable note is reported and left out; its indexed version stays (CORE-02).
+            Err(error) => {
+                warnings.push(format!(
+                    "{error}; the note is left out until it can be read"
+                ));
+                if let Some((_, id)) = rows
+                    .iter()
+                    .find(|(path, _)| path.as_str() == relative.as_str())
+                {
+                    kept_ids.insert(id.clone());
+                }
+                continue;
+            }
+        };
         if let Some(claimed) = note
             .parsed_id
             .as_deref()
@@ -209,6 +232,7 @@ pub fn sync_paths(
         upserted.push(id);
     }
 
+    seen_ids.extend(kept_ids);
     // Rows under the changed paths that no note on disk accounts for any more.
     let mut deleted = 0;
     for (path, id) in &rows {

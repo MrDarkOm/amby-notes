@@ -132,6 +132,7 @@ pub(super) fn read_scanned_note(
 pub fn scan_disk(
     vault: &Path,
     prev: &HashMap<String, (String, i64, i64)>,
+    unreadable: &mut Vec<String>,
     warnings: &mut Vec<String>,
 ) -> Result<Vec<ScannedNote>, String> {
     let mut notes = Vec::new();
@@ -171,9 +172,17 @@ pub fn scan_disk(
             }
         }
 
-        notes.push(read_scanned_note(
-            path, rel_path, mtime, mtime_ns, size, warnings,
-        )?);
+        match read_scanned_note(path, rel_path.clone(), mtime, mtime_ns, size, warnings) {
+            Ok(note) => notes.push(note),
+            // One unreadable note (not UTF-8, no access) is reported and left out; it must not stop
+            // the whole vault from loading. Its row, if indexed before, is kept as it is (CORE-02).
+            Err(error) => {
+                warnings.push(format!(
+                    "{error}; the note is left out until it can be read"
+                ));
+                unreadable.push(rel_path);
+            }
+        }
     }
     notes.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
     Ok(notes)
@@ -378,7 +387,8 @@ fn sync_vault_inner(
         });
     }
     let mut warnings = Vec::new();
-    let mut notes = scan_disk(vault, &prev, &mut warnings)?;
+    let mut unreadable = Vec::new();
+    let mut notes = scan_disk(vault, &prev, &mut unreadable, &mut warnings)?;
     notes.sort_by_key(|note| {
         let priority = note
             .parsed_id
@@ -426,6 +436,18 @@ fn sync_vault_inner(
         path_to_id.insert(path_string(&note.path), id);
     }
 
+    // A note that could not be read keeps the row it had (CORE-02).
+    for rel_path in &unreadable {
+        if let Some(id) = tx
+            .query_row("SELECT id FROM notes WHERE path = ?1", [rel_path], |row| {
+                row.get::<_, String>(0)
+            })
+            .optional()
+            .map_err(|e| e.to_string())?
+        {
+            seen_ids.insert(id);
+        }
+    }
     let before_delete: i64 = tx
         .query_row("SELECT COUNT(*) FROM notes", [], |row| row.get(0))
         .map_err(|e| e.to_string())?;

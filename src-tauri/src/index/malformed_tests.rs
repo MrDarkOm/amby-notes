@@ -335,10 +335,17 @@ fn malformed_warnings_acknowledge_events_but_read_failures_preserve_the_index() 
             assert_eq!(loaded.notes.len(), 1);
             assert!(active.index_changes.lock().unwrap().is_empty());
 
+            // CORE-02: an unreadable note is reported and left out; it no longer fails the whole
+            // refresh. Its indexed version is kept, and a later edit is picked up by its own event.
             fs::write(&path, [0xff, 0xfe]).unwrap();
             active.index_changes.lock().unwrap().insert(path.clone());
-            assert!(active.refresh().is_err());
-            assert!(active.index_changes.lock().unwrap().contains(&path));
+            let refreshed = active.refresh()?;
+            assert!(refreshed
+                .sync
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("Note.md")));
+            assert_eq!(refreshed.notes.len(), 1);
             let cached: String = active
                 .query_row("SELECT content FROM notes", [], |row| row.get(0))
                 .unwrap();
@@ -346,6 +353,7 @@ fn malformed_warnings_acknowledge_events_but_read_failures_preserve_the_index() 
             assert_eq!(fs::read(&path).unwrap(), [0xff, 0xfe]);
 
             fs::write(&path, edited).unwrap();
+            active.index_changes.lock().unwrap().insert(path.clone());
             assert_eq!(active.refresh()?.notes.len(), 1);
             assert!(active.index_changes.lock().unwrap().is_empty());
             Ok(())

@@ -4045,7 +4045,12 @@ historyBytes: number;
  * How many spaces.
  */
 spaces: number }
-export type VaultPreflight = { notes: number; attachments: number; malformedFrontmatter: string[]; userManagedIds: string[]; duplicateIds: string[]; plannedIdWrites: string[]; unfinishedMigrations: IdMigrationRecovery[] }
+export type VaultPreflight = { notes: number; attachments: number; malformedFrontmatter: string[]; userManagedIds: string[]; duplicateIds: string[]; plannedIdWrites: string[]; unfinishedMigrations: IdMigrationRecovery[]; 
+/**
+ * Notes that could not be read (not UTF-8, no access). They are left out of the migration
+ * and never written; one such file must not stop the vault from opening (CORE-02).
+ */
+unreadableNotes: string[] }
 /**
  * The state of the sync of the open vault. No secrets.
  */

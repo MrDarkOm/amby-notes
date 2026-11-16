@@ -791,6 +791,7 @@ export class WebAdapterCore implements StoragePort {
       duplicateIds: [],
       plannedIdWrites: [],
       unfinishedMigrations: [],
+      unreadableNotes: [],
     }
   }
 
