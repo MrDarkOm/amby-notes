@@ -193,7 +193,7 @@ export interface StoragePort extends DatabasePort, ProjectPort {
   writeGlobalRaw(file: string, contents: string): Promise<void>
   compareWriteGlobalRaw(file: string, expected: string | null, contents: string): Promise<boolean>
   readVaultRaw(rel: string): Promise<string | null>
-  writeVaultRaw(rel: string, contents: string): Promise<void>
+  writeVaultRaw(rel: string, contents: string, expectedGeneration?: number | null): Promise<void>
   deleteVaultMeta(rel: string): Promise<void>
 
   // AI Credentials

@@ -1185,12 +1185,16 @@ export class DesktopAdapter implements StoragePort {
     return unwrapCommand(commands.readVaultMeta(rel))
   }
 
-  async writeVaultRaw(rel: string, contents: string): Promise<void> {
-    return unwrapCommand(commands.writeVaultMeta(rel, contents))
+  async writeVaultRaw(
+    rel: string,
+    contents: string,
+    expectedGeneration?: number | null,
+  ): Promise<void> {
+    return unwrapCommand(commands.writeVaultMeta(rel, contents, expectedGeneration ?? null))
   }
 
   async deleteVaultMeta(rel: string): Promise<void> {
-    await unwrapCommand(commands.deleteVaultMeta(rel))
+    await unwrapCommand(commands.deleteVaultMeta(rel, null))
   }
 
   async storeAiCredential(credentialId: string, secret: string): Promise<void> {

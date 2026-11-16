@@ -4,6 +4,7 @@ import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react"
 import { Database, Plus, X } from "lucide-react"
 
 import { loadVaultJSON, saveVaultJSON } from "@/lib/storage"
+import { useVaultStore } from "../use-vault-store"
 import { LinkedDatabase } from "@/components/workspace/database/linked-database"
 import {
   parseLinkedBlock,
@@ -131,8 +132,9 @@ function LegacyAmbyBlockView({ node, editor }: NodeViewProps) {
       setData(next)
       if (!blockId) return
       if (saveTimer.current) clearTimeout(saveTimer.current)
+      const generation = useVaultStore.getState().backendGeneration
       saveTimer.current = setTimeout(() => {
-        void saveVaultJSON(blockPath(blockId), next)
+        void saveVaultJSON(blockPath(blockId), next, generation)
       }, 400)
     },
     [blockId],

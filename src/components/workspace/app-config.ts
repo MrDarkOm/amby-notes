@@ -20,6 +20,7 @@ import {
 } from "@/lib/storage"
 import { errorType, logger } from "@/lib/logger"
 import type { VaultRecord } from "./workspace-picker"
+import { useVaultStore } from "./use-vault-store"
 import type { ActivityButton, PanelId, Side } from "./panel-registry"
 import type { Preset } from "./presets"
 import type { AiConfig, AiFamily } from "@/lib/ai"
@@ -761,6 +762,15 @@ export interface WorkspaceConfig {
   moduleSettings?: Record<string, unknown>
 }
 
+/**
+ * The backend generation a vault-file write is made for, read when the caller decides to write
+ * (not when the queued write finally runs), so a late save cannot land in the next vault (IPC-11).
+ * `null` where the window does not track it (the settings window): the write is not bound.
+ */
+function writeGeneration(): number | null {
+  return useVaultStore.getState().backendGeneration
+}
+
 let pendingWorkspaceProfile: ProfileId | null = null
 
 export function setPendingWorkspaceProfile(profile: ProfileId | null): void {
@@ -772,6 +782,7 @@ export function getPendingWorkspaceProfile(): ProfileId | null {
 }
 
 export async function loadWorkspaceConfig(): Promise<WorkspaceConfig> {
+  const generation = writeGeneration()
   if (await vaultFileMissing(WORKSPACE_FILE)) {
     // Custom presets were a single global list pre-tier; each vault inherits a copy.
     const customPresets = parseLS<Preset[]>("amby:user-presets:v1", Array.isArray) ?? []
@@ -798,7 +809,7 @@ export async function loadWorkspaceConfig(): Promise<WorkspaceConfig> {
       enabledModules: baseConfig.enabledModules,
       moduleSettings: baseConfig.moduleSettings,
     }
-    await saveVaultJSON(WORKSPACE_FILE, cfg)
+    await saveVaultJSON(WORKSPACE_FILE, cfg, generation)
     return cfg
   }
   const d = await loadVaultJSON<Partial<WorkspaceConfig>>(WORKSPACE_FILE, {})
@@ -822,13 +833,18 @@ export async function loadWorkspaceConfig(): Promise<WorkspaceConfig> {
 }
 
 export function saveWorkspaceConfigPatch(patch: Partial<WorkspaceConfig>): Promise<void> {
+  const generation = writeGeneration()
   const write = async () => {
     const cur = await loadWorkspaceConfig()
-    await saveVaultJSON(WORKSPACE_FILE, {
-      ...cur,
-      ...patch,
-      schemaVersion: WORKSPACE_SCHEMA_VERSION,
-    })
+    await saveVaultJSON(
+      WORKSPACE_FILE,
+      {
+        ...cur,
+        ...patch,
+        schemaVersion: WORKSPACE_SCHEMA_VERSION,
+      },
+      generation,
+    )
   }
   const next = workspaceConfigWriteChain.then(write, write)
   workspaceConfigWriteChain = next.catch((err) => {
@@ -846,14 +862,19 @@ export function saveWorkspaceActivePreset(
   activePresetId: string,
   activeModules: string[],
 ): Promise<void> {
+  const generation = writeGeneration()
   const write = async () => {
     const cur = await loadWorkspaceConfig()
-    await saveVaultJSON(WORKSPACE_FILE, {
-      ...cur,
-      enabledModules: activeModules,
-      layout: { ...cur.layout, activePresetId, activeModules },
-      schemaVersion: WORKSPACE_SCHEMA_VERSION,
-    })
+    await saveVaultJSON(
+      WORKSPACE_FILE,
+      {
+        ...cur,
+        enabledModules: activeModules,
+        layout: { ...cur.layout, activePresetId, activeModules },
+        schemaVersion: WORKSPACE_SCHEMA_VERSION,
+      },
+      generation,
+    )
   }
   const next = workspaceConfigWriteChain.then(write, write)
   workspaceConfigWriteChain = next.catch((err) => {
@@ -886,6 +907,7 @@ export interface SessionFile {
 }
 
 export async function loadSession(vaultPath: string): Promise<SessionFile> {
+  const generation = writeGeneration()
   if (await vaultFileMissing(SESSION_FILE)) {
     // Migrate pre-tier localStorage: per-vault keys (suffixed by the vault path)
     // plus the formerly-global icons map.
@@ -916,7 +938,7 @@ export async function loadSession(vaultPath: string): Promise<SessionFile> {
       Object.keys(session.databaseTitleLabels ?? {}).length ||
       Object.keys(session.nestedNotesPlacements).length ||
       Object.keys(session.icons).length
-    if (hasAny) await saveVaultJSON(SESSION_FILE, session)
+    if (hasAny) await saveVaultJSON(SESSION_FILE, session, generation)
     return session
   }
   const d = await loadVaultJSON<Partial<SessionFile>>(SESSION_FILE, {})
@@ -939,16 +961,21 @@ export async function loadSession(vaultPath: string): Promise<SessionFile> {
 }
 
 export function saveSession(session: SessionFile): Promise<void> {
+  const generation = writeGeneration()
   const write = async () => {
     const persisted = await loadVaultJSON<Partial<SessionFile>>(SESSION_FILE, {})
     const persistedIcons = isRecord(persisted.icons) ? persisted.icons : {}
-    await saveVaultJSON(SESSION_FILE, {
-      ...session,
-      schemaVersion: SESSION_SCHEMA_VERSION,
-      // Icon choices are durable workspace metadata. A transient empty store
-      // during development HMR must not erase every file emoji.
-      icons: { ...persistedIcons, ...session.icons },
-    })
+    await saveVaultJSON(
+      SESSION_FILE,
+      {
+        ...session,
+        schemaVersion: SESSION_SCHEMA_VERSION,
+        // Icon choices are durable workspace metadata. A transient empty store
+        // during development HMR must not erase every file emoji.
+        icons: { ...persistedIcons, ...session.icons },
+      },
+      generation,
+    )
   }
   const next = sessionWriteChain.then(write, write)
   sessionWriteChain = next.catch((err) => {
