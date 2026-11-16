@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { errorType, logger } from "@/lib/logger"
+import { discardRecoveryDraft } from "@/lib/recovery-drafts"
 import {
   isTauri,
   NoteRevisionConflictError,
@@ -121,6 +122,10 @@ export function ExternalConflictDialog() {
         source: activeConflict.sourceTemplate ?? document.source,
       })
       markSaved(activeConflict.fileId)
+      // The dirty local text is given up: its recovery draft would be offered again on the next open.
+      const scope = { vault, generation: backendGeneration }
+      void discardRecoveryDraft(activeConflict.fileId, scope)
+      void discardRecoveryDraft(document.path, scope)
     }
     clearExternalConflict(activeConflict.fileId)
     emitAutosaveConflictResolution(activeConflict.fileId, "discard")
