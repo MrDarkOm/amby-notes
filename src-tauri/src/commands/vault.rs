@@ -198,23 +198,26 @@ pub fn reindex_vault(
 
 #[tauri::command]
 #[specta::specta]
-pub fn preflight_vault(vault_path: String) -> Result<vault_index::VaultPreflight, String> {
-    let canonical = Path::new(&vault_path)
-        .canonicalize()
-        .map_err(|e| format!("Vault not accessible: {e}"))?;
+pub fn preflight_vault(
+    app: tauri::AppHandle,
+    context: tauri::State<'_, vault_context::VaultContext>,
+    grants: tauri::State<'_, PathGrants>,
+    vault_path: String,
+) -> Result<vault_index::VaultPreflight, String> {
+    let canonical = trusted_vault_folder(&app, &context, &grants, &vault_path)?;
     vault_index::preflight_vault(&canonical)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn apply_id_migration(
+    app: tauri::AppHandle,
     context: tauri::State<'_, vault_context::VaultContext>,
+    grants: tauri::State<'_, PathGrants>,
     vault_path: String,
 ) -> Result<vault_index::IdMigrationResult, String> {
     let _mutation_guard = context.mutation_gate.lock_or_recover();
-    let canonical = Path::new(&vault_path)
-        .canonicalize()
-        .map_err(|error| format!("Vault not accessible: {error}"))?;
+    let canonical = trusted_vault_folder(&app, &context, &grants, &vault_path)?;
     if !canonical.is_dir() {
         return Err(format!("Vault is not a directory: {}", canonical.display()));
     }
@@ -257,15 +260,15 @@ pub fn inspect_id_migrations(
 #[tauri::command]
 #[specta::specta]
 pub fn recover_id_migration(
+    app: tauri::AppHandle,
     context: tauri::State<'_, vault_context::VaultContext>,
+    grants: tauri::State<'_, PathGrants>,
     vault_path: String,
     journal_path: String,
     action: vault_index::IdMigrationRecoveryAction,
 ) -> Result<vault_index::IdMigrationRecovery, String> {
     let _mutation_guard = context.mutation_gate.lock_or_recover();
-    let canonical = Path::new(&vault_path)
-        .canonicalize()
-        .map_err(|error| format!("Vault not accessible: {error}"))?;
+    let canonical = trusted_vault_folder(&app, &context, &grants, &vault_path)?;
     vault_index::recover_id_migration(&canonical, &journal_path, action)
 }
 
