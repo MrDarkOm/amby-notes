@@ -2603,6 +2603,19 @@ const ru = {
     column: "столбец",
     table: "таблица",
   },
+  blockMenu: {
+    aliases: {
+      split: "разделить",
+      background: "фон",
+      textColor: "текст",
+      emoji: "эмодзи",
+      fold: "сворач|раскрыт",
+      heading: "заголовок|уровень",
+      align: "выровнять|выравнивание",
+      imageDetails: "подпись|описание",
+      list: "список|тип",
+    },
+  },
   blockPanel: {
     noSettings: "Нет настроек для этого блока",
     bgCallout: "Фон callout",
@@ -6844,6 +6857,19 @@ const en: LocaleShape<typeof ru> = {
     row: "row",
     column: "column",
     table: "table",
+  },
+  blockMenu: {
+    aliases: {
+      split: "split|block",
+      background: "background|color",
+      textColor: "text color|color",
+      emoji: "emoji",
+      fold: "fold|collapse",
+      heading: "heading|level|h1|h2|h3|h4|h5|h6",
+      align: "align",
+      imageDetails: "alt|caption",
+      list: "list|bullet|ordered|task",
+    },
   },
   blockPanel: {
     noSettings: "No settings for this block",
