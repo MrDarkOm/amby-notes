@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { createPortal } from "react-dom"
+import * as DialogPrimitive from "@radix-ui/react-dialog"
 import type { Editor } from "@tiptap/react"
 import { ChevronLeft, ChevronRight, Download, Minimize2, Minus, Plus } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -30,6 +30,7 @@ export function ImageLightbox({
   const [scale, setScale] = React.useState(1)
   const [offset, setOffset] = React.useState({ x: 0, y: 0 })
   const imageRef = React.useRef<HTMLImageElement>(null)
+  const openerRef = React.useRef<HTMLElement | null>(null)
   const dragRef = React.useRef<{ x: number; y: number; from: { x: number; y: number } } | null>(
     null,
   )
@@ -82,119 +83,137 @@ export function ImageLightbox({
 
   if (!picture) return null
 
-  return createPortal(
-    <div
-      className="amby-lightbox"
-      role="dialog"
-      aria-modal="true"
-      aria-label={t("editorToolbar.imageOpen")}
-      data-image-lightbox
-      onMouseDown={(event) => {
-        // A press on the backdrop, not on the picture or the bar, closes the viewer.
-        if (event.target === event.currentTarget) onClose()
-      }}
-      onWheel={(event) => zoomBy(event.deltaY < 0 ? 1.1 : 1 / 1.1)}
-    >
-      <img
-        key={picture.shownSrc}
-        ref={imageRef}
-        src={picture.shownSrc}
-        alt=""
-        draggable={false}
-        className="amby-lightbox-image"
-        style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})` }}
-        onLoad={fit}
-        onPointerDown={(event) => {
-          event.currentTarget.setPointerCapture(event.pointerId)
-          dragRef.current = { x: event.clientX, y: event.clientY, from: offset }
-        }}
-        onPointerMove={(event) => {
-          const drag = dragRef.current
-          if (!drag) return
-          setOffset({
-            x: drag.from.x + event.clientX - drag.x,
-            y: drag.from.y + event.clientY - drag.y,
-          })
-        }}
-        onPointerUp={() => (dragRef.current = null)}
-        onPointerCancel={() => (dragRef.current = null)}
-        onDoubleClick={fit}
-      />
-      {pictures.length > 1 && (
-        <>
-          <button
-            type="button"
-            className="amby-lightbox-arrow amby-lightbox-arrow--previous"
-            aria-label={t("attachmentsPanel.previous")}
-            onClick={() => step(-1)}
+  return (
+    <DialogPrimitive.Root open onOpenChange={(open) => !open && onClose()}>
+      <DialogPrimitive.Portal>
+        {/* Radix moves focus in, keeps Tab inside and sets aria-modal; with no trigger of its own
+            it cannot give focus back, so that is done from what was focused when it opened. */}
+        <DialogPrimitive.Content
+          asChild
+          aria-describedby={undefined}
+          onOpenAutoFocus={() => {
+            openerRef.current = document.activeElement as HTMLElement | null
+          }}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            const opener = openerRef.current
+            if (opener?.isConnected) opener.focus()
+          }}
+        >
+          <div
+            className="amby-lightbox"
+            data-image-lightbox
+            onMouseDown={(event) => {
+              // A press on the backdrop, not on the picture or the bar, closes the viewer.
+              if (event.target === event.currentTarget) onClose()
+            }}
+            onWheel={(event) => zoomBy(event.deltaY < 0 ? 1.1 : 1 / 1.1)}
           >
-            <ChevronLeft className="size-5" />
-          </button>
-          <button
-            type="button"
-            className="amby-lightbox-arrow amby-lightbox-arrow--next"
-            aria-label={t("attachmentsPanel.next")}
-            onClick={() => step(1)}
-          >
-            <ChevronRight className="size-5" />
-          </button>
-        </>
-      )}
-      <div className="amby-lightbox-bar">
-        <button
-          type="button"
-          className="amby-lightbox-button"
-          title={t("lightbox.zoomOut")}
-          aria-label={t("lightbox.zoomOut")}
-          onClick={() => zoomBy(1 / STEP)}
-        >
-          <Minus className="size-4" />
-        </button>
-        <button
-          type="button"
-          className="amby-lightbox-percent"
-          title={t("lightbox.fit")}
-          aria-label={t("lightbox.fit")}
-          onClick={fit}
-        >
-          {Math.round(scale * 100)}%
-        </button>
-        <button
-          type="button"
-          className="amby-lightbox-button"
-          title={t("lightbox.zoomIn")}
-          aria-label={t("lightbox.zoomIn")}
-          onClick={() => zoomBy(STEP)}
-        >
-          <Plus className="size-4" />
-        </button>
-        <span className="amby-lightbox-divider" />
-        {pictures.length > 1 && (
-          <span className="amby-lightbox-counter">
-            {index + 1} / {pictures.length}
-          </span>
-        )}
-        <button
-          type="button"
-          className="amby-lightbox-button"
-          title={t("editorToolbar.imageSave")}
-          aria-label={t("editorToolbar.imageSave")}
-          onClick={() => void saveNoteImage(editor, picture.src, picture.shownSrc)}
-        >
-          <Download className="size-4" />
-        </button>
-        <span className="amby-lightbox-divider" />
-        <button
-          type="button"
-          className="amby-lightbox-button"
-          title={t("common.close")}
-          aria-label={t("common.close")}
-          onClick={onClose}
-        >
-          <Minimize2 className="size-4" />
-        </button>
-      </div>
-    </div>,
-    document.body,
+            <DialogPrimitive.Title className="sr-only">
+              {t("editorToolbar.imageOpen")}
+            </DialogPrimitive.Title>
+            <img
+              key={picture.shownSrc}
+              ref={imageRef}
+              src={picture.shownSrc}
+              alt=""
+              draggable={false}
+              className="amby-lightbox-image"
+              style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})` }}
+              onLoad={fit}
+              onPointerDown={(event) => {
+                event.currentTarget.setPointerCapture(event.pointerId)
+                dragRef.current = { x: event.clientX, y: event.clientY, from: offset }
+              }}
+              onPointerMove={(event) => {
+                const drag = dragRef.current
+                if (!drag) return
+                setOffset({
+                  x: drag.from.x + event.clientX - drag.x,
+                  y: drag.from.y + event.clientY - drag.y,
+                })
+              }}
+              onPointerUp={() => (dragRef.current = null)}
+              onPointerCancel={() => (dragRef.current = null)}
+              onDoubleClick={fit}
+            />
+            {pictures.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  className="amby-lightbox-arrow amby-lightbox-arrow--previous"
+                  aria-label={t("attachmentsPanel.previous")}
+                  onClick={() => step(-1)}
+                >
+                  <ChevronLeft className="size-5" />
+                </button>
+                <button
+                  type="button"
+                  className="amby-lightbox-arrow amby-lightbox-arrow--next"
+                  aria-label={t("attachmentsPanel.next")}
+                  onClick={() => step(1)}
+                >
+                  <ChevronRight className="size-5" />
+                </button>
+              </>
+            )}
+            <div className="amby-lightbox-bar">
+              <button
+                type="button"
+                className="amby-lightbox-button"
+                title={t("lightbox.zoomOut")}
+                aria-label={t("lightbox.zoomOut")}
+                onClick={() => zoomBy(1 / STEP)}
+              >
+                <Minus className="size-4" />
+              </button>
+              <button
+                type="button"
+                className="amby-lightbox-percent"
+                title={t("lightbox.fit")}
+                aria-label={t("lightbox.fit")}
+                onClick={fit}
+              >
+                {Math.round(scale * 100)}%
+              </button>
+              <button
+                type="button"
+                className="amby-lightbox-button"
+                title={t("lightbox.zoomIn")}
+                aria-label={t("lightbox.zoomIn")}
+                onClick={() => zoomBy(STEP)}
+              >
+                <Plus className="size-4" />
+              </button>
+              <span className="amby-lightbox-divider" />
+              {pictures.length > 1 && (
+                <span className="amby-lightbox-counter">
+                  {index + 1} / {pictures.length}
+                </span>
+              )}
+              <button
+                type="button"
+                className="amby-lightbox-button"
+                title={t("editorToolbar.imageSave")}
+                aria-label={t("editorToolbar.imageSave")}
+                onClick={() => void saveNoteImage(editor, picture.src, picture.shownSrc)}
+              >
+                <Download className="size-4" />
+              </button>
+              <span className="amby-lightbox-divider" />
+              <button
+                type="button"
+                className="amby-lightbox-button"
+                title={t("common.close")}
+                aria-label={t("common.close")}
+                onClick={onClose}
+              >
+                <Minimize2 className="size-4" />
+              </button>
+            </div>
+          </div>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   )
 }

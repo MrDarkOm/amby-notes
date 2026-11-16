@@ -6,6 +6,7 @@ import { ArrowLeft, ArrowRight, ExternalLink, RefreshCw, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { MotionSpinner } from "@/lib/motion"
+import { useDialogFocus } from "@/lib/use-dialog-focus"
 import { motionTransition, motionTransitions } from "@/lib/motion-config"
 import { cardSpring } from "../database-motion"
 import type {
@@ -55,6 +56,8 @@ export function DatabaseSidePeek({
   onClose,
 }: DatabaseSidePeekProps) {
   const { t } = useTranslation()
+  const panelRef = React.useRef<HTMLElement>(null)
+  useDialogFocus(panelRef, variant === "center")
   const [manualValues, setManualValues] = React.useState<Record<string, string>>({})
   React.useEffect(() => {
     if (variant !== "center") return
@@ -66,6 +69,8 @@ export function DatabaseSidePeek({
   }, [onClose, variant])
   const panel = (
     <motion.aside
+      ref={panelRef}
+      tabIndex={variant === "center" ? -1 : undefined}
       role={variant === "center" ? "dialog" : undefined}
       // The big window rises and fades in; the side panel slides in from the edge.
       initial={variant === "center" ? { opacity: 0, y: 24, scale: 0.97 } : { opacity: 0, x: 40 }}
