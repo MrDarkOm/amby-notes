@@ -1,0 +1,8 @@
+# The one Rust toolchain for the app (src-tauri) and the sync workspace, locally and in CI.
+# CI runs with `-D warnings`, so a floating `stable` turns every new compiler lint into a red
+# build nobody caused. Raise this deliberately (and fix what the new Clippy says) in a commit
+# of its own. `rust-version` in src-tauri/Cargo.toml is kept at the same minor version.
+[toolchain]
+channel = "1.99.1"
+profile = "minimal"
+components = ["rustfmt", "clippy"]

@@ -32,14 +32,14 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v5
-      - name: Set up Rust stable
-        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+      - name: Set up Rust (rust-toolchain.toml)
+        run: rustup toolchain install
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: ./sync -> target
       - run: cargo fmt --manifest-path sync/Cargo.toml --all --check
-      - run: cargo clippy --manifest-path sync/Cargo.toml --workspace --all-targets -- -D warnings
-      - run: cargo test --manifest-path sync/Cargo.toml --workspace
+      - run: cargo clippy --locked --manifest-path sync/Cargo.toml --workspace --all-targets -- -D warnings
+      - run: cargo test --locked --manifest-path sync/Cargo.toml --workspace
 
   deny:
     name: Licenses and advisories (cargo-deny)
@@ -56,8 +56,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Set up Rust stable
-        run: rustup toolchain install stable --profile minimal
+      - name: Set up Rust (rust-toolchain.toml)
+        run: rustup toolchain install
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: ./sync -> target
@@ -73,7 +73,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version-file: .nvmrc
       # Informational until every stage has its tests: the script exits 1 while a requirement
       # of docs/sync-plan.md has no test. docs/sync-plan.md is development-only, so on beta and
       # main the script finds no plan and passes.
