@@ -193,6 +193,7 @@ const EVENT_CODES = new Set([
   "refresh_vault.database_sync_failed",
   "refresh_vault.failed",
   "refresh_vault.flush_failed",
+  "refresh_vault.open_document_reload_failed",
   "rename_database_property",
   "rename_item",
   "reorder_custom_properties",
