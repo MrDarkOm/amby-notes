@@ -35,6 +35,7 @@ import {
 import { buttonsForSide } from "./panel-definitions"
 import { usePresets } from "./use-presets"
 import { useDocStore } from "./use-doc-store"
+import { reloadOpenNotes } from "./reload-open-notes"
 import { useVaultStore } from "./use-vault-store"
 import type { DocumentViewMode } from "./document-editor"
 import { type WindowPreferences, setPendingWorkspaceProfile } from "./app-config"
@@ -467,24 +468,7 @@ export function WorkspaceOrchestration() {
     try {
       await reloadVaultData()
 
-      const currentDocs = useDocStore.getState().openDocs
-      const unsavedIds = useDocStore.getState().unsavedFileIds
-      for (const [id, doc] of Object.entries(currentDocs)) {
-        if (!unsavedIds.has(id)) {
-          try {
-            if (vault && !doc.path.endsWith(".canvas") && !doc.path.endsWith(".excalidraw")) {
-              const note = await readNote(vault, id)
-              useDocStore.getState().patchDoc(id, {
-                content: note.content,
-                revision: note.revision,
-                source: note.source,
-              })
-            }
-          } catch {
-            /* ignore */
-          }
-        }
-      }
+      if (vault) await reloadOpenNotes(vault)
 
       for (const path of Object.keys(openCanvases)) {
         await reloadExternalCanvas(path)
