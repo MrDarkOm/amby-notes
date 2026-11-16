@@ -612,12 +612,38 @@ fn snapshot_before_write_at(
                 history_cfg.max_age_days
             },
         };
-        let to_remove = cleanup_candidates(&manifest, &retention, created_at_ms)
+        // The newest snapshot of each kind that is promised as the last copy (the author's spelling
+        // before a Live Preview rewrite, what a sync or a restore replaced) is never cleaned up
+        // automatically, nor counted against the limit (CORE-08).
+        let mut protected = HashSet::new();
+        for reason in [SOURCE_REWRITE_REASON, SYNC_OVERWRITE_REASON, RESTORE_REASON] {
+            if let Some(newest) = manifest
+                .snapshots
+                .iter()
+                .filter(|s| s.source_path == source_path && s.reason == reason)
+                .max_by_key(|s| s.created_at_ms)
+            {
+                protected.insert(newest.id.clone());
+            }
+        }
+        let prunable = HistoryManifest {
+            version: manifest.version,
+            snapshots: manifest
+                .snapshots
+                .iter()
+                .filter(|s| !protected.contains(&s.id))
+                .cloned()
+                .collect(),
+        };
+        let to_remove = cleanup_candidates(&prunable, &retention, created_at_ms)
             .into_iter()
             .filter(|s| s.source_path == source_path)
             .collect::<Vec<_>>();
         for candidate in to_remove {
-            let _ = cleanup_snapshot(&root, &mut manifest, &candidate);
+            // Cleanup is a convenience: a failure keeps the snapshot and must not fail the save.
+            if let Err(error) = cleanup_snapshot(&root, &mut manifest, &candidate) {
+                tracing::warn!(event = "history_autoprune_failed", error = %error);
+            }
         }
     }
 
@@ -1620,6 +1646,49 @@ mod tests {
             Ok(0)
         );
         assert!(!history_root(&vault).exists());
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    // CORE-08: automatic cleanup must not remove the snapshots that are promised as the last copy:
+    // the author's own spelling before a Live Preview rewrite, what a sync replaced, what a restore
+    // replaced. The newest of each kind stays for every note.
+    #[test]
+    fn auto_prune_keeps_the_newest_safety_snapshot_of_each_kind() {
+        let vault = temp_vault();
+        let amby_dir = vault.join(".amby");
+        fs::create_dir_all(&amby_dir).unwrap();
+        fs::write(
+            amby_dir.join("workspace.json"),
+            r#"{"moduleSettings": {"history": {"autoPrune": true, "maxCopies": 2}}}"#,
+        )
+        .unwrap();
+        let note = vault.join("Note.md");
+        fs::write(&note, "author's spelling").unwrap();
+        snapshot_before_write(&vault, &note, b"v1", SOURCE_REWRITE_REASON).unwrap();
+        fs::write(&note, "v1").unwrap();
+        snapshot_before_write(&vault, &note, b"v2", SYNC_OVERWRITE_REASON).unwrap();
+        for (current, next) in [("v2", "v3"), ("v3", "v4"), ("v4", "v5")] {
+            fs::write(&note, current).unwrap();
+            snapshot_before_write(&vault, &note, next.as_bytes(), "edit").unwrap();
+        }
+        let reasons = list_snapshots(&vault, &note)
+            .unwrap()
+            .into_iter()
+            .map(|snapshot| snapshot.reason)
+            .collect::<Vec<_>>();
+        assert!(
+            reasons.iter().any(|reason| reason == SOURCE_REWRITE_REASON),
+            "{reasons:?}"
+        );
+        assert!(
+            reasons.iter().any(|reason| reason == SYNC_OVERWRITE_REASON),
+            "{reasons:?}"
+        );
+        assert_eq!(
+            reasons.iter().filter(|reason| *reason == "edit").count(),
+            2,
+            "{reasons:?}"
+        );
         fs::remove_dir_all(vault).unwrap();
     }
 }

@@ -442,7 +442,11 @@ loaded text; the request stays pending until a write that started after it has
 succeeded, and a restored recovery draft asks for it as well. The browser
 development adapter has no history and takes no such snapshot.
 
-History is append-only and is **not automatically pruned**. The History panel
+History is append-only unless the person turns on automatic cleanup in the
+History settings (keep N copies and/or N days per note). Automatic cleanup never
+removes the newest `note-rewrite`, `sync-overwrite` or `restore` snapshot of a
+note, does not count them against the limit, and logs a failed removal instead of
+failing the save. The History panel
 shows per-note and vault-wide version counts and storage use. Its explicit
 cleanup action previews the number of versions and bytes to remove, requires
 confirmation, and currently retains the 20 latest snapshots of every note.
