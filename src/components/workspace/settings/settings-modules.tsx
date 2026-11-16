@@ -57,8 +57,9 @@ import { ModulePackageManager } from "./settings-package-manager"
 import { MODULE_PACKAGE_CONTROLS_ENABLED } from "@/lib/modules/package-manager/controls"
 import type { Preset } from "../presets"
 import { loadGlobalModulesRegistry } from "@/lib/modules/global-registry"
-import { getCatalogModule } from "@/lib/modules/package-manager/catalog"
-import { installFromRemoteUrl } from "@/lib/modules/package-manager/installer"
+import { installCatalogModule } from "@/lib/modules/package-manager/catalog-install"
+import { reportInstallFailure } from "@/lib/modules/package-manager/install-errors"
+import { NoticeLine } from "../notices/notice-line"
 import { isEnterKey } from "@/lib/keyboard"
 
 const MODULE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -403,6 +404,8 @@ export function ModulesTab({
   const [notInstalledModalOpen, setNotInstalledModalOpen] = React.useState(false)
   const [pendingInstallModule, setPendingInstallModule] = React.useState<ModuleDef | null>(null)
   const [isInstallingPending, setIsInstallingPending] = React.useState(false)
+  // Why the last download in an open dialog failed: the text of its code, shown under the buttons.
+  const [installError, setInstallError] = React.useState<string | null>(null)
 
   const [missingPresetModalOpen, setMissingPresetModalOpen] = React.useState(false)
   const [pendingPresetTarget, setPendingPresetTarget] = React.useState<{
@@ -600,6 +603,7 @@ export function ModulesTab({
       .filter((m): m is ModuleDef => Boolean(m))
 
     if (missingDefs.length > 0) {
+      setInstallError(null)
       setPendingPresetTarget({
         presetId,
         presetLabel,
@@ -615,6 +619,7 @@ export function ModulesTab({
   const handleDownloadAllMissing = async () => {
     if (!pendingPresetTarget) return
     setIsDownloadingMissing(true)
+    setInstallError(null)
     const { presetId, missingModules } = pendingPresetTarget
     const newlyInstalledIds: string[] = []
 
@@ -624,15 +629,10 @@ export function ModulesTab({
         setDownloadProgress({ current: i + 1, total: missingModules.length })
 
         const canonicalId = toCanonicalModuleId(mod.id)
-        const catalogEntry = await getCatalogModule(canonicalId)
-        const targetVersion = catalogEntry?.latestVersion ?? "1.0.0"
-        const url =
-          catalogEntry?.versions[targetVersion]?.downloadUrl ??
-          `https://github.com/MrDarkOm/amby-notes/releases/download/v0.1.4/${canonicalId}-${targetVersion}.amby-pkg`
-
-        const result = await installFromRemoteUrl(url)
+        const { result } = await installCatalogModule(canonicalId)
         if (!result.success) {
-          throw new Error(result.error ?? `Failed to download ${canonicalId}`)
+          setInstallError(reportInstallFailure(result.errorCode, result.error))
+          return
         }
         newlyInstalledIds.push(canonicalId)
       }
@@ -642,11 +642,12 @@ export function ModulesTab({
       setPendingPresetTarget(null)
       await applyPreset(presetId)
     } catch (err) {
-      console.error("Failed to download missing preset modules:", err)
+      setInstallError(reportInstallFailure(err))
+    } finally {
+      // What was installed before a failure stays installed, so the list shows it.
       if (newlyInstalledIds.length > 0) {
         setInstalledModuleIds((prev) => new Set([...prev, ...newlyInstalledIds]))
       }
-    } finally {
       setIsDownloadingMissing(false)
       setDownloadProgress(null)
     }
@@ -691,6 +692,7 @@ export function ModulesTab({
     // 2. Guard for uninstalled modules when enabling
     const canonicalId = toCanonicalModuleId(mod.id)
     if (nextEnabled && !installedModuleIds.has(canonicalId)) {
+      setInstallError(null)
       setPendingInstallModule(mod)
       setNotInstalledModalOpen(true)
       return
@@ -793,28 +795,24 @@ export function ModulesTab({
   const handleDownloadAndEnablePending = async () => {
     if (!pendingInstallModule) return
     setIsInstallingPending(true)
+    setInstallError(null)
     const canonicalId = toCanonicalModuleId(pendingInstallModule.id)
 
     try {
-      const catalogEntry = await getCatalogModule(canonicalId)
-      const targetVersion = catalogEntry?.latestVersion ?? "1.0.0"
-      const url =
-        catalogEntry?.versions[targetVersion]?.downloadUrl ??
-        `https://github.com/MrDarkOm/amby-notes/releases/download/v0.1.4/${canonicalId}-${targetVersion}.amby-pkg`
-
-      const result = await installFromRemoteUrl(url)
+      const { result } = await installCatalogModule(canonicalId)
       if (!result.success) {
-        throw new Error(result.error ?? "Failed to download module")
+        setInstallError(reportInstallFailure(result.errorCode, result.error))
+        return
       }
 
       setInstalledModuleIds((prev) => new Set([...prev, canonicalId]))
       setNotInstalledModalOpen(false)
       void handleApplyActualToggle(pendingInstallModule.id, true)
+      setPendingInstallModule(null)
     } catch (err) {
-      console.error("Failed to download and enable module:", err)
+      setInstallError(reportInstallFailure(err))
     } finally {
       setIsInstallingPending(false)
-      setPendingInstallModule(null)
     }
   }
 
@@ -1172,6 +1170,7 @@ export function ModulesTab({
               })}
             </DialogDescription>
           </DialogHeader>
+          {installError && <NoticeLine text={installError} />}
           <DialogFooter className="mt-4 flex justify-end gap-2">
             <Button
               variant="outline"
@@ -1339,6 +1338,8 @@ export function ModulesTab({
               </span>
             </div>
           )}
+
+          {installError && <NoticeLine text={installError} />}
 
           <DialogFooter className="mt-4 flex justify-end gap-2">
             <Button

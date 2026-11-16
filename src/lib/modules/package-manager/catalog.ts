@@ -4,6 +4,23 @@ import type { CatalogModuleEntry, ModuleCatalog } from "./types"
 
 export const MODULE_CATALOG_FILE = "module-catalog.json"
 export const CATALOG_REVISION = "2026-09-24"
+/** The release whose assets hold the official module packages. */
+export const CATALOG_RELEASE_TAG = "v0.1.4"
+
+/**
+ * Where a module package is fetched from: the address its catalog entry names for that version, or
+ * the official release asset when the catalog does not know the module.
+ */
+export function catalogDownloadUrl(
+  id: string,
+  version: string,
+  entry?: CatalogModuleEntry | null,
+): string {
+  return (
+    entry?.versions[version]?.downloadUrl ??
+    `https://github.com/MrDarkOm/amby-notes/releases/download/${CATALOG_RELEASE_TAG}/${id}-${version}.amby-pkg`
+  )
+}
 
 function createOfficialEntry(
   id: string,
@@ -30,7 +47,7 @@ function createOfficialEntry(
     versions: {
       [version]: {
         version,
-        downloadUrl: `https://github.com/MrDarkOm/amby-notes/releases/download/v0.1.4/${id}-${version}.amby-pkg`,
+        downloadUrl: catalogDownloadUrl(id, version),
         downloadSize,
         installedSize,
         checksum: "sha256:official-verified",
