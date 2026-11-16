@@ -171,9 +171,20 @@ export function SidebarTree({
 
       setSelectedIds(new Set([id]))
       selectionAnchorRef.current = id
+      // With the folder-click setting on, a plain folder (not a note with its own folder, not
+      // an empty one) expands or collapses instead of opening its card; click and Enter agree.
+      const picked = currentRows[currentIndex]?.item
+      if (
+        useSettingsStore.getState().prefs.files.folderClickToggles &&
+        picked?.type === "folder" &&
+        treeItemHasChildren(picked)
+      ) {
+        toggleOpen(id)
+        return
+      }
       stableOnSelect(id)
     },
-    [stableOnSelect],
+    [stableOnSelect, toggleOpen],
   )
 
   const handleKeyboardSelect = React.useCallback((id: string) => handleSelect(id), [handleSelect])

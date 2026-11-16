@@ -318,6 +318,8 @@ export type UpdateChannelPref = "stable" | "beta"
 export interface FilePrefs {
   /** Where deleting a file sends it. `permanent` always asks for confirmation. */
   deleteMode: DeleteModePref
+  /** A click on a folder row expands or collapses it instead of opening its card. */
+  folderClickToggles: boolean
 }
 
 export interface StartupPrefs {
@@ -408,7 +410,7 @@ export const DEFAULT_PREFS: AppPreferences = {
     showAreaControls: true,
   },
   startup: { reopenLastVault: true, restoreSession: true },
-  files: { deleteMode: "system" },
+  files: { deleteMode: "system", folderClickToggles: false },
   updates: { autoUpdate: true, channel: "stable" },
   debug: { ...DEFAULT_DEBUG_PREFS },
   docks: { leftPinned: true, rightPinned: true, rightEnabled: true },
@@ -496,6 +498,8 @@ export function normalizeAppPreferences(
         DELETE_MODES,
         DEFAULT_PREFS.files.deleteMode,
       ),
+      folderClickToggles:
+        typeof fi.folderClickToggles === "boolean" ? fi.folderClickToggles : false,
     },
     updates: {
       autoUpdate: typeof up.autoUpdate === "boolean" ? up.autoUpdate : true,

@@ -4,6 +4,8 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { SidebarTree } from "./sidebar-tree"
 import { useViewStateStore } from "../use-view-state-store"
+import { useSettingsStore } from "../use-settings-store"
+import { DEFAULT_PREFS } from "../app-config"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -37,6 +39,77 @@ vi.mock("@tanstack/react-virtual", () => ({
 afterEach(() => {
   cleanup()
   useViewStateStore.setState({ closedTreeIds: new Set() })
+})
+
+describe("SidebarTree folder click (TREE-02)", () => {
+  const child = { id: "c", path: "/vault/F/c.md", name: "c", type: "file" as const }
+  const folder = {
+    id: "f",
+    path: "/vault/F",
+    name: "F",
+    type: "folder" as const,
+    children: [child],
+  }
+  const bundle = {
+    id: "b",
+    path: "/vault/B/B.md",
+    name: "B",
+    type: "file" as const,
+    children: [{ id: "bc", path: "/vault/B/bc.md", name: "bc", type: "file" as const }],
+  }
+  const setToggle = (on: boolean) =>
+    useSettingsStore.setState({
+      prefs: { ...DEFAULT_PREFS, files: { ...DEFAULT_PREFS.files, folderClickToggles: on } },
+    })
+  const row = (c: HTMLElement, id: string) =>
+    c.querySelector(`[data-tree-item-id="${id}"]`) as HTMLElement
+  afterEach(() => setToggle(false))
+
+  it("by default a click on a folder opens it and does not toggle", () => {
+    const onSelect = vi.fn()
+    const { container } = render(
+      <SidebarTree items={[folder]} selectedId={null} onSelect={onSelect} />,
+    )
+    fireEvent.click(row(container, "f"))
+    expect(onSelect).toHaveBeenCalledWith("f")
+    expect(row(container, "f").getAttribute("aria-expanded")).toBe("true")
+  })
+
+  it("when on, a click toggles aria-expanded and opens nothing", () => {
+    setToggle(true)
+    const onSelect = vi.fn()
+    const { container } = render(
+      <SidebarTree items={[folder]} selectedId={null} onSelect={onSelect} />,
+    )
+    fireEvent.click(row(container, "f"))
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(row(container, "f").getAttribute("aria-expanded")).toBe("false")
+    fireEvent.click(row(container, "f"))
+    expect(row(container, "f").getAttribute("aria-expanded")).toBe("true")
+  })
+
+  it("when on, Enter toggles the folder and Cmd-click only selects", () => {
+    setToggle(true)
+    const onSelect = vi.fn()
+    const { container } = render(
+      <SidebarTree items={[folder]} selectedId={null} onSelect={onSelect} />,
+    )
+    fireEvent.click(row(container, "f"), { metaKey: true })
+    expect(row(container, "f").getAttribute("aria-expanded")).toBe("true")
+    fireEvent.keyDown(row(container, "f"), { key: "Enter" })
+    expect(row(container, "f").getAttribute("aria-expanded")).toBe("false")
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it("when on, a note with its own folder still opens as a note", () => {
+    setToggle(true)
+    const onSelect = vi.fn()
+    const { container } = render(
+      <SidebarTree items={[bundle]} selectedId={null} onSelect={onSelect} />,
+    )
+    fireEvent.click(row(container, "b"))
+    expect(onSelect).toHaveBeenCalledWith("b")
+  })
 })
 
 describe("SidebarTree rename trigger", () => {
