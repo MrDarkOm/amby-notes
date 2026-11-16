@@ -189,7 +189,6 @@ export function WorkspaceOrchestration() {
     treeItems,
     setTreeItems,
     displayTreeItems,
-    linkGraph,
     refreshLinkGraph,
     loadVault,
     refreshTree,
@@ -1211,7 +1210,6 @@ export function WorkspaceOrchestration() {
     activeTab,
     currentDoc,
     treeItemById,
-    linkGraph,
     t,
     vault,
     includeAttachmentImages:
@@ -1368,7 +1366,6 @@ export function WorkspaceOrchestration() {
     selectedDatabase,
     activeTab,
     currentFileIcon,
-    linkGraph,
     currentDoc,
     handleSelect,
     handleUpsertCustomProperty,
@@ -1499,7 +1496,6 @@ export function WorkspaceOrchestration() {
       navigateToFile,
       handleTabUsageChanged,
       handleCloseAllTabs,
-      linkGraph,
       refreshLinkGraph,
     })
 
@@ -1557,7 +1553,6 @@ export function WorkspaceOrchestration() {
         setFocusShowRight={setFocusShowRight}
         activeTab={activeTab}
         graphEnabled={graphEnabled}
-        linkGraph={linkGraph}
         handleSelect={handleSelect}
         vault={vault}
         treeItems={treeItems}

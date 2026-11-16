@@ -28,6 +28,7 @@ import {
 } from "./workspace-tree-utils"
 import { rereadOpenNoteProperties } from "./orchestration/reread-note-properties"
 import { buildLinkGraph } from "./wiki-links"
+import { useLinkGraphStore } from "./use-link-graph-store"
 import { applyTreePatchOps, patchedItems, removePaths } from "./tree-patch"
 import type { TreeItem } from "./sidebar-tree"
 import {
@@ -44,7 +45,6 @@ import {
   getLinkGraph,
   startVaultWatcher,
   stopVaultWatcher,
-  type LinkGraph,
   type TreePatch,
 } from "@/lib/storage"
 
@@ -148,7 +148,9 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     },
     [],
   )
-  const [linkGraph, setLinkGraph] = React.useState<LinkGraph>({ nodes: [], edges: [] })
+  // The graph itself lives in `useLinkGraphStore`: the root never holds it, so a new graph does not
+  // re-render the workspace. It is read only while a view needs it (SHELL-02).
+  const linkGraphNeeded = useLinkGraphStore((state) => state.consumers > 0)
   // Bumped by the graph's Refresh button to read the links again without a tree change.
   const [linkGraphRequest, setLinkGraphRequest] = React.useState(0)
   const refreshLinkGraph = React.useCallback(() => setLinkGraphRequest((n) => n + 1), [])
@@ -251,7 +253,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
   /** Re-scan the vault and clear the rendered link graph while its index rebuilds. */
   async function reloadVaultData(): Promise<void> {
     if (!vault) return
-    setLinkGraph({ nodes: [], edges: [] })
+    useLinkGraphStore.getState().reset()
     await reindexTree(vault)
   }
 
@@ -317,7 +319,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         setTabs([])
         setActiveTabKey("")
         setTreeItems([])
-        setLinkGraph({ nodes: [], edges: [] })
+        useLinkGraphStore.getState().reset()
         setBackendGeneration(null)
         setVault(null)
         return
@@ -381,7 +383,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         })
       }
       setTreeItems(tree)
-      setLinkGraph({ nodes: [], edges: [] })
+      useLinkGraphStore.getState().reset()
       addVaultToList(activePath)
 
       // Suppress session persistence while restoring state so we don't
@@ -551,18 +553,24 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     )
   }, [desktop])
 
-  // Link graph: recompute whenever the tree or vault changes.
+  // Link graph: a tree or vault change only marks it stale; it is read again while a view shows it.
+  React.useEffect(() => {
+    useLinkGraphStore.getState().markStale()
+  }, [treeItems, vault, linkGraphRequest])
+
   React.useEffect(() => {
     if (!vault) {
-      setLinkGraph({ nodes: [], edges: [] })
+      useLinkGraphStore.getState().reset()
       return
     }
+    if (!linkGraphNeeded) return
     let cancelled = false
     const timer = setTimeout(async () => {
+      if (!useLinkGraphStore.getState().stale) return
       if (isTauri()) {
         try {
           const graph = await getLinkGraph(vault)
-          if (!cancelled) setLinkGraph(graph)
+          if (!cancelled) useLinkGraphStore.getState().setGraph(graph)
         } catch {
           /* index may be rebuilding */
         }
@@ -576,7 +584,8 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
             useDocStore.getState().openDocs[file.id]?.content ?? (await readFile(file.id))
         }),
       )
-      if (!cancelled) setLinkGraph(buildLinkGraph(treeItems, contents, vault))
+      if (!cancelled)
+        useLinkGraphStore.getState().setGraph(buildLinkGraph(treeItems, contents, vault))
     }, 150)
     return () => {
       cancelled = true
@@ -585,7 +594,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     // openDocs intentionally excluded: web-mode already reads via openDocsRef; Tauri-mode
     // fetches from SQLite and doesn't need openDocs at all. Removing it prevents this effect
     // from re-running on every keystroke.
-  }, [treeItems, vault, linkGraphRequest])
+  }, [treeItems, vault, linkGraphRequest, linkGraphNeeded])
 
   // Debounced session persistence (tabs + favorites + view-modes + content widths + database labels + locked + icons).
   // Gated on sessionHydratedRef so loadVault's hydration doesn't echo back.
@@ -1157,7 +1166,6 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     treeItems,
     setTreeItems,
     displayTreeItems,
-    linkGraph,
     refreshLinkGraph,
     loadVault,
     refreshTree,

@@ -1,4 +1,4 @@
-import type { LinkGraph, ActivityButton, PanelId, Side, PanelRenderProps } from "../panel-registry"
+import type { ActivityButton, PanelId, Side, PanelRenderProps } from "../panel-registry"
 import type { LayoutLeafItem } from "../split-tree"
 import type { ModuleContext } from "../modules"
 import type { PanelScope } from "../app-config"
@@ -30,7 +30,6 @@ interface WorkspaceFocusLayoutProps {
   setFocusShowRight: React.Dispatch<React.SetStateAction<boolean>>
   activeTab: Tab | null
   graphEnabled: boolean
-  linkGraph: LinkGraph
   handleSelect: (fileId: string, displayTitle?: string) => Promise<void>
   vault: string
   treeItems: TreeItem[]
@@ -127,7 +126,6 @@ export function WorkspaceFocusLayout({
   setFocusShowRight,
   activeTab,
   graphEnabled,
-  linkGraph,
   handleSelect,
   vault,
   treeItems,
@@ -208,7 +206,6 @@ export function WorkspaceFocusLayout({
               style={{ boxShadow: "var(--note-surface-shadow)" }}
             >
               <GraphTabView
-                graph={linkGraph}
                 selectedId={null}
                 onSelect={handleSelect}
                 vault={vault}

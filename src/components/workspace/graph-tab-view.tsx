@@ -22,7 +22,7 @@ import {
   type SimulationNodeDatum,
 } from "d3-force"
 import { listTags } from "@/lib/storage"
-import type { LinkGraph } from "./panel-registry"
+import { useLinkGraph } from "./use-link-graph-store"
 import type { TreeItem } from "./sidebar-tree"
 import { flattenFileItems } from "./workspace-tree-utils"
 import { findTabTreeItem } from "./tab-target"
@@ -43,7 +43,6 @@ import { GraphMoreMenu, GraphResetDialog } from "./graph/graph-controls"
 import { useGraphLayoutStore, type GraphPoint } from "./graph/graph-layout-store"
 
 interface GraphTabViewProps {
-  graph?: LinkGraph
   selectedId?: string | null
   onSelect: (id: string) => void
   /** Used to read tags of notes for tag nodes and `tag:` queries. */
@@ -153,7 +152,6 @@ function relativePath(path: string, vault: string | null | undefined): string {
 }
 
 export function GraphTabView({
-  graph,
   selectedId,
   onSelect,
   vault,
@@ -168,6 +166,8 @@ export function GraphTabView({
   isFocusMode = false,
   onToggleFocusMode,
 }: GraphTabViewProps) {
+  // The graph is read only while this view is mounted (SHELL-02).
+  const graph = useLinkGraph()
   const { t } = useTranslation()
   const containerRef = React.useRef<HTMLDivElement>(null)
   const svgRef = React.useRef<SVGSVGElement>(null)

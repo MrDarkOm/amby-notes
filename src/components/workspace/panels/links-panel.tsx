@@ -11,9 +11,11 @@ import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { LinkGraphEdge, PanelRenderProps } from "../panel-registry"
+import { useLinkGraph } from "../use-link-graph-store"
 import { PanelHeader, PanelSearch } from "./panel-header"
 
-export function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRenderProps) {
+export function LinksPanel({ currentDocId, onSelectLink }: PanelRenderProps) {
+  const linkGraph = useLinkGraph()
   const { t } = useTranslation()
   const [query, setQuery] = React.useState("")
   const [allOpen, setAllOpen] = React.useState(false)

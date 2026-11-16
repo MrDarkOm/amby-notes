@@ -1,6 +1,6 @@
 import type { RenameOutcome } from "../file-actions/rename-outcome"
 import { isTauri } from "@/lib/storage"
-import type { AttachmentItem, LinkGraph, PanelRenderProps } from "../panel-registry"
+import type { AttachmentItem, PanelRenderProps } from "../panel-registry"
 import type { CustomProperty, NoteLayers, NoteProperties } from "@/lib/storage/types"
 import { type DatabaseSummary, readFile, readNote } from "@/lib/storage"
 import { showInFileManager } from "../show-in-file-manager"
@@ -92,7 +92,6 @@ interface UsePanelRenderPropsParams {
   selectedDatabase: DatabaseSummary | null
   activeTab: Tab | null
   currentFileIcon: string | undefined
-  linkGraph: LinkGraph
   currentDoc: Document | null
   handleSelect: (fileId: string, displayTitle?: string) => Promise<void>
   handleUpsertCustomProperty: (property: CustomProperty) => Promise<CustomProperty>
@@ -156,7 +155,6 @@ export function usePanelRenderProps({
   selectedDatabase,
   activeTab,
   currentFileIcon,
-  linkGraph,
   currentDoc,
   handleSelect,
   handleUpsertCustomProperty,
@@ -238,7 +236,6 @@ export function usePanelRenderProps({
             locked: selectedDatabase.locked,
           }
         : null,
-      linkGraph,
       currentDocId: currentDoc?.id ?? null,
       currentDocPath: currentDoc?.path ?? null,
       onSelectLink: handleSelect,
@@ -338,7 +335,6 @@ export function usePanelRenderProps({
       handleChangePropertyType,
       handleSetPropertyValue,
       handleSetPropertyList,
-      linkGraph,
       currentDoc?.id,
       currentDoc?.path,
       handleHistoryRestored,
