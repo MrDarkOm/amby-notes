@@ -223,9 +223,9 @@ confirmLabel, destructive })` из [confirm.ts](../src/lib/confirm.ts) возв�
 - Ошибку можно не показывать, только если человеку нечего с ней делать и данные не затронуты
   (уборка, кэш, необязательное чтение). Тогда — комментарий в коде, почему молчим, и `logger` с кодом
   ошибки.
-- `.catch(() => {})` без комментария не допускается. То же для `catch {}`, `.catch(() => undefined)` и `.catch(() => null)`: комментарий стоит в той же строке, строкой выше `.catch` или строкой выше оператора. Если это не очевидная уборка (закрыть ручку, жест окна), рядом ещё `logger` с кодом события, зарегистрированным в `event-codes.ts` и в `logging.rs`. Это держит [notice-rules-guard.test.ts](../src/lib/notice-rules-guard.test.ts).
+- `.catch(() => {})` без комментария не допускается. То же для `catch {}`, `.catch(() => undefined)` и `.catch(() => null)`: комментарий стоит в той же строке, строкой выше `.catch` или строкой выше оператора. Если это не очевидная уборка (закрыть ручку, жест окна), рядом ещё `logger` с кодом события, записанным в `allowed-events.txt`. Это держит [notice-rules-guard.test.ts](../src/lib/notice-rules-guard.test.ts).
 - Если затронуты данные человека, молчать нельзя ни при каких условиях.
-- Код события журнала должен знать и интерфейс (`event-codes.ts`), и Rust (`ALLOWED_EVENTS` в `logging.rs`): неизвестный код сохраняется как `diagnostic.invalid_event`, и настоящее имя теряется. Это держит [event-registry.test.ts](../src/lib/debug/event-registry.test.ts): новый `logger.*("имя")` или `event = "имя"` без записи в оба списка роняет тест.
+- Код события журнала должен быть в едином списке [allowed-events.txt](../src/lib/debug/allowed-events.txt), его читают и интерфейс (`event-codes.ts`), и Rust (`allowed_event` в `logging.rs`): неизвестный код сохраняется как `diagnostic.invalid_event`, и настоящее имя теряется. Это держит [event-registry.test.ts](../src/lib/debug/event-registry.test.ts): новый `logger.*("имя")` или `event = "имя"` без строки в этом файле роняет тест.
 
 ## 14. Заглушка сбоя
 
