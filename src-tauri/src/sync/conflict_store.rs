@@ -649,7 +649,10 @@ impl FileConflictStore {
                     return Err(error);
                 }
             }
-            staged.publish(Some(SnapshotReason::SyncOverwrite))
+            staged.publish(
+                Some(SnapshotReason::SyncOverwrite),
+                amby_sync_core::engine::ExpectedLocal::Any,
+            )
         })();
         files.batch_end();
         result.map_err(storage_fs)
