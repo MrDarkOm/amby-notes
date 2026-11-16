@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next"
 import { createPortal } from "react-dom"
 import { motion } from "motion/react"
 import type { Editor } from "@tiptap/react"
-import { Fragment, type Node as PMNode } from "@tiptap/pm/model"
 import {
   AlignCenter,
   AlignLeft,
@@ -32,7 +31,14 @@ import {
 
 import { getTurnIntoItems, type BlockInsertItem } from "./block-insert-items"
 import { markActiveRow, pointerReallyMoved, revealRow, stepIndex } from "./menu-keyboard"
-import { convertBlockToParagraph, convertBlockWrapper } from "./block-conversion"
+import {
+  convertBlockToParagraph,
+  convertBlockWrapper,
+  convertList,
+  findListParent,
+  splitParagraphIntoBlocks,
+  type ListKind,
+} from "./block-conversion"
 import { EmojiPickerPanel } from "./EmojiPickerPanel"
 import { attachmentKind, localFileKind } from "./attachment-kind"
 import { isVaultImage } from "./image-actions"
@@ -90,53 +96,6 @@ interface Props {
   onInsertBelow: () => void
   onFocusInsideBlock: () => void
   onClose: () => void
-}
-
-/**
- * Turns the visual lines in one paragraph into sibling paragraph blocks while
- * preserving inline marks and inline nodes. This is deliberately a separate
- * action from "Turn into": a paragraph stays a paragraph.
- */
-function splitParagraphIntoBlocks(editor: Editor, nodePos: number): boolean {
-  const paragraph = editor.state.doc.nodeAt(nodePos)
-  if (!paragraph || paragraph.type.name !== "paragraph") return false
-
-  const lines: PMNode[][] = [[]]
-  const nextLine = () => lines.push([])
-  const appendToCurrentLine = (child: PMNode) => {
-    lines[lines.length - 1]?.push(child)
-  }
-
-  paragraph.forEach((child) => {
-    if (child.type.name === "hardBreak") {
-      nextLine()
-      return
-    }
-
-    if (!child.isText || !child.text?.includes("\n")) {
-      appendToCurrentLine(child)
-      return
-    }
-
-    const parts = child.text.split(/\r?\n/u)
-    parts.forEach((part, index) => {
-      if (part) appendToCurrentLine(paragraph.type.schema.text(part, child.marks))
-      if (index < parts.length - 1) nextLine()
-    })
-  })
-
-  if (lines.length < 2) return false
-
-  const paragraphs = lines.map((line) =>
-    paragraph.type.create(paragraph.attrs, Fragment.fromArray(line)),
-  )
-  const transaction = editor.state.tr
-    .replaceWith(nodePos, nodePos + paragraph.nodeSize, Fragment.fromArray(paragraphs))
-    .scrollIntoView()
-
-  editor.view.dispatch(transaction)
-  editor.commands.focus()
-  return true
 }
 
 export function BlockActionsPanel({
@@ -468,7 +427,11 @@ export function BlockActionsPanel({
                 type="button"
                 className="amby-block-row"
                 onClick={() => {
-                  if (splitParagraphIntoBlocks(editor, nodePos)) onClose()
+                  const split = splitParagraphIntoBlocks(editor.state, nodePos)
+                  if (!split) return
+                  editor.view.dispatch(split)
+                  editor.commands.focus()
+                  onClose()
                 }}
               >
                 <Rows3 className="amby-block-row-icon" />
@@ -1111,27 +1074,6 @@ function ImageContext({
 
 // ── Context: List ────────────────────────────────────────────────────────────
 
-type ListParent = {
-  type: "bulletList" | "orderedList" | "taskList"
-  pos: number
-  node: PMNode
-}
-
-function findListParent(editor: Editor, pos: number): ListParent | null {
-  const doc = editor.state.doc
-  const inside = Math.min(pos + 1, doc.content.size - 1)
-  if (inside < 0) return null
-  const $pos = doc.resolve(inside)
-  for (let d = $pos.depth; d >= 0; d--) {
-    const n = $pos.node(d)
-    const name = n.type.name
-    if (name === "bulletList" || name === "orderedList" || name === "taskList") {
-      return { type: name, pos: $pos.before(d), node: n }
-    }
-  }
-  return null
-}
-
 function ListContext({
   editor,
   nodePos,
@@ -1142,38 +1084,12 @@ function ListContext({
   matches: (s: string) => boolean
 }) {
   const { t } = useTranslation()
-  const parent = findListParent(editor, nodePos)
-  const parentType = parent?.type ?? null
+  const parentType = findListParent(editor.state, nodePos)?.type ?? null
 
-  function switchTo(target: "bullet" | "ordered" | "task") {
-    const same =
-      (target === "bullet" && parentType === "bulletList") ||
-      (target === "ordered" && parentType === "orderedList") ||
-      (target === "task" && parentType === "taskList")
-    if (same || !parent) return
-
-    const listType =
-      editor.schema.nodes[
-        target === "bullet" ? "bulletList" : target === "ordered" ? "orderedList" : "taskList"
-      ]
-    const itemType = editor.schema.nodes[target === "task" ? "taskItem" : "listItem"]
-    if (!listType || !itemType) return
-
-    const items: PMNode[] = []
-    parent.node.forEach((item) => {
-      items.push(
-        itemType.create(target === "task" ? { checked: false } : null, item.content, item.marks),
-      )
-    })
-    const replacement = listType.create(
-      target === "ordered" ? { start: 1 } : null,
-      Fragment.fromArray(items),
-    )
-    editor.view.dispatch(
-      editor.state.tr
-        .replaceWith(parent.pos, parent.pos + parent.node.nodeSize, replacement)
-        .scrollIntoView(),
-    )
+  function switchTo(target: ListKind) {
+    const transaction = convertList(editor.state, nodePos, target)
+    if (!transaction) return
+    editor.view.dispatch(transaction)
     editor.commands.focus()
   }
 
