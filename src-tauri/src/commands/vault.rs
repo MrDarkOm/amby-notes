@@ -185,6 +185,28 @@ pub fn apply_id_migration(
     vault_index::apply_id_migration(&canonical)
 }
 
+/// Opening one note: gives it an `amby-id` if it has none, without walking the vault (CORE-04).
+#[tauri::command]
+#[specta::specta]
+pub fn apply_note_id_migration(
+    context: tauri::State<'_, vault_context::VaultContext>,
+    note_id: String,
+) -> Result<(), String> {
+    let (root, rel_path) = {
+        let conn_guard = context.conn.lock_or_recover();
+        let conn = conn_guard.as_ref().ok_or("No vault open")?;
+        let note = vault_index::note_by_id(conn, &conn.root, &note_id)?;
+        let rel = Path::new(&note.path)
+            .strip_prefix(&conn.root)
+            .map(vault_index::normalize_rel_path)
+            .map_err(|error| error.to_string())?;
+        (conn.root.clone(), rel)
+    };
+    // Order: mutation_gate, then conn, as in write_file; the conn lock is released above.
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
+    vault_index::apply_note_id_migration(&root, &rel_path)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn inspect_id_migrations(
