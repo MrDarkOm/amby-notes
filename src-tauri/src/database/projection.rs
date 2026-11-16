@@ -113,15 +113,18 @@ pub fn rebuild_database_projection(
     init_schema(conn)?;
     let discovery = discover_vault(vault)?;
     let inputs = load_inputs(&discovery)?;
-    let has_errors = discovery
-        .diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error);
-    let existing: i64 = conn
-        .query_row("SELECT COUNT(*) FROM db_databases", [], |row| row.get(0))
-        .map_err(|error| error.to_string())?;
+    // An error freezes only the database whose container holds the faulty file.
+    // Errors outside every database container (an unreadable note elsewhere in
+    // the vault) never block publishing: they are still stored as diagnostics.
+    let frozen = frozen_database_ids(conn, &discovery)?;
+    let stored = stored_database_ids(conn)?;
+    let preserved: HashSet<String> = frozen.intersection(&stored).cloned().collect();
+    let published = preserved.is_empty()
+        || inputs
+            .iter()
+            .any(|input| !preserved.contains(&input.manifest.value.database_id));
 
-    if has_errors && existing > 0 {
+    if !published {
         let epoch = metadata_value(conn, "database_projection_epoch")?
             .unwrap_or_else(|| Ulid::generate().to_string());
         let seq = metadata_value(conn, "database_projection_seq")?
@@ -144,30 +147,106 @@ pub fn rebuild_database_projection(
 
     let epoch = Ulid::generate().to_string();
     let source_stamp = database_source_stamp(vault)?;
-    let state = if has_errors || inputs.iter().any(|input| input.database.read_only) {
+    // `state` is what databases that are not frozen get; the vault-wide status
+    // is stale as soon as any database is frozen.
+    let state = if inputs.iter().any(|input| input.database.read_only) {
         STALE_READ_ONLY
     } else {
         HEALTHY
     };
+    let overall = if frozen.is_empty() {
+        state
+    } else {
+        STALE_READ_ONLY
+    };
     let tx = conn
         .unchecked_transaction()
         .map_err(|error| error.to_string())?;
-    replace_projection(&tx, &discovery, &inputs, state)?;
+    replace_projection(&tx, &discovery, &inputs, state, &frozen, &preserved)?;
     set_metadata(&tx, "database_projection_epoch", &epoch)?;
     set_metadata(&tx, "database_projection_seq", "0")?;
-    set_metadata(&tx, "database_projection_status", state)?;
+    set_metadata(&tx, "database_projection_status", overall)?;
     set_metadata(&tx, "database_projection_source_stamp", &source_stamp)?;
     tx.commit().map_err(|error| error.to_string())?;
 
     Ok(ProjectionReport {
         published: true,
-        state: state.to_owned(),
+        state: overall.to_owned(),
         epoch,
         seq: 0,
         diagnostics: conn
             .query_row("SELECT COUNT(*) FROM db_diagnostics", [], |row| row.get(0))
             .map_err(|error| error.to_string())?,
     })
+}
+
+fn stored_database_ids(conn: &Connection) -> Result<HashSet<String>, String> {
+    let mut statement = conn
+        .prepare("SELECT database_id FROM db_databases")
+        .map_err(|error| error.to_string())?;
+    let ids = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|error| error.to_string())?
+        .collect::<Result<HashSet<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    Ok(ids)
+}
+
+/// Databases whose container holds an error-level diagnostic. A diagnostic is
+/// attributed to the deepest known container (discovered now or published
+/// before) that contains its path; one outside every container freezes nothing.
+fn frozen_database_ids(
+    conn: &Connection,
+    discovery: &DiscoveryResult,
+) -> Result<HashSet<String>, String> {
+    let mut containers: Vec<(String, String)> = discovery
+        .databases
+        .iter()
+        .map(|database| {
+            (
+                database.relative_container_path.clone(),
+                database.database_id.clone(),
+            )
+        })
+        .collect();
+    let mut statement = conn
+        .prepare("SELECT container_path, database_id FROM db_databases")
+        .map_err(|error| error.to_string())?;
+    let stored = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    drop(statement);
+    containers.extend(stored);
+
+    let mut frozen = HashSet::new();
+    for diagnostic in discovery
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+    {
+        let owner = containers
+            .iter()
+            .filter(|(container, _)| path_in_container(&diagnostic.path, container))
+            .max_by_key(|(container, _)| container.len());
+        if let Some((_, database_id)) = owner {
+            frozen.insert(database_id.clone());
+        }
+    }
+    Ok(frozen)
+}
+
+fn path_in_container(path: &str, container: &str) -> bool {
+    let container = container.trim_end_matches('/');
+    container.is_empty()
+        || container == "."
+        || path == container
+        || path
+            .strip_prefix(container)
+            .is_some_and(|rest| rest.starts_with('/'))
 }
 
 /// Return a previously published projection without touching the vault.
@@ -723,25 +802,50 @@ fn replace_projection(
     discovery: &DiscoveryResult,
     inputs: &[DatabaseInput],
     state: &str,
+    frozen: &HashSet<String>,
+    preserved: &HashSet<String>,
 ) -> Result<(), String> {
-    for table in [
-        "db_value_files",
-        "db_value_options",
-        "db_relation_edges",
-        "db_values_fts",
-        "db_values",
-        "db_record_revisions",
-        "db_yaml_conflicts",
-        "db_members",
-        "db_options",
-        "db_properties",
-        "db_views",
-        "db_templates",
-        "db_databases",
-        "db_diagnostics",
-    ] {
-        tx.execute(&format!("DELETE FROM {table}"), [])
+    if !preserved.is_empty() {
+        // Frozen databases keep their last good rows; everything else is replaced.
+        let ids = stored_database_ids(tx)?;
+        for id in ids.iter().filter(|id| !preserved.contains(*id)) {
+            tx.execute("DELETE FROM db_values_fts WHERE database_id = ?1", [id])
+                .map_err(|error| error.to_string())?;
+            tx.execute("DELETE FROM db_databases WHERE database_id = ?1", [id])
+                .map_err(|error| error.to_string())?;
+        }
+        tx.execute("DELETE FROM db_diagnostics", [])
             .map_err(|error| error.to_string())?;
+        for id in preserved {
+            for table in ["db_databases", "db_views", "db_templates"] {
+                tx.execute(
+                    &format!("UPDATE {table} SET projection_state = ?1 WHERE database_id = ?2"),
+                    params![STALE_READ_ONLY, id],
+                )
+                .map_err(|error| error.to_string())?;
+            }
+        }
+    }
+    if preserved.is_empty() {
+        for table in [
+            "db_value_files",
+            "db_value_options",
+            "db_relation_edges",
+            "db_values_fts",
+            "db_values",
+            "db_record_revisions",
+            "db_yaml_conflicts",
+            "db_members",
+            "db_options",
+            "db_properties",
+            "db_views",
+            "db_templates",
+            "db_databases",
+            "db_diagnostics",
+        ] {
+            tx.execute(&format!("DELETE FROM {table}"), [])
+                .map_err(|error| error.to_string())?;
+        }
     }
 
     let note_by_path = discovery
@@ -765,14 +869,27 @@ fn replace_projection(
     }
 
     for input in inputs {
-        insert_database(tx, input, state, &note_by_path)?;
+        if preserved.contains(&input.manifest.value.database_id) {
+            continue;
+        }
+        let input_state = if frozen.contains(&input.manifest.value.database_id) {
+            STALE_READ_ONLY
+        } else {
+            state
+        };
+        insert_database(tx, input, input_state, &note_by_path)?;
         insert_properties(tx, input)?;
-        insert_views_and_templates(tx, input, state)?;
+        insert_views_and_templates(tx, input, input_state)?;
         for note in discovery.notes.iter().filter(|note| {
             note.owner_database_id.as_deref() == Some(input.manifest.value.database_id.as_str())
         }) {
             if let Some(note_id) = note.note_id.as_deref() {
                 if note_exists(tx, note_id)? && known_note_ids.insert(note_id.to_owned()) {
+                    if !preserved.is_empty() {
+                        // A note moved out of a frozen database must not collide
+                        // with the membership row that database keeps.
+                        evict_preserved_note(tx, note_id)?;
+                    }
                     insert_member(tx, input, note)?;
                 }
             }
@@ -802,7 +919,10 @@ fn replace_projection(
     replace_diagnostics(tx, &discovery.diagnostics)?;
     // Compute every database's formulas before any rollup can read them.
     for kind in ["formula", "rollup"] {
-        for input in inputs {
+        for input in inputs
+            .iter()
+            .filter(|input| !preserved.contains(&input.manifest.value.database_id))
+        {
             let member_note_ids = discovery
                 .notes
                 .iter()
@@ -830,6 +950,27 @@ fn replace_projection(
         }
     }
     append_yaml_conflict_diagnostics(tx)?;
+    Ok(())
+}
+
+fn evict_preserved_note(tx: &Transaction<'_>, note_id: &str) -> Result<(), String> {
+    for table in [
+        "db_values_fts",
+        "db_values",
+        "db_yaml_conflicts",
+        "db_members",
+    ] {
+        tx.execute(
+            &format!("DELETE FROM {table} WHERE note_id = ?1"),
+            [note_id],
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    tx.execute(
+        "DELETE FROM db_relation_edges WHERE source_note_id = ?1",
+        [note_id],
+    )
+    .map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -1794,3 +1935,7 @@ fn database_source_stamp(vault: &Path) -> Result<String, String> {
 #[cfg(test)]
 #[path = "projection_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "projection_scope_test.rs"]
+mod scope_tests;

@@ -42,6 +42,7 @@ proposals too; confirm actual durable layout in `format.rs` and its fixtures/tes
 Before a watcher-driven projection refresh or rebuild, pending note-index changes are
 consumed first (`ActiveVault::refresh_pending_index`): projection membership depends on
 the note index and can otherwise omit newly received notes.
+Rebuilds freeze per database (`frozen_database_ids`); errors outside containers don't.
 
 Keep durable writes separate from cache health; disabling a module or rebuilding
 SQLite must not discard source data. Preserve unknown fields. Failed formula or
