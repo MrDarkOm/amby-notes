@@ -9,7 +9,7 @@ export interface MarkdownCompatibility {
   reason?: MarkdownCompatibilityReason
 }
 
-function hasMixedLineEndings(source: string): boolean {
+export function hasMixedLineEndings(source: string): boolean {
   const hasCrLf = /\r\n/u.test(source)
   const hasLoneLf = /(^|[^\r])\n/u.test(source)
   const hasLoneCr = /\r(?!\n)/u.test(source)
