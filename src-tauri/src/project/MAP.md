@@ -67,7 +67,8 @@ in the journal, and the structure file last. Its reaching the planned bytes is t
 still reports success. Before it, `recovery::rollback` removes only what the operation made: a manifest only when
 byte-identical to the one recomputed from the journal, a folder only when empty. Anything else stays and the call
 returns `RecoveryRequired` with the journal kept. Activation (`recover_pending_projects`) does the same for a crash
-and quarantines a journal it cannot clean; it never blocks opening the vault. The same `operationId` and request
+and quarantines a journal it cannot clean or cannot read (bytes moved to `creative/quarantine/`, never deleted;
+a repeat of that operation ID is `RecoveryRequired`); it never blocks opening the vault. The same `operationId` and request
 returns the recorded answer without writing; a different request under the same ID is `OperationIdReused`.
 A new section rewrites the file through a history snapshot and a raw-byte `expectedWorkshopRevision`; unknown
 fields and a BOM survive.

@@ -1441,7 +1441,7 @@ fn activation_prunes_only_completed_journals_older_than_the_retention() {
     assert!(old_path.is_file() && fresh_path.is_file());
     age_file(&old_path, 40);
     age_file(&fresh_path, 5);
-    // An old unreadable file is never touched.
+    // An old unreadable file is never deleted (it is moved to the quarantine, CRE-04).
     let garbage = dir.join("garbage.json");
     fs::write(&garbage, b"{ not json").unwrap();
     age_file(&garbage, 400);
@@ -1453,7 +1453,10 @@ fn activation_prunes_only_completed_journals_older_than_the_retention() {
         "an old completed journal must be removed"
     );
     assert!(fresh_path.is_file(), "a recent completed journal stays");
-    assert!(garbage.is_file(), "an unreadable journal stays");
+    assert!(
+        dir.join("quarantine").join("garbage.json").is_file(),
+        "an unreadable journal is kept in the quarantine"
+    );
 }
 
 #[test]
@@ -1472,4 +1475,60 @@ fn activation_keeps_an_old_unfinished_journal_until_it_is_resolved() {
     let report = recover_pending_projects(&fixture.vault).unwrap();
     assert_eq!(report.completed, 1);
     assert!(path.is_file());
+}
+
+#[test]
+fn an_unreadable_journal_is_quarantined_with_its_bytes_and_reported() {
+    let fixture = Fixture::new();
+    let dir = journal_dir(&fixture.vault);
+    fs::create_dir_all(&dir).unwrap();
+    // One file is not JSON at all; the other is JSON of an unknown format.
+    let broken: [(&str, &[u8]); 2] = [
+        ("broken-1.json", b"{ not json \xff\xfe"),
+        (
+            "broken-2.json",
+            br#"{"format":"other","formatVersion":9,"unknown":true}"#,
+        ),
+    ];
+    for (name, bytes) in broken {
+        fs::write(dir.join(name), bytes).unwrap();
+    }
+
+    let report = recover_pending_projects(&fixture.vault).unwrap();
+
+    assert_eq!(report.quarantined.len(), 2, "{report:?}");
+    for (name, bytes) in broken {
+        assert!(!dir.join(name).exists(), "{name} is moved out of the way");
+        assert_eq!(
+            fs::read(dir.join("quarantine").join(name)).unwrap(),
+            bytes,
+            "{name} keeps its bytes"
+        );
+    }
+    // A second activation has nothing left to report.
+    let again = recover_pending_projects(&fixture.vault).unwrap();
+    assert!(again.quarantined.is_empty(), "{again:?}");
+}
+
+#[test]
+fn a_repeat_over_an_unreadable_journal_requires_recovery_and_keeps_it() {
+    let fixture = Fixture::new();
+    let request = workshop("MoleHills");
+    let dir = journal_dir(&fixture.vault);
+    fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(format!("{}.json", request.operation_id));
+    fs::write(&path, b"{ half a journal").unwrap();
+
+    let error = fixture.create_workshop(&request).unwrap_err();
+
+    assert!(
+        matches!(&error, ProjectError::RecoveryRequired { operation_id, .. }
+            if *operation_id == request.operation_id),
+        "{error:?}"
+    );
+    assert_eq!(fs::read(&path).unwrap(), b"{ half a journal");
+    assert!(
+        !fixture.vault.join("MoleHills").exists(),
+        "nothing is created over an unreadable journal"
+    );
 }

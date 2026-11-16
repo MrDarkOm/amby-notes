@@ -205,18 +205,46 @@ pub fn read_journal_file(path: &Path) -> Result<Option<Journal>, ProjectError> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(failure(error.to_string())),
     };
-    if !metadata.is_file() || metadata.len() > MAX_JOURNAL_BYTES {
+    if !metadata.is_file() {
         return Ok(None);
+    }
+    if metadata.len() > MAX_JOURNAL_BYTES {
+        return Err(unreadable(
+            path,
+            "UNREADABLE_TOO_LARGE",
+            "the file is too large",
+        ));
     }
     let bytes = fs::read(path).map_err(|error| failure(error.to_string()))?;
     let journal: Journal = match serde_json::from_slice(&bytes) {
         Ok(parsed) => parsed,
-        Err(_) => return Ok(None),
+        Err(error) => {
+            return Err(unreadable(
+                path,
+                "UNREADABLE_NOT_JSON",
+                &format!("it is not a journal: {error}"),
+            ))
+        }
     };
-    if validate_journal(&journal).is_err() {
-        return Ok(None);
+    if let Err(error) = validate_journal(&journal) {
+        return Err(unreadable(path, "UNREADABLE_INVALID", &error.to_string()));
     }
     Ok(Some(journal))
+}
+
+/// A journal file that exists but cannot be read is recovery data nobody can interpret, so it is
+/// neither skipped nor deleted: the caller gets `RecoveryRequired` naming the operation, and
+/// activation moves the file (bytes intact) to the quarantine.
+fn unreadable(path: &Path, code: &str, reason: &str) -> ProjectError {
+    let operation_id = path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    tracing::warn!(event = "project_journal_unreadable", code = code);
+    ProjectError::RecoveryRequired {
+        operation_id,
+        message: format!("The project journal cannot be read: {reason}"),
+    }
 }
 
 pub fn read_journal(vault: &Path, operation_id: &str) -> Result<Option<Journal>, ProjectError> {
