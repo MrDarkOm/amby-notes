@@ -1,5 +1,16 @@
 //! Small pure rules of the engine (Р4, Р8): what is not synchronised and when a pass stops.
 
+/// The folders of `.amby/` whose files are synchronised (Р4, З14, Г24, К1); the rest of `.amby/` is
+/// not (SYNC-10). The one list: [`is_excluded_path`] keeps them, and the walk of the application
+/// (`vault_fs.rs`) enters them and nothing else.
+pub const AMBY_SYNCED_FOLDERS: [&str; 5] = [
+    "blocks",
+    "property-backups",
+    "conflicts",
+    "properties",
+    "archive",
+];
+
 /// Is this path excluded from synchronisation without a word (Р4, Д11)? `.git` at any depth;
 /// `.obsidian/` and `.trash/` at the root; everything in `.amby/` except `properties.json`,
 /// `properties/` (the groups of note properties, З14), `blocks/`, `graph-layout.json`,
@@ -21,9 +32,7 @@ pub fn is_excluded_path(path: &str) -> bool {
             let kept = match segments.get(1) {
                 None => false,
                 Some(&("properties.json" | "graph-layout.json")) => segments.len() == 2,
-                Some(&("blocks" | "property-backups" | "conflicts" | "properties" | "archive")) => {
-                    true
-                }
+                Some(folder) if AMBY_SYNCED_FOLDERS.contains(folder) => true,
                 Some(_) => false,
             };
             if !kept {
