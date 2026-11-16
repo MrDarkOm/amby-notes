@@ -457,6 +457,38 @@ pub fn canonical_manifest_bytes(manifest: &ModuleManifest) -> Result<Vec<u8>, St
     serde_json::to_vec(&payload).map_err(|e| format!("Failed to serialize canonical manifest: {e}"))
 }
 
+/// Third-party (`community`) packages carry no verifiable signature: the
+/// manifest check below only authenticates `official` ones. Keep this `false`
+/// until third-party modules are deliberately enabled, together with
+/// `INSTALLED_MODULE_EXECUTION_ENABLED` in
+/// `src/lib/modules/host/execution-policy.ts` and the package-signing-key
+/// rotation (MOD-01), so Rust enforces the same invariant as the front end.
+pub const THIRD_PARTY_PACKAGES_ENABLED: bool = false;
+
+#[cfg(not(test))]
+fn third_party_packages_allowed() -> bool {
+    THIRD_PARTY_PACKAGES_ENABLED
+}
+
+// Lifecycle tests use `community` fixtures (they model the future, enabled
+// state); the policy test turns the gate off for its own thread.
+#[cfg(test)]
+thread_local! {
+    static TEST_THIRD_PARTY_ALLOWED: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+#[cfg(test)]
+fn third_party_packages_allowed() -> bool {
+    TEST_THIRD_PARTY_ALLOWED.with(|value| value.get())
+}
+
+fn ensure_package_kind_allowed(manifest: &ModuleManifest) -> Result<(), String> {
+    if manifest.kind != "official" && !third_party_packages_allowed() {
+        return Err("Third-party module packages are not enabled".to_string());
+    }
+    Ok(())
+}
+
 pub fn verify_manifest_signature(manifest: &ModuleManifest) -> Result<bool, String> {
     if manifest.kind != "official" {
         return Ok(true);
@@ -517,6 +549,7 @@ fn stage_module_at(
     let staging_id = format!("stage-{}", ulid::Ulid::generate());
     validate_manifest_fields(&manifest)?;
     validate_manifest_files(&manifest, &files)?;
+    ensure_package_kind_allowed(&manifest)?;
 
     // Validate Ed25519 signature before creating any filesystem state.
     let sig_valid = verify_manifest_signature(&manifest)?;
@@ -573,6 +606,37 @@ pub struct RawPackagePayload {
     pub files: BTreeMap<String, String>,
 }
 
+const MAX_PACKAGE_BYTES: usize = 50 * 1024 * 1024;
+const PACKAGE_TOO_LARGE: &str = "Package archive exceeds maximum allowed size (50MB)";
+
+/// A source of body chunks; a seam so the size limit is testable without a network.
+trait ChunkSource {
+    async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, String>;
+}
+
+struct ResponseChunks(reqwest::Response);
+
+impl ChunkSource for ResponseChunks {
+    async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, String> {
+        self.0
+            .chunk()
+            .await
+            .map(|chunk| chunk.map(|bytes| bytes.to_vec()))
+            .map_err(|e| format!("Failed to read response body: {e}"))
+    }
+}
+
+async fn read_body_limited(source: &mut impl ChunkSource, limit: usize) -> Result<Vec<u8>, String> {
+    let mut body = Vec::new();
+    while let Some(chunk) = source.next_chunk().await? {
+        if body.len().saturating_add(chunk.len()) > limit {
+            return Err(PACKAGE_TOO_LARGE.to_string());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
 pub async fn download_remote_package(
     app: &tauri::AppHandle,
     url: String,
@@ -605,14 +669,13 @@ pub async fn download_remote_package(
         ));
     }
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| format!("Failed to read response body: {e}"))?;
-
-    if bytes.len() > 50 * 1024 * 1024 {
-        return Err("Package archive exceeds maximum allowed size (50MB)".to_string());
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_PACKAGE_BYTES as u64)
+    {
+        return Err(PACKAGE_TOO_LARGE.to_string());
     }
+    let bytes = read_body_limited(&mut ResponseChunks(response), MAX_PACKAGE_BYTES).await?;
 
     let payload: RawPackagePayload = serde_json::from_slice(&bytes)
         .map_err(|e| format!("Failed to parse .amby-pkg archive: {e}"))?;
@@ -675,6 +738,7 @@ fn validate_staged_package(staging_dir: &Path) -> Result<ModuleManifest, String>
     let manifest: ModuleManifest = serde_json::from_str(&manifest_content)
         .map_err(|e| format!("Invalid staged package manifest: {e}"))?;
     validate_manifest_fields(&manifest)?;
+    ensure_package_kind_allowed(&manifest)?;
     if !verify_manifest_signature(&manifest)? {
         return Err("Invalid or untrusted Ed25519 package signature".to_string());
     }
@@ -882,6 +946,17 @@ fn publish_module_with_writer(
         return Err(format!(
             "Module version is already installed: {module_id}@{version}"
         ));
+    }
+    // Never move the active version backwards by publishing: that is what an
+    // explicit rollback is for. (The same version is already refused above.)
+    if let Some(meta) = &existing_meta {
+        let active = parse_strict_version(&meta.active_version)?;
+        if parse_strict_version(&version)? <= active {
+            return Err(format!(
+                "Module version is not newer than the active version: {module_id}@{version} (active {})",
+                meta.active_version
+            ));
+        }
     }
 
     let mut versions_meta = existing_meta.clone().unwrap_or(ModuleVersionsMeta {
@@ -1185,6 +1260,83 @@ mod tests {
         );
         uninstall_module_at(&root.0, "example.plugin".into()).unwrap();
         assert!(list_installed_modules_at(&root.0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn community_packages_are_rejected_while_third_party_modules_are_disabled() {
+        let root = Fixture::new();
+        // A package staged while the gate was open must not be publishable once closed.
+        let staged = root.stage("1.0.0");
+        TEST_THIRD_PARTY_ALLOWED.with(|value| value.set(false));
+        let (manifest, files) = payload("1.0.0");
+        assert_eq!(manifest.kind, "community");
+        let rejected = stage_module_at(&root.0, "hint".into(), manifest, files);
+        assert!(rejected.is_err());
+        assert!(publish_module_at(
+            &root.0,
+            staged.staging_id,
+            "example.plugin".into(),
+            "1.0.0".into()
+        )
+        .is_err());
+        assert!(list_installed_modules_at(&root.0).unwrap().is_empty());
+        // Official packages are not affected by the gate.
+        let (mut official, _) = payload("1.0.0");
+        official.kind = "official".into();
+        assert!(ensure_package_kind_allowed(&official).is_ok());
+    }
+
+    struct CountingChunks {
+        remaining: usize,
+        pulled: usize,
+    }
+    impl ChunkSource for CountingChunks {
+        async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, String> {
+            if self.remaining == 0 {
+                return Ok(None);
+            }
+            self.remaining -= 1;
+            self.pulled += 1;
+            Ok(Some(vec![0; 10]))
+        }
+    }
+
+    #[test]
+    fn oversized_body_is_refused_before_it_is_read_in_full() {
+        let mut source = CountingChunks {
+            remaining: 1000,
+            pulled: 0,
+        };
+        let result = tauri::async_runtime::block_on(read_body_limited(&mut source, 95));
+        assert_eq!(result.unwrap_err(), PACKAGE_TOO_LARGE);
+        assert!(source.pulled <= 10, "pulled {} chunks", source.pulled);
+
+        let mut fits = CountingChunks {
+            remaining: 9,
+            pulled: 0,
+        };
+        let body = tauri::async_runtime::block_on(read_body_limited(&mut fits, 95)).unwrap();
+        assert_eq!(body.len(), 90);
+    }
+
+    #[test]
+    fn publishing_an_older_version_than_the_active_one_is_refused() {
+        let root = Fixture::new();
+        root.publish("2.0.0");
+        let history = root.0.join("example.plugin/versions.json");
+        let original = fs::read(&history).unwrap();
+        let older = root.stage("1.5.0");
+        let result = publish_module_at(
+            &root.0,
+            older.staging_id,
+            "example.plugin".into(),
+            "1.5.0".into(),
+        );
+        assert!(result.is_err(), "downgrade was published");
+        assert_eq!(fs::read(&history).unwrap(), original);
+        let info = list_installed_modules_at(&root.0).unwrap().remove(0);
+        assert_eq!(info.active_version, "2.0.0");
+        assert_eq!(info.installed_versions, ["2.0.0"]);
     }
 
     #[test]
