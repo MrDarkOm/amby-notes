@@ -826,8 +826,11 @@ export const saveGlobalJSON = (file: string, data: unknown): Promise<void> =>
   settingsRepository.saveGlobalJSON(file, data)
 export const loadVaultJSON = <T>(rel: string, fallback: T): Promise<T> =>
   settingsRepository.loadVaultJSON<T>(rel, fallback)
-export const saveVaultJSON = (rel: string, data: unknown): Promise<void> =>
-  settingsRepository.saveVaultJSON(rel, data)
+export const saveVaultJSON = (
+  rel: string,
+  data: unknown,
+  expectedGeneration?: number | null,
+): Promise<void> => settingsRepository.saveVaultJSON(rel, data, expectedGeneration)
 export const readGlobalRaw = (file: string): Promise<string | null> =>
   settingsRepository.readGlobalRaw(file)
 export const writeGlobalRaw = (file: string, contents: string): Promise<void> =>

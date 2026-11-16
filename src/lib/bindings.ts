@@ -1607,17 +1607,17 @@ async readVaultMeta(rel: string) : Promise<Result<string | null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async writeVaultMeta(rel: string, contents: string) : Promise<Result<null, string>> {
+async writeVaultMeta(rel: string, contents: string, expectedGeneration: number | null) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("write_vault_meta", { rel, contents }) };
+    return { status: "ok", data: await TAURI_INVOKE("write_vault_meta", { rel, contents, expectedGeneration }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async deleteVaultMeta(rel: string) : Promise<Result<null, string>> {
+async deleteVaultMeta(rel: string, expectedGeneration: number | null) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_vault_meta", { rel }) };
+    return { status: "ok", data: await TAURI_INVOKE("delete_vault_meta", { rel, expectedGeneration }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };

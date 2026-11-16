@@ -256,10 +256,13 @@ pub fn write_vault_meta(
     context: tauri::State<VaultContext>,
     rel: String,
     contents: String,
+    expected_generation: Option<u64>,
 ) -> Result<(), String> {
     write_vault_meta_under_gate(
         &context.mutation_gate,
         || vault_meta_root(&context),
+        || context.generation(),
+        expected_generation,
         &rel,
         &contents,
     )
@@ -267,8 +270,31 @@ pub fn write_vault_meta(
 
 #[tauri::command]
 #[specta::specta]
-pub fn delete_vault_meta(context: tauri::State<VaultContext>, rel: String) -> Result<(), String> {
-    delete_vault_meta_under_gate(&context.mutation_gate, || vault_meta_root(&context), &rel)
+pub fn delete_vault_meta(
+    context: tauri::State<VaultContext>,
+    rel: String,
+    expected_generation: Option<u64>,
+) -> Result<(), String> {
+    delete_vault_meta_under_gate(
+        &context.mutation_gate,
+        || vault_meta_root(&context),
+        || context.generation(),
+        expected_generation,
+        &rel,
+    )
+}
+
+/// A write that names the vault generation it was made for is refused when another vault
+/// (or the same one, reopened) is active now, so a late save cannot land in the wrong `.amby/`.
+/// `None` is for a window that does not know the generation (the settings window).
+fn refuse_stale_generation(
+    current: impl FnOnce() -> Result<u64, String>,
+    expected: Option<u64>,
+) -> Result<(), String> {
+    match expected {
+        Some(expected) if current()? != expected => Err("vaultGenerationConflict".into()),
+        _ => Ok(()),
+    }
 }
 
 /// Writes under `mutation_gate`, as every other write into the vault does, and
@@ -276,11 +302,14 @@ pub fn delete_vault_meta(context: tauri::State<VaultContext>, rel: String) -> Re
 fn write_vault_meta_under_gate(
     gate: &Mutex<()>,
     root: impl FnOnce() -> Result<PathBuf, String>,
+    current_generation: impl FnOnce() -> Result<u64, String>,
+    expected_generation: Option<u64>,
     rel: &str,
     contents: &str,
 ) -> Result<(), String> {
     refuse_unknown(vault_meta_name_allowed(rel))?;
     let _guard = gate.lock_or_recover();
+    refuse_stale_generation(current_generation, expected_generation)?;
     let path = paths::confine_rel(&root()?, rel)?;
     write_all(&path, contents)
 }
@@ -288,10 +317,13 @@ fn write_vault_meta_under_gate(
 fn delete_vault_meta_under_gate(
     gate: &Mutex<()>,
     root: impl FnOnce() -> Result<PathBuf, String>,
+    current_generation: impl FnOnce() -> Result<u64, String>,
+    expected_generation: Option<u64>,
     rel: &str,
 ) -> Result<(), String> {
     refuse_unknown(vault_meta_name_allowed(rel))?;
     let _guard = gate.lock_or_recover();
+    refuse_stale_generation(current_generation, expected_generation)?;
     let path = paths::confine_rel(&root()?, rel)?;
     match fs::remove_file(&path) {
         Ok(()) => Ok(()),
@@ -431,10 +463,20 @@ mod tests {
     fn a_vault_meta_write_outside_the_list_is_refused_and_writes_nothing() {
         let root = temp_test_dir("meta-refused");
         let gate = Mutex::new(());
-        assert!(write_vault_meta_under_gate(&gate, || Ok(root.clone()), "notes.db", "x").is_err());
         assert!(write_vault_meta_under_gate(
             &gate,
             || Ok(root.clone()),
+            || Ok(1),
+            None,
+            "notes.db",
+            "x"
+        )
+        .is_err());
+        assert!(write_vault_meta_under_gate(
+            &gate,
+            || Ok(root.clone()),
+            || Ok(1),
+            None,
             "history/manifest.json",
             "x"
         )
@@ -442,15 +484,70 @@ mod tests {
         assert!(!root.join("notes.db").exists());
         assert!(!root.join("history").exists());
         fs::write(root.join("keep.json"), "k").unwrap();
-        assert!(delete_vault_meta_under_gate(&gate, || Ok(root.clone()), "keep.json").is_err());
+        assert!(delete_vault_meta_under_gate(
+            &gate,
+            || Ok(root.clone()),
+            || Ok(1),
+            None,
+            "keep.json"
+        )
+        .is_err());
         assert!(root.join("keep.json").exists());
-        write_vault_meta_under_gate(&gate, || Ok(root.clone()), "workspace.json", "{}").unwrap();
+        write_vault_meta_under_gate(
+            &gate,
+            || Ok(root.clone()),
+            || Ok(1),
+            None,
+            "workspace.json",
+            "{}",
+        )
+        .unwrap();
         assert_eq!(
             fs::read_to_string(root.join("workspace.json")).unwrap(),
             "{}"
         );
-        delete_vault_meta_under_gate(&gate, || Ok(root.clone()), "workspace.json").unwrap();
+        delete_vault_meta_under_gate(&gate, || Ok(root.clone()), || Ok(1), None, "workspace.json")
+            .unwrap();
         assert!(!root.join("workspace.json").exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_vault_meta_write_for_another_generation_is_refused_and_writes_nothing() {
+        let root = temp_test_dir("meta-generation");
+        let gate = Mutex::new(());
+        fs::write(root.join("session.json"), "old").unwrap();
+        let err = write_vault_meta_under_gate(
+            &gate,
+            || Ok(root.clone()),
+            || Ok(7),
+            Some(6),
+            "workspace.json",
+            "{}",
+        )
+        .unwrap_err();
+        assert_eq!(err, "vaultGenerationConflict");
+        assert!(!root.join("workspace.json").exists());
+        let err = delete_vault_meta_under_gate(
+            &gate,
+            || Ok(root.clone()),
+            || Ok(7),
+            Some(6),
+            "session.json",
+        )
+        .unwrap_err();
+        assert_eq!(err, "vaultGenerationConflict");
+        assert!(root.join("session.json").exists());
+        write_vault_meta_under_gate(
+            &gate,
+            || Ok(root.clone()),
+            || Ok(7),
+            Some(7),
+            "workspace.json",
+            "{}",
+        )
+        .unwrap();
+        assert!(root.join("workspace.json").exists());
         let _ = fs::remove_dir_all(root);
     }
 
@@ -465,13 +562,26 @@ mod tests {
         let writer = {
             let (gate, root) = (gate.clone(), root.clone());
             std::thread::spawn(move || {
-                write_vault_meta_under_gate(&gate, || Ok(root.clone()), "workspace.json", "{}")
+                write_vault_meta_under_gate(
+                    &gate,
+                    || Ok(root.clone()),
+                    || Ok(1),
+                    None,
+                    "workspace.json",
+                    "{}",
+                )
             })
         };
         let deleter = {
             let (gate, root) = (gate.clone(), root.clone());
             std::thread::spawn(move || {
-                delete_vault_meta_under_gate(&gate, || Ok(root.clone()), "session.json")
+                delete_vault_meta_under_gate(
+                    &gate,
+                    || Ok(root.clone()),
+                    || Ok(1),
+                    None,
+                    "session.json",
+                )
             })
         };
         std::thread::sleep(Duration::from_millis(300));
