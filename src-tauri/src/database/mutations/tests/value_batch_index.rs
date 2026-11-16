@@ -222,3 +222,45 @@ fn incremental_projection_after_a_cell_edit_does_not_walk_the_container() {
     assert_eq!(counters(), (0, 0), "(vault scans, container walks)");
     let _ = fs::remove_dir_all(&fixture.vault);
 }
+
+fn reindex(fixture: &Fixture) {
+    let conn = open_connection(&fixture.vault).unwrap();
+    sync_vault(&conn, &fixture.vault).unwrap();
+    crate::database::projection::rebuild_database_projection(&conn, &fixture.vault).unwrap();
+}
+
+#[test]
+fn two_notes_with_one_id_in_a_database_refuse_the_edit_and_change_neither() {
+    let fixture = fixture(2, 0);
+    let row = &fixture.rows[0];
+    let twin = fixture.vault.join("Projects/Twin.md");
+    fs::copy(&row.note_path, &twin).unwrap();
+    reindex(&fixture);
+    let first = fs::read(&row.note_path).unwrap();
+    let second = fs::read(&twin).unwrap();
+    let error = edit(&fixture, row, "done", String::new()).unwrap_err();
+    assert!(error.to_string().contains("Ambiguous note ID"), "{error}");
+    assert_eq!(fs::read(&row.note_path).unwrap(), first);
+    assert_eq!(fs::read(&twin).unwrap(), second);
+    let _ = fs::remove_dir_all(&fixture.vault);
+}
+
+#[test]
+fn two_manifests_with_one_database_id_take_the_scanning_path() {
+    let fixture = fixture(1, 0);
+    let copy = fixture.vault.join("Copy");
+    fs::create_dir_all(&copy).unwrap();
+    let manifest =
+        crate::database::discovery::manifest_path_for_container(&fixture.vault.join("Projects"));
+    fs::copy(&manifest, copy.join("ambd.json")).unwrap();
+    reindex(&fixture);
+    reset_counters();
+    let row = &fixture.rows[0];
+    let _ = edit(&fixture, row, "done", row.record_revision.clone());
+    assert_eq!(
+        counters().0,
+        1,
+        "a duplicate database ID forces the vault scan"
+    );
+    let _ = fs::remove_dir_all(&fixture.vault);
+}

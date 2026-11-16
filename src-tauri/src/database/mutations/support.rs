@@ -88,6 +88,18 @@ pub(super) fn resolve_note_path_for_id_optional(
     )
 }
 
+/// True when the last projection recorded a duplicate of this kind anywhere in the vault, or when
+/// that cannot be read. An ID with two owners must be settled by the filesystem (which refuses),
+/// never by the index picking one of the files.
+fn index_reports_duplicates(conn: &Connection, code: &str) -> bool {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM db_diagnostics WHERE code = ?1)",
+        [code],
+        |row| row.get::<_, bool>(0),
+    )
+    .unwrap_or(true)
+}
+
 /// The index path of a note is only a hint: the index can lag the disk. It is trusted only after
 /// reading that one file and finding the same `amby-id` inside this container and outside every
 /// nested database and service folder. Anything else walks the container.
@@ -97,6 +109,9 @@ fn indexed_note_hint(
     container: &Path,
     note_id: &str,
 ) -> Option<PathBuf> {
+    if index_reports_duplicates(conn, "duplicateNoteId") {
+        return None;
+    }
     let rel: String = conn
         .query_row("SELECT path FROM notes WHERE id = ?1", [note_id], |row| {
             row.get(0)
@@ -244,6 +259,9 @@ fn indexed_database_container(
     vault: &Path,
     database_id: &str,
 ) -> Option<PathBuf> {
+    if index_reports_duplicates(conn, "duplicateDatabaseId") {
+        return None;
+    }
     let relative: String = conn
         .query_row(
             "SELECT container_path FROM db_databases WHERE database_id = ?1",
