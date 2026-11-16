@@ -47,6 +47,10 @@ window lifecycle transitions; do not create a second autosave queue in a compone
 Verification: colocated coordinator/lifecycle/integration tests,
 [use-markdown-autosave.test.ts](../file-actions/use-markdown-autosave.test.ts),
 [document-persistence-stress.test.tsx](../../../../tests/component/document-persistence-stress.test.tsx),
+[autosave-real-integration.test.tsx](../../../../tests/component/autosave-real-integration.test.tsx)
+(the real autosave, vault-data watcher/close paths and `reloadOpenNotes` over a fake storage port: the suite
+to extend for races between typing, external changes, reloads and closing; `autosave-integration-harness.test.ts`
+and the stress test use a fake renderer with its own dirty flag and cannot catch those),
 then targeted browser/native scenarios. Include a failed save, a newer edit during
 an in-flight save, external mutation and a vault/tab transition for relevant changes.
 
