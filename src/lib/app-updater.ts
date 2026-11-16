@@ -65,6 +65,7 @@ export function updateFailureCode(error: unknown): string {
     return "PermissionDenied"
   if (
     message.includes("sending request") ||
+    message.includes("download request failed") ||
     message.includes("timed out") ||
     message.includes("network") ||
     message.includes("connect")
