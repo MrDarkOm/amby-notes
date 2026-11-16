@@ -947,6 +947,17 @@ fn publish_module_with_writer(
             "Module version is already installed: {module_id}@{version}"
         ));
     }
+    // Never move the active version backwards by publishing: that is what an
+    // explicit rollback is for. (The same version is already refused above.)
+    if let Some(meta) = &existing_meta {
+        let active = parse_strict_version(&meta.active_version)?;
+        if parse_strict_version(&version)? <= active {
+            return Err(format!(
+                "Module version is not newer than the active version: {module_id}@{version} (active {})",
+                meta.active_version
+            ));
+        }
+    }
 
     let mut versions_meta = existing_meta.clone().unwrap_or(ModuleVersionsMeta {
         active_version: version.clone(),
@@ -1306,6 +1317,26 @@ mod tests {
         };
         let body = tauri::async_runtime::block_on(read_body_limited(&mut fits, 95)).unwrap();
         assert_eq!(body.len(), 90);
+    }
+
+    #[test]
+    fn publishing_an_older_version_than_the_active_one_is_refused() {
+        let root = Fixture::new();
+        root.publish("2.0.0");
+        let history = root.0.join("example.plugin/versions.json");
+        let original = fs::read(&history).unwrap();
+        let older = root.stage("1.5.0");
+        let result = publish_module_at(
+            &root.0,
+            older.staging_id,
+            "example.plugin".into(),
+            "1.5.0".into(),
+        );
+        assert!(result.is_err(), "downgrade was published");
+        assert_eq!(fs::read(&history).unwrap(), original);
+        let info = list_installed_modules_at(&root.0).unwrap().remove(0);
+        assert_eq!(info.active_version, "2.0.0");
+        assert_eq!(info.installed_versions, ["2.0.0"]);
     }
 
     #[test]
