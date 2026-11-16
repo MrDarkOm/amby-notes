@@ -38,7 +38,8 @@ import { useCreativeNavStore } from "../creative/creative-nav-store"
 import type { DatabaseRowActions } from "../database/use-row-menu"
 import { ModuleRequiredFallback } from "../editor/module-required-fallback"
 import type { DatabaseSummary } from "@/lib/storage/database-types"
-import { readNote, openInExplorer, type DatabaseRow } from "@/lib/storage"
+import { readNote, type DatabaseRow } from "@/lib/storage"
+import { showInFileManager } from "../show-in-file-manager"
 import { workspaceRelativePath } from "../vault/use-vault-session"
 
 interface UsePaneEditorPropsParams {
@@ -452,7 +453,7 @@ export function usePaneEditorProps({
           ? (parentId: string | null, name: string) => handleNewFolderIn(parentId, name)
           : undefined,
       onMergeFile: doc ? (targetId: string) => handleMergeFile(doc.id, targetId) : undefined,
-      onShowInExplorer: doc ? () => openInExplorer(doc.path) : undefined,
+      onShowInExplorer: doc ? () => void showInFileManager(doc.path) : undefined,
       onDeleteFile: doc ? (mode?: "archive") => handleDeleteFile(doc.id, mode) : undefined,
       treeItems: displayTreeItems,
       onOpenItem: handleSelect,

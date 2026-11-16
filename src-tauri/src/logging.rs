@@ -1179,6 +1179,7 @@ fn allowed_event(value: &str) -> bool {
         "tab.split_down",
         "tab.split_right",
         "vault.reveal_failed",
+        "file.reveal_failed",
         "text_page_index_update_failed",
         "trash_anomaly",
         "tree.import_files",

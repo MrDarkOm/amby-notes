@@ -14,6 +14,7 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use crate::paths;
+use crate::system_open::{self, plain_path, ERR_OPEN_FAILED};
 use crate::vault_context::VaultContext;
 
 /// What may be handed to the system program. Documents and media, no archives, no
@@ -33,7 +34,6 @@ pub const ERR_NOT_FOUND: &str = "AttachmentNotFound";
 pub const ERR_OUTSIDE_ASSETS: &str = "AttachmentOutsideAssets";
 pub const ERR_TYPE_NOT_ALLOWED: &str = "AttachmentTypeNotAllowed";
 pub const ERR_ADDRESS_NOT_ALLOWED: &str = "AddressNotAllowed";
-pub const ERR_OPEN_FAILED: &str = "OpenFailed";
 pub const ERR_VAULT_NOT_KNOWN: &str = "VaultNotKnown";
 pub const ERR_VAULT_FOLDER_MISSING: &str = "VaultFolderMissing";
 
@@ -145,30 +145,6 @@ pub(crate) fn parse_web_address(address: &str) -> Result<String, &'static str> {
     Ok(url.into())
 }
 
-/// Windows returns `\\?\C:\...` for a real path; the shell wants the plain form.
-fn plain_path(path: &Path) -> PathBuf {
-    let text = path.to_string_lossy();
-    match text.strip_prefix(r"\\?\") {
-        Some(rest) if !rest.starts_with("UNC\\") => PathBuf::from(rest),
-        _ => path.to_path_buf(),
-    }
-}
-
-fn hand_to_system(target: &std::ffi::OsStr) -> Result<(), &'static str> {
-    #[cfg(target_os = "windows")]
-    let mut command = std::process::Command::new("explorer");
-    #[cfg(target_os = "macos")]
-    let mut command = std::process::Command::new("open");
-    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-    let mut command = std::process::Command::new("xdg-open");
-    let mut child = command.arg(target).spawn().map_err(|_| ERR_OPEN_FAILED)?;
-    // Reap the helper so it does not stay a zombie; its exit code says nothing useful.
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
-    Ok(())
-}
-
 /// Opens an attachment of a note with the system's program for its type.
 #[tauri::command]
 #[specta::specta]
@@ -181,7 +157,7 @@ pub fn open_attachment(
     let vault = context.root()?;
     let file = resolve_openable_attachment(&vault, &note, &attachment_path)
         .map_err(|code| code.to_string())?;
-    hand_to_system(plain_path(&file).as_os_str()).map_err(|code| code.to_string())
+    system_open::open_path(&file).map_err(|code| code.to_string())
 }
 
 /// The folder of a known vault, by the id the list of vaults gives it. The list is the app's own
@@ -222,7 +198,7 @@ pub fn reveal_vault_folder(app: tauri::AppHandle, id: String) -> Result<(), Stri
         Err(_) => return Err(ERR_OPEN_FAILED.to_string()),
     };
     let folder = vault_folder_from_registry(&registry, &id).map_err(|code| code.to_string())?;
-    hand_to_system(folder.as_os_str()).map_err(|code| code.to_string())
+    system_open::open_path(&folder).map_err(|code| code.to_string())
 }
 
 /// Shows the app's own data folder (settings, the list of vaults) in the system's file manager.
@@ -230,7 +206,7 @@ pub fn reveal_vault_folder(app: tauri::AppHandle, id: String) -> Result<(), Stri
 #[specta::specta]
 pub fn reveal_app_data_folder(app: tauri::AppHandle) -> Result<(), String> {
     let root = crate::app_data::app_root(&app)?;
-    hand_to_system(plain_path(&root).as_os_str()).map_err(|code| code.to_string())
+    system_open::open_path(&root).map_err(|code| code.to_string())
 }
 
 /// Saves a copy of an attachment of a note where the person chooses: the file's own bytes, not
@@ -275,7 +251,7 @@ pub async fn save_attachment_copy(
 #[specta::specta]
 pub fn open_web_address(address: String) -> Result<(), String> {
     let address = parse_web_address(&address).map_err(|code| code.to_string())?;
-    hand_to_system(std::ffi::OsStr::new(&address)).map_err(|code| code.to_string())
+    system_open::open_address(&address).map_err(|code| code.to_string())
 }
 
 /// The title and the description of the page at a web address, fetched once because the
