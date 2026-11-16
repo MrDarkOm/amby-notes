@@ -11,6 +11,7 @@ pub mod formula;
 pub mod history;
 pub mod layout;
 pub mod model;
+pub mod mutation_run;
 pub mod mutation_state;
 pub mod mutations;
 pub mod projection;
@@ -22,11 +23,14 @@ pub mod rollup;
 pub mod rollup_config;
 pub mod rows;
 pub mod runtime_state;
+pub mod summary;
 #[allow(dead_code)]
 pub mod validation;
 pub mod value_batch_recovery;
 pub mod views;
 pub mod yaml_sync;
 
+#[cfg(test)]
+mod mutation_run_test;
 #[cfg(test)]
 mod property_migration_flow_test;
