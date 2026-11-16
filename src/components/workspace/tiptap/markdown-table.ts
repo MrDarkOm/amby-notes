@@ -28,13 +28,17 @@ export const MarkdownTable = Table.extend({
 // that the file does not have, filled by a pasted HTML table: it is kept empty.
 const noOwnAlignment = { default: null, rendered: false, parseHTML: () => null }
 
+// A GFM cell is one line of inline text. Tiptap's cells take any blocks (`block+`); a second
+// paragraph, a list or a heading made in a cell could not be written back (EDIT-01).
 export const MarkdownTableCell = TableCell.extend({
+  content: "paragraph",
   addAttributes() {
     return { ...this.parent?.(), align: noOwnAlignment }
   },
 })
 
 export const MarkdownTableHeader = TableHeader.extend({
+  content: "paragraph",
   addAttributes() {
     return { ...this.parent?.(), align: noOwnAlignment }
   },
