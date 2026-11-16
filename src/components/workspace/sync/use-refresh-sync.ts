@@ -145,7 +145,7 @@ export function useRefreshSync(reload: () => Promise<void>, port: SyncPort = res
       if (action === "resume") {
         // The link belongs to this connection: the application resumes its own space and ignores
         // the target (the same call as "Switch on again" of the settings).
-        const status = await port.enableVault({ kind: "new", name: "" }, false)
+        const status = await port.enableVault({ kind: "new", name: "" })
         if (useVaultStore.getState().generation === generation) setSnapshot({ generation, status })
       } else if (action === "reconnect") {
         // An explicit action: the key store may ask the person. When the device is signed in the

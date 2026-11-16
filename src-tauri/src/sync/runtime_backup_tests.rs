@@ -49,11 +49,9 @@ fn a_failed_backup_prevents_a_new_server_space_and_every_pass() {
     let hooks = Arc::new(Recorder::default());
     let runtime = runtime(&env, hooks.clone());
     let before = env.account.get("/v1/spaces").json();
-    let result = env.runtime.block_on(runtime.enable(
-        &vault.root,
-        SpaceTarget::New { name: "New".into() },
-        true,
-    ));
+    let result = env
+        .runtime
+        .block_on(runtime.enable(&vault.root, SpaceTarget::New { name: "New".into() }));
     // Clean up the deliberately blocked sibling even against the old implementation.
     std::fs::remove_file(&blocked).unwrap();
     assert!(result.is_err(), "sync started without a complete backup");
@@ -80,7 +78,6 @@ fn switching_on_keeps_the_pre_sync_bytes_outside_the_vault() {
             SpaceTarget::Existing {
                 space_id: hex::encode(env.space_id),
             },
-            true,
         ))
         .unwrap();
     runtime.deactivate_vault();

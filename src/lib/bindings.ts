@@ -1880,11 +1880,10 @@ async syncDeleteSpace(spaceId: string, password: string) : Promise<Result<null, 
 },
 /**
  * Switches sync on for the open vault after a complete external backup.
- * `test_vault` is a legacy IPC compatibility argument; the current UI sends false.
  */
-async syncEnableVault(target: SpaceTarget, testVault: boolean) : Promise<Result<VaultSyncStatus, SyncError>> {
+async syncEnableVault(target: SpaceTarget) : Promise<Result<VaultSyncStatus, SyncError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("sync_enable_vault", { target, testVault }) };
+    return { status: "ok", data: await TAURI_INVOKE("sync_enable_vault", { target }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -4109,14 +4108,6 @@ linked: boolean;
  * screen offers the choice of a space as the first time.
  */
 resumable: boolean; 
-/**
- * Legacy stored value retained for IPC compatibility; never displayed by the UI.
- */
-testVault: boolean; 
-/**
- * Legacy gate state; false after the confirmed runs of stage Э4.
- */
-gateClosed: boolean; 
 /**
  * Complete external pre-sync copy, containing `vault/`, a manifest and restore instructions.
  */

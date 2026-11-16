@@ -125,7 +125,6 @@ fn enable_new(env: &Env, computer: &Computer, vault: &TempVault, name: &str) -> 
             SpaceTarget::New {
                 name: name.to_string(),
             },
-            true,
         ),
     )
     .unwrap()
@@ -684,7 +683,6 @@ fn a_stale_delete_response_cannot_disable_a_new_current_vault() {
                     SpaceTarget::New {
                         name: "ignored".to_string(),
                     },
-                    true,
                 ),
             );
             switch_tx.send(result).unwrap();
@@ -1090,7 +1088,6 @@ fn another_device_keeps_all_local_files_after_the_space_is_deleted() {
             SpaceTarget::Existing {
                 space_id: space_id.clone(),
             },
-            true,
         ),
     )
     .unwrap();

@@ -20,6 +20,7 @@ use std::time::UNIX_EPOCH;
 use unicode_normalization::UnicodeNormalization;
 
 use amby_sync_core::crypto::primitives::blake3_hash;
+use amby_sync_core::engine::rules::AMBY_SYNCED_FOLDERS;
 use amby_sync_core::engine::{
     ExpectedLocal, FsError, Listing, LocalEntry, LocalFs, LocalKind, NameRules, RenameHint,
     RootState, SnapshotReason, StagedWrite, TrashReason,
@@ -58,16 +59,6 @@ pub struct VaultFs {
 }
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// Folders of `.amby/` whose files are synchronised (Р4, З14); the rest of `.amby/` is listed by
-/// name only. Must agree with `amby_sync_core::engine::rules::is_excluded_path` (a test holds it).
-const AMBY_SYNCED_FOLDERS: [&str; 5] = [
-    "blocks",
-    "property-backups",
-    "conflicts",
-    "properties",
-    "archive",
-];
 
 /// The system trash a `VaultFs` asks by default: the real one, and in the tests of the application
 /// one that refuses (К11 (и)), so the older tests see the fall-back `.amby/trash/`.

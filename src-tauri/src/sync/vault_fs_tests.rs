@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use amby_sync_core::engine::rules::is_excluded_path;
+use amby_sync_core::engine::rules::{is_excluded_path, AMBY_SYNCED_FOLDERS};
 use amby_sync_core::engine::{
     ExpectedLocal, FsError, LocalFs, LocalKind, RootState, SnapshotReason, TrashReason,
 };
@@ -249,6 +249,19 @@ fn the_walk_enters_exactly_the_folders_of_amby_that_the_rules_of_the_core_keep()
             kept_by_rules,
             ".amby/{folder}: the walk and the rules of the core disagree"
         );
+    }
+}
+
+#[test]
+fn the_walk_uses_the_list_of_synchronised_folders_of_the_core() {
+    // SYNC-10: one list, in `rules` of the core; every folder of it is entered by the walk and
+    // kept by the rules
+    for folder in AMBY_SYNCED_FOLDERS {
+        assert!(
+            !is_not_entered(".amby", folder),
+            ".amby/{folder} is not entered"
+        );
+        assert!(!is_excluded_path(&format!(".amby/{folder}/file")));
     }
 }
 

@@ -80,10 +80,12 @@ pub fn hkdf_sha256(
 /// HKDF-SHA-256 with an empty salt to one 32-byte key (Ф9, Ф10), wiped on drop.
 pub(crate) fn derive_key(ikm: &[u8], info: &[u8]) -> Zeroizing<[u8; 32]> {
     let mut key = Zeroizing::new([0u8; 32]);
-    // 32 bytes is far below the limit of 255 blocks: expansion cannot fail.
-    if let Ok(okm) = hkdf_sha256(&[], ikm, info, 32).map(Zeroizing::new) {
-        key.copy_from_slice(&okm);
-    }
+    // 32 bytes is far below the limit of 255 blocks (8160 bytes): expansion cannot fail. A failure
+    // would be a defect of the library, and a zero key must never be used instead (SYNC-09).
+    let okm = Zeroizing::new(
+        hkdf_sha256(&[], ikm, info, 32).expect("HKDF-SHA-256 expands 32 bytes without failing"),
+    );
+    key.copy_from_slice(&okm);
     key
 }
 

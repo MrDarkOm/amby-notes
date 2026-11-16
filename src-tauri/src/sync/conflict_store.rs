@@ -337,6 +337,36 @@ fn is_plain_name(name: &str) -> bool {
     !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\'])
 }
 
+/// The text of `copy` with an `amby-id` of its own, when it is a note that repeats the identity of
+/// `original`: Amby refuses to edit two notes with one identity (docs/vault-format.md). `None` when
+/// the copy is not text, has no identity or one of its own, or cannot take a new one without
+/// guessing (it stays a read-only duplicate the person can still read).
+fn renewed_identity(copy: &[u8], original: &[u8]) -> Option<String> {
+    let copy_text = std::str::from_utf8(copy).ok()?;
+    let original_text = std::str::from_utf8(original).ok()?;
+    let copy_id = crate::frontmatter::parse_markdown(copy_text)
+        .note_id()
+        .map(str::to_string);
+    let original_id = crate::frontmatter::parse_markdown(original_text)
+        .note_id()
+        .map(str::to_string);
+    if copy_id.is_none() || copy_id != original_id {
+        return None;
+    }
+    crate::frontmatter::with_replaced_amby_id(copy_text, &ulid::Ulid::generate().to_string()).ok()
+}
+
+/// A path of an item as `meta.json` names it: relative, `/` separators, no empty, `.` or `..`
+/// segment, no backslash or control character (the syntax of paths of the format, Ф33). `meta.json`
+/// travels with the sync, so its `path` must never lead out of the vault (SYNC-03).
+fn is_safe_item_path(path: &str) -> bool {
+    !path.is_empty()
+        && !path.chars().any(|c| c == '\\' || c.is_control())
+        && path
+            .split('/')
+            .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
+}
+
 impl FileConflictStore {
     /// The conflicting notes of a set of a group of note properties (З17, З69). `NotGroup` when
     /// the conflict is not a group, has no base or a version cannot be read.
@@ -443,8 +473,10 @@ impl FileConflictStore {
         }
     }
 
+    /// Reads through the file system port of the vault: a path that is not plain, or that goes
+    /// through a link, reads nothing.
     fn read_file(&self, relative: &str) -> Option<Vec<u8>> {
-        fs::read(self.vault.join(relative)).ok()
+        self.files().read(relative).ok()
     }
 
     /// The sets that are complete (Г23): `meta.json` that reads, and an `other` (and a base, when
@@ -479,7 +511,7 @@ impl FileConflictStore {
 
     fn read_set(&self, dir: &str, name: &str, lenient: bool) -> Option<SetMeta> {
         let meta = decode_meta(&self.read_file(&format!("{dir}/meta.json"))?).ok()?;
-        if meta.id != name || !is_plain_name(&meta.other) {
+        if meta.id != name || !is_plain_name(&meta.other) || !is_safe_item_path(&meta.path) {
             return None;
         }
         let other = self.read_file(&format!("{dir}/{}", meta.other))?;
@@ -639,6 +671,22 @@ impl FileConflictStore {
 
     /// Writes `bytes` to `path` as an ordinary write with a snapshot of what it replaces (Г26).
     fn write_original(&self, path: &str, bytes: &[u8]) -> Result<(), ConflictError> {
+        self.write_file(
+            path,
+            bytes,
+            Some(SnapshotReason::SyncOverwrite),
+            amby_sync_core::engine::ExpectedLocal::Any,
+        )
+        .map_err(storage_fs)
+    }
+
+    fn write_file(
+        &self,
+        path: &str,
+        bytes: &[u8],
+        snapshot: Option<SnapshotReason>,
+        expected: amby_sync_core::engine::ExpectedLocal,
+    ) -> Result<(), FsError> {
         let mut files = self.files();
         files.batch_begin();
         let result = (|| {
@@ -649,13 +697,60 @@ impl FileConflictStore {
                     return Err(error);
                 }
             }
-            staged.publish(
-                Some(SnapshotReason::SyncOverwrite),
-                amby_sync_core::engine::ExpectedLocal::Any,
-            )
+            staged.publish(snapshot, expected)
         })();
         files.batch_end();
-        result.map_err(storage_fs)
+        result
+    }
+
+    /// "Keep both" (Г29): the second version becomes a file beside the note, as a copy was, with an
+    /// identity of its own when it is a note; a set is then removed. The copy never replaces a file:
+    /// when its name is taken it gets the next free one (SYNC-05). A failure is returned and the
+    /// conflict stays open.
+    pub fn keep_both(&mut self, id: &str) -> Result<(), ConflictError> {
+        use amby_sync_core::engine::names::conflict_copy_path;
+        use amby_sync_core::engine::ExpectedLocal;
+        let (entry, located) = self.locate(id)?;
+        match located {
+            Located::Legacy { .. } => {
+                let (Some(copy), Some(original)) = (
+                    self.read_file(&entry.other_path),
+                    self.read_file(&entry.path),
+                ) else {
+                    return Err(ConflictError::Incomplete);
+                };
+                if let Some(next) = renewed_identity(&copy, &original) {
+                    self.write_original(&entry.other_path, next.as_bytes())?;
+                }
+                Ok(())
+            }
+            Located::Bundle { .. } => {
+                let other = self
+                    .read_file(&entry.other_path)
+                    .ok_or(ConflictError::Incomplete)?;
+                let bytes = match self.read_file(&entry.path) {
+                    Some(original) => {
+                        renewed_identity(&other, &original).map_or(other, String::into_bytes)
+                    }
+                    None => other,
+                };
+                let mut attempt = 1;
+                loop {
+                    let name = if attempt == 1 {
+                        entry.id.clone()
+                    } else {
+                        format!("{}-{attempt}", entry.id)
+                    };
+                    let copy = conflict_copy_path(&entry.path, &name);
+                    match self.write_file(&copy, &bytes, None, ExpectedLocal::Absent) {
+                        Ok(()) => break,
+                        Err(FsError::Changed(_)) if attempt < 100 => attempt += 1,
+                        Err(error) => return Err(storage_fs(error)),
+                    }
+                }
+                self.resolve(&entry.id, Resolution::Current)
+            }
+        }
     }
 
     /// Moves files to the trash of the vault; a file that is not there is fine (Г26 (2)).
