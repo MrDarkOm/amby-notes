@@ -41,7 +41,13 @@ import {
   ZoomOut,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { parseSketch, serializeSketch } from "@/lib/sketch-format"
+import {
+  displayBackground,
+  parseSketch,
+  serializeSketch,
+  serializeSketchWithTemplate,
+  sketchTemplateOf,
+} from "@/lib/sketch-format"
 import { registerEditorSerialization } from "../tiptap/editor-serialization-lifecycle"
 import { ToolbarButton } from "../common/toolbar-button"
 import { NotePickerModal } from "../common/note-picker-modal"
@@ -182,6 +188,8 @@ export function SketchEditor({
   const [initialSketch] = React.useState(() => parseSketch(value))
   const [initialCanonicalJson] = React.useState(() => serializeSketch(initialSketch))
   const lastInternalJsonRef = React.useRef(initialCanonicalJson)
+  // The file's own top-level fields and stored background, merged back on every save.
+  const sketchTemplateRef = React.useRef(sketchTemplateOf(initialSketch, EXCALIDRAW_DEFAULT_BG))
   const isInitialMountRef = React.useRef(true)
   const isExternalSyncRef = React.useRef(false)
   const userInteractedRef = React.useRef(false)
@@ -193,6 +201,7 @@ export function SketchEditor({
 
   const initialData = React.useMemo(() => {
     const parsed = retryKey === 0 ? initialSketch : parseSketch(value)
+    if (retryKey !== 0) sketchTemplateRef.current = sketchTemplateOf(parsed, EXCALIDRAW_DEFAULT_BG)
     const { collaborators: _c, followedBy: _f, ...safeAppState } = parsed.appState
     return {
       elements: parsed.elements,
@@ -200,11 +209,10 @@ export function SketchEditor({
         ...safeAppState,
         theme: resolvedTheme === "dark" || theme === "dark" ? "dark" : "light",
         viewModeEnabled: Boolean(isLocked),
-        viewBackgroundColor:
-          safeAppState.viewBackgroundColor &&
-          safeAppState.viewBackgroundColor !== EXCALIDRAW_DEFAULT_BG
-            ? safeAppState.viewBackgroundColor
-            : "transparent",
+        viewBackgroundColor: displayBackground(
+          safeAppState.viewBackgroundColor,
+          EXCALIDRAW_DEFAULT_BG,
+        ),
       },
       files: parsed.files,
       scrollToContent: parsed.elements.length > 0,
@@ -225,6 +233,7 @@ export function SketchEditor({
     isUserDirtyRef.current = false
     lastInternalJsonRef.current = canonicalValue
     const parsed = parseSketch(value)
+    sketchTemplateRef.current = sketchTemplateOf(parsed, EXCALIDRAW_DEFAULT_BG)
     const { collaborators: _c, followedBy: _f, ...safeAppState } = parsed.appState
     api.updateScene({
       elements: parsed.elements,
@@ -261,11 +270,14 @@ export function SketchEditor({
     const elements = api.getSceneElements()
     const appState = api.getAppState()
     const files = api.getFiles()
-    const serialized = serializeSketch({
-      elements: elements as readonly Record<string, unknown>[],
-      appState: appState as unknown as Record<string, unknown>,
-      files: files as unknown as Record<string, unknown>,
-    })
+    const serialized = serializeSketchWithTemplate(
+      {
+        elements: elements as readonly Record<string, unknown>[],
+        appState: appState as unknown as Record<string, unknown>,
+        files: files as unknown as Record<string, unknown>,
+      },
+      sketchTemplateRef.current,
+    )
     if (serialized !== lastInternalJsonRef.current) {
       lastInternalJsonRef.current = serialized
       isUserDirtyRef.current = false
@@ -280,11 +292,14 @@ export function SketchEditor({
 
   const handleChange: NonNullable<ExcalidrawProps["onChange"]> = React.useCallback(
     (elements, appState, files) => {
-      const serialized = serializeSketch({
-        elements: elements as readonly Record<string, unknown>[],
-        appState: appState as unknown as Record<string, unknown>,
-        files: files as unknown as Record<string, unknown>,
-      })
+      const serialized = serializeSketchWithTemplate(
+        {
+          elements: elements as readonly Record<string, unknown>[],
+          appState: appState as unknown as Record<string, unknown>,
+          files: files as unknown as Record<string, unknown>,
+        },
+        sketchTemplateRef.current,
+      )
 
       if (isInitialMountRef.current) {
         isInitialMountRef.current = false

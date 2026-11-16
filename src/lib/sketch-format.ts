@@ -271,6 +271,67 @@ export function serializeSketch(data: {
 }
 
 /**
+ * What the file had besides the live scene: top-level fields the editor does not own (including
+ * the original `type`, `version` and `source`) and the stored canvas background. The editor keeps
+ * one per open file so the first edit does not drop another program's fields.
+ */
+export interface SketchTemplate {
+  /** Top-level fields other than `elements`, `appState` and `files`, in file order. */
+  extras: Record<string, unknown>
+  /** True while the editor shows the default white background as `transparent`. */
+  backgroundShownAsTransparent: boolean
+  /** The background stored in the file; written back while it is shown as `transparent`. */
+  storedBackground: unknown
+}
+
+/** The editor shows the default white background as transparent so the theme background shows. */
+export const SKETCH_DISPLAY_TRANSPARENT = "transparent"
+
+export function sketchTemplateOf(
+  sketch: ExcalidrawFile,
+  defaultBackground: string = "#ffffff",
+): SketchTemplate {
+  const { elements: _e, appState: _a, files: _f, ...extras } = sketch
+  const stored = sketch.appState.viewBackgroundColor
+  return {
+    extras,
+    storedBackground: stored,
+    backgroundShownAsTransparent: !stored || stored === defaultBackground,
+  }
+}
+
+/** The background the editor should display for the stored one. */
+export function displayBackground(stored: unknown, defaultBackground: string = "#ffffff"): unknown {
+  return stored && stored !== defaultBackground ? stored : SKETCH_DISPLAY_TRANSPARENT
+}
+
+/**
+ * Serializes the editor state on top of the file's own fields. Amby's fields (`elements`,
+ * `appState`, `files`) take the current values; everything else, including `source`, stays as it
+ * was in the file. A background the editor only displays as transparent is written back unchanged.
+ */
+export function serializeSketchWithTemplate(
+  data: {
+    elements?: readonly Record<string, unknown>[]
+    appState?: Record<string, unknown>
+    files?: Record<string, unknown>
+  },
+  template: SketchTemplate,
+): string {
+  let appState = data.appState
+  const current = appState?.viewBackgroundColor
+  if (template.backgroundShownAsTransparent) {
+    if (current === SKETCH_DISPLAY_TRANSPARENT) {
+      appState = { ...appState, viewBackgroundColor: template.storedBackground }
+    } else if (current !== undefined) {
+      // The person chose a colour: from now on the value is theirs, not the display stand-in.
+      template.backgroundShownAsTransparent = false
+    }
+  }
+  return serializeSketch({ ...template.extras, ...data, appState })
+}
+
+/**
  * Returns canonical serialized JSON for a new default sketch.
  */
 export function defaultSketchJson(): string {
