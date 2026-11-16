@@ -6,10 +6,11 @@ warning suppression is prohibited. This record is the review authority for
 those temporary exceptions.
 
 Direct dependency review on 2026-08-24: `tauri` 2.11.5 is the current compatible
-release. `rfd` 0.17.2 was evaluated but requires resolving `tauri-plugin-dialog`
-back to 2.4.2 and introduces duplicate dialog crates, so the shared compatible
-0.16.0 release remains in use. No direct update reduces the listed advisories
-without a Tauri/Specta compatibility migration.
+release. The direct `rfd` dependency now follows the 0.17 line used by
+`tauri-plugin-dialog`, so the lock file holds a single `rfd` (the earlier
+0.16 pin, needed while the plugin still resolved 0.16, is gone). No direct
+update reduces the listed advisories without a Tauri/Specta compatibility
+migration.
 
 | Advisory IDs                                                                                  | Affected crates                                                                                | Owner and target                                                             | Decision                                                                                                                                        | Review by  |
 | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
