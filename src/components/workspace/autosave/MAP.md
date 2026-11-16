@@ -62,3 +62,5 @@ When an external tree refresh no longer contains an open canvas or sketch, the t
 `remap-layer-autosave.ts` moves a canvas or sketch revision baseline before remapping its queued save and changes the queued payload to the new path.
 
 Recovery remapping checks the local queue for edits that arrive during the move. A draft already present at the destination is left intact along with the source; separate windows can still race and need native verification.
+
+A rename or move of a canvas, a sketch or their folder first holds their queued saves and waits for the running write (`holdLayerAutosavesInside` in [autosave-lifecycle.ts](autosave-lifecycle.ts), called by `handleRenameFile`), then resumes the queue under its new path: a write to the old path would ask the "changed elsewhere" question and "Overwrite" would bring the old file back.
