@@ -607,6 +607,7 @@ const ru = {
     data: {
       location: "Папка настроек",
       openFolder: "Открыть папку",
+      openFolderFailed: "Не удалось показать папку. Проверьте, что она на месте.",
       reset: "Сбросить настройки",
       clearRecent: "Очистить список недавних хранилищ",
     },
@@ -2787,6 +2788,7 @@ const ru = {
     rename: "Переименовать",
     move: "Переместить",
     showInExplorer: "Открыть в проводнике",
+    revealFailed: "Не удалось показать папку. Проверьте, что она на месте.",
     detach: "Отвязать",
     choose: "Выбрать хранилище",
     manage: "Управление хранилищем",
@@ -5163,6 +5165,7 @@ const en: typeof ru = {
     data: {
       location: "Settings folder",
       openFolder: "Open folder",
+      openFolderFailed: "Could not show the folder. Check that it is still there.",
       reset: "Reset settings",
       clearRecent: "Clear recent vaults list",
     },
@@ -7344,6 +7347,7 @@ const en: typeof ru = {
     rename: "Rename",
     move: "Move",
     showInExplorer: "Show in Finder",
+    revealFailed: "Could not show the folder. Check that it is still there.",
     detach: "Detach",
     choose: "Choose vault",
     manage: "Manage vault",

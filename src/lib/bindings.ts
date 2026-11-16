@@ -1455,6 +1455,29 @@ async openAttachment(notePath: string, attachmentPath: string) : Promise<Result<
 }
 },
 /**
+ * Shows the folder of a known vault in the system's file manager. Works on the start screen and for a
+ * vault that is not the open one: the folder is found in the list of known vaults, not in the open vault.
+ */
+async revealVaultFolder(id: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reveal_vault_folder", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Shows the app's own data folder (settings, the list of vaults) in the system's file manager.
+ */
+async revealAppDataFolder() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reveal_app_data_folder") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Saves a copy of an attachment of a note where the person chooses: the file's own bytes, not
  * a re-encoded picture. The attachment is judged by the same rules as for opening it.
  */

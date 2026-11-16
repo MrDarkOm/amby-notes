@@ -1102,6 +1102,14 @@ export class DesktopAdapter implements StoragePort {
     await unwrapCommand(commands.openInExplorer(path))
   }
 
+  async revealVaultFolder(id: string): Promise<void> {
+    await unwrapCommand(commands.revealVaultFolder(id))
+  }
+
+  async revealAppDataFolder(): Promise<void> {
+    await unwrapCommand(commands.revealAppDataFolder())
+  }
+
   async openAttachment(notePath: string, attachmentPath: string): Promise<void> {
     await unwrapCommand(commands.openAttachment(notePath, attachmentPath))
   }

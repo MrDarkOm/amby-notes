@@ -21,7 +21,7 @@ import type { SettingsNavigationTarget } from "../settings-navigation"
 import { FolderView } from "../folder-view"
 import type { TreeItem } from "../sidebar-tree"
 import { ModuleRequiredFallback } from "../editor/module-required-fallback"
-import { searchNotes, openInExplorer } from "@/lib/storage"
+import { searchNotes, revealVaultFolder } from "@/lib/storage"
 import { VaultManagerDialog } from "../vault/vault-manager"
 import { motionTransitions } from "@/lib/motion-config"
 
@@ -367,7 +367,7 @@ export function WorkspaceFocusLayout({
         onRename={handleRenameVault}
         onDelete={handleDeleteVault}
         onMove={handleMoveVault}
-        onOpenInExplorer={openInExplorer}
+        onRevealVault={revealVaultFolder}
       />
       <SettingsDialog
         open={settingsOpen}

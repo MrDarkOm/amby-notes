@@ -22,7 +22,7 @@ import type { SettingsNavigationTarget } from "../settings-navigation"
 import { cn } from "@/lib/utils"
 import { PaneDropOverlay, SplitResizeHandle } from "../pane-tab-bar"
 import type { TreeItem } from "../sidebar-tree"
-import { searchNotes, openInExplorer } from "@/lib/storage"
+import { searchNotes, revealVaultFolder } from "@/lib/storage"
 import { PresetNameDialog } from "../preset-name-dialog"
 import { VaultManagerDialog } from "../vault/vault-manager"
 import { flushEditorSerializations } from "../tiptap/editor-serialization-lifecycle"
@@ -527,7 +527,7 @@ export function WorkspaceNormalLayout({
         onRename={handleRenameVault}
         onDelete={handleDeleteVault}
         onMove={handleMoveVault}
-        onOpenInExplorer={openInExplorer}
+        onRevealVault={revealVaultFolder}
       />
       <SettingsDialog
         open={settingsOpen}
