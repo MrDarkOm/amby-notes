@@ -337,6 +337,17 @@ fn is_plain_name(name: &str) -> bool {
     !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\'])
 }
 
+/// A path of an item as `meta.json` names it: relative, `/` separators, no empty, `.` or `..`
+/// segment, no backslash or control character (the syntax of paths of the format, Ф33). `meta.json`
+/// travels with the sync, so its `path` must never lead out of the vault (SYNC-03).
+fn is_safe_item_path(path: &str) -> bool {
+    !path.is_empty()
+        && !path.chars().any(|c| c == '\\' || c.is_control())
+        && path
+            .split('/')
+            .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
+}
+
 impl FileConflictStore {
     /// The conflicting notes of a set of a group of note properties (З17, З69). `NotGroup` when
     /// the conflict is not a group, has no base or a version cannot be read.
@@ -443,8 +454,10 @@ impl FileConflictStore {
         }
     }
 
+    /// Reads through the file system port of the vault: a path that is not plain, or that goes
+    /// through a link, reads nothing.
     fn read_file(&self, relative: &str) -> Option<Vec<u8>> {
-        fs::read(self.vault.join(relative)).ok()
+        self.files().read(relative).ok()
     }
 
     /// The sets that are complete (Г23): `meta.json` that reads, and an `other` (and a base, when
@@ -479,7 +492,7 @@ impl FileConflictStore {
 
     fn read_set(&self, dir: &str, name: &str, lenient: bool) -> Option<SetMeta> {
         let meta = decode_meta(&self.read_file(&format!("{dir}/meta.json"))?).ok()?;
-        if meta.id != name || !is_plain_name(&meta.other) {
+        if meta.id != name || !is_plain_name(&meta.other) || !is_safe_item_path(&meta.path) {
             return None;
         }
         let other = self.read_file(&format!("{dir}/{}", meta.other))?;
