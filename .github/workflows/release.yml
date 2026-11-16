@@ -255,7 +255,9 @@ jobs:
             echo "AMBY_RELEASE_NOTES"
           } >> "$GITHUB_OUTPUT"
 
-      - uses: tauri-apps/tauri-action@v1
+      # Holds the signing key: pinned to the commit the `v1` tag pointed at on 2026-11-16
+      # (the tag moves; Dependabot proposes the next commit, see .github/dependabot.yml).
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
