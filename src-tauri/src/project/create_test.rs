@@ -1415,3 +1415,61 @@ fn the_labels_the_interface_sends_are_accepted_by_every_creation() {
         .iter()
         .any(|property| property["name"] == "property universe"));
 }
+
+// ---------------------------------------------------------------------------
+// Retention of completed journals
+// ---------------------------------------------------------------------------
+
+fn age_file(path: &Path, days: u64) {
+    let modified = std::time::SystemTime::now() - std::time::Duration::from_secs(days * 86_400);
+    fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(modified)
+        .unwrap();
+}
+
+#[test]
+fn activation_prunes_only_completed_journals_older_than_the_retention() {
+    let fixture = Fixture::new();
+    let dir = journal_dir(&fixture.vault);
+    let old = fixture.create_workshop(&workshop("Old")).unwrap();
+    let fresh = fixture.create_workshop(&workshop("Fresh")).unwrap();
+    let old_path = dir.join(format!("{}.json", old.operation_id));
+    let fresh_path = dir.join(format!("{}.json", fresh.operation_id));
+    assert!(old_path.is_file() && fresh_path.is_file());
+    age_file(&old_path, 40);
+    age_file(&fresh_path, 5);
+    // An old unreadable file is never touched.
+    let garbage = dir.join("garbage.json");
+    fs::write(&garbage, b"{ not json").unwrap();
+    age_file(&garbage, 400);
+
+    recover_pending_projects(&fixture.vault).unwrap();
+
+    assert!(
+        !old_path.exists(),
+        "an old completed journal must be removed"
+    );
+    assert!(fresh_path.is_file(), "a recent completed journal stays");
+    assert!(garbage.is_file(), "an unreadable journal stays");
+}
+
+#[test]
+fn activation_keeps_an_old_unfinished_journal_until_it_is_resolved() {
+    let fixture = Fixture::new();
+    crash_at(Step::WorkshopFileWritten);
+    let _ = fixture.create_workshop(&workshop("Crashed"));
+    clear_step_hook();
+    let files = fixture.journal_files();
+    assert_eq!(files.len(), 1);
+    let path = journal_dir(&fixture.vault).join(&files[0]);
+    age_file(&path, 400);
+
+    // Recovery completes it (the commit point was reached) and rewrites it, so the
+    // journal is completed only now and is not pruned in the same pass.
+    let report = recover_pending_projects(&fixture.vault).unwrap();
+    assert_eq!(report.completed, 1);
+    assert!(path.is_file());
+}

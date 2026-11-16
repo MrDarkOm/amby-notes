@@ -32,6 +32,7 @@ const EVENT_CODES = new Set([
   "note.read",
   "note.write",
   "note_notice.save_now_failed",
+  "project_journal_prune_failed",
   "properties.reread_failed",
   "property.mutation_failed",
   "property.notice_action_failed",
