@@ -188,6 +188,50 @@ pub fn read_note(
     }
 }
 
+/// Reads the file, checks `expected_revision`, merges the frontmatter and commits
+/// the write while holding `mutation_gate`, so no other mutation can slip in
+/// between the check and the commit.
+type CommittedNoteWrite = (
+    std::path::PathBuf,
+    String,
+    String,
+    (Vec<String>, Vec<(String, String, String)>),
+);
+
+fn commit_note_write_under_gate(
+    mutation_gate: &std::sync::Mutex<()>,
+    watcher_state: &WatcherState,
+    vault_root: &std::path::Path,
+    note_path: &std::path::Path,
+    request: &WriteNoteRequest,
+    history_reason: &str,
+) -> Result<CommittedNoteWrite, WriteNoteError> {
+    let _mutation_guard = mutation_gate.lock_or_recover();
+    let prepared_note = vault_index::prepare_note_write_from_path(
+        vault_root,
+        note_path,
+        &request.note_id,
+        &request.content,
+        &request.expected_revision,
+    )?;
+    let expected = watcher::fingerprint_for_bytes(&prepared_note.persisted_bytes);
+    let prepared_write = watcher_state.prepare_write([(&prepared_note.path, expected)]);
+    let index_data = (
+        prepared_note.frontmatter_tags.clone(),
+        prepared_note.links.clone(),
+    );
+    match vault_index::commit_prepared_note_write(vault_root, prepared_note, history_reason) {
+        Ok((path, body, revision)) => {
+            watcher_state.confirm_prepared_write(&prepared_write);
+            Ok((path, body, revision, index_data))
+        }
+        Err(error) => {
+            watcher_state.cancel_prepared_write(&prepared_write);
+            Err(error)
+        }
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn write_note(
@@ -226,41 +270,23 @@ pub fn write_note(
         (conn.root.clone(), conn.generation, destination)
     };
 
-    // Prepare note write from path outside the SQLite connection lock to avoid blocking queries
-    let prepared_note = vault_index::prepare_note_write_from_path(
+    // The revision check, the frontmatter merge and the commit form one step under
+    // mutation_gate: a property write or a version restore that runs in between
+    // would otherwise be overwritten by the stale frontmatter without a conflict.
+    // The conn lock is not held here (order: mutation_gate, then conn, as in write_file).
+    let history_reason = if request.rewrites_source {
+        history::SOURCE_REWRITE_REASON
+    } else {
+        "note-save"
+    };
+    let (path, body, revision, prepared_index_data) = commit_note_write_under_gate(
+        &db.mutation_gate,
+        &watcher_state,
         &vault_root,
         std::path::Path::new(&destination.path),
-        &request.note_id,
-        &request.content,
-        &request.expected_revision,
+        &request,
+        history_reason,
     )?;
-
-    let expected = watcher::fingerprint_for_bytes(&prepared_note.persisted_bytes);
-    let prepared_write = watcher_state.prepare_write([(&prepared_note.path, expected)]);
-    let prepared_index_data = (
-        prepared_note.frontmatter_tags.clone(),
-        prepared_note.links.clone(),
-    );
-
-    // Commit file write and history snapshot under mutation_gate, dropping it immediately after
-    let (path, body, revision) = {
-        let _mutation_guard = db.mutation_gate.lock_or_recover();
-        let history_reason = if request.rewrites_source {
-            history::SOURCE_REWRITE_REASON
-        } else {
-            "note-save"
-        };
-        match vault_index::commit_prepared_note_write(&vault_root, prepared_note, history_reason) {
-            Ok(written) => {
-                watcher_state.confirm_prepared_write(&prepared_write);
-                written
-            }
-            Err(error) => {
-                watcher_state.cancel_prepared_write(&prepared_write);
-                return Err(error);
-            }
-        }
-    };
     let index_result = {
         let conn_guard = db.conn.lock_or_recover();
         let conn = conn_guard
@@ -542,4 +568,67 @@ pub fn get_link_graph(
     let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     vault_index::link_graph(conn, &conn.root)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::commit_note_write_under_gate;
+    use crate::model::WriteNoteRequest;
+    use crate::watcher::WatcherState;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    #[test]
+    fn a_note_save_reads_the_file_only_after_it_holds_the_mutation_gate() {
+        let vault = std::env::temp_dir().join(format!("amby_save07_{}", ulid::Ulid::generate()));
+        std::fs::create_dir_all(&vault).expect("create vault");
+        let id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+        let path = vault.join("Note.md");
+        std::fs::write(&path, format!("---\namby-id: {id}\n---\nbody\n")).expect("write note");
+        let revision = crate::vault_index::body_revision("body\n");
+
+        let gate = Arc::new(Mutex::new(()));
+        let watcher_state = Arc::new(WatcherState::new());
+        // Another mutation (a property write, a version restore) owns the gate.
+        let held = gate.lock().expect("gate");
+        let writer = {
+            let (gate, watcher_state) = (gate.clone(), watcher_state.clone());
+            let (vault, path) = (vault.clone(), path.clone());
+            std::thread::spawn(move || {
+                let request = WriteNoteRequest {
+                    expected_generation: 0,
+                    note_id: id.to_string(),
+                    content: "body edited\n".to_string(),
+                    expected_revision: revision,
+                    origin_window: "main".to_string(),
+                    rewrites_source: false,
+                };
+                commit_note_write_under_gate(
+                    &gate,
+                    &watcher_state,
+                    &vault,
+                    &path,
+                    &request,
+                    "note-save",
+                )
+                .map(|_| ())
+            })
+        };
+        std::thread::sleep(Duration::from_millis(300));
+        // The other mutation changes the frontmatter while the save waits.
+        std::fs::write(
+            &path,
+            format!("---\namby-id: {id}\nstatus: done\n---\nbody\n"),
+        )
+        .expect("property write");
+        drop(held);
+
+        writer.join().expect("writer thread").expect("save");
+        let saved = std::fs::read_to_string(&path).expect("read back");
+        assert!(
+            saved.contains("status: done") && saved.contains("body edited"),
+            "the save must merge into the file as it is under the gate, got: {saved}"
+        );
+        let _ = std::fs::remove_dir_all(&vault);
+    }
 }
