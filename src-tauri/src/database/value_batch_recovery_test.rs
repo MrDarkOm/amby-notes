@@ -64,6 +64,7 @@ impl Fixture {
         )
         .unwrap();
         let original = fs::read(&row.note_path).unwrap();
+        let revision = raw_revision(&original);
         Self {
             vault,
             watcher,
@@ -72,7 +73,7 @@ impl Fixture {
             note_id: row.note_id,
             note_path: PathBuf::from(&row.note_path),
             original,
-            revision: row.record_revision,
+            revision,
         }
     }
 

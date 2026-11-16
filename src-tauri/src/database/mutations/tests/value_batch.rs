@@ -132,7 +132,7 @@ fn value_batch_writes_a_durable_completed_journal_and_replays_idempotently() {
             note_id: row.note_id,
             property_id: property.property_id,
             value_json: Some(r#"{"type":"text","value":"done"}"#.to_owned()),
-            expected_revision: row.record_revision,
+            expected_revision: raw_revision(&fs::read(&row.note_path).unwrap()),
         }],
     };
     let first = apply_value_batch(&vault, &watcher, &request, None).unwrap();
@@ -522,7 +522,7 @@ fn st04_batch_write_failure_rolls_back_first_file() {
                     })
                     .unwrap(),
                 ),
-                expected_revision: String::new(),
+                expected_revision: raw_revision(note1_orig.as_bytes()),
             },
             DatabaseValueMutation {
                 note_id: note2_id.clone(),
@@ -534,7 +534,7 @@ fn st04_batch_write_failure_rolls_back_first_file() {
                     })
                     .unwrap(),
                 ),
-                expected_revision: String::new(),
+                expected_revision: raw_revision(note2_orig.as_bytes()),
             },
         ],
     };
@@ -622,7 +622,7 @@ fn review_future_manifest_prevents_batch_write() {
             note_id: row.note_id,
             property_id: property.property_id,
             value_json: Some(r#"{"type":"text","value":"done"}"#.to_owned()),
-            expected_revision: row.record_revision,
+            expected_revision: raw_revision(&fs::read(&row.note_path).unwrap()),
         }],
     };
     let before = fs::read(&row.note_path).unwrap();
@@ -722,6 +722,67 @@ fn migrating_header_values_into_fields_named_like_their_keys_changes_no_byte() {
         None,
     )
     .unwrap();
+    assert_eq!(fs::read_to_string(&note_path).unwrap(), original);
+    let _ = fs::remove_dir_all(vault);
+}
+
+#[test]
+fn value_batch_requires_an_expected_revision_for_every_cell() {
+    let vault = temp_vault();
+    let watcher = WatcherState::new();
+    let db = create_database(
+        &vault,
+        &watcher,
+        &CreateDatabaseRequest {
+            expected_generation: 1,
+            mode: DatabaseCreateMode::Standalone,
+            parent_path: Some(vault.to_string_lossy().to_string()),
+            note_path: None,
+            name: "Tasks".to_owned(),
+        },
+    )
+    .unwrap();
+    let prop = create_database_property(
+        &vault,
+        &watcher,
+        &CreateDatabasePropertyRequest {
+            expected_generation: 1,
+            expected_manifest_revision: db.manifest_revision.clone(),
+            database_id: db.database_id.clone(),
+            name: "Status".to_owned(),
+            property_type: "text".to_owned(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let note_id = ulid::Ulid::generate().to_string();
+    let note_path = vault.join("Tasks").join("Note.md");
+    let original = format!("---\namby-id: {note_id}\nStatus: Old\n---\n\nBody\n");
+    fs::write(&note_path, &original).unwrap();
+
+    let request = DatabaseValueBatchRequest {
+        expected_generation: 1,
+        database_id: db.database_id.clone(),
+        operation_id: ulid::Ulid::generate().to_string(),
+        cells: vec![DatabaseValueMutation {
+            note_id,
+            property_id: prop.property_id.clone(),
+            value_json: Some(
+                serde_json::to_string(&PropertyValue::Text {
+                    value: "New".to_owned(),
+                    extra: Default::default(),
+                })
+                .unwrap(),
+            ),
+            expected_revision: String::new(),
+        }],
+    };
+    let error = apply_value_batch(&vault, &watcher, &request, None)
+        .expect_err("an empty expectedRevision must be rejected");
+    assert!(
+        error.contains("expectedRevision"),
+        "unexpected error: {error}"
+    );
     assert_eq!(fs::read_to_string(&note_path).unwrap(), original);
     let _ = fs::remove_dir_all(vault);
 }
