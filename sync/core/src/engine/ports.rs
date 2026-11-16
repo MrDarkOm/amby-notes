@@ -485,3 +485,15 @@ pub trait StateStore {
     /// Removes every base except the listed `(item, hash)` pairs (Г9). Nothing listed removes all.
     fn base_prune(&mut self, keep: &[(ItemId, [u8; 32])]) -> Result<(), StateError>;
 }
+
+/// Ends a batch of incoming changes whatever happened inside it, then hands back the result or lets
+/// the panic go on. A batch left open after a panic held every later watcher event of the app, so
+/// open notes stopped learning about outside edits (SYNC-04). `work` is the result of the batch's
+/// work under [`std::panic::catch_unwind`].
+pub fn end_batch_after<T>(work: std::thread::Result<T>, end: impl FnOnce()) -> T {
+    end();
+    match work {
+        Ok(value) => value,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}

@@ -585,8 +585,11 @@ impl SyncSession {
         let (mut conflict_store, mut files) =
             conflict_store_of(vault, &mut store, shared).map_err(|e| state_error(&e))?;
         files.batch_begin();
-        let result = change(&mut conflict_store, &conflict, &mut files, vault);
-        files.batch_end();
+        let work = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            change(&mut conflict_store, &conflict, &mut files, vault)
+        }));
+        // The batch ends even after a panic, or the watcher would hold its events (SYNC-04).
+        let result = amby_sync_core::engine::ports::end_batch_after(work, || files.batch_end());
         result.map_err(|error| SyncError::new(conflict_error_code(&error)))?;
 
         let mut gone = vec![StateOp::RemoveConflict(conflict.id.clone())];
