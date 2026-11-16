@@ -3,14 +3,14 @@
 Owns the Excalidraw editor and its scene lifecycle. Public access goes through
 [../sketch-editor.tsx](../sketch-editor.tsx) / [index.ts](index.ts).
 
-| Concern                             | Owner                                                                                                              |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Feature registration                | [sketch-module.tsx](sketch-module.tsx)                                                                             |
-| Excalidraw surface and scene events | [sketch-editor.tsx](sketch-editor.tsx)                                                                             |
-| Embedded notes / objects toolbar    | [sketch-note-embeddable.tsx](sketch-note-embeddable.tsx), [sketch-objects-toolbar.tsx](sketch-objects-toolbar.tsx) |
-| Error boundary                      | [sketch-error-boundary.tsx](sketch-error-boundary.tsx)                                                             |
-| Scene format                        | [sketch-format.ts](../../../lib/sketch-format.ts)                                                                  |
-| Workspace load/save integration     | [use-sketch-workspace.ts](../orchestration/use-sketch-workspace.ts)                                                |
+| Concern                             | Owner                                                                                                                                                                |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Feature registration                | [sketch-module.tsx](sketch-module.tsx)                                                                                                                               |
+| Excalidraw surface and scene events | [sketch-editor.tsx](sketch-editor.tsx)                                                                                                                               |
+| Embedded notes / objects toolbar    | [sketch-note-embeddable.tsx](sketch-note-embeddable.tsx), [sketch-objects-toolbar.tsx](sketch-objects-toolbar.tsx)                                                   |
+| Error boundary                      | [sketch-error-boundary.tsx](sketch-error-boundary.tsx)                                                                                                               |
+| Scene format                        | [sketch-format.ts](../../../lib/sketch-format.ts)                                                                                                                    |
+| Workspace load/save integration     | [use-sketch-workspace.ts](../orchestration/use-sketch-workspace.ts) (thin wrapper over the shared [use-layer-workspace.ts](../orchestration/use-layer-workspace.ts)) |
 
 Preserve unknown scene data; consult [vault format](../../../../docs/vault-format.md)
 before persistence changes. Use [storage](../../../lib/storage/MAP.md), shared
