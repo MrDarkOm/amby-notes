@@ -302,6 +302,7 @@ tree.import_files
 tree.import_files_failed
 tree.open_file
 tree.select
+tree.view_state_save_failed
 tree_patch.shadow_mismatch
 tree_patch.shadow_ok
 tree_patch_failed
