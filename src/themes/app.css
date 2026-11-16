@@ -609,10 +609,6 @@
 /* The file tree draws its own thin scrollbar over the rows (tree-scrollbar.tsx): the native one
    is hidden so it never takes width from them. The thumb fades in while the list scrolls or
    while the pointer is on it (tree-scrollbar.tsx). */
-.amby-tree-scroll {
-  scrollbar-width: none;
-}
-
 .amby-tree-scroll::-webkit-scrollbar {
   display: none;
 }
@@ -739,17 +735,7 @@
   background: var(--scrollbar-thumb-hover);
 }
 
-.amby-table-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb)
-    color-mix(in srgb, var(--scrollbar-thumb) 18%, transparent);
-}
-
 /* The tab strip of a database shortcut scrolls without drawing a bar under the tabs. */
-.amby-tabs-scroll {
-  scrollbar-width: none;
-}
-
 .amby-tabs-scroll::-webkit-scrollbar {
   display: none;
 }
@@ -6554,8 +6540,6 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   max-height: calc(100dvh - 72px);
   overflow-y: auto;
   padding: 4px;
-  scrollbar-width: thin;
-  scrollbar-color: hsl(var(--border)) transparent;
   pointer-events: auto;
   overscroll-behavior: contain;
 }
@@ -6631,6 +6615,13 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   outline-offset: 2px;
 }
 
+/* Thin bars in the help overlay take the border colour (::-webkit-scrollbar only, see
+   "Browser engines" in docs/ai/agent-guidelines.md). */
+.amby-help-rail::-webkit-scrollbar-thumb,
+.amby-help-shortcut-list::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+}
+
 .amby-help-center {
   position: relative;
   display: flex;
@@ -6644,7 +6635,6 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   background: hsl(var(--popover));
   box-shadow: 0 24px 80px hsl(224 24% 8% / 0.24);
   pointer-events: auto;
-  scrollbar-width: thin;
 }
 
 .amby-help-header {
@@ -6795,8 +6785,6 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   margin-top: 8px;
   padding-right: 5px;
   outline: none;
-  scrollbar-width: thin;
-  scrollbar-color: hsl(var(--border)) transparent;
 }
 .amby-help-shortcut-list:focus-visible {
   outline: 1px solid hsl(var(--ring));
