@@ -1,7 +1,7 @@
 import type { RenameOutcome } from "../file-actions/rename-outcome"
 import type { DeleteMode } from "../file-actions/use-document-crud"
 import type { LayerKind } from "../editor/document-actions"
-import type { LinkGraph, PanelId } from "../panel-registry"
+import type { PanelId } from "../panel-registry"
 import type { ModuleContext } from "../modules"
 import type { MoveOutcome } from "../file-actions/use-document-mutations"
 import {
@@ -148,7 +148,6 @@ interface UsePaneRenderersParams {
   navigateToFile: (fileId: string) => Promise<void>
   handleTabUsageChanged: () => void
   handleCloseAllTabs: () => void
-  linkGraph: LinkGraph
   refreshLinkGraph: () => void
 }
 
@@ -257,7 +256,6 @@ export function usePaneRenderers({
   navigateToFile,
   handleTabUsageChanged,
   handleCloseAllTabs,
-  linkGraph,
   refreshLinkGraph,
 }: UsePaneRenderersParams) {
   const { t } = useTranslation()
@@ -785,7 +783,6 @@ export function usePaneRenderers({
                   style={{ boxShadow: "var(--note-surface-shadow)" }}
                 >
                   <GraphTabView
-                    graph={linkGraph}
                     selectedId={null}
                     onSelect={handleSelect}
                     vault={vault}

@@ -151,7 +151,6 @@ export interface PanelRenderProps {
   attachments?: AttachmentItem[]
   attachmentImages?: AttachmentItem[]
   databaseProperties?: DatabasePanelProperties | null
-  linkGraph?: LinkGraph
   currentDocId?: string | null
   currentDocPath?: string | null
   onSelectLink?: (id: string) => void

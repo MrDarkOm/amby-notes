@@ -13,7 +13,6 @@ import {
 
 import {
   FilesPanel,
-  InfoPanel,
   AttachmentsPanel,
   type ActionDef,
   type ActivityButton,
@@ -24,6 +23,7 @@ import {
 } from "./panel-registry"
 import { ArchivePanel } from "./panels/archive-panel"
 import { moduleHost } from "@/lib/modules/host"
+import { InfoPanelWithBacklinks } from "./panels/info-panel-with-backlinks"
 import { useNoticesStackStore } from "./notices/use-notices-stack-store"
 
 /**
@@ -51,7 +51,7 @@ export const PANEL_DEFS: PanelDef[] = [
     labelKey: "panels.info",
     icon: Info,
     kind: "view",
-    render: (props) => <InfoPanel {...props} />,
+    render: (props) => <InfoPanelWithBacklinks {...props} />,
   },
   {
     id: "attachments",

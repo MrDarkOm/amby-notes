@@ -54,6 +54,7 @@ A tab's history is a list of ids: notes, `__graph__` (`GRAPH_TAB_FILE_ID`) and w
 `creative:<projectId>#<sectionId>` ([creative-history.ts](creative/creative-history.ts), which also reads the older
 `creative:<projectId>`). A step within a page, such as a workshop section, goes through `openItem(target, false, { inPlace: true })`
 so it never jumps to another tab; Back and Forward need no file for the graph or a workshop page.
+Link graph: [lazy store](use-link-graph-store.ts).
 
 Folder selection opens a `folder` tab; derive content from the existing `TreeItem`
 hierarchy. Icons share `EmojiPickerPanel`, `IconValue` and view-state overrides.
