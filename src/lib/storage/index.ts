@@ -781,6 +781,9 @@ export const previewMoveRefactor = (
 
 // Assets, Dialogs & System
 export const openInExplorer = (path: string): Promise<void> => assetsRepository.openInExplorer(path)
+export const revealVaultFolder = (id: string): Promise<void> =>
+  assetsRepository.revealVaultFolder(id)
+export const revealAppDataFolder = (): Promise<void> => assetsRepository.revealAppDataFolder()
 export const openAttachment = (notePath: string, attachmentPath: string): Promise<void> =>
   assetsRepository.openAttachment(notePath, attachmentPath)
 export const saveAttachmentCopy = (

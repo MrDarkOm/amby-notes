@@ -1538,6 +1538,15 @@ export class WebAdapterCore implements StoragePort {
 
   async openInExplorer(_path: string): Promise<void> {}
 
+  async revealVaultFolder(_id: string): Promise<void> {
+    // Browser development has no folders on disk to show.
+    throw new Error("AttachmentOpenUnavailable")
+  }
+
+  async revealAppDataFolder(): Promise<void> {
+    throw new Error("AttachmentOpenUnavailable")
+  }
+
   async saveAttachmentCopy(_notePath: string, _attachmentPath: string): Promise<string | null> {
     return null
   }

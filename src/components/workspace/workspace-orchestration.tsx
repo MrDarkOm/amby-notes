@@ -16,7 +16,7 @@ import {
   rebuildDatabaseProjection,
   readNote,
   restoreDeletedNote,
-  openInExplorer,
+  revealVaultFolder,
   exportTextFile,
   importTextFile,
   type DatabaseRow,
@@ -1537,7 +1537,7 @@ export function WorkspaceOrchestration() {
             onRename={handleRenameVault}
             onDelete={handleDeleteVault}
             onMove={handleMoveVault}
-            onOpenInExplorer={openInExplorer}
+            onRevealVault={revealVaultFolder}
           />
         }
         normalContent={null}
