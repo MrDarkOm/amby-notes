@@ -606,6 +606,37 @@ pub struct RawPackagePayload {
     pub files: BTreeMap<String, String>,
 }
 
+const MAX_PACKAGE_BYTES: usize = 50 * 1024 * 1024;
+const PACKAGE_TOO_LARGE: &str = "Package archive exceeds maximum allowed size (50MB)";
+
+/// A source of body chunks; a seam so the size limit is testable without a network.
+trait ChunkSource {
+    async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, String>;
+}
+
+struct ResponseChunks(reqwest::Response);
+
+impl ChunkSource for ResponseChunks {
+    async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, String> {
+        self.0
+            .chunk()
+            .await
+            .map(|chunk| chunk.map(|bytes| bytes.to_vec()))
+            .map_err(|e| format!("Failed to read response body: {e}"))
+    }
+}
+
+async fn read_body_limited(source: &mut impl ChunkSource, limit: usize) -> Result<Vec<u8>, String> {
+    let mut body = Vec::new();
+    while let Some(chunk) = source.next_chunk().await? {
+        if body.len().saturating_add(chunk.len()) > limit {
+            return Err(PACKAGE_TOO_LARGE.to_string());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
 pub async fn download_remote_package(
     app: &tauri::AppHandle,
     url: String,
@@ -638,14 +669,13 @@ pub async fn download_remote_package(
         ));
     }
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| format!("Failed to read response body: {e}"))?;
-
-    if bytes.len() > 50 * 1024 * 1024 {
-        return Err("Package archive exceeds maximum allowed size (50MB)".to_string());
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_PACKAGE_BYTES as u64)
+    {
+        return Err(PACKAGE_TOO_LARGE.to_string());
     }
+    let bytes = read_body_limited(&mut ResponseChunks(response), MAX_PACKAGE_BYTES).await?;
 
     let payload: RawPackagePayload = serde_json::from_slice(&bytes)
         .map_err(|e| format!("Failed to parse .amby-pkg archive: {e}"))?;
@@ -1243,6 +1273,39 @@ mod tests {
         let (mut official, _) = payload("1.0.0");
         official.kind = "official".into();
         assert!(ensure_package_kind_allowed(&official).is_ok());
+    }
+
+    struct CountingChunks {
+        remaining: usize,
+        pulled: usize,
+    }
+    impl ChunkSource for CountingChunks {
+        async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, String> {
+            if self.remaining == 0 {
+                return Ok(None);
+            }
+            self.remaining -= 1;
+            self.pulled += 1;
+            Ok(Some(vec![0; 10]))
+        }
+    }
+
+    #[test]
+    fn oversized_body_is_refused_before_it_is_read_in_full() {
+        let mut source = CountingChunks {
+            remaining: 1000,
+            pulled: 0,
+        };
+        let result = tauri::async_runtime::block_on(read_body_limited(&mut source, 95));
+        assert_eq!(result.unwrap_err(), PACKAGE_TOO_LARGE);
+        assert!(source.pulled <= 10, "pulled {} chunks", source.pulled);
+
+        let mut fits = CountingChunks {
+            remaining: 9,
+            pulled: 0,
+        };
+        let body = tauri::async_runtime::block_on(read_body_limited(&mut fits, 95)).unwrap();
+        assert_eq!(body.len(), 90);
     }
 
     #[test]
