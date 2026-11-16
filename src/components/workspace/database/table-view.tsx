@@ -35,7 +35,11 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { DatabasePropertySummary, DatabaseRow, DatabaseSummary } from "@/lib/storage"
 import { DatabaseCell } from "./database-cell"
-import { databaseCellText, readDatabaseCellValue } from "./database-cell-value"
+import {
+  databaseCellText,
+  parseDatabaseRowValues,
+  pickDatabaseCellValue,
+} from "./database-cell-value"
 import { IconValue } from "../icon-value"
 import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
 import { useViewStateStore } from "../use-view-state-store"
@@ -165,17 +169,44 @@ export interface RowReorderConfig {
   onBlockedDrag?: () => void
 }
 
-function defaultPropertyWidth(property: DatabasePropertySummary, rows: DatabaseRow[]) {
-  const candidates = [property.name, ...property.options.map((option) => option.name)]
-  for (const row of rows) {
-    const value = readDatabaseCellValue(row.valuesJson, property.propertyId)
-    const text = databaseCellText(value, property.propertyType)
-    if (text) candidates.push(text)
+/** Default width per property from the loaded rows; each row's JSON is parsed once. */
+function defaultPropertyWidths(
+  properties: DatabasePropertySummary[],
+  rows: DatabaseRow[],
+): Map<string, number> {
+  const longestWord = (text: string) =>
+    text
+      .trim()
+      .split(/\s+/u)
+      .reduce((max, word) => Math.max(max, word.length), 0)
+  const longest = new Map<string, number>()
+  for (const property of properties) {
+    longest.set(
+      property.propertyId,
+      Math.max(
+        longestWord(property.name),
+        ...property.options.map((option) => longestWord(option.name)),
+      ),
+    )
   }
-  const longestWord = candidates
-    .flatMap((candidate) => candidate.trim().split(/\s+/u))
-    .reduce((max, word) => Math.max(max, word.length), 0)
-  return Math.min(320, Math.max(160, Math.ceil(longestWord * 7.5) + 48))
+  for (const row of rows) {
+    const values = parseDatabaseRowValues(row.valuesJson)
+    for (const property of properties) {
+      const text = databaseCellText(
+        pickDatabaseCellValue(values, property.propertyId),
+        property.propertyType,
+      )
+      if (text) {
+        const current = longest.get(property.propertyId) ?? 0
+        longest.set(property.propertyId, Math.max(current, longestWord(text)))
+      }
+    }
+  }
+  const widths = new Map<string, number>()
+  for (const [propertyId, word] of longest) {
+    widths.set(propertyId, Math.min(320, Math.max(160, Math.ceil(word * 7.5) + 48)))
+  }
+  return widths
 }
 
 function defaultTitleWidth(rows: DatabaseRow[]) {
@@ -278,6 +309,13 @@ export function TableView({
     [onSavedSettingsChange],
   )
   const initializedWidthKeys = React.useRef(new Set<string>())
+  // Recomputed only when the loaded rows or the schema change, not on each render or scroll step.
+  const defaultWidths = React.useMemo(
+    () => defaultPropertyWidths(properties, rows),
+    [properties, rows],
+  )
+  const defaultWidthOf = (property: DatabasePropertySummary) =>
+    defaultWidths.get(property.propertyId) ?? 160
   const resizeRef = React.useRef<{ key: string; startX: number; startWidth: number } | null>(null)
   const viewportRef = React.useRef<HTMLDivElement>(null)
   const scrollTopRef = React.useRef(0)
@@ -307,7 +345,7 @@ export function TableView({
       }
       properties.forEach((property) => {
         const key = property.propertyId
-        const defaultWidth = defaultPropertyWidth(property, rows)
+        const defaultWidth = defaultWidths.get(key) ?? 160
         if (!initializedWidthKeys.current.has(key)) {
           if (!next[key] || next[key] === 320) {
             next[key] = defaultWidth
@@ -318,7 +356,7 @@ export function TableView({
       })
       return changed ? next : current
     })
-  }, [properties, rows])
+  }, [properties, rows, defaultWidths])
 
   React.useEffect(() => {
     // An empty schema is "not loaded yet", not "all properties were deleted".
@@ -492,19 +530,18 @@ export function TableView({
   const gridTemplateColumns = [
     titleColumn,
     ...visibleProperties.map(
-      (property) =>
-        `${columnWidths[property.propertyId] ?? defaultPropertyWidth(property, rows)}px`,
+      (property) => `${columnWidths[property.propertyId] ?? defaultWidthOf(property)}px`,
     ),
     ACTION_COLUMN_WIDTH,
   ].join(" ")
   const totalTableWidth = React.useMemo(() => {
     let total = titleColumnWidth
     for (const property of visibleProperties) {
-      total += columnWidths[property.propertyId] ?? defaultPropertyWidth(property, rows)
+      total += columnWidths[property.propertyId] ?? defaultWidths.get(property.propertyId) ?? 160
     }
     total += 56
     return total
-  }, [titleColumnWidth, visibleProperties, columnWidths, rows])
+  }, [titleColumnWidth, visibleProperties, columnWidths, defaultWidths])
   const tableWidthStyle = React.useMemo<React.CSSProperties>(
     () => ({
       width: "max-content",
@@ -521,7 +558,7 @@ export function TableView({
   let frozenLeft = titleColumnWidth
   visibleProperties.forEach((property) => {
     frozenLeftByProperty.set(property.propertyId, frozenLeft)
-    frozenLeft += columnWidths[property.propertyId] ?? defaultPropertyWidth(property, rows)
+    frozenLeft += columnWidths[property.propertyId] ?? defaultWidthOf(property)
   })
   const startResize = (event: React.PointerEvent, key: string) => {
     event.preventDefault()
@@ -531,10 +568,7 @@ export function TableView({
       (key === "title"
         ? titleColumnWidth
         : visibleProperties.find((p) => p.propertyId === key)
-          ? defaultPropertyWidth(
-              visibleProperties.find((p) => p.propertyId === key)!,
-              rows,
-            )
+          ? defaultWidthOf(visibleProperties.find((p) => p.propertyId === key)!)
           : MIN_PROPERTY_WIDTH)
     resizeRef.current = {
       key,
