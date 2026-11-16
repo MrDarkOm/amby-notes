@@ -448,8 +448,11 @@ removes the newest `note-rewrite`, `sync-overwrite` or `restore` snapshot of a
 note, does not count them against the limit, and logs a failed removal instead of
 failing the save. The History panel
 shows per-note and vault-wide version counts and storage use. Its explicit
-cleanup action previews the number of versions and bytes to remove, requires
-confirmation, and currently retains the 20 latest snapshots of every note.
+cleanup action ("clear all") previews the number of versions and bytes to
+remove, requires confirmation, and then removes every snapshot of the vault (or
+of the one note it was started from): it keeps none, not even the newest
+`note-rewrite`, `sync-overwrite` or `restore` one that automatic cleanup
+protects.
 Cleanup moves a snapshot into a staged location, atomically updates the
 manifest, and only then deletes the staged data. A versioned cleanup journal
 restores or completes an interrupted operation before history is used again.
