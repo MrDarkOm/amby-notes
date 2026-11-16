@@ -3661,6 +3661,15 @@ body:has(header [data-pane-edge-aligned] > div:first-child > [data-active-tab]:f
   border-top-left-radius: 0;
 }
 
+/* Keyboard focus ring of a document tab (the tab itself is the focus stop). */
+.amby-tab-item {
+  outline: none;
+}
+
+.amby-tab-item:focus-visible {
+  box-shadow: 0 0 0 2px hsl(var(--ring));
+}
+
 /* The selected tab grows into the document below, with shallow concave feet. */
 [data-active-tab] > .amby-active-tab-surface {
   bottom: -2px;
