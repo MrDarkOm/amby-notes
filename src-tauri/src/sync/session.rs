@@ -36,7 +36,6 @@ use crate::sync::conflict_store::{
     copy_name_id, ConflictEntry, ConflictError, ConflictSource, ConflictStore, FileConflictStore,
     NotePick, Resolution,
 };
-use crate::sync::gate;
 use crate::sync::remote::HttpRemote;
 use crate::sync::state_db::{
     state_dir, SqliteStateStore, META_DEVICE_ID, META_ENABLED, META_SPACE_ID,
@@ -159,8 +158,6 @@ pub struct SessionConfig {
     pub vk: SpaceKey,
     /// The identifier of this device on the server (Р10).
     pub device_id: String,
-    /// Legacy compatibility value; not a user permission or a visible label.
-    pub test_vault: bool,
     /// When passes run.
     pub schedule: Schedule,
     /// Side effects of the application.
@@ -314,13 +311,11 @@ impl SyncSession {
         let status = VaultSyncStatus {
             enabled: true,
             linked: true,
-            test_vault: config.test_vault,
-            gate_closed: gate::gate_closed(),
             backup_path: crate::sync::backup::read_path(&config.vault),
             space_id: Some(space_hex),
             space_name: config.space_name.clone(),
             phase: SyncPhase::Idle,
-            ..VaultSyncStatus::off(gate::gate_closed())
+            ..VaultSyncStatus::off()
         };
         let shared = Arc::new(Shared {
             control: Mutex::new(Control {

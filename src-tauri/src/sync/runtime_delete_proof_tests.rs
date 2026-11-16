@@ -62,7 +62,6 @@ fn enable_new(env: &Env, computer: &Computer, vault: &TempVault, name: &str) -> 
             SpaceTarget::New {
                 name: name.to_string(),
             },
-            true,
         ))
         .unwrap()
         .space_id

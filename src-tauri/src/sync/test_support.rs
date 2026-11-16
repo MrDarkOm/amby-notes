@@ -430,7 +430,7 @@ impl Env {
             space_name: Some("Test space".to_string()),
             vk: self.vk.clone(),
             device_id: who.device_id.clone(),
-            test_vault: true,
+
             schedule: Schedule::fast(),
             hooks,
             handle: self.runtime.handle().clone(),

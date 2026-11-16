@@ -289,17 +289,15 @@ pub async fn sync_delete_space(
 }
 
 /// Switches sync on for the open vault after a complete external backup.
-/// `test_vault` is a legacy IPC compatibility argument; the current UI sends false.
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_enable_vault(
     runtime: State<'_, SyncRuntime>,
     context: State<'_, VaultContext>,
     target: SpaceTarget,
-    test_vault: bool,
 ) -> Result<VaultSyncStatus, SyncError> {
     let vault = open_vault(&context)?;
-    runtime.enable(&vault, target, test_vault).await
+    runtime.enable(&vault, target).await
 }
 
 /// Switches sync off for the open vault; the link with the space stays.

@@ -510,7 +510,7 @@ describe("a subscription to sync events that is refused", () => {
     "%s: warns once in the centre and writes the journal",
     async (name) => {
       useAppNoticesStore.setState({ notices: [] })
-      const warn = vi.spyOn(logger, "warn").mockImplementation(() => {})
+      const warn = vi.spyOn(logger, "warn").mockImplementation(() => null)
       const port = createFakePort({
         vaultStatus: async () => vaultStatus(),
         [name]: async () => {

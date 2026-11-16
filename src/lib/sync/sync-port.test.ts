@@ -229,8 +229,8 @@ describe("the desktop sync port: the sync of the open vault", () => {
     expect(await port.listSpaces()).toEqual([{ spaceId: "aa" }])
 
     c.syncEnableVault.mockResolvedValue(ok({ enabled: true }))
-    await port.enableVault({ kind: "new", name: "Work" }, true)
-    expect(c.syncEnableVault).toHaveBeenCalledWith({ kind: "new", name: "Work" }, true)
+    await port.enableVault({ kind: "new", name: "Work" })
+    expect(c.syncEnableVault).toHaveBeenCalledWith({ kind: "new", name: "Work" })
 
     c.syncDisableVault.mockResolvedValue(ok({ enabled: false }))
     expect(await port.disableVault()).toEqual({ enabled: false })
@@ -274,7 +274,7 @@ describe("the desktop sync port: the sync of the open vault", () => {
     const c = commands as unknown as Record<string, ReturnType<typeof vi.fn>>
     c.syncEnableVault = vi.fn().mockResolvedValue(failed("storage_error"))
     const port = createDesktopSyncPort()
-    await expect(port.enableVault({ kind: "new", name: "" }, false)).rejects.toMatchObject({
+    await expect(port.enableVault({ kind: "new", name: "" })).rejects.toMatchObject({
       name: "SyncPortError",
       code: "storage_error",
     })
@@ -349,9 +349,7 @@ describe("the desktop sync port: the sync of the open vault", () => {
     const status = await unavailableSyncPort.vaultStatus()
     expect(status.phase).toBe("off")
     expect(status.enabled).toBe(false)
-    await expect(
-      unavailableSyncPort.enableVault({ kind: "new", name: "" }, true),
-    ).rejects.toMatchObject({
+    await expect(unavailableSyncPort.enableVault({ kind: "new", name: "" })).rejects.toMatchObject({
       code: "unavailable",
     })
     const unlisten = await unavailableSyncPort.onVaultStatus(() => {})

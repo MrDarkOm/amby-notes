@@ -171,7 +171,7 @@ export function SyncVaultPanel({
   const enable = () =>
     act(async () => {
       const chosen = target ?? { kind: "existing" as const, spaceId: spaceId ?? "" }
-      setStatus(await port.enableVault(chosen, false))
+      setStatus(await port.enableVault(chosen))
       onConnectionChange?.()
     })
 
@@ -179,7 +179,7 @@ export function SyncVaultPanel({
   // ignored by the application).
   const resumeAfterOff = () =>
     act(async () => {
-      setStatus(await port.enableVault({ kind: "new", name: "" }, false))
+      setStatus(await port.enableVault({ kind: "new", name: "" }))
       onConnectionChange?.()
     })
 

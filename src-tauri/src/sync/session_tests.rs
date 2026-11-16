@@ -1324,7 +1324,7 @@ fn the_status_names_the_space_and_the_test_mark() {
     a.put("x.md", b"x");
     let (sa, _) = env.start(&a, &env.account);
     let status = pass(&sa);
-    assert!(status.enabled && status.linked && status.test_vault);
+    assert!(status.enabled && status.linked);
     assert_eq!(
         status.space_id.as_deref(),
         Some(hex::encode(env.space_id).as_str())
