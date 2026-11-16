@@ -166,72 +166,81 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
 
   // ── Tree helpers ────────────────────────────────────────────────────────────
 
-  function addVaultToList(path: string) {
-    setVaults((prev) => reconcileVaultRecord(prev, path))
-  }
+  const addVaultToList = React.useCallback(
+    (path: string) => {
+      setVaults((prev) => reconcileVaultRecord(prev, path))
+    },
+    [setVaults],
+  )
 
-  async function refreshTree(path: string | null = vault): Promise<TreeItem[]> {
-    if (!path) return []
-    const requestId = switchRef.current.requestId
-    const loaded = await loadActiveVaultData()
-    if (
-      requestId !== switchRef.current.requestId ||
-      useVaultStore.getState().vault !== path ||
-      loaded.vaultPath !== path
-    ) {
-      return []
-    }
-    setBackendGeneration(loaded.generation)
-    setTreeItems(loaded.tree)
-    setTabs((previous) => reconcileTreeBackedTabTitles(previous, loaded.tree))
-    return loaded.tree
-  }
+  const refreshTree = React.useCallback(
+    async (path: string | null = vault): Promise<TreeItem[]> => {
+      if (!path) return []
+      const requestId = switchRef.current.requestId
+      const loaded = await loadActiveVaultData()
+      if (
+        requestId !== switchRef.current.requestId ||
+        useVaultStore.getState().vault !== path ||
+        loaded.vaultPath !== path
+      ) {
+        return []
+      }
+      setBackendGeneration(loaded.generation)
+      setTreeItems(loaded.tree)
+      setTabs((previous) => reconcileTreeBackedTabTitles(previous, loaded.tree))
+      return loaded.tree
+    },
+    [vault, setBackendGeneration, setTreeItems, setTabs],
+  )
 
   /**
    * Apply a tree patch the backend built (from a mutation result or a refresh by path), after
    * dropping `vanishedPaths` (entries the mutation moved away or deleted). `false` when it does
    * not fit the tree, which is then left as it was: the caller reloads it.
    */
-  function patchTree(patch: TreePatch, vanishedPaths: string[] = []): boolean {
-    const root = useVaultStore.getState().vault
-    if (!root) return false
-    // Paths that are gone from the disk may still stand where an optimistic move left them.
-    const base = removePaths(treeRef.current, new Set(vanishedPaths))
-    const next = applyTreePatchOps(base, patch, root)
-    if (next === null) return false
-    if (next !== treeRef.current) {
-      setTreeItems(next)
-      const touched = patchedItems(patch)
-      if (touched.length) setTabs((previous) => reconcileTreeBackedTabTitles(previous, touched))
-    }
-    return true
-  }
+  const patchTree = React.useCallback(
+    (patch: TreePatch, vanishedPaths: string[] = []): boolean => {
+      const root = useVaultStore.getState().vault
+      if (!root) return false
+      // Paths that are gone from the disk may still stand where an optimistic move left them.
+      const base = removePaths(treeRef.current, new Set(vanishedPaths))
+      const next = applyTreePatchOps(base, patch, root)
+      if (next === null) return false
+      if (next !== treeRef.current) {
+        setTreeItems(next)
+        const touched = patchedItems(patch)
+        if (touched.length) setTabs((previous) => reconcileTreeBackedTabTitles(previous, touched))
+      }
+      return true
+    },
+    [setTreeItems, setTabs],
+  )
 
   /**
    * Bring the tree up to date for the given paths (the files a mutation changed or the watcher
    * reported) without reading the rest of the vault. Falls back to the full refresh when the
    * backend cannot cover the paths or its patch does not fit.
    */
-  async function refreshTreePaths(
-    paths: string[],
-    path: string | null = vault,
-  ): Promise<TreeItem[]> {
-    if (!path) return []
-    if (!paths.length) return treeRef.current
-    const requestId = switchRef.current.requestId
-    const refreshed = await refreshVaultPaths(paths)
-    if (requestId !== switchRef.current.requestId || useVaultStore.getState().vault !== path) {
-      return []
-    }
-    if (
-      refreshed &&
-      refreshed.generation === useVaultStore.getState().backendGeneration &&
-      patchTree(refreshed.patch)
-    ) {
-      return treeRef.current
-    }
-    return refreshTree(path)
-  }
+  const refreshTreePaths = React.useCallback(
+    async (paths: string[], path: string | null = vault): Promise<TreeItem[]> => {
+      if (!path) return []
+      if (!paths.length) return treeRef.current
+      const requestId = switchRef.current.requestId
+      const refreshed = await refreshVaultPaths(paths)
+      if (requestId !== switchRef.current.requestId || useVaultStore.getState().vault !== path) {
+        return []
+      }
+      if (
+        refreshed &&
+        refreshed.generation === useVaultStore.getState().backendGeneration &&
+        patchTree(refreshed.patch)
+      ) {
+        return treeRef.current
+      }
+      return refreshTree(path)
+    },
+    [vault, patchTree, refreshTree],
+  )
 
   async function reindexTree(path: string | null = vault): Promise<TreeItem[]> {
     if (!path) return []
@@ -1041,9 +1050,17 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
       cleanupDatabase()
       cleanupRemoteDeleted()
     }
-    // refreshTree is recreated every render but only reads `vault`, which is in the deps.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [desktop, vault])
+  }, [
+    desktop,
+    vault,
+    windowLabel,
+    refreshTree,
+    refreshTreePaths,
+    patchDoc,
+    markSaved,
+    setExternalConflict,
+    clearExternalConflict,
+  ])
 
   // Amby-originated saves use an explicit IPC event rather than the filesystem
   // watcher. That makes two renderer windows converge even when watcher own-write
