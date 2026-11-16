@@ -54,6 +54,7 @@ import {
   readSlashStorage,
   type SlashTriggerState,
 } from "./slash-menu"
+import { registerEditorUserIntent } from "./editor-user-intent"
 
 interface TiptapEditorProps {
   value: string
@@ -695,6 +696,14 @@ export function TiptapEditor({
     },
     [editor],
   )
+
+  // Block controls outside the editor DOM mark the person's intent through this (EDIT-02).
+  React.useEffect(() => {
+    if (!editor || editor.isDestroyed) return
+    return registerEditorUserIntent(editor, () => {
+      userInteractedRef.current = true
+    })
+  }, [editor])
 
   // Expose undo/redo to the parent's floating widget.
   React.useEffect(() => {

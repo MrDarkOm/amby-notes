@@ -7,6 +7,7 @@ import {
   pendingSourceRewriteSnapshot,
 } from "../autosave/source-rewrite"
 import { TiptapEditor } from "./TiptapEditor"
+import { markEditorUserIntent } from "./editor-user-intent"
 
 vi.mock("./BlockHandles", () => ({ BlockHandles: () => null }))
 vi.mock("./BubbleToolbar", () => ({ BubbleToolbar: () => null }))
@@ -141,4 +142,38 @@ it("does not ask for a snapshot when the note is already in the editor's own for
   const { onChange } = await typeInto("---\n\n1. one\n2. two\n\ntail", "note-1", "!", 7)
   expect(onChange).toHaveBeenLastCalledWith("---\n\n1. one!\n2. two\n\ntail")
   expect(pendingSourceRewriteSnapshot("note-1")).toBeNull()
+})
+
+// EDIT-02: block controls (the grip menu: delete, duplicate, turn into, colours) are clicked with the
+// mouse outside the editor's DOM, so no key or ProseMirror pointer event marks the change as the
+// person's. Their change must still be saved; a change nobody asked for must still not be written.
+it("saves a change made through block controls with the mouse only", async () => {
+  vi.useFakeTimers()
+  const onChange = vi.fn()
+  const { container } = render(<TiptapEditor value={"First\n\nSecond"} onChange={onChange} />)
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  const editor = (container.querySelector(".ProseMirror") as HTMLElement & { editor: Editor })
+    .editor
+  const firstBlockEnd = editor.state.doc.firstChild!.nodeSize
+
+  // A change without the person: no write.
+  act(() => {
+    editor.view.dispatch(editor.state.tr.insertText("!", 1))
+  })
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
+  expect(onChange).not.toHaveBeenCalled()
+
+  // The person deletes the first block from the block menu.
+  act(() => {
+    markEditorUserIntent(editor)
+    editor.view.dispatch(editor.state.tr.delete(0, firstBlockEnd + 1))
+  })
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
+  expect(onChange).toHaveBeenCalledWith("Second")
 })

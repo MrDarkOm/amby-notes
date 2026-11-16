@@ -19,6 +19,7 @@ import { removeSoleBlockColumn } from "./columns-transaction"
 import { useBlockDrag } from "./use-block-drag"
 import { useBlockHandleTracking } from "./use-block-handle-tracking"
 import { useBlockHandleVisibility } from "./use-block-handle-visibility"
+import { markEditorUserIntent } from "./editor-user-intent"
 
 interface BlockHandlesProps {
   editor: Editor
@@ -284,6 +285,10 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       style={{ top: posRef.current.top, left: posRef.current.left }}
       onMouseEnter={() => widgetEnterRef.current?.()}
       onMouseLeave={() => widgetLeaveRef.current?.()}
+      // The grip and its menus (portaled, but inside this React tree) change the document with the
+      // mouse alone: mark the person's intent so the change is saved (EDIT-02).
+      onPointerDownCapture={() => markEditorUserIntent(editor)}
+      onKeyDownCapture={() => markEditorUserIntent(editor)}
     >
       <button
         type="button"
