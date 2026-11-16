@@ -57,8 +57,7 @@ import { ModulePackageManager } from "./settings-package-manager"
 import { MODULE_PACKAGE_CONTROLS_ENABLED } from "@/lib/modules/package-manager/controls"
 import type { Preset } from "../presets"
 import { loadGlobalModulesRegistry } from "@/lib/modules/global-registry"
-import { installCatalogModule } from "@/lib/modules/package-manager/catalog-install"
-import { reportInstallFailure } from "@/lib/modules/package-manager/install-errors"
+import { useModuleInstallFlow } from "./use-module-install-flow"
 import { NoticeLine } from "../notices/notice-line"
 import { isEnterKey } from "@/lib/keyboard"
 
@@ -401,24 +400,6 @@ export function ModulesTab({
     targetEnabled: boolean
   } | null>(null)
 
-  const [notInstalledModalOpen, setNotInstalledModalOpen] = React.useState(false)
-  const [pendingInstallModule, setPendingInstallModule] = React.useState<ModuleDef | null>(null)
-  const [isInstallingPending, setIsInstallingPending] = React.useState(false)
-  // Why the last download in an open dialog failed: the text of its code, shown under the buttons.
-  const [installError, setInstallError] = React.useState<string | null>(null)
-
-  const [missingPresetModalOpen, setMissingPresetModalOpen] = React.useState(false)
-  const [pendingPresetTarget, setPendingPresetTarget] = React.useState<{
-    presetId: string
-    presetLabel: string
-    missingModules: ModuleDef[]
-  } | null>(null)
-  const [isDownloadingMissing, setIsDownloadingMissing] = React.useState(false)
-  const [downloadProgress, setDownloadProgress] = React.useState<{
-    current: number
-    total: number
-  } | null>(null)
-
   const [createPresetModalOpen, setCreatePresetModalOpen] = React.useState(false)
   const [newPresetName, setNewPresetName] = React.useState("")
 
@@ -496,12 +477,6 @@ export function ModulesTab({
     }
   }, [])
 
-  if (!selected) return null
-
-  const isSelectedEnabled = activeModules.some(
-    (id) => toShortModuleId(id) === toShortModuleId(selected.id),
-  )
-
   const applyPreset = async (presetId: string) => {
     setActivePresetId(presetId)
 
@@ -567,6 +542,41 @@ export function ModulesTab({
     onPresetChange?.(presetId)
   }
 
+  const handleApplyActualToggle = async (modId: string, nextEnabled: boolean) => {
+    const shortId = toShortModuleId(modId)
+    onModuleEnabledChange(shortId, nextEnabled)
+
+    const nextModules = nextEnabled
+      ? Array.from(new Set([...activeModules.map(toShortModuleId), shortId]))
+      : activeModules.map(toShortModuleId).filter((id) => id !== shortId)
+
+    if (activePresetId !== "minimal" && activePresetId !== "standard") {
+      const updated = customPresets.map((p) =>
+        p.id === activePresetId
+          ? {
+              ...p,
+              activeModules: nextEnabled
+                ? Array.from(new Set([...p.activeModules.map(toShortModuleId), shortId]))
+                : p.activeModules.map(toShortModuleId).filter((id) => id !== shortId),
+            }
+          : p,
+      )
+      setCustomPresets(updated)
+      await saveWorkspaceConfigPatch({
+        customPresets: updated,
+        enabledModules: nextModules.map(toCanonicalModuleId),
+      })
+      onPresetChange?.(activePresetId)
+    }
+  }
+
+  const installFlow = useModuleInstallFlow({
+    installedModuleIds,
+    setInstalledModuleIds,
+    applyPreset,
+    applyModuleToggle: handleApplyActualToggle,
+  })
+
   const handleSelectPreset = async (presetId: string) => {
     let currentInstalled = installedModuleIds
     if (!isRegistryLoaded) {
@@ -603,82 +613,11 @@ export function ModulesTab({
       .filter((m): m is ModuleDef => Boolean(m))
 
     if (missingDefs.length > 0) {
-      setInstallError(null)
-      setPendingPresetTarget({
-        presetId,
-        presetLabel,
-        missingModules: missingDefs,
-      })
-      setMissingPresetModalOpen(true)
+      installFlow.askToInstallForPreset({ presetId, presetLabel, missingModules: missingDefs })
       return
     }
 
     await applyPreset(presetId)
-  }
-
-  const handleDownloadAllMissing = async () => {
-    if (!pendingPresetTarget) return
-    setIsDownloadingMissing(true)
-    setInstallError(null)
-    const { presetId, missingModules } = pendingPresetTarget
-    const newlyInstalledIds: string[] = []
-
-    try {
-      for (let i = 0; i < missingModules.length; i++) {
-        const mod = missingModules[i]
-        setDownloadProgress({ current: i + 1, total: missingModules.length })
-
-        const canonicalId = toCanonicalModuleId(mod.id)
-        const { result } = await installCatalogModule(canonicalId)
-        if (!result.success) {
-          setInstallError(reportInstallFailure(result.errorCode, result.error))
-          return
-        }
-        newlyInstalledIds.push(canonicalId)
-      }
-
-      setInstalledModuleIds((prev) => new Set([...prev, ...newlyInstalledIds]))
-      setMissingPresetModalOpen(false)
-      setPendingPresetTarget(null)
-      await applyPreset(presetId)
-    } catch (err) {
-      setInstallError(reportInstallFailure(err))
-    } finally {
-      // What was installed before a failure stays installed, so the list shows it.
-      if (newlyInstalledIds.length > 0) {
-        setInstalledModuleIds((prev) => new Set([...prev, ...newlyInstalledIds]))
-      }
-      setIsDownloadingMissing(false)
-      setDownloadProgress(null)
-    }
-  }
-
-  const handleApplyActualToggle = async (modId: string, nextEnabled: boolean) => {
-    const shortId = toShortModuleId(modId)
-    onModuleEnabledChange(shortId, nextEnabled)
-
-    const nextModules = nextEnabled
-      ? Array.from(new Set([...activeModules.map(toShortModuleId), shortId]))
-      : activeModules.map(toShortModuleId).filter((id) => id !== shortId)
-
-    if (activePresetId !== "minimal" && activePresetId !== "standard") {
-      const updated = customPresets.map((p) =>
-        p.id === activePresetId
-          ? {
-              ...p,
-              activeModules: nextEnabled
-                ? Array.from(new Set([...p.activeModules.map(toShortModuleId), shortId]))
-                : p.activeModules.map(toShortModuleId).filter((id) => id !== shortId),
-            }
-          : p,
-      )
-      setCustomPresets(updated)
-      await saveWorkspaceConfigPatch({
-        customPresets: updated,
-        enabledModules: nextModules.map(toCanonicalModuleId),
-      })
-      onPresetChange?.(activePresetId)
-    }
   }
 
   const handleAttemptToggle = (mod: ModuleDef, nextEnabled: boolean) => {
@@ -690,11 +629,8 @@ export function ModulesTab({
     }
 
     // 2. Guard for uninstalled modules when enabling
-    const canonicalId = toCanonicalModuleId(mod.id)
-    if (nextEnabled && !installedModuleIds.has(canonicalId)) {
-      setInstallError(null)
-      setPendingInstallModule(mod)
-      setNotInstalledModalOpen(true)
+    if (nextEnabled && !installFlow.isInstalled(mod.id)) {
+      installFlow.askToInstall(mod)
       return
     }
 
@@ -792,30 +728,6 @@ export function ModulesTab({
     onPresetChange?.(newPreset.id)
   }
 
-  const handleDownloadAndEnablePending = async () => {
-    if (!pendingInstallModule) return
-    setIsInstallingPending(true)
-    setInstallError(null)
-    const canonicalId = toCanonicalModuleId(pendingInstallModule.id)
-
-    try {
-      const { result } = await installCatalogModule(canonicalId)
-      if (!result.success) {
-        setInstallError(reportInstallFailure(result.errorCode, result.error))
-        return
-      }
-
-      setInstalledModuleIds((prev) => new Set([...prev, canonicalId]))
-      setNotInstalledModalOpen(false)
-      void handleApplyActualToggle(pendingInstallModule.id, true)
-      setPendingInstallModule(null)
-    } catch (err) {
-      setInstallError(reportInstallFailure(err))
-    } finally {
-      setIsInstallingPending(false)
-    }
-  }
-
   const handleCreateNewPreset = async () => {
     const trimmed = newPresetName.trim() || t("settings.modules.newPresetDefaultName")
     const currentShort = activeModules.map(toShortModuleId)
@@ -878,6 +790,11 @@ export function ModulesTab({
     setPresetToDelete(null)
   }
 
+  if (!selected) return null
+
+  const isSelectedEnabled = activeModules.some(
+    (id) => toShortModuleId(id) === toShortModuleId(selected.id),
+  )
   const activeCustomPreset = customPresets.find((preset) => preset.id === activePresetId) ?? null
 
   return (
@@ -1158,7 +1075,10 @@ export function ModulesTab({
       </Dialog>
 
       {/* Dialog 2: Module Not Installed Notice */}
-      <Dialog open={notInstalledModalOpen} onOpenChange={setNotInstalledModalOpen}>
+      <Dialog
+        open={installFlow.notInstalledModalOpen}
+        onOpenChange={installFlow.setNotInstalledModalOpen}
+      >
         <DialogContent className="max-w-md border-border bg-card p-5">
           <DialogHeader>
             <DialogTitle className="text-sm font-semibold">
@@ -1166,26 +1086,21 @@ export function ModulesTab({
             </DialogTitle>
             <DialogDescription className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
               {t("settings.modules.moduleNotInstalledDescription", {
-                name: pendingInstallModule ? t(pendingInstallModule.labelKey) : "",
+                name: installFlow.pendingInstallModule
+                  ? t(installFlow.pendingInstallModule.labelKey)
+                  : "",
               })}
             </DialogDescription>
           </DialogHeader>
-          {installError && <NoticeLine text={installError} />}
+          {installFlow.installError && <NoticeLine text={installFlow.installError} />}
           <DialogFooter className="mt-4 flex justify-end gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setNotInstalledModalOpen(false)
-                setPendingInstallModule(null)
-              }}
-            >
+            <Button variant="outline" size="sm" onClick={installFlow.cancelInstall}>
               {t("common.cancel")}
             </Button>
             <Button
               size="sm"
-              disabled={isInstallingPending}
-              onClick={() => void handleDownloadAndEnablePending()}
+              disabled={installFlow.isInstallingPending}
+              onClick={() => void installFlow.downloadAndEnablePending()}
             >
               {t("settings.modules.downloadAndEnableAction")}
             </Button>
@@ -1288,15 +1203,8 @@ export function ModulesTab({
 
       {/* Dialog 6: Missing Preset Modules Dialog */}
       <Dialog
-        open={missingPresetModalOpen}
-        onOpenChange={(open) => {
-          if (!isDownloadingMissing) {
-            setMissingPresetModalOpen(open)
-            if (!open) {
-              setPendingPresetTarget(null)
-            }
-          }
-        }}
+        open={installFlow.missingPresetModalOpen}
+        onOpenChange={installFlow.onMissingPresetOpenChange}
       >
         <DialogContent className="max-w-md border-border bg-card p-5">
           <DialogHeader>
@@ -1305,14 +1213,14 @@ export function ModulesTab({
             </DialogTitle>
             <DialogDescription className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
               {t("settings.modules.presetMissingModulesDesc", {
-                name: pendingPresetTarget?.presetLabel ?? "",
+                name: installFlow.pendingPresetTarget?.presetLabel ?? "",
               })}
             </DialogDescription>
           </DialogHeader>
 
           {/* List of missing modules */}
           <div className="my-3 max-h-56 space-y-1.5 overflow-y-auto rounded-lg border border-border bg-muted/20 p-2">
-            {pendingPresetTarget?.missingModules.map((mod) => {
+            {installFlow.pendingPresetTarget?.missingModules.map((mod) => {
               const Icon = MODULE_ICONS[mod.id] ?? Blocks
               return (
                 <div
@@ -1327,38 +1235,35 @@ export function ModulesTab({
           </div>
 
           {/* Download progress if active */}
-          {isDownloadingMissing && downloadProgress && (
+          {installFlow.isDownloadingMissing && installFlow.downloadProgress && (
             <div className="flex items-center gap-2 rounded-md bg-primary/10 px-3 py-2 text-xs text-primary">
               <Loader2 className="size-4 shrink-0" />
               <span>
                 {t("settings.modules.downloadingModulesProgress", {
-                  current: downloadProgress.current,
-                  total: downloadProgress.total,
+                  current: installFlow.downloadProgress.current,
+                  total: installFlow.downloadProgress.total,
                 })}
               </span>
             </div>
           )}
 
-          {installError && <NoticeLine text={installError} />}
+          {installFlow.installError && <NoticeLine text={installFlow.installError} />}
 
           <DialogFooter className="mt-4 flex justify-end gap-2">
             <Button
               variant="outline"
               size="sm"
-              disabled={isDownloadingMissing}
-              onClick={() => {
-                setMissingPresetModalOpen(false)
-                setPendingPresetTarget(null)
-              }}
+              disabled={installFlow.isDownloadingMissing}
+              onClick={installFlow.cancelPresetInstall}
             >
               {t("common.cancel")}
             </Button>
             <Button
               size="sm"
-              disabled={isDownloadingMissing}
-              onClick={() => void handleDownloadAllMissing()}
+              disabled={installFlow.isDownloadingMissing}
+              onClick={() => void installFlow.downloadAllMissing()}
             >
-              {isDownloadingMissing ? (
+              {installFlow.isDownloadingMissing ? (
                 <>
                   <Loader2 className="mr-1.5 size-3.5" />
                   <span>{t("settings.modules.packages.downloading")}</span>
