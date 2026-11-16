@@ -975,3 +975,122 @@ fn a_rename_carries_the_note_history_to_the_new_path() {
         1
     );
 }
+
+// CORE-10: the tail shared by rename and move is pinned for both, so the two cannot drift apart.
+#[test]
+fn a_move_reports_rewritten_sources_for_open_windows() {
+    let vault = fixture();
+    let context = activate(&vault.0);
+    let result = move_item_inner(
+        &context,
+        &DatabaseRuntimeState::default(),
+        &WatcherState::new(),
+        &|_, _| {},
+        vault.string("Projects/Alpha.md"),
+        vault.string("Folder"),
+    )
+    .unwrap();
+    let (generation, paths) = result.rewritten_notes.expect("rewritten sources reported");
+    assert_eq!(generation, context.generation().unwrap());
+    assert!(paths.contains(&vault.path("Projects/Beta.md")));
+    assert!(paths.contains(&vault.path("Root note.md")));
+    assert!(!paths.contains(&vault.path("Folder/Loose.md")));
+}
+
+#[test]
+fn a_move_carries_the_note_history_to_the_new_path() {
+    let vault = fixture();
+    let context = activate(&vault.0);
+    let note = vault.path("Folder/Loose.md");
+    crate::history::snapshot_before_write(&vault.0, &note, b"next", "edit").unwrap();
+    move_item_inner(
+        &context,
+        &DatabaseRuntimeState::default(),
+        &WatcherState::new(),
+        &|_, _| {},
+        vault.string("Folder/Loose.md"),
+        vault.string("Projects"),
+    )
+    .unwrap();
+    let moved = vault.path("Projects/Loose.md");
+    assert_eq!(
+        crate::history::list_snapshots(&vault.0, &moved)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+/// A link rewrite that cannot be written puts the file back where it was and changes nothing.
+#[cfg(unix)]
+fn assert_failed_rewrite_is_rolled_back(
+    run: impl FnOnce(&VaultContext, &Vault) -> Result<MutationOutcome, String>,
+    word: &str,
+) {
+    use std::os::unix::fs::PermissionsExt;
+    let vault = fixture();
+    let context = activate(&vault.0);
+    let locked = vault.path("Заметки");
+    let gamma = fs::read_to_string(vault.path("Заметки/Гамма.md")).unwrap();
+    let beta = fs::read_to_string(vault.path("Projects/Beta.md")).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+    if fs::write(locked.join("probe"), b"x").is_ok() {
+        // Running as a user who ignores permissions: the failure cannot be provoked here.
+        let _ = fs::remove_file(locked.join("probe"));
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    let Err(error) = run(&context, &vault) else {
+        panic!("the rewrite cannot be written");
+    };
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(
+        error.contains(&format!("{word} was rolled back")),
+        "{error}"
+    );
+    assert!(vault.path("Projects/Alpha.md").exists());
+    assert_eq!(
+        fs::read_to_string(vault.path("Заметки/Гамма.md")).unwrap(),
+        gamma
+    );
+    assert_eq!(
+        fs::read_to_string(vault.path("Projects/Beta.md")).unwrap(),
+        beta
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_rename_whose_link_rewrite_fails_is_rolled_back() {
+    assert_failed_rewrite_is_rolled_back(
+        |context, vault| {
+            rename_item_inner(
+                context,
+                &DatabaseRuntimeState::default(),
+                &WatcherState::new(),
+                &|_, _| {},
+                vault.string("Projects/Alpha.md"),
+                "Renamed alpha".to_string(),
+            )
+        },
+        "rename",
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_move_whose_link_rewrite_fails_is_rolled_back() {
+    assert_failed_rewrite_is_rolled_back(
+        |context, vault| {
+            move_item_inner(
+                context,
+                &DatabaseRuntimeState::default(),
+                &WatcherState::new(),
+                &|_, _| {},
+                vault.string("Projects/Alpha.md"),
+                vault.string("Folder"),
+            )
+        },
+        "move",
+    );
+}

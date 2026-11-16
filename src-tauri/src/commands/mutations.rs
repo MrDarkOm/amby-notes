@@ -1045,25 +1045,44 @@ pub(crate) fn move_item_inner(
             return Err(error);
         }
     };
-    let rewritten = match vault_index::apply_planned_wiki_rewrites(&vault_root, &plan) {
-        Ok(rewritten) => rewritten,
-        Err(error) => {
-            watcher_state.cancel_prepared_write(&prepared_move);
-            if let Err(rollback_error) =
-                rollback_move_item(&vault, &source_path, &target_path, &result)
-            {
-                return Err(format!(
-                    "Reference update failed: {error}; filesystem rollback also failed: {rollback_error}"
-                ));
-            }
-            return Err(format!(
-                "Reference update failed; move was rolled back: {error}"
-            ));
-        }
-    };
+    let rewritten = apply_rewrites_or_roll_back(
+        watcher_state,
+        &prepared_move,
+        &vault_root,
+        &plan,
+        "move",
+        || rollback_move_item(&vault, &source_path, &target_path, &result),
+    )?;
     // Move paths were registered before their rename. Link-refactor paths are
     // currently produced by the rewrite plan after the move and retain their
     // narrow per-file post-write records.
+    finish_path_mutation(
+        db,
+        runtime,
+        watcher_state,
+        &vault_root,
+        generation,
+        result,
+        rewritten,
+        "move",
+    )
+}
+
+/// The part of a rename or a move that comes after the files have moved and the links were
+/// rewritten: marks the writes as the app's own, brings the index, the tree patch, the note
+/// history and the database projection in step, and reports the notes whose sources changed.
+/// `what` is "rename" or "move", for messages only.
+#[allow(clippy::too_many_arguments)]
+fn finish_path_mutation(
+    db: &VaultContext,
+    runtime: &DatabaseRuntimeState,
+    watcher_state: &WatcherState,
+    vault_root: &Path,
+    generation: u64,
+    result: FsMutationResult,
+    rewritten: Vec<PathBuf>,
+    what: &str,
+) -> Result<MutationOutcome, String> {
     watcher_state.mark_write(rewritten.iter());
     let rewritten_paths = rewritten.clone();
     let rewritten_changes = rewritten
@@ -1073,8 +1092,8 @@ pub(crate) fn move_item_inner(
             new_path: path_string(&path),
         })
         .collect::<Vec<_>>();
-    let mut outcome = sync_mutation_result(db, &vault_root, result);
-    if let Err(error) = sync_path_changes(db, &vault_root, &rewritten_changes) {
+    let mut outcome = sync_mutation_result(db, vault_root, result);
+    if let Err(error) = sync_path_changes(db, vault_root, &rewritten_changes) {
         tracing::warn!(event = "index_update_failed", error = %error);
         if let Ok(conn_guard) = db.conn.lock() {
             if let Some(active) = conn_guard.as_ref() {
@@ -1094,7 +1113,7 @@ pub(crate) fn move_item_inner(
             .collect::<Vec<_>>();
         outcome.mutation.tree_patch = tree_patch_for(
             db,
-            &vault_root,
+            vault_root,
             "rename_or_move",
             &mutation_paths(&outcome.mutation),
             &rewritten,
@@ -1102,18 +1121,44 @@ pub(crate) fn move_item_inner(
     }
     // The note's versions follow it; a failure leaves history by the old path, never the files.
     if let Err(error) =
-        crate::history::move_snapshot_sources(&vault_root, &outcome.mutation.path_changes)
+        crate::history::move_snapshot_sources(vault_root, &outcome.mutation.path_changes)
     {
         tracing::warn!(event = "history_move_failed", error = %error);
     }
     let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     if conn.generation != generation {
-        return Err("Vault changed while applying move".to_string());
+        return Err(format!("Vault changed while applying {what}"));
     }
     refresh_database_projection(runtime, conn, &mut outcome, &rewritten_paths);
     outcome.rewritten_notes = Some((generation, rewritten_paths));
     Ok(outcome)
+}
+
+/// Applies the planned link rewrites after a rename or a move; when they fail, puts the files
+/// back with `rollback` and says so. `what` is "rename" or "move", for messages only.
+fn apply_rewrites_or_roll_back(
+    watcher_state: &WatcherState,
+    prepared: &crate::watcher::PreparedSelfWrite,
+    vault_root: &Path,
+    plan: &[vault_index::PlannedWikiRewrite],
+    what: &str,
+    rollback: impl FnOnce() -> Result<(), String>,
+) -> Result<Vec<PathBuf>, String> {
+    match vault_index::apply_planned_wiki_rewrites(vault_root, plan) {
+        Ok(rewritten) => Ok(rewritten),
+        Err(error) => {
+            watcher_state.cancel_prepared_write(prepared);
+            if let Err(rollback_error) = rollback() {
+                return Err(format!(
+                    "Reference update failed: {error}; filesystem rollback also failed: {rollback_error}"
+                ));
+            }
+            Err(format!(
+                "Reference update failed; {what} was rolled back: {error}"
+            ))
+        }
+    }
 }
 
 /// A move or a rename changes the title or the place of pages that databases list, and the
@@ -1332,20 +1377,14 @@ pub(crate) fn rename_item_inner(
             return Err(error);
         }
     };
-    let mut rewritten = match vault_index::apply_planned_wiki_rewrites(&vault_root, &plan) {
-        Ok(rewritten) => rewritten,
-        Err(error) => {
-            watcher_state.cancel_prepared_write(&prepared_rename);
-            if let Err(rollback_error) = rollback_rename_item(&vault, &path, &result) {
-                return Err(format!(
-                    "Reference update failed: {error}; filesystem rollback also failed: {rollback_error}"
-                ));
-            }
-            return Err(format!(
-                "Reference update failed; rename was rolled back: {error}"
-            ));
-        }
-    };
+    let mut rewritten = apply_rewrites_or_roll_back(
+        watcher_state,
+        &prepared_rename,
+        &vault_root,
+        &plan,
+        "rename",
+        || rollback_rename_item(&vault, &path, &result),
+    )?;
     // The rename itself is done. Keeping the page's own title in step is best effort: a failure
     // here leaves the old title, which is what the page showed before.
     if let Some(note_path) = result.primary_path.as_deref().map(PathBuf::from) {
@@ -1355,55 +1394,16 @@ pub(crate) fn rename_item_inner(
             Err(error) => tracing::warn!(event = "rename_retitle_failed", %error),
         }
     }
-    watcher_state.mark_write(rewritten.iter());
-    let rewritten_paths = rewritten.clone();
-    let rewritten_changes = rewritten
-        .into_iter()
-        .map(|path| PathChange {
-            old_path: path_string(&path),
-            new_path: path_string(&path),
-        })
-        .collect::<Vec<_>>();
-    let mut outcome = sync_mutation_result(db, &vault_root, result);
-    if let Err(error) = sync_path_changes(db, &vault_root, &rewritten_changes) {
-        tracing::warn!(event = "index_update_failed", error = %error);
-        if let Ok(conn_guard) = db.conn.lock() {
-            if let Some(active) = conn_guard.as_ref() {
-                active.index_health.set(IndexState::RebuildRequired);
-            }
-        }
-        outcome.index_state = IndexState::RebuildRequired;
-        outcome
-            .warnings
-            .push(OperationWarning::IndexRebuildRequired);
-        outcome.mutation.tree_patch = None;
-    } else if !rewritten_changes.is_empty() {
-        // The notes whose links were rewritten have new times in the tree.
-        let rewritten = rewritten_changes
-            .iter()
-            .map(|change| PathBuf::from(&change.new_path))
-            .collect::<Vec<_>>();
-        outcome.mutation.tree_patch = tree_patch_for(
-            db,
-            &vault_root,
-            "rename_or_move",
-            &mutation_paths(&outcome.mutation),
-            &rewritten,
-        );
-    }
-    // The note's versions follow it; a failure leaves history by the old path, never the files.
-    if let Err(error) =
-        crate::history::move_snapshot_sources(&vault_root, &outcome.mutation.path_changes)
-    {
-        tracing::warn!(event = "history_move_failed", error = %error);
-    }
-    let conn_guard = db.conn.lock_or_recover();
-    let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    if conn.generation != generation {
-        return Err("Vault changed while applying rename".to_string());
-    }
-    refresh_database_projection(runtime, conn, &mut outcome, &rewritten_paths);
-    outcome.rewritten_notes = Some((generation, rewritten_paths));
+    let outcome = finish_path_mutation(
+        db,
+        runtime,
+        watcher_state,
+        &vault_root,
+        generation,
+        result,
+        rewritten,
+        "rename",
+    )?;
     tracing::info!(
         event = "rename_item",
         path = %path.display(),
