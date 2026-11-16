@@ -457,6 +457,38 @@ pub fn canonical_manifest_bytes(manifest: &ModuleManifest) -> Result<Vec<u8>, St
     serde_json::to_vec(&payload).map_err(|e| format!("Failed to serialize canonical manifest: {e}"))
 }
 
+/// Third-party (`community`) packages carry no verifiable signature: the
+/// manifest check below only authenticates `official` ones. Keep this `false`
+/// until third-party modules are deliberately enabled, together with
+/// `INSTALLED_MODULE_EXECUTION_ENABLED` in
+/// `src/lib/modules/host/execution-policy.ts` and the package-signing-key
+/// rotation (MOD-01), so Rust enforces the same invariant as the front end.
+pub const THIRD_PARTY_PACKAGES_ENABLED: bool = false;
+
+#[cfg(not(test))]
+fn third_party_packages_allowed() -> bool {
+    THIRD_PARTY_PACKAGES_ENABLED
+}
+
+// Lifecycle tests use `community` fixtures (they model the future, enabled
+// state); the policy test turns the gate off for its own thread.
+#[cfg(test)]
+thread_local! {
+    static TEST_THIRD_PARTY_ALLOWED: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+#[cfg(test)]
+fn third_party_packages_allowed() -> bool {
+    TEST_THIRD_PARTY_ALLOWED.with(|value| value.get())
+}
+
+fn ensure_package_kind_allowed(manifest: &ModuleManifest) -> Result<(), String> {
+    if manifest.kind != "official" && !third_party_packages_allowed() {
+        return Err("Third-party module packages are not enabled".to_string());
+    }
+    Ok(())
+}
+
 pub fn verify_manifest_signature(manifest: &ModuleManifest) -> Result<bool, String> {
     if manifest.kind != "official" {
         return Ok(true);
@@ -517,6 +549,7 @@ fn stage_module_at(
     let staging_id = format!("stage-{}", ulid::Ulid::generate());
     validate_manifest_fields(&manifest)?;
     validate_manifest_files(&manifest, &files)?;
+    ensure_package_kind_allowed(&manifest)?;
 
     // Validate Ed25519 signature before creating any filesystem state.
     let sig_valid = verify_manifest_signature(&manifest)?;
@@ -675,6 +708,7 @@ fn validate_staged_package(staging_dir: &Path) -> Result<ModuleManifest, String>
     let manifest: ModuleManifest = serde_json::from_str(&manifest_content)
         .map_err(|e| format!("Invalid staged package manifest: {e}"))?;
     validate_manifest_fields(&manifest)?;
+    ensure_package_kind_allowed(&manifest)?;
     if !verify_manifest_signature(&manifest)? {
         return Err("Invalid or untrusted Ed25519 package signature".to_string());
     }
@@ -1185,6 +1219,30 @@ mod tests {
         );
         uninstall_module_at(&root.0, "example.plugin".into()).unwrap();
         assert!(list_installed_modules_at(&root.0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn community_packages_are_rejected_while_third_party_modules_are_disabled() {
+        let root = Fixture::new();
+        // A package staged while the gate was open must not be publishable once closed.
+        let staged = root.stage("1.0.0");
+        TEST_THIRD_PARTY_ALLOWED.with(|value| value.set(false));
+        let (manifest, files) = payload("1.0.0");
+        assert_eq!(manifest.kind, "community");
+        let rejected = stage_module_at(&root.0, "hint".into(), manifest, files);
+        assert!(rejected.is_err());
+        assert!(publish_module_at(
+            &root.0,
+            staged.staging_id,
+            "example.plugin".into(),
+            "1.0.0".into()
+        )
+        .is_err());
+        assert!(list_installed_modules_at(&root.0).unwrap().is_empty());
+        // Official packages are not affected by the gate.
+        let (mut official, _) = payload("1.0.0");
+        official.kind = "official".into();
+        assert!(ensure_package_kind_allowed(&official).is_ok());
     }
 
     #[test]
