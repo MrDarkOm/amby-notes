@@ -753,7 +753,7 @@ async ensureBundle(path: string) : Promise<Result<MutationOutcome, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async createNote(parentPath: string, name: string) : Promise<Result<MutationOutcome, string>> {
+async createNote(parentPath: string, name: string) : Promise<Result<MutationOutcome, StorageError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("create_note", { parentPath, name }) };
 } catch (e) {
@@ -825,7 +825,7 @@ async noteLayers(notePath: string) : Promise<Result<NoteLayers, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async moveItem(sourcePath: string, targetPath: string) : Promise<Result<MutationOutcome, string>> {
+async moveItem(sourcePath: string, targetPath: string) : Promise<Result<MutationOutcome, StorageError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("move_item", { sourcePath, targetPath }) };
 } catch (e) {
@@ -841,7 +841,7 @@ async previewMoveRefactor(sourcePath: string, targetPath: string) : Promise<Resu
     else return { status: "error", error: e  as any };
 }
 },
-async createFile(path: string) : Promise<Result<null, string>> {
+async createFile(path: string) : Promise<Result<null, StorageError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("create_file", { path }) };
 } catch (e) {
@@ -849,7 +849,7 @@ async createFile(path: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async createFolder(path: string) : Promise<Result<null, string>> {
+async createFolder(path: string) : Promise<Result<null, StorageError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("create_folder", { path }) };
 } catch (e) {
@@ -857,7 +857,7 @@ async createFolder(path: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async renameItem(path: string, newName: string) : Promise<Result<MutationOutcome, string>> {
+async renameItem(path: string, newName: string) : Promise<Result<MutationOutcome, StorageError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("rename_item", { path, newName }) };
 } catch (e) {
@@ -873,7 +873,7 @@ async previewRenameRefactor(path: string, newName: string) : Promise<Result<Refa
     else return { status: "error", error: e  as any };
 }
 },
-async deleteItem(path: string, mode: DeleteMode) : Promise<Result<MutationOutcome, string>> {
+async deleteItem(path: string, mode: DeleteMode) : Promise<Result<MutationOutcome, StorageError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("delete_item", { path, mode }) };
 } catch (e) {
@@ -881,7 +881,7 @@ async deleteItem(path: string, mode: DeleteMode) : Promise<Result<MutationOutcom
     else return { status: "error", error: e  as any };
 }
 },
-async archiveItem(path: string) : Promise<Result<MutationOutcome, string>> {
+async archiveItem(path: string) : Promise<Result<MutationOutcome, StorageError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("archive_item", { path }) };
 } catch (e) {
@@ -3748,6 +3748,12 @@ export type StopView =
  * The server speaks another protocol.
  */
 { kind: "incompatibleServer" }
+export type StorageError = { code: StorageErrorCode; 
+/**
+ * For the logs only; may contain paths. Never shown.
+ */
+detail: string }
+export type StorageErrorCode = "notFound" | "alreadyExists" | "permissionDenied" | "invalidPath" | "failed"
 /**
  * One storage (space) of the account.
  */

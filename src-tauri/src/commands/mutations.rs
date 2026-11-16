@@ -9,6 +9,7 @@ use crate::frontmatter;
 use crate::model::*;
 use crate::paths;
 use crate::recycle_bin;
+use crate::storage_error::{StorageError, StorageErrorCode};
 use crate::system_recycle_bin;
 use crate::vault_context::VaultContext;
 use crate::vault_index;
@@ -673,7 +674,7 @@ pub fn create_note(
     watcher_state: tauri::State<'_, WatcherState>,
     parent_path: String,
     name: String,
-) -> Result<MutationOutcome, String> {
+) -> Result<MutationOutcome, StorageError> {
     let outcome = create_note_inner(&db, &watcher_state, parent_path, name)?;
     notify_structural_mutation(&app, &db, &outcome);
     Ok(outcome)
@@ -975,7 +976,7 @@ pub fn move_item(
     sync_runtime: tauri::State<'_, crate::sync::runtime::SyncRuntime>,
     source_path: String,
     target_path: String,
-) -> Result<MutationOutcome, String> {
+) -> Result<MutationOutcome, StorageError> {
     let outcome = move_item_inner(
         &db,
         &runtime,
@@ -1227,22 +1228,28 @@ pub fn create_file(
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
-) -> Result<(), String> {
+) -> Result<(), StorageError> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(&scope, &path)?;
     if path.exists() {
-        return Err(format!("File already exists: {}", path.display()));
+        return Err(StorageError::new(
+            StorageErrorCode::AlreadyExists,
+            format!("File already exists: {}", path.display()),
+        ));
     }
     let prepared = watcher_state.prepare_write([(&path, watcher::fingerprint_for_bytes(b""))]);
     match frontmatter::atomic_write_new(&path, "") {
         Ok(()) => watcher_state.confirm_prepared_write(&prepared),
         Err(frontmatter::AtomicCreateError::AlreadyExists) => {
             watcher_state.cancel_prepared_write(&prepared);
-            return Err(format!("File already exists: {}", path.display()));
+            return Err(StorageError::new(
+                StorageErrorCode::AlreadyExists,
+                format!("File already exists: {}", path.display()),
+            ));
         }
         Err(frontmatter::AtomicCreateError::Other(error)) => {
             watcher_state.cancel_prepared_write(&prepared);
-            return Err(error);
+            return Err(error.into());
         }
     }
     watcher::notify_published_files(
@@ -1263,11 +1270,14 @@ pub fn create_folder(
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
-) -> Result<(), String> {
+) -> Result<(), StorageError> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(&scope, &path)?;
     if path.exists() {
-        return Err(format!("Folder already exists: {}", path.display()));
+        return Err(StorageError::new(
+            StorageErrorCode::AlreadyExists,
+            format!("Folder already exists: {}", path.display()),
+        ));
     }
     let prepared = watcher_state.prepare_write([(&path, PathFingerprint::Directory)]);
     match fs::create_dir_all(&path) {
@@ -1285,7 +1295,7 @@ pub fn create_folder(
         }
         Err(error) => {
             watcher_state.cancel_prepared_write(&prepared);
-            Err(error.to_string())
+            Err(StorageError::from_io(&error))
         }
     }
 }
@@ -1338,7 +1348,7 @@ pub fn rename_item(
     sync_runtime: tauri::State<'_, crate::sync::runtime::SyncRuntime>,
     path: String,
     new_name: String,
-) -> Result<MutationOutcome, String> {
+) -> Result<MutationOutcome, StorageError> {
     let outcome = rename_item_inner(
         &db,
         &runtime,
@@ -1439,7 +1449,7 @@ pub fn delete_item(
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
     mode: recycle_bin::DeleteMode,
-) -> Result<MutationOutcome, String> {
+) -> Result<MutationOutcome, StorageError> {
     let outcome = delete_item_inner(&db, &watcher_state, path, mode)?;
     notify_structural_mutation(&app, &db, &outcome);
     notify_project_removal(&app, &db, &outcome);
@@ -1551,7 +1561,7 @@ pub fn archive_item(
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
-) -> Result<MutationOutcome, String> {
+) -> Result<MutationOutcome, StorageError> {
     let outcome = archive_item_inner(&db, &watcher_state, path)?;
     notify_structural_mutation(&app, &db, &outcome);
     notify_project_removal(&app, &db, &outcome);

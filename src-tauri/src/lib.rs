@@ -26,6 +26,7 @@ mod recovery;
 mod recycle_bin;
 mod shadow_check;
 mod state;
+mod storage_error;
 pub mod sync;
 mod system_open;
 mod system_recycle_bin;

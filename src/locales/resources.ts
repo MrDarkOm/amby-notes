@@ -1200,6 +1200,8 @@ const ru = {
     notFound:
       "Не найдено: возможно, это удалили или перенесли. Ничего не изменено. Обновите список и повторите.",
     alreadyExists: "Такое название уже занято. Введите другое.",
+    permissionDenied:
+      "Нет доступа: система не разрешила изменить этот файл или папку. Ничего не изменено. Проверьте права доступа и повторите.",
     invalidPath:
       "Название не подходит: в нём недопустимые символы или оно слишком длинное. Введите другое.",
   },
@@ -5439,6 +5441,8 @@ const en: typeof ru = {
     notFound:
       "Not found: it may have been deleted or moved. Nothing was changed. Refresh the list and try again.",
     alreadyExists: "This name is already taken. Enter another one.",
+    permissionDenied:
+      "No access: the system did not allow changing this file or folder. Nothing was changed. Check the permissions and try again.",
     invalidPath:
       "The name is not allowed: it has forbidden characters or is too long. Enter another one.",
   },
