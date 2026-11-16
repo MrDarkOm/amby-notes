@@ -25,6 +25,15 @@ migration.
 3. Reconfirm target reachability, owner and review date before retaining any exception.
 4. Never ignore a vulnerability without a separately approved mitigation plan.
 
+## npm `overrides` in package.json
+
+Each override exists for a security reason recorded below; remove it when upstream resolves the
+patched version itself, then run `npm run verify`.
+
+- `lodash-es` 4.18.1: Excalidraw's chain pins older versions ([remediation 2026-09-29](#dependency-remediation--2026-09-29)).
+- `@excalidraw/excalidraw` → `nanoid` 3.3.18 and `@excalidraw/mermaid-to-excalidraw` → `nanoid` 5.1.16: same section.
+- `@excalidraw/excalidraw` → `sass` 1.105.2 (its `chokidar` no longer pulls `braces`) and `mermaid` → `katex` `$katex` (one patched KaTeX for the direct and Mermaid copies): [remediation 2026-10-16](#dependency-remediation--2026-10-16).
+
 ## Dependency remediation — 2026-09-29
 
 - Cargo.lock selects Rustls 0.23.45, fixing [RUSTSEC-2026-0285](https://rustsec.org/advisories/RUSTSEC-2026-0285.html). Its required aws-lc/webpki updates stay in the lockfile. The transitive `chacha20` 0.10.1 was yanked; 0.10.2 replaces it through the existing `ulid → rand` dependency, without changing vault IDs or formats.
