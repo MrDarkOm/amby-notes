@@ -318,3 +318,11 @@
 - Криптография (SYNC-09): `derive_key` больше не может вернуть нулевой ключ при сбое HKDF (сбой невозможен для 32 байт, но вместо тихого нуля теперь явная паника с обоснованием). Результаты не меняются, векторы совместимости зелёные.
 
 - Внутреннее (SYNC-10): список синхронизируемых папок `.amby` (`blocks`, `property-backups`, `conflicts`, `properties`, `archive`) раньше хранился дважды — в правилах ядра и в обходе хранилища (расхождение уже было, `adb907ea`). Теперь он один: `AMBY_SYNCED_FOLDERS` в `rules.rs` ядра; обход `vault_fs.rs` использует его же. Тест `the_walk_uses_the_list_of_synchronised_folders_of_the_core`.
+
+- Внутреннее (IPC-07): удалены 9 мёртвых отладочных команд-«шимов» (`get_log_dir_path`, `get_log_file_path`, `read_log_file`, `clear_log_file`, `append_log`, `get_recent_logs`, `set_debug_mode_enabled`, `open_devtools`, `is_devtools_open`): интерфейс зашит в приложение, старых версий нет, нигде не вызывались. Аргумент `test_vault` уже убран в SYNC-07. Bindings перегенерированы.
+
+- Внутреннее (IPC-08): `storage/debug-repository.ts` больше не стирает типы команд через `as unknown as`: вызывает `commands.*` напрямую, а различие `null`/`undefined` в событиях журнала переводит явной функцией. Тест: `maps backend null optionals to absent fields`.
+
+- Документация (IPC-09): `recovery-drafts.ts` и `properties/property-groups-port.ts` записаны в `src/lib/storage/MAP.md` как осознанные исключения из правила «в IPC ходит только `storage/`» (причины: свой localStorage-запасной путь и область по поколению у черновиков; самостоятельный порт у групп свойств). Код не менялся.
+
+- Безопасность данных (IPC-11): запись и удаление файлов `.amby/` через `write_vault_meta`/`delete_vault_meta` теперь принимают `expectedGeneration`: запись, сделанная для другого поколения хранилища (например, отложенное сохранение сессии после смены хранилища), отклоняется с `vaultGenerationConflict` и ничего не пишет. Окно, которое не знает поколения (окно настроек), передаёт `null` и не проверяется. Поколение берётся в момент решения о записи, а не при выполнении очереди. Тест: `a_vault_meta_write_for_another_generation_is_refused_and_writes_nothing`.
