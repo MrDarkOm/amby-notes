@@ -37,6 +37,8 @@ const EVENT_CODES = new Set([
   "property.notice_action_failed",
   "property.take_file_value_failed",
   "read_note.started",
+  "recovery.read_failed",
+  "recovery.write_failed",
   "read_note.succeeded",
   "read_note.failed",
   "storage.add_story_links",

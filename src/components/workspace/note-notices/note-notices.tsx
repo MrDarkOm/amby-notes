@@ -67,6 +67,7 @@ function NoteNoticesOf({
   const openConflictDialog = useDocStore((state) => state.openConflictDialog)
   const saveFailed = useNoteNoticesStore((state) => Boolean(state.saveFailed[document.id]))
   const propertyFailed = useNoteNoticesStore((state) => Boolean(state.propertyFailed[document.id]))
+  const recoveryProblem = useNoteNoticesStore((state) => state.recoveryProblems[document.id])
   const draftOffer = useNoteNoticesStore((state) => state.draftOffers[document.id])
   const restored = useNoteNoticesStore((state) =>
     relative ? state.restored.includes(relative) : false,
@@ -318,6 +319,21 @@ function NoteNoticesOf({
           testId="note-notice-property-failed"
           level="danger"
           title={t("noteNotices.properties.saveFailed")}
+        />
+      ),
+    })
+  }
+  // The copy for a crash could not be written or read: the note itself is fine, only the safety net is thin.
+  if (recoveryProblem) {
+    notices.push({
+      id: `recovery-${recoveryProblem}-failed`,
+      card: (
+        <Card
+          key={`recovery-${recoveryProblem}-failed`}
+          testId={`note-notice-recovery-${recoveryProblem}-failed`}
+          level="warning"
+          title={t(`noteNotices.recovery.${recoveryProblem}FailedTitle`)}
+          lines={[t(`noteNotices.recovery.${recoveryProblem}FailedLine`)]}
         />
       ),
     })

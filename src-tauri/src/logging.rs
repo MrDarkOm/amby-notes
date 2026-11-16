@@ -1122,6 +1122,8 @@ fn allowed_event(value: &str) -> bool {
         "property.mutation_failed",
         "property.notice_action_failed",
         "property.take_file_value_failed",
+        "recovery.read_failed",
+        "recovery.write_failed",
         "rename_retitle_failed",
         "storage.add_story_links",
         "storage.add_text_status",
