@@ -404,6 +404,155 @@ describe("refusals of property editors and cells (docs/notices.md §8, §11)", (
 })
 
 // ---------------------------------------------------------------------------------------------
+// 4b. The same rules in all of `src`, with a baseline that only shrinks (audit UI-01)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * A count per file of a violation that is still in the code. The rule holds for all of `src`; this list is
+ * the debt. It may only shrink: a new violation, or a fixed one that is still counted here, fails the test.
+ * A number is the count of the violations of the file, not a licence to add more.
+ */
+type Baseline = Record<string, number>
+
+function countsOf(find: (file: string, text: string) => number): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const [file, text] of sources) {
+    const count = find(file, text)
+    if (count > 0) counts.set(file, count)
+  }
+  return counts
+}
+
+function compareToBaseline(counts: Map<string, number>, baseline: Baseline, rule: string) {
+  const grew = [...counts]
+    .filter(([file, count]) => count > (baseline[file] ?? 0))
+    .map(([file, count]) => `${file}: ${count} (baseline ${baseline[file] ?? 0})`)
+  expect(
+    grew,
+    `${rule} Do not add it to the baseline: fix the code. The baseline only shrinks.`,
+  ).toEqual([])
+  const shrank = Object.entries(baseline)
+    .filter(([file, count]) => (counts.get(file) ?? 0) < count)
+    .map(([file, count]) => `${file}: ${counts.get(file) ?? 0} (baseline ${count})`)
+  expect(
+    shrank,
+    "A violation was fixed: lower its count in the baseline (or remove the file) so that it cannot come back.",
+  ).toEqual([])
+}
+
+/** An element with `role="alert"` whose class is red: the level `danger`/`warning` drawn by hand. */
+function redAlertCount(file: string): number {
+  let count = 0
+  walk(parse(file), (node) => {
+    if (!ts.isJsxOpeningElement(node) && !ts.isJsxSelfClosingElement(node)) return
+    const attributes = node.attributes.properties
+    const isAlert = attributes.some(
+      (attribute) =>
+        ts.isJsxAttribute(attribute) &&
+        attribute.name.getText() === "role" &&
+        attribute.initializer?.getText().includes("alert"),
+    )
+    if (!isAlert) return
+    const hasRed = attributes.some(
+      (attribute) =>
+        ts.isJsxAttribute(attribute) &&
+        attribute.name.getText() === "className" &&
+        /destructive|\b(?:text|bg|border)-red-/u.test(attribute.initializer?.getText() ?? ""),
+    )
+    if (hasRed) count += 1
+  })
+  return count
+}
+
+/**
+ * Files that still draw a red `role="alert"` by hand (docs/notices.md §8, §11). Only shrinks.
+ */
+export const RED_ALERT_BASELINE: Baseline = {
+  "src/components/workspace/ai-panel.tsx": 1,
+  "src/components/workspace/creative/creative-panel.tsx": 1,
+  "src/components/workspace/creative/creative-settings.tsx": 1,
+  "src/components/workspace/creative/project-page.tsx": 1,
+  "src/components/workspace/creative/project-settings-dialog.tsx": 3,
+  "src/components/workspace/creative/workshop/notes-part.tsx": 1,
+  "src/components/workspace/creative/workshop/page-marks.tsx": 1,
+  "src/components/workspace/creative/workshop/search-results.tsx": 1,
+  "src/components/workspace/creative/workshop/works-tab.tsx": 1,
+  "src/components/workspace/database/chart-view.tsx": 1,
+  "src/components/workspace/database/database-view-picker.tsx": 1,
+  "src/components/workspace/database/gallery-lanes-view.tsx": 1,
+  "src/components/workspace/database/layouts/gallery-view.tsx": 1,
+  "src/components/workspace/database/layouts/list-view.tsx": 1,
+  "src/components/workspace/database/relation-picker-popover.tsx": 1,
+  "src/components/workspace/database/table-view.tsx": 1,
+  "src/components/workspace/panels/archive-panel.tsx": 1,
+  "src/components/workspace/settings-dialog.tsx": 1,
+  "src/components/workspace/settings/settings-shortcuts.tsx": 1,
+  "src/components/workspace/sync/sync-vault-parts.tsx": 1,
+}
+
+/**
+ * Files that still use a palette class (docs/notices.md §11): a theme cannot recolour it. Only shrinks.
+ */
+export const PALETTE_BASELINE: Baseline = {
+  "src/components/workspace/ai/connections-manager.tsx": 2,
+  "src/components/workspace/canvas/canvas-mermaid-dialog.tsx": 2,
+  "src/components/workspace/common/card-markdown.ts": 1,
+  "src/components/workspace/creative/creative-panel.tsx": 2,
+  "src/components/workspace/creative/desk/progress-widget.tsx": 1,
+  "src/components/workspace/creative/pages/story-card.tsx": 4,
+  "src/components/workspace/creative/pages/story-timeline.tsx": 2,
+  "src/components/workspace/creative/project-page.tsx": 1,
+  "src/components/workspace/creative/workshop/item-menu.tsx": 2,
+  "src/components/workspace/creative/workshop/text-tree-model.ts": 2,
+  "src/components/workspace/database/view-settings-panel.tsx": 1,
+  "src/components/workspace/editor/document-actions.tsx": 1,
+  "src/components/workspace/editor/document-menu.tsx": 1,
+  "src/components/workspace/editor/module-required-fallback.tsx": 1,
+  "src/components/workspace/folder-view.tsx": 2,
+  "src/components/workspace/models-manager.tsx": 2,
+  "src/components/workspace/modules/profile-selector.tsx": 1,
+  "src/components/workspace/page-chrome/page-menu.tsx": 1,
+  "src/components/workspace/panels/databases-panel.tsx": 2,
+  "src/components/workspace/settings-dialog.tsx": 1,
+  "src/components/workspace/settings/log-viewer-dialog.tsx": 8,
+  "src/components/workspace/settings/settings-data.tsx": 1,
+  "src/components/workspace/tiptap/BubbleToolbar.tsx": 1,
+  "src/components/workspace/tree/tree-row.tsx": 2,
+  "src/components/workspace/vault/empty-state-header.tsx": 1,
+  "src/components/workspace/vault/vault-manager.tsx": 1,
+  "src/components/workspace/workspace-shell.tsx": 3,
+}
+
+describe("the rules of colour in all of src, with a baseline that only shrinks (audit UI-01)", () => {
+  it('draws no new red `role="alert"` block', () => {
+    const counts = countsOf((file, text) => (text.includes("alert") ? redAlertCount(file) : 0))
+    compareToBaseline(
+      counts,
+      RED_ALERT_BASELINE,
+      "A message that stops an action is a `NoticeLine` (notices/notice-line.tsx) at its level, " +
+        'not `role="alert"` with `text-destructive` (docs/notices.md §8, §11).',
+    )
+  })
+
+  it("uses no new palette class", () => {
+    const counts = countsOf((_file, text) => {
+      let count = 0
+      for (const line of text.split("\n")) {
+        if (line.trimStart().startsWith("//")) continue
+        if (PALETTE_CLASS.test(line)) count += 1
+      }
+      return count
+    })
+    compareToBaseline(
+      counts,
+      PALETTE_BASELINE,
+      "A colour is a theme token (`--notice-*` for a level, `NOTICE_LOOK` in notices/notice-look.ts), " +
+        "not `text-amber-500` and the like (docs/notices.md §11).",
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------------------------
 // 5. One host of toasts (docs/notices.md §6)
 // ---------------------------------------------------------------------------------------------
 

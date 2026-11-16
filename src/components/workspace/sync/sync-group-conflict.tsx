@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import { SyncPortError } from "@/lib/sync/sync-port"
 import type { GroupConflictVersions, NotePick } from "@/lib/sync/sync-port"
 import { IconValue } from "../icon-value"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 /** What the list of conflicts needs to choose a group of note properties by notes (З69). */
 export interface GroupConflictActions {
@@ -136,9 +137,7 @@ export function GroupConflictChooser({
         </p>
       )}
       {changed && (
-        <p role="alert" className="text-[12px] text-destructive">
-          {t("sync.vault.conflicts.appData.group.changed")}
-        </p>
+        <NoticeLine role="alert" text={t("sync.vault.conflicts.appData.group.changed")} />
       )}
       <div className="flex items-center justify-between gap-3">
         <p className="text-[11px] leading-snug text-muted-foreground">

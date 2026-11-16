@@ -8,6 +8,7 @@ import { useClipped } from "@/lib/use-clipped"
 import { useAiChatStore } from "./use-ai-chat-store"
 import type { ChatEntry } from "@/lib/storage"
 import { isEnterKey } from "@/lib/keyboard"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 function group(entry: ChatEntry): "today" | "yesterday" | "earlier" {
   if (!entry.updatedAt) return "earlier"
@@ -83,11 +84,7 @@ export function ChatList({ onOpen }: { onOpen: () => void }) {
       />
       <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block">
         <div className="space-y-3 px-3 pb-3">
-          {error && (
-            <p role="alert" className="text-xs text-destructive">
-              {t("ai.chatSaveFailed")}
-            </p>
-          )}
+          {error && <NoticeLine role="alert" text={t("ai.chatSaveFailed")} />}
           {filtered.length === 0 && (
             <p className="text-xs text-muted-foreground">{t("ai.noChats")}</p>
           )}

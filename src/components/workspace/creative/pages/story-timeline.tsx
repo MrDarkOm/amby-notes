@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Plus } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { progressOf, type StoryEntry } from "./story-list-model"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface StoryTimelineProps {
   /** The stories in the author's order, left to right. */
@@ -154,11 +155,7 @@ export function StoryTimeline({ entries, onOpen, onMove, onNewStory, error }: St
           )}
         </ol>
       </div>
-      {error && (
-        <p role="alert" className="break-words text-xs text-destructive">
-          {error}
-        </p>
-      )}
+      {error && <NoticeLine role="alert" text={error} className="break-words" />}
       {onMove && <p className="text-xs text-muted-foreground">{t("creative.timeline.hint")}</p>}
     </div>
   )

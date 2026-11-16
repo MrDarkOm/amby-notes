@@ -25,6 +25,7 @@ import {
   pendingSourceRewriteSnapshot,
   settleSourceRewriteSnapshot,
 } from "./autosave/source-rewrite"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 /**
  * Prevents an external editor from being silently overwritten by a dirty
@@ -242,11 +243,7 @@ export function ExternalConflictDialog() {
             {t("conflict.localCopySaved", { path: copyPath })}
           </p>
         )}
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
+        {error && <NoticeLine role="alert" text={error} />}
         <p className="text-xs text-muted-foreground">{t("conflict.dismissHint")}</p>
       </DialogContent>
     </Dialog>

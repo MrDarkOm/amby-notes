@@ -36,6 +36,7 @@ import {
   type AiSettings,
 } from "./app-config"
 import { isEnterKey } from "@/lib/keyboard"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 // ── Models library manager ────────────────────────────────────────────────────
 
@@ -81,11 +82,7 @@ export function ModelsManager({
   return (
     <ScrollArea className="min-h-0 flex-1">
       <div className="flex flex-col gap-2 p-3">
-        {storageError && (
-          <p role="alert" className="text-[12px] text-destructive">
-            {storageError}
-          </p>
-        )}
+        {storageError && <NoticeLine role="alert" text={storageError} />}
         {ai.models.length === 0 && (
           <p className="px-1 py-4 text-center text-[12px] text-muted-foreground">
             {t("models.empty")}
@@ -326,11 +323,7 @@ function ModelEditor({
           </p>
         </div>
       )}
-      {codexError && (
-        <p role="alert" className="text-xs leading-snug text-destructive">
-          {codexError}
-        </p>
-      )}
+      {codexError && <NoticeLine role="alert" text={codexError} className="leading-snug" />}
       {codexBusy === "signIn" && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="min-w-0 flex-1">{t("models.codexWaiting")}</span>
@@ -429,11 +422,7 @@ function ModelEditor({
           </div>
         </div>
       )}
-      {keyError && (
-        <p role="alert" className="text-xs text-destructive">
-          {keyError}
-        </p>
-      )}
+      {keyError && <NoticeLine role="alert" text={keyError} />}
 
       {provider?.azure && (
         <div className="flex flex-col gap-1">

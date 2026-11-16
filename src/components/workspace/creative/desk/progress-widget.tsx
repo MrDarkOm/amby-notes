@@ -1,6 +1,7 @@
 import { NotebookPen } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 export type CompileState =
   | { status: "idle" }
@@ -83,9 +84,11 @@ export function ProgressWidget({ pages, words, groups, onCompile, compile }: Pro
         </p>
       )}
       {compile.status === "failed" && (
-        <p role="alert" className="break-words text-xs text-destructive">
-          {t("creative.page.desk.compileFailed", { message: compile.text })}
-        </p>
+        <NoticeLine
+          role="alert"
+          text={t("creative.page.desk.compileFailed", { message: compile.text })}
+          className="break-words"
+        />
       )}
     </div>
   )

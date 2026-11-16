@@ -71,6 +71,7 @@ import {
   type TextNode,
 } from "./text-tree-model"
 import { projectErrorText } from "@/lib/operation-errors"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface WorksTabProps {
   workshop: WorkshopSummary
@@ -865,9 +866,7 @@ function StoryWorks({
             />
           )}
           {plot.linkAnchors?.error && (
-            <p role="alert" className="px-2 py-1 text-[11px] text-destructive">
-              {plot.linkAnchors.error}
-            </p>
+            <NoticeLine role="alert" text={plot.linkAnchors.error} className="px-2 py-1" />
           )}
           {anchorRows.length === 0 && draft?.kind !== "anchor" ? (
             canWrite ? (
@@ -908,11 +907,7 @@ function StoryWorks({
 
   return (
     <div ref={rootRef}>
-      {moveError && (
-        <p role="alert" className="px-2 py-1 text-[11px] text-destructive">
-          {moveError}
-        </p>
-      )}
+      {moveError && <NoticeLine role="alert" text={moveError} className="px-2 py-1" />}
       <h3 className="pb-0.5 pl-3.5 pt-1 text-[11px] text-muted-foreground">
         {t("creative.groups.work")}
       </h3>

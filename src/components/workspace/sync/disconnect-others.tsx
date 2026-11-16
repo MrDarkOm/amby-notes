@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
 import type { SyncPort } from "@/lib/sync/sync-port"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface DisconnectOthersProps {
   port: SyncPort
@@ -65,9 +66,10 @@ export function DisconnectOthers({ port, onDone }: DisconnectOthersProps) {
       </p>
       {failed.length > 0 ? (
         <div className="flex items-center gap-2">
-          <p role="alert" className="text-[12px] text-destructive">
-            {t("sync.changePassword.others.failed", { count: failed.length })}
-          </p>
+          <NoticeLine
+            role="alert"
+            text={t("sync.changePassword.others.failed", { count: failed.length })}
+          />
           <Button
             type="button"
             size="sm"

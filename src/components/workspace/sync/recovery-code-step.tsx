@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { recoveryFileText } from "@/lib/sync/recovery-file"
 import { syncErrorMessage } from "@/lib/sync/sync-errors"
 import type { SyncPort } from "@/lib/sync/sync-port"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 const PRINTING_CLASS = "sync-printing"
 
@@ -189,11 +190,7 @@ export function RecoveryCodeStep({
             />
           </div>
         )}
-        {shownError && (
-          <p role="alert" className="text-[12px] text-destructive">
-            {shownError}
-          </p>
-        )}
+        {shownError && <NoticeLine role="alert" text={shownError} />}
         <div data-testid="wizard-actions" className="flex flex-wrap items-center gap-2">
           <Button type="submit" size="sm" disabled={!ready || busy}>
             {t("sync.recovery.confirm")}

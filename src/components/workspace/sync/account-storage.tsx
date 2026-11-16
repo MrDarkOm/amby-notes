@@ -23,6 +23,7 @@ import { NOTICE_LOOK } from "../notices/notice-look"
 import { useVaultStore } from "../use-vault-store"
 import { reportSyncListenFailed } from "./listen-failure"
 import { SubscriptionOffer } from "./subscription-offer"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 export interface AccountStorageProps {
   /** The port to use; the application's own by default. */
@@ -214,11 +215,7 @@ export function AccountStorage({ port: given, revision = 0 }: AccountStorageProp
       </Button>
     </div>
   )
-  const errorLine = error && (
-    <p role="alert" className="text-[12px] text-destructive">
-      {error}
-    </p>
-  )
+  const errorLine = error && <NoticeLine role="alert" text={error} />
 
   if (!data) {
     return (
@@ -389,11 +386,7 @@ export function AccountStorage({ port: given, revision = 0 }: AccountStorageProp
           {t("sync.account.deleteDone")}
         </p>
       )}
-      {deleteError && (
-        <p role="alert" className="text-[12px] text-destructive">
-          {deleteError}
-        </p>
-      )}
+      {deleteError && <NoticeLine role="alert" text={deleteError} />}
     </section>
   )
 }

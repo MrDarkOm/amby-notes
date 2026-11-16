@@ -19,6 +19,7 @@ export function NoticeLevelIcon({ level, className }: { level: NoticeLevel; clas
 export function NoticeShell({
   level,
   variant = "tinted",
+  role,
   className,
   children,
   ...rest
@@ -26,13 +27,15 @@ export function NoticeShell({
   level: NoticeLevel
   /** `tinted` fills the frame with the colours of the level; `calm` is an ordinary surface with a stripe; `plain` has no frame. */
   variant?: "tinted" | "calm" | "plain"
+  /** The role is the one of the level unless a line under a form field must be read at once (`alert`). */
+  role?: "alert" | "status"
   className?: string
   children?: React.ReactNode
 } & Omit<React.HTMLAttributes<HTMLDivElement>, "role" | "className" | "children">) {
   return (
     <div
       {...rest}
-      role={level === "danger" ? "alert" : "status"}
+      role={role ?? (level === "danger" ? "alert" : "status")}
       data-level={level}
       className={cn(
         variant === "plain"
