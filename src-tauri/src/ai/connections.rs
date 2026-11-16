@@ -170,20 +170,7 @@ fn validate_selected_model_locked(
     let effective_base = if base.is_empty() { default_url } else { base };
     let endpoint_local = reqwest::Url::parse(effective_base)
         .ok()
-        .and_then(|url| url.host_str().map(str::to_owned))
-        .is_some_and(|host| {
-            let host = host.trim_matches(['[', ']']).to_ascii_lowercase();
-            if host == "localhost" || host.ends_with(".localhost") {
-                return true;
-            }
-            match host.parse::<std::net::IpAddr>() {
-                Ok(std::net::IpAddr::V4(ip)) => ip.is_loopback() || ip.is_private(),
-                Ok(std::net::IpAddr::V6(ip)) => {
-                    ip.is_loopback() || (ip.segments()[0] & 0xfe00) == 0xfc00
-                }
-                Err(_) => false,
-            }
-        });
+        .is_some_and(|url| super::host_class(&url).is_local());
     let supports_tools = model
         .get("supportsTools")
         .and_then(Value::as_bool)
