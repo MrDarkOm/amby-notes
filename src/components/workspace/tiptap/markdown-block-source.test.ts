@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
-import { Editor } from "@tiptap/core"
+import { Editor, Extension, type Extensions } from "@tiptap/core"
 import { Fragment, Slice } from "@tiptap/pm/model"
+import { Plugin } from "@tiptap/pm/state"
 import { afterEach, describe, expect, it } from "vitest"
+import "@/lib/i18n"
 import sharedCompatibilityCorpus from "../../../../tests/fixtures/markdown-compatibility.json"
 import livePreviewSafeFixture from "./fixtures/live-preview-safe.md?raw"
 import malformedFrontmatterFixture from "./fixtures/malformed-frontmatter.md?raw"
@@ -15,9 +17,9 @@ import {
   restoreSourceFormatting,
   roundTripCheck,
 } from "./markdown"
+import { buildExtensions } from "./extensions"
 import { sameDocument } from "./markdown-block-source"
 import { markdownMeaning } from "./markdown-meaning"
-import { schemaExtensions } from "./schema"
 
 const parse = (markdown: string) => editorSchema.nodeFromJSON(markdownToDoc(markdown))
 /** What a save without a single edit writes. */
@@ -279,11 +281,17 @@ describe("an edit rewrites only the block it touches", () => {
     "last paragraph",
   ].join("\n")
 
-  function open(markdown: string) {
+  // The same extension list the application builds, so every plugin that appends its own
+  // transactions (indent, block anchors, table fixes, ...) takes part in the invariants.
+  // Nothing is replaced: the editor is mounted on a detached element under happy-dom.
+  function open(markdown: string, extra: Extensions = []) {
     expect(roundTripCheck(markdown).ok).toBe(true)
     const editor = new Editor({
       element: document.createElement("div"),
-      extensions: schemaExtensions,
+      extensions: [
+        ...buildExtensions({ placeholder: "Start", callbacks: { current: {} as never } }),
+        ...extra,
+      ],
       content: markdownToDoc(markdown),
     })
     editors.push(editor)
@@ -318,6 +326,54 @@ describe("an edit rewrites only the block it touches", () => {
     expect(saved(editor)).toBe(
       SOURCE.replace("* * *\nmiddle paragraph", "* * *\n\nmiddle! paragraph"),
     )
+  })
+
+  const MIDDLE_EDITED = SOURCE.replace("* * *\nmiddle paragraph", "* * *\n\nmiddle! paragraph")
+
+  // Proof that the invariants above can fail: a plugin that appends a transaction touching
+  // a neighbouring block must turn them red. Without it a future plugin could leak an edit
+  // into another block and every test here would stay green.
+  it("catches a plugin that rewrites another block in its own transaction", () => {
+    const leak = Extension.create({
+      name: "testNeighbourLeak",
+      addProseMirrorPlugins: () => [
+        new Plugin({
+          appendTransaction: (transactions, _old, state) => {
+            if (!transactions.some((tr) => tr.docChanged)) return null
+            const last = state.doc.lastChild
+            if (!last || last.textContent.endsWith("?")) return null
+            return state.tr.insertText("?", state.doc.content.size - 1)
+          },
+        }),
+      ],
+    })
+    const editor = open(SOURCE, [leak])
+    editor.view.dispatch(editor.state.tr.insertText("!", positionOf(editor, "middle") + 6))
+    expect(editor.state.doc.lastChild?.textContent).toBe("last paragraph?")
+    expect(() => expect(saved(editor)).toBe(MIDDLE_EDITED)).toThrow()
+    expect(saved(editor)).toContain("last paragraph?")
+  })
+
+  it("keeps every other block's bytes whichever block is edited", () => {
+    const blocks = ["Title", "first paragraph", "one", "middle", "a", "last paragraph"]
+    for (const text of blocks) {
+      const editor = open(SOURCE)
+      const before = blockAt(editor, text)
+      const original = before.node
+      editor.view.dispatch(editor.state.tr.insertText("!", positionOf(editor, text) + 1))
+      const markdown = saved(editor)
+      const doc = parse(markdown)
+      expect(doc.childCount, text).toBe(parse(SOURCE).childCount)
+      const index = editor.state.doc.resolve(before.from + 1).index(0)
+      // Every block except the edited one is still the one that was read.
+      parse(SOURCE).forEach((node, _offset, i) => {
+        if (i === index) return
+        // The link to the previous block's hash legitimately follows an edit before it.
+        const bytes = (block: typeof node) => [block.attrs.markdownBlockSource, block.textContent]
+        expect(bytes(doc.child(i)), `${text}: block ${i}`).toEqual(bytes(node))
+      })
+      expect(original.eq(doc.child(index)), text).toBe(false)
+    }
   })
 
   it("rewrites an edited block in the form the editor writes", () => {
