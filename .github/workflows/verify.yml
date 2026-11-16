@@ -206,3 +206,36 @@ jobs:
         run: git diff --exit-code -- src/lib/bindings.ts
       - name: Verify generated IPC bindings are current
         run: npm run bindings:check
+
+  # The only tests that cross the real DesktopAdapter -> IPC -> Rust path (tests/native/*).
+  # They need a WebView window, so this is an experiment: it runs only for pushes to dev and
+  # manual runs (never for pull requests), and a failure does not fail the workflow. If the
+  # runner cannot start a WebView, the job is red-but-ignored; see tests/MAP.md.
+  native-contract:
+    name: Native contract (macOS, experimental)
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/dev'))
+    runs-on: macos-latest
+    continue-on-error: true
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Set up Rust stable
+        run: rustup toolchain install stable --profile minimal
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+      - run: npm ci
+      - run: npm run test:storage:live
+      - name: Keep the native contract log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-contract-log
+          path: .release-evidence/native-contract.log
+          if-no-files-found: ignore
+          retention-days: 7
