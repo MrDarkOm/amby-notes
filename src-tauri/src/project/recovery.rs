@@ -303,7 +303,31 @@ fn quarantine(path: &Path) -> Result<(), String> {
     let name = path
         .file_name()
         .ok_or_else(|| "journal has no name".to_owned())?;
-    fs::rename(path, directory.join(name)).map_err(|error| error.to_string())
+    // Quarantined files are recovery data: a taken name gets the next free one, never replaced.
+    let name = Path::new(name);
+    let stem = name
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let extension = name
+        .extension()
+        .map(|extension| format!(".{}", extension.to_string_lossy()))
+        .unwrap_or_default();
+    let mut target = directory.join(name);
+    let mut counter = 1_u32;
+    loop {
+        match crate::atomic_fs::rename_no_replace(path, &target) {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                counter += 1;
+                if counter > 10_000 {
+                    return Err("no free name in the quarantine".to_owned());
+                }
+                target = directory.join(format!("{stem}-{counter}{extension}"));
+            }
+            Err(error) => return Err(error.to_string()),
+        }
+    }
 }
 
 /// A completed journal only answers a repeat of its own operation ID, which a client sends

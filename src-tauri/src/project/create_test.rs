@@ -1538,6 +1538,34 @@ fn an_unreadable_journal_is_quarantined_with_its_bytes_and_reported() {
 }
 
 #[test]
+fn a_second_journal_with_a_quarantined_name_does_not_replace_the_first() {
+    let fixture = Fixture::new();
+    let dir = journal_dir(&fixture.vault);
+    fs::create_dir_all(&dir).unwrap();
+    let quarantine = dir.join("quarantine");
+
+    fs::write(dir.join("same.json"), b"first broken").unwrap();
+    recover_pending_projects(&fixture.vault).unwrap();
+    fs::write(dir.join("same.json"), b"second broken").unwrap();
+    recover_pending_projects(&fixture.vault).unwrap();
+    fs::write(dir.join("same.json"), b"third broken").unwrap();
+    recover_pending_projects(&fixture.vault).unwrap();
+
+    assert_eq!(
+        fs::read(quarantine.join("same.json")).unwrap(),
+        b"first broken"
+    );
+    assert_eq!(
+        fs::read(quarantine.join("same-2.json")).unwrap(),
+        b"second broken"
+    );
+    assert_eq!(
+        fs::read(quarantine.join("same-3.json")).unwrap(),
+        b"third broken"
+    );
+}
+
+#[test]
 fn a_repeat_over_an_unreadable_journal_requires_recovery_and_keeps_it() {
     let fixture = Fixture::new();
     let request = workshop("MoleHills");
