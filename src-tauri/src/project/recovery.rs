@@ -68,6 +68,20 @@ pub fn has_committed(vault: &Path, journal: &Journal) -> Result<bool, ProjectErr
     Ok(false)
 }
 
+/// Whether `bytes` are exactly the workshop file the journal planned to write: the recorded text,
+/// or, for a journal without the text, the recorded revision. A journal with neither cannot vouch
+/// for any file, so none is ours.
+fn is_planned_marker(journal: &Journal, bytes: &[u8]) -> bool {
+    if let Some(text) = &journal.plan.workshop_file_text {
+        return text.as_bytes() == bytes;
+    }
+    journal
+        .plan
+        .workshop_file_revision
+        .as_deref()
+        .is_some_and(|revision| raw_revision(bytes) == revision)
+}
+
 pub fn rollback(vault: &Path, journal: &Journal) -> Result<Rollback, ProjectError> {
     journal::validate_journal(journal)?;
     if has_committed(vault, journal)? {
@@ -236,8 +250,22 @@ pub fn rollback(vault: &Path, journal: &Journal) -> Result<Rollback, ProjectErro
         // 4. Remove workshop marker file if created by this operation
         if journal.plan.creates_workshop_folder {
             let marker = workshop_dir.join(WORKSHOP_FILE_NAME);
-            if marker.is_file() {
-                let _ = fs::remove_file(marker);
+            // Only the bytes the journal planned are ours; anything else is kept and reported.
+            match fs::read(&marker) {
+                Ok(bytes) if is_planned_marker(journal, &bytes) => {
+                    if let Err(error) = fs::remove_file(&marker) {
+                        leftovers.push(format!("{WORKSHOP_FILE_NAME}: {error}"));
+                    }
+                }
+                Ok(_) => {
+                    leftovers.push(format!(
+                        "{WORKSHOP_FILE_NAME}: the workshop file was changed"
+                    ));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    leftovers.push(format!("{WORKSHOP_FILE_NAME}: {error}"));
+                }
             }
         }
 

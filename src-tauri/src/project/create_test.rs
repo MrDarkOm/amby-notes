@@ -1478,6 +1478,33 @@ fn activation_keeps_an_old_unfinished_journal_until_it_is_resolved() {
 }
 
 #[test]
+fn rollback_keeps_a_workshop_file_that_is_not_the_one_the_journal_planned() {
+    let fixture = Fixture::new();
+    let request = workshop("MoleHills");
+    crash_at(Step::BeforeWorkshopFile);
+    assert!(fixture.create_workshop(&request).is_err());
+    clear_step_hook();
+
+    // Before the next activation something else puts a file of that name in the folder.
+    let marker = fixture.vault.join("MoleHills").join(WORKSHOP_FILE_NAME);
+    let foreign = br#"{"format":"someone-elses","note":"keep me"}"#;
+    fs::write(&marker, foreign).unwrap();
+
+    let report = recover_pending_projects(&fixture.vault).unwrap();
+
+    assert_eq!(
+        fs::read(&marker).ok().as_deref(),
+        Some(&foreign[..]),
+        "a file the journal did not plan is not ours to remove"
+    );
+    assert_eq!(report.quarantined.len(), 1, "{report:?}");
+    assert!(
+        fixture.vault.join("MoleHills").is_dir(),
+        "the folder is not removed while it still holds that file"
+    );
+}
+
+#[test]
 fn an_unreadable_journal_is_quarantined_with_its_bytes_and_reported() {
     let fixture = Fixture::new();
     let dir = journal_dir(&fixture.vault);
