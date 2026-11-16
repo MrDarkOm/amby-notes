@@ -63,13 +63,10 @@ export interface SplitPaneOptions {
 interface TabsStore {
   tabs: Tab[]
   activeTabKey: string
-  /** Legacy 2-pane key preserved for compatibility; multi-pane splits live in `rootPane`. */
-  secondaryTabKey: string | null
   rootPane: PaneNode
   activePaneId: string
   setTabs: (updater: Updater<Tab[]>) => void
   setActiveTabKey: (updater: Updater<string>) => void
-  setSecondaryTabKey: (updater: Updater<string | null>) => void
   openOrActivateSingletonTab: (tab: Tab) => string
   /** Ordinary navigation reuses an open tab in the active pane or replaces the active one. */
   openItem: (target: TabTarget, inNewTab?: boolean, options?: OpenItemOptions) => void
@@ -126,7 +123,6 @@ function matchesTarget(tab: Tab, target: TabTarget): boolean {
 export const useTabsStore = create<TabsStore>((set) => ({
   tabs: [],
   activeTabKey: "",
-  secondaryTabKey: null,
   rootPane: createInitialPaneLeaf([], "", DEFAULT_PANE_ID),
   activePaneId: DEFAULT_PANE_ID,
 
@@ -179,9 +175,6 @@ export const useTabsStore = create<TabsStore>((set) => ({
         rootPane,
       }
     }),
-
-  setSecondaryTabKey: (updater) =>
-    set((s) => ({ secondaryTabKey: resolve(updater, s.secondaryTabKey) })),
 
   focusPane: (paneId) =>
     set((s) => {
@@ -296,10 +289,6 @@ export const useTabsStore = create<TabsStore>((set) => ({
                 ? { ...tab, ...target, history, historyIndex: history.length - 1 }
                 : tab,
             ),
-            secondaryTabKey:
-              state.secondaryTabKey === active.key && target.kind !== "document"
-                ? null
-                : state.secondaryTabKey,
           }
         }
       }
@@ -587,7 +576,6 @@ export const useTabsStore = create<TabsStore>((set) => ({
         return {
           tabs: [],
           activeTabKey: "",
-          secondaryTabKey: null,
           rootPane: createInitialPaneLeaf([], "", DEFAULT_PANE_ID),
           activePaneId: DEFAULT_PANE_ID,
         }
@@ -618,7 +606,6 @@ export const useTabsStore = create<TabsStore>((set) => ({
       return {
         rootPane,
         activePaneId: DEFAULT_PANE_ID,
-        secondaryTabKey: null,
       }
     }),
 }))

@@ -53,7 +53,7 @@ function params(): Parameters<typeof useDocumentLoading>[0] {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useTabsStore.setState({ tabs: [], activeTabKey: "", secondaryTabKey: null })
+  useTabsStore.setState({ tabs: [], activeTabKey: "" })
   useDocStore.getState().clearDocs()
   useVaultStore.setState({ vault: "/vault", backendGeneration: 1 })
   vi.mocked(readNote).mockResolvedValue(note)

@@ -263,7 +263,7 @@ beforeEach(() => {
   })
   useVaultStore.setState(useVaultStore.getInitialState())
   useDocStore.getState().clearDocs()
-  useTabsStore.setState({ tabs: [], activeTabKey: "", secondaryTabKey: null })
+  useTabsStore.setState({ tabs: [], activeTabKey: "" })
   useViewStateStore
     .getState()
     .hydrateFromSession({ icons: {}, favorites: [], viewModes: {}, lockedFileIds: [] })

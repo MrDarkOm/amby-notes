@@ -295,7 +295,6 @@ tab.open_singleton
 tab.split_down
 tab.split_right
 tab.switch
-tab.toggle_split
 text_page_index_update_failed
 trash_anomaly
 tree.activate_tab

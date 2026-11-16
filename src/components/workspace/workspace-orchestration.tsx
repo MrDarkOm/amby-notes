@@ -205,7 +205,6 @@ export function WorkspaceOrchestration() {
   const { applyMutation, patchDoc, markSaved, clearExternalConflict } = useDocStore.getState()
   const tabs = useTabsStore((s) => s.tabs)
   const activeTabKey = useTabsStore((s) => s.activeTabKey)
-  const secondaryTabKey = useTabsStore((s) => s.secondaryTabKey)
   const rootPane = useTabsStore((s) => s.rootPane)
   const activePaneId = useTabsStore((s) => s.activePaneId)
   const splitLayout = React.useMemo(() => computeSplitLayout(rootPane), [rootPane])
@@ -991,7 +990,6 @@ export function WorkspaceOrchestration() {
   } = useTabActions({
     activeTab,
     activeTabKey,
-    secondaryTabKey,
     tabs,
     treeItems,
     canGoBack,
@@ -1466,7 +1464,6 @@ export function WorkspaceOrchestration() {
       refreshTreePaths,
       loadDoc,
       activeTab,
-      secondaryTabKey,
       tabs,
       handleExitFocusMode,
       handleEnterFocusMode,
