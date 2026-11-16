@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::model::{FsMutationResult, PathChange};
@@ -282,7 +281,7 @@ fn move_item_to_dir(
 
     let markdown_paths = collect_refactor_paths(&source_root)?;
     let path_changes = path_changes_for_prefix(&markdown_paths, &source_root, &destination);
-    fs::rename(&source_root, &destination).map_err(|e| e.to_string())?;
+    crate::atomic_fs::rename_no_replace(&source_root, &destination).map_err(|e| e.to_string())?;
 
     let primary_path = if is_bundle_main_note_in(vault, source_path) {
         let stem = file_stem(source_path)?;

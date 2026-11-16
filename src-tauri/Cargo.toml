@@ -59,6 +59,10 @@ zeroize = "1"
 hex = "0.4"
 unicode-normalization = "0.1"
 
+[target.'cfg(unix)'.dependencies]
+# Rename without replacing (`renameat2` / `renamex_np`) in `atomic_fs.rs`; already in the lock file.
+libc = "0.2"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "3.7"
 objc2 = "0.6"
@@ -66,7 +70,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["NSAppl
 objc2-foundation = { version = "0.3", default-features = false, features = ["NSData", "NSError", "NSFileManager", "NSString", "NSURL"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_UI_Shell"] }
+windows-sys = { version = "0.61.2", features = ["Win32_UI_Shell", "Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 # The server of the sync workspace, started inside a test (stage Э4: the link against a real server).

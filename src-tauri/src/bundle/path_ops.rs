@@ -90,19 +90,43 @@ pub(super) fn ensure_rename_target_available(source: &Path, target: &Path) -> Re
 /// a unique sibling so macOS and Windows do not collapse the operation into a
 /// no-op. A failed second rename restores the original spelling.
 pub(super) fn rename_path_case_safe(source: &Path, target: &Path) -> Result<(), String> {
+    rename_path_case_safe_after_check(source, target, || {})
+}
+
+/// Plain rename that the kernel refuses when `target` exists, so a file that
+/// appears after the availability check is never replaced (CORE-12).
+fn rename_refusing_to_replace(source: &Path, target: &Path) -> Result<(), String> {
+    crate::atomic_fs::rename_no_replace(source, target).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            format!("Target already exists: {}", path_string(target))
+        } else {
+            error.to_string()
+        }
+    })
+}
+
+/// [`rename_path_case_safe`] with a seam: `between_check_and_rename` runs after
+/// the "is the target free" check and before the rename, which is the window a
+/// concurrent writer can use.
+pub(super) fn rename_path_case_safe_after_check(
+    source: &Path,
+    target: &Path,
+    between_check_and_rename: impl FnOnce(),
+) -> Result<(), String> {
     let same_entry = ensure_rename_target_available(source, target)?;
     if source == target {
         return Ok(());
     }
+    between_check_and_rename();
     if !same_entry {
-        return fs::rename(source, target).map_err(|error| error.to_string());
+        return rename_refusing_to_replace(source, target);
     }
 
     let temporary = rename_temp_sibling(source)?;
     fs::rename(source, &temporary).map_err(|error| error.to_string())?;
-    if let Err(error) = fs::rename(&temporary, target) {
+    if let Err(error) = rename_refusing_to_replace(&temporary, target) {
         return match fs::rename(&temporary, source) {
-            Ok(()) => Err(error.to_string()),
+            Ok(()) => Err(error),
             Err(rollback_error) => Err(format!(
                 "Case-only rename failed: {error}; rollback failed: {rollback_error}"
             )),

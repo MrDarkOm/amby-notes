@@ -805,3 +805,45 @@ fn manifest_name_rewrite_is_atomic_and_preserves_unparseable_manifests() {
     assert_eq!(std::fs::read(&manifest).unwrap(), b"{ broken");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn rename_refuses_a_file_that_appears_after_the_availability_check() {
+    let vault = temp_vault("rename-race-file");
+    let source = vault.join("a.md");
+    let target = vault.join("b.md");
+    std::fs::write(&source, "source").unwrap();
+
+    let error = super::path_ops::rename_path_case_safe_after_check(&source, &target, || {
+        std::fs::write(&target, "someone else").unwrap();
+    })
+    .unwrap_err();
+
+    assert!(error.contains("already exists"), "{error}");
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "someone else");
+    assert_eq!(std::fs::read_to_string(&source).unwrap(), "source");
+    std::fs::remove_dir_all(&vault).ok();
+}
+
+#[test]
+fn rename_refuses_a_folder_that_appears_after_the_availability_check() {
+    let vault = temp_vault("rename-race-folder");
+    let source = vault.join("Old");
+    let target = vault.join("New");
+    std::fs::create_dir_all(&source).unwrap();
+    std::fs::write(source.join("moved.md"), "moved").unwrap();
+
+    let error = super::path_ops::rename_path_case_safe_after_check(&source, &target, || {
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("theirs.md"), "theirs").unwrap();
+    })
+    .unwrap_err();
+
+    assert!(error.contains("already exists"), "{error}");
+    assert_eq!(
+        std::fs::read_to_string(target.join("theirs.md")).unwrap(),
+        "theirs"
+    );
+    assert!(source.join("moved.md").is_file());
+    assert!(!target.join("moved.md").exists());
+    std::fs::remove_dir_all(&vault).ok();
+}

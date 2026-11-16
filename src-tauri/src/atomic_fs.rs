@@ -219,6 +219,111 @@ pub(crate) fn publish_prepared_no_replace(
     }
 }
 
+/// Rename `from` to `to` and fail with `AlreadyExists` instead of replacing a
+/// file or directory that is already at `to`, even one that appeared a moment
+/// ago. The check and the rename are one operation in the kernel
+/// (`renameat2(RENAME_NOREPLACE)` on Linux, `renamex_np(RENAME_EXCL)` on macOS,
+/// `MoveFileExW` without `MOVEFILE_REPLACE_EXISTING` on Windows). A filesystem
+/// that does not support the flag falls back to "look, then rename", which is
+/// the best a plain `rename` can do there.
+pub(crate) fn rename_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    match rename_no_replace_os(from, to) {
+        Err(error) if rename_flag_is_unsupported(&error) => {
+            if fs::symlink_metadata(to).is_ok() {
+                return Err(std::io::ErrorKind::AlreadyExists.into());
+            }
+            fs::rename(from, to)
+        }
+        other => other,
+    }
+}
+
+#[cfg(unix)]
+fn rename_flag_is_unsupported(error: &std::io::Error) -> bool {
+    // ENOSYS, EINVAL (flag rejected by the filesystem), ENOTSUP / EOPNOTSUPP.
+    matches!(
+        error.raw_os_error(),
+        Some(code) if code == libc::ENOSYS || code == libc::EINVAL || code == libc::ENOTSUP
+    )
+}
+
+#[cfg(not(unix))]
+fn rename_flag_is_unsupported(_error: &std::io::Error) -> bool {
+    false
+}
+
+#[cfg(unix)]
+fn c_path(path: &Path) -> std::io::Result<std::ffi::CString> {
+    use std::os::unix::ffi::OsStrExt;
+    std::ffi::CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))
+}
+
+#[cfg(target_os = "linux")]
+fn rename_no_replace_os(from: &Path, to: &Path) -> std::io::Result<()> {
+    let (from, to) = (c_path(from)?, c_path(to)?);
+    // SAFETY: both pointers are valid NUL-terminated strings for the whole call.
+    let result = unsafe {
+        libc::syscall(
+            libc::SYS_renameat2,
+            libc::AT_FDCWD,
+            from.as_ptr(),
+            libc::AT_FDCWD,
+            to.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn rename_no_replace_os(from: &Path, to: &Path) -> std::io::Result<()> {
+    extern "C" {
+        fn renamex_np(
+            from: *const libc::c_char,
+            to: *const libc::c_char,
+            flags: libc::c_uint,
+        ) -> libc::c_int;
+    }
+    let (from, to) = (c_path(from)?, c_path(to)?);
+    // SAFETY: both pointers are valid NUL-terminated strings for the whole call.
+    let result = unsafe { renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_EXCL) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(windows)]
+fn rename_no_replace_os(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
+    let wide = |path: &Path| -> Vec<u16> { path.as_os_str().encode_wide().chain([0]).collect() };
+    let (from, to) = (wide(from), wide(to));
+    // Flags 0: no MOVEFILE_REPLACE_EXISTING, so an existing target is an error
+    // (ERROR_ALREADY_EXISTS / ERROR_FILE_EXISTS, both mapped to AlreadyExists).
+    // SAFETY: both buffers are NUL-terminated and live for the whole call.
+    let ok = unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), 0) };
+    if ok != 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+fn rename_no_replace_os(from: &Path, to: &Path) -> std::io::Result<()> {
+    if fs::symlink_metadata(to).is_ok() {
+        return Err(std::io::ErrorKind::AlreadyExists.into());
+    }
+    fs::rename(from, to)
+}
+
 pub(crate) fn rename_with_retry<F>(mut rename_op: F) -> std::io::Result<()>
 where
     F: FnMut() -> std::io::Result<()>,

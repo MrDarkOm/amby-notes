@@ -243,3 +243,26 @@ fn temp_name_keeps_the_recognised_shape_and_stays_short() {
     assert!(name.find(".amby-tmp-").is_some_and(|at| at >= 2));
     assert!(name.len() <= 120, "{} bytes", name.len());
 }
+
+#[test]
+fn rename_no_replace_moves_to_a_free_name_and_refuses_a_taken_one() {
+    let dir = std::env::temp_dir().join(format!(
+        "amby-rename-noreplace-{}-{}",
+        std::process::id(),
+        TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir_all(&dir).unwrap();
+    let (a, b, c) = (dir.join("a"), dir.join("b"), dir.join("c"));
+    fs::write(&a, "a").unwrap();
+    fs::write(&b, "b").unwrap();
+
+    let error = rename_no_replace(&a, &b).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+    assert_eq!(fs::read_to_string(&a).unwrap(), "a");
+    assert_eq!(fs::read_to_string(&b).unwrap(), "b");
+
+    rename_no_replace(&a, &c).unwrap();
+    assert!(!a.exists());
+    assert_eq!(fs::read_to_string(&c).unwrap(), "a");
+    fs::remove_dir_all(dir).unwrap();
+}
