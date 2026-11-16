@@ -255,7 +255,20 @@ pub enum SelfWriteOperation {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PathFingerprint {
-    File { size: u64, content_hash: u64 },
+    File {
+        size: u64,
+        content_hash: u64,
+    },
+    /// Metadata-only identity of a file that is moved or renamed, never
+    /// rewritten: size, modification time and (where the platform exposes it)
+    /// the file id. Computing it does not read the file, so moving a folder of
+    /// large attachments stays O(file count). It is only compared with another
+    /// identity of the same kind (see `path_fingerprint_like`).
+    MovedFile {
+        size: u64,
+        modified_nanos: u128,
+        file_id: Option<(u64, u64)>,
+    },
     Directory,
     Missing,
     Unavailable,
@@ -288,7 +301,22 @@ pub fn fingerprint_for_bytes(bytes: &[u8]) -> PathFingerprint {
     }
 }
 
+thread_local! {
+    /// Test seam: how many file contents `path_fingerprint` hashed on this thread.
+    #[cfg(test)]
+    static CONTENT_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Test seam: number of file contents hashed by `path_fingerprint` on this thread.
+#[cfg(test)]
+pub(crate) fn content_reads_for_test() -> usize {
+    CONTENT_READS.with(|count| count.get())
+}
+
+/// Exact content fingerprint. The file is hashed as a stream, so memory use
+/// does not depend on its size; the hash equals `fingerprint_for_bytes`.
 pub fn path_fingerprint(path: &Path) -> PathFingerprint {
+    use std::io::Read;
     let metadata = match fs::metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -302,22 +330,96 @@ pub fn path_fingerprint(path: &Path) -> PathFingerprint {
     if !metadata.is_file() {
         return PathFingerprint::Unavailable;
     }
-    let bytes = match fs::read(path) {
-        Ok(bytes) => bytes,
+    let Ok(mut file) = fs::File::open(path) else {
+        return PathFingerprint::Unavailable;
+    };
+    #[cfg(test)]
+    CONTENT_READS.with(|count| count.set(count.get() + 1));
+    // Hashes exactly like `bytes.hash(..)` for a slice: length prefix, then bytes.
+    let mut hasher = DefaultHasher::new();
+    hasher.write_usize(metadata.len() as usize);
+    let mut buffer = vec![0u8; 64 * 1024];
+    let mut size = 0u64;
+    loop {
+        match file.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => {
+                hasher.write(&buffer[..read]);
+                size += read as u64;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return PathFingerprint::Unavailable,
+        }
+    }
+    if size != metadata.len() {
+        // The file changed while it was read; there is no stable fingerprint.
+        return PathFingerprint::Unavailable;
+    }
+    PathFingerprint::File {
+        size,
+        content_hash: hasher.finish(),
+    }
+}
+
+/// Fingerprint for a file that is only moved or renamed. Reads no content.
+/// Falls back to the content fingerprint when the platform gives no
+/// modification time.
+pub fn path_fingerprint_for_move(path: &Path) -> PathFingerprint {
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return PathFingerprint::Missing;
+        }
         Err(_) => return PathFingerprint::Unavailable,
     };
-    let fingerprint = fingerprint_for_bytes(&bytes);
-    debug_assert!(
-        matches!(fingerprint, PathFingerprint::File { size, .. } if size == metadata.len())
-    );
-    fingerprint
+    if metadata.is_dir() {
+        return PathFingerprint::Directory;
+    }
+    if !metadata.is_file() {
+        return PathFingerprint::Unavailable;
+    }
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok());
+    match modified {
+        Some(modified) => PathFingerprint::MovedFile {
+            size: metadata.len(),
+            modified_nanos: modified.as_nanos(),
+            file_id: file_id(&metadata),
+        },
+        None => path_fingerprint(path),
+    }
+}
+
+#[cfg(unix)]
+fn file_id(metadata: &fs::Metadata) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    Some((metadata.dev(), metadata.ino()))
+}
+
+// `file_index` is not stable on Windows; size + mtime is what remains there.
+#[cfg(not(unix))]
+fn file_id(_metadata: &fs::Metadata) -> Option<(u64, u64)> {
+    None
+}
+
+/// The fingerprint of `path` of the same kind as `expected`, so that a
+/// metadata record is checked by metadata and a content record by content.
+pub fn path_fingerprint_like(path: &Path, expected: &PathFingerprint) -> PathFingerprint {
+    match expected {
+        PathFingerprint::MovedFile { .. } => path_fingerprint_for_move(path),
+        _ => path_fingerprint(path),
+    }
 }
 
 pub fn operation_for_fingerprint(fingerprint: &PathFingerprint) -> SelfWriteOperation {
     match fingerprint {
         PathFingerprint::Missing => SelfWriteOperation::Delete,
         PathFingerprint::Directory => SelfWriteOperation::Create,
-        PathFingerprint::File { .. } | PathFingerprint::Unavailable => SelfWriteOperation::Write,
+        PathFingerprint::File { .. }
+        | PathFingerprint::MovedFile { .. }
+        | PathFingerprint::Unavailable => SelfWriteOperation::Write,
     }
 }
 
@@ -396,7 +498,8 @@ impl WatcherState {
         let mut guard = self.own_writes.lock_or_recover();
         for (path, token) in &prepared.records {
             let should_remove = guard.get(path).is_some_and(|record| {
-                record.operation_token == *token && path_fingerprint(path) != record.expected
+                record.operation_token == *token
+                    && path_fingerprint_like(path, &record.expected) != record.expected
             });
             if should_remove {
                 guard.remove(path);
@@ -452,11 +555,11 @@ pub fn reconcile_self_write(
     };
     let age = now.saturating_duration_since(record.recorded_at);
     if record.generation != generation || record.expires_at <= now || age >= SELF_WRITE_RECORD_TTL {
-        let _ = path_fingerprint(path);
         guard.remove(path);
         return false;
     }
-    event_matches_operation(kind, &record) && path_fingerprint(path) == record.expected
+    event_matches_operation(kind, &record)
+        && path_fingerprint_like(path, &record.expected) == record.expected
 }
 
 #[cfg(test)]
@@ -700,5 +803,19 @@ mod event_batch_tests {
         batch.begin();
         batch.push(vec![event("remove", "/v/a.md")]);
         assert_eq!(batch.end().len(), 1);
+    }
+
+    #[test]
+    fn streamed_content_fingerprint_equals_the_in_memory_one() {
+        let vault = std::env::temp_dir().join(format!("amby-stream-eq-{}", std::process::id()));
+        fs::create_dir_all(&vault).unwrap();
+        let big = vault.join("big.bin");
+        let bytes: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        fs::write(&big, &bytes).unwrap();
+        assert_eq!(path_fingerprint(&big), fingerprint_for_bytes(&bytes));
+        let empty = vault.join("empty");
+        fs::write(&empty, b"").unwrap();
+        assert_eq!(path_fingerprint(&empty), fingerprint_for_bytes(b""));
+        fs::remove_dir_all(vault).unwrap();
     }
 }

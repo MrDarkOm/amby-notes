@@ -240,13 +240,13 @@ pub fn restore_trash(
     let preview = recycle_bin::preview_restore(&vault, &trash_id)?;
     let mut writes = vec![(
         (preview.destination.clone()),
-        watcher::path_fingerprint(&preview.payload),
+        watcher::path_fingerprint_for_move(&preview.payload),
     )];
     writes.extend(preview.restored_paths.iter().filter_map(|source| {
         let relative = source.strip_prefix(&preview.payload).ok()?;
         Some((
             preview.destination.join(relative),
-            watcher::path_fingerprint(source),
+            watcher::path_fingerprint_for_move(source),
         ))
     }));
     let mut restored_paths: Vec<_> = writes.iter().map(|(path, _)| path.clone()).collect();
@@ -316,7 +316,7 @@ pub fn restore_archive(
     let vault = scope.get()?;
     let generation = db.generation()?;
     let (source, target) = crate::archive::restore_places(&vault, &archive_id)?;
-    let writes = vec![(target.clone(), watcher::path_fingerprint(&source))];
+    let writes = vec![(target.clone(), watcher::path_fingerprint_for_move(&source))];
     let mut restored_paths = vec![target];
     let prepared = watcher_state.prepare_write(writes);
     let result = match crate::archive::restore(&vault, &archive_id) {

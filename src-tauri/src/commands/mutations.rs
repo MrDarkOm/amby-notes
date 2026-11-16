@@ -106,7 +106,7 @@ fn prepare_path_changes(
         writes.push((old_path.clone(), PathFingerprint::Missing));
         writes.push((
             PathBuf::from(&change.new_path),
-            watcher::path_fingerprint(&old_path),
+            watcher::path_fingerprint_for_move(&old_path),
         ));
     }
     watcher_state.prepare_write(writes)
@@ -124,7 +124,10 @@ fn prepare_note_creation(
         watcher::fingerprint_for_bytes(plan.initial_source().as_bytes()),
     )];
     if let Some((original_note, bundle_dir, promoted_main)) = plan.promotion_paths() {
-        writes.push((promoted_main, watcher::path_fingerprint(original_note)));
+        writes.push((
+            promoted_main,
+            watcher::path_fingerprint_for_move(original_note),
+        ));
         writes.push((original_note.to_path_buf(), PathFingerprint::Missing));
         writes.push((bundle_dir.to_path_buf(), PathFingerprint::Directory));
     }
@@ -158,7 +161,7 @@ fn prepare_move_paths(
         add(old_path.clone(), PathFingerprint::Missing);
         add(
             PathBuf::from(&change.new_path),
-            watcher::path_fingerprint(&old_path),
+            watcher::path_fingerprint_for_move(&old_path),
         );
     }
 
@@ -1518,4 +1521,116 @@ pub(crate) fn archive_item_inner(
     let mut outcome = sync_mutation_result(db, &vault, result);
     outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
     Ok(outcome)
+}
+
+#[cfg(test)]
+mod watcher_fingerprint_tests {
+    use super::*;
+
+    const FILES: usize = 12;
+
+    struct Moved {
+        root: PathBuf,
+        new_paths: Vec<PathBuf>,
+        state: WatcherState,
+    }
+
+    /// Moves a folder of `FILES` files the way a rename does: registers the plan,
+    /// renames, confirms. Returns the reads of file contents it took.
+    fn move_folder(name: &str) -> (Moved, usize) {
+        let root =
+            std::env::temp_dir().join(format!("amby-core09-{name}-{}", ulid::Ulid::generate()));
+        let old_dir = root.join("Old");
+        fs::create_dir_all(&old_dir).unwrap();
+        let mut changes = Vec::new();
+        for index in 0..FILES {
+            let old = old_dir.join(format!("file{index}.bin"));
+            fs::write(&old, format!("payload number {index}")).unwrap();
+            changes.push(PathChange {
+                old_path: path_string(&old),
+                new_path: path_string(&root.join("New").join(format!("file{index}.bin"))),
+            });
+        }
+        let state = WatcherState::new();
+        state
+            .active_generation
+            .store(1, std::sync::atomic::Ordering::Release);
+        let before = watcher::content_reads_for_test();
+        let prepared = prepare_path_changes(&state, &changes);
+        fs::rename(&old_dir, root.join("New")).unwrap();
+        state.confirm_prepared_write(&prepared);
+        let new_paths: Vec<_> = changes.iter().map(|c| PathBuf::from(&c.new_path)).collect();
+        for path in &new_paths {
+            assert!(watcher::reconcile_self_write(
+                &state.own_writes,
+                path,
+                "rename",
+                1
+            ));
+        }
+        let reads = watcher::content_reads_for_test() - before;
+        (
+            Moved {
+                root,
+                new_paths,
+                state,
+            },
+            reads,
+        )
+    }
+
+    #[test]
+    fn moving_a_folder_does_not_read_unchanged_file_contents() {
+        let (moved, reads) = move_folder("no-reads");
+        assert_eq!(reads, 0, "a pure move must not hash file contents");
+        fs::remove_dir_all(moved.root).unwrap();
+    }
+
+    #[test]
+    fn an_external_edit_after_a_move_is_still_noticed() {
+        let (moved, _) = move_folder("external");
+        let edited = &moved.new_paths[3];
+        // Same size, different bytes, written after the move.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        fs::write(edited, "PAYLOAD NUMBER 3").unwrap();
+        assert!(!watcher::reconcile_self_write(
+            &moved.state.own_writes,
+            edited,
+            "modify",
+            1
+        ));
+        // Untouched siblings stay recognised as Amby's own.
+        assert!(watcher::reconcile_self_write(
+            &moved.state.own_writes,
+            &moved.new_paths[4],
+            "rename",
+            1
+        ));
+        fs::remove_dir_all(moved.root).unwrap();
+    }
+
+    #[test]
+    fn a_file_rewritten_by_amby_is_fingerprinted_by_content() {
+        let (moved, _) = move_folder("rewritten");
+        let note = &moved.new_paths[0];
+        fs::write(note, "links rewritten by Amby").unwrap();
+        let before = watcher::content_reads_for_test();
+        moved.state.mark_write([note]);
+        assert!(watcher::content_reads_for_test() > before);
+        assert!(watcher::reconcile_self_write(
+            &moved.state.own_writes,
+            note,
+            "modify",
+            1
+        ));
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        fs::write(note, "LINKS REWRITTEN BY AMBY").unwrap();
+        assert!(!watcher::reconcile_self_write(
+            &moved.state.own_writes,
+            note,
+            "modify",
+            1
+        ));
+        fs::remove_dir_all(moved.root).unwrap();
+    }
 }
