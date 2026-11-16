@@ -1998,6 +1998,14 @@ const ru = {
   },
   noteNotices: {
     closeNote: "Закрыть заметку",
+    recovery: {
+      writeFailedTitle: "Копия на случай сбоя не записана",
+      writeFailedLine:
+        "Заметка сохраняется как обычно, но если программа вдруг закроется, последние правки могут пропасть. Проверьте место на диске и доступ к папке.",
+      readFailedTitle: "Копию на случай сбоя не удалось прочитать",
+      readFailedLine:
+        "Возможно, для этой заметки остался несохранённый черновик. Он не удалён и не потерян; откройте заметку позже.",
+    },
     propertiesToDatabase: {
       title: "Свойства не перенесены в базу",
       line: "Они остались в заметке, ничего не потеряно.",
@@ -6546,6 +6554,14 @@ const en: typeof ru = {
   },
   noteNotices: {
     closeNote: "Close note",
+    recovery: {
+      writeFailedTitle: "The crash safety copy was not written",
+      writeFailedLine:
+        "The note is saved as usual, but if the app closes unexpectedly, the latest edits could be lost. Check the disk space and access to the folder.",
+      readFailedTitle: "The crash safety copy could not be read",
+      readFailedLine:
+        "An unsaved draft may exist for this note. It was not deleted or lost; open the note again later.",
+    },
     propertiesToDatabase: {
       title: "The properties were not moved to the database",
       line: "They stayed in the note, nothing is lost.",

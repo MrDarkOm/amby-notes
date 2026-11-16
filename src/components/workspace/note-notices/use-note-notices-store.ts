@@ -1,4 +1,5 @@
 import { create } from "zustand"
+import { subscribeRecoveryProblems } from "@/lib/recovery-drafts"
 
 /** The two answers to an unsaved draft that was found when a note was opened. */
 export interface DraftOffer {
@@ -12,6 +13,12 @@ interface NoteNoticesState {
   /** Notes (by document id) whose last change of a property failed. */
   propertyFailed: Record<string, true>
   setPropertyFailed: (fileId: string, failed: boolean) => void
+  /**
+   * Notes (by document id) whose recovery draft could not be written (`write`) or read (`read`).
+   * Written by the journal itself, see the subscription below the store.
+   */
+  recoveryProblems: Record<string, "write" | "read">
+  setRecoveryProblem: (fileId: string, problem: "write" | "read" | null) => void
   /** Unsaved drafts waiting for an answer, by document id. The note is read only until it comes. */
   draftOffers: Record<string, DraftOffer>
   /** Paths (in the vault) of open notes that came back after a deletion made here. */
@@ -45,6 +52,13 @@ export const useNoteNoticesStore = create<NoteNoticesState>((set) => ({
       if (Boolean(state.propertyFailed[fileId]) === failed) return state
       const { [fileId]: _gone, ...rest } = state.propertyFailed
       return { propertyFailed: failed ? { ...rest, [fileId]: true } : rest }
+    }),
+  recoveryProblems: {},
+  setRecoveryProblem: (fileId, problem) =>
+    set((state) => {
+      if (state.recoveryProblems[fileId] === (problem ?? undefined)) return state
+      const { [fileId]: _gone, ...rest } = state.recoveryProblems
+      return { recoveryProblems: problem ? { ...rest, [fileId]: problem } : rest }
     }),
   draftOffers: {},
   restored: [],
@@ -83,3 +97,10 @@ export const useNoteNoticesStore = create<NoteNoticesState>((set) => ({
   clearRestored: (path) =>
     set((state) => ({ restored: state.restored.filter((item) => item !== path) })),
 }))
+
+// The journal reports a change of its state; the card of the note shows it until the cause is gone.
+subscribeRecoveryProblems(({ id, kind, failed }) => {
+  const store = useNoteNoticesStore.getState()
+  if (failed) store.setRecoveryProblem(id, kind)
+  else if (store.recoveryProblems[id] === kind) store.setRecoveryProblem(id, null)
+})

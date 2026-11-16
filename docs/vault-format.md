@@ -517,7 +517,9 @@ therefore lose only the stated pending window plus an in-flight write. When a
 filesystem save and its recovery write both fail (for example on a full disk), the
 window does not close and the vault does not switch unless the person explicitly
 chooses to lose the text. A recovery write error is never treated as a successful filesystem
-save.
+save. A failed draft write is logged (`recovery.write_failed`) and shown once as a `warning` card of the
+note, which goes away with the next successful write; a draft that cannot be read is logged
+(`recovery.read_failed`) and shown as a `warning` card too, never taken for a missing draft.
 
 ## Backup and Git policy
 

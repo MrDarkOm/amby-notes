@@ -1,4 +1,5 @@
 import { commands, type RecoveryEntry } from "@/lib/bindings"
+import { errorType, logger } from "@/lib/logger"
 import { unwrapCommand } from "@/lib/storage/ipc-result"
 
 /**
@@ -123,6 +124,33 @@ interface RecoveryQueueState {
 
 const recoveryQueue = new Map<string, RecoveryQueueState>()
 
+/** A draft of a document that the journal could not write or could not read. */
+export interface RecoveryProblem {
+  id: string
+  kind: "write" | "read"
+  failed: boolean
+}
+
+const problemListeners = new Set<(problem: RecoveryProblem) => void>()
+const readFailedIds = new Set<string>()
+
+/**
+ * Tells the interface when the journal stops or starts being able to write or read the draft of a
+ * document. Only a change is reported, so a run of failed attempts is one notice (docs/notices.md, 4).
+ */
+export function subscribeRecoveryProblems(
+  listener: (problem: RecoveryProblem) => void,
+): () => void {
+  problemListeners.add(listener)
+  return () => {
+    problemListeners.delete(listener)
+  }
+}
+
+function announceRecoveryProblem(problem: RecoveryProblem) {
+  for (const listener of problemListeners) listener(problem)
+}
+
 /** Counts only this renderer's active queue, without reading or exposing drafts. */
 export function inspectRecoveryQueue(scope?: RecoveryScope): { pending: number; failed: number } {
   const states = [...recoveryQueue.values()].filter((state) => sameScope(state.scope, scope))
@@ -173,8 +201,10 @@ function startRecoverySave(state: RecoveryQueueState) {
   ).then(
     (contentHash) => ({ ok: true, contentHash }),
     (error) => {
+      const wasFailing = state.lastError !== undefined
       state.lastError = error
-      console.warn("Failed to persist recovery journal draft:", error)
+      logger.warn("recovery.write_failed", { errorType: errorType(error) })
+      if (!wasFailing) announceRecoveryProblem({ id: state.id, kind: "write", failed: true })
       return { ok: false, contentHash: undefined }
     },
   )
@@ -185,6 +215,9 @@ function startRecoverySave(state: RecoveryQueueState) {
     if (!succeeded.ok) return
     state.savedVersion = Math.max(state.savedVersion, version)
     state.persistedContentHash = succeeded.contentHash
+    if (state.lastError !== undefined) {
+      announceRecoveryProblem({ id: state.id, kind: "write", failed: false })
+    }
     state.lastError = undefined
     if (state.savedVersion < state.version) {
       // A newer snapshot arrived while the write was on disk. Its existing
@@ -332,6 +365,7 @@ export async function readRecoveryDraft(
       const entry = await unwrapCommand<RecoveryEntry | null>(
         commands.readRecovery(id, scope?.generation ?? null, scope?.vault ?? null),
       )
+      settleReadProblem(id)
       if (!entry) return null
       return {
         content: entry.content,
@@ -340,7 +374,8 @@ export async function readRecoveryDraft(
         documentKind: entry.documentKind,
         pathHint: entry.pathHint,
       }
-    } catch {
+    } catch (error) {
+      reportReadProblem(id, error)
       return null
     }
   }
@@ -348,7 +383,10 @@ export async function readRecoveryDraft(
   try {
     const rawKey = key(id, scope)
     const raw = localStorage.getItem(rawKey)
-    if (!raw) return null
+    if (!raw) {
+      settleReadProblem(id)
+      return null
+    }
     const draft: unknown = JSON.parse(raw)
     if (
       !draft ||
@@ -360,10 +398,28 @@ export async function readRecoveryDraft(
       localStorage.removeItem(rawKey)
       return null
     }
+    settleReadProblem(id)
     return draft as RecoveryDraft
-  } catch {
+  } catch (error) {
+    reportReadProblem(id, error)
     return null
   }
+}
+
+/**
+ * A draft that cannot be read is not a missing draft: the person is told that a draft may exist, and
+ * the cause goes to the debug log with a code.
+ */
+function reportReadProblem(id: string, error: unknown) {
+  logger.warn("recovery.read_failed", { errorType: errorType(error) })
+  if (readFailedIds.has(id)) return
+  readFailedIds.add(id)
+  announceRecoveryProblem({ id, kind: "read", failed: true })
+}
+
+function settleReadProblem(id: string) {
+  if (!readFailedIds.delete(id)) return
+  announceRecoveryProblem({ id, kind: "read", failed: false })
 }
 
 export async function discardRecoveryDraft(id: string, scope?: RecoveryScope): Promise<void> {

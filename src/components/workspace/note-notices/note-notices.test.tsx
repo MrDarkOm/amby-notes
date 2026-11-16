@@ -652,3 +652,23 @@ describe("a note archived on another computer (К13)", () => {
     expect(close).toHaveBeenCalledTimes(1)
   })
 })
+
+describe("a recovery draft problem", () => {
+  it("is a warning card that does not open the strip by itself, and goes with its source", async () => {
+    useNoteNoticesStore.getState().setRecoveryProblem(ABSOLUTE, "write")
+    mount()
+    expect(stack()).toBeNull()
+    fireEvent.click(bulb()!)
+    const card = await screen.findByTestId("note-notice-recovery-write-failed")
+    expect(card.getAttribute("data-level")).toBe("warning")
+    act(() => useNoteNoticesStore.getState().setRecoveryProblem(ABSOLUTE, null))
+    expect(screen.queryByTestId("note-notice-recovery-write-failed")).toBeNull()
+  })
+
+  it("says that the draft could not be read", async () => {
+    useNoteNoticesStore.getState().setRecoveryProblem(ABSOLUTE, "read")
+    mount()
+    fireEvent.click(bulb()!)
+    expect(await screen.findByTestId("note-notice-recovery-read-failed")).toBeTruthy()
+  })
+})
