@@ -2,7 +2,8 @@ import type { RenameOutcome } from "../file-actions/rename-outcome"
 import { isTauri } from "@/lib/storage"
 import type { AttachmentItem, LinkGraph, PanelRenderProps } from "../panel-registry"
 import type { CustomProperty, NoteLayers, NoteProperties } from "@/lib/storage/types"
-import { type DatabaseSummary, readFile, readNote, openInExplorer } from "@/lib/storage"
+import { type DatabaseSummary, readFile, readNote } from "@/lib/storage"
+import { showInFileManager } from "../show-in-file-manager"
 import type { MoveOutcome } from "../file-actions/use-document-mutations"
 import type { Tab } from "../use-tabs-store"
 import { type VaultRecord, WorkspacePicker } from "../workspace-picker"
@@ -199,7 +200,7 @@ export function usePanelRenderProps({
       onOpenSplitDown: handleOpenSplitDown,
       onOpenInNewWindow: handleOpenInNewWindow,
       onCloneFile: handleCloneFile,
-      onOpenInExplorer: openInExplorer,
+      onOpenInExplorer: (path: string) => void showInFileManager(path),
       onMoveItem: handleMoveItem,
       onSetIcon: handleSetIcon,
       triggerRenameId: pendingRenameId,

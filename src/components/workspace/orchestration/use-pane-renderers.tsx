@@ -34,7 +34,8 @@ import { parseCreativeFileId } from "../creative/creative-history"
 import type { DatabaseRowActions } from "../database/use-row-menu"
 import { ModuleRequiredFallback } from "../editor/module-required-fallback"
 import type { DatabaseSummary } from "@/lib/storage/database-types"
-import { openInExplorer, type DatabaseRow } from "@/lib/storage"
+import { type DatabaseRow } from "@/lib/storage"
+import { showInFileManager } from "../show-in-file-manager"
 import { flushEditorSerializations } from "../tiptap/editor-serialization-lifecycle"
 import { usePaneEditorProps } from "./use-pane-editor-props"
 
@@ -650,7 +651,7 @@ export function usePaneRenderers({
           onToggleFavorite: handleToggleFavorite,
           onShowInExplorer: root
             ? (relative) =>
-                openInExplorer(
+                void showInFileManager(
                   relative ? `${root}${separator}${relative.split("/").join(separator)}` : root,
                 )
             : undefined,

@@ -104,37 +104,12 @@ pub fn log_file_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(log_dir(app)?.join("amby-debug.jsonl"))
 }
 
-fn open_in_system_explorer(path: &std::path::Path) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("explorer")
-            .arg(path)
-            .spawn()
-            .map_err(|_| "OpenFolderFailed".to_owned())?;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(path)
-            .spawn()
-            .map_err(|_| "OpenFolderFailed".to_owned())?;
-    }
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(path)
-            .spawn()
-            .map_err(|_| "OpenFolderFailed".to_owned())?;
-    }
-    Ok(())
-}
-
 #[tauri::command]
 #[specta::specta]
 pub fn open_log_folder(app: tauri::AppHandle) -> Result<(), String> {
     let dir = log_dir(&app)?;
     std::fs::create_dir_all(&dir).map_err(|_| "LogDirectoryUnavailable".to_owned())?;
-    open_in_system_explorer(&dir)
+    crate::system_open::open_path(&dir).map_err(|_| "OpenFolderFailed".to_owned())
 }
 
 #[tauri::command]

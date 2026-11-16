@@ -65,6 +65,7 @@ const EVENT_CODES = new Set([
   "tree.import_files",
   "tree.import_files_failed",
   "vault.reveal_failed",
+  "file.reveal_failed",
   "vault.startup_failed",
   "write_note.started",
   "write_note.succeeded",

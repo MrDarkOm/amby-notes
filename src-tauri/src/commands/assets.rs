@@ -160,31 +160,7 @@ pub fn open_in_explorer(
     path: String,
 ) -> Result<(), String> {
     let path = paths::guard(&scope, &path)?;
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        let arg = format!("/select,\"{}\"", path.display());
-        std::process::Command::new("explorer")
-            .raw_arg(&arg)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg("-R")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    crate::system_open::reveal_path(&path).map_err(|code| code.to_string())
 }
 
 #[tauri::command]

@@ -26,6 +26,7 @@ mod recycle_bin;
 mod shadow_check;
 mod state;
 pub mod sync;
+mod system_open;
 mod system_recycle_bin;
 mod updater;
 pub mod vault;
