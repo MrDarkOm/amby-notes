@@ -239,6 +239,9 @@ export function useSketchWorkspace(
         hasDirtyBuffers: () =>
           autosave.inspectAll().some((state) => state.key.generation === generation && state.dirty),
         inspect: () => autosave.inspectAll(),
+        waitForInFlight: (key) => autosave.waitForInFlight(key),
+        pause: (key) => autosave.pause(key),
+        resume: (key) => autosave.resume(key),
       }),
     [autosave, generation, recoveryScope],
   )

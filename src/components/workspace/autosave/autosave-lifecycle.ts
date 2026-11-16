@@ -1,6 +1,7 @@
 import { flushAllRecoveryDrafts } from "@/lib/recovery-drafts"
 import type { RecoveryScope } from "@/lib/recovery-drafts"
 import { flushEditorSerializations } from "../tiptap/editor-serialization-lifecycle"
+import { isPathInside } from "../workspace-mutations"
 import type { AutosaveKey, AutosavePendingState } from "./autosave-coordinator"
 
 /** Coordinates editor-owned autosave queues at vault lifecycle boundaries. */
@@ -14,6 +15,9 @@ export interface AutosaveLifecycleParticipant {
   inspect?(): AutosavePendingState[]
   /** Wait for active transports only; never flush queued edits. */
   waitForInFlight?(key: AutosaveKey): Promise<void>
+  /** Hold the queue of one document: no write starts until `resume`. */
+  pause?(key: AutosaveKey): void
+  resume?(key: AutosaveKey): void
 }
 
 export interface AutosaveFlushResult {
@@ -29,6 +33,43 @@ export async function waitForInFlightAutosave(key: AutosaveKey): Promise<void> {
       .filter((participant) => participant.generation === key.generation)
       .map((participant) => participant.waitForInFlight?.(key)),
   )
+}
+
+/**
+ * Hold the queued saves of every canvas and sketch at or under `root` and wait for the writes already
+ * running, so a rename or move cannot meet a write to the old path (SAVE-10: the write would find the file
+ * gone, ask "changed elsewhere", and "Overwrite" would bring the old file back). Call the returned
+ * `release` once the operation ended, with the new path of an old one (identity when it did not move):
+ * the queue is resumed under the key it has then. Notes are not held here: their saves are keyed by id.
+ */
+export async function holdLayerAutosavesInside(
+  generation: number,
+  root: string,
+): Promise<(newPathOf: (oldPath: string) => string) => void> {
+  const inside = (path: string) => isPathInside(path, root)
+  const held: { participant: AutosaveLifecycleParticipant; key: AutosaveKey }[] = []
+  for (const participant of participants) {
+    if (participant.generation !== generation || !participant.pause) continue
+    for (const state of participant.inspect?.() ?? []) {
+      // A queue already held (an unanswered conflict) stays held: resuming it would ask again.
+      if (state.key.kind === "markdown" || state.paused || !inside(state.key.documentId)) continue
+      participant.pause(state.key)
+      held.push({ participant, key: state.key })
+    }
+  }
+  try {
+    await Promise.all(held.map(({ participant, key }) => participant.waitForInFlight?.(key)))
+  } catch (error) {
+    for (const { participant, key } of held) participant.resume?.(key)
+    throw error
+  }
+  return (newPathOf) => {
+    for (const { participant, key } of held) {
+      participant.resume?.({ ...key, documentId: newPathOf(key.documentId) })
+      // The rename did not happen (or did not touch this path): the old key is still the queue.
+      participant.resume?.(key)
+    }
+  }
 }
 
 export function inspectAutosaveGeneration(generation: number) {
