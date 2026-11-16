@@ -31,7 +31,7 @@ are in [commands/database.rs](../commands/database.rs); frontend contracts are i
 `property_options.rs` property schema edits; `relation_schema.rs` relation config helpers;
 `relation_value.rs` + `relation_write.rs` relation value updates and their rollback;
 `value_batch.rs` value batches; `durable_values.rs` the "no stored values" guard;
-`support.rs` JSON/path helpers. Tests under `mutations/tests/` follow the same names;
+`support.rs` JSON/path helpers (index = hint). Tests under `mutations/tests/` follow the same names;
 `common.rs` holds fixtures shared by several of them.
 
 Read [database format](../../../docs/database-format.md),

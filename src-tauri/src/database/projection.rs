@@ -316,7 +316,12 @@ pub fn update_database_values_incremental(
         if ulid::Ulid::from_string(note_id).is_err() {
             return Err("noteId must be a canonical ULID".to_owned());
         }
-        let note_path = super::mutations::resolve_note_path_for_id(vault, &container, note_id);
+        let note_path = super::mutations::resolve_note_path_for_id_hinted(
+            Some(conn),
+            vault,
+            &container,
+            note_id,
+        );
         let record = match note_path {
             Ok(ref path) => match fs::read(path) {
                 Ok(bytes) => {

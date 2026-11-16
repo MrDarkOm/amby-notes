@@ -136,9 +136,11 @@ pub fn apply_value_batch_typed(
 
     let mut planned_writes = Vec::new();
     let mut revisions = Vec::new();
+    let hint = open_hint_connection(vault);
 
     for (note_id, cells) in cells_by_note {
-        let note_path = resolve_note_path_for_id(vault, &container, &note_id)?;
+        let note_path =
+            resolve_note_path_for_id_hinted(hint.as_ref(), vault, &container, &note_id)?;
         let original_bytes = fs::read(&note_path).map_err(|error| error.to_string())?;
         let original_rev = raw_revision(&original_bytes);
         let mut content =

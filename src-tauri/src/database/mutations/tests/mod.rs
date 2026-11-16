@@ -30,5 +30,6 @@ mod relation_schema;
 mod relation_value;
 mod relation_value_two_way;
 mod value_batch;
+mod value_batch_index;
 
 use common::*;
