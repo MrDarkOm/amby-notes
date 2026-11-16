@@ -11,7 +11,6 @@ import type {
   NoteReadOutcome,
   NoteProperties,
   SearchResult,
-  TreeItem,
   VaultPreflight,
   VaultTagEntry,
   WriteNoteOutcome,
@@ -56,20 +55,12 @@ export class NotesRepository {
     return this.port().applyIdMigration(vaultPath)
   }
 
-  async inspectIdMigrations(vaultPath: string): Promise<IdMigrationRecovery[]> {
-    return this.port().inspectIdMigrations(vaultPath)
-  }
-
   async recoverIdMigration(
     vaultPath: string,
     journalPath: string,
     action: IdMigrationRecoveryAction,
   ): Promise<IdMigrationRecovery> {
     return this.port().recoverIdMigration(vaultPath, journalPath, action)
-  }
-
-  async listFiles(vaultPath: string): Promise<TreeItem[]> {
-    return this.port().listFiles(vaultPath)
   }
 
   async searchNotes(query: string): Promise<SearchResult[]> {
@@ -153,10 +144,6 @@ export class NotesRepository {
 
   async getNoteMetadata(vaultPath: string, noteId: string): Promise<FileMetadata> {
     return this.port().getNoteMetadata(vaultPath, noteId)
-  }
-
-  async getFileMetadata(path: string): Promise<FileMetadata> {
-    return this.port().getFileMetadata(path)
   }
 
   async getNoteProperties(vaultPath: string, noteId: string): Promise<NoteProperties> {

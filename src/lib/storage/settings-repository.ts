@@ -28,10 +28,6 @@ export class SettingsRepository {
     return this.port().writeVaultRaw(rel, contents)
   }
 
-  async deleteVaultMeta(rel: string): Promise<void> {
-    return this.port().deleteVaultMeta(rel)
-  }
-
   async readGlobalSettingsResult<T>(file: string): Promise<SettingsReadResult<T>> {
     let raw: string | null
     try {
