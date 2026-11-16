@@ -637,6 +637,50 @@ pub fn list_snapshots(vault: &Path, source: &Path) -> Result<Vec<SnapshotEntry>,
     Ok(snapshots)
 }
 
+/// Amby renamed or moved these files: their versions follow them (CORE-03). History is kept by the
+/// vault-relative path of the note; without this, a renamed note showed an empty history and a new
+/// note at the old path showed, and could restore, another note's versions. Snapshot data files are
+/// named by id, so only the manifest changes, in one atomic write. Returns the number of versions
+/// that moved; with no history nothing is written.
+pub fn move_snapshot_sources(
+    vault: &Path,
+    changes: &[crate::model::PathChange],
+) -> Result<usize, String> {
+    let _lock = history_lock();
+    let root = history_root(vault);
+    if !manifest_path(&root).exists() {
+        return Ok(0);
+    }
+    let vault_real = vault.canonicalize().map_err(|error| error.to_string())?;
+    let relative = |path: &str| {
+        Path::new(path)
+            .strip_prefix(&vault_real)
+            .or_else(|_| Path::new(path).strip_prefix(vault))
+            .ok()
+            .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+            .filter(|relative| !relative.is_empty())
+    };
+    let renames = changes
+        .iter()
+        .filter_map(|change| Some((relative(&change.old_path)?, relative(&change.new_path)?)))
+        .collect::<BTreeMap<String, String>>();
+    if renames.is_empty() {
+        return Ok(0);
+    }
+    let mut manifest = load_manifest(&root)?;
+    let mut moved = 0;
+    for snapshot in &mut manifest.snapshots {
+        if let Some(new_path) = renames.get(&snapshot.source_path) {
+            snapshot.source_path = new_path.clone();
+            moved += 1;
+        }
+    }
+    if moved > 0 {
+        write_manifest(&root, &manifest)?;
+    }
+    Ok(moved)
+}
+
 pub fn get_history_stats(vault: &Path) -> Result<HistoryStats, String> {
     let _lock = history_lock();
     Ok(history_stats(&load_manifest(&history_root(vault))?))
@@ -1514,6 +1558,68 @@ mod tests {
             "Auto-prune must keep exactly 2 snapshots"
         );
 
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    // CORE-03: history follows a note when Amby renames or moves it. Before, versions were kept by
+    // path only: the renamed note showed an empty history, and a new note at the old path showed (and
+    // could restore) the versions of another note.
+    fn change(vault: &Path, old: &str, new: &str) -> crate::model::PathChange {
+        crate::model::PathChange {
+            old_path: vault.join(old).to_string_lossy().into_owned(),
+            new_path: vault.join(new).to_string_lossy().into_owned(),
+        }
+    }
+
+    #[test]
+    fn history_follows_a_renamed_note_and_a_new_note_at_the_old_path_has_none() {
+        let vault = temp_vault().canonicalize().unwrap();
+        let old = vault.join("Ideas.md");
+        fs::write(&old, "v1").unwrap();
+        snapshot_before_write(&vault, &old, b"v2", "edit").unwrap();
+        let new = vault.join("Ideas 2026.md");
+        fs::rename(&old, &new).unwrap();
+
+        let moved = move_snapshot_sources(&vault, &[change(&vault, "Ideas.md", "Ideas 2026.md")]);
+        assert_eq!(moved, Ok(1));
+        assert_eq!(list_snapshots(&vault, &new).unwrap().len(), 1);
+        fs::write(&old, "a new note").unwrap();
+        assert!(list_snapshots(&vault, &old).unwrap().is_empty());
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn history_follows_every_note_of_a_moved_folder() {
+        let vault = temp_vault().canonicalize().unwrap();
+        fs::create_dir_all(vault.join("Folder")).unwrap();
+        fs::create_dir_all(vault.join("Other")).unwrap();
+        let note = vault.join("Folder/a.md");
+        fs::write(&note, "v1").unwrap();
+        snapshot_before_write(&vault, &note, b"v2", "edit").unwrap();
+        fs::rename(vault.join("Folder"), vault.join("Other/Folder")).unwrap();
+
+        move_snapshot_sources(
+            &vault,
+            &[change(&vault, "Folder/a.md", "Other/Folder/a.md")],
+        )
+        .unwrap();
+        assert_eq!(
+            list_snapshots(&vault, &vault.join("Other/Folder/a.md"))
+                .unwrap()
+                .len(),
+            1
+        );
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn moving_sources_writes_nothing_when_there_is_no_history() {
+        let vault = temp_vault().canonicalize().unwrap();
+        assert_eq!(
+            move_snapshot_sources(&vault, &[change(&vault, "A.md", "B.md")]),
+            Ok(0)
+        );
+        assert!(!history_root(&vault).exists());
         fs::remove_dir_all(vault).unwrap();
     }
 }

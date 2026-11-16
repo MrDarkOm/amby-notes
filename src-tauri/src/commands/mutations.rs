@@ -1100,6 +1100,12 @@ pub(crate) fn move_item_inner(
             &rewritten,
         );
     }
+    // The note's versions follow it; a failure leaves history by the old path, never the files.
+    if let Err(error) =
+        crate::history::move_snapshot_sources(&vault_root, &outcome.mutation.path_changes)
+    {
+        tracing::warn!(event = "history_move_failed", error = %error);
+    }
     let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     if conn.generation != generation {
@@ -1384,6 +1390,12 @@ pub(crate) fn rename_item_inner(
             &mutation_paths(&outcome.mutation),
             &rewritten,
         );
+    }
+    // The note's versions follow it; a failure leaves history by the old path, never the files.
+    if let Err(error) =
+        crate::history::move_snapshot_sources(&vault_root, &outcome.mutation.path_changes)
+    {
+        tracing::warn!(event = "history_move_failed", error = %error);
     }
     let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;

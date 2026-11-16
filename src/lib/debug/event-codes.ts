@@ -161,6 +161,7 @@ const EVENT_CODES = new Set([
   "external_open.refused",
   "frontend_started",
   "helper_window_close_failed",
+  "history_move_failed",
   "history.operation_failed",
   "history.server_versions_failed",
   "index.load",

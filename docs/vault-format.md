@@ -424,7 +424,12 @@ coalesces versions only: the Markdown/text file is still saved after the normal
 short editor debounce, recovery drafts remain durable, and no existing history
 entry is deleted. ID assignment, link refactor, restore, and other explicitly
 forced snapshots keep their recovery points regardless of the autosave interval;
-rename and move retain their existing rollback/recovery contracts.
+rename and move retain their existing rollback/recovery contracts. Versions are
+kept by the note's vault-relative path, and a rename or move made in Amby carries
+them to the new path (one atomic manifest write), so a renamed note keeps its
+history and a new note at the old path starts with none. A failure to move them
+is logged and leaves them at the old path; the files are not affected. Archive
+keeps them at the original path, where the note returns on restore.
 
 Live Preview keeps the source text of a block until the block is edited (see
 `markdown-compatibility.md`). The save that may write a block in the editor's

@@ -1090,6 +1090,7 @@ fn allowed_event(value: &str) -> bool {
         "archive.server_restore_failed",
         "frontend_started",
         "helper_window_close_failed",
+        "history_move_failed",
         "history.operation_failed",
         "history.server_versions_failed",
         "index.load",

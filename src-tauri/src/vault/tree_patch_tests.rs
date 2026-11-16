@@ -944,3 +944,34 @@ fn a_database_is_involved_only_when_a_path_is_in_one_or_is_one() {
     ));
     assert!(!touches(&vault.0, &paths(&["Root note.md"])));
 }
+
+// CORE-03: the rename command carries the note's versions to its new path.
+#[test]
+fn a_rename_carries_the_note_history_to_the_new_path() {
+    let vault = fixture();
+    let context = activate(&vault.0);
+    let note = vault.path("Folder/Loose.md");
+    crate::history::snapshot_before_write(&vault.0, &note, b"next", "edit").unwrap();
+    assert_eq!(
+        crate::history::list_snapshots(&vault.0, &note)
+            .unwrap()
+            .len(),
+        1
+    );
+    rename_item_inner(
+        &context,
+        &DatabaseRuntimeState::default(),
+        &WatcherState::new(),
+        &|_, _| {},
+        vault.string("Folder/Loose.md"),
+        "Renamed loose".to_string(),
+    )
+    .unwrap();
+    let renamed = vault.path("Folder/Renamed loose.md");
+    assert_eq!(
+        crate::history::list_snapshots(&vault.0, &renamed)
+            .unwrap()
+            .len(),
+        1
+    );
+}
