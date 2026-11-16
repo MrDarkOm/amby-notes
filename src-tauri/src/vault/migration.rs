@@ -611,6 +611,42 @@ pub fn recover_id_migration(
     Ok(recovery_from_journal(&journal_path, &journal))
 }
 
+/// Opening one note: the same identity migration, limited to that note (CORE-04).
+///
+/// Files that appear after the vault was activated get their `amby-id` from the watcher and the
+/// index, so the full pass that used to run here on every open is not needed to find them. A note
+/// with nothing to migrate (it has an `amby-id`, or its header cannot take one) costs one read. A
+/// note without any ID gets a generated one, with the same journal and backup as the full pass. A
+/// note whose ULID sits in the generic `id` (legacy candidate) still takes the full pass: only a
+/// walk of the vault can tell whether that ULID is a duplicate (CORE-05 is undecided; unchanged).
+pub fn apply_note_id_migration(vault: &Path, rel_path: &str) -> Result<(), String> {
+    if let Some(recovery) = unfinished_id_migrations(vault)?.first() {
+        return Err(format!(
+            "An unfinished ID migration must be recovered first: {}",
+            recovery.journal_path
+        ));
+    }
+    let Ok(content) = fs::read_to_string(abs_from_rel(vault, rel_path)) else {
+        return Ok(());
+    };
+    let parsed = frontmatter::parse_markdown(&content);
+    if (parsed.has_frontmatter && !parsed.yaml_is_map)
+        || parsed.identity_error.is_some()
+        || parsed.id.is_some()
+    {
+        return Ok(());
+    }
+    if parsed.legacy_id.is_some() {
+        apply_id_migration(vault)?;
+        return Ok(());
+    }
+    if frontmatter::body_with_id(&content, &Ulid::generate().to_string()).is_err() {
+        return Ok(());
+    }
+    apply_planned_id_writes(vault, &[rel_path.to_string()])?;
+    Ok(())
+}
+
 pub fn apply_id_migration(vault: &Path) -> Result<IdMigrationResult, String> {
     // The preflight lists unfinished migrations as well; the journals are scanned once.
     let preflight = preflight_vault(vault)?;
@@ -630,6 +666,11 @@ pub fn apply_id_migration(vault: &Path) -> Result<IdMigrationResult, String> {
             status: IdMigrationStatus::Completed,
         });
     }
+    apply_planned_id_writes(vault, &preflight.planned_id_writes)
+}
+
+/// Journal, back up and write the planned `amby-id` assignments (vault-relative paths).
+fn apply_planned_id_writes(vault: &Path, planned: &[String]) -> Result<IdMigrationResult, String> {
     let stamp = std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|error| error.to_string())?
@@ -648,8 +689,7 @@ pub fn apply_id_migration(vault: &Path) -> Result<IdMigrationResult, String> {
         created_at_ms: stamp,
         backup_path: backup_relative.clone(),
         status: IdMigrationStatus::Planned,
-        files: preflight
-            .planned_id_writes
+        files: planned
             .iter()
             .map(|path| {
                 Ok(IdMigrationFile {
@@ -881,5 +921,88 @@ mod tests {
             .expect("rollback migration");
         assert_eq!(fs::read(&note).unwrap(), original);
         fs::remove_dir_all(vault).expect("remove test vault");
+    }
+
+    #[test]
+    fn opening_a_note_gives_only_that_note_an_id_and_leaves_the_rest_unread() {
+        let vault = temp_vault("single-note");
+        for index in 0..5 {
+            fs::write(vault.join(format!("Other{index}.md")), "# other\n").unwrap();
+        }
+        fs::write(vault.join("Opened.md"), "# opened\n").unwrap();
+
+        apply_note_id_migration(&vault, "Opened.md").unwrap();
+
+        let opened = fs::read_to_string(vault.join("Opened.md")).unwrap();
+        assert!(opened.starts_with("---\namby-id: "), "{opened}");
+        for index in 0..5 {
+            assert_eq!(
+                fs::read_to_string(vault.join(format!("Other{index}.md"))).unwrap(),
+                "# other\n"
+            );
+        }
+        // One journal and one backup, for one file.
+        let journal = fs::read_dir(migration_directory(&vault))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let journal: IdMigrationJournal =
+            serde_json::from_slice(&fs::read(journal).unwrap()).unwrap();
+        assert_eq!(journal.files.len(), 1);
+        assert_eq!(journal.files[0].path, "Opened.md");
+        assert!(matches!(journal.status, IdMigrationStatus::Completed));
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn opening_a_note_with_an_id_or_an_unusable_header_writes_nothing() {
+        let vault = temp_vault("single-note-noop");
+        let id = Ulid::generate().to_string();
+        let with_id = format!("---\namby-id: {id}\n---\nBody\n");
+        fs::write(vault.join("WithId.md"), &with_id).unwrap();
+        fs::write(vault.join("Managed.md"), "---\namby-id: nope\n---\nBody\n").unwrap();
+        fs::write(vault.join("Plain.md"), "# plain\n").unwrap();
+
+        apply_note_id_migration(&vault, "WithId.md").unwrap();
+        apply_note_id_migration(&vault, "Managed.md").unwrap();
+        apply_note_id_migration(&vault, "Missing.md").unwrap();
+
+        assert_eq!(
+            fs::read_to_string(vault.join("WithId.md")).unwrap(),
+            with_id
+        );
+        assert_eq!(
+            fs::read_to_string(vault.join("Managed.md")).unwrap(),
+            "---\namby-id: nope\n---\nBody\n"
+        );
+        assert_eq!(
+            fs::read_to_string(vault.join("Plain.md")).unwrap(),
+            "# plain\n"
+        );
+        assert!(!vault.join(".amby/backups").exists());
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn opening_a_legacy_id_note_keeps_the_duplicate_check_of_the_full_pass() {
+        let vault = temp_vault("single-note-legacy");
+        let legacy = Ulid::generate().to_string();
+        let note = format!("---\nid: {legacy}\n---\nBody\n");
+        fs::write(vault.join("A.md"), &note).unwrap();
+        fs::write(vault.join("B.md"), &note).unwrap();
+        // Duplicate candidates are reported, not migrated.
+        apply_note_id_migration(&vault, "A.md").unwrap();
+        assert_eq!(fs::read_to_string(vault.join("A.md")).unwrap(), note);
+
+        fs::remove_file(vault.join("B.md")).unwrap();
+        apply_note_id_migration(&vault, "A.md").unwrap();
+        let migrated = fs::read_to_string(vault.join("A.md")).unwrap();
+        assert!(
+            migrated.contains(&format!("amby-id: {legacy}")),
+            "{migrated}"
+        );
+        fs::remove_dir_all(vault).unwrap();
     }
 }

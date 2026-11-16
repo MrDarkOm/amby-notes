@@ -85,6 +85,17 @@ async applyIdMigration(vaultPath: string) : Promise<Result<IdMigrationResult, st
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Opening one note: gives it an `amby-id` if it has none, without walking the vault (CORE-04).
+ */
+async applyNoteIdMigration(noteId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("apply_note_id_migration", { noteId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async inspectIdMigrations(vaultPath: string) : Promise<Result<IdMigrationRecovery[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("inspect_id_migrations", { vaultPath }) };

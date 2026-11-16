@@ -61,6 +61,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::vault::reindex_vault,
         commands::vault::preflight_vault,
         commands::vault::apply_id_migration,
+        commands::vault::apply_note_id_migration,
         commands::vault::inspect_id_migrations,
         commands::vault::recover_id_migration,
         commands::vault::list_files,

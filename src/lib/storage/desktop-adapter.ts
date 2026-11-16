@@ -792,10 +792,10 @@ export class DesktopAdapter implements StoragePort {
     noteId: string,
     operationId?: string,
   ): Promise<NoteReadOutcome> {
-    // A file can arrive through the watcher after vault activation. Re-run the
-    // safe identity migration before opening it so notes without amby-id become
-    // editable immediately (malformed/conflicting files remain untouched).
-    await unwrapCommand(commands.applyIdMigration(_vaultPath))
+    // A note without amby-id becomes editable as it is opened. Only this note is
+    // examined (the watcher and index already give new files their IDs); the full
+    // vault pass runs only when the vault is opened (CORE-04).
+    await unwrapCommand(commands.applyNoteIdMigration(noteId))
     return unwrapCommand(commands.readNote(noteId, operationId ?? null))
   }
 
