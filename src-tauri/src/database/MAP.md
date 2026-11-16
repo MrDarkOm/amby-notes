@@ -45,6 +45,8 @@ Before a watcher-driven projection refresh or rebuild, pending note-index change
 consumed first (`ActiveVault::refresh_pending_index`): projection membership depends on
 the note index and can otherwise omit newly received notes.
 Rebuilds freeze per database (`frozen_database_ids`); errors outside containers don't.
+Row/property commands use `DatabaseScope::rebuild_databases_or_warn` (changed database + relation
+closure; unprovable → full).
 
 `commands/database.rs` is a thin boundary: a writing command is one `run_database_mutation` call whose body
 does the durable write and then refreshes through the `DatabaseScope` (`rebuild_or_warn`, `refresh_views`,

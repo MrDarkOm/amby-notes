@@ -110,14 +110,43 @@ pub fn rebuild_database_projection(
     conn: &Connection,
     vault: &Path,
 ) -> Result<ProjectionReport, String> {
+    rebuild_projection(conn, vault, None)
+}
+
+/// Rebuild only the databases in `changed` and the databases tied to them by relations
+/// (a rollup reads the related database), keeping every other database's published rows.
+/// Whenever that cannot be proven safe (a frozen database, a database added or removed, a
+/// kept database that no longer matches its files) it is a full rebuild, so the result
+/// never differs from `rebuild_database_projection`. The projection epoch is kept and the
+/// sequence advances, as for any incremental refresh.
+pub fn rebuild_database_projection_scoped(
+    conn: &Connection,
+    vault: &Path,
+    changed: &[&str],
+) -> Result<ProjectionReport, String> {
+    rebuild_projection(conn, vault, Some(changed))
+}
+
+fn rebuild_projection(
+    conn: &Connection,
+    vault: &Path,
+    changed: Option<&[&str]>,
+) -> Result<ProjectionReport, String> {
     init_schema(conn)?;
     let discovery = discover_vault(vault)?;
-    let inputs = load_inputs(&discovery)?;
+    let manifests = read_manifests(&discovery)?;
     // An error freezes only the database whose container holds the faulty file.
     // Errors outside every database container (an unreadable note elsewhere in
     // the vault) never block publishing: they are still stored as diagnostics.
     let frozen = frozen_database_ids(conn, &discovery)?;
     let stored = stored_database_ids(conn)?;
+    let kept = match changed {
+        Some(changed) => {
+            scoped_kept_databases(conn, &discovery, &manifests, &frozen, &stored, changed)?
+        }
+        None => HashSet::new(),
+    };
+    let inputs = load_inputs(&discovery, manifests, &kept)?;
     let preserved: HashSet<String> = frozen.intersection(&stored).cloned().collect();
     let published = preserved.is_empty()
         || inputs
@@ -145,7 +174,21 @@ pub fn rebuild_database_projection(
         });
     }
 
-    let epoch = Ulid::generate().to_string();
+    let scoped = !kept.is_empty();
+    let epoch = if scoped {
+        metadata_value(conn, "database_projection_epoch")?
+            .unwrap_or_else(|| Ulid::generate().to_string())
+    } else {
+        Ulid::generate().to_string()
+    };
+    let seq = if scoped {
+        metadata_value(conn, "database_projection_seq")?
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(0)
+            .saturating_add(1)
+    } else {
+        0
+    };
     let source_stamp = database_source_stamp(vault)?;
     // `state` is what databases that are not frozen get; the vault-wide status
     // is stale as soon as any database is frozen.
@@ -162,9 +205,9 @@ pub fn rebuild_database_projection(
     let tx = conn
         .unchecked_transaction()
         .map_err(|error| error.to_string())?;
-    replace_projection(&tx, &discovery, &inputs, state, &frozen, &preserved)?;
+    replace_projection(&tx, &discovery, &inputs, state, &frozen, &preserved, &kept)?;
     set_metadata(&tx, "database_projection_epoch", &epoch)?;
-    set_metadata(&tx, "database_projection_seq", "0")?;
+    set_metadata(&tx, "database_projection_seq", &seq.to_string())?;
     set_metadata(&tx, "database_projection_status", overall)?;
     set_metadata(&tx, "database_projection_source_stamp", &source_stamp)?;
     tx.commit().map_err(|error| error.to_string())?;
@@ -173,11 +216,158 @@ pub fn rebuild_database_projection(
         published: true,
         state: overall.to_owned(),
         epoch,
-        seq: 0,
+        seq,
         diagnostics: conn
             .query_row("SELECT COUNT(*) FROM db_diagnostics", [], |row| row.get(0))
             .map_err(|error| error.to_string())?,
     })
+}
+
+/// The databases a scoped rebuild leaves as published: everything outside the relation
+/// closure of `changed`. Empty means "rebuild everything".
+fn scoped_kept_databases(
+    conn: &Connection,
+    discovery: &DiscoveryResult,
+    manifests: &[ParsedJson<DatabaseManifest>],
+    frozen: &HashSet<String>,
+    stored: &HashSet<String>,
+    changed: &[&str],
+) -> Result<HashSet<String>, String> {
+    let discovered: HashSet<String> = discovery
+        .databases
+        .iter()
+        .map(|database| database.database_id.clone())
+        .collect();
+    if !frozen.is_empty()
+        || *stored != discovered
+        || changed.iter().any(|id| !discovered.contains(*id))
+        || metadata_value(conn, "database_projection_epoch")?.is_none()
+    {
+        return Ok(HashSet::new());
+    }
+
+    // Databases are tied by relations (either direction, in the files now and in the
+    // projection before: a removed relation still left rows behind) and by nesting.
+    let mut ties: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut tie = |left: &str, right: &str| {
+        ties.entry(left.to_owned())
+            .or_default()
+            .insert(right.to_owned());
+        ties.entry(right.to_owned())
+            .or_default()
+            .insert(left.to_owned());
+    };
+    for manifest in manifests {
+        for property in &manifest.value.properties {
+            if let PropertyDefinition::Relation(fields) = property {
+                tie(
+                    &manifest.value.database_id,
+                    &fields.config.target_database_id,
+                );
+            }
+        }
+    }
+    let mut statement = conn
+        .prepare(
+            "SELECT database_id, config_json FROM db_properties WHERE property_type = 'relation'",
+        )
+        .map_err(|error| error.to_string())?;
+    let stored_relations = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    drop(statement);
+    for (database_id, config) in stored_relations {
+        let target = serde_json::from_str::<Value>(&config)
+            .ok()
+            .and_then(|config| config.get("targetDatabaseId")?.as_str().map(str::to_owned));
+        match target {
+            Some(target) => tie(&database_id, &target),
+            // A relation the projection cannot read: do not guess.
+            None => return Ok(HashSet::new()),
+        }
+    }
+    for outer in &discovery.databases {
+        for inner in &discovery.databases {
+            if outer.database_id != inner.database_id
+                && path_in_container(
+                    &inner.relative_container_path,
+                    &outer.relative_container_path,
+                )
+            {
+                tie(&outer.database_id, &inner.database_id);
+            }
+        }
+    }
+
+    let mut targets: HashSet<String> = changed.iter().map(|id| (*id).to_owned()).collect();
+    let mut queue: Vec<String> = targets.iter().cloned().collect();
+    while let Some(current) = queue.pop() {
+        for next in ties.get(&current).into_iter().flatten() {
+            if targets.insert(next.clone()) {
+                queue.push(next.clone());
+            }
+        }
+    }
+    let kept: HashSet<String> = discovered.difference(&targets).cloned().collect();
+
+    // A kept database must still be exactly what was published: same manifest, healthy,
+    // same members. Otherwise its files moved on and only a full rebuild is correct.
+    for database in discovery
+        .databases
+        .iter()
+        .filter(|database| kept.contains(&database.database_id))
+    {
+        let published: Option<(String, String)> = conn
+            .query_row(
+                "SELECT manifest_revision, projection_state FROM db_databases WHERE database_id = ?1",
+                [&database.database_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        let unchanged = published
+            .as_ref()
+            .is_some_and(|(revision, state)| *revision == database.revision && state == HEALTHY);
+        if database.read_only || !unchanged {
+            return Ok(HashSet::new());
+        }
+        let mut statement = conn
+            .prepare("SELECT note_id FROM db_members WHERE database_id = ?1")
+            .map_err(|error| error.to_string())?;
+        let members = statement
+            .query_map([&database.database_id], |row| row.get::<_, String>(0))
+            .map_err(|error| error.to_string())?
+            .collect::<Result<HashSet<_>, _>>()
+            .map_err(|error| error.to_string())?;
+        drop(statement);
+        let mut expected = HashSet::new();
+        for note in discovery
+            .notes
+            .iter()
+            .filter(|note| note.owner_database_id.as_deref() == Some(database.database_id.as_str()))
+        {
+            if let Some(note_id) = note.note_id.as_deref() {
+                let known: bool = conn
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM notes WHERE id = ?1)",
+                        [note_id],
+                        |row| row.get(0),
+                    )
+                    .map_err(|error| error.to_string())?;
+                if known {
+                    expected.insert(note_id.to_owned());
+                }
+            }
+        }
+        if members != expected {
+            return Ok(HashSet::new());
+        }
+    }
+    Ok(kept)
 }
 
 fn stored_database_ids(conn: &Connection) -> Result<HashSet<String>, String> {
@@ -646,11 +836,30 @@ fn insert_incremental_value(
     Ok(())
 }
 
-fn load_inputs(discovery: &DiscoveryResult) -> Result<Vec<DatabaseInput>, String> {
+fn read_manifests(
+    discovery: &DiscoveryResult,
+) -> Result<Vec<ParsedJson<DatabaseManifest>>, String> {
+    discovery
+        .databases
+        .iter()
+        .map(|database| {
+            let bytes = fs::read(&database.manifest_path).map_err(|error| error.to_string())?;
+            parse_manifest(&bytes).map_err(|error| error.to_string())
+        })
+        .collect()
+}
+
+/// Inputs for every discovered database except `kept`, whose records are not read at all.
+fn load_inputs(
+    discovery: &DiscoveryResult,
+    manifests: Vec<ParsedJson<DatabaseManifest>>,
+    kept: &HashSet<String>,
+) -> Result<Vec<DatabaseInput>, String> {
     let mut inputs = Vec::new();
-    for database in &discovery.databases {
-        let bytes = fs::read(&database.manifest_path).map_err(|error| error.to_string())?;
-        let manifest = parse_manifest(&bytes).map_err(|error| error.to_string())?;
+    for (database, manifest) in discovery.databases.iter().zip(manifests) {
+        if kept.contains(&database.database_id) {
+            continue;
+        }
         let records = load_records(database, &manifest.value, &discovery.notes)?;
         inputs.push(DatabaseInput {
             database: database.clone(),
@@ -809,18 +1018,23 @@ fn replace_projection(
     state: &str,
     frozen: &HashSet<String>,
     preserved: &HashSet<String>,
+    kept: &HashSet<String>,
 ) -> Result<(), String> {
-    if !preserved.is_empty() {
-        // Frozen databases keep their last good rows; everything else is replaced.
+    // Frozen databases keep their last good rows (read-only); kept databases keep their
+    // published rows untouched (scoped rebuild). Everything else is replaced.
+    let skipped: HashSet<String> = preserved.union(kept).cloned().collect();
+    if !skipped.is_empty() {
         let ids = stored_database_ids(tx)?;
-        for id in ids.iter().filter(|id| !preserved.contains(*id)) {
+        for id in ids.iter().filter(|id| !skipped.contains(*id)) {
             tx.execute("DELETE FROM db_values_fts WHERE database_id = ?1", [id])
                 .map_err(|error| error.to_string())?;
             tx.execute("DELETE FROM db_databases WHERE database_id = ?1", [id])
                 .map_err(|error| error.to_string())?;
         }
-        tx.execute("DELETE FROM db_diagnostics", [])
-            .map_err(|error| error.to_string())?;
+        if kept.is_empty() {
+            tx.execute("DELETE FROM db_diagnostics", [])
+                .map_err(|error| error.to_string())?;
+        }
         for id in preserved {
             for table in ["db_databases", "db_views", "db_templates"] {
                 tx.execute(
@@ -831,7 +1045,7 @@ fn replace_projection(
             }
         }
     }
-    if preserved.is_empty() {
+    if skipped.is_empty() {
         for table in [
             "db_value_files",
             "db_value_options",
@@ -890,7 +1104,7 @@ fn replace_projection(
         }) {
             if let Some(note_id) = note.note_id.as_deref() {
                 if note_exists(tx, note_id)? && known_note_ids.insert(note_id.to_owned()) {
-                    if !preserved.is_empty() {
+                    if !skipped.is_empty() {
                         // A note moved out of a frozen database must not collide
                         // with the membership row that database keeps.
                         evict_preserved_note(tx, note_id)?;
@@ -921,7 +1135,11 @@ fn replace_projection(
             insert_yaml_conflicts(tx, input, record, note)?;
         }
     }
-    replace_diagnostics(tx, &discovery.diagnostics)?;
+    if kept.is_empty() {
+        replace_diagnostics(tx, &discovery.diagnostics)?;
+    } else {
+        replace_scoped_diagnostics(tx, &discovery.diagnostics, kept)?;
+    }
     // Compute every database's formulas before any rollup can read them.
     for kind in ["formula", "rollup"] {
         for input in inputs
@@ -954,7 +1172,7 @@ fn replace_projection(
             }
         }
     }
-    append_yaml_conflict_diagnostics(tx)?;
+    append_yaml_conflict_diagnostics(tx, kept)?;
     Ok(())
 }
 
@@ -1108,7 +1326,10 @@ fn insert_yaml_conflict(
     Ok(())
 }
 
-fn append_yaml_conflict_diagnostics(tx: &Transaction<'_>) -> Result<(), String> {
+fn append_yaml_conflict_diagnostics(
+    tx: &Transaction<'_>,
+    kept: &HashSet<String>,
+) -> Result<(), String> {
     let mut statement = tx
         .prepare(
             "SELECT database_id, note_id, property_id FROM db_yaml_conflicts ORDER BY database_id, note_id, property_id",
@@ -1127,6 +1348,9 @@ fn append_yaml_conflict_diagnostics(tx: &Transaction<'_>) -> Result<(), String> 
         .map_err(|error| error.to_string())?;
     drop(statement);
     for (database_id, note_id, property_id) in conflicts {
+        if kept.contains(&database_id) {
+            continue;
+        }
         let path = format!("{database_id}/{note_id}/{property_id}");
         tx.execute(
             "INSERT INTO db_diagnostics (diagnostic_id, scope_kind, scope_key, code, severity, details_json, first_seen_at, last_seen_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, strftime('%s','now'), strftime('%s','now'))",
@@ -1808,6 +2032,31 @@ fn replace_diagnostics(
 ) -> Result<(), String> {
     tx.execute("DELETE FROM db_diagnostics", [])
         .map_err(|error| error.to_string())?;
+    insert_diagnostics(tx, diagnostics)
+}
+
+/// Like `replace_diagnostics`, but a kept database's own diagnostics (computed failures,
+/// YAML conflicts) stay: only vault-wide ones and those of rebuilt databases are replaced.
+fn replace_scoped_diagnostics(
+    tx: &Transaction<'_>,
+    diagnostics: &[DiscoveryDiagnostic],
+    kept: &HashSet<String>,
+) -> Result<(), String> {
+    let kept_ids = serde_json::to_string(&kept.iter().collect::<Vec<_>>())
+        .map_err(|error| error.to_string())?;
+    tx.execute(
+        "DELETE FROM db_diagnostics WHERE scope_kind = 'vault' \
+         OR scope_key NOT IN (SELECT value FROM json_each(?1))",
+        [kept_ids],
+    )
+    .map_err(|error| error.to_string())?;
+    insert_diagnostics(tx, diagnostics)
+}
+
+fn insert_diagnostics(
+    tx: &Transaction<'_>,
+    diagnostics: &[DiscoveryDiagnostic],
+) -> Result<(), String> {
     for diagnostic in diagnostics {
         tx.execute(
             "INSERT INTO db_diagnostics (diagnostic_id, scope_kind, scope_key, code, severity, details_json, first_seen_at, last_seen_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, strftime('%s','now'), strftime('%s','now'))",
