@@ -1,7 +1,7 @@
 // Every event name the frontend logs must be known on both sides of the debug log. An unknown name is
 // stored as `diagnostic.invalid_event` and the real one is lost, so a new `logger.*("name")` call fails
-// here until the name is added to `event-codes.ts` (the frontend filter) and to `ALLOWED_EVENTS` in
-// `src-tauri/src/logging.rs` (the backend filter).
+// here until the name is added to `allowed-events.txt`, the one list both the frontend filter
+// (`event-codes.ts`) and the backend filter (`allowed_event` in `src-tauri/src/logging.rs`) read.
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { join, relative } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -54,11 +54,20 @@ function quoted(block: string): string[] {
   return [...block.matchAll(/"([^"]+)"/gu)].map((match) => match[1]!)
 }
 
+const LIST_PATH = join(ROOT, "src", "lib", "debug", "allowed-events.txt")
+
+function listedNames(): string[] {
+  return readFileSync(LIST_PATH, "utf8")
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && !line.startsWith("#"))
+}
+
 /** What `allowed_event` in logging.rs accepts: the listed names, and the operation names (base + suffix). */
 function backendFilter(): (event: string) => boolean {
   const source = readFileSync(join(ROOT, "src-tauri", "src", "logging.rs"), "utf8")
-  const start = source.indexOf("const ALLOWED_EVENTS")
-  const listed = new Set(quoted(source.slice(start, source.indexOf("];", start))))
+  const start = source.indexOf("fn allowed_event(")
+  const listed = new Set(listedNames())
   const basesAt = source.indexOf("let allowed_base = matches!(", start)
   const bases = new Set(quoted(source.slice(basesAt, source.indexOf(");", basesAt))))
   const suffixesAt = source.indexOf("matches!(suffix,", basesAt)
@@ -73,6 +82,21 @@ function backendFilter(): (event: string) => boolean {
   }
 }
 
+describe("allowed-events.txt", () => {
+  it("is sorted, without duplicates, one plain name per line", () => {
+    const names = listedNames()
+    expect(names.length).toBeGreaterThan(100)
+    expect(new Set(names).size).toBe(names.length)
+    expect([...names].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))).toEqual(names)
+    for (const name of names) expect(name).toMatch(/^[a-z0-9_]+(\.[a-z0-9_]+)*$/u)
+  })
+
+  it("is exactly what the frontend filter knows as a listed name", () => {
+    for (const name of listedNames()) expect(isKnownDebugEvent(name)).toBe(true)
+    expect(isKnownDebugEvent("not.a.listed_event")).toBe(false)
+  })
+})
+
 describe("the names of the logged events", () => {
   const events = loggedEvents()
 
@@ -85,7 +109,7 @@ describe("the names of the logged events", () => {
     expect(missing.map(([name, file]) => `${name}  (${file})`)).toEqual([])
   })
 
-  it("are all allowed by the backend filter (ALLOWED_EVENTS in logging.rs)", () => {
+  it("are all allowed by the backend filter (allowed-events.txt, read by logging.rs)", () => {
     const allowed = backendFilter()
     const missing = [...events].filter(([name]) => !allowed(name))
     expect(missing.map(([name, file]) => `${name}  (${file})`)).toEqual([])
