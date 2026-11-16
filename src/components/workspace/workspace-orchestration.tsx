@@ -49,6 +49,7 @@ import { useOpenNoteRequests } from "./notices/note-open-request"
 import { relativeToVault } from "./editor/document-breadcrumbs-utils"
 import { OPEN_SETTINGS_REQUEST_EVENT, type SettingsNavigationTarget } from "./settings-navigation"
 import { useSettingsStore } from "./use-settings-store"
+import { useOverlaysStore } from "./use-overlays-store"
 import { useLinkSuggestionSources } from "./orchestration/use-link-suggestion-sources"
 import { useRefreshTreeOnArchiveChange } from "./use-archive-tree-refresh"
 import { applyTreePatch, filterDeletedTabs, planMutation } from "./workspace-mutations"
@@ -283,15 +284,12 @@ export function WorkspaceOrchestration() {
     [toggleFavorite],
   )
 
-  const [quickOpenMode, setQuickOpenMode] = React.useState<"current" | "new" | null>(null)
-  const [searchOpen, setSearchOpen] = React.useState(false)
-  const [isHelpOpen, setIsHelpOpen] = React.useState(false)
-  const [settingsOpen, setSettingsOpen] = React.useState(false)
-  const [vaultManagerOpen, setVaultManagerOpen] = React.useState(false)
+  // Which dialogs are open lives in useOverlaysStore: the root only calls its actions, never
+  // subscribes, so opening a dialog does not render the root (SHELL-04).
   React.useEffect(() => {
-    if (!vault) setVaultManagerOpen(false)
+    if (!vault) useOverlaysStore.getState().setVaultManagerOpen(false)
   }, [vault])
-  const [settingsTarget, setSettingsTarget] = React.useState<SettingsNavigationTarget | null>(null)
+  React.useEffect(() => () => useOverlaysStore.getState().reset(), [])
   const defaultViewMode = useSettingsStore((s) => s.prefs.editor.defaultViewMode)
   const defaultContentWidth = useSettingsStore((s) => s.prefs.editor.contentWidth)
   const dockPrefs = useSettingsStore((s) => s.prefs.docks)
@@ -317,8 +315,7 @@ export function WorkspaceOrchestration() {
 
   const openSettings = React.useCallback((target: SettingsNavigationTarget | null = null) => {
     if (IS_SITE_DEMO) return
-    setSettingsTarget(target)
-    setSettingsOpen(true)
+    useOverlaysStore.getState().openSettings(target)
   }, [])
   // The notices of the sync (a card with "Show the list") ask for the sync section this way.
   React.useEffect(() => {
@@ -400,7 +397,6 @@ export function WorkspaceOrchestration() {
       }),
     [presets, t],
   )
-  const [presetNameOpen, setPresetNameOpen] = React.useState(false)
 
   async function handleExportPreset() {
     const json = exportPreset(activePresetId)
@@ -499,9 +495,9 @@ export function WorkspaceOrchestration() {
   const actionContext: ActionContext = {
     openGraphTab,
     refreshVault: refreshSync.refresh,
-    openSearch: () => setSearchOpen(true),
+    openSearch: () => useOverlaysStore.getState().setSearchOpen(true),
     openSettings,
-    openHelp: () => setIsHelpOpen(true),
+    openHelp: () => useOverlaysStore.getState().setHelpOpen(true),
   }
 
   const {
@@ -544,7 +540,6 @@ export function WorkspaceOrchestration() {
     presetModified,
     canSaveActivePreset,
     saveActivePreset,
-    setPresetNameOpen,
     resetActivePreset,
     panelScope,
     setPanelScope,
@@ -1040,10 +1035,10 @@ export function WorkspaceOrchestration() {
 
       if (matchesShortcut(event, shortcuts.quickOpen)) {
         event.preventDefault()
-        setQuickOpenMode("current")
+        useOverlaysStore.getState().setQuickOpenMode("current")
       } else if (matchesShortcut(event, shortcuts.search)) {
         event.preventDefault()
-        setSearchOpen(true)
+        useOverlaysStore.getState().setSearchOpen(true)
       } else if (matchesShortcut(event, shortcuts.newNote)) {
         event.preventDefault()
         handleNewFileIn(null)
@@ -1096,7 +1091,7 @@ export function WorkspaceOrchestration() {
       vault,
       vaults,
       onRequestProfileSelection: (path) => setPendingVaultPath(path),
-      onOpenRestored: () => setSettingsOpen(false),
+      onOpenRestored: () => useOverlaysStore.getState().setSettingsOpen(false),
     })
 
   const handleViewModeChange = (mode: DocumentViewMode) => {
@@ -1381,7 +1376,6 @@ export function WorkspaceOrchestration() {
     handleHistoryRestored,
     vaults,
     loadVault,
-    setVaultManagerOpen,
     vaultName,
   })
 
@@ -1420,7 +1414,6 @@ export function WorkspaceOrchestration() {
       activatePanelAnywhere,
       handleNewDatabase,
       displayTreeItems,
-      setQuickOpenMode,
       handleOpenVault,
       showTagInPanel,
       handleWikiLinkClick,
@@ -1587,29 +1580,17 @@ export function WorkspaceOrchestration() {
         panelRenderProps={panelRenderProps}
         focusShowRight={focusShowRight}
         rightButtons={rightButtons}
-        quickOpenMode={quickOpenMode}
-        setQuickOpenMode={setQuickOpenMode}
         displayTreeItems={displayTreeItems}
         activeFileId={activeFileId}
         quickOpenCreateActions={quickOpenCreateActions}
-        searchOpen={searchOpen}
-        setSearchOpen={setSearchOpen}
-        vaultManagerOpen={vaultManagerOpen}
-        setVaultManagerOpen={setVaultManagerOpen}
         vaults={vaults}
         loadVault={loadVault}
         handleOpenVault={handleOpenVault}
         handleRenameVault={handleRenameVault}
         handleDeleteVault={handleDeleteVault}
         handleMoveVault={handleMoveVault}
-        settingsOpen={settingsOpen}
-        setSettingsOpen={setSettingsOpen}
-        setSettingsTarget={setSettingsTarget}
-        settingsTarget={settingsTarget}
         activeModules={activeModules}
         adoptPreset={adoptPreset}
-        isHelpOpen={isHelpOpen}
-        setIsHelpOpen={setIsHelpOpen}
         workspaceProfileDialog={workspaceProfileDialog}
         deleteConfirmationDialog={deleteConfirmationDialog}
         propertyMigrationDialog={propertyMigrationDialog}
@@ -1633,13 +1614,11 @@ export function WorkspaceOrchestration() {
       leftDockPinned={leftDockPinned}
       rightDockPinned={rightDockPinned}
       setDockPinned={setDockPinned}
-      setQuickOpenMode={setQuickOpenMode}
       vaultName={vaultName}
       vaults={vaults}
       vault={vault}
       loadVault={loadVault}
       handleOpenVault={handleOpenVault}
-      setVaultManagerOpen={setVaultManagerOpen}
       handleCloseAllTabs={handleCloseAllTabs}
       isCompactLayout={isCompactLayout}
       leftWidth={leftWidth}
@@ -1674,31 +1653,19 @@ export function WorkspaceOrchestration() {
       paneDnd={paneDnd}
       isRightSidebarOpen={isRightSidebarOpen}
       rightButtons={rightButtons}
-      quickOpenMode={quickOpenMode}
       displayTreeItems={displayTreeItems}
       handleOpenInNewTab={handleOpenInNewTab}
       handleSelect={handleSelect}
       handleNewFileIn={handleNewFileIn}
       activeFileId={activeFileId}
       quickOpenCreateActions={quickOpenCreateActions}
-      searchOpen={searchOpen}
-      setSearchOpen={setSearchOpen}
-      vaultManagerOpen={vaultManagerOpen}
       handleRenameVault={handleRenameVault}
       handleDeleteVault={handleDeleteVault}
       handleMoveVault={handleMoveVault}
-      settingsOpen={settingsOpen}
-      setSettingsOpen={setSettingsOpen}
-      setSettingsTarget={setSettingsTarget}
-      settingsTarget={settingsTarget}
       activeModules={activeModules}
       setModuleEnabled={setModuleEnabled}
       adoptPreset={adoptPreset}
-      isHelpOpen={isHelpOpen}
-      setIsHelpOpen={setIsHelpOpen}
       workspaceProfileDialog={workspaceProfileDialog}
-      presetNameOpen={presetNameOpen}
-      setPresetNameOpen={setPresetNameOpen}
       savePresetAs={savePresetAs}
     />
   )

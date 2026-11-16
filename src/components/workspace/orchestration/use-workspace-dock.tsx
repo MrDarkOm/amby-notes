@@ -6,6 +6,7 @@ import { collapseButtonsToLeft } from "../activity-buttons"
 import { useSidebarLayout } from "../use-sidebar-layout"
 import * as React from "react"
 import type { SettingsNavigationTarget } from "../settings-navigation"
+import { useOverlaysStore } from "../use-overlays-store"
 
 interface UseWorkspaceDockParams {
   refreshSync: RefreshSync
@@ -18,7 +19,6 @@ interface UseWorkspaceDockParams {
   presetModified: boolean
   canSaveActivePreset: boolean
   saveActivePreset: () => void
-  setPresetNameOpen: React.Dispatch<React.SetStateAction<boolean>>
   resetActivePreset: (ctx: ModuleContext) => Promise<boolean>
   panelScope: PanelScope
   setPanelScope: (scope: PanelScope) => void
@@ -47,7 +47,6 @@ export function useWorkspaceDock({
   presetModified,
   canSaveActivePreset,
   saveActivePreset,
-  setPresetNameOpen,
   resetActivePreset,
   panelScope,
   setPanelScope,
@@ -74,7 +73,7 @@ export function useWorkspaceDock({
     presetModified,
     canSaveActivePreset,
     onSaveActivePreset: saveActivePreset,
-    onSavePresetAs: () => setPresetNameOpen(true),
+    onSavePresetAs: () => useOverlaysStore.getState().setPresetNameOpen(true),
     onResetActivePreset: () => void resetActivePreset({ vault }),
     panelScope,
     onSetPanelScope: setPanelScope,

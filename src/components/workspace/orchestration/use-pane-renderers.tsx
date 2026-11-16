@@ -38,6 +38,7 @@ import { type DatabaseRow } from "@/lib/storage"
 import { showInFileManager } from "../show-in-file-manager"
 import { flushEditorSerializations } from "../tiptap/editor-serialization-lifecycle"
 import { usePaneEditorProps } from "./use-pane-editor-props"
+import { useOverlaysStore } from "../use-overlays-store"
 
 interface UsePaneRenderersParams {
   openDocs: Record<string, Document>
@@ -72,7 +73,6 @@ interface UsePaneRenderersParams {
   activatePanelAnywhere: (panelId: PanelId) => void
   handleNewDatabase: (parentId: string | null, name: string) => Promise<void>
   displayTreeItems: TreeItem[]
-  setQuickOpenMode: React.Dispatch<React.SetStateAction<"current" | "new" | null>>
   handleOpenVault: () => Promise<void>
   showTagInPanel: (tag: string) => void
   handleWikiLinkClick: (rawLink: string) => Promise<void>
@@ -180,7 +180,6 @@ export function usePaneRenderers({
   activatePanelAnywhere,
   handleNewDatabase,
   displayTreeItems,
-  setQuickOpenMode,
   handleOpenVault,
   showTagInPanel,
   handleWikiLinkClick,
@@ -288,7 +287,6 @@ export function usePaneRenderers({
     activatePanelAnywhere,
     handleNewDatabase,
     displayTreeItems,
-    setQuickOpenMode,
     handleOpenVault,
     showTagInPanel,
     handleWikiLinkClick,
@@ -764,7 +762,7 @@ export function usePaneRenderers({
               useTabsStore.getState().unsplitAll()
               handleTabUsageChanged()
             }}
-            onOpenPlusModal={() => setQuickOpenMode("new")}
+            onOpenPlusModal={() => useOverlaysStore.getState().setQuickOpenMode("new")}
             onToggleFavorite={handleToggleFavorite}
           />
         ) : null}

@@ -41,6 +41,7 @@ import type { DatabaseSummary } from "@/lib/storage/database-types"
 import { readNote, type DatabaseRow } from "@/lib/storage"
 import { showInFileManager } from "../show-in-file-manager"
 import { workspaceRelativePath } from "../vault/use-vault-session"
+import { useOverlaysStore } from "../use-overlays-store"
 
 interface UsePaneEditorPropsParams {
   openDocs: Record<string, Document>
@@ -75,7 +76,6 @@ interface UsePaneEditorPropsParams {
   activatePanelAnywhere: (panelId: PanelId) => void
   handleNewDatabase: (parentId: string | null, name: string) => Promise<void>
   displayTreeItems: TreeItem[]
-  setQuickOpenMode: React.Dispatch<React.SetStateAction<"current" | "new" | null>>
   handleOpenVault: () => Promise<void>
   showTagInPanel: (tag: string) => void
   handleWikiLinkClick: (rawLink: string) => Promise<void>
@@ -158,7 +158,6 @@ export function usePaneEditorProps({
   activatePanelAnywhere,
   handleNewDatabase,
   displayTreeItems,
-  setQuickOpenMode,
   handleOpenVault,
   showTagInPanel,
   handleWikiLinkClick,
@@ -374,7 +373,7 @@ export function usePaneEditorProps({
           // Made without asking for a name, so it must not collide with what is at the root.
           nextAvailableNoteName(displayTreeItems, vault ?? "", t("defaults.untitled")),
         ),
-      onQuickOpen: () => setQuickOpenMode("current"),
+      onQuickOpen: () => useOverlaysStore.getState().setQuickOpenMode("current"),
       onOpenVault: handleOpenVault,
       onTagClick: showTagInPanel,
       onWikiLinkClick: handleWikiLinkClick,
