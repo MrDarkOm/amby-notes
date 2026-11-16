@@ -13,6 +13,7 @@ import type { NoteLayers } from "@/lib/storage/types"
 import type { PanelId } from "../panel-registry"
 import type { SplitPaneOptions, Tab } from "../use-tabs-store"
 import type { ViewModePref, ContentWidth } from "../app-config"
+import { isLayerDocument, naturalDocumentLayer } from "../layer-documents"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { DatabaseWorkspace, LazyEditorFallback } from "./lazy-surfaces"
@@ -216,14 +217,7 @@ export function usePaneEditorProps({
   // and autosave.
   function paneEditorProps(tab: Tab | null, preserveLayer = false, paneId?: string) {
     const rawDoc = tab ? (openDocs[tab.fileId] ?? null) : null
-    const isCanvasOrSketch =
-      tab?.kind === "canvas" ||
-      tab?.kind === "sketch" ||
-      tab?.kind === "database" ||
-      tab?.fileId.endsWith(".canvas") ||
-      tab?.fileId.endsWith(".excalidraw") ||
-      rawDoc?.path.endsWith(".canvas") ||
-      rawDoc?.path.endsWith(".excalidraw")
+    const isCanvasOrSketch = isLayerDocument(tab, rawDoc?.path)
     const treeItem = tab
       ? (treeItemById.get(tab.fileId) ?? (rawDoc ? treeItemById.get(rawDoc.id) : null) ?? null)
       : null
@@ -279,14 +273,7 @@ export function usePaneEditorProps({
         : undefined)
 
     const defaultDocLayer: EditorLayer =
-      resolvedPrimaryLayer ??
-      (tab?.kind === "canvas" || doc?.path.endsWith(".canvas")
-        ? "canvas"
-        : tab?.kind === "sketch" || doc?.path.endsWith(".excalidraw")
-          ? "sketch"
-          : tab?.kind === "database"
-            ? "database"
-            : "editor")
+      resolvedPrimaryLayer ?? naturalDocumentLayer(tab, doc?.path)
 
     const resolvedActiveLayer =
       (doc?.id ? activeLayers[doc.id] : undefined) ??
