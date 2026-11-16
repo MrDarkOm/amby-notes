@@ -47,6 +47,12 @@ import type { TreeItem } from "@/lib/storage"
 import { useTreeFileDrop } from "../tree/use-tree-file-drop"
 import { SidebarTree } from "../sidebar-tree"
 import {
+  TREE_ORDER_STORAGE_PREFIX,
+  TREE_SORT_STORAGE_KEY,
+  writeManualTreeOrder,
+  writeTreeSortSelection,
+} from "./tree-view-storage"
+import {
   applyManualTreeOrder,
   collectManualTreeOrder,
   reorderTreeItems,
@@ -86,7 +92,6 @@ const TREE_SORT_OPTIONS: Array<{
   { key: "manual", direction: "asc", labelKey: "filesPanel.sortManual", icon: ListOrdered },
 ]
 
-const TREE_SORT_STORAGE_KEY = "amby:tree-sort"
 const TREE_TYPE_FILTER_STORAGE_KEY = "amby:tree-type-filter"
 
 function readTreeTypeFilter(): TreeTypeKind[] {
@@ -104,7 +109,6 @@ const TYPE_FILTER_LABELS: Record<TreeTypeKind, { key: string; icon: typeof FileT
   canvas: { key: "filesPanel.filterCanvases", icon: LayoutGrid },
   sketch: { key: "filesPanel.filterSketches", icon: PenLine },
 }
-const TREE_ORDER_STORAGE_PREFIX = "amby:tree-order:"
 
 function readTreeSortSelection(): { key: TreeSortKey; direction: TreeSortDirection } {
   if (typeof window === "undefined") return { key: "name", direction: "asc" }
@@ -215,17 +219,14 @@ export function FilesPanel(props: PanelRenderProps) {
   const treeDropRef = React.useRef<HTMLDivElement>(null)
   useTreeFileDrop({ containerRef: treeDropRef, vault, treeItems: vaultTreeItems })
   React.useEffect(() => {
-    localStorage.setItem(
-      TREE_SORT_STORAGE_KEY,
-      JSON.stringify({ key: sortKey, direction: sortDirection }),
-    )
+    writeTreeSortSelection(sortKey, sortDirection)
   }, [sortKey, sortDirection])
   React.useEffect(() => {
     setManualOrder(readManualTreeOrder(vault))
   }, [vault])
   React.useEffect(() => {
     if (!vault || sortKey !== "manual") return
-    localStorage.setItem(`${TREE_ORDER_STORAGE_PREFIX}${vault}`, JSON.stringify(manualOrder))
+    writeManualTreeOrder(vault, manualOrder)
   }, [manualOrder, sortKey, vault])
   const [typeFilter, setTypeFilter] = React.useState<TreeTypeKind[]>(readTreeTypeFilter)
   React.useEffect(() => {

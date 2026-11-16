@@ -248,7 +248,6 @@ interface HeaderTabsProps {
   favorites?: Set<string>
   onToggleFavorite?: (id: string) => void
   showWorkspacePicker?: boolean
-  onToggleSplit?: () => void
   isSplit?: boolean
   paneId?: string
   onSplitRight?: (tabKey?: string) => void
@@ -555,7 +554,6 @@ export function HeaderTabs({
   favorites,
   onToggleFavorite,
   showWorkspacePicker = true,
-  onToggleSplit,
   isSplit = false,
   paneId = "pane-root",
   onSplitRight,
@@ -733,21 +731,6 @@ export function HeaderTabs({
       className="absolute top-1.5 z-10 flex items-center gap-1"
       style={{ right: rightHeaderInset }}
     >
-      {onToggleSplit && (
-        <motion.button
-          type="button"
-          title={t("tabs.splitEditor")}
-          aria-label={t("tabs.splitEditor")}
-          aria-pressed={isSplit}
-          onClick={onToggleSplit}
-          className={cn(HEADER_ICON_BTN, isSplit && "bg-accent text-foreground")}
-          whileHover={{ scale: 1.08 }}
-          whileTap={{ scale: 0.92 }}
-          transition={motionTransitions.fast}
-        >
-          <Columns2 className="size-4" />
-        </motion.button>
-      )}
       <TabsMenu
         trigger={
           <motion.button

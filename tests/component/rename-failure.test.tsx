@@ -15,7 +15,7 @@ afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   useDocStore.getState().clearDocs()
-  useTabsStore.setState({ tabs: [], activeTabKey: "", secondaryTabKey: null })
+  useTabsStore.setState({ tabs: [], activeTabKey: "" })
 })
 
 it("keeps the original document, tab and pending autosave path after a rename collision", async () => {

@@ -54,6 +54,7 @@ import { useLinkSuggestionSources } from "./orchestration/use-link-suggestion-so
 import { useRefreshTreeOnArchiveChange } from "./use-archive-tree-refresh"
 import { applyTreePatch, filterDeletedTabs, planMutation } from "./workspace-mutations"
 import { useViewStateStore, type EditorLayer, isLayerLocked } from "./use-view-state-store"
+import { isLayerDocument, naturalDocumentLayer } from "./layer-documents"
 import { useVaultData } from "./use-vault-data"
 import { useFileActions } from "./use-file-actions"
 import { useLayers } from "./use-layers"
@@ -205,7 +206,6 @@ export function WorkspaceOrchestration() {
   const { applyMutation, patchDoc, markSaved, clearExternalConflict } = useDocStore.getState()
   const tabs = useTabsStore((s) => s.tabs)
   const activeTabKey = useTabsStore((s) => s.activeTabKey)
-  const secondaryTabKey = useTabsStore((s) => s.secondaryTabKey)
   const rootPane = useTabsStore((s) => s.rootPane)
   const activePaneId = useTabsStore((s) => s.activePaneId)
   const splitLayout = React.useMemo(() => computeSplitLayout(rootPane), [rootPane])
@@ -217,15 +217,7 @@ export function WorkspaceOrchestration() {
   // without rerendering the whole workspace on every keystroke.
   const activeDocumentLoaded = useDocStore((state) => {
     if (!activeTab) return false
-    if (
-      activeTab.kind === "canvas" ||
-      activeTab.kind === "sketch" ||
-      activeTab.kind === "database" ||
-      activeTab.fileId.endsWith(".canvas") ||
-      activeTab.fileId.endsWith(".excalidraw")
-    ) {
-      return true
-    }
+    if (isLayerDocument(activeTab)) return true
     return Boolean(state.openDocs[activeTab.fileId])
   })
   // Document buffers are read imperatively here. Visible editors subscribe to
@@ -298,10 +290,8 @@ export function WorkspaceOrchestration() {
   const experimental = useSettingsStore((s) => s.experimental)
   const setPrefs = useSettingsStore((s) => s.setPrefs)
 
-  const updateDockPrefs = React.useCallback(
-    (patch: Partial<typeof dockPrefs>) => setPrefs({ docks: { ...dockPrefs, ...patch } }),
-    [dockPrefs, setPrefs],
-  )
+  // Merged from the settings as they are now, not from this render's snapshot.
+  const updateDockPrefs = useSettingsStore((s) => s.setDockPrefs)
 
   const updateWindowPrefs = React.useCallback(
     (patch: Partial<WindowPreferences>) => {
@@ -707,13 +697,7 @@ export function WorkspaceOrchestration() {
     if (!activeTab) return null
     const existing = openDocs[activeTab.fileId] ?? null
     if (existing) return existing
-    const isSpecialDoc =
-      activeTab.kind === "canvas" ||
-      activeTab.kind === "sketch" ||
-      activeTab.kind === "database" ||
-      activeTab.fileId.endsWith(".canvas") ||
-      activeTab.fileId.endsWith(".excalidraw")
-    if (isSpecialDoc) {
+    if (isLayerDocument(activeTab)) {
       const treeItem = treeItemById.get(activeTab.fileId)
       return createFallbackDocument(
         activeTab.fileId,
@@ -730,23 +714,11 @@ export function WorkspaceOrchestration() {
   const currentDocDefaultLayer: EditorLayer =
     (currentDocId ? useViewStateStore.getState().primaryLayers[currentDocId] : undefined) ??
     (currentDocPath ? useViewStateStore.getState().primaryLayers[currentDocPath] : undefined) ??
-    (activeTab?.kind === "canvas" || currentDocPath?.endsWith(".canvas")
-      ? "canvas"
-      : activeTab?.kind === "sketch" || currentDocPath?.endsWith(".excalidraw")
-        ? "sketch"
-        : activeTab?.kind === "database"
-          ? "database"
-          : "editor")
+    naturalDocumentLayer(activeTab, currentDocPath)
 
   React.useEffect(() => {
     if (!activeTab) return
-    const isSpecialDoc =
-      activeTab.kind === "canvas" ||
-      activeTab.kind === "sketch" ||
-      activeTab.kind === "database" ||
-      activeTab.fileId.endsWith(".canvas") ||
-      activeTab.fileId.endsWith(".excalidraw")
-    if (!isSpecialDoc) return
+    if (!isLayerDocument(activeTab)) return
     const docId = activeTab.fileId
     const existing = useDocStore.getState().openDocs[docId]
     if (!existing) {
@@ -766,13 +738,7 @@ export function WorkspaceOrchestration() {
       const defaultLayer: EditorLayer =
         useViewStateStore.getState().primaryLayers[docId] ??
         (path ? useViewStateStore.getState().primaryLayers[path] : undefined) ??
-        (activeTab.kind === "canvas" || path.endsWith(".canvas")
-          ? "canvas"
-          : activeTab.kind === "sketch" || path.endsWith(".excalidraw")
-            ? "sketch"
-            : activeTab.kind === "database"
-              ? "database"
-              : "editor")
+        naturalDocumentLayer(activeTab, path)
       if (!useViewStateStore.getState().activeLayers[docId]) {
         useViewStateStore.getState().setActiveLayer(docId, defaultLayer)
       }
@@ -991,7 +957,6 @@ export function WorkspaceOrchestration() {
   } = useTabActions({
     activeTab,
     activeTabKey,
-    secondaryTabKey,
     tabs,
     treeItems,
     canGoBack,
@@ -1466,7 +1431,6 @@ export function WorkspaceOrchestration() {
       refreshTreePaths,
       loadDoc,
       activeTab,
-      secondaryTabKey,
       tabs,
       handleExitFocusMode,
       handleEnterFocusMode,

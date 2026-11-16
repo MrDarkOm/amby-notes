@@ -13,6 +13,7 @@ import {
 import type { NoteLayers } from "@/lib/storage/types"
 import { type SplitPaneOptions, useTabsStore, type Tab } from "../use-tabs-store"
 import type { ViewModePref, ContentWidth } from "../app-config"
+import { isLayerDocument, naturalDocumentLayer } from "../layer-documents"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { GraphTabView, ProjectPage, SurfaceSuspense } from "./lazy-surfaces"
@@ -24,7 +25,6 @@ import type { Document } from "../use-doc-store"
 import type { DocumentEditorProps, DocumentViewMode } from "../document-editor"
 import type { HeaderTab } from "../header-tabs"
 import { cn } from "@/lib/utils"
-import { canRenderSplit } from "../document-buffer-lifecycle"
 import type { LayoutLeafItem } from "../split-tree"
 import { PaneTabBar } from "../pane-tab-bar"
 import { canvasLayerPath, sketchLayerPath } from "../workspace-tree-utils"
@@ -125,7 +125,6 @@ interface UsePaneRenderersParams {
   refreshTreePaths: (paths: string[]) => Promise<TreeItem[]>
   loadDoc: (fileId: string, itemName: string) => Promise<Document>
   activeTab: Tab | null
-  secondaryTabKey: string | null
   tabs: Tab[]
   handleExitFocusMode: () => Promise<void>
   handleEnterFocusMode: () => Promise<void>
@@ -232,7 +231,6 @@ export function usePaneRenderers({
   refreshTreePaths,
   loadDoc,
   activeTab,
-  secondaryTabKey,
   tabs,
   handleExitFocusMode,
   handleEnterFocusMode,
@@ -341,10 +339,6 @@ export function usePaneRenderers({
   })
   const activeFolder =
     activeTab?.kind === "folder" ? (treeItemById.get(activeTab.fileId) ?? null) : null
-  const secondaryTab = secondaryTabKey
-    ? (tabs.find((t) => t.key === secondaryTabKey && t.kind === "document") ?? null)
-    : null
-  const showSplit = canRenderSplit(activeTab, secondaryTab)
   const documentTabs = React.useMemo(() => {
     const openDocumentTabs = tabs.filter(
       (tab) =>
@@ -359,7 +353,7 @@ export function usePaneRenderers({
     const representativeByFileId = new Map<string, Tab>()
     for (const tab of openDocumentTabs) {
       const current = representativeByFileId.get(tab.fileId)
-      if (!current || tab.key === activeTabKey || (showSplit && tab.key === secondaryTabKey)) {
+      if (!current || tab.key === activeTabKey) {
         representativeByFileId.set(tab.fileId, tab)
       }
     }
@@ -367,7 +361,7 @@ export function usePaneRenderers({
     // front on every selection also moves its (potentially huge) DOM subtree,
     // which forces style/layout work before the newly selected tab can paint.
     return openDocumentTabs.filter((tab) => representativeByFileId.get(tab.fileId) === tab)
-  }, [activeTabKey, isMultiPane, secondaryTabKey, showSplit, tabs])
+  }, [activeTabKey, isMultiPane, tabs])
 
   interface EditorPropsCacheEntry {
     props: DocumentEditorProps
@@ -411,21 +405,11 @@ export function usePaneRenderers({
     return (
       <div className="relative flex min-h-0 min-w-0 flex-1">
         {paneDocTabs.map((tab) => {
-          const visible =
-            leaf && isMultiPane
-              ? tab.key === paneActiveKey
-              : tab.key === activeTabKey || (showSplit && tab.key === secondaryTabKey)
+          const visible = leaf && isMultiPane ? tab.key === paneActiveKey : tab.key === activeTabKey
           const primary = tab.key === activeTabKey
           const showNav = isMultiPane || primary
           const rawDoc = openDocs[tab.fileId] ?? null
-          const isCanvasOrSketch =
-            tab.kind === "canvas" ||
-            tab.kind === "sketch" ||
-            tab.kind === "database" ||
-            tab.fileId.endsWith(".canvas") ||
-            tab.fileId.endsWith(".excalidraw") ||
-            rawDoc?.path.endsWith(".canvas") ||
-            rawDoc?.path.endsWith(".excalidraw")
+          const isCanvasOrSketch = isLayerDocument(tab, rawDoc?.path)
           const treeItem = tab
             ? (treeItemById.get(tab.fileId) ??
               (rawDoc ? treeItemById.get(rawDoc.id) : null) ??
@@ -483,14 +467,7 @@ export function usePaneRenderers({
               : undefined)
 
           const defaultDocLayer: EditorLayer =
-            resolvedPrimaryLayer ??
-            (tab.kind === "canvas" || doc?.path.endsWith(".canvas")
-              ? "canvas"
-              : tab.kind === "sketch" || doc?.path.endsWith(".excalidraw")
-                ? "sketch"
-                : tab.kind === "database"
-                  ? "database"
-                  : "editor")
+            resolvedPrimaryLayer ?? naturalDocumentLayer(tab, doc?.path)
 
           const resolvedActiveLayer =
             (doc?.id ? activeLayers[doc.id] : undefined) ??

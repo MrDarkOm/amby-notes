@@ -23,6 +23,7 @@ import {
   loadSettings,
   saveSettingsPatch,
   type AppPreferences,
+  type DockPreferences,
   type ExperimentalSettings,
   type WindowPreferences,
 } from "./app-config"
@@ -37,6 +38,9 @@ interface SettingsStore {
   /** Shallow-merge a patch into prefs and persist. Nested objects (editor,
    *  startup) must be passed whole by the caller. */
   setPrefs: (patch: Partial<AppPreferences>) => Promise<void>
+  /** Merge a dock patch into the docks as they are now, not as a render saw them, so two quick
+   *  changes of different fields both stay. */
+  setDockPrefs: (patch: Partial<DockPreferences>) => Promise<void>
   /** Updates feature gates without implicitly enabling a module. */
   setExperimental: (patch: Partial<ExperimentalSettings>) => Promise<void>
   /** Replaces the validated global library of imported themes. */
@@ -102,6 +106,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       set({ lastSaveError: asError(err) })
       throw err
     }
+  },
+  setDockPrefs: async (patch) => {
+    if (!get().hydrated) await get().hydrate()
+    await get().setPrefs({ docks: { ...get().prefs.docks, ...patch } })
   },
   setExperimental: async (patch) => {
     if (!get().hydrated) await get().hydrate()

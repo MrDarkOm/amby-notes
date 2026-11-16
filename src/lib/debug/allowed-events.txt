@@ -295,7 +295,6 @@ tab.open_singleton
 tab.split_down
 tab.split_right
 tab.switch
-tab.toggle_split
 text_page_index_update_failed
 trash_anomaly
 tree.activate_tab
@@ -303,6 +302,7 @@ tree.import_files
 tree.import_files_failed
 tree.open_file
 tree.select
+tree.view_state_save_failed
 tree_patch.shadow_mismatch
 tree_patch.shadow_ok
 tree_patch_failed

@@ -34,7 +34,7 @@ describe("Fierce Document Persistence & Switching Stress Tests", () => {
   beforeEach(() => {
     diskStorage.clear()
     saveLog = []
-    useTabsStore.setState({ tabs: [], activeTabKey: "", secondaryTabKey: null })
+    useTabsStore.setState({ tabs: [], activeTabKey: "" })
     useDocStore.getState().clearDocs()
     useVaultStore.setState({ vault: "/test-vault", backendGeneration: 1, generation: 1 })
   })
@@ -729,7 +729,6 @@ describe("Fierce Document Persistence & Switching Stress Tests", () => {
         },
       ],
       activeTabKey: "tab-1",
-      secondaryTabKey: null,
     })
 
     useDocStore.getState().setDoc(dbFileId, {
