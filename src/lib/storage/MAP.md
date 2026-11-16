@@ -72,3 +72,5 @@ Global AI settings use compare-and-write through the settings repository and nat
 Point refresh: `refreshVaultPaths(paths)` returns the tree patch and sync report for those paths only, or `null` when only a full `loadActiveVaultData` can decide (the browser adapter always returns `null`). Mutation results may carry `treePatch`; both are applied by [tree-patch.ts](../../components/workspace/tree-patch.ts).
 
 Database layout upgrade: [database-layout-repository.ts](database-layout-repository.ts) exposes read-only scan and explicit conversion, both bound to the active backend generation.
+
+Forwarding budget (IPC-10): [forwarding-budget.test.ts](forwarding-budget.test.ts) counts one-line `this.port().x()` forwarders in `*-repository.ts` and repository calls in `index.ts`, and fails when either grows (and when it shrinks, asking to lower the base). A new capability is a port in the style of [database-port.ts](database-port.ts) / [project-port.ts](project-port.ts), not another forwarder through a repository and `index.ts`.
