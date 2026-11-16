@@ -16,6 +16,7 @@ pub mod logging;
 mod model;
 pub mod package_manager;
 mod page_info;
+mod path_grants;
 mod paths;
 mod project;
 mod property_groups;
@@ -48,6 +49,21 @@ mod desktop_e2e_tests;
 use logging::DebugState;
 use state::*;
 use watcher::WatcherState;
+
+/// IPC-03: the paths of a drag-and-drop are remembered here, before the webview can act on them, so
+/// that `import_asset` and `import_files` accept only what the person really dropped. Tauri's own
+/// handler runs first and only queues the event for the page; this one runs before the page answers.
+fn remember_dropped_paths<R: tauri::Runtime>(
+    webview: &tauri::Webview<R>,
+    event: &tauri::WebviewEvent,
+) {
+    use tauri::Manager;
+    if let tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+        webview
+            .state::<path_grants::PathGrants>()
+            .grant_sources(paths);
+    }
+}
 
 /// Single source of truth for the command set — drives both the runtime
 /// invoke handler and the generated TypeScript bindings (so the frontend IPC
@@ -339,6 +355,7 @@ pub fn run() {
         }))
         .manage(vault_context::VaultContext::new())
         .manage(WatcherState::new())
+        .manage(path_grants::PathGrants::default())
         .manage(ai::AiStreamState::default())
         .manage(ai::codex::launch::LoginSlot::default())
         .manage(ai::claude_code::launch::ClaudeLoginSlot::default())
@@ -348,6 +365,7 @@ pub fn run() {
         .manage(DebugState(logging::global_runtime()))
         .invoke_handler(builder.invoke_handler())
         .on_menu_event(handle_menu_event)
+        .on_webview_event(remember_dropped_paths)
         .setup(|app| {
             let debug = logging::global_runtime();
             debug.set_app(app.handle().clone());

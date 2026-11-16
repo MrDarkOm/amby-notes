@@ -4,6 +4,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::Manager;
 
+use crate::path_grants::{self, PathGrants};
 use crate::vault_context;
 use crate::vault_index;
 use crate::watcher::{self, WatcherState};
@@ -23,6 +24,34 @@ pub fn grant_vault_scopes(app: &tauri::AppHandle, vault: &Path) -> Result<(), St
     Ok(())
 }
 
+/// The folder the webview names, in its real form, if and only if Rust itself vouches for it: the
+/// open vault, a folder the system dialog gave out, or a known vault (IPC-03, CORE-06). The webview
+/// can write any string, so a string alone is never enough to open, migrate or recover a folder.
+fn trusted_vault_folder(
+    app: &tauri::AppHandle,
+    context: &vault_context::VaultContext,
+    grants: &PathGrants,
+    vault_path: &str,
+) -> Result<std::path::PathBuf, String> {
+    let canonical = Path::new(vault_path)
+        .canonicalize()
+        .map_err(|error| format!("Vault not accessible: {error}"))?;
+    let active_root = context
+        .conn
+        .lock_or_recover()
+        .as_ref()
+        .map(|active| active.root.clone());
+    let registry = crate::app_data::app_root(app)
+        .ok()
+        .and_then(|root| std::fs::read_to_string(root.join(path_grants::WORKSPACES_FILE)).ok())
+        .unwrap_or_default();
+    if path_grants::vault_path_trusted(&canonical, active_root.as_deref(), grants, &registry) {
+        Ok(canonical)
+    } else {
+        Err(path_grants::ERR_PATH_NOT_GRANTED.to_string())
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn open_vault(app: tauri::AppHandle) -> Result<Option<String>, String> {
@@ -37,6 +66,9 @@ pub async fn open_vault(app: tauri::AppHandle) -> Result<Option<String>, String>
     let Some(path) = result else {
         return Ok(None);
     };
+    if let Ok(real) = path.clone().into_path() {
+        app.state::<PathGrants>().grant_folder(&real);
+    }
     Ok(Some(path.to_string()))
 }
 
@@ -46,8 +78,10 @@ pub fn load_vault(
     app: tauri::AppHandle,
     context: tauri::State<'_, vault_context::VaultContext>,
     runtime: tauri::State<'_, crate::database::runtime_state::DatabaseRuntimeState>,
+    grants: tauri::State<'_, PathGrants>,
     vault_path: String,
 ) -> Result<vault_index::LoadVaultResult, String> {
+    trusted_vault_folder(&app, &context, &grants, &vault_path)?;
     let loaded = context.activate(
         &vault_path,
         |root| grant_vault_scopes(&app, root),
@@ -56,6 +90,8 @@ pub fn load_vault(
             loaded
         },
     )?;
+    // What was picked for the old vault (folders, files to import) does not carry over.
+    grants.forget_all();
     let active = context.conn.lock_or_recover();
     if let Some(active) = active.as_ref() {
         if let Ok(Some(projection)) =
@@ -162,23 +198,26 @@ pub fn reindex_vault(
 
 #[tauri::command]
 #[specta::specta]
-pub fn preflight_vault(vault_path: String) -> Result<vault_index::VaultPreflight, String> {
-    let canonical = Path::new(&vault_path)
-        .canonicalize()
-        .map_err(|e| format!("Vault not accessible: {e}"))?;
+pub fn preflight_vault(
+    app: tauri::AppHandle,
+    context: tauri::State<'_, vault_context::VaultContext>,
+    grants: tauri::State<'_, PathGrants>,
+    vault_path: String,
+) -> Result<vault_index::VaultPreflight, String> {
+    let canonical = trusted_vault_folder(&app, &context, &grants, &vault_path)?;
     vault_index::preflight_vault(&canonical)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn apply_id_migration(
+    app: tauri::AppHandle,
     context: tauri::State<'_, vault_context::VaultContext>,
+    grants: tauri::State<'_, PathGrants>,
     vault_path: String,
 ) -> Result<vault_index::IdMigrationResult, String> {
     let _mutation_guard = context.mutation_gate.lock_or_recover();
-    let canonical = Path::new(&vault_path)
-        .canonicalize()
-        .map_err(|error| format!("Vault not accessible: {error}"))?;
+    let canonical = trusted_vault_folder(&app, &context, &grants, &vault_path)?;
     if !canonical.is_dir() {
         return Err(format!("Vault is not a directory: {}", canonical.display()));
     }
@@ -221,15 +260,15 @@ pub fn inspect_id_migrations(
 #[tauri::command]
 #[specta::specta]
 pub fn recover_id_migration(
+    app: tauri::AppHandle,
     context: tauri::State<'_, vault_context::VaultContext>,
+    grants: tauri::State<'_, PathGrants>,
     vault_path: String,
     journal_path: String,
     action: vault_index::IdMigrationRecoveryAction,
 ) -> Result<vault_index::IdMigrationRecovery, String> {
     let _mutation_guard = context.mutation_gate.lock_or_recover();
-    let canonical = Path::new(&vault_path)
-        .canonicalize()
-        .map_err(|error| format!("Vault not accessible: {error}"))?;
+    let canonical = trusted_vault_folder(&app, &context, &grants, &vault_path)?;
     vault_index::recover_id_migration(&canonical, &journal_path, action)
 }
 
