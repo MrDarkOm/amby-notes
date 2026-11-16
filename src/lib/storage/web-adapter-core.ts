@@ -113,6 +113,7 @@ import type {
   DatabaseUndoRedoResult,
   DatabaseHistoryStatus,
 } from "./database-types"
+import { isValidItemName } from "./item-name"
 import { DatabaseOperationError } from "./database-types"
 import { ProjectOperationError } from "./project-types"
 import type {
@@ -904,7 +905,7 @@ export class WebAdapterCore implements StoragePort {
     rawName: string,
   ): Promise<FsMutationResult> {
     const name = rawName.trim()
-    if (!name || /[/\\]/u.test(name)) {
+    if (!isValidItemName(name)) {
       throw new StorageOperationError("invalidPath", i18n.t("errors.pathNotFound", { path: name }))
     }
     let tree = webGetTree()
@@ -955,13 +956,7 @@ export class WebAdapterCore implements StoragePort {
   async createFolder(vaultPath: string, name: string): Promise<string> {
     const path = joinPath(vaultPath, name)
     const tree = webGetTree()
-    if (
-      !name.trim() ||
-      name.includes("/") ||
-      name.includes("\\") ||
-      name === "." ||
-      name === ".."
-    ) {
+    if (!isValidItemName(name)) {
       throw new StorageOperationError("invalidPath", i18n.t("errors.pathNotFound", { path }))
     }
     if (webFindItem(tree, path)) {
@@ -1120,7 +1115,7 @@ export class WebAdapterCore implements StoragePort {
     rawNewName: string,
   ): Promise<FsMutationResult> {
     const newName = rawNewName.trim()
-    if (!newName || /[/\\]/u.test(newName) || newName === "." || newName === "..") {
+    if (!isValidItemName(newName)) {
       throw new StorageOperationError("invalidPath", i18n.t("errors.pathNotFound", { path }))
     }
     const tree = webGetTree()

@@ -216,10 +216,7 @@ pub(crate) fn prepare_create_note_impl(
     parent_path: &Path,
     name: &str,
 ) -> Result<CreateNotePlan, String> {
-    let trimmed = name.trim();
-    if trimmed.is_empty() || trimmed.contains('/') || trimmed.contains('\\') {
-        return Err("Invalid note name".to_string());
-    }
+    let trimmed = super::path_ops::validate_item_name("note", name)?;
 
     let (prospective_container, should_promote) = if parent_path.is_file() {
         if !is_supported_document(parent_path) {

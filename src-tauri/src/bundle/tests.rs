@@ -847,3 +847,97 @@ fn rename_refuses_a_folder_that_appears_after_the_availability_check() {
     assert!(!target.join("moved.md").exists());
     std::fs::remove_dir_all(&vault).ok();
 }
+
+const UNSAFE_ITEM_NAMES: &[&str] = &[
+    ".git",
+    ".GIT",
+    ".amby",
+    ".obsidian",
+    ".trash",
+    ".",
+    "..",
+    "...",
+    "CON",
+    "con",
+    "nul.txt",
+    "COM1",
+    "LPT9.log",
+    "a:b",
+    "a<b",
+    "a>b",
+    "a\"b",
+    "a|b",
+    "a?b",
+    "a*b",
+    "a\u{0}b",
+    "a\u{7}b",
+    "trailing.",
+    "bad\u{202e}name",
+];
+
+#[test]
+fn item_name_validation_rejects_service_reserved_and_unsafe_names() {
+    for name in UNSAFE_ITEM_NAMES {
+        let error = super::path_ops::validate_item_name("item", name).unwrap_err();
+        assert!(error.starts_with("Invalid item name"), "{name:?}: {error}");
+    }
+    let too_long = "n".repeat(201);
+    assert!(super::path_ops::validate_item_name("item", &too_long).is_err());
+    for name in [
+        "Note",
+        "Заметка 2",
+        "a.b",
+        "con1",
+        "COM10",
+        "x-y_z",
+        " padded ",
+    ] {
+        let trimmed = super::path_ops::validate_item_name("item", name).unwrap();
+        assert_eq!(trimmed, name.trim());
+    }
+}
+
+#[test]
+fn rename_and_create_reject_unsafe_names_without_touching_anything() {
+    let vault = temp_vault("unsafe-names");
+    let note = vault.join("Keep.md");
+    let folder = vault.join("Folder");
+    std::fs::write(&note, "keep").unwrap();
+    std::fs::create_dir_all(&folder).unwrap();
+
+    for name in UNSAFE_ITEM_NAMES {
+        let error = rename_item_impl(&vault, &note, name)
+            .map(|_| ())
+            .unwrap_err();
+        assert!(error.starts_with("Invalid"), "{name:?}: {error}");
+        let error = rename_item_impl(&vault, &folder, name)
+            .map(|_| ())
+            .unwrap_err();
+        assert!(error.starts_with("Invalid"), "{name:?}: {error}");
+        let error = preview_rename_item(&vault, &note, name)
+            .map(|_| ())
+            .unwrap_err();
+        assert!(error.starts_with("Invalid"), "{name:?}: {error}");
+        let error = prepare_create_note_impl(&vault, name)
+            .map(|_| ())
+            .unwrap_err();
+        assert!(error.starts_with("Invalid"), "{name:?}: {error}");
+        assert!(
+            super::layers::create_canvas_impl(&vault, name).is_err(),
+            "{name:?}"
+        );
+        assert!(
+            super::layers::create_sketch_impl(&vault, name).is_err(),
+            "{name:?}"
+        );
+    }
+    assert_eq!(std::fs::read_to_string(&note).unwrap(), "keep");
+    assert!(folder.is_dir());
+    let mut names: Vec<_> = std::fs::read_dir(&vault)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["Folder", "Keep.md"]);
+    std::fs::remove_dir_all(&vault).ok();
+}

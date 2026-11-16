@@ -4,6 +4,63 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static CASE_RENAME_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// The name a person typed for a new or renamed item, trimmed, or an
+/// `Invalid <label> name: ...` error (classified as `invalidPath`).
+///
+/// A vault is shared with other systems, so the rules are the strictest of
+/// Windows, macOS and Linux: no path separators, control or bidirectional
+/// override characters, none of `: < > " | ? *`, no trailing dot, no
+/// Windows device names (`CON`, `NUL.txt`, `COM1`...), no names made only of
+/// dots, none of the service directories Amby and its neighbours own
+/// (`.git`, `.amby`, `.obsidian`, `.trash`), and at most [`MAX_ITEM_NAME_BYTES`]
+/// bytes so the extension and sidecar suffixes still fit in 255.
+pub(crate) fn validate_item_name<'a>(label: &str, name: &'a str) -> Result<&'a str, String> {
+    let trimmed = name.trim();
+    let reason = item_name_problem(trimmed);
+    match reason {
+        Some(reason) => Err(format!("Invalid {label} name: {reason}")),
+        None => Ok(trimmed),
+    }
+}
+
+/// Longest accepted item name, in bytes.
+const MAX_ITEM_NAME_BYTES: usize = 200;
+
+fn item_name_problem(name: &str) -> Option<&'static str> {
+    if name.is_empty() {
+        return Some("empty");
+    }
+    if name.len() > MAX_ITEM_NAME_BYTES {
+        return Some("too long");
+    }
+    if name.chars().any(|c| {
+        c.is_control()
+            || matches!(c, '/' | '\\' | ':' | '<' | '>' | '"' | '|' | '?' | '*')
+            || matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+    }) {
+        return Some("forbidden character");
+    }
+    if name.chars().all(|c| c == '.') || name.ends_with('.') {
+        return Some("dots");
+    }
+    let lower = name.to_lowercase();
+    if matches!(
+        lower.as_str(),
+        ".git" | ".amby" | ".obsidian" | ".trash" | ".ds_store"
+    ) {
+        return Some("reserved name");
+    }
+    let stem = lower.split('.').next().unwrap_or("");
+    let device = matches!(stem, "con" | "prn" | "aux" | "nul")
+        || (stem.len() == 4
+            && (stem.starts_with("com") || stem.starts_with("lpt"))
+            && matches!(stem.as_bytes()[3], b'1'..=b'9'));
+    if device {
+        return Some("reserved name");
+    }
+    None
+}
+
 pub(crate) fn path_string(path: &Path) -> String {
     path.to_string_lossy().to_string()
 }

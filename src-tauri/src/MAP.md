@@ -10,8 +10,8 @@ Before persistence/indexing/frontmatter/rename/history/trash changes, read
 | Narrow IPC boundaries                              | [commands/](commands/): notes, vault, mutations, history, assets, database, project, modules, debug                                                                                               |
 | Vault authorization / canonical paths              | [paths.rs](paths.rs), [vault_context.rs](vault_context.rs), [path_grants.rs](path_grants.rs)                                                                                                                               |
 | Discovery/tree/preflight/identity migration | [vault/scan.rs](vault/scan.rs), [vault/tree.rs](vault/tree.rs) (attached DB keeps note ID), [vault/migration.rs](vault/migration.rs) |
-| YAML, note envelope (BOM, line endings) | [frontmatter.rs](frontmatter.rs) (re-exports the atomic layer for old call sites) |
-| Atomic and no-replace file publication, rename retry, write fault injection | [atomic_fs.rs](atomic_fs.rs)                                                                                                                                                         |
+| YAML, note envelope (BOM, line endings) | [frontmatter.rs](frontmatter.rs) |
+| Atomic / no-replace writes and renames | [atomic_fs.rs](atomic_fs.rs)                                                                                                                                                         |
 | Durable-journal primitives (operation IDs, revisions, guarded paths, no-replace create); protocol in [docs](../../docs/mutation-protocol.md) | [durable.rs](durable.rs); used by [database/relation_recovery.rs](database/relation_recovery.rs) and [database/relation_schema_recovery.rs](database/relation_schema_recovery.rs) |
 | Rebuildable note index                             | [index/mod.rs](index/mod.rs), [index/connection.rs](index/connection.rs), [index/schema.rs](index/schema.rs), [index/note_index.rs](index/note_index.rs), [index/sync.rs](index/sync.rs) |
 | Identity, search, links/tags/refactors             | [index/identity.rs](index/identity.rs), [index/query.rs](index/query.rs), [index/links.rs](index/links.rs), [index/tags.rs](index/tags.rs), [index/refactor.rs](index/refactor.rs)       |
@@ -53,14 +53,13 @@ SQLite online snapshots, then publishes a version-1 manifest and local receipt.
 `VaultSyncStatus.backup_path` exposes the completed location. This is separate
 from per-file history and the migration backups inside a vault.
 
-Tests live beside services, in `*_test.rs`, `*_tests.rs`, bundle tests and
+Tests live beside services (`*_test.rs`, `*_tests.rs`, bundle tests) and in
 [desktop_e2e_tests.rs](desktop_e2e_tests.rs). Include collisions, failed writes,
 rollback and original-byte preservation where relevant. Run `npm run rust:test`;
 IPC changes regenerate [bindings.ts](../../src/lib/bindings.ts) through Specta.
-Backend-heavy changes also need `npm run rust:clippy`; see
-[the tests map](../../tests/MAP.md) for live native checks.
+Backend-heavy changes also need `npm run rust:clippy`; live checks: [tests map](../../tests/MAP.md).
 
-Poison-tolerant locking: [lock_util.rs](lock_util.rs) `LockExt::lock_or_recover` replaces `.lock().unwrap()` on vault, watcher and recovery mutexes (warns, clears the poison flag). Use it only where a half-finished panic cannot leave harmful state; its header says why for each mutex.
+Poison-tolerant locking: [lock_util.rs](lock_util.rs) `LockExt::lock_or_recover` replaces `.lock().unwrap()` (warns, clears the poison flag). Use it only where a half-finished panic cannot leave harmful state; its header says why for each mutex.
 
 System key store UI policy: [keychain_access.rs](keychain_access.rs) serializes macOS access, suppresses dialogs for background sync, allows them only in explicit account actions. AI credentials share the lock.
 

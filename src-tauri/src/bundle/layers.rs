@@ -201,10 +201,7 @@ fn unique_canvas_path(base_dir: &Path, stem: &str) -> PathBuf {
 
 /// Create a standalone `.canvas` file inside the given container (or next to a note).
 pub(crate) fn create_canvas_impl(parent_path: &Path, name: &str) -> Result<PathBuf, String> {
-    let trimmed = name.trim();
-    if trimmed.is_empty() || trimmed.contains('/') || trimmed.contains('\\') {
-        return Err("Invalid canvas name".to_string());
-    }
+    let trimmed = super::path_ops::validate_item_name("canvas", name)?;
     let container = if parent_path.is_dir() {
         parent_path.to_path_buf()
     } else if parent_path.is_file() {
@@ -314,10 +311,7 @@ fn unique_sketch_path(base_dir: &Path, stem: &str) -> PathBuf {
 
 /// Create a standalone `.excalidraw` file inside the given container (or next to a note).
 pub(crate) fn create_sketch_impl(parent_path: &Path, name: &str) -> Result<PathBuf, String> {
-    let trimmed = name.trim();
-    if trimmed.is_empty() || trimmed.contains('/') || trimmed.contains('\\') {
-        return Err("Invalid sketch name".to_string());
-    }
+    let trimmed = super::path_ops::validate_item_name("sketch", name)?;
     let container = if parent_path.is_dir() {
         parent_path.to_path_buf()
     } else if parent_path.is_file() {

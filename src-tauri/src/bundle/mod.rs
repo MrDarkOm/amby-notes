@@ -26,7 +26,7 @@ pub(crate) use notes::{
     ensure_bundle_path, prepare_create_note_impl, preview_ensure_bundle_path, resolve_item_root,
     CreateNotePlan,
 };
-pub(crate) use path_ops::{file_stem, path_string};
+pub(crate) use path_ops::{file_stem, path_string, validate_item_name};
 pub(crate) use planning::{preview_move_item, preview_rename_item};
 pub(crate) use rollback::{rollback_move_item, rollback_rename_item};
 pub(crate) use scan::is_bundle_main_note;
