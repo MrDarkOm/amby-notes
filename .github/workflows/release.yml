@@ -88,6 +88,10 @@ jobs:
       - run: npm run rust:fmt
       - run: npm run rust:clippy
       - run: npm run rust:test
+      # `rust:test` regenerates src/lib/bindings.ts in this clean checkout: any difference means the
+      # committed bindings are stale (bindings:check alone compares the file with itself here).
+      - name: Committed IPC bindings match the Rust types
+        run: git diff --exit-code -- src/lib/bindings.ts
       - run: npm run bindings:check
 
   gate-audit:

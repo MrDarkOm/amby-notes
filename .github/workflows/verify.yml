@@ -200,5 +200,9 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
       - run: npm ci
       - run: npm run rust:test
+      # `rust:test` regenerates src/lib/bindings.ts in this clean checkout: any difference means the
+      # committed bindings are stale (bindings:check alone compares the file with itself here).
+      - name: Committed IPC bindings match the Rust types
+        run: git diff --exit-code -- src/lib/bindings.ts
       - name: Verify generated IPC bindings are current
         run: npm run bindings:check
