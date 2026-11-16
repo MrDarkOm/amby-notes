@@ -7,13 +7,11 @@ import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
 import { ModelPicker, type PickerModel } from "./model-picker"
 import type { Chat, TreeItem } from "@/lib/storage"
 import { cn } from "@/lib/utils"
-import { MAX_ATTACHED_CHARS } from "./context"
 import { toRelativeVaultPath } from "../workspace-tree-utils"
 import { isEnterKey } from "@/lib/keyboard"
 
 interface OpenDoc {
   title?: string
-  content: string
 }
 
 interface ContextLabel {
@@ -65,6 +63,7 @@ function ContextChips({
   truncated,
   vault,
   currentDoc,
+  currentClipped,
   loading,
   onChange,
   getPanel,
@@ -75,6 +74,8 @@ function ContextChips({
   truncated: string[]
   vault: string | null
   currentDoc: OpenDoc | null
+  /** The text of the open note is longer than the limit of what is attached. */
+  currentClipped: boolean
   loading: boolean
   onChange: (next: Chat) => void
   /** The panel the list must stay inside: it takes its width and starts at its left edge. */
@@ -112,10 +113,7 @@ function ContextChips({
         : flat.find((candidate) => candidate.id === entry.id)
     const doc = openDocs[entry.id]
     const clipped =
-      truncated.includes(entry.id) ||
-      (entry.kind === "current" &&
-        !!currentDoc &&
-        Array.from(currentDoc.content).length > MAX_ATTACHED_CHARS)
+      truncated.includes(entry.id) || (entry.kind === "current" && !!currentDoc && currentClipped)
     return {
       entry,
       title: `${doc?.title || item?.name || entry.id}${clipped ? ` · ${t("ai.contextTruncated")}` : ""}`,
@@ -203,6 +201,7 @@ export function Composer({
   truncated,
   vault,
   currentDoc,
+  currentClipped,
   input,
   loading,
   switching,
@@ -226,6 +225,8 @@ export function Composer({
   truncated: string[]
   vault: string | null
   currentDoc: OpenDoc | null
+  /** The text of the open note is longer than the limit of what is attached. */
+  currentClipped: boolean
   input: string
   loading: boolean
   switching: boolean
@@ -323,6 +324,7 @@ export function Composer({
               truncated={truncated}
               vault={vault}
               currentDoc={currentDoc}
+              currentClipped={currentClipped}
               loading={loading}
               onChange={onChangeChat}
             />
