@@ -111,6 +111,7 @@ file.attach_canvas
 file.attach_canvas_failed
 file.attach_sketch
 file.attach_sketch_failed
+file.clone_failed
 file.create_canvas
 file.create_canvas_failed
 file.create_folder
@@ -134,6 +135,7 @@ file.rename_failed
 file.reveal_failed
 file.set_icon
 file.toggle_favorite
+file.wiki_link_open_failed
 file_revision.save_without_baseline
 frontend_started
 helper_window_close_failed

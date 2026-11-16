@@ -1735,6 +1735,10 @@ const ru = {
         title: "Состояние синхронизации перестало обновляться",
         line: "Данные не тронуты, синхронизация идёт как шла. Откройте настройки синхронизации ещё раз или перезапустите Amby.",
       },
+      wikiLinkFailed: {
+        title: "Не удалось открыть ссылку",
+        line: "Заметки не тронуты. Попробуйте ещё раз.",
+      },
       aiKeyLeft: {
         title: "Старый ключ остался в связке ключей",
         line: "Подключение удалено, а ключ можно убрать из связки ключей вручную.",
@@ -1751,6 +1755,11 @@ const ru = {
       propertiesKept: "Свойства «{{name}}» не перенесены в базу",
       propertiesKeptLine: "Они остались в заметке, ничего не потеряно.",
       propertiesRetry: "Перенести",
+      createNoteFailed: "Не удалось создать заметку",
+      createFolderFailed: "Не удалось создать папку",
+      createCanvasFailed: "Не удалось создать холст",
+      createSketchFailed: "Не удалось создать набросок",
+      cloneNoteFailed: "Не удалось сделать копию заметки",
     },
     centre: {
       title: "Уведомления",
@@ -5967,6 +5976,10 @@ const en: typeof ru = {
         title: "The sync status stopped updating",
         line: "Your data is untouched and sync goes on as before. Open the sync settings again or restart Amby.",
       },
+      wikiLinkFailed: {
+        title: "Could not open the link",
+        line: "Your notes are not affected. Try again.",
+      },
       aiKeyLeft: {
         title: "The old key stayed in the keychain",
         line: "The connection is deleted; you can remove the key from the keychain by hand.",
@@ -5983,6 +5996,11 @@ const en: typeof ru = {
       propertiesKept: "The properties of “{{name}}” were not moved to the database",
       propertiesKeptLine: "They stayed in the note, nothing is lost.",
       propertiesRetry: "Move them",
+      createNoteFailed: "Could not create the note",
+      createFolderFailed: "Could not create the folder",
+      createCanvasFailed: "Could not create the canvas",
+      createSketchFailed: "Could not create the sketch",
+      cloneNoteFailed: "Could not make a copy of the note",
     },
     centre: {
       title: "Notifications",

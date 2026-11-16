@@ -553,6 +553,60 @@ describe("the rules of colour in all of src, with a baseline that only shrinks (
 })
 
 // ---------------------------------------------------------------------------------------------
+// 4c. A failure goes to `logger` and, if a person waits for the action, to a notice (audit UI-02)
+// ---------------------------------------------------------------------------------------------
+
+/** Calls of `console.error` in a file. The debug log (`logger`) is where the reason goes (docs/notices.md §13). */
+function consoleErrorCount(file: string): number {
+  let count = 0
+  walk(parse(file), (node) => {
+    if (ts.isCallExpression(node) && node.expression.getText() === "console.error") count += 1
+  })
+  return count
+}
+
+/**
+ * Files that still write a failure only to `console.error`. A failure of an action of the person is a line under
+ * the element or a `warning` in the centre with the code in `logger` (docs/notices.md §3, §8, §13). Only shrinks.
+ */
+export const CONSOLE_ERROR_BASELINE: Baseline = {
+  "src/components/workspace/canvas/canvas-editor.tsx": 3,
+  "src/components/workspace/creative/creative-settings-store.ts": 1,
+  "src/components/workspace/database/use-database-history.ts": 2,
+  "src/components/workspace/editor/note-pdf-export.tsx": 1,
+  "src/components/workspace/file-actions/use-document-crud.ts": 4,
+  "src/components/workspace/file-actions/use-document-mutations.tsx": 2,
+  "src/components/workspace/graph-tab-view.tsx": 1,
+  "src/components/workspace/graph/graph-settings-store.ts": 1,
+  "src/components/workspace/orchestration/layer-draft.ts": 1,
+  "src/components/workspace/settings-dialog.tsx": 3,
+  "src/components/workspace/settings/settings-modules.tsx": 1,
+  "src/components/workspace/settings/settings-package-manager.tsx": 1,
+  "src/components/workspace/use-layers.ts": 11,
+  "src/components/workspace/use-presets.ts": 2,
+  "src/components/workspace/windows/use-note-windows.ts": 1,
+  "src/lib/modules/global-registry.ts": 1,
+  "src/lib/modules/host/module-host.ts": 4,
+  "src/lib/modules/host/registries.ts": 1,
+  "src/lib/modules/package-manager/catalog.ts": 1,
+  "src/lib/modules/package-manager/installer.ts": 4,
+}
+
+describe("failures of actions are not left to the console (audit UI-02)", () => {
+  it("has no new `console.error` in the code of the application", () => {
+    const counts = countsOf((file, text) =>
+      text.includes("console.error") ? consoleErrorCount(file) : 0,
+    )
+    compareToBaseline(
+      counts,
+      CONSOLE_ERROR_BASELINE,
+      "A failure goes to `logger` with a code, and, when the person waited for the action, to a notice: a line under " +
+        "the element or a `warning` in the centre (docs/notices.md §3, §8, §13); `console.error` shows it to nobody.",
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------------------------
 // 5. One host of toasts (docs/notices.md §6)
 // ---------------------------------------------------------------------------------------------
 
