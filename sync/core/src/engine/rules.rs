@@ -7,8 +7,12 @@
 /// `.<name>.amby-tmp-*`; system litter (`.DS_Store`, `._*`, `Thumbs.db`, `desktop.ini`) at any
 /// depth. `path` is relative, `/` separators.
 pub fn is_excluded_path(path: &str) -> bool {
-    let segments: Vec<&str> = path.split('/').collect();
-    if segments.contains(&".git") {
+    // macOS and Windows disks ignore letter case: `.GIT` is `.git` there. Every rule below compares
+    // names without case, or a path spelled differently would be written into Git's, Amby's own or
+    // another application's folder (SYNC-02). `is_service_path` already did so for `.amby`.
+    let lowered = path.to_ascii_lowercase();
+    let segments: Vec<&str> = lowered.split('/').collect();
+    if segments.contains(&".git") || segments.iter().any(|name| is_short_service_name(name)) {
         return true;
     }
     match segments[0] {
@@ -29,9 +33,18 @@ pub fn is_excluded_path(path: &str) -> bool {
         _ => {}
     }
     segments.iter().any(|name| {
-        matches!(*name, ".DS_Store" | "Thumbs.db" | "desktop.ini")
+        matches!(*name, ".ds_store" | "thumbs.db" | "desktop.ini")
             || name.starts_with("._")
             || is_temporary_name(name)
+    })
+}
+
+/// A Windows 8.3 short name of a service folder (`GIT~1` for `.git`): the same folder on disk.
+fn is_short_service_name(name: &str) -> bool {
+    name.split_once('~').is_some_and(|(stem, number)| {
+        matches!(stem, "git" | "amby" | "obsidi" | "trash")
+            && !number.is_empty()
+            && number.bytes().all(|byte| byte.is_ascii_digit())
     })
 }
 
