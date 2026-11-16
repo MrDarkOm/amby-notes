@@ -2579,6 +2579,8 @@ const ru = {
   canvas: {
     textPlaceholder: "Текст… (Markdown)",
     doubleClickText: "Двойной клик для текста",
+    unknownNodeTitle: "Карточка «{{type}}»",
+    unknownNodeHint: "Этот тип карточек здесь не редактируется. Содержимое сохранится как есть.",
     noteNotSelected: "Заметка не выбрана",
     doubleClickOpen: "двойной клик — открыть",
     groupPlaceholder: "Группа",
@@ -7134,6 +7136,8 @@ const en: typeof ru = {
   canvas: {
     textPlaceholder: "Text… (Markdown)",
     doubleClickText: "Double-click for text",
+    unknownNodeTitle: "“{{type}}” card",
+    unknownNodeHint: "This card type can't be edited here. Its content is kept as it is.",
     noteNotSelected: "No note selected",
     doubleClickOpen: "double-click to open",
     groupPlaceholder: "Group",
