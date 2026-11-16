@@ -1311,21 +1311,39 @@ fn valid_timestamp(value: &str) -> bool {
             .enumerate()
             .all(|(i, b)| [4, 7, 10, 13, 16, 19, 23].contains(&i) || b.is_ascii_digit())
 }
+/// Key for pseudonyms: random for each run, kept only in memory and never written to a record, so
+/// a log (or a debug report) alone cannot be used to check a guessed path or name against it.
+/// Pseudonyms are for matching events within a run (and one session); they are not a protection
+/// against someone who can run this process, and they do not match across restarts.
+fn pseudonym_key() -> &'static ring::hmac::Key {
+    static KEY: OnceLock<ring::hmac::Key> = OnceLock::new();
+    KEY.get_or_init(|| {
+        ring::hmac::Key::generate(ring::hmac::HMAC_SHA256, &ring::rand::SystemRandom::new())
+            .unwrap_or_else(|_| {
+                // The system generator is unavailable: fall back to ULID randomness.
+                let mut seed = ulid::Ulid::generate().to_bytes().to_vec();
+                seed.extend_from_slice(&ulid::Ulid::generate().to_bytes());
+                ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &seed)
+            })
+    })
+}
 fn pseudonym(value: &str, session: &str) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    session.hash(&mut hasher);
-    value.hash(&mut hasher);
     if value.len() == 19
         && value.starts_with("id_")
         && value[3..]
             .bytes()
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
     {
-        value.to_owned()
-    } else {
-        format!("id_{:016x}", hasher.finish())
+        return value.to_owned();
     }
+    let mut context = ring::hmac::Context::with_key(pseudonym_key());
+    context.update(session.as_bytes());
+    context.update(&[0]);
+    context.update(value.as_bytes());
+    let tag = context.sign();
+    let mut short = [0u8; 8];
+    short.copy_from_slice(&tag.as_ref()[..8]);
+    format!("id_{:016x}", u64::from_be_bytes(short))
 }
 fn chrono_timestamp() -> String {
     let duration = std::time::SystemTime::now()
@@ -1598,6 +1616,28 @@ mod tests {
         assert!(runtime.recent().is_empty());
         assert!(!temp.join("amby.jsonl").exists());
         let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn pseudonyms_cannot_be_recomputed_from_the_record_alone() {
+        use std::hash::{Hash, Hasher};
+        let (path, session) = ("/Users/alice/Vault/Secret.md", "01HZZZZZZZZZZZZZZZZZZZZZZZ");
+        // What anyone holding the log could compute when the hash was unkeyed and the salt public.
+        let mut unkeyed = std::collections::hash_map::DefaultHasher::new();
+        session.hash(&mut unkeyed);
+        path.hash(&mut unkeyed);
+        assert_ne!(
+            pseudonym(path, session),
+            format!("id_{:016x}", unkeyed.finish())
+        );
+        // Still usable for matching: stable within a run, separated by session and by value.
+        assert_eq!(pseudonym(path, session), pseudonym(path, session));
+        assert_ne!(pseudonym(path, session), pseudonym(path, "other-session"));
+        assert_ne!(
+            pseudonym(path, session),
+            pseudonym("/Users/alice/Other.md", session)
+        );
+        assert!(safe_opaque_id(&pseudonym(path, session)).is_some());
     }
 
     #[test]
