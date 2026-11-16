@@ -85,10 +85,7 @@ pub(crate) fn preview_rename_item(
     path: &Path,
     new_name: &str,
 ) -> Result<FsMutationResult, String> {
-    let trimmed = new_name.trim();
-    if trimmed.is_empty() || trimmed.contains('/') || trimmed.contains('\\') {
-        return Err("Invalid item name".to_string());
-    }
+    let trimmed = super::path_ops::validate_item_name("item", new_name)?;
     if is_vault_root(vault, path) {
         return Err("The vault itself cannot be renamed".to_string());
     }

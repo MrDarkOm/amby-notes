@@ -99,7 +99,7 @@ Anything that tells the person about an error, a warning, a conflict, an event o
 ## Data-Safety and Compatibility Rules
 
 - Treat Markdown and attachments as the source of truth; the SQLite index must always remain rebuildable.
-- Custom note properties use stable frontmatter note IDs. `.amby/properties.json` is their versioned durable sidecar, while the SQLite property table is only a rebuildable cache; keep both paths coordinated through `property_store.rs`.
+- Custom note properties keep their values in the note's frontmatter and their presentation in `.amby/properties/` (groups, marks, layout; see `docs/vault-format.md`); the SQLite property table is only a rebuildable cache. `.amby/properties.json` is the old format: the app only reads it to carry the values over and never writes it, and the writers in `property_store.rs` exist for tests only.
 - Keep `.obsidian/`, `.git/`, `.trash/`, `assets/`, and `.amby/` out of note indexing. Never silently mutate another application's metadata.
 - Preserve unknown Markdown, YAML, HTML, Canvas, and Excalidraw content. Add or update round-trip fixtures before admitting new syntax to Live Preview; if rewriting a block would lose anything, the block must be kept as its source text (or the note Source-only).
 - Amby columns serialize as invisible `amby:columns` HTML comments around ordinary Markdown. Preserve those markers, column order, explicit widths, empty blocks, and byte-exact round trips when changing drag, resize, parsing, or serialization.

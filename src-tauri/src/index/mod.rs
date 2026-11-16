@@ -30,6 +30,9 @@ mod identity_tests;
 mod incremental_tests;
 
 #[cfg(test)]
+mod line_ending_tests;
+
+#[cfg(test)]
 mod malformed_tests;
 
 #[cfg(test)]

@@ -2,6 +2,7 @@ mod ai;
 mod app_data;
 mod archive;
 mod archive_migration;
+mod atomic_fs;
 mod bundle;
 mod commands;
 mod credentials;

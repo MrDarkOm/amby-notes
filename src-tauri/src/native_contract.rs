@@ -1,5 +1,6 @@
 //! Opt-in real WebView/IPC harness. It uses the production command registry,
 //! not a mock runtime or replacement storage implementation.
+use crate::lock_util::LockExt;
 use std::{
     fs,
     sync::{
@@ -239,8 +240,7 @@ pub fn run_native_contract() {
             handle
                 .state::<crate::vault_context::VaultContext>()
                 .conn
-                .lock()
-                .unwrap()
+                .lock_or_recover()
                 .take();
         }
     });

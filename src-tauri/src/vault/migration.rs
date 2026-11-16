@@ -1,3 +1,4 @@
+use crate::lock_util::LockExt;
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use std::cell::Cell;
@@ -189,7 +190,7 @@ pub fn unfinished_id_migrations(vault: &Path) -> Result<Vec<IdMigrationRecovery>
             .ok()
             .and_then(|meta| Some((meta.len(), meta.modified().ok()?)));
         if let Some(stamp) = stamp {
-            let finished = FINISHED_JOURNALS.lock().unwrap();
+            let finished = FINISHED_JOURNALS.lock_or_recover();
             if finished.get(&path) == Some(&stamp) {
                 continue;
             }
@@ -210,8 +211,7 @@ pub fn unfinished_id_migrations(vault: &Path) -> Result<Vec<IdMigrationRecovery>
             (Some(recovery), _) => recoveries.push(recovery),
             (None, Some(stamp)) => {
                 FINISHED_JOURNALS
-                    .lock()
-                    .unwrap()
+                    .lock_or_recover()
                     .insert(entry.path(), stamp);
             }
             (None, None) => {}

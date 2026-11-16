@@ -422,8 +422,7 @@ pub fn preview_move_refactor(
         return Err("Vault changed while preparing move preview".to_string());
     }
     conn.pending_move_refactor
-        .lock()
-        .unwrap()
+        .lock_or_recover()
         .replace(PreparedMoveRefactor {
             source_path,
             target_path,

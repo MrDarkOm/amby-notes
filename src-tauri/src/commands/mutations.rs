@@ -1013,8 +1013,7 @@ pub(crate) fn move_item_inner(
         let conn = conn_guard.as_ref().ok_or("No vault open")?;
         let prepared_plan = conn
             .pending_move_refactor
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .take()
             .filter(|cached| {
                 cached.source_path == source_path
@@ -1273,6 +1272,9 @@ pub fn create_folder(
 ) -> Result<(), StorageError> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(&scope, &path)?;
+    if let Some(name) = path.file_name() {
+        crate::bundle::validate_item_name("folder", &name.to_string_lossy())?;
+    }
     if path.exists() {
         return Err(StorageError::new(
             StorageErrorCode::AlreadyExists,
