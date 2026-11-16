@@ -139,6 +139,11 @@ pub fn patch_for_paths(
     vault: &Path,
     touched: &[PathBuf],
 ) -> Result<Option<TreePatch>, String> {
+    // Nothing touched is not "nothing changed": the caller did not learn what changed, so the
+    // renderer reloads instead of applying a patch of no operations (TREE-01).
+    if touched.is_empty() {
+        return Ok(None);
+    }
     let lookup = IndexLookup(conn);
     let mut entries = BTreeSet::<PathBuf>::new();
     for path in touched {
