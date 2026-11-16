@@ -4,6 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import "@/lib/i18n"
 import { DocumentEditor, type Document } from "./document-editor"
 import type { DocumentBodyProps } from "./document-body"
+import {
+  clearSourceRewriteSnapshots,
+  pendingSourceRewriteSnapshot,
+} from "../autosave/source-rewrite"
 
 const rendered = vi.hoisted(() => ({ bodies: [] as DocumentBodyProps[] }))
 vi.mock("./document-header", () => ({ DocumentHeader: () => null }))
@@ -153,6 +157,33 @@ describe("DocumentEditor lossless boundary", () => {
     fireEvent.click(ui.getByText("Live"))
     expect(changeMode).toHaveBeenCalledWith("live")
     expect(ui.getByTestId("mode").textContent).toBe("live")
+  })
+
+  describe("history snapshot for a note with mixed line endings", () => {
+    afterEach(clearSourceRewriteSnapshots)
+
+    it("is requested by the first edit in Source, which rewrites every line ending", () => {
+      const ui = render(
+        <DocumentEditor
+          document={note("One\nTwo\n", { source: "One\r\nTwo\nThree\n" })}
+          viewMode="source"
+        />,
+      )
+      expect(pendingSourceRewriteSnapshot("note-a")).toBeNull()
+      fireEvent.change(ui.getByRole("textbox"), { target: { value: "One\nTwo!\n" } })
+      expect(pendingSourceRewriteSnapshot("note-a")).not.toBeNull()
+    })
+
+    it("is not requested for a note whose line endings are consistent", () => {
+      const ui = render(
+        <DocumentEditor
+          document={note("One\nTwo\n", { source: "One\r\nTwo\r\n" })}
+          viewMode="source"
+        />,
+      )
+      fireEvent.change(ui.getByRole("textbox"), { target: { value: "One\nTwo!\n" } })
+      expect(pendingSourceRewriteSnapshot("note-a")).toBeNull()
+    })
   })
 
   it("does not resurrect an old local buffer when external content returns to an earlier value", () => {

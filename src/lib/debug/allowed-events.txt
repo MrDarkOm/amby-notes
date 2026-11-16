@@ -101,6 +101,7 @@ document.open_failed
 document.restore_deleted_failed
 duplicate_database_row
 editor.diagram_failed
+editor.live_admission_failed
 editor.toggle_lock
 editor.view_mode
 external_conflict.keep_local_failed

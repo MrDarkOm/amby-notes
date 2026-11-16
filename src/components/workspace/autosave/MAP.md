@@ -12,7 +12,7 @@ Read [vault format](../../../../docs/vault-format.md) before changing persistenc
 | Initial/recovery loading                 | [use-document-loading.ts](../file-actions/use-document-loading.ts), [markdown-recovery-load.ts](../markdown-recovery-load.ts), [recovery-restore.ts](../recovery-restore.ts) |
 | Watcher reconciliation                   | [external-note-reconciliation.ts](../external-note-reconciliation.ts), [watcher-tree-reconciliation.ts](../watcher-tree-reconciliation.ts)                                   |
 | Conflict signal and UI                   | [conflict-events.ts](conflict-events.ts), [external-conflict-dialog.tsx](../external-conflict-dialog.tsx)                                                                    |
-| Queue and durable draft bridge           | [per-key-queue.ts](../../../lib/per-key-queue.ts), [recovery-drafts.ts](../../../lib/recovery-drafts.ts)                                                                     |
+| Queue and durable draft bridge           | [note-mutation-queue.ts](../note-mutation-queue.ts), [recovery-drafts.ts](../../../lib/recovery-drafts.ts)                                                                   |
 | Filesystem save and recovery             | [storage map](../../../lib/storage/MAP.md), [Rust map](../../../../src-tauri/src/MAP.md)                                                                                     |
 
 Body saves and standalone property writes share [note-mutation-queue.ts](../note-mutation-queue.ts).
