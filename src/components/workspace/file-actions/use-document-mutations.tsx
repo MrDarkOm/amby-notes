@@ -27,6 +27,7 @@ import {
   renameItem,
   type FsMutationResult,
   type DatabaseNoteContext,
+  type TreeItem,
   DatabaseOperationError,
 } from "@/lib/storage"
 import { useDocStore } from "../use-doc-store"
@@ -292,14 +293,21 @@ export function useDocumentMutations({
       )
         return "skipped"
 
-      const previousTree = treeItems
-      setTreeItems((current) =>
-        moveTreeItemsOptimistically(
+      // The rollback needs the raw tree the setter holds, not `treeItems`: that one is the displayed
+      // tree, with icons and types of the primary layer mixed in, and would stick to the raw one.
+      let previousTree: TreeItem[] | null = null
+      setTreeItems((current) => {
+        previousTree = current
+        return moveTreeItemsOptimistically(
           current,
           sourceEntries.map(({ source }) => source.id),
           targetId,
-        ),
-      )
+        )
+      })
+      const restoreTree = () => {
+        if (previousTree) setTreeItems(previousTree)
+        else void refreshTree()
+      }
 
       const results: FsMutationResult[] = []
       const finishLocalMutation = beginLocalTreeMutation()
@@ -329,7 +337,7 @@ export function useDocumentMutations({
               }),
             ))
           ) {
-            setTreeItems(previousTree)
+            restoreTree()
             return "skipped"
           }
         }
@@ -393,7 +401,7 @@ export function useDocumentMutations({
         if (results.length) {
           await refreshTree()
         } else {
-          setTreeItems(previousTree)
+          restoreTree()
         }
         console.error("Failed to move item:", error)
         // Said under the tree, where the note was dragged; the cause stays in the log (docs/notices.md, section 10).
@@ -420,7 +428,7 @@ export function useDocumentMutations({
         finishLocalMutation()
       }
     },
-    [handleApplyMutation, offerPropertiesToDatabase, setTreeItems, treeItems, vault],
+    [handleApplyMutation, offerPropertiesToDatabase, refreshTree, setTreeItems, treeItems, vault],
   )
   const handleMergeFile = React.useCallback(
     async (sourceId: string, targetId: string) => {
