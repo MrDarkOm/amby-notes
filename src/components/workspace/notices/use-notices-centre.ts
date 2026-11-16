@@ -5,7 +5,13 @@ import { useSyncNoticesStore } from "../sync/use-sync-notices-store"
 import { useTabsStore } from "../use-tabs-store"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
-import { deriveCentre, liveWarningIds, type Centre, type CentreInput } from "./centre-entries"
+import {
+  deriveCentre,
+  liveWarningIds,
+  type Centre,
+  type CentreDoc,
+  type CentreInput,
+} from "./centre-entries"
 import { useAppNoticesStore } from "./use-app-notices-store"
 import { useNoticesCentreStore } from "./use-notices-centre-store"
 
@@ -22,7 +28,19 @@ export function useNoticesCentre(): Centre {
   const itemErrors = useSyncNoticesStore((state) => state.itemErrors)
   const remoteDeleted = useSyncNoticesStore((state) => state.remoteDeleted)
   const restoreFailed = useSyncNoticesStore((state) => state.restoreFailed)
-  const openDocs = useDocStore((state) => state.openDocs)
+  // Only what the centre decides on, as one string: typing republishes `content` and `source` of the open
+  // note, and that must not rebuild the centre.
+  const openKey = useDocStore((state) =>
+    JSON.stringify(
+      Object.entries(state.openDocs).map(([key, doc]) => [
+        key,
+        doc.id,
+        doc.path,
+        doc.externallyDeleted === true,
+        doc.externallyArchived === true,
+      ]),
+    ),
+  )
   const tabs = useTabsStore((state) => state.tabs)
   const externalConflicts = useDocStore((state) => state.externalConflicts)
   const saveFailed = useNoteNoticesStore((state) => state.saveFailed)
@@ -32,6 +50,25 @@ export function useNoticesCentre(): Centre {
   const appNotices = useAppNoticesStore((state) => state.notices)
   const hidden = useNoticesCentreStore((state) => state.hidden)
   const reconcile = useNoticesCentreStore((state) => state.reconcile)
+
+  const openDocs = React.useMemo(() => {
+    const docs: Record<string, CentreDoc> = {}
+    for (const [key, id, path, deleted, archived] of JSON.parse(openKey) as [
+      string,
+      string,
+      string,
+      boolean,
+      boolean,
+    ][]) {
+      docs[key] = {
+        id,
+        path,
+        ...(deleted ? { externallyDeleted: true } : {}),
+        ...(archived ? { externallyArchived: true } : {}),
+      }
+    }
+    return docs
+  }, [openKey])
 
   const tabbedKey = tabs
     .filter((tab) => tab.kind === "document")
