@@ -690,7 +690,7 @@ fn keep_both(
                 }
             }
             staged
-                .publish(None)
+                .publish(None, amby_sync_core::engine::ExpectedLocal::Any)
                 .map_err(|e| ConflictError::Storage(e.to_string()))?;
             give_copy_its_own_identity(files, vault, &entry.path, &copy);
             store.resolve(&entry.id, Resolution::Current)
@@ -740,7 +740,7 @@ fn give_copy_its_own_identity(files: &mut VaultFs, vault: &Path, original: &str,
         staged.abort();
         return;
     }
-    let _: Result<(), _> = staged.publish(None);
+    let _: Result<(), _> = staged.publish(None, amby_sync_core::engine::ExpectedLocal::Any);
 }
 
 /// The store of the conflicts of this vault (Г25, Г27) and the files it writes through.

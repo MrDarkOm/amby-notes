@@ -303,11 +303,12 @@ impl StagedWrite for FaultyStaged {
     fn publish(
         self: Box<Self>,
         snapshot: Option<amby_sync_core::engine::SnapshotReason>,
+        expected: amby_sync_core::engine::ExpectedLocal,
     ) -> Result<(), FsError> {
         self.faults
             .tick(Port::Fs, "staged.publish", None)
             .map_err(|()| died_fs())?;
-        self.inner.publish(snapshot)
+        self.inner.publish(snapshot, expected)
     }
 
     fn abort(self: Box<Self>) {

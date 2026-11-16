@@ -265,6 +265,79 @@ fn sv_a_file_edited_while_the_pass_runs_is_not_kept_as_a_base(_b: EngineBuilder)
     );
 }
 
+// ----- a save between the check of the file and the publish of the download (SYNC-01, С9) -----
+
+fn sv_a_save_during_the_download_of_a_changed_file_is_not_replaced(_b: EngineBuilder) {
+    // A file that is not a note is downloaded, never merged. The user saves it after the pass
+    // looked at it and before the downloaded body is published: the save is not replaced.
+    let w = pair_with_a(Engine::boxed);
+    w.save(0, "Files/data.bin", "v1");
+    w.pass(0);
+    w.pass(1);
+    w.save(0, "Files/data.bin", "v2 from the server");
+    w.pass(0);
+    let fs = w.dev(1).fs.clone();
+    w.dev(1).faults.before_named("Fs.staged.publish", move || {
+        fs.user_write("Files/data.bin", b"saved by the user meanwhile")
+    });
+    w.pass(1);
+    assert!(
+        w.texts(1)
+            .values()
+            .any(|text| text == "saved by the user meanwhile"),
+        "the save is kept: {:?}",
+        w.texts(1)
+    );
+    // The pass decided again on what it found: both sides changed, so the save is a conflict
+    // copy beside the server's version (С9), not a file that was replaced.
+    assert!(
+        w.others(1, "Files/data.bin")
+            .contains(&"saved by the user meanwhile".to_string()),
+        "the save is a conflict copy: {:?}",
+        w.texts(1)
+    );
+    w.pass(1);
+    assert!(
+        w.texts(1)
+            .values()
+            .any(|text| text == "saved by the user meanwhile"),
+        "the save survives the next pass: {:?}",
+        w.texts(1)
+    );
+}
+
+fn sv_a_file_made_by_the_user_during_the_download_of_a_new_one_is_not_replaced(_b: EngineBuilder) {
+    // The server's file is new here: there is no snapshot to fall back on, so a file that
+    // appeared at the path after the check must not be replaced at all.
+    let w = pair_with_a(Engine::boxed);
+    w.save(0, "Files/new.bin", "from the server");
+    w.pass(0);
+    let fs = w.dev(1).fs.clone();
+    w.dev(1).faults.before_named("Fs.staged.publish", move || {
+        fs.user_write("Files/new.bin", b"made by the user meanwhile")
+    });
+    w.pass(1);
+    assert!(
+        w.texts(1)
+            .values()
+            .any(|text| text == "made by the user meanwhile"),
+        "the file is kept: {:?}",
+        w.texts(1)
+    );
+    assert_eq!(
+        w.read(1, "Files/new.bin").as_deref(),
+        Some("made by the user meanwhile")
+    );
+    w.pass(1);
+    assert!(
+        w.texts(1)
+            .values()
+            .any(|text| text == "made by the user meanwhile"),
+        "the file survives the next pass: {:?}",
+        w.texts(1)
+    );
+}
+
 // ----- a conflict copy: where it goes -----
 
 fn sv_the_copy_of_a_conflict_goes_to_the_next_name_when_the_first_is_a_folder(_b: EngineBuilder) {
@@ -868,6 +941,8 @@ fn sv_a_file_renamed_and_edited_alike_on_both_sides_goes_to_the_name_of_the_serv
 fn unused(_: ConflictKind) {}
 
 real_only!(
+    sv_a_save_during_the_download_of_a_changed_file_is_not_replaced,
+    sv_a_file_made_by_the_user_during_the_download_of_a_new_one_is_not_replaced,
     sv_a_version_the_feed_brings_again_is_not_a_new_version,
     sv_a_file_renamed_and_edited_to_the_name_of_the_server_is_written_under_its_own_spelling,
     sv_a_conflict_that_another_computer_found_first_is_taken_from_the_server,
