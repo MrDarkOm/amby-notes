@@ -297,10 +297,8 @@ export function WorkspaceOrchestration() {
   const experimental = useSettingsStore((s) => s.experimental)
   const setPrefs = useSettingsStore((s) => s.setPrefs)
 
-  const updateDockPrefs = React.useCallback(
-    (patch: Partial<typeof dockPrefs>) => setPrefs({ docks: { ...dockPrefs, ...patch } }),
-    [dockPrefs, setPrefs],
-  )
+  // Merged from the settings as they are now, not from this render's snapshot.
+  const updateDockPrefs = useSettingsStore((s) => s.setDockPrefs)
 
   const updateWindowPrefs = React.useCallback(
     (patch: Partial<WindowPreferences>) => {
