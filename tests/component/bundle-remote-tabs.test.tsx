@@ -2,10 +2,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react"
 import { useVaultData } from "@/components/workspace/use-vault-data"
-import {
-  beginLocalTreeMutation,
-  recordLocalTreePaths,
-} from "@/components/workspace/watcher-tree-reconciliation"
 import { useVaultStore } from "@/components/workspace/use-vault-store"
 import { useDocStore } from "@/components/workspace/use-doc-store"
 import { useTabsStore } from "@/components/workspace/use-tabs-store"
