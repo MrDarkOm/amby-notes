@@ -55,7 +55,7 @@ import { updateImageNode, type ImagePatch } from "./image-edit"
 import { useSmartPlacement, type AnchorRect } from "./use-smart-placement"
 import { BLOCK_TEXT_COLORS as TEXT_COLORS, CALLOUT_SWATCHES } from "@/lib/themes"
 import { motionTransitions } from "@/lib/motion-config"
-import { isEnterKey } from "@/lib/keyboard"
+import { isComposingKeyEvent, isEnterKey } from "@/lib/keyboard"
 
 const MotionRowButton = React.forwardRef<
   HTMLButtonElement,
@@ -264,7 +264,7 @@ export function BlockActionsPanel({
 
   function onMenuKey(event: KeyboardEvent) {
     const key = event.key
-    if (event.isComposing) return
+    if (isComposingKeyEvent(event)) return
     const handled = () => {
       event.preventDefault()
       event.stopPropagation()
@@ -276,7 +276,7 @@ export function BlockActionsPanel({
         const next = stepIndex(subActive, count, key === "ArrowDown" ? 1 : -1)
         setSubActive(next)
         revealRow(submenuRows()[next])
-      } else if (key === "Enter") {
+      } else if (isEnterKey(event)) {
         handled()
         const item = shownTurnIntoItems[Math.min(subActive, count - 1)]
         if (item) chooseTurnInto(item)
@@ -298,7 +298,7 @@ export function BlockActionsPanel({
       const next = key === "Home" ? 0 : rows.length - 1
       setActive(next)
       revealRow(rows[next])
-    } else if (key === "Enter") {
+    } else if (isEnterKey(event)) {
       handled()
       rows[Math.min(active, rows.length - 1)]?.click()
       if (rows[Math.min(active, rows.length - 1)] === turnIntoBtnRef.current) setSubActive(0)
