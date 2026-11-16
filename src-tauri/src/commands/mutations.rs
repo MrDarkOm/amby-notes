@@ -1013,8 +1013,7 @@ pub(crate) fn move_item_inner(
         let conn = conn_guard.as_ref().ok_or("No vault open")?;
         let prepared_plan = conn
             .pending_move_refactor
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .take()
             .filter(|cached| {
                 cached.source_path == source_path

@@ -155,8 +155,7 @@ pub fn queue_external_changes(
         }],
     };
     index_changes
-        .lock()
-        .unwrap()
+        .lock_or_recover()
         .extend(changes.iter().map(|change| PathBuf::from(&change.path)));
     changes
 }
@@ -817,5 +816,29 @@ mod event_batch_tests {
         fs::write(&empty, b"").unwrap();
         assert_eq!(path_fingerprint(&empty), fingerprint_for_bytes(b""));
         fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn queueing_changes_survives_an_index_queue_poisoned_by_a_panic() {
+        let queue = std::sync::Arc::new(Mutex::new(HashSet::new()));
+        let clone = std::sync::Arc::clone(&queue);
+        let _ = std::thread::spawn(move || {
+            let _guard = clone.lock().unwrap();
+            panic!("poison the index queue");
+        })
+        .join();
+        assert!(queue.is_poisoned());
+        let own_writes = Mutex::new(HashMap::new());
+
+        let changes = queue_external_changes(
+            Err(notify::Error::generic("overflow")),
+            Path::new("/vault"),
+            &own_writes,
+            1,
+            &queue,
+        );
+
+        assert_eq!(changes.len(), 1);
+        assert_eq!(queue.lock().unwrap().len(), 1);
     }
 }
