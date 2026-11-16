@@ -179,7 +179,8 @@ pub fn update_workshop(
             workshop_file_text: None,
             manifest_write: None,
         },
-        expected_result: serde_json::to_value(&expected).unwrap(),
+        expected_result: serde_json::to_value(&expected)
+            .map_err(|error| io_failure("serialize", error))?,
         extra: BTreeMap::new(),
     };
 
@@ -290,7 +291,8 @@ pub fn remove_workshop_section(
             workshop_file_text: None,
             manifest_write: None,
         },
-        expected_result: serde_json::to_value(&expected).unwrap(),
+        expected_result: serde_json::to_value(&expected)
+            .map_err(|error| io_failure("serialize", error))?,
         extra: BTreeMap::new(),
     };
 
@@ -387,7 +389,8 @@ pub fn reorder_workshop_sections(
             workshop_file_text: None,
             manifest_write: None,
         },
-        expected_result: serde_json::to_value(&expected).unwrap(),
+        expected_result: serde_json::to_value(&expected)
+            .map_err(|error| io_failure("serialize", error))?,
         extra: BTreeMap::new(),
     };
 
@@ -650,7 +653,8 @@ pub fn update_text_levels(
     let mut manifest_bytes =
         serde_json::to_vec_pretty(&next_manifest).map_err(|e| io_failure("serialize", e))?;
     manifest_bytes.push(b'\n');
-    let manifest_post_text = String::from_utf8(manifest_bytes.clone()).unwrap();
+    let manifest_post_text =
+        String::from_utf8(manifest_bytes.clone()).map_err(|e| io_failure("serialize", e))?;
     let manifest_rev = raw_revision(&manifest_bytes);
 
     // Update amby-story.json
@@ -695,7 +699,8 @@ pub fn update_text_levels(
                 post_text: manifest_post_text,
             }),
         },
-        expected_result: serde_json::to_value(&expected).unwrap(),
+        expected_result: serde_json::to_value(&expected)
+            .map_err(|error| io_failure("serialize", error))?,
         extra: BTreeMap::new(),
     };
 
@@ -802,7 +807,8 @@ pub fn add_text_status(
     let mut manifest_bytes =
         serde_json::to_vec_pretty(&next_manifest).map_err(|e| io_failure("serialize", e))?;
     manifest_bytes.push(b'\n');
-    let manifest_post_text = String::from_utf8(manifest_bytes.clone()).unwrap();
+    let manifest_post_text =
+        String::from_utf8(manifest_bytes.clone()).map_err(|e| io_failure("serialize", e))?;
     let manifest_rev = raw_revision(&manifest_bytes);
 
     let story_after =
@@ -847,7 +853,8 @@ pub fn add_text_status(
                 post_text: manifest_post_text,
             }),
         },
-        expected_result: serde_json::to_value(&expected).unwrap(),
+        expected_result: serde_json::to_value(&expected)
+            .map_err(|error| io_failure("serialize", error))?,
         extra: BTreeMap::new(),
     };
 

@@ -1,7 +1,6 @@
 //! A list in the header with no stored type reads as a multi-select whose options are its items
 //! (docs/sync-plan.md, З62, З.12): the owner found it as plain text with «- » in front of the lines.
 //! Nothing is written to the header or to the groups until the person edits.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::testkit::*;
 use super::*;

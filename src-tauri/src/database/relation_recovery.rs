@@ -250,9 +250,11 @@ pub(super) fn replay(
         return Err("Relation operationId was already used for a different request".to_owned());
     }
     match journal.status.as_str() {
-        "completed" => serde_json::from_value(journal.result.unwrap())
-            .map(Some)
-            .map_err(|error| error.to_string()),
+        "completed" => serde_json::from_value(journal.result.ok_or_else(|| {
+            "Relation operation is marked completed but its result was not recorded".to_owned()
+        })?)
+        .map(Some)
+        .map_err(|error| error.to_string()),
         "rolledBack" => Err("Relation operation was rolled back; use a new operationId".to_owned()),
         _ => Err("Relation operation requires recovery before retrying".to_owned()),
     }

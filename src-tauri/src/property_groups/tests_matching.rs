@@ -1,6 +1,5 @@
 //! Which key of the header a property is, and what the panel and the edits do when the header
 //! cannot be trusted (docs/sync-plan.md, appendix З: З1, З24–З27). Red until written.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::testkit::*;
 use super::*;

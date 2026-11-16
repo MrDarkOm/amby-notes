@@ -98,3 +98,8 @@ opt-level = 3
 opt-level = 3
 [profile.test.package.chacha20poly1305]
 opt-level = 3
+
+[lints.clippy]
+# Panicking on None/Err in shipped code is a decision, not a shortcut: use `?`, a handled error or
+# `expect` with the reason it cannot fail. Tests may unwrap (clippy.toml: allow-unwrap-in-tests).
+unwrap_used = "deny"

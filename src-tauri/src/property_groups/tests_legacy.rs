@@ -1,6 +1,5 @@
 //! Edits of an old version of Amby on another computer, carried over after the migration
 //! (docs/sync-plan.md, appendix З: З22, З36, З37). Red until written.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use serde_json::{json, Value};
 

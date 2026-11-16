@@ -1,7 +1,6 @@
 //! The whole path of "a note with properties is moved into a database and the person agrees to carry them
 //! over": the real commands' bodies one after another, as the interface calls them, then the rows and the
 //! fields the database lists. A failure anywhere on this path leaves the properties in the note.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use crate::commands::database::database_note_context_inner;
 use crate::commands::mutations::move_item_inner;

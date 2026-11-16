@@ -1,7 +1,6 @@
 //! The sequence every database command shares (gate, generation, module switch, lock, refresh,
 //! notification) and the warnings it produces. The command bodies are covered by the tests of the
 //! operations they call; these pin what only the sequence decides.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use crate::database::model::{DatabaseError, ProjectionVersion};
 use crate::database::mutation_run::{

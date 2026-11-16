@@ -1,6 +1,5 @@
 //! The template of basic properties and the order (docs/sync-plan.md, appendix З, З.11: З45, З46,
 //! З47). Red until written.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use serde_json::json;
 

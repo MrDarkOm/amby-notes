@@ -1,7 +1,6 @@
 //! The measurement at one million notes (docs/sync-plan.md, appendix З: З56). Not a gate: the
 //! tests are `#[ignore]`d and print numbers; the threshold of the gate is set after the first
 //! measurement. Run: `cargo test --release property_groups::tests_scale -- --ignored --nocapture`.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeMap;
 use std::time::Instant;

@@ -1,6 +1,5 @@
 //! «Взять значение из старого файла» after a rename in Amby: the old file knows the property by the
 //! name it had, the header by the name it has now (appendix З: З58). Written with the code.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use serde_json::json;
 

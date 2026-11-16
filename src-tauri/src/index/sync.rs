@@ -249,7 +249,7 @@ pub(super) fn resolve_scanned_id(
         warnings.push(format!(
             "{}: duplicate Amby id {}; source left unchanged",
             note.rel_path,
-            claimed_id.unwrap()
+            claimed_id.expect("`duplicate` is only true when the note claims an id")
         ));
         conflict_id(claimed_id, &note.rel_path)
     } else {
