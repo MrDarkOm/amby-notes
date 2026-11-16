@@ -34,6 +34,10 @@ for example to publish Amby in the App Store, whose terms do not fit the AGPL, o
 to offer a commercial license. In return, everything included in a release stays
 available to everyone under the AGPL or another open-source license.
 
+Signing by comment works once the CLA workflow is in `main`, which happens with
+the next stable promotion. Until then, read [CLA.md](CLA.md) and ask the
+maintainer in your pull request how to record your signature.
+
 ## Security
 
 Do not report a vulnerability in a public issue. Use
