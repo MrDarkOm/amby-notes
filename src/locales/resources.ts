@@ -82,6 +82,9 @@ const ru = {
         archive: "«Удалить» делает то же, что «В архив»: файл можно вернуть из архива",
         permanent: "Файлы удаляются без возможности восстановления; подтверждение всегда включено",
       },
+      folderClickToggles: "Клик по папке разворачивает её",
+      folderClickTogglesHint:
+        "Папка разворачивается и сворачивается по клику, карточка не открывается. Открыть её можно из контекстного меню",
       confirmFileDelete: "Подтверждать удаление файлов",
       confirmFileDeleteHint: "Настройка действует только для текущего хранилища",
       vaultSettingUnavailable: "Откройте хранилище, чтобы изменить эту настройку",
@@ -4646,6 +4649,9 @@ const en: typeof ru = {
         archive: "“Delete” does what “Archive” does: the file can be restored from the archive",
         permanent: "Files are deleted with no way to restore them; confirmation is always on",
       },
+      folderClickToggles: "Clicking a folder expands it",
+      folderClickTogglesHint:
+        "A click expands or collapses the folder without opening its card. Open the card from the context menu",
       confirmFileDelete: "Confirm before deleting files",
       confirmFileDeleteHint: "This setting applies only to the current vault",
       vaultSettingUnavailable: "Open a vault to change this setting",
