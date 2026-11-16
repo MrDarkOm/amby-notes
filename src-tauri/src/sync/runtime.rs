@@ -796,10 +796,7 @@ impl SyncRuntime {
         if let Some(session) = &inner.session {
             return session.status();
         }
-        inner
-            .resting
-            .clone()
-            .unwrap_or_else(VaultSyncStatus::off)
+        inner.resting.clone().unwrap_or_else(VaultSyncStatus::off)
     }
 
     fn with_session<T>(&self, action: impl FnOnce(&SyncSession) -> T) -> Result<T, SyncError> {
