@@ -24,6 +24,7 @@ import {
 
 const isMac = IS_SITE_DEMO || (typeof navigator !== "undefined" && /Mac/i.test(navigator.platform))
 import { cn } from "@/lib/utils"
+import { isComposingKeyEvent, isEnterKey } from "@/lib/keyboard"
 import { motionTransition, motionTransitions } from "@/lib/motion-config"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { isTauri } from "@/lib/storage"
@@ -279,6 +280,8 @@ export interface TabItemProps {
   tab: HeaderTab
   paneId?: string
   isSelected: boolean
+  /** The one tab of the strip that is in the Tab order; defaults to the selected one. */
+  isTabStop?: boolean
   isPaneFocused?: boolean
   isUnsaved?: boolean
   showDivider?: boolean
@@ -292,10 +295,51 @@ export interface TabItemProps {
   onClosePane?: () => void
 }
 
+/** The strip that holds the tabs of one pane. */
+export function TabList({
+  className,
+  children,
+}: {
+  className?: string
+  children: React.ReactNode
+}) {
+  const { t } = useTranslation()
+
+  // Arrows, Home and End only move focus; Enter or Space on the focused tab activates it.
+  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+    const current = (e.target as HTMLElement).closest<HTMLElement>('[role="tab"]')
+    if (!current || current !== e.target) return
+    const items = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]'))
+    const index = items.indexOf(current)
+    if (index < 0) return
+    let next: number
+    if (e.key === "ArrowRight") next = (index + 1) % items.length
+    else if (e.key === "ArrowLeft") next = (index - 1 + items.length) % items.length
+    else if (e.key === "Home") next = 0
+    else if (e.key === "End") next = items.length - 1
+    else return
+    e.preventDefault()
+    items[next]?.focus()
+  }
+
+  return (
+    <div
+      role="tablist"
+      aria-label={t("tabs.tabList")}
+      onKeyDown={handleKeyDown}
+      className={className}
+    >
+      {children}
+    </div>
+  )
+}
+
 export function TabItem({
   tab,
   paneId = "pane-root",
   isSelected,
+  isTabStop = isSelected,
   isPaneFocused = true,
   isUnsaved,
   showDivider,
@@ -330,6 +374,30 @@ export function TabItem({
         transition: { duration: 0.18, ease: [0.16, 1, 0.3, 1] },
       }}
       transition={motionTransitions.reorder}
+      role="tab"
+      aria-selected={isSelected}
+      tabIndex={isTabStop ? 0 : -1}
+      onKeyDown={(e) => {
+        // Keys pressed inside the tab (the close button) belong to that control.
+        if (e.target !== e.currentTarget || e.defaultPrevented) return
+        if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+        if (isEnterKey(e) || e.key === " ") {
+          if (e.key === " " && isComposingKeyEvent(e)) return
+          e.preventDefault()
+          onTabChange(tab.key)
+        } else if (e.key === "Delete" || e.key === "Backspace") {
+          e.preventDefault()
+          // Keep the keyboard place: focus the neighbour before this tab goes away.
+          const items = Array.from(
+            e.currentTarget
+              .closest('[role="tablist"]')
+              ?.querySelectorAll<HTMLElement>('[role="tab"]') ?? [],
+          )
+          const index = items.indexOf(e.currentTarget)
+          items[index + 1 < items.length ? index + 1 : index - 1]?.focus()
+          onTabClose(tab.key)
+        }
+      }}
       onClick={() => onTabChange(tab.key)}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -352,7 +420,7 @@ export function TabItem({
       }}
       title={tab.title}
       className={cn(
-        "group relative flex w-48 shrink min-w-10 cursor-pointer items-center justify-between self-center rounded-lg border px-2.5 text-sm select-none",
+        "amby-tab-item group relative flex w-48 shrink min-w-10 cursor-pointer items-center justify-between self-center rounded-lg border px-2.5 text-sm select-none",
         isSelected
           ? "h-10 self-end text-foreground border-0"
           : "h-8 text-muted-foreground border-transparent hover:bg-accent/40 hover:text-foreground",
@@ -395,6 +463,7 @@ export function TabItem({
               type="button"
               title={t("tabs.closeTab")}
               aria-label={t("tabs.closeTab")}
+              tabIndex={-1}
               onClick={(e) => {
                 e.stopPropagation()
                 onTabClose(tab.key)
@@ -499,6 +568,7 @@ export function HeaderTabs({
 }: HeaderTabsProps) {
   const { t } = useTranslation()
   const hideCenterStrip = isSplit && hideCenterTabsWhenSplit
+  const hasSelectedTab = tabs.some((tab) => tab.key === activeTabKey)
   // The left header dock ends on the same divider as the left body panel.
   // On macOS account for the fixed traffic-light region and the current rail width.
   const rightDockWidth = rightPanelEnabled && isRightDockPinned ? ACTIVITY_BAR_WIDTH : "0px"
@@ -814,7 +884,7 @@ export function HeaderTabs({
                 : "pl-0",
           )}
         >
-          <div className="flex h-full min-w-0 max-w-full items-center gap-1 overflow-hidden shrink">
+          <TabList className="flex h-full min-w-0 max-w-full items-center gap-1 overflow-hidden shrink">
             <AnimatePresence initial={false}>
               {tabs.map((tab, index) => {
                 const isSelected = activeTabKey === tab.key
@@ -828,6 +898,7 @@ export function HeaderTabs({
                     tab={tab}
                     paneId={paneId}
                     isSelected={isSelected}
+                    isTabStop={isSelected || (index === 0 && !hasSelectedTab)}
                     isUnsaved={unsavedFileIds?.has(tab.fileId)}
                     showDivider={showDivider}
                     totalTabsInPane={tabs.length}
@@ -841,7 +912,7 @@ export function HeaderTabs({
                 )
               })}
             </AnimatePresence>
-          </div>
+          </TabList>
 
           <motion.button
             type="button"

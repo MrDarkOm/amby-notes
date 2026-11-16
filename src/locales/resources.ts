@@ -1526,6 +1526,7 @@ const ru = {
   },
   tabs: {
     tabMenu: "Меню вкладок",
+    tabList: "Открытые вкладки",
     newTab: "Новая вкладка",
     removeBookmark: "Убрать из закладок",
     addBookmark: "Добавить в закладки",
@@ -6094,6 +6095,7 @@ const en: typeof ru = {
   },
   tabs: {
     tabMenu: "Tab menu",
+    tabList: "Open tabs",
     newTab: "New tab",
     removeBookmark: "Remove from bookmarks",
     addBookmark: "Add to bookmarks",
