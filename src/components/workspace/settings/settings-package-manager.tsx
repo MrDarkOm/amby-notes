@@ -15,12 +15,12 @@ import {
 } from "@/components/ui/dialog"
 import {
   getModuleUsage,
-  installFromRemoteUrl,
   installPackage,
   rollbackModule,
   uninstallModule,
 } from "@/lib/modules/package-manager/installer"
 import { getCatalogModule } from "@/lib/modules/package-manager/catalog"
+import { installCatalogModule } from "@/lib/modules/package-manager/catalog-install"
 import {
   InvalidPackageError,
   reportInstallFailure,
@@ -121,13 +121,7 @@ export function ModulePackageManager({
         onModuleChange?.()
         return
       }
-      const catalogEntry = await getCatalogModule(canonicalId)
-      const targetVersion = catalogEntry?.latestVersion ?? "1.0.0"
-      const url =
-        catalogEntry?.versions[targetVersion]?.downloadUrl ??
-        `https://github.com/MrDarkOm/amby-notes/releases/download/v0.1.4/${canonicalId}-${targetVersion}.amby-pkg`
-
-      const result = await installFromRemoteUrl(url)
+      const { result, targetVersion } = await installCatalogModule(canonicalId)
 
       if (result.success) {
         setStatusMessage({
