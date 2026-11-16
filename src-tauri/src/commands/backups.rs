@@ -97,11 +97,15 @@ pub async fn restore_vault_backup(
     let parent = parent
         .into_path()
         .map_err(|_| SyncError::new("backup_unsafe_destination"))?;
-    tauri::async_runtime::spawn_blocking(move || {
-        restore::restore(&vault, &backup_id, &parent, &operation_id).map(Some)
+    let restored = tauri::async_runtime::spawn_blocking(move || {
+        restore::restore(&vault, &backup_id, &parent, &operation_id)
     })
     .await
-    .map_err(|_| SyncError::new("backup_failed"))?
+    .map_err(|_| SyncError::new("backup_failed"))??;
+    // The restored copy is opened as a vault next (IPC-03): Rust made it, so Rust vouches for it.
+    app.state::<crate::path_grants::PathGrants>()
+        .grant_folder(std::path::Path::new(&restored.path));
+    Ok(Some(restored))
 }
 
 #[cfg(test)]
