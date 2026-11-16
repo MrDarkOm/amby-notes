@@ -169,3 +169,313 @@ fn error_inside_a_database_still_freezes_that_database() {
     drop(conn);
     fs::remove_dir_all(vault).unwrap();
 }
+
+// ---- Scoped rebuild (DB-02): a change in one database must not rebuild unrelated ones. ----
+
+fn id(suffix: &str) -> String {
+    format!("01J{suffix:0>23}")
+}
+
+fn write_manifest(vault: &Path, folder: &str, database_id: &str, properties: serde_json::Value) {
+    let database = vault.join(folder);
+    fs::create_dir_all(database.join(".ambd/records")).unwrap();
+    let manifest = json!({
+        "format": "amby-database",
+        "formatVersion": 1,
+        "databaseId": database_id,
+        "name": folder,
+        "locked": false,
+        "membership": {"kind": "filesystem-descendants", "recursive": true},
+        "properties": properties,
+        "viewOrder": [],
+        "defaultViewId": null,
+        "templateOrder": [],
+        "defaultTemplateId": null
+    });
+    fs::write(
+        database.join("ambd.json"),
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+}
+
+fn number_property(property_id: &str, name: &str) -> serde_json::Value {
+    json!({
+        "id": property_id, "name": name, "type": "number",
+        "pageVisibility": "alwaysShow", "yamlBinding": null,
+        "config": {"format": "number", "currency": null}
+    })
+}
+
+fn write_record(
+    vault: &Path,
+    folder: &str,
+    database_id: &str,
+    note_id: &str,
+    values: serde_json::Value,
+) {
+    fs::write(
+        vault
+            .join(folder)
+            .join(format!(".ambd/records/{note_id}.json")),
+        serde_json::to_vec_pretty(&json!({
+            "format": "amby-database-record", "formatVersion": 1,
+            "databaseId": database_id, "noteId": note_id, "values": values
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+}
+
+fn set_hours(vault: &Path, hours: &str) {
+    write_record(
+        vault,
+        "Tasks",
+        &id("T"),
+        &id("T1"),
+        json!({ id("TH"): {"type": "number", "decimal": hours} }),
+    );
+}
+
+/// Projects (relation + rollup over Tasks.hours), Tasks, and an unrelated Other.
+fn linked_vault(name: &str) -> (PathBuf, Connection) {
+    let vault = temp_vault(name);
+    write_manifest(
+        &vault,
+        "Tasks",
+        &id("T"),
+        json!([number_property(&id("TH"), "Hours")]),
+    );
+    write_row(&vault, "Tasks", "Task", &id("T1"));
+    set_hours(&vault, "5");
+    write_manifest(
+        &vault,
+        "Projects",
+        &id("P"),
+        json!([
+            {
+                "id": id("PR"), "name": "Tasks", "type": "relation",
+                "pageVisibility": "alwaysShow", "yamlBinding": null,
+                "config": {"targetDatabaseId": id("T"), "maxItems": null, "inversePropertyId": null}
+            },
+            {
+                "id": id("PS"), "name": "Total", "type": "rollup",
+                "pageVisibility": "alwaysShow", "yamlBinding": null,
+                "config": {"relationPropertyId": id("PR"), "targetPropertyId": id("TH"), "aggregation": "sum"}
+            }
+        ]),
+    );
+    write_row(&vault, "Projects", "Project", &id("P1"));
+    write_record(
+        &vault,
+        "Projects",
+        &id("P"),
+        &id("P1"),
+        json!({ id("PR"): {"type": "relation", "targetNoteIds": [id("T1")]} }),
+    );
+    write_manifest(
+        &vault,
+        "Other",
+        &id("Q"),
+        json!([number_property(&id("QH"), "Count")]),
+    );
+    write_row(&vault, "Other", "Item", &id("Q1"));
+    let conn = open_connection(&vault).unwrap();
+    sync_vault(&conn, &vault).unwrap();
+    assert!(
+        rebuild_database_projection(&conn, &vault)
+            .unwrap()
+            .published
+    );
+    (vault, conn)
+}
+
+fn mark(conn: &Connection, database_id: &str) {
+    conn.execute(
+        "UPDATE db_databases SET name = 'SENTINEL' WHERE database_id = ?1",
+        [database_id],
+    )
+    .unwrap();
+}
+
+fn database_name(conn: &Connection, database_id: &str) -> String {
+    conn.query_row(
+        "SELECT name FROM db_databases WHERE database_id = ?1",
+        [database_id],
+        |row| row.get(0),
+    )
+    .unwrap()
+}
+
+fn rollup_total(conn: &Connection) -> Option<String> {
+    conn.query_row(
+        "SELECT decimal_value FROM db_values WHERE database_id = ?1 AND note_id = ?2 AND property_id = ?3",
+        params![id("P"), id("P1"), id("PS")],
+        |row| row.get(0),
+    )
+    .optional()
+    .unwrap()
+}
+
+fn version(conn: &Connection) -> (String, String) {
+    (
+        metadata_value(conn, "database_projection_epoch")
+            .unwrap()
+            .unwrap(),
+        metadata_value(conn, "database_projection_seq")
+            .unwrap()
+            .unwrap(),
+    )
+}
+
+/// The projection tables in a form that does not depend on row ids or timestamps.
+fn dump(conn: &Connection) -> Vec<String> {
+    let queries = [
+        "SELECT 'db', database_id || '|' || name || '|' || container_path || '|' || projection_state || '|' || manifest_revision FROM db_databases",
+        "SELECT 'prop', database_id || '|' || property_id || '|' || position || '|' || name || '|' || property_type || '|' || config_json FROM db_properties",
+        "SELECT 'member', database_id || '|' || note_id FROM db_members",
+        "SELECT 'rev', database_id || '|' || note_id || '|' || revision FROM db_record_revisions",
+        "SELECT 'value', database_id || '|' || note_id || '|' || property_id || '|' || value_type || '|' || canonical_json || '|' || IFNULL(decimal_value, '') FROM db_values",
+        "SELECT 'edge', source_note_id || '|' || target_note_id || '|' || target_state FROM db_relation_edges",
+        "SELECT 'diag', scope_kind || '|' || scope_key || '|' || code FROM db_diagnostics",
+    ];
+    let mut lines = Vec::new();
+    for query in queries {
+        let mut statement = conn.prepare(query).unwrap();
+        let rows = statement
+            .query_map([], |row| {
+                Ok(format!(
+                    "{}:{}",
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        lines.extend(rows);
+    }
+    lines.sort();
+    lines
+}
+
+#[test]
+fn scoped_rebuild_after_new_row_leaves_unrelated_databases_untouched() {
+    let (vault, conn) = linked_vault("scoped-row");
+    mark(&conn, &id("Q"));
+    let (epoch, seq) = version(&conn);
+
+    write_row(&vault, "Tasks", "Second", &id("T2"));
+    sync_vault(&conn, &vault).unwrap();
+    let report = rebuild_database_projection_scoped(&conn, &vault, &[&id("T")]).unwrap();
+
+    assert!(report.published);
+    assert_eq!(member_titles(&conn, &id("T")), ["Second", "Task"]);
+    assert_eq!(
+        database_name(&conn, &id("Q")),
+        "SENTINEL",
+        "an unrelated database must not be rebuilt"
+    );
+    let (new_epoch, new_seq) = version(&conn);
+    assert_eq!(new_epoch, epoch);
+    assert_eq!(
+        new_seq.parse::<u64>().unwrap(),
+        seq.parse::<u64>().unwrap() + 1
+    );
+    drop(conn);
+    fs::remove_dir_all(vault).unwrap();
+}
+
+#[test]
+fn scoped_rebuild_after_new_property_leaves_unrelated_databases_untouched() {
+    let (vault, conn) = linked_vault("scoped-property");
+    mark(&conn, &id("P"));
+
+    write_manifest(
+        &vault,
+        "Other",
+        &id("Q"),
+        json!([
+            number_property(&id("QH"), "Count"),
+            number_property(&id("QJ"), "Extra")
+        ]),
+    );
+    rebuild_database_projection_scoped(&conn, &vault, &[&id("Q")]).unwrap();
+    let properties: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM db_properties WHERE database_id = ?1",
+            [id("Q")],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(properties, 2);
+    assert_eq!(
+        database_name(&conn, &id("P")),
+        "SENTINEL",
+        "a database with no relation to the changed one must not be rebuilt"
+    );
+    drop(conn);
+    fs::remove_dir_all(vault).unwrap();
+}
+
+#[test]
+fn scoped_rebuild_also_rebuilds_databases_that_depend_through_relations() {
+    let (vault, conn) = linked_vault("scoped-linked");
+    assert_eq!(rollup_total(&conn).as_deref(), Some("5"));
+    mark(&conn, &id("P"));
+    mark(&conn, &id("Q"));
+
+    set_hours(&vault, "8");
+    rebuild_database_projection_scoped(&conn, &vault, &[&id("T")]).unwrap();
+
+    assert_eq!(
+        rollup_total(&conn).as_deref(),
+        Some("8"),
+        "the rollup in Projects follows Tasks"
+    );
+    assert_eq!(database_name(&conn, &id("P")), "Projects");
+    assert_eq!(database_name(&conn, &id("Q")), "SENTINEL");
+    drop(conn);
+    fs::remove_dir_all(vault).unwrap();
+}
+
+#[test]
+fn scoped_rebuild_equals_full_rebuild() {
+    let (vault, conn) = linked_vault("scoped-equal");
+    set_hours(&vault, "8");
+    write_row(&vault, "Tasks", "Second", &id("T2"));
+    write_manifest(
+        &vault,
+        "Tasks",
+        &id("T"),
+        json!([
+            number_property(&id("TH"), "Hours"),
+            number_property(&id("TJ"), "Extra")
+        ]),
+    );
+    sync_vault(&conn, &vault).unwrap();
+
+    rebuild_database_projection_scoped(&conn, &vault, &[&id("T")]).unwrap();
+    let scoped = dump(&conn);
+    rebuild_database_projection(&conn, &vault).unwrap();
+    assert_eq!(scoped, dump(&conn));
+    assert!(scoped
+        .iter()
+        .any(|line| line.starts_with("value:") && line.contains("|8")));
+    drop(conn);
+    fs::remove_dir_all(vault).unwrap();
+}
+
+#[test]
+fn scoped_rebuild_falls_back_to_full_when_another_database_is_out_of_date() {
+    let (vault, conn) = linked_vault("scoped-fallback");
+    write_row(&vault, "Tasks", "Second", &id("T2"));
+    write_row(&vault, "Other", "Late", &id("Q2"));
+    sync_vault(&conn, &vault).unwrap();
+
+    rebuild_database_projection_scoped(&conn, &vault, &[&id("T")]).unwrap();
+
+    assert_eq!(member_titles(&conn, &id("Q")), ["Item", "Late"]);
+    drop(conn);
+    fs::remove_dir_all(vault).unwrap();
+}

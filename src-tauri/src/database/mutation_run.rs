@@ -114,6 +114,24 @@ impl DatabaseScope<'_> {
         }
     }
 
+    /// Rebuild only `database_ids` and the databases tied to them by relations; everything
+    /// else keeps its published rows. Falls back to a full rebuild when that is not provably
+    /// safe (see `projection::rebuild_database_projection_scoped`).
+    pub fn rebuild_databases(&self, database_ids: &[&str]) -> ProjectionOutcome {
+        self.publish(projection::rebuild_database_projection_scoped(
+            &self.active.connection,
+            &self.active.root,
+            database_ids,
+        ))
+    }
+
+    /// Scoped rebuild; a failure adds `ProjectionRebuild` to `warnings`.
+    pub fn rebuild_databases_or_warn(&self, database_ids: &[&str], warnings: &mut Vec<String>) {
+        if self.rebuild_databases(database_ids).is_failed() {
+            ProjectionWarning::ProjectionRebuild.push_into(warnings);
+        }
+    }
+
     pub fn refresh_views(&self, database_id: &str) -> ProjectionOutcome {
         self.publish(projection::refresh_database_views(
             &self.active.connection,

@@ -403,7 +403,7 @@ pub fn create_database_property(
                 &request,
             )
             .map_err(failed("databasePropertyCreateFailed"))?;
-            scope.rebuild_or_warn(&mut created.warnings);
+            scope.rebuild_databases_or_warn(&[request.database_id.as_str()], &mut created.warnings);
             tracing::info!(
                 event = "create_database_property",
                 database_id = %request.database_id,
@@ -436,7 +436,7 @@ pub fn change_database_property_type(
                 &request,
             )
             .map_err(failed("databasePropertyTypeChangeFailed"))?;
-            scope.rebuild_or_warn(&mut changed.warnings);
+            scope.rebuild_databases_or_warn(&[request.database_id.as_str()], &mut changed.warnings);
             tracing::info!(
                 event = "change_database_property_type",
                 database_id = %request.database_id,
@@ -469,7 +469,7 @@ pub fn delete_database_property(
                 &request,
             )
             .map_err(failed("databasePropertyDeleteFailed"))?;
-            scope.rebuild_or_warn(&mut deleted.warnings);
+            scope.rebuild_databases_or_warn(&[request.database_id.as_str()], &mut deleted.warnings);
             tracing::info!(
                 event = "delete_database_property",
                 database_id = %request.database_id,
@@ -501,7 +501,10 @@ pub fn reorder_database_properties(
                 &request,
             )
             .map_err(failed("databasePropertiesReorderFailed"))?;
-            scope.rebuild_or_warn(&mut reordered.warnings);
+            scope.rebuild_databases_or_warn(
+                &[request.database_id.as_str()],
+                &mut reordered.warnings,
+            );
             Ok(reordered)
         },
     )
@@ -552,7 +555,7 @@ pub fn rename_database_property(
                 &request,
             )
             .map_err(failed("databasePropertyRenameFailed"))?;
-            scope.rebuild_or_warn(&mut renamed.warnings);
+            scope.rebuild_databases_or_warn(&[request.database_id.as_str()], &mut renamed.warnings);
             tracing::info!(
                 event = "rename_database_property",
                 database_id = %request.database_id,
@@ -585,7 +588,7 @@ pub fn update_database_property_config(
                 &request,
             )
             .map_err(failed("databasePropertyConfigFailed"))?;
-            scope.rebuild_or_warn(&mut updated.warnings);
+            scope.rebuild_databases_or_warn(&[request.database_id.as_str()], &mut updated.warnings);
             tracing::info!(
                 event = "update_database_property_config",
                 database_id = %request.database_id,
@@ -617,7 +620,7 @@ pub fn update_database_property_options(
                 &request,
             )
             .map_err(failed("databasePropertyOptionsFailed"))?;
-            scope.rebuild_or_warn(&mut updated.warnings);
+            scope.rebuild_databases_or_warn(&[request.database_id.as_str()], &mut updated.warnings);
             tracing::info!(
                 event = "update_database_property_options",
                 database_id = %request.database_id,
@@ -650,7 +653,10 @@ pub fn configure_database_rollup(
                 &request,
             )
             .map_err(failed("databaseRollupConfigureFailed"))?;
-            scope.rebuild_or_warn(&mut configured.warnings);
+            scope.rebuild_databases_or_warn(
+                &[request.database_id.as_str()],
+                &mut configured.warnings,
+            );
             Ok(configured)
         },
     )
@@ -830,7 +836,7 @@ pub fn create_database_row(
                 crate::database::rows::create_database_row(&scope.active.root, &watcher, &request)
                     .map_err(failed("databaseRowCreateFailed"))?;
             scope.index_created_row(&mut created);
-            scope.rebuild_or_warn(&mut created.warnings);
+            scope.rebuild_databases_or_warn(&[request.database_id.as_str()], &mut created.warnings);
             tracing::info!(
                 event = "create_database_row",
                 database_id = %request.database_id,
@@ -864,7 +870,7 @@ pub fn duplicate_database_row(
             )
             .map_err(failed("databaseRowDuplicateFailed"))?;
             scope.index_created_row(&mut created);
-            scope.rebuild_or_warn(&mut created.warnings);
+            scope.rebuild_databases_or_warn(&[request.database_id.as_str()], &mut created.warnings);
             tracing::info!(
                 event = "duplicate_database_row",
                 database_id = %request.database_id,
