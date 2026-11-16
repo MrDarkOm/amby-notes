@@ -127,7 +127,13 @@ fn cell_edit_with_a_current_index_scans_neither_the_vault_nor_the_container() {
     let fixture = fixture(3, 25);
     let row = &fixture.rows[1];
     reset_counters();
-    edit(&fixture, row, "done", row.record_revision.clone()).unwrap();
+    edit(
+        &fixture,
+        row,
+        "done",
+        raw_revision(&fs::read(&row.note_path).unwrap()),
+    )
+    .unwrap();
     assert_eq!(counters(), (0, 0), "(vault scans, container walks)");
     assert!(fs::read_to_string(&row.note_path).unwrap().contains("done"));
     let _ = fs::remove_dir_all(&fixture.vault);
@@ -179,9 +185,10 @@ fn stale_index_after_a_note_left_the_database_refuses_and_changes_nothing() {
     let fixture = fixture(2, 0);
     let row = &fixture.rows[0];
     let outside = fixture.vault.join("Loose/Left.md");
+    let revision = raw_revision(&fs::read(&row.note_path).unwrap());
     fs::rename(&row.note_path, &outside).unwrap();
     let before = fs::read(&outside).unwrap();
-    assert!(edit(&fixture, row, "done", String::new()).is_err());
+    assert!(edit(&fixture, row, "done", revision).is_err());
     assert_eq!(fs::read(&outside).unwrap(), before);
     let _ = fs::remove_dir_all(&fixture.vault);
 }
@@ -191,6 +198,7 @@ fn stale_index_after_the_database_folder_moved_falls_back_to_the_vault_scan() {
     let fixture = fixture(2, 0);
     let row = &fixture.rows[0];
     let file_name = Path::new(&row.note_path).file_name().unwrap().to_owned();
+    let revision = raw_revision(&fs::read(&row.note_path).unwrap());
     fs::create_dir_all(fixture.vault.join("Archive")).unwrap();
     fs::rename(
         fixture.vault.join("Projects"),
@@ -199,7 +207,7 @@ fn stale_index_after_the_database_folder_moved_falls_back_to_the_vault_scan() {
     .unwrap();
     let note = fixture.vault.join("Archive/Projects").join(file_name);
     reset_counters();
-    edit(&fixture, row, "done", row.record_revision.clone()).unwrap();
+    edit(&fixture, row, "done", revision).unwrap();
     assert_eq!(counters().0, 1, "one vault scan to find the moved database");
     assert!(fs::read_to_string(note).unwrap().contains("done"));
     let _ = fs::remove_dir_all(&fixture.vault);
@@ -209,7 +217,13 @@ fn stale_index_after_the_database_folder_moved_falls_back_to_the_vault_scan() {
 fn incremental_projection_after_a_cell_edit_does_not_walk_the_container() {
     let fixture = fixture(3, 10);
     let row = &fixture.rows[2];
-    edit(&fixture, row, "done", row.record_revision.clone()).unwrap();
+    edit(
+        &fixture,
+        row,
+        "done",
+        raw_revision(&fs::read(&row.note_path).unwrap()),
+    )
+    .unwrap();
     let conn = open_connection(&fixture.vault).unwrap();
     reset_counters();
     crate::database::projection::update_database_values_incremental(
@@ -238,7 +252,13 @@ fn two_notes_with_one_id_in_a_database_refuse_the_edit_and_change_neither() {
     reindex(&fixture);
     let first = fs::read(&row.note_path).unwrap();
     let second = fs::read(&twin).unwrap();
-    let error = edit(&fixture, row, "done", String::new()).unwrap_err();
+    let error = edit(
+        &fixture,
+        row,
+        "done",
+        raw_revision(&fs::read(&row.note_path).unwrap()),
+    )
+    .unwrap_err();
     assert!(error.to_string().contains("Ambiguous note ID"), "{error}");
     assert_eq!(fs::read(&row.note_path).unwrap(), first);
     assert_eq!(fs::read(&twin).unwrap(), second);
@@ -256,7 +276,12 @@ fn two_manifests_with_one_database_id_take_the_scanning_path() {
     reindex(&fixture);
     reset_counters();
     let row = &fixture.rows[0];
-    let _ = edit(&fixture, row, "done", row.record_revision.clone());
+    let _ = edit(
+        &fixture,
+        row,
+        "done",
+        raw_revision(&fs::read(&row.note_path).unwrap()),
+    );
     assert_eq!(
         counters().0,
         1,
