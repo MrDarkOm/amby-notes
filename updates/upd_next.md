@@ -1,5 +1,9 @@
 # Amby — Next version
 
+- Fixed note windows opened separately using a system title bar instead of Amby's header. They now use the same macOS overlay and window-button placement as the main window, and no system decorations on Windows and Linux.
+
+- Fixed "Show in file manager" for workspace and note folders: it now opens the folder itself instead of showing its parent with the folder selected. Files are still selected in their containing folder.
+
 - For developers: the repository now uses English for all docs, plans, maps, agent instructions and release notes (`updates/`); Russian stays only as an app interface language. `AGENTS.md` (also read by Claude Code and Gemini CLI) has a language policy for agents: they take requests in Russian, work and write in English, and answer the owner briefly in Russian. The release notes template, the GitHub installation footer and the beta banner of a release are in English; older Russian documents are translated over time. App behavior did not change.
 - For developers: a plan for the `amby` command line (for people, scripts and AI agents through `amby mcp`) and for moving the vault core into its own crate without Tauri — `docs/road/cli.md`. This is a task description; app behavior did not change.
 - For developers: the remaining Russian documents (plans, audits, contracts, the sync plan) are translated to English; app behavior did not change.

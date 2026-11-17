@@ -61,12 +61,15 @@ pub fn open_command(platform: Platform, target: &OsStr) -> SystemCommand {
     }
 }
 
-/// Asks the system to show `target` in the file manager, not to run it. macOS and Windows select the
-/// item in its folder. Linux has no common way to select, so a folder is opened itself and a file is
-/// shown by opening the folder that holds it: handing the file to `xdg-open` would run it, past the
+/// Opens a directory itself in the file manager. For files, macOS and Windows select the item in its
+/// folder. Linux has no common way to select, so a file is shown by opening the folder that holds
+/// it: handing the file to `xdg-open` would run it, past the
 /// list of types that `open_attachment` keeps.
 pub fn reveal_command(platform: Platform, target: &Path, is_dir: bool) -> SystemCommand {
     let target = plain_path(target);
+    if is_dir {
+        return open_command(platform, target.as_os_str());
+    }
     match platform {
         Platform::Windows => SystemCommand {
             program: "explorer",
@@ -79,11 +82,7 @@ pub fn reveal_command(platform: Platform, target: &Path, is_dir: bool) -> System
             raw_tail: None,
         },
         Platform::Linux => {
-            let shown = if is_dir {
-                target
-            } else {
-                target.parent().map(Path::to_path_buf).unwrap_or(target)
-            };
+            let shown = target.parent().map(Path::to_path_buf).unwrap_or(target);
             open_command(platform, shown.as_os_str())
         }
     }
@@ -151,9 +150,20 @@ mod tests {
     }
 
     #[test]
-    fn linux_opens_a_folder_itself_when_a_folder_is_asked_for() {
-        let command = reveal_command(Platform::Linux, Path::new("/vault/Notes"), true);
-        assert_eq!(command.args, vec![arg("/vault/Notes")]);
+    fn folders_open_themselves_instead_of_selecting_them_in_the_parent() {
+        for (platform, program, folder) in [
+            (Platform::Linux, "xdg-open", "/vault/My Notes"),
+            (Platform::MacOs, "open", "/Users/owner/Documents/My Notes"),
+            (Platform::Windows, "explorer", r"\\?\C:\Vault\My Notes"),
+        ] {
+            let command = reveal_command(platform, Path::new(folder), true);
+            assert_eq!(command.program, program);
+            assert_eq!(
+                command.args,
+                vec![plain_path(Path::new(folder)).into_os_string()]
+            );
+            assert_eq!(command.raw_tail, None);
+        }
     }
 
     #[test]
