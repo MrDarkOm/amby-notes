@@ -364,3 +364,25 @@
 - Внутреннее (CRE-06): тестовый построитель мастерской из трёх баз (`create_workshop`, `WorkshopKind::Partial`) убран из боевого `project/create.rs` в `#[cfg(test)]`-модуль `create_test_support.rs`; боевой код принимает «форму» мастерской (`WorkshopShape`) вместо перечисления с тестовым вариантом. Поведение не менялось, тесты проекта зелёные.
 
 - Мастерская (карантин журналов): перенос журнала в `quarantine/` больше не затирает уже лежащий там файл с тем же именем; через `rename_no_replace` занятое имя заменяется на следующее свободное (`имя-2.json`, `имя-3.json`…). Тест: `a_second_journal_with_a_quarantined_name_does_not_replace_the_first`.
+
+- Инструменты (TOOL-03): прямая зависимость `rfd` поднята до 0.17, в `Cargo.lock` остался один `rfd`; причина в `docs/security-advisories.md` обновлена.
+
+- Инструменты (TOOL-04): `clippy::unwrap_used` включён как `deny` для боевого Rust (`[lints.clippy]`, в тестах разрешён через `clippy.toml`); 21 бесполезный `#![allow]` в тестовых файлах убран, 21 `unwrap` в боевом коде заменён ошибкой или `expect` с причиной. Поведение не менялось.
+
+- Инструменты (TOOL-05): `tests/tsconfig.json` и проверка `tsc` для тестов внутри `npm run typecheck`; исправлены накопившиеся ошибки типов в тестах. Скрипты `scripts/*.mjs` остаются непроверяемым JavaScript.
+
+- Инструменты (TOOL-06): последние три предупреждения линтера исправлены (`option-actions.tsx` стал `.ts`), `npm run lint` идёт с `--max-warnings 0`.
+
+- Инструменты (TOOL-07): `version:check` и `test:update-channels` запускаются в задаче `docs` проверки (`verify.yml`), а не только при выпуске.
+
+- Инструменты (TOOL-09): `rust-toolchain.toml` (Rust 1.99.1), `rust-version = "1.99"`, `.nvmrc` (Node 22), `--locked` в cargo-командах приложения и `sync/`; рабочие процессы `verify.yml` и `sync.yml` читают версии из этих файлов. В CI не проверено.
+
+- Инструменты (TOOL-10): `tauri-action` в `release.yml` закреплён за коммитом (тег `v1` подвижный), добавлен `.github/dependabot.yml` для GitHub Actions.
+
+- Инструменты (TOOL-11): `scripts/dev-only-paths.txt` внесён в собственный список: на `beta` и `main` устаревшая копия больше не остаётся (`promote` читает список из `dev`).
+
+- Инструменты (TOOL-12): из карты мастерской убрана ссылка на удалённый тест `empty-action.test.tsx`; других отсутствующих тестов в картах нет.
+
+- Инструменты (TOOL-13): `sync:lint` (fmt, clippy, cargo-deny) добавлен в `verify:full`; нужен установленный `cargo-deny`.
+
+- Инструменты (TOOL-14): `@types/d3-force` перенесён в `devDependencies` (lock-файл обновлён офлайн), причины всех `overrides` собраны в `docs/security-advisories.md`.
