@@ -1,5 +1,7 @@
 # Amby — Следующая версия
 
+- For developers: the remaining Russian documents (plans, audits, contracts, the sync plan) are translated to English; app behavior did not change.
+
 - Для разработчиков: Rust обновлён до 1.100.0 (`rust-toolchain.toml`, `rust-version` в `src-tauri/Cargo.toml`). Проверки синхронизации в CI (`sync-gates.yml`) теперь тоже берут закреплённую версию, а не плавающую stable.
 
 - Обновление: перед установкой обновления все окна сохраняют открытые правки. Раньше перезапуск после обновления мог оборвать последние секунды набора. Если правки не удалось сохранить, обновление не ставится: в настройках об этом сказано, и кнопка «Установить» повторяет попытку.
