@@ -115,26 +115,27 @@ fn namespaced_identity_keeps_invalid_and_duplicate_notes_readable() {
 }
 
 #[test]
-fn namespaced_identity_migrates_legacy_with_backup_and_exact_rollback() {
+fn a_foreign_ulid_in_id_is_never_reused_and_its_bytes_stay() {
     let root = vault();
     let id = Ulid::generate().to_string();
     let original = format!("\u{feff}---\r\n# keep\r\nid: '{id}'\r\n---\r\nBody\n");
-    let path = root.join("Legacy.md");
+    let path = root.join("Foreign.md");
     fs::write(&path, &original).unwrap();
-    let conn = open_connection(&root).unwrap();
-    let loaded = load_vault(&conn, &root).unwrap();
-    assert_ne!(loaded.notes[0].id, id);
-    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    // A note without `amby-id` is planned like any other, whatever its generic `id` holds.
     let preflight = preflight_vault(&root).unwrap();
-    assert_eq!(preflight.planned_id_writes, vec!["Legacy.md"]);
+    assert_eq!(preflight.planned_id_writes, vec!["Foreign.md"]);
+    assert!(preflight.duplicate_ids.is_empty());
     let migration = apply_id_migration(&root).unwrap();
-    assert_eq!(
-        fs::read_to_string(&path).unwrap(),
-        original.replacen("---\r\n", &format!("---\r\namby-id: {id}\r\n"), 1)
+    let migrated = fs::read_to_string(&path).unwrap();
+    let assigned = frontmatter::read_markdown(&path).unwrap().id.unwrap();
+    assert_ne!(assigned, id);
+    assert!(
+        migrated.contains(&format!("\r\nid: '{id}'\r\n")),
+        "{migrated}"
     );
     assert_eq!(
-        frontmatter::read_markdown(&path).unwrap().id.as_deref(),
-        Some(id.as_str())
+        migrated,
+        original.replacen("---\r\n", &format!("---\r\namby-id: {assigned}\r\n"), 1)
     );
     recover_id_migration(
         &root,
@@ -143,12 +144,41 @@ fn namespaced_identity_migrates_legacy_with_backup_and_exact_rollback() {
     )
     .unwrap();
     assert_eq!(fs::read_to_string(&path).unwrap(), original);
-    drop(conn);
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
-fn external_canonical_ulid_is_only_a_candidate_in_full_and_incremental_scans() {
+fn notes_sharing_a_foreign_ulid_get_distinct_ids_and_are_not_duplicates() {
+    let root = vault();
+    let id = Ulid::generate().to_string();
+    let source = format!("---\nid: {id}\n---\nBody\n");
+    fs::write(root.join("A.md"), &source).unwrap();
+    fs::write(root.join("B.md"), &source).unwrap();
+    let preflight = preflight_vault(&root).unwrap();
+    assert!(preflight.duplicate_ids.is_empty());
+    assert_eq!(preflight.planned_id_writes, vec!["A.md", "B.md"]);
+    apply_id_migration(&root).unwrap();
+    let a = frontmatter::read_markdown(&root.join("A.md"))
+        .unwrap()
+        .id
+        .unwrap();
+    let b = frontmatter::read_markdown(&root.join("B.md"))
+        .unwrap()
+        .id
+        .unwrap();
+    assert_ne!(a, b);
+    assert_ne!(a, id);
+    assert_ne!(b, id);
+    for name in ["A.md", "B.md"] {
+        assert!(fs::read_to_string(root.join(name))
+            .unwrap()
+            .ends_with(&format!("id: {id}\n---\nBody\n")));
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_foreign_ulid_in_id_is_not_a_conflict_in_full_and_incremental_scans() {
     let root = vault();
     let id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
     let original = format!("---\n# external system\nid: '{id}'\n---\nsearchable external body");
@@ -156,27 +186,72 @@ fn external_canonical_ulid_is_only_a_candidate_in_full_and_incremental_scans() {
     fs::write(&path, &original).unwrap();
     assert_eq!(frontmatter::parse_markdown(&original).note_id(), None);
     let conn = open_connection(&root).unwrap();
-    for _ in 0..2 {
-        let loaded = load_vault(&conn, &root).unwrap();
-        assert_eq!(loaded.notes.len(), 1);
-        assert_ne!(loaded.notes[0].id, id);
-        assert!(read_note(&conn, &root, &loaded.notes[0].id)
-            .unwrap()
-            .content
-            .contains("external body"));
-        assert_eq!(search_notes(&conn, &root, "searchable").unwrap().len(), 1);
-        assert_ne!(
-            super::note_index::prepare_note_at_path(&conn, &root, &path)
-                .unwrap()
-                .note_id,
-            id
-        );
-        assert_eq!(fs::read_to_string(&path).unwrap(), original);
-    }
-    apply_id_migration(&root).unwrap();
-    assert_eq!(load_vault(&conn, &root).unwrap().notes[0].id, id);
+    let loaded = load_vault(&conn, &root).unwrap();
+    assert_eq!(loaded.notes.len(), 1);
+    let note_id = loaded.notes[0].id.clone();
+    assert_ne!(note_id, id);
+    // The index gave it a real identity: the file holds it and the body can be saved.
+    let source = fs::read_to_string(&path).unwrap();
+    assert!(source.starts_with(&format!(
+        "---\namby-id: {note_id}\n# external system\nid: '{id}'\n"
+    )));
+    let read = read_note(&conn, &root, &note_id).unwrap();
+    assert!(read.content.contains("external body"));
+    assert!(prepare_note_write(&conn, &root, &note_id, "edited body", &read.revision).is_ok());
+    assert_eq!(search_notes(&conn, &root, "searchable").unwrap().len(), 1);
+    let again = super::note_index::prepare_note_at_path(&conn, &root, &path).unwrap();
+    assert_eq!(again.note_id, note_id);
     drop(conn);
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_version_1_journal_that_reused_the_foreign_ulid_still_resumes_and_rolls_back() {
+    for resumed_state in [false, true] {
+        let root = vault();
+        let path = root.join("Note.md");
+        let id = "01ARZ3NDEKTSV4RRFFQ69G5FAV".to_string();
+        let original = format!("---\nid: {id}\n---\nBody\n");
+        // What an older build wrote: the ULID from `id` copied into `amby-id`.
+        let written = format!("---\namby-id: {id}\nid: {id}\n---\nBody\n");
+        fs::write(&path, if resumed_state { &written } else { &original }).unwrap();
+        let backup_root = root.join(".amby/backups/old");
+        fs::create_dir_all(&backup_root).unwrap();
+        fs::write(backup_root.join("Note.md"), &original).unwrap();
+        let journal_path = migration_directory(&root).join("old.json");
+        let journal = IdMigrationJournal {
+            version: 1,
+            kind: ID_MIGRATION_KIND.into(),
+            created_at_ms: 1,
+            backup_path: ".amby/backups/old".into(),
+            status: IdMigrationStatus::InProgress,
+            files: vec![IdMigrationFile {
+                path: "Note.md".into(),
+                backup_path: "Note.md".into(),
+                id: id.clone(),
+                status: IdMigrationFileStatus::BackupCreated,
+            }],
+        };
+        write_migration_journal(&journal_path, &journal).unwrap();
+        let resumed = recover_id_migration(
+            &root,
+            journal_path.to_str().unwrap(),
+            IdMigrationRecoveryAction::Resume,
+        )
+        .unwrap();
+        assert_eq!(resumed.status, IdMigrationStatus::Completed);
+        if resumed_state {
+            assert_eq!(fs::read_to_string(&path).unwrap(), written);
+        }
+        recover_id_migration(
+            &root,
+            journal_path.to_str().unwrap(),
+            IdMigrationRecoveryAction::Rollback,
+        )
+        .unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[test]
@@ -244,14 +319,14 @@ fn namespaced_identity_recovers_both_historical_v1_formats_and_pending_files() {
         .unwrap();
         assert_eq!(resumed.status, IdMigrationStatus::Completed);
         let persisted = fs::read_to_string(&path).unwrap();
-        assert_eq!(
-            frontmatter::parse_markdown(&persisted).migration_id(),
-            Some(id.as_str())
-        );
         if format < 2 {
+            // Oldest builds wrote the generic field itself; the bytes are already final.
             assert_eq!(persisted.as_bytes(), current);
         } else {
-            assert!(persisted.contains("amby-id:"));
+            assert_eq!(
+                frontmatter::parse_markdown(&persisted).note_id(),
+                Some(id.as_str())
+            );
         }
         recover_id_migration(
             &root,
@@ -303,8 +378,7 @@ fn namespaced_identity_migration_retains_custom_properties_after_index_rebuild()
     let root = vault();
     let id = Ulid::generate().to_string();
     let path = root.join("Legacy.md");
-    // Seed durable properties from a trusted identity, then simulate an old
-    // source file. Generic IDs must not authorize new property writes.
+    // Durable properties are keyed by the trusted identity and outlive the SQLite cache.
     fs::write(&path, format!("---\namby-id: {id}\n---\nBody")).unwrap();
     let conn = open_connection(&root).unwrap();
     load_vault(&conn, &root).unwrap();
@@ -322,8 +396,6 @@ fn namespaced_identity_migration_retains_custom_properties_after_index_rebuild()
         },
     )
     .unwrap();
-    fs::write(&path, format!("---\nid: {id}\n---\nBody")).unwrap();
-    apply_id_migration(&root).unwrap();
     drop(conn);
     fs::remove_file(db_path(&root)).unwrap();
     let conn = open_connection(&root).unwrap();
@@ -365,11 +437,13 @@ fn namespaced_identity_resume_refuses_changes_after_backup() {
 #[test]
 fn namespaced_identity_migrated_legacy_body_save_keeps_user_yaml_unchanged() {
     let root = vault();
-    let id = Ulid::generate().to_string();
+    let foreign = Ulid::generate().to_string();
     let path = root.join("Legacy.md");
-    let envelope = format!("\u{feff}---\r\n# legacy\r\nid: '{id}'\r\n---\r\n");
+    let envelope = format!("\u{feff}---\r\n# legacy\r\nid: '{foreign}'\r\n---\r\n");
     fs::write(&path, format!("{envelope}Original\r\n")).unwrap();
     apply_id_migration(&root).unwrap();
+    let id = frontmatter::read_markdown(&path).unwrap().id.unwrap();
+    assert_ne!(id, foreign);
     let envelope = envelope.replacen("---\r\n", &format!("---\r\namby-id: {id}\r\n"), 1);
     let conn = open_connection(&root).unwrap();
     load_vault(&conn, &root).unwrap();
