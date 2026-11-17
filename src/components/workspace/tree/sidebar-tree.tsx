@@ -171,9 +171,16 @@ export function SidebarTree({
 
       setSelectedIds(new Set([id]))
       selectionAnchorRef.current = id
+      // Plain folders never open their cards in this mode, including empty/JSON-only folders.
+      // Notes with their own folder still open as notes; click, Enter and Space agree.
+      const picked = currentRows[currentIndex]?.item
+      if (useSettingsStore.getState().prefs.files.folderClickToggles && picked?.type === "folder") {
+        if (treeItemHasChildren(picked)) toggleOpen(id)
+        return
+      }
       stableOnSelect(id)
     },
-    [stableOnSelect],
+    [stableOnSelect, toggleOpen],
   )
 
   const handleKeyboardSelect = React.useCallback((id: string) => handleSelect(id), [handleSelect])

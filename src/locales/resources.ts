@@ -82,6 +82,9 @@ const ru = {
         archive: "«Удалить» делает то же, что «В архив»: файл можно вернуть из архива",
         permanent: "Файлы удаляются без возможности восстановления; подтверждение всегда включено",
       },
+      folderClickToggles: "Представлять папки как коллекции",
+      folderClickTogglesHint:
+        "Клик по папке открывает её как коллекцию. Если выключено, клик только разворачивает и сворачивает папку; коллекцию можно открыть из контекстного меню",
       confirmFileDelete: "Подтверждать удаление файлов",
       confirmFileDeleteHint: "Настройка действует только для текущего хранилища",
       vaultSettingUnavailable: "Откройте хранилище, чтобы изменить эту настройку",
@@ -586,6 +589,8 @@ const ru = {
         "Получать бета-версии и последующие финальные версии. При возврате на стабильный канал откат не устанавливается: дождитесь подходящей финальной версии.",
       currentVersion: "Текущая версия",
       license: "Лицензия",
+      thirdPartyLicenses: "Открытые лицензии",
+      openLicenses: "Лицензии Google Noto Emoji",
       licenseHint:
         "Amby — свободная программа под лицензией GNU AGPL-3.0 и поставляется без каких-либо гарантий",
       sourceAction: "Исходный код",
@@ -4633,6 +4638,9 @@ const en: typeof ru = {
         archive: "“Delete” does what “Archive” does: the file can be restored from the archive",
         permanent: "Files are deleted with no way to restore them; confirmation is always on",
       },
+      folderClickToggles: "Present folders as collections",
+      folderClickTogglesHint:
+        "Clicking a folder opens it as a collection. When off, a click only expands or collapses the folder; the collection can be opened from the context menu",
       confirmFileDelete: "Confirm before deleting files",
       confirmFileDeleteHint: "This setting applies only to the current vault",
       vaultSettingUnavailable: "Open a vault to change this setting",
@@ -5133,6 +5141,8 @@ const en: typeof ru = {
         "Receive beta releases and later stable releases. Switching back to stable does not downgrade; wait for a suitable final release.",
       currentVersion: "Current version",
       license: "License",
+      thirdPartyLicenses: "Open-source licenses",
+      openLicenses: "Google Noto Emoji licenses",
       licenseHint: "Amby is free software under the GNU AGPL-3.0 and comes with no warranty",
       sourceAction: "Source code",
       check: "Check for updates",

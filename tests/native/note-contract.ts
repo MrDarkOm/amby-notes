@@ -34,6 +34,29 @@ export const nativeNoteCases: Array<{
   run: (context: StorageContractContext) => Promise<void>
 }> = [
   {
+    name: "native removal returns a tree patch for empty and JSON-only folders",
+    async run({ adapter, vaultPath }) {
+      for (const mode of ["archive", "permanent", "archive-action"] as const) {
+        for (const jsonOnly of [false, true]) {
+          const folder = await adapter.createFolder(vaultPath, `${mode}-${jsonOnly}`)
+          if (jsonOnly) await adapter.writeFile(joinStoragePath(folder, "data.json"), "{}\n")
+          const result =
+            mode === "archive-action"
+              ? await adapter.archiveItem(vaultPath, folder)
+              : await adapter.deleteItem(vaultPath, folder, mode)
+          check(
+            result.treePatch?.ops.some((op) => op.kind === "remove" && op.paths.includes(folder)),
+            `${mode}: the IPC result removes the folder without a full reload`,
+          )
+          check(
+            !(await adapter.listFiles(vaultPath)).some((item) => item.path === folder),
+            `${mode}: the removed folder is absent from disk`,
+          )
+        }
+      }
+    },
+  },
+  {
     name: "native attachment imports use unique typed names and preserve the original display name",
     async run({ adapter, vaultPath }) {
       const note = await adapter.createNote(vaultPath, vaultPath, "Asset names")

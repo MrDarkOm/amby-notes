@@ -2,6 +2,23 @@
  * Tauri WebKit drops emoji-mart's constructor-injected shadow style during rendering.
  * Keep this file synchronized when the emoji-mart dependency is updated.
  */
+.amby-picker-emoji-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  font-size: 24px;
+  line-height: 1;
+}
+
+/* SVGs with only a viewBox need explicit image dimensions in native WKWebView. */
+.emoji-mart-emoji > img {
+  width: 1em;
+  height: 1em;
+  object-fit: contain;
+}
+
 :host {
   width: min-content;
   height: 435px;
@@ -748,13 +765,7 @@ button {
   background: transparent;
   box-shadow: none;
   color: hsl(var(--foreground));
-  font-family:
-    Inter,
-    ui-sans-serif,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  font-family: var(--app-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
   font-size: 14px;
   padding: 0 32px 0 40px;
 }
@@ -767,18 +778,69 @@ button {
 .search input[type="search"]:focus {
   border-color: hsl(var(--primary));
   box-shadow: none;
+  background: transparent;
 }
 
 .search .loupe {
-  left: 12px;
+  /* Match the Icons field: 1px border plus 12px inner padding. */
+  left: 13px;
   width: 20px;
   height: 20px;
   color: hsl(var(--muted-foreground));
 }
 
 .search .loupe svg {
+  display: none;
+}
+
+/*! Emoji Mart hardcodes a filled loupe. Match Lucide Search from the Icons tab.
+ * Lucide Search, lucide-react 1.67.0, ISC License.
+ * Copyright (c) 2026 Lucide Icons and Contributors
+ *
+ * Permission to use, copy, modify, and/or distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ *
+ * Search geometry also derives from Feather:
+ * The MIT License (MIT) (for the icons listed above)
+ *
+ * Copyright (c) 2013-present Cole Bemis
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+.search .loupe::before {
+  --amby-search-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m21%2021-4.34-4.34%22%2F%3E%3Ccircle%20cx%3D%2211%22%20cy%3D%2211%22%20r%3D%228%22%2F%3E%3C%2Fsvg%3E");
+  content: "";
+  display: block;
   width: 20px;
   height: 20px;
+  background: currentColor;
+  -webkit-mask: var(--amby-search-mask) center / contain no-repeat;
+  mask: var(--amby-search-mask) center / contain no-repeat;
 }
 
 .search + .flex {

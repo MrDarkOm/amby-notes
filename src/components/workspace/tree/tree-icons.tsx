@@ -12,6 +12,7 @@ import {
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { EmojiGlyph } from "@/components/ui/emoji-glyph"
 import { IconValue } from "../icon-value"
 import { isRichIconValue } from "../icon-values"
 import { isSuperCanvasItem, isSuperNoteItem, isSuperSketchItem } from "../workspace-tree-utils"
@@ -43,7 +44,7 @@ export function TreeIcon({ icon, className }: { icon?: string; className?: strin
   if (icon && !KNOWN_ICONS.has(icon)) {
     return (
       <span className={cn(cls, "flex items-center justify-center text-[14px] leading-4")}>
-        {icon}
+        <EmojiGlyph value={icon} />
       </span>
     )
   }

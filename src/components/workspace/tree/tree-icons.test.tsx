@@ -66,14 +66,14 @@ describe("TreeItemIcon", () => {
   it("keeps a custom folder icon without adding a folder glyph", () => {
     const { container } = render(<TreeItemIcon item={folder} />)
 
-    expect(container.textContent).toBe("🌐")
+    expect(container.querySelector("img")?.getAttribute("src")).toContain("emoji_u1f310.svg")
     expect(container.querySelector("svg")).toBeNull()
   })
 
   it("does not add a folder glyph to custom note icons", () => {
     const { container } = render(<TreeItemIcon item={note} />)
 
-    expect(container.textContent).toBe("😀")
+    expect(container.querySelector("img")?.getAttribute("src")).toContain("emoji_u1f600.svg")
     expect(container.querySelector("svg")).toBeNull()
   })
 

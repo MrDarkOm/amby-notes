@@ -143,7 +143,8 @@ export function DeleteConfirmationSetting({ vault }: { vault: string | null }) {
 
 export function DeleteModeSetting() {
   const { t } = useTranslation()
-  const mode = useSettingsStore((s) => s.prefs.files.deleteMode)
+  const files = useSettingsStore((s) => s.prefs.files)
+  const mode = files.deleteMode
   const setPrefs = useSettingsStore((s) => s.setPrefs)
 
   return (
@@ -156,7 +157,9 @@ export function DeleteModeSetting() {
         onValueChange={(value) =>
           // The failed save is already reported by the settings window (emitSettingsSaveError);
           // nothing more to do here.
-          void setPrefs({ files: { deleteMode: value as DeleteModePref } }).catch(() => {})
+          void setPrefs({ files: { ...files, deleteMode: value as DeleteModePref } }).catch(
+            () => {},
+          )
         }
       >
         <SelectTrigger className={selectTrigger}>
@@ -170,6 +173,27 @@ export function DeleteModeSetting() {
           ))}
         </SelectContent>
       </Select>
+    </Row>
+  )
+}
+
+export function FolderClickSetting() {
+  const { t } = useTranslation()
+  const files = useSettingsStore((s) => s.prefs.files)
+  const setPrefs = useSettingsStore((s) => s.setPrefs)
+
+  return (
+    <Row
+      label={t("settings.general.folderClickToggles")}
+      hint={t("settings.general.folderClickTogglesHint")}
+    >
+      <Switch
+        checked={!files.folderClickToggles}
+        onCheckedChange={(next) =>
+          // A failed save is already reported by the settings window.
+          void setPrefs({ files: { ...files, folderClickToggles: !next } }).catch(() => {})
+        }
+      />
     </Row>
   )
 }

@@ -544,3 +544,16 @@ describe("answer length limit", () => {
     expect(resolveAiConfig({ ...base, provider: "openai" }).maxTokens).toBe(1024)
   })
 })
+
+describe("TREE-02: files.folderClickToggles", () => {
+  it("defaults to false and keeps only a real boolean", () => {
+    expect(normalizeAppPreferences({}).files.folderClickToggles).toBe(false)
+    expect(
+      normalizeAppPreferences({ files: { folderClickToggles: true } }).files.folderClickToggles,
+    ).toBe(true)
+    expect(
+      normalizeAppPreferences({ files: { folderClickToggles: "yes" } } as never).files
+        .folderClickToggles,
+    ).toBe(false)
+  })
+})

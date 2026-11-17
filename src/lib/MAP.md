@@ -23,6 +23,9 @@ Owns frontend boundaries and reusable non-UI logic. Keep workspace state in
 | Website-only demo flag                                                          | [site-demo.ts](site-demo.ts), set by [website build](../../vite.site.config.ts); [website map](../../site/MAP.md)                                                                                                                                                                                                                                                                                                                                                           |
 | Motion / shared helpers                                                         | [motion.tsx](motion.tsx), [motion-config.ts](motion-config.ts), [utils.ts](utils.ts), [async-disposable.ts](async-disposable.ts)                                                                                                                                                                                                                                                                                                                                            |
 
+Local emoji lookup, search and the retained picker runtime follow the
+[appearance map](../themes/MAP.md) and [emoji contract](../../docs/emoji-icons.md).
+
 Boundary tests live here: localization, themes, motion, Tauri permissions/build
 config, vault scoping and bindings. For broad architecture changes use them in
 addition to the tests beside the changed owner. Never expose credentials or note

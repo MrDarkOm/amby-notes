@@ -630,6 +630,22 @@ pub(crate) fn ensure_bundle_inner(
 }
 
 /// Publish structural changes to every window after the durable mutation succeeded.
+/// The watcher ignores our own writes, so a window showing the workshops is told here that a
+/// removed folder may have held one: it refreshes its catalog from the rebuilt index.
+fn notify_project_removal(app: &tauri::AppHandle, db: &VaultContext, outcome: &MutationOutcome) {
+    use tauri::Emitter;
+    let (Ok(vault), Ok(generation)) = (db.root(), db.generation()) else {
+        return;
+    };
+    for root in &outcome.mutation.also_touched {
+        if let Some(change) =
+            crate::project::events::classify_path(&vault, root, "remove", generation)
+        {
+            let _ = app.emit("project:changed", change);
+        }
+    }
+}
+
 fn notify_structural_mutation(
     app: &tauri::AppHandle,
     db: &VaultContext,
@@ -1411,7 +1427,60 @@ pub fn delete_item(
 ) -> Result<MutationOutcome, String> {
     let outcome = delete_item_inner(&db, &watcher_state, path, mode)?;
     notify_structural_mutation(&app, &db, &outcome);
+    notify_project_removal(&app, &db, &outcome);
     Ok(outcome)
+}
+
+/// A removal reports the notes and layers it took (`deleted_paths`), and a folder with none of
+/// them (empty, or a workshop of `.json` files) reports nothing. The removed root goes into
+/// `also_touched` so the tree patch drops the item itself, whatever was inside (TREE-01).
+fn with_removed_root(
+    mut result: FsMutationResult,
+    preview: &recycle_bin::TrashMovePreview,
+) -> FsMutationResult {
+    if !result.also_touched.contains(&preview.original_path) {
+        result.also_touched.push(preview.original_path.clone());
+    }
+    result
+}
+
+/// The catalog of workshops is an index of the files; a removed folder that held a workshop (or
+/// was one) must leave it, and the watcher ignores our own writes, so it is rebuilt here. Only a
+/// removal that touches an indexed workshop pays for the scan. A failure is a warning: the next
+/// `refresh_projects` reads the disk again.
+fn forget_removed_workshops(db: &VaultContext, vault: &Path, root: &Path) {
+    let Ok(relative) = root.strip_prefix(vault) else {
+        return;
+    };
+    let relative = relative.to_string_lossy().replace('\\', "/");
+    let Ok(guard) = db.conn.lock() else {
+        return;
+    };
+    let Some(active) = guard.as_ref() else {
+        return;
+    };
+    let held: Result<i64, _> = active.connection.query_row(
+        "SELECT COUNT(*) FROM project_workshops
+         WHERE path = ?1 OR path LIKE ?2 ESCAPE '\\' OR ?1 = ''",
+        rusqlite::params![
+            relative,
+            format!(
+                "{}/%",
+                relative
+                    .replace('\\', "\\\\")
+                    .replace('%', "\\%")
+                    .replace('_', "\\_")
+            )
+        ],
+        |row| row.get(0),
+    );
+    if held.is_ok_and(|count| count > 0) {
+        if let Err(error) =
+            crate::project::index::rebuild_project_index(&active.connection, &active.root)
+        {
+            tracing::warn!(event = "project_index_rebuild_failed", %error);
+        }
+    }
 }
 
 /// The body of `delete_item` without the Tauri state wrappers (see `rename_item_inner`).
@@ -1454,7 +1523,8 @@ pub(crate) fn delete_item_inner(
         }
     };
     let vault = db.root()?;
-    let mut outcome = sync_mutation_result(db, &vault, result);
+    forget_removed_workshops(db, &vault, &preview.original_path);
+    let mut outcome = sync_mutation_result(db, &vault, with_removed_root(result, &preview));
     outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
     Ok(outcome)
 }
@@ -1469,6 +1539,7 @@ pub fn archive_item(
 ) -> Result<MutationOutcome, String> {
     let outcome = archive_item_inner(&db, &watcher_state, path)?;
     notify_structural_mutation(&app, &db, &outcome);
+    notify_project_removal(&app, &db, &outcome);
     Ok(outcome)
 }
 
@@ -1503,7 +1574,8 @@ pub(crate) fn archive_item_inner(
         }
     };
     let vault = db.root()?;
-    let mut outcome = sync_mutation_result(db, &vault, result);
+    forget_removed_workshops(db, &vault, &preview.original_path);
+    let mut outcome = sync_mutation_result(db, &vault, with_removed_root(result, &preview));
     outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
     Ok(outcome)
 }

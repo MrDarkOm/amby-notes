@@ -26,9 +26,17 @@ export function parseIconValue(value?: string) {
   const separator = payload.indexOf(":")
   if (separator < 1) return null
   const name = payload.slice(0, separator)
-  const Icon = ICONS[name]
+  const Icon = Object.prototype.hasOwnProperty.call(ICONS, name) ? ICONS[name] : undefined
   if (!Icon) return null
-  return { Icon, name, color: decodeURIComponent(payload.slice(separator + 1)) }
+  const encodedColor = payload.slice(separator + 1)
+  // Damaged imported values must fall back, never throw while drawing the tree or picker.
+  if (/%(?![\da-f]{2})/iu.test(encodedColor)) return null
+  try {
+    return { Icon, name, color: decodeURIComponent(encodedColor) }
+  } catch {
+    // Syntactically valid escapes can still contain invalid UTF-8. No data is rewritten.
+    return null
+  }
 }
 
 export function isRichIconValue(value?: string) {

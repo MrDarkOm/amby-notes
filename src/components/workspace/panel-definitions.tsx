@@ -6,10 +6,11 @@ import {
   Info,
   LayoutTemplate,
   Paperclip,
-  RefreshCw,
   Search,
   Settings,
 } from "lucide-react"
+
+import { SyncRefreshIcon } from "@/themes/sync-icon"
 
 import {
   FilesPanel,
@@ -77,7 +78,7 @@ export const ACTION_DEFS: ActionDef[] = [
   {
     id: "refresh",
     labelKey: "actions.refresh",
-    icon: RefreshCw,
+    icon: SyncRefreshIcon,
     kind: "action",
     persistent: true,
     invoke: (context) => context.refreshVault(),

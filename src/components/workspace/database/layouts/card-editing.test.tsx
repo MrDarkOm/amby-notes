@@ -86,7 +86,7 @@ describe("editable cards", () => {
   it("shows each page's own icon beside its title in the list", () => {
     useViewStateStore.setState({ iconOverrides: { n1: "🚀" } })
     render(<ListView rows={[row]} properties={properties} />)
-    expect(screen.getByText("🚀")).toBeTruthy()
+    expect(document.querySelector('img[src*="emoji_u1f680.svg"]')).toBeTruthy()
     useViewStateStore.setState({ iconOverrides: {} })
   })
 

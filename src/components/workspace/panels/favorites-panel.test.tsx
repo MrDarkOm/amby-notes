@@ -29,7 +29,7 @@ describe("FavoritesPanel", () => {
       />,
     )
 
-    expect(container.textContent).toContain("😀")
+    expect(container.querySelector("img")?.getAttribute("src")).toContain("emoji_u1f600.svg")
     const statusIcon = container.querySelector('[data-tree-file-status="favorite"]')
     expect(statusIcon).not.toBeNull()
     expect(statusIcon?.querySelectorAll("svg")).toHaveLength(2)

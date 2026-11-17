@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toAssetUrl } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { IconValue } from "../icon-value"
+import { EmojiGlyph } from "@/components/ui/emoji-glyph"
 import type { AttachmentItem, PanelRenderProps } from "../panel-registry"
 import { PanelHeader, PanelSearch } from "./panel-header"
 
@@ -140,7 +141,7 @@ export function AttachmentsPanel({
                 ? attachment.icon
                 : undefined
             }
-            fallback="📄"
+            fallback={<EmojiGlyph value="📄" />}
             className="mt-0.5 size-4 shrink-0"
           />
         )}

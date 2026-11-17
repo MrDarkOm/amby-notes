@@ -18,7 +18,7 @@ describe("PageIcon", () => {
   it("shows the page's own icon", () => {
     useViewStateStore.setState({ iconOverrides: { n1: "🚀" } })
     const { container } = render(<PageIcon noteId="n1" />)
-    expect(container.textContent).toBe("🚀")
+    expect(container.querySelector("img")?.getAttribute("src")).toContain("emoji_u1f680.svg")
     expect(container.querySelector("svg")).toBeNull()
   })
 

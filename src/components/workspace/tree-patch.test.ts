@@ -98,6 +98,25 @@ describe("applyTreePatchOps", () => {
     expect(names(next![0]!.children)).toEqual(["Keep"])
   })
 
+  it("removes an empty folder and a folder of only json files without a note under it (TREE-01)", () => {
+    const tree = [
+      folder("/vault/Empty"),
+      folder("/vault/Shop", [folder("/vault/Shop/Deep")]),
+      note("/vault/keep.md"),
+    ]
+    const next = applyTreePatchOps(
+      tree,
+      {
+        ops: [
+          { kind: "remove", parentPath: null, paths: ["/vault/Empty"] },
+          { kind: "remove", parentPath: null, paths: ["/vault/Shop"] },
+        ],
+      },
+      V,
+    )
+    expect(names(next ?? undefined)).toEqual(["keep"])
+  })
+
   it("replaces a whole subtree when children are replaced, and keeps them otherwise", () => {
     const tree = [folder(`${V}/F`, [note(`${V}/F/a.md`), note(`${V}/F/b.md`)])]
     const rebuilt = { ...folder(`${V}/F`, [note(`${V}/F/c.md`)]), modified: 9 }

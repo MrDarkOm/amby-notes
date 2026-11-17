@@ -2,14 +2,13 @@
 
 import * as React from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import data from "@emoji-mart/data"
-import { Picker as EmojiMartPicker } from "emoji-mart"
 import { ImagePlus, Search, Trash2, Upload, type LucideIcon } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useTranslation } from "react-i18next"
 
 import { cn } from "@/lib/utils"
-import EMOJI_MART_BASE_STYLES from "@/themes/emoji-mart-base.css?raw"
+import { mountEmojiPicker } from "@/lib/emoji/picker-runtime"
+import { emojiPickerI18n } from "@/lib/emoji/picker-i18n"
 import { ICON_PICKER_COLORS } from "@/themes/palettes"
 import { IconValue } from "@/components/workspace/icon-value"
 import { makeIconValue, PICKER_ICONS } from "@/components/workspace/icon-values"
@@ -43,13 +42,12 @@ interface CropDraft {
 }
 
 interface StableEmojiMartPickerProps {
-  pickerData: typeof data
+  language: string
   i18n: Record<string, unknown>
   onEmojiSelect: (emoji: EmojiData) => void
+  onClose: () => void
   theme: "dark" | "light"
 }
-
-type EmojiMartPickerElement = HTMLElement
 
 const CUSTOM_EMOJI_KEY = "amby.customEmoji.v2"
 const LEGACY_CUSTOM_EMOJI_KEY = "amby.customEmoji.v1"
@@ -110,65 +108,34 @@ function IconGrid({ icons, iconColor, onSelect }: IconGridProps) {
 }
 
 function StableEmojiMartPicker({
-  pickerData,
+  language,
   i18n,
   onEmojiSelect,
+  onClose,
   theme,
 }: StableEmojiMartPickerProps) {
   const mountRef = React.useRef<HTMLDivElement>(null)
-  const onEmojiSelectRef = React.useRef(onEmojiSelect)
-  onEmojiSelectRef.current = onEmojiSelect
-  const stableOnEmojiSelect = React.useCallback(
-    (emoji: EmojiData) => onEmojiSelectRef.current(emoji),
-    [],
-  )
-  const pickerProps = React.useMemo(
-    () => ({
-      data: pickerData,
-      i18n,
-      onEmojiSelect: stableOnEmojiSelect,
-      theme,
-      previewPosition: "none",
-      skinTonePosition: "search",
-      navPosition: "bottom",
-      set: "native",
-      dynamicWidth: true,
-    }),
-    [i18n, pickerData, stableOnEmojiSelect, theme],
-  )
-
+  const selectRef = React.useRef(onEmojiSelect)
+  const closeRef = React.useRef(onClose)
+  const setupRef = React.useRef({ language, i18n, theme })
+  setupRef.current = { language, i18n, theme }
+  selectRef.current = onEmojiSelect
+  closeRef.current = onClose
   React.useLayoutEffect(() => {
-    const mount = mountRef.current
-    if (!mount) return
-
-    const picker = new EmojiMartPicker(pickerProps) as unknown as EmojiMartPickerElement
-
-    const ensureBundledStyles = () => {
-      const currentShadowRoot = picker.shadowRoot
-      if (!currentShadowRoot) return
-      if (currentShadowRoot.querySelector("style[data-amby-emoji-mart-base]")) return
-
-      const stylesheet = document.createElement("style")
-      stylesheet.dataset.ambyEmojiMartBase = "true"
-      stylesheet.textContent = EMOJI_MART_BASE_STYLES
-      currentShadowRoot.append(stylesheet)
-    }
-
-    // Append the picker before installing our stylesheet so the shadow root and
-    // emoji-mart's own stylesheet already exist. A persistent MutationObserver
-    // caused work during every scroll/update and made the emoji list hitch.
-    mount.replaceChildren(picker)
-    ensureBundledStyles()
-    const frame = requestAnimationFrame(ensureBundledStyles)
-    const timer = window.setTimeout(ensureBundledStyles, 50)
-
-    return () => {
-      cancelAnimationFrame(frame)
-      window.clearTimeout(timer)
-      mount.replaceChildren()
-    }
-  }, [pickerProps])
-
+    if (!mountRef.current) return
+    return mountEmojiPicker(
+      mountRef.current,
+      { language, i18n, theme },
+      (emoji) => selectRef.current(emoji),
+      () => closeRef.current(),
+      // A context change will dispose this grid. Do not queue its old locale's
+      // category initialization after the replacement picker has been activated.
+      () =>
+        setupRef.current.language === language &&
+        setupRef.current.i18n === i18n &&
+        setupRef.current.theme === theme,
+    )
+  }, [language, i18n, theme])
   return <div ref={mountRef} />
 }
 
@@ -211,7 +178,7 @@ export function EmojiPickerPanel({
   const ref = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
   const { resolvedTheme } = useTheme()
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [tab, setTab] = React.useState<PickerTab>("emoji")
   const [visitedTabs, setVisitedTabs] = React.useState<Set<PickerTab>>(
     () => new Set<PickerTab>(["emoji"]),
@@ -231,38 +198,7 @@ export function EmojiPickerPanel({
     offsetX: number
     offsetY: number
   } | null>(null)
-  const emojiI18n = React.useMemo(
-    () => ({
-      search: t("emojiPicker.filter"),
-      search_no_results_1: t("emojiPicker.noResultsTitle"),
-      search_no_results_2: t("emojiPicker.noResults"),
-      pick: t("emojiPicker.pick"),
-      add_custom: t("emojiPicker.custom"),
-      categories: {
-        activity: t("emojiPicker.categories.activity"),
-        custom: t("emojiPicker.categories.custom"),
-        flags: t("emojiPicker.categories.flags"),
-        foods: t("emojiPicker.categories.foods"),
-        frequent: t("emojiPicker.categories.frequent"),
-        nature: t("emojiPicker.categories.nature"),
-        objects: t("emojiPicker.categories.objects"),
-        people: t("emojiPicker.categories.people"),
-        places: t("emojiPicker.categories.places"),
-        search: t("emojiPicker.categories.search"),
-        symbols: t("emojiPicker.categories.symbols"),
-      },
-      skins: {
-        choose: t("emojiPicker.skins.choose"),
-        1: t("emojiPicker.skins.default"),
-        2: t("emojiPicker.skins.light"),
-        3: t("emojiPicker.skins.mediumLight"),
-        4: t("emojiPicker.skins.medium"),
-        5: t("emojiPicker.skins.mediumDark"),
-        6: t("emojiPicker.skins.dark"),
-      },
-    }),
-    [t],
-  )
+  const emojiI18n = React.useMemo(() => emojiPickerI18n(t), [t])
 
   React.useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -439,9 +375,10 @@ export function EmojiPickerPanel({
       {visitedTabs.has("emoji") && (
         <div className={cn("min-h-0 flex-1", tab !== "emoji" && "hidden")}>
           <StableEmojiMartPicker
-            pickerData={data}
+            language={i18n.resolvedLanguage ?? i18n.language}
             i18n={emojiI18n}
             onEmojiSelect={onSelect}
+            onClose={onClose}
             theme={resolvedTheme === "dark" ? "dark" : "light"}
           />
         </div>

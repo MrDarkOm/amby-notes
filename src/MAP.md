@@ -14,6 +14,9 @@ choose [workspace](components/workspace/MAP.md) instead.
 | [services map](lib/MAP.md)                                          | Storage, modules, AI, updater, diagnostics         |
 | [appearance map](themes/MAP.md)                                     | CSS, themes, icons, localization                   |
 
+After startup gates, [EmojiPickerWarmup](components/workspace/emoji-picker-warmup.tsx)
+prepares the single retained picker owned by [the appearance route](themes/MAP.md).
+
 Use function components, the `@/` alias, existing primitives and `cn()` from
 [utils.ts](lib/utils.ts). Put behavior in the owning hook/store, not shared UI.
 User-facing text comes from [resources.ts](locales/resources.ts); do not hard-code

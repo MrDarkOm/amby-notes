@@ -2,7 +2,7 @@
 
 Owns workspace UI and state. [workspace.tsx](workspace.tsx) is the public facade;
 [workspace-orchestration.tsx](workspace-orchestration.tsx) composes the focused
-hooks and surfaces (pane renderers, layouts, dock, splits: [orchestration/](orchestration/)). Extend the owner below instead of adding parallel state.
+hooks and surfaces (pane renderers, layouts, dock, splits: [orchestration/](orchestration/)). Extend these owners.
 
 | Concern                                | Owners / next route                                                                                                                                                                                                                                                                                                                     |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -56,7 +56,8 @@ A tab's history is a list of ids: notes, `__graph__` (`GRAPH_TAB_FILE_ID`) and w
 so it never jumps to another tab; Back and Forward need no file for the graph or a workshop page.
 
 Folder selection opens a `folder` tab; derive content from the existing `TreeItem`
-hierarchy. Icons share `EmojiPickerPanel`, `IconValue` and view-state overrides.
+hierarchy. `prefs.files.folderClickToggles` makes folder activation expand only.
+Icons share `EmojiPickerPanel`, `IconValue` and view-state overrides.
 The root `sidebar-tree.tsx`, `document-editor.tsx`, `canvas-editor.tsx` and
 `sketch-editor.tsx` are compatibility entry points; follow their re-exports.
 

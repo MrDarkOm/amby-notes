@@ -8,7 +8,8 @@ use super::tree::TreeItem;
 use super::tree_patch::{TreePatch, TreePatchOp};
 use crate::commands::database::database_note_context_inner;
 use crate::commands::mutations::{
-    create_note_inner, delete_item_inner, move_item_inner, rename_item_inner, sync_mutation_result,
+    archive_item_inner, create_note_inner, delete_item_inner, move_item_inner, rename_item_inner,
+    sync_mutation_result,
 };
 use crate::database::runtime_state::DatabaseRuntimeState;
 use crate::index;
@@ -620,6 +621,133 @@ fn deleting_the_last_note_of_a_folder() {
     assert_point_equals_full(&fixture(), |context, vault| {
         trash(context, vault, "Folder/Sub/Deeper/Deepest.md")
     });
+}
+
+fn delete_with(
+    context: &VaultContext,
+    vault: &Vault,
+    path: &str,
+    mode: DeleteMode,
+) -> FsMutationResult {
+    outcome(delete_item_inner(context, &WatcherState::new(), vault.string(path), mode).unwrap())
+}
+
+fn archive(context: &VaultContext, vault: &Vault, path: &str) -> FsMutationResult {
+    outcome(archive_item_inner(context, &WatcherState::new(), vault.string(path)).unwrap())
+}
+
+/// TREE-01: a folder with no note, canvas or sketch in it (empty, or only a workshop's `.json`
+/// files) has nothing in `deleted_paths`; the folder itself must still leave the tree.
+fn folder_without_notes_vault() -> Vault {
+    let vault = fixture();
+    fs::create_dir_all(vault.path("Empty")).unwrap();
+    vault.write("Shop/data.json", "{}\n");
+    vault.write("Shop/Deep/more.json", "{}\n");
+    vault
+}
+
+fn assert_removes_folder(result: &FsMutationResult, vault: &Vault, name: &str) {
+    let folder = vault.string(name);
+    let patch = result.tree_patch.as_ref().expect("a patch or a reload");
+    assert!(
+        patch.ops.iter().any(|op| matches!(
+            op,
+            TreePatchOp::Remove { paths, .. } if paths.contains(&folder)
+        )),
+        "the patch must remove {name}: {patch:?}"
+    );
+}
+
+fn assert_folder_gone_from_patched_tree(
+    vault: &Vault,
+    tree: &mut Vec<TreeItem>,
+    result: &FsMutationResult,
+) {
+    apply(tree, &vault.0, result.tree_patch.as_ref().unwrap());
+    let (_, full_tree) = full_load(&vault.0);
+    assert_trees_equal(&vault.0, tree, &full_tree);
+}
+
+#[test]
+fn deleting_a_folder_without_notes_removes_it_from_the_tree() {
+    for name in ["Empty", "Shop"] {
+        for mode in [DeleteMode::Archive, DeleteMode::Permanent] {
+            let vault = folder_without_notes_vault();
+            let context = activate(&vault.0);
+            let mut tree = loaded_tree(&context);
+            let result = delete_with(&context, &vault, name, mode);
+            assert_removes_folder(&result, &vault, name);
+            assert_folder_gone_from_patched_tree(&vault, &mut tree, &result);
+        }
+    }
+}
+
+#[test]
+fn archiving_a_folder_without_notes_removes_it_from_the_tree() {
+    for name in ["Empty", "Shop"] {
+        let vault = folder_without_notes_vault();
+        let context = activate(&vault.0);
+        let mut tree = loaded_tree(&context);
+        let result = archive(&context, &vault, name);
+        assert_removes_folder(&result, &vault, name);
+        assert_folder_gone_from_patched_tree(&vault, &mut tree, &result);
+    }
+}
+
+fn indexed_workshops(context: &VaultContext) -> i64 {
+    context
+        .with_active(|active| {
+            Ok(active
+                .connection
+                .query_row("SELECT COUNT(*) FROM project_workshops", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap())
+        })
+        .unwrap()
+}
+
+/// TREE-01: the catalog of workshops is kept in the index; deleting the folder of a workshop must
+/// take it out, with or without notes in the folder.
+#[test]
+fn removing_a_workshop_folder_takes_it_out_of_the_catalog() {
+    let workshop =
+        "{\"formatVersion\":3,\"workshopId\":\"shop\",\"name\":\"Shop\",\"sections\":[]}\n";
+    for how in ["archive", "permanent", "archive_item"] {
+        let vault = folder_without_notes_vault();
+        vault.write("Shop/amby-workshop.json", workshop);
+        let context = activate(&vault.0);
+        assert_eq!(
+            indexed_workshops(&context),
+            1,
+            "{how}: the workshop is indexed"
+        );
+        match how {
+            "archive" => drop(delete_with(&context, &vault, "Shop", DeleteMode::Archive)),
+            "permanent" => drop(delete_with(&context, &vault, "Shop", DeleteMode::Permanent)),
+            _ => drop(archive(&context, &vault, "Shop")),
+        }
+        assert_eq!(
+            indexed_workshops(&context),
+            0,
+            "{how}: the catalog must not keep it"
+        );
+    }
+}
+
+#[test]
+fn an_empty_patch_for_nothing_touched_is_a_reload_not_a_no_change() {
+    let vault = fixture();
+    let context = activate(&vault.0);
+    let patch = context
+        .with_active(|active| {
+            crate::vault::tree_patch::patch_for_paths(&active.connection, &vault.0, &[])
+        })
+        .unwrap();
+    assert!(
+        patch.is_none(),
+        "nothing known to have changed means reload"
+    );
 }
 
 #[test]
