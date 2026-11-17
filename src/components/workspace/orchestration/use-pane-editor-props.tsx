@@ -45,7 +45,6 @@ import { workspaceRelativePath } from "../vault/use-vault-session"
 import { useOverlaysStore } from "../use-overlays-store"
 
 interface UsePaneEditorPropsParams {
-  openDocs: Record<string, Document>
   treeItemById: Map<string, TreeItem>
   activeTabKey: string
   canGoBack: boolean
@@ -131,7 +130,6 @@ interface UsePaneEditorPropsParams {
 }
 
 export function usePaneEditorProps({
-  openDocs,
   treeItemById,
   activeTabKey,
   canGoBack,
@@ -216,7 +214,7 @@ export function usePaneEditorProps({
   // functionality; split panes also get independent navigation, editing, view-mode,
   // and autosave.
   function paneEditorProps(tab: Tab | null, preserveLayer = false, paneId?: string) {
-    const rawDoc = tab ? (openDocs[tab.fileId] ?? null) : null
+    const rawDoc = tab ? (useDocStore.getState().openDocs[tab.fileId] ?? null) : null
     const isCanvasOrSketch = isLayerDocument(tab, rawDoc?.path)
     const treeItem = tab
       ? (treeItemById.get(tab.fileId) ?? (rawDoc ? treeItemById.get(rawDoc.id) : null) ?? null)

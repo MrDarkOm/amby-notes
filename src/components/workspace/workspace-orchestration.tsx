@@ -27,7 +27,6 @@ import { registerDatabaseNavigation } from "./database/database-navigation"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { useRefreshSync } from "./sync/use-refresh-sync"
-import { createFallbackDocument } from "./orchestration/fallback-document"
 import {
   EMPTY_CONTENT_WIDTHS,
   EMPTY_DATABASE_TITLE_LABELS,
@@ -54,7 +53,6 @@ import { useLinkSuggestionSources } from "./orchestration/use-link-suggestion-so
 import { useRefreshTreeOnArchiveChange } from "./use-archive-tree-refresh"
 import { applyTreePatch, filterDeletedTabs, planMutation } from "./workspace-mutations"
 import { useViewStateStore, type EditorLayer, isLayerLocked } from "./use-view-state-store"
-import { isLayerDocument, naturalDocumentLayer } from "./layer-documents"
 import { useVaultData } from "./use-vault-data"
 import { useFileActions } from "./use-file-actions"
 import { useLayers } from "./use-layers"
@@ -77,6 +75,7 @@ import { projectTargetIcon } from "./creative/section-icons"
 import { useDatabaseStore } from "./database/database-store"
 import type { DatabaseRowActions } from "./database/use-row-menu"
 import { remapRecoveryDraft } from "@/lib/recovery-drafts"
+import { useActiveDocument } from "./orchestration/use-active-document"
 import { useCanvasWorkspace } from "./orchestration/use-canvas-workspace"
 import { useSketchWorkspace } from "./orchestration/use-sketch-workspace"
 import { usePropertyActions } from "./orchestration/use-property-actions"
@@ -212,17 +211,6 @@ export function WorkspaceOrchestration() {
   const isMultiPane = splitLayout.leaves.length > 1
   const mainStageRef = React.useRef<HTMLElement | null>(null)
   const activeTab = tabs.find((tab) => tab.key === activeTabKey) ?? null
-  // Subscribe only to whether the active document has been loaded. The editor
-  // owns content updates; this small subscription fixes the startup race
-  // without rerendering the whole workspace on every keystroke.
-  const activeDocumentLoaded = useDocStore((state) => {
-    if (!activeTab) return false
-    if (isLayerDocument(activeTab)) return true
-    return Boolean(state.openDocs[activeTab.fileId])
-  })
-  // Document buffers are read imperatively here. Visible editors subscribe to
-  // their own document below, so patchDoc cannot rerender the whole workspace.
-  const openDocs = useDocStore.getState().openDocs
   // Stable setters (value-or-updater, like setState); see use-tabs-store.
   const { setTabs, setActiveTabKey } = useTabsStore.getState()
   // Keep editor scroll offsets outside the keyed editor components so a tab can
@@ -564,6 +552,12 @@ export function WorkspaceOrchestration() {
     return result
   }, [displayTreeItems])
 
+  // The document of the active tab: the root takes its identity, not its text (SHELL-04).
+  const { currentDoc, currentDocId, currentDocPath, currentDocDefaultLayer } = useActiveDocument(
+    activeTab,
+    treeItemById,
+  )
+
   // Canvas and sketch tabs hold the file path while their tree rows are `canvas:`/`sketch:`
   // prefixed, so resolve the tab to its row to highlight it.
   const selectedId =
@@ -573,10 +567,8 @@ export function WorkspaceOrchestration() {
       activeTab.kind === "database" ||
       activeTab.kind === "canvas" ||
       activeTab.kind === "sketch")
-      ? ((
-          treeItemById.get(activeTab.fileId) ??
-          treeItemById.get(openDocs[activeTab.fileId]?.noteId ?? "")
-        )?.id ?? activeTab.fileId)
+      ? ((treeItemById.get(activeTab.fileId) ?? treeItemById.get(currentDoc?.noteId ?? ""))?.id ??
+        activeTab.fileId)
       : ""
 
   // Current file icon (from iconOverrides or tree)
@@ -630,6 +622,7 @@ export function WorkspaceOrchestration() {
     applyMutation(deletedIds, remapFn) // doc store: remaps content paths + drops deleted
     applyViewMutation(deletedIds, remapFn)
 
+    const openDocs = useDocStore.getState().openDocs
     for (const [id, doc] of Object.entries(openDocs)) {
       if (!deleted.has(id)) {
         const nextPath = remapFn(doc.path)
@@ -689,58 +682,6 @@ export function WorkspaceOrchestration() {
     })
     return patched
   }
-
-  const currentDoc = React.useMemo(() => {
-    if (!activeTab) return null
-    const existing = openDocs[activeTab.fileId] ?? null
-    if (existing) return existing
-    if (isLayerDocument(activeTab)) {
-      const treeItem = treeItemById.get(activeTab.fileId)
-      return createFallbackDocument(
-        activeTab.fileId,
-        activeTab.title,
-        treeItem?.path ?? activeTab.fileId,
-        treeItem?.created,
-        treeItem?.modified,
-      )
-    }
-    return activeDocumentLoaded ? (openDocs[activeTab.fileId] ?? null) : null
-  }, [activeDocumentLoaded, activeTab, openDocs, treeItemById])
-  const currentDocId = currentDoc?.id ?? null
-  const currentDocPath = currentDoc?.path ?? null
-  const currentDocDefaultLayer: EditorLayer =
-    (currentDocId ? useViewStateStore.getState().primaryLayers[currentDocId] : undefined) ??
-    (currentDocPath ? useViewStateStore.getState().primaryLayers[currentDocPath] : undefined) ??
-    naturalDocumentLayer(activeTab, currentDocPath)
-
-  React.useEffect(() => {
-    if (!activeTab) return
-    if (!isLayerDocument(activeTab)) return
-    const docId = activeTab.fileId
-    const existing = useDocStore.getState().openDocs[docId]
-    if (!existing) {
-      const treeItem = treeItemById.get(docId)
-      const path = treeItem?.path ?? docId
-      const docObj = createFallbackDocument(
-        docId,
-        activeTab.title,
-        path,
-        treeItem?.created,
-        treeItem?.modified,
-      )
-      useDocStore.getState().setDoc(docId, docObj)
-      if (path && path !== docId) {
-        useDocStore.getState().setDoc(path, docObj)
-      }
-      const defaultLayer: EditorLayer =
-        useViewStateStore.getState().primaryLayers[docId] ??
-        (path ? useViewStateStore.getState().primaryLayers[path] : undefined) ??
-        naturalDocumentLayer(activeTab, path)
-      if (!useViewStateStore.getState().activeLayers[docId]) {
-        useViewStateStore.getState().setActiveLayer(docId, defaultLayer)
-      }
-    }
-  }, [activeTab, treeItemById])
 
   const handleRestoreDeleted = React.useCallback(
     async (fileId: string) => {
@@ -1348,7 +1289,6 @@ export function WorkspaceOrchestration() {
   const rightDockPinned = isDockPinned("right")
   const { renderCreativeProject, activeFolder, renderCachedTabSurfaces, renderPaneLeaf } =
     usePaneRenderers({
-      openDocs,
       treeItemById,
       activeTabKey,
       canGoBack,

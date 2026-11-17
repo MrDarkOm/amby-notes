@@ -21,7 +21,7 @@ import { ConnectedCachedDocumentEditor, DocumentEditor } from "./cached-document
 import { createFallbackDocument } from "./fallback-document"
 import { databaseContentWidthKey, NOOP } from "./workspace-constants"
 import { defaultSketchJson } from "@/lib/sketch-format"
-import type { Document } from "../use-doc-store"
+import { useDocStore, type Document } from "../use-doc-store"
 import type { DocumentEditorProps, DocumentViewMode } from "../document-editor"
 import type { HeaderTab } from "../header-tabs"
 import { cn } from "@/lib/utils"
@@ -41,7 +41,6 @@ import { usePaneEditorProps } from "./use-pane-editor-props"
 import { useOverlaysStore } from "../use-overlays-store"
 
 interface UsePaneRenderersParams {
-  openDocs: Record<string, Document>
   treeItemById: Map<string, TreeItem>
   activeTabKey: string
   canGoBack: boolean
@@ -150,7 +149,6 @@ interface UsePaneRenderersParams {
 }
 
 export function usePaneRenderers({
-  openDocs,
   treeItemById,
   activeTabKey,
   canGoBack,
@@ -255,7 +253,6 @@ export function usePaneRenderers({
 }: UsePaneRenderersParams) {
   const { t } = useTranslation()
   const { paneEditorProps } = usePaneEditorProps({
-    openDocs,
     treeItemById,
     activeTabKey,
     canGoBack,
@@ -406,7 +403,7 @@ export function usePaneRenderers({
           const visible = leaf && isMultiPane ? tab.key === paneActiveKey : tab.key === activeTabKey
           const primary = tab.key === activeTabKey
           const showNav = isMultiPane || primary
-          const rawDoc = openDocs[tab.fileId] ?? null
+          const rawDoc = useDocStore.getState().openDocs[tab.fileId] ?? null
           const isCanvasOrSketch = isLayerDocument(tab, rawDoc?.path)
           const treeItem = tab
             ? (treeItemById.get(tab.fileId) ??
