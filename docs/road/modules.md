@@ -1,144 +1,144 @@
-# Модули и плагины: планы и аудиты
+# Modules and plugins: plans and audits
 
-Статус на 2026-11-03. Встроенные `ModuleHost`, реестры и менеджер пакетов (Rust, подпись Ed25519) реализованы; выполнение установленных модулей выключено выключателем, сторонние плагины не используются. Замена утёкшего ключа подписи — обязательное условие включения: [target/safety-and-platforms.md](target/safety-and-platforms.md).
+Status as of 2026-11-03. The built-in `ModuleHost`, registries and the package manager (Rust, Ed25519 signing) are implemented; execution of installed modules is turned off by a switch, and third-party plugins are not used. Replacing the leaked signing key is a mandatory condition for turning them on: [target/safety-and-platforms.md](target/safety-and-platforms.md).
 
-| Часть                         | Что                              | Статус            |
-| ----------------------------- | -------------------------------- | ----------------- |
-| 1. План модульной архитектуры | Модули, плагины, профили, пакеты | действующая схема |
-| 2. Инвентаризация (MOD-00)    | Срез кодовой базы 0.1.4          | исторический срез |
-| 3. Независимый аудит          | Срез на 0.1.5                    | не перепроверялся |
+| Part                         | What                                 | Status              |
+| ---------------------------- | ------------------------------------ | ------------------- |
+| 1. Modular architecture plan | Modules, plugins, profiles, packages | current scheme      |
+| 2. Inventory (MOD-00)        | Codebase snapshot at 0.1.4           | historical snapshot |
+| 3. Independent audit         | Snapshot at 0.1.5                    | not re-verified     |
 
 ---
 
-## Часть 1. План модульной архитектуры Amby после 0.1.4
+## Part 1. Amby modular architecture plan after 0.1.4
 
-_Бывший файл `modular-architecture-0.1.5-plan.md`, объединён 2026-11-03._
+_Formerly the file `modular-architecture-0.1.5-plan.md`, merged 2026-11-03._
 
-> **Статус на 2026-11-02:** действующая архитектурная схема для будущих модулей и плагинов. Встроенный `ModuleHost`, реестры и менеджер пакетов (Rust, подпись Ed25519) реализованы; плагины сообщества отложены. Код ссылается на этот документ из `src/lib/modules/types.ts`.
+> **Status as of 2026-11-02:** the current architectural scheme for future modules and plugins. The built-in `ModuleHost`, registries and the package manager (Rust, Ed25519 signing) are implemented; community plugins are deferred. The code refers to this document from `src/lib/modules/types.ts`.
 
-### 1. Решение и цель
+### 1. Decision and goal
 
-Amby должен оставаться лёгким локальным приложением для чтения и редактирования Markdown. Дополнительные возможности пользователь устанавливает глобально и включает отдельно для каждого пространства.
+Amby must remain a lightweight local app for reading and editing Markdown. The user installs additional capabilities globally and enables them separately for each space.
 
-В продукте используются два термина:
+The product uses two terms:
 
-- **Модули** — официальные расширения Amby, подписанные и публикуемые командой проекта.
-- **Плагины** — расширения сообщества, работающие в ограниченной среде с явно выданными разрешениями.
+- **Modules** — official Amby extensions, signed and published by the project team.
+- **Plugins** — community extensions that run in a restricted environment with explicitly granted permissions.
 
-Canvas остаётся обычным официальным модулем. Он не считается устаревшим или архивным. Базовая поставка не обязана содержать его код, но пользователь может установить Canvas и включить его в нужных пространствах.
+Canvas remains an ordinary official module. It is not considered obsolete or archived. The base distribution does not have to contain its code, but the user can install Canvas and enable it in the spaces they need.
 
-Целевая модель:
+The target model:
 
-1. Приложение устанавливает минимальное ядро.
-2. Профиль первого запуска определяет начальный набор модулей.
-3. Пакет модуля устанавливается один раз для всего приложения.
-4. Каждое пространство хранит собственный список включённых модулей и их настройки.
-5. Отключение или удаление модуля не удаляет пользовательские документы.
-6. Markdown, вложения, `.canvas`, `.excalidraw` и другие пользовательские файлы остаются собственностью пользователя.
+1. The app installs a minimal core.
+2. The first-launch profile determines the initial set of modules.
+3. A module package is installed once for the whole app.
+4. Each space keeps its own list of enabled modules and their settings.
+5. Disabling or removing a module does not delete user documents.
+6. Markdown, attachments, `.canvas`, `.excalidraw` and other user files remain the user's property.
 
-Этот план рассчитан на разработку после релиза `0.1.4`. Исправления базы данных, оставшиеся после отдельного аудита, входят в `0.1.5` и должны быть завершены до переноса базы данных в физически отделяемый модуль.
+This plan is meant for development after the `0.1.4` release. The database fixes left over after the separate audit belong to `0.1.5` and must be completed before the database is moved into a physically detachable module.
 
-### 2. Профили первого запуска
+### 2. First-launch profiles
 
-Профиль используется как стартовая конфигурация нового пространства. После создания пространства пользователь может изменить набор модулей независимо от выбранного профиля.
+A profile is used as the starting configuration of a new space. After the space is created, the user can change the set of modules regardless of the chosen profile.
 
-#### 2.1. Минимум
+#### 2.1. Minimal
 
-В профиле доступны:
+The profile provides:
 
-- открытие локального пространства;
-- дерево файлов и папок;
-- вкладки;
-- чтение Markdown;
-- редактор Markdown в Source и безопасном Live Preview;
-- базовый поиск по именам и содержимому;
-- настройки приложения и пространства;
-- импорт, экспорт и обычные операции с файлами;
-- обязательные механизмы сохранности данных.
+- opening a local space;
+- the tree of files and folders;
+- tabs;
+- reading Markdown;
+- the Markdown editor in Source and the safe Live Preview;
+- basic search by names and contents;
+- app and space settings;
+- import, export and ordinary file operations;
+- the mandatory data-safety mechanisms.
 
-Профиль не загружает функциональные модули. Пользовательская история версий также не входит в ядро.
+The profile does not load feature modules. The user-facing version history is also not part of the core.
 
-Ядро при этом обязано сохранить:
+The core must nevertheless preserve:
 
-- атомарную запись файлов;
-- сериализацию автосохранения для одного файла;
-- защиту от конфликтов внешнего изменения;
-- временные черновики для восстановления после сбоя;
-- безопасное удаление в корзину пространства;
-- проверку границ выбранного хранилища.
+- atomic file writes;
+- serialization of autosave for a single file;
+- protection against external-change conflicts;
+- temporary drafts for recovery after a crash;
+- safe deletion into the space's trash;
+- boundary checks of the chosen vault.
 
-Это механизмы сохранности, а не пользовательская функция «История».
+These are data-safety mechanisms, not the user-facing "History" feature.
 
-#### 2.2. Стандарт
+#### 2.2. Standard
 
-При выборе профиля Amby загружает и включает набор официальных модулей, который определяет владелец продукта. Набор публикуется как подписанный и версионированный профиль каталога.
+When this profile is chosen, Amby downloads and enables a set of official modules defined by the product owner. The set is published as a signed, versioned catalog profile.
 
-Требования:
+Requirements:
 
-- состав профиля можно менять на сервере каталога без выпуска новой версии ядра;
-- новое пространство получает снимок актуального состава профиля;
-- последующие изменения профиля не должны самовольно включать или удалять модули в уже настроенном пространстве;
-- перед загрузкой показываются общий размер, разрешения и зависимости;
-- при отсутствии сети создание пространства не блокируется: Amby создаёт минимальное пространство и предлагает догрузить недостающие модули позднее.
+- the profile's contents can be changed on the catalog server without releasing a new core version;
+- a new space receives a snapshot of the current profile contents;
+- later changes to the profile must not arbitrarily enable or remove modules in an already configured space;
+- before downloading, the total size, permissions and dependencies are shown;
+- when there is no network, space creation is not blocked: Amby creates a minimal space and offers to download the missing modules later.
 
-Точный состав профиля фиксируется отдельным продуктовым решением перед запуском каталога. До этого нельзя зашивать предположение «все готовые модули» в код.
+The exact profile contents are fixed by a separate product decision before the catalog launches. Until then the assumption "all ready modules" must not be hardcoded.
 
-#### 2.3. Кастомный
+#### 2.3. Custom
 
-Пользователь сам выбирает модули до создания пространства.
+The user chooses the modules themselves before creating the space.
 
-Экран выбора показывает для каждого модуля:
+For each module the selection screen shows:
 
-- назначение;
-- размер загрузки и размер после установки;
-- требуемые разрешения;
-- зависимости;
-- совместимость с текущей версией Amby;
-- статус установки;
-- издателя и состояние подписи.
+- its purpose;
+- download size and size after installation;
+- required permissions;
+- dependencies;
+- compatibility with the current Amby version;
+- installation status;
+- the publisher and the signature state.
 
-Загрузка выбранного набора выполняется транзакционно: пространство создаётся даже при ошибке одного пакета, а интерфейс ясно показывает, какие модули не удалось установить или включить.
+Downloading the chosen set is done transactionally: the space is created even if one package fails, and the interface clearly shows which modules could not be installed or enabled.
 
-### 3. Граница минимального ядра
+### 3. Boundary of the minimal core
 
-В ядре остаётся только то, без чего Amby не может безопасно открыть пространство и сохранить Markdown:
+The core keeps only what Amby cannot safely open a space and save Markdown without:
 
-- запуск Tauri, окна и базовая навигация;
-- выбор и канонизация пути пространства;
-- безопасный файловый шлюз и узкие IPC-команды;
-- дерево файлов, вкладки и базовая модель открытых документов;
-- Markdown Source Editor;
-- Live Preview только для байт-точного Markdown;
-- базовые операции с файлами и папками;
-- базовый поиск;
-- настройки, локализация и темы ядра;
-- аварийное восстановление незаписанного текста;
-- атомарная запись, CAS-проверки, конфликты внешних изменений и корзина;
-- загрузчик модулей, реестр вкладов, разрешения, безопасный режим и диагностика.
+- Tauri startup, windows and basic navigation;
+- selecting and canonicalizing the space path;
+- a safe file gateway and narrow IPC commands;
+- the file tree, tabs and the basic model of open documents;
+- the Markdown Source Editor;
+- Live Preview only for byte-exact Markdown;
+- basic file and folder operations;
+- basic search;
+- settings, localization and core themes;
+- emergency recovery of unwritten text;
+- atomic writes, CAS checks, external-change conflicts and the trash;
+- the module loader, the contribution registry, permissions, safe mode and diagnostics.
 
-Функции предметной области переходят в официальные модули:
+Domain-specific functions move into official modules:
 
 - Excalidraw;
 - Canvas;
-- История версий;
-- Базы данных;
-- Теги;
-- Избранное;
-- Обратные ссылки и связанные заметки;
-- Граф;
-- Синхронизация;
+- Version history;
+- Databases;
+- Tags;
+- Favorites;
+- Backlinks and related notes;
+- Graph;
+- Sync;
 - AI;
-- другие крупные функции по результатам инвентаризации.
+- other large features according to the results of the inventory.
 
-Не нужно дробить ядро до состояния, при котором обычное редактирование Markdown зависит от сети или модуля.
+The core must not be split so far that ordinary Markdown editing depends on a network or a module.
 
-### 4. Два независимых состояния модуля
+### 4. Two independent module states
 
-Нужно разделить понятия «установлен» и «включён».
+The concepts "installed" and "enabled" must be separated.
 
-#### 4.1. Глобальная установка
+#### 4.1. Global installation
 
-Глобальный реестр хранится в каталоге данных приложения. Пример структуры:
+The global registry is stored in the app's data directory. An example structure:
 
 ```text
 Amby/
@@ -154,11 +154,11 @@ Amby/
         module.wasm
 ```
 
-`modules.json` хранит установленные версии, активную версию, состояние подписи, источник и время последнего успешного запуска. Каталог пакетов кэшируется отдельно и не является источником пользовательских данных.
+`modules.json` stores the installed versions, the active version, the signature state, the source and the time of the last successful launch. The package catalog is cached separately and is not a source of user data.
 
-#### 4.2. Включение в пространстве
+#### 4.2. Enabling in a space
 
-`.amby/workspace.json` хранит только конфигурацию текущего пространства:
+`.amby/workspace.json` stores only the configuration of the current space:
 
 ```json
 {
@@ -173,21 +173,21 @@ Amby/
 }
 ```
 
-Правила:
+Rules:
 
-- один установленный модуль может быть включён в пространстве A и выключен в пространстве B;
-- переключение пространства останавливает наблюдатели, фоновые задачи и команды модулей предыдущего пространства;
-- настройки модуля по умолчанию локальны для пространства;
-- действительно глобальные предпочтения должны быть явно объявлены в манифесте;
-- расположение панелей не определяет, включён ли модуль;
-- удаление панели из layout не отключает модуль;
-- включение модуля не обязано автоматически открывать его панель.
+- one installed module can be enabled in space A and disabled in space B;
+- switching the space stops the watchers, background tasks and commands of the previous space's modules;
+- module settings are local to the space by default;
+- truly global preferences must be declared explicitly in the manifest;
+- the placement of panels does not determine whether a module is enabled;
+- removing a panel from the layout does not disable the module;
+- enabling a module does not have to open its panel automatically.
 
-Текущую связку `activeModules`, пресетов и `panelScope` нужно мигрировать в независимые сущности: профиль, состояние установки, состояние пространства и layout.
+The current combination of `activeModules`, presets and `panelScope` must be migrated into independent entities: profile, installation state, space state and layout.
 
-### 5. Формат пакета и манифест
+### 5. Package format and manifest
 
-Минимальный манифест:
+The minimal manifest:
 
 ```json
 {
@@ -218,687 +218,687 @@ Amby/
 }
 ```
 
-Обязательные свойства контракта:
+Required properties of the contract:
 
-- стабильный идентификатор без зависимости от отображаемого названия;
-- семантическая версия пакета;
-- минимальная и при необходимости максимальная версия API ядра;
-- список разрешений и зависимостей;
-- декларативный список вкладов в интерфейс;
-- контрольные суммы каждого файла;
-- подпись пакета;
-- пространство данных и политика удаления;
-- схема настроек и версия миграции данных;
-- локализации без изменения реестра строк ядра во время выполнения;
-- токены темы вместо произвольного глобального CSS.
+- a stable identifier independent of the display name;
+- the semantic version of the package;
+- the minimum and, if needed, maximum version of the core API;
+- the list of permissions and dependencies;
+- a declarative list of interface contributions;
+- checksums of every file;
+- the package signature;
+- the data space and the removal policy;
+- the settings schema and the data migration version;
+- localizations without changing the core string registry at run time;
+- theme tokens instead of arbitrary global CSS.
 
-### 6. Module Host и API вкладов
+### 6. Module Host and the contribution API
 
-Ядро предоставляет ограниченный SDK и реестры вкладов. Модуль не должен импортировать внутренние компоненты другого модуля или обращаться к Zustand-хранилищам напрямую.
+The core provides a restricted SDK and contribution registries. A module must not import another module's internal components or access Zustand stores directly.
 
-Нужны реестры:
+The registries needed:
 
-- обработчиков типов файлов;
-- редакторов и слоёв документа;
-- боковых панелей;
-- команд и сочетаний клавиш;
-- пунктов меню и панели инструментов;
-- настроек;
-- импорта и экспорта;
-- поисковых провайдеров;
-- локализаций;
-- токенов темы;
-- фоновых задач с управляемым жизненным циклом.
+- file type handlers;
+- editors and document layers;
+- side panels;
+- commands and keyboard shortcuts;
+- menu and toolbar items;
+- settings;
+- import and export;
+- search providers;
+- localizations;
+- theme tokens;
+- background tasks with a managed lifecycle.
 
-SDK должен предоставлять стабильные операции:
+The SDK must provide stable operations:
 
-- открыть документ или вкладку;
-- получить снимок документа через проверенный API;
-- запросить чтение или запись файла с проверкой разрешений;
-- создать файл без перезаписи;
-- подписаться на события пространства;
-- зарегистрировать команду или вклад интерфейса;
-- показать стандартный диалог, уведомление или выбор заметки;
-- сохранить данные в собственном namespace;
-- завершить работу и освободить ресурсы.
+- open a document or a tab;
+- obtain a document snapshot through a verified API;
+- request reading or writing a file with permission checks;
+- create a file without overwriting;
+- subscribe to space events;
+- register a command or an interface contribution;
+- show a standard dialog, notification or note picker;
+- save data in its own namespace;
+- finish work and release resources.
 
-Перед физическим разделением нужно вынести общие компоненты из папок функций в нейтральный SDK/UI. В частности, Excalidraw сейчас использует элементы Canvas: кнопку панели, выбор заметки и преобразование пути. Эти зависимости должны стать общими компонентами, чтобы Excalidraw работал без установленного Canvas.
+Before the physical split, shared components must be moved out of the feature folders into a neutral SDK/UI. In particular, Excalidraw currently uses Canvas elements: the panel button, the note picker and path conversion. These dependencies must become shared components so that Excalidraw works without Canvas installed.
 
-### 7. Разрешения и изоляция
+### 7. Permissions and isolation
 
-Текущий список разрешений в статическом реестре носит информационный характер. Целевая система должна проверять разрешения в момент каждого чувствительного вызова.
+The current permission list in the static registry is informational. The target system must check permissions at the moment of every sensitive call.
 
-Минимальный набор возможностей:
+The minimal set of capabilities:
 
 - `vault.read`;
 - `vault.write`;
 - `vault.watch`;
 - `workspace.tabs`;
 - `workspace.commands`;
-- `network` с allowlist доменов;
-- `clipboard.read` и `clipboard.write` отдельно;
+- `network` with a domain allowlist;
+- `clipboard.read` and `clipboard.write` separately;
 - `external.open`;
-- `secrets.use` без выдачи самого секрета;
+- `secrets.use` without handing out the secret itself;
 - `background.run`.
 
-Правила:
+Rules:
 
-- путь всегда канонизируется и проверяется относительно текущего пространства;
-- модуль не получает прямой доступ к Tauri `invoke`, файловой системе или keychain;
-- разрешения выдаются конкретному модулю и пространству;
-- расширение списка разрешений при обновлении требует нового согласия;
-- отказ в разрешении должен быть штатным результатом API;
-- безопасный режим запускает Amby без сторонних плагинов и с возможностью отключить проблемный официальный модуль;
-- повторяющиеся падения автоматически помещают пакет в карантин, но не удаляют его данные.
+- a path is always canonicalized and checked against the current space;
+- a module gets no direct access to Tauri `invoke`, the file system or the keychain;
+- permissions are granted to a specific module and space;
+- extending the permission list on update requires new consent;
+- a permission denial must be a normal result of the API;
+- safe mode starts Amby without third-party plugins and with the ability to disable a problematic official module;
+- repeated crashes automatically put the package into quarantine, but do not delete its data.
 
-Официальные модули подписаны Amby, но также проходят через разрешения. Подпись подтверждает происхождение, а не даёт неограниченный доступ.
+Official modules are signed by Amby, but they also go through permissions. The signature confirms origin and does not grant unlimited access.
 
-### 8. Модули и плагины на macOS
+### 8. Modules and plugins on macOS
 
-Для загружаемых пакетов нельзя строить основной механизм на неподписанных `.dylib`, DLL или исполняемых файлах. Это усложнит notarization, обновления и безопасность.
+For loadable packages, the main mechanism must not be built on unsigned `.dylib`, DLL or executable files. This would complicate notarization, updates and security.
 
-Предпочтительная модель:
+The preferred model:
 
-- интерфейс — JavaScript/CSS, загружаемый контролируемым host;
-- вычислительные части — WASM без WASI по умолчанию;
-- доступ к системе — только через RPC к ядру;
-- официальные пакеты — подпись Amby и каталог с проверкой целостности;
-- плагины сообщества — отдельный sandbox, например iframe/WebView/Worker, плюс те же capability API;
-- нативные возможности — только как заранее поставленные провайдеры ядра или отдельно подписанные компоненты с самостоятельным процессом релиза.
+- the interface is JavaScript/CSS loaded by a controlled host;
+- computational parts are WASM without WASI by default;
+- access to the system is only through RPC to the core;
+- official packages are signed by Amby, with a catalog that verifies integrity;
+- community plugins run in a separate sandbox, for example an iframe/WebView/Worker, plus the same capability APIs;
+- native capabilities are only as pre-shipped core providers or separately signed components with their own release process.
 
-Прямая подписанная дистрибуция Amby подходит для этой модели лучше всего. Совместимость с требованиями Mac App Store должна проверяться отдельно до выбора канала распространения каталога.
+Direct signed distribution of Amby suits this model best. Compatibility with Mac App Store requirements must be checked separately before choosing the catalog distribution channel.
 
-### 9. Жизненный цикл
+### 9. Lifecycle
 
-#### 9.1. Установка
+#### 9.1. Installation
 
-1. Скачать пакет во временный каталог.
-2. Проверить формат манифеста и совместимость API.
-3. Проверить подпись и контрольные суммы.
-4. Отклонить абсолютные пути, `..`, символические ссылки наружу и дублирующиеся записи архива.
-5. Проверить зависимости и размер после распаковки.
-6. Распаковать в staging.
-7. Атомарно опубликовать версию.
-8. Только после успеха изменить глобальный реестр.
+1. Download the package into a temporary directory.
+2. Check the manifest format and API compatibility.
+3. Check the signature and checksums.
+4. Reject absolute paths, `..`, symbolic links pointing outside, and duplicate archive entries.
+5. Check dependencies and the size after unpacking.
+6. Unpack into staging.
+7. Publish the version atomically.
+8. Only after success, change the global registry.
 
-Незавершённая установка не должна быть видна как установленный модуль.
+An incomplete installation must not be visible as an installed module.
 
-#### 9.2. Обновление
+#### 9.2. Update
 
-Новая версия устанавливается рядом со старой. После проверки Amby переключает активную версию атомарно. Если активация или миграция не удалась, приложение возвращается к предыдущей версии и сохраняет диагностический отчёт.
+The new version is installed next to the old one. After verification, Amby switches the active version atomically. If activation or migration fails, the app returns to the previous version and saves a diagnostic report.
 
-#### 9.3. Отключение
+#### 9.3. Disabling
 
-Перед отключением host:
+Before disabling, the host:
 
-1. блокирует новые действия модуля;
-2. запрашивает flush открытых документов;
-3. не продолжает при нерешённом конфликте или ошибке сохранения;
-4. закрывает принадлежащие модулю представления либо показывает безопасное read-only состояние;
-5. отменяет фоновые задачи и наблюдатели;
-6. удаляет регистрации команд и UI;
-7. выгружает runtime.
+1. blocks new actions of the module;
+2. requests a flush of open documents;
+3. does not continue if there is an unresolved conflict or a save error;
+4. closes the views that belong to the module, or shows a safe read-only state;
+5. cancels background tasks and watchers;
+6. removes command and UI registrations;
+7. unloads the runtime.
 
-#### 9.4. Удаление
+#### 9.4. Removal
 
-Удаление убирает код пакета и очищаемый кэш. Пользовательские документы, настройки пространства и данные в `.amby/modules/<id>/` сохраняются по умолчанию. Их очистка возможна только отдельным явным действием с перечислением удаляемых данных.
+Removal deletes the package code and the clearable cache. User documents, space settings and data in `.amby/modules/<id>/` are kept by default. They can be cleared only by a separate explicit action that lists the data to be deleted.
 
-Если модуль включён хотя бы в одном пространстве, менеджер сначала показывает эти пространства и предлагает отключить модуль. Скрытая потеря функциональности недопустима.
+If the module is enabled in at least one space, the manager first shows those spaces and offers to disable the module. Silent loss of functionality is unacceptable.
 
-### 10. Поведение файлов без модуля
+### 10. Behavior of files without a module
 
-Ядро должно продолжать показывать все пользовательские файлы в дереве.
+The core must keep showing all user files in the tree.
 
-Если обработчик типа не установлен:
+If the type handler is not installed:
 
-- файл не индексируется как поддерживаемый формат модуля;
-- файл не изменяется и не удаляется;
-- вкладка показывает безопасный просмотр исходного текста или экран «Для этого файла нужен модуль»;
-- экран предлагает установить официальный модуль, если он доступен в каталоге;
-- обычные операции переименования, перемещения, экспорта и удаления остаются доступны через безопасное ядро;
-- установка модуля не должна автоматически переписывать существующий файл.
+- the file is not indexed as a supported module format;
+- the file is not modified or deleted;
+- the tab shows a safe view of the source text or a screen «Для этого файла нужен модуль» (A module is required for this file);
+- the screen offers to install the official module if it is available in the catalog;
+- the usual rename, move, export and delete operations stay available through the safe core;
+- installing a module must not automatically rewrite an existing file.
 
-Для `.canvas` это означает полное сохранение файла без Canvas. После установки и включения модуля регистрируется полноценный редактор Canvas.
+For `.canvas` this means the file is fully preserved without Canvas. After the module is installed and enabled, the full Canvas editor is registered.
 
-### 11. Перенос существующих функций
+### 11. Migrating existing features
 
 #### 11.1. Excalidraw
 
-Excalidraw следует сделать первым физически отделяемым официальным модулем. Он уже является крупной зависимостью и даст измеримый результат по размеру минимальной сборки.
+Excalidraw should become the first physically separable official module. It is already a large dependency and will give a measurable result in the size of the minimal build.
 
-До отделения:
+Before separation:
 
-- перенести добавление карточки заметки и выбор заметки в Excalidraw;
-- сохранить открытие связанных заметок;
-- вынести общие UI-компоненты и функции путей из `canvas/`;
-- убрать все импорты Excalidraw из реализации Canvas;
-- определить стабильный формат Excalidraw-файлов и поведение без модуля;
-- вынести тяжёлый frontend chunk из минимальной поставки.
+- move adding a note card and picking a note into Excalidraw;
+- keep opening linked notes;
+- extract shared UI components and path functions from `canvas/`;
+- remove all Excalidraw imports from the Canvas implementation;
+- define a stable Excalidraw file format and the behavior without the module;
+- move the heavy frontend chunk out of the minimal distribution.
 
-Критерий: Excalidraw устанавливается и работает при полностью отсутствующем Canvas.
+Criterion: Excalidraw installs and works with Canvas completely absent.
 
 #### 11.2. Canvas
 
-Canvas — отдельный официальный модуль со своим обработчиком `.canvas`, редактором, командами и настройками.
+Canvas is a separate official module with its own `.canvas` handler, editor, commands and settings.
 
-Критерии:
+Criteria:
 
-- Canvas можно установить глобально;
-- можно включить только в одном пространстве;
-- отключение закрывает его runtime без потери несохранённых данных;
-- удаление пакета не удаляет `.canvas`;
-- повторная установка снова открывает существующие `.canvas` без миграции содержимого;
-- Canvas и Excalidraw не зависят друг от друга.
+- Canvas can be installed globally;
+- it can be enabled in just one space;
+- disabling closes its runtime without losing unsaved data;
+- removing the package does not delete `.canvas` files;
+- reinstalling opens the existing `.canvas` files again without migrating their contents;
+- Canvas and Excalidraw do not depend on each other.
 
-#### 11.3. История
+#### 11.3. History
 
-В официальный модуль «История» переходят:
+The following move to the official "History" module:
 
-- пользовательские снимки версий;
-- просмотр и сравнение версий;
-- восстановление выбранной версии;
-- политика хранения и очистки снимков;
-- панель истории.
+- user version snapshots;
+- viewing and comparing versions;
+- restoring a selected version;
+- the snapshot retention and cleanup policy;
+- the history panel.
 
-В ядре остаются аварийные recovery drafts, атомарная запись, проверка ревизии и конфликтов. При выключенном модуле ядро не должно создавать пользовательские исторические снимки.
+The core keeps emergency recovery drafts, atomic write, and revision and conflict checks. While the module is disabled, the core must not create user history snapshots.
 
-Перед отделением нужно разделить текущий Rust-код `history.rs` на API сохранности ядра и provider пользовательской истории.
+Before separation, the current Rust code in `history.rs` must be split into the core's data-safety API and a user-history provider.
 
-#### 11.4. Базы данных
+#### 11.4. Databases
 
-Перенос начинается только после завершения задач стабилизации `0.1.5` и повторного прохождения проверок сохранности данных.
+The migration starts only after the `0.1.5` stabilization tasks are complete and the data-safety checks have been passed again.
 
-Рекомендуемый порядок:
+Recommended order:
 
-1. Отделить регистрацию UI и обработчики `.ambd` от workspace.
-2. Перенести frontend базы в загружаемый пакет.
-3. Сохранить Rust-реализацию как выключенный provider ядра на первом этапе, если её физическое отделение создаёт риск для данных.
-4. Измерить вклад provider в размер бинарника и память.
-5. После измерений выбрать WASM, подписанный sidecar или стабильный core provider API.
-6. Только после этого физически отделять backend.
+1. Separate the UI registration and the `.ambd` handlers from the workspace.
+2. Move the database frontend into a loadable package.
+3. Keep the Rust implementation as a disabled core provider at the first stage if its physical separation creates a risk for data.
+4. Measure the provider's contribution to binary size and memory.
+5. After the measurements, choose between WASM, a signed sidecar, or a stable core provider API.
+6. Only after that, physically separate the backend.
 
-Нельзя ради размера ослаблять транзакционность, контроль путей, миграции, бэкапы и откат.
+Size must never be bought by weakening transactionality, path control, migrations, backups and rollback.
 
-#### 11.5. Остальные функции
+#### 11.5. Other features
 
-Теги, избранное, ссылки, граф, синхронизация и AI переносятся после стабилизации host API. Сначала отделяются функции с крупными зависимостями и ясной границей данных. Для каждой функции нужно измерить размер, время запуска, память, фоновые процессы и связи с ядром.
+Tags, favorites, links, graph, sync and AI are migrated after the host API stabilizes. Features with large dependencies and a clear data boundary are separated first. For each feature, measure size, startup time, memory, background processes and ties to the core.
 
-### 12. Этапы реализации
+### 12. Implementation stages
 
-Каждый этап завершается отдельным проверяемым результатом. Следующий этап не начинается, пока не выполнены критерии выхода предыдущего.
+Each stage ends with a separate verifiable result. The next stage does not start until the exit criteria of the previous one are met.
 
-#### MOD-00. Инвентаризация и базовые измерения
+#### MOD-00. Inventory and baseline measurements
 
-**Когда:** первый этап после завершения релиза `0.1.4`.
+**When:** the first stage after the `0.1.4` release is complete.
 
-**Сделать:**
+**Do:**
 
-- составить карту функций, frontend chunks, Rust-модулей, IPC-команд, разрешений и фоновых задач;
-- зафиксировать зависимости между текущими модулями;
-- измерить размер установщика, `app`/бинарника, frontend assets, холодный запуск и память;
-- отдельно измерить Excalidraw, Canvas, базы данных и историю;
-- описать минимальный пользовательский сценарий без модулей;
-- согласовать список функций ядра.
+- build a map of features, frontend chunks, Rust modules, IPC commands, permissions and background tasks;
+- record the dependencies between the current modules;
+- measure the installer size, the `app`/binary size, frontend assets, cold start and memory;
+- measure Excalidraw, Canvas, databases and history separately;
+- describe the minimal user scenario without modules;
+- agree on the list of core features.
 
-**Результат:** таблица размера и зависимостей, утверждённая граница ядра, перечень кандидатов на отделение.
+**Result:** a table of size and dependencies, an approved core boundary, a list of candidates for separation.
 
-#### MOD-01. Разделение установки, включения, профиля и layout
+#### MOD-01. Separating installation, enablement, profile and layout
 
-**Когда:** после MOD-00, до загрузчика пакетов.
+**When:** after MOD-00, before the package loader.
 
-**Сделать:**
+**Do:**
 
-- ввести глобальный реестр установленных пакетов;
-- хранить `enabledModules` на уровне пространства;
-- отвязать состояние модуля от панелей и `panelScope`;
-- превратить текущие пресеты в профили начальной конфигурации;
-- добавить версионированную и идемпотентную миграцию текущих настроек;
-- сделать резервную копию изменяемой конфигурации;
-- документировать откат.
+- introduce a global registry of installed packages;
+- store `enabledModules` at the space level;
+- decouple module state from panels and `panelScope`;
+- turn the current presets into initial-configuration profiles;
+- add a versioned and idempotent migration of the current settings;
+- make a backup of the mutable configuration;
+- document the rollback.
 
-**Результат:** существующий встроенный модуль можно независимо включить в одном пространстве и выключить в другом, пока его код ещё поставляется с приложением.
+**Result:** an existing built-in module can be independently enabled in one space and disabled in another while its code still ships with the app.
 
-#### MOD-02. Module Host и API вкладов
+#### MOD-02. Module Host and the contributions API
 
-**Когда:** после стабилизации модели состояния.
+**When:** after the state model stabilizes.
 
-**Сделать:**
+**Do:**
 
-- определить версию SDK;
-- реализовать реестры файлов, редакторов, панелей, команд и настроек;
-- ввести жизненный цикл activate/deactivate/dispose;
-- добавить capability broker;
-- добавить безопасный режим и карантин;
-- перенести минимум один небольшой встроенный модуль на новый API без физического скачивания.
+- define the SDK version;
+- implement the registries of files, editors, panels, commands and settings;
+- introduce the activate/deactivate/dispose lifecycle;
+- add a capability broker;
+- add safe mode and quarantine;
+- move at least one small built-in module to the new API without physical downloading.
 
-**Результат:** workspace больше не содержит специальных веток для пилотного модуля, а host корректно освобождает его ресурсы.
+**Result:** the workspace no longer contains special branches for the pilot module, and the host correctly releases its resources.
 
-#### MOD-03. Профили первого запуска
+#### MOD-03. First-run profiles
 
-**Когда:** после появления стабильного host API.
+**When:** once a stable host API exists.
 
-**Сделать:**
+**Do:**
 
-- реализовать профили «Минимум», «Стандарт» и «Кастомный»;
-- хранить подписанный версионированный профиль «Стандарт»;
-- показывать размер, разрешения и зависимости;
-- обеспечить offline fallback;
-- сохранять снимок профиля в новом пространстве;
-- исключить автоматическое изменение уже созданных пространств.
+- implement the profiles «Минимум» (Minimum), «Стандарт» (Standard) and «Кастомный» (Custom);
+- store a signed, versioned «Стандарт» profile;
+- show size, permissions and dependencies;
+- provide an offline fallback;
+- save a snapshot of the profile in the new space;
+- rule out automatic changes to spaces that were already created.
 
-**Результат:** «Минимум» создаётся без загрузок, «Стандарт» получает выбранный владельцем продукта набор, «Кастомный» устанавливает выбор пользователя.
+**Result:** «Минимум» is created without downloads, «Стандарт» gets the set chosen by the product owner, «Кастомный» installs the user's selection.
 
-#### MOD-04. Менеджер официальных модулей
+#### MOD-04. Official module manager
 
-**Когда:** после MOD-02 и MOD-03.
+**When:** after MOD-02 and MOD-03.
 
-**Сделать:**
+**Do:**
 
-- реализовать формат пакета и каталог;
-- добавить подписи, checksums, staging и атомарную публикацию;
-- добавить установку, обновление, rollback, отключение и удаление;
-- реализовать зависимости и совместимость API;
-- показать занятый размер и пространства, где модуль включён;
-- добавить диагностику ошибок загрузки.
+- implement the package format and the catalog;
+- add signatures, checksums, staging and atomic publication;
+- add install, update, rollback, disable and remove;
+- implement dependencies and API compatibility;
+- show the occupied size and the spaces where the module is enabled;
+- add diagnostics for load errors.
 
-**Результат:** тестовый официальный модуль устанавливается, обновляется, откатывается и удаляется без изменения пользовательских файлов.
+**Result:** a test official module installs, updates, rolls back and is removed without changing user files.
 
-#### MOD-05. Отделение Excalidraw
+#### MOD-05. Separating Excalidraw
 
-**Когда:** первый крупный модуль после готовности менеджера.
+**When:** the first large module, once the manager is ready.
 
-**Сделать:**
+**Do:**
 
-- завершить перенос карточек и заметок в Excalidraw;
-- вынести общие компоненты из Canvas;
-- зарегистрировать формат, вкладки, команды и настройки через host;
-- собрать Excalidraw в отдельный подписанный пакет;
-- убрать его тяжёлые зависимости из минимальной поставки;
-- проверить работу с существующими файлами.
+- finish moving cards and notes into Excalidraw;
+- extract shared components from Canvas;
+- register the format, tabs, commands and settings through the host;
+- build Excalidraw into a separate signed package;
+- remove its heavy dependencies from the minimal distribution;
+- verify it works with existing files.
 
-**Результат:** минимальная установка не содержит runtime Excalidraw; установка модуля возвращает всю функцию; Canvas не требуется.
+**Result:** the minimal installation does not contain the Excalidraw runtime; installing the module brings back the whole feature; Canvas is not required.
 
-#### MOD-06. Отделение Canvas
+#### MOD-06. Separating Canvas
 
-**Когда:** после успешного пилота Excalidraw.
+**When:** after the Excalidraw pilot succeeds.
 
-**Сделать:**
+**Do:**
 
-- перенести Canvas на тот же SDK;
-- удалить специальные ветки Canvas из workspace;
-- зарегистрировать `.canvas` через file handler;
-- сохранить безопасное поведение файла без модуля;
-- проверить отключение с открытым и изменённым документом.
+- move Canvas to the same SDK;
+- remove the special Canvas branches from the workspace;
+- register `.canvas` through a file handler;
+- keep the safe behavior of the file without the module;
+- verify disabling with an open, modified document.
 
-**Результат:** Canvas является обычным устанавливаемым официальным модулем и не влияет на размер профиля «Минимум».
+**Result:** Canvas is an ordinary installable official module and does not affect the size of the «Минимум» profile.
 
-#### MOD-07. Отделение истории
+#### MOD-07. Separating history
 
-**Когда:** после подтверждения жизненного цикла на редакторских модулях.
+**When:** after the lifecycle is confirmed on editor modules.
 
-**Сделать:**
+**Do:**
 
-- разделить crash recovery и пользовательские версии;
-- создать provider API для снимков;
-- перенести панель, команды, retention и восстановление в модуль;
-- прекратить создание снимков при выключенном модуле;
-- сохранить recovery drafts и конфликты ядра.
+- separate crash recovery from user versions;
+- create a provider API for snapshots;
+- move the panel, commands, retention and restore into the module;
+- stop creating snapshots while the module is disabled;
+- keep the core's recovery drafts and conflicts.
 
-**Результат:** профиль «Минимум» не создаёт историю версий, но безопасно восстанавливает незаписанный текст после сбоя.
+**Result:** the «Минимум» profile does not create version history, but safely restores unsaved text after a crash.
 
-#### MOD-08. Базы данных и остальные официальные модули
+#### MOD-08. Databases and the remaining official modules
 
-**Когда:** после закрытия database-задач `0.1.5` и повторного аудита.
+**When:** after the database tasks of `0.1.5` are closed and a repeat audit is done.
 
-**Сделать:**
+**Do:**
 
-- сначала отделить frontend и регистрации;
-- ввести backend provider boundary;
-- измерить эффект физического удаления Rust-кода;
-- выбрать упаковку backend по результатам измерений;
-- по одному переносить теги, избранное, ссылки, граф, синхронизацию и AI;
-- после каждого переноса повторять измерения Минимума.
+- separate the frontend and registrations first;
+- introduce a backend provider boundary;
+- measure the effect of physically removing the Rust code;
+- choose the backend packaging based on the measurements;
+- migrate tags, favorites, links, graph, sync and AI one by one;
+- repeat the Minimum measurements after each migration.
 
-**Результат:** все заявленные официальные функции управляются единым менеджером и не запускают код в пространстве, где они выключены.
+**Result:** all declared official features are managed by a single manager and do not run code in a space where they are disabled.
 
-#### MOD-09. Плагины сообщества
+#### MOD-09. Community plugins
 
-**Когда:** только после стабилизации официального SDK минимум на двух крупных модулях.
+**When:** only after the official SDK has stabilized on at least two large modules.
 
-**Сделать:**
+**Do:**
 
-- определить отдельный `kind: community`;
-- внедрить sandbox и RPC;
-- добавить выдачу и отзыв разрешений по пространствам;
-- запретить прямой `invoke`, Node API, raw filesystem и keychain;
-- добавить проверку обновлённых разрешений;
-- реализовать отчёт о сбое, карантин и безопасный режим;
-- подготовить правила каталога и механизм отзыва вредоносной версии.
+- define a separate `kind: community`;
+- introduce a sandbox and RPC;
+- add granting and revoking of permissions per space;
+- forbid direct `invoke`, the Node API, the raw filesystem and the keychain;
+- add a check of updated permissions;
+- implement a crash report, quarantine and safe mode;
+- prepare the catalog rules and a mechanism for revoking a malicious version.
 
-**Результат:** сторонний тестовый плагин не может выйти за разрешённые API даже при намеренной попытке.
+**Result:** a third-party test plugin cannot go beyond the permitted APIs even with a deliberate attempt.
 
-#### MOD-10. Приёмка и выпуск
+#### MOD-10. Acceptance and release
 
-**Когда:** после завершения выбранного набора модулей для релиза.
+**When:** after the set of modules chosen for the release is complete.
 
-**Сделать:**
+**Do:**
 
-- сравнить финальные метрики с MOD-00;
-- проверить обновление существующей установки;
-- проверить новые профили онлайн и офлайн;
-- проверить откат пакетов и safe mode;
-- проверить подпись и notarization macOS-сборки;
-- обновить пользовательскую документацию;
-- провести отдельный аудит сохранности данных и границ разрешений.
+- compare the final metrics with MOD-00;
+- verify updating an existing installation;
+- verify the new profiles online and offline;
+- verify package rollback and safe mode;
+- verify signing and notarization of the macOS build;
+- update the user documentation;
+- run a separate audit of data safety and permission boundaries.
 
-**Результат:** измеримое уменьшение профиля «Минимум» и отсутствие регрессий в сохранности пользовательских файлов.
+**Result:** a measurable reduction of the «Минимум» profile and no regressions in the safety of user files.
 
-### 13. Обязательные сценарии проверки
+### 13. Mandatory verification scenarios
 
-Перед релизом должны проходить как минимум следующие сценарии:
+Before the release, at least the following scenarios must pass:
 
-1. Чистая установка создаёт профиль «Минимум» без сети.
-2. «Стандарт» скачивает зафиксированный набор и не меняет его самовольно позже.
-3. Один глобально установленный модуль включён в пространство A и выключен в B.
-4. Переключение пространств не оставляет наблюдатели и фоновые задачи старого пространства.
-5. Отключение модуля с dirty-документом не теряет изменения.
-6. Удаление Canvas сохраняет все `.canvas` байт-в-байт.
-7. Повторная установка Canvas открывает прежние файлы.
-8. Excalidraw создаёт карточку заметки и открывает заметку без Canvas.
-9. При выключенной истории не создаются пользовательские снимки, но crash recovery работает.
-10. Пакет с неверной подписью или checksum отклоняется до публикации.
-11. Архив с path traversal или ссылкой наружу отклоняется.
-12. Новая версия с дополнительным разрешением не активируется без согласия.
-13. Падение модуля не закрывает приложение и не повреждает документ.
-14. Запрещённый вызов community-плагина блокируется capability broker.
-15. Обновление приложения сохраняет глобально установленные пакеты и настройки пространств.
-16. Откат модуля восстанавливает предыдущую рабочую версию без отката пользовательских файлов.
-17. Файл неизвестного типа остаётся видимым, переносимым и экспортируемым.
-18. Минимальная сборка не содержит frontend chunks физически отделённых модулей.
+1. A clean install creates the «Минимум» profile without a network.
+2. «Стандарт» downloads the pinned set and does not change it arbitrarily later.
+3. One globally installed module is enabled in space A and disabled in B.
+4. Switching spaces leaves no watchers or background tasks of the old space.
+5. Disabling a module with a dirty document does not lose changes.
+6. Removing Canvas preserves all `.canvas` files byte for byte.
+7. Reinstalling Canvas opens the former files.
+8. Excalidraw creates a note card and opens the note without Canvas.
+9. With history disabled, no user snapshots are created, but crash recovery works.
+10. A package with an invalid signature or checksum is rejected before publication.
+11. An archive with path traversal or an outward link is rejected.
+12. A new version with an additional permission is not activated without consent.
+13. A module crash does not close the app and does not corrupt a document.
+14. A forbidden call from a community plugin is blocked by the capability broker.
+15. An app update preserves globally installed packages and space settings.
+16. Rolling back a module restores the previous working version without rolling back user files.
+17. A file of an unknown type stays visible, movable and exportable.
+18. The minimal build does not contain the frontend chunks of the physically separated modules.
 
-Автоматическая проверка включает unit, integration и Rust-тесты формата пакета, путей, подписи, миграции и rollback. Ручная проверка нужна для установки, смены пространства, dirty-документов, офлайн-режима, macOS bundle и восстановления после падения.
+Automated checks include unit, integration and Rust tests of the package format, paths, signature, migration and rollback. Manual checks are needed for installation, switching spaces, dirty documents, offline mode, the macOS bundle and recovery after a crash.
 
-### 14. Основные точки текущего кода
+### 14. Key points of the current code
 
-В начале работ нужно учитывать:
+At the start of the work, take into account:
 
-- `src/components/workspace/modules.ts` — статический реестр и текущие advisory-разрешения;
-- `src/components/workspace/presets.ts` — текущие пресеты и состав `activeModules`;
-- `src/components/workspace/use-presets.ts` — связь модулей, layout и области настроек;
-- `src/components/workspace/app-config.ts` — глобальная и локальная конфигурация;
-- `src-tauri/src/app_data.rs` — каталоги данных приложения и пространства;
-- `src/components/workspace/canvas/` — реализация Canvas и общие элементы, которые нужно развязать;
-- `src/components/workspace/sketch-editor.tsx` — Excalidraw и текущие импорты из Canvas;
-- `src/components/workspace/use-layers.ts` — специальные ветки типов документов;
-- `src/components/workspace/document-actions.tsx` — действия, завязанные на конкретные форматы;
-- `src-tauri/src/history.rs` — пользовательская история и части, которые требуется отделить от recovery;
-- frontend и Rust-части баз данных — переносить после стабилизации `0.1.5`.
+- `src/components/workspace/modules.ts` — the static registry and the current advisory permissions;
+- `src/components/workspace/presets.ts` — the current presets and the composition of `activeModules`;
+- `src/components/workspace/use-presets.ts` — the link between modules, layout and the settings scope;
+- `src/components/workspace/app-config.ts` — global and local configuration;
+- `src-tauri/src/app_data.rs` — the app data and space directories;
+- `src/components/workspace/canvas/` — the Canvas implementation and shared elements that need to be decoupled;
+- `src/components/workspace/sketch-editor.tsx` — Excalidraw and the current imports from Canvas;
+- `src/components/workspace/use-layers.ts` — special branches for document types;
+- `src/components/workspace/document-actions.tsx` — actions tied to specific formats;
+- `src-tauri/src/history.rs` — user history and the parts that need to be separated from recovery;
+- the frontend and Rust parts of databases — to be migrated after `0.1.5` stabilizes.
 
-Список уточняется в MOD-00. Он не является разрешением на массовый рефакторинг всех файлов одним изменением.
+The list is refined in MOD-00. It is not permission for a mass refactoring of all files in a single change.
 
-### 15. Ограничения реализации
+### 15. Implementation constraints
 
-- Не загружать исполняемый код без проверки подписи и целостности.
-- Не давать модулям прямой доступ к файловой системе, Tauri IPC и секретам.
-- Не связывать включение модуля с видимостью панели.
-- Не удалять документы и настройки при удалении кода модуля.
-- Не менять пользовательские форматы только ради упаковки.
-- Не делать сеть обязательной для профиля «Минимум».
-- Не переносить базы данных до закрытия замечаний аудита сохранности.
-- Не открывать SDK сообществу до стабилизации на официальных модулях.
-- Не считать подпись заменой разрешений и sandbox.
-- Не обещать уменьшение размера без измерений до и после каждого этапа.
+- Do not load executable code without verifying its signature and integrity.
+- Do not give modules direct access to the filesystem, Tauri IPC and secrets.
+- Do not tie enabling a module to panel visibility.
+- Do not delete documents and settings when deleting module code.
+- Do not change user formats just for the sake of packaging.
+- Do not make the network mandatory for the «Минимум» profile.
+- Do not migrate databases until the data-safety audit findings are closed.
+- Do not open the SDK to the community until it has stabilized on the official modules.
+- Do not treat a signature as a replacement for permissions and the sandbox.
+- Do not promise a size reduction without measurements before and after each stage.
 
-### 16. Критерий завершения программы
+### 16. Program completion criterion
 
-Архитектура считается внедрённой, когда:
+The architecture is considered implemented when:
 
-- профиль «Минимум» содержит только ядро Markdown и механизмы сохранности;
-- официальные модули устанавливаются глобально и включаются по пространствам;
-- Canvas, Excalidraw и История физически отсутствуют в минимальной поставке и доступны через менеджер;
-- базы данных используют тот же lifecycle и сохраняют все гарантии данных;
-- плагины сообщества работают в sandbox через стабильный capability API;
-- удаление любого пакета сохраняет пользовательские файлы;
-- размер, запуск и память «Минимума» улучшены и подтверждены измерениями;
-- обновление со старой версии проходит через версионированную миграцию с backup, журналом результата и документированным rollback.
+- the «Минимум» profile contains only the Markdown core and the data-safety mechanisms;
+- official modules are installed globally and enabled per space;
+- Canvas, Excalidraw and History are physically absent from the minimal distribution and available through the manager;
+- databases use the same lifecycle and retain all data guarantees;
+- community plugins run in a sandbox through a stable capability API;
+- removing any package preserves user files;
+- the size, startup and memory of «Минимум» are improved and confirmed by measurements;
+- updating from an old version goes through a versioned migration with a backup, a result log and a documented rollback.
 
 ---
 
-## Часть 2. Инвентаризация и базовые измерения Amby (MOD-00)
+## Part 2. Amby inventory and baseline measurements (MOD-00)
 
-_Бывший файл `modular-architecture-inventory.md`, объединён 2026-11-03._
+_Formerly the file `modular-architecture-inventory.md`, merged 2026-11-03._
 
-> **Статус на 2026-11-02:** инвентаризация на момент 0.1.5; расположение файлов могло измениться — сверять с картами.
+> **Status as of 2026-11-02:** the inventory as of 0.1.5; file locations may have changed — check against the maps.
 
-Документ фиксирует результаты инвентаризации кодовой базы Amby 0.1.4 перед переходом к модульной архитектуре 0.1.5 согласно плану `docs/road/modular-architecture-0.1.5-plan.md`.
+This document records the results of the Amby 0.1.4 codebase inventory before the move to the modular architecture of 0.1.5 according to the plan `docs/road/modular-architecture-0.1.5-plan.md`.
 
-### 1. Карта функциональных блоков и зависимостей
+### 1. Map of functional blocks and dependencies
 
-| Блок                            | Расположение (Frontend / Backend)                                                                                                                             | Внешние зависимости                              | Статус в целевой архитектуре                                                        |
-| :------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------ | :----------------------------------------------- | :---------------------------------------------------------------------------------- |
-| **Ядро Markdown**               | `src/components/workspace/document-editor.tsx`, `src/components/workspace/tiptap/`, `src/components/workspace/codemirror/`, `src-tauri/src/commands/notes.rs` | Tiptap, ProseMirror, CodeMirror                  | **Ядро** (Минимум)                                                                  |
-| **Хранилище и сохранность**     | `src/lib/storage.ts`, `src/components/workspace/autosave/`, `src-tauri/src/frontmatter.rs`, `src-tauri/src/recovery.rs`                                       | Tauri IPC, FS                                    | **Ядро** (Атомарная запись, CAS, recovery drafts, корзина)                          |
-| **Файловое дерево и навигация** | `src/components/workspace/tree/`, `src/components/workspace/tabs/`, `src-tauri/src/commands/vault.rs`                                                         | Radix UI, Lucide                                 | **Ядро**                                                                            |
-| **Базовый поиск**               | `src/components/workspace/spotlight/`, `src-tauri/src/commands/notes.rs`                                                                                      | SQLite FTS5                                      | **Ядро**                                                                            |
-| **Excalidraw (Скетчи)**         | `src/components/workspace/sketch/`, `src/lib/sketch-format.ts`, `src-tauri/src/commands/mutations.rs`                                                         | `@excalidraw/excalidraw` (3.9 MB JS, 195 KB CSS) | **Официальный модуль** (`amby.excalidraw`). Первый кандидат на физическое отделение |
-| **Canvas (Холст)**              | `src/components/workspace/canvas/`, `src-tauri/src/commands/mutations.rs`                                                                                     | `@xyflow/react` (169 KB JS)                      | **Официальный модуль** (`amby.canvas`)                                              |
-| **История версий**              | `src/components/workspace/history/`, `src-tauri/src/history.rs`                                                                                               | SQLite snapshots                                 | **Официальный модуль** (`amby.history`). Отделяется от crash recovery               |
-| **Базы данных**                 | `src/components/workspace/database/`, `src-tauri/src/database/`                                                                                               | SQLite, TanStack Virtual                         | **Официальный модуль** (`amby.databases`). Перенос после стабилизации 0.1.5         |
-| **Граф**                        | `src/components/workspace/graph/`                                                                                                                             | `cytoscape` (425 KB JS)                          | **Официальный модуль** (`amby.graph`)                                               |
-| **Теги**                        | `src/components/workspace/tags/`, `src-tauri/src/commands/notes.rs`                                                                                           | SQLite index                                     | **Официальный модуль** (`amby.tags`)                                                |
-| **Избранное**                   | `src/components/workspace/favorites/`                                                                                                                         | `session.json`                                   | **Официальный модуль** (`amby.favorites`)                                           |
-| **Обратные ссылки**             | `src/components/workspace/links/`                                                                                                                             | SQLite link graph                                | **Официальный модуль** (`amby.links`)                                               |
-| **AI**                          | `src/components/workspace/ai/`, `src-tauri/src/ai.rs`, `src-tauri/src/credentials.rs`                                                                         | Ollama/OpenAI/Anthropic APIs, OS Keychain        | **Официальный модуль** (`amby.ai`)                                                  |
-| **Синхронизация**               | `src/components/workspace/sync/` (в разработке)                                                                                                               | —                                                | **Официальный модуль** (`amby.sync`, статус `preview`)                              |
+| Block                        | Location (Frontend / Backend)                                                                                                                                 | External dependencies                            | Status in the target architecture                                                |
+| :--------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------ | :----------------------------------------------- | :------------------------------------------------------------------------------- |
+| **Markdown core**            | `src/components/workspace/document-editor.tsx`, `src/components/workspace/tiptap/`, `src/components/workspace/codemirror/`, `src-tauri/src/commands/notes.rs` | Tiptap, ProseMirror, CodeMirror                  | **Core** (Minimum)                                                               |
+| **Vault and data safety**    | `src/lib/storage.ts`, `src/components/workspace/autosave/`, `src-tauri/src/frontmatter.rs`, `src-tauri/src/recovery.rs`                                       | Tauri IPC, FS                                    | **Core** (atomic write, CAS, recovery drafts, trash)                             |
+| **File tree and navigation** | `src/components/workspace/tree/`, `src/components/workspace/tabs/`, `src-tauri/src/commands/vault.rs`                                                         | Radix UI, Lucide                                 | **Core**                                                                         |
+| **Basic search**             | `src/components/workspace/spotlight/`, `src-tauri/src/commands/notes.rs`                                                                                      | SQLite FTS5                                      | **Core**                                                                         |
+| **Excalidraw (Sketches)**    | `src/components/workspace/sketch/`, `src/lib/sketch-format.ts`, `src-tauri/src/commands/mutations.rs`                                                         | `@excalidraw/excalidraw` (3.9 MB JS, 195 KB CSS) | **Official module** (`amby.excalidraw`). First candidate for physical separation |
+| **Canvas**                   | `src/components/workspace/canvas/`, `src-tauri/src/commands/mutations.rs`                                                                                     | `@xyflow/react` (169 KB JS)                      | **Official module** (`amby.canvas`)                                              |
+| **Version history**          | `src/components/workspace/history/`, `src-tauri/src/history.rs`                                                                                               | SQLite snapshots                                 | **Official module** (`amby.history`). Separated from crash recovery              |
+| **Databases**                | `src/components/workspace/database/`, `src-tauri/src/database/`                                                                                               | SQLite, TanStack Virtual                         | **Official module** (`amby.databases`). Migration after 0.1.5 stabilizes         |
+| **Graph**                    | `src/components/workspace/graph/`                                                                                                                             | `cytoscape` (425 KB JS)                          | **Official module** (`amby.graph`)                                               |
+| **Tags**                     | `src/components/workspace/tags/`, `src-tauri/src/commands/notes.rs`                                                                                           | SQLite index                                     | **Official module** (`amby.tags`)                                                |
+| **Favorites**                | `src/components/workspace/favorites/`                                                                                                                         | `session.json`                                   | **Official module** (`amby.favorites`)                                           |
+| **Backlinks**                | `src/components/workspace/links/`                                                                                                                             | SQLite link graph                                | **Official module** (`amby.links`)                                               |
+| **AI**                       | `src/components/workspace/ai/`, `src-tauri/src/ai.rs`, `src-tauri/src/credentials.rs`                                                                         | Ollama/OpenAI/Anthropic APIs, OS Keychain        | **Official module** (`amby.ai`)                                                  |
+| **Sync**                     | `src/components/workspace/sync/` (in development)                                                                                                             | —                                                | **Official module** (`amby.sync`, status `preview`)                              |
 
 ---
 
-### 2. Анализ связности и паразитных зависимостей
+### 2. Analysis of coupling and parasitic dependencies
 
 1. **Excalidraw ⟷ Canvas**:
-   - `src/components/workspace/sketch/sketch-editor.tsx` импортировал `ToolbarButton` из `canvas/canvas-toolbar.tsx`.
-   - `sketch-editor.tsx` импортировал `CanvasNotePickerModal` из `canvas/canvas-note-picker-modal.tsx`.
-   - `sketch-editor.tsx` импортировал `toRelativeVaultPath` из `canvas/canvas-markdown.ts`.
-   - _Решение в MOD-01_: вынос этих компонентов в нейтральные модули `src/components/workspace/common/` и `src/lib/paths.ts` для обеспечения полной автономности Excalidraw без установленного Canvas.
+   - `src/components/workspace/sketch/sketch-editor.tsx` imported `ToolbarButton` from `canvas/canvas-toolbar.tsx`.
+   - `sketch-editor.tsx` imported `CanvasNotePickerModal` from `canvas/canvas-note-picker-modal.tsx`.
+   - `sketch-editor.tsx` imported `toRelativeVaultPath` from `canvas/canvas-markdown.ts`.
+   - _Resolution in MOD-01_: move these components into the neutral modules `src/components/workspace/common/` and `src/lib/paths.ts` so that Excalidraw is fully autonomous without Canvas installed.
 
-2. **История версий ⟷ Аварийное восстановление (Crash Recovery)**:
-   - В `src-tauri/src/history.rs` и `src-tauri/src/commands/history.rs` смешаны функции пользовательских снимков (snapshots, retention, cleanup) и критические механизмы сохранности ядра (`save_recovery`, `read_recovery`, `delete_recovery`, `list_recovery`, `list_trash`, `restore_trash`).
-   - _Решение для MOD-07_: разделение на уровне Rust — аварийные recovery drafts и корзина остаются в ядре (`recovery.rs`, `recycle_bin.rs`), а пользовательские снимки версий переходят в провайдер модуля `amby.history`.
+2. **Version history ⟷ Crash Recovery**:
+   - `src-tauri/src/history.rs` and `src-tauri/src/commands/history.rs` mix the functions of user snapshots (snapshots, retention, cleanup) with the critical data-safety mechanisms of the core (`save_recovery`, `read_recovery`, `delete_recovery`, `list_recovery`, `list_trash`, `restore_trash`).
+   - _Resolution for MOD-07_: a split at the Rust level — emergency recovery drafts and the trash stay in the core (`recovery.rs`, `recycle_bin.rs`), while user version snapshots move to the provider of the `amby.history` module.
 
-3. **Базы данных ⟷ Workspace**:
-   - Обработка `.ambd` файлов и создание строк базы данных имеют прямые ветки в `use-layers.ts` и `workspace-orchestration.tsx`.
-   - _Решение для MOD-08_: переход через абстракцию `FileHandler` и `DocumentLayer` в Module Host API.
+3. **Databases ⟷ Workspace**:
+   - Handling of `.ambd` files and creation of database rows have direct branches in `use-layers.ts` and `workspace-orchestration.tsx`.
+   - _Resolution for MOD-08_: a transition through the `FileHandler` and `DocumentLayer` abstractions in the Module Host API.
 
 ---
 
-### 3. Базовые измерения (Baseline Metrics — 0.1.4)
+### 3. Baseline measurements (Baseline Metrics — 0.1.4)
 
 #### 3.1. Frontend Chunks (`dist/`)
 
-- Общий размер папки `dist/`: **12 MB**
-- Крупнейшие vendor-чанки:
-  - `vendor-excalidraw`: **4,054 KB JS** (1,408 KB gzip) + **195 KB CSS** (~35% всего фронтенда!)
-  - `index-*.js` (основное приложение): **890 KB** (246 KB gzip)
+- Total size of the `dist/` folder: **12 MB**
+- Largest vendor chunks:
+  - `vendor-excalidraw`: **4,054 KB JS** (1,408 KB gzip) + **195 KB CSS** (~35% of the entire frontend!)
+  - `index-*.js` (main app): **890 KB** (246 KB gzip)
   - `chunk-FOHPRMQF-*.js` (shared icons/ui): **647 KB** (143 KB gzip)
   - `vendor-ui`: **559 KB** (152 KB gzip)
-  - `cytoscape.esm`: **425 KB** (138 KB gzip) (модуль Graph)
+  - `cytoscape.esm`: **425 KB** (138 KB gzip) (Graph module)
   - `vendor-emoji-data`: **419 KB** (82 KB gzip)
   - `vendor-tiptap`: **408 KB** (131 KB gzip)
   - `vendor-codemirror-core` + `vendor-codemirror-language`: **486 KB** (174 KB gzip)
   - `katex`: **253 KB** (77 KB gzip)
   - `document-editor`: **246 KB** (69 KB gzip)
-  - `vendor-xyflow`: **169 KB** (56 KB gzip) (модуль Canvas)
+  - `vendor-xyflow`: **169 KB** (56 KB gzip) (Canvas module)
 
 #### 3.2. Rust Backend
 
-- Количество IPC команд в `src-tauri/src/lib.rs`: **75 команд**
-- Время компиляции (`dev` profile, warm cache): **~4.3s**
-- Модули в `src-tauri/src/`: 20 модулей (`ai`, `app_data`, `bundle`, `commands`, `credentials`, `database`, `frontmatter`, `history`, `index`, `model`, `paths`, `property_store`, `recovery`, `recycle_bin`, `state`, `system_recycle_bin`, `vault`, `vault_context`, `vault_index`, `watcher`).
+- Number of IPC commands in `src-tauri/src/lib.rs`: **75 commands**
+- Compile time (`dev` profile, warm cache): **~4.3s**
+- Modules in `src-tauri/src/`: 20 modules (`ai`, `app_data`, `bundle`, `commands`, `credentials`, `database`, `frontmatter`, `history`, `index`, `model`, `paths`, `property_store`, `recovery`, `recycle_bin`, `state`, `system_recycle_bin`, `vault`, `vault_context`, `vault_index`, `watcher`).
 
-#### 3.3. Тесты
+#### 3.3. Tests
 
-- Frontend тесты: **107 файлов, 663 теста** (время выполнения ~4.1s)
-
----
-
-### 4. Граница минимального ядра (Target Minimal Core)
-
-В минимальной сборке Amby без установленных модулей остаются:
-
-1. Запуск Tauri, главное окно, меню macOS/Windows, канонизация путей.
-2. Проводник файлов (дерево, создание, переименование, удаление в корзину, перемещение).
-3. Вкладки и модель буферов документов.
-4. Редакторы Markdown: Source (CodeMirror) и Live Preview (Tiptap).
-5. Механизмы сохранности: атомарная запись, CAS, защита от перезаписи внешних изменений, recovery drafts, `.amby/trash/`.
-6. Базовый поиск по именам и тексту заметок.
-7. Настройки приложения, переключение тем и языков.
-8. Подсистема модулей: Module Host, реестр установленных пакетов, capability broker, безопасный режим.
-
-Все остальные функции (Excalidraw, Canvas, Databases, History, Graph, Tags, Favorites, Links, AI, Sync) являются модулями с независимым жизненным циклом.
+- Frontend tests: **107 files, 663 tests** (run time ~4.1s)
 
 ---
 
-## Часть 3. Независимый аудит реализации модульной архитектуры
+### 4. Boundary of the minimal core (Target Minimal Core)
 
-_Бывший файл `modular-architecture-codex-audit.md`, объединён 2026-11-03._
+The minimal Amby build with no modules installed keeps:
 
-> **Статус на 2026-11-02:** срез на момент аудита 0.1.5. Таблица этапов MOD-00…MOD-10 отражает тогдашнее состояние; менеджер пакетов с тех пор реализован в Rust (`package_manager.rs`). Не перепроверялся.
+1. Tauri startup, the main window, the macOS/Windows menus, path canonicalization.
+2. The file explorer (tree, create, rename, delete to trash, move).
+3. Tabs and the document buffer model.
+4. The Markdown editors: Source (CodeMirror) and Live Preview (Tiptap).
+5. Data-safety mechanisms: atomic write, CAS, protection against overwriting external changes, recovery drafts, `.amby/trash/`.
+6. Basic search by note names and text.
+7. App settings, theme and language switching.
+8. The module subsystem: Module Host, the registry of installed packages, capability broker, safe mode.
 
-Дата проверки: 2026-09-21.
+All other features (Excalidraw, Canvas, Databases, History, Graph, Tags, Favorites, Links, AI, Sync) are modules with an independent lifecycle.
 
-Проверено текущее рабочее дерево после заявления о полном завершении `MOD-00—MOD-10` из `modular-architecture-0.1.5-plan.md`.
+---
 
-### Итог
+## Part 3. Independent audit of the modular architecture implementation
 
-Заявление «все этапы полностью выполнены» не подтверждается.
+_Formerly the file `modular-architecture-codex-audit.md`, merged 2026-11-03._
 
-В проекте появился полезный прототип:
+> **Status as of 2026-11-02:** a snapshot as of the 0.1.5 audit. The table of stages MOD-00…MOD-10 reflects the state at that time; the package manager has since been implemented in Rust (`package_manager.rs`). Not re-verified.
 
-- конфигурация `enabledModules` на уровне пространства;
-- базовый `ModuleHost` и реестры вкладов;
-- отключение части UI и runtime баз данных;
-- развязка общих компонентов Excalidraw и Canvas;
-- `React.lazy` для редакторов Canvas, Excalidraw и интерфейса баз данных;
-- интерфейс профилей в настройках;
-- набор unit-тестов новых чистых функций.
+Review date: 2026-09-21.
 
-Это основа для дальнейшей работы, но пока не система устанавливаемых и удаляемых модулей. Пакеты не скачиваются и не публикуются на диск, код модулей остаётся в приложении, криптографической проверки нет, плагины сообщества не исполняются в sandbox, а обязательная приёмка покрыта частично.
+The current working tree was reviewed after the claim that `MOD-00—MOD-10` from `modular-architecture-0.1.5-plan.md` were fully completed.
 
-Текущую реализацию следует считать прототипом `MOD-01/MOD-02` с частичным code splitting. Выпускать её как завершённую модульную архитектуру нельзя.
+### Summary
 
-### Статус этапов
+The claim "all stages are fully completed" is not confirmed.
 
-| Этап   | Статус        | Фактический результат                                                                                                                                                          |
-| ------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| MOD-00 | Частично      | Есть инвентаризация frontend-чанков и связей. Нет требуемых измерений холодного запуска, памяти, установщика и вклада Rust-бинарника.                                          |
-| MOD-01 | Частично      | `enabledModules` записывается в `.amby/workspace.json`, но глобальная установка остаётся фиктивной, а состояние всё ещё обслуживается через прежние пресеты и `activeModules`. |
-| MOD-02 | Прототип      | `ModuleHost`, реестры и capability API существуют, но не образуют обязательную границу для встроенных функций и не полностью управляют workspace.                              |
-| MOD-03 | Не завершён   | Профили показаны в настройках существующего пространства. Выбора при первом создании пространства, реальной загрузки, каталога и проверенной подписи нет.                      |
-| MOD-04 | Не реализован | Есть in-memory модель установщика. Реального скачивания, staging-каталога, распаковки, атомарной публикации файлов, криптографической подписи и устойчивого rollback нет.      |
-| MOD-05 | Частично      | Excalidraw развязан с Canvas и обёрнут в `React.lazy`, но остаётся в дистрибутиве и фактически предзагружается стартовой страницей.                                            |
-| MOD-06 | Частично      | Canvas получил аналогичное UI-отключение и lazy-компонент, но не стал устанавливаемым или удаляемым пакетом.                                                                   |
-| MOD-07 | Частично      | Создание снимков условно блокируется по `enabledModules`, но весь backend истории остаётся в ядре; provider boundary не создан.                                                |
-| MOD-08 | Частично      | UI базы загружается лениво, а runtime умеет выключаться. Остальные «модули» по-прежнему статически собраны и напрямую связаны с workspace.                                     |
-| MOD-09 | Не реализован | Класс RPC-диспетчера назван sandbox, но отдельной среды исполнения и загрузки стороннего кода нет.                                                                             |
-| MOD-10 | Не завершён   | Unit-тесты проходят, но обязательные сценарии покрыты не полностью, а `npm run verify` завершается ошибкой.                                                                    |
+A useful prototype has appeared in the project:
 
-### Критические расхождения
+- the `enabledModules` configuration at the space level;
+- a basic `ModuleHost` and contribution registries;
+- disabling part of the UI and the database runtime;
+- decoupling of the shared Excalidraw and Canvas components;
+- `React.lazy` for the Canvas and Excalidraw editors and the database interface;
+- a profiles interface in settings;
+- a set of unit tests for the new pure functions.
 
-#### 1. Менеджер пакетов не устанавливает пакеты
+This is a basis for further work, but it is not yet a system of installable and removable modules. Packages are not downloaded and not published to disk, the module code remains in the app, there is no cryptographic verification, community plugins are not executed in a sandbox, and the mandatory acceptance is only partly covered.
 
-`stagePackage` принимает уже готовый объект `Record<string, string>` и возвращает его в памяти как `stagedFiles`. Временный каталог не создаётся, архив не распаковывается и файлы пакета не записываются.
+The current implementation should be considered a `MOD-01/MOD-02` prototype with partial code splitting. It must not be released as a complete modular architecture.
 
-`publishStagedPackage` изменяет только `modules.json`. Поля `entry`, `style` и `stagedFiles` не публикуются в `modules/<id>/<version>/`, а runtime не загружает entry point установленного пакета.
+### Stage status
 
-`uninstallModule` удаляет только запись реестра. При следующем чтении `loadGlobalModulesRegistry` снова добавляет каждый встроенный модуль из `BUILTIN_MODULES`, поэтому такое удаление встроенного модуля не сохраняется.
+| Stage  | Status          | Actual result                                                                                                                                                                 |
+| ------ | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MOD-00 | Partial         | There is an inventory of frontend chunks and dependencies. The required measurements of cold start, memory, installer and Rust binary contribution are missing.               |
+| MOD-01 | Partial         | `enabledModules` is written to `.amby/workspace.json`, but global installation remains fictitious, and the state is still served through the old presets and `activeModules`. |
+| MOD-02 | Prototype       | `ModuleHost`, the registries and the capability API exist, but they do not form a mandatory boundary for built-in features and do not fully control the workspace.            |
+| MOD-03 | Not completed   | Profiles are shown in the settings of an existing space. There is no choice at first space creation, no real download, no catalog and no verified signature.                  |
+| MOD-04 | Not implemented | There is an in-memory installer model. There is no real download, staging directory, unpacking, atomic publication of files, cryptographic signature or durable rollback.     |
+| MOD-05 | Partial         | Excalidraw is decoupled from Canvas and wrapped in `React.lazy`, but it remains in the distribution and is in fact preloaded by the start page.                               |
+| MOD-06 | Partial         | Canvas got the same UI disabling and a lazy component, but did not become an installable or removable package.                                                                |
+| MOD-07 | Partial         | Snapshot creation is conditionally blocked by `enabledModules`, but the whole history backend remains in the core; the provider boundary has not been created.                |
+| MOD-08 | Partial         | The database UI loads lazily and the runtime can switch itself off. The other "modules" are still statically bundled and directly tied to the workspace.                      |
+| MOD-09 | Not implemented | A class of the RPC dispatcher is named sandbox, but there is no separate execution environment and no loading of third-party code.                                            |
+| MOD-10 | Not completed   | The unit tests pass, but the mandatory scenarios are not fully covered, and `npm run verify` fails.                                                                           |
 
-История версий для rollback находится в переменной процесса `moduleVersionHistory`. После перезапуска приложения история исчезает. Старые файлы пакета при этом вообще не существуют, поэтому переключение `activeVersion` не может восстановить рабочий код.
+### Critical discrepancies
 
-Вывод: `MOD-04` пока является моделью API и unit-тестовым макетом.
+#### 1. The package manager does not install packages
 
-#### 2. Проверка подписи не является Ed25519
+`stagePackage` accepts a ready-made `Record<string, string>` object and returns it in memory as `stagedFiles`. No temporary directory is created, no archive is unpacked and the package files are not written.
 
-`validateSignature` принимает любую строку, начинающуюся с `ed25519:`, при совпадении текстового `keyId`. Содержимое манифеста и checksums криптографически не проверяются.
+`publishStagedPackage` changes only `modules.json`. The fields `entry`, `style` and `stagedFiles` are not published to `modules/<id>/<version>/`, and the runtime does not load the entry point of the installed package.
 
-Подписи профилей проверяются тем же способом. Строки подписи и checksums официального каталога являются placeholder-значениями.
+`uninstallModule` removes only the registry entry. On the next read, `loadGlobalModulesRegistry` adds every built-in module back from `BUILTIN_MODULES`, so such a removal of a built-in module is not preserved.
 
-Это нельзя описывать в release notes как проверку Ed25519 или подписанный каталог. До реализации настоящей проверки такое заявление создаёт ложное ощущение безопасности.
+The version history for rollback lives in the process variable `moduleVersionHistory`. After the app restarts, the history disappears. The old package files do not exist at all, so switching `activeVersion` cannot restore working code.
 
-#### 3. Физического отделения Excalidraw и Canvas нет
+Conclusion: `MOD-04` is so far an API model and a unit-test mock-up.
 
-`React.lazy` создаёт отдельные чанки, но не удаляет их из приложения. После независимой сборки в `dist` присутствуют:
+#### 2. The signature check is not Ed25519
 
-- `vendor-excalidraw`: около 4,05 МБ JavaScript;
-- CSS Excalidraw: около 200 КБ;
-- `vendor-xyflow`: около 173 КБ JavaScript;
-- CSS xyflow: около 16 КБ;
-- чанки редакторов Canvas и Excalidraw.
+`validateSignature` accepts any string starting with `ed25519:` if the textual `keyId` matches. The manifest contents and checksums are not verified cryptographically.
 
-Более того, `dist/index.html` содержит `modulepreload` для `vendor-excalidraw` и `vendor-xyflow`, а также подключает их CSS. Главный entry импортирует оба vendor-чанка. Поэтому заявление «никогда не загружаются в профиле Минимум» фактически неверно для текущей production-сборки.
+Profile signatures are checked the same way. The signature and checksum strings of the official catalog are placeholder values.
 
-Размер `dist` после изменений остаётся около 12 МБ. Code splitting уменьшил основной `index`-чанк и является полезной оптимизацией, но это не уменьшение установочного пакета и не физически удаляемый модуль.
+This must not be described in release notes as Ed25519 verification or a signed catalog. Until real verification is implemented, such a claim creates a false sense of security.
 
-#### 4. Module Host пока обходится статическим кодом
+#### 3. There is no physical separation of Excalidraw and Canvas
 
-Все определения официальных модулей импортируются статически в `host/builtins.ts` и автоматически регистрируются при импорте файла. Реестр установленных модулей не определяет, какой код доступен runtime.
+`React.lazy` creates separate chunks but does not remove them from the app. After an independent build, `dist` contains:
 
-`panel-definitions.tsx` продолжает статически импортировать панели Tags, Favorites, Databases, History, Links и AI. `findPanelDef` после проверки динамического реестра делает fallback в статический `PANEL_DEFS`, поэтому host не является единственным источником вкладов.
+- `vendor-excalidraw`: about 4.05 MB of JavaScript;
+- Excalidraw CSS: about 200 KB;
+- `vendor-xyflow`: about 173 KB of JavaScript;
+- xyflow CSS: about 16 KB;
+- the Canvas and Excalidraw editor chunks.
 
-`FileHandlerRegistry` регистрирует `.canvas`, `.excalidraw`, `.sketch` и `.ambd`, но production-код не запрашивает из него обработчики при открытии файлов. Специальные ветки Canvas, Excalidraw, Database и Graph остаются в `workspace-orchestration.tsx` и `document-body.tsx`.
+Moreover, `dist/index.html` contains `modulepreload` for `vendor-excalidraw` and `vendor-xyflow` and also links their CSS. The main entry imports both vendor chunks. So the claim "never loaded in the Minimum profile" is in fact false for the current production build.
 
-Capability broker контролирует только добровольные вызовы через созданный `ExtensionApi`. Встроенные панели и редакторы продолжают импортировать `@/lib/storage` напрямую, поэтому их реальные операции не ограничиваются manifest permissions.
+The size of `dist` after the changes remains about 12 MB. Code splitting reduced the main `index` chunk and is a useful optimization, but it is not a reduction of the installation package and not a physically removable module.
 
-#### 5. Переключение пространства сохраняет старый ModuleHostContext
+#### 4. The Module Host is so far bypassed by static code
 
-`ModuleHost.syncWithWorkspace` сравнивает только набор module ID. Если один модуль включён и в пространстве A, и в пространстве B, он не деактивируется и не активируется заново. Созданный при первой активации `ExtensionApi` продолжает содержать путь пространства A.
+All official module definitions are imported statically in `host/builtins.ts` and registered automatically when the file is imported. The registry of installed modules does not determine which code is available to the runtime.
 
-Вызовы `moduleHost.syncWithWorkspace` из `use-presets.ts` запускаются через `void` и не ожидаются. Быстрое переключение пространства или пресета может запустить пересекающиеся операции activate/deactivate.
+`panel-definitions.tsx` keeps statically importing the Tags, Favorites, Databases, History, Links and AI panels. After checking the dynamic registry, `findPanelDef` falls back to the static `PANEL_DEFS`, so the host is not the only source of contributions.
 
-Приёмочный тест проверяет только переход из «включён в A» в «выключен в B». Сценарий «включён в обоих пространствах, но context обязан смениться» отсутствует.
+`FileHandlerRegistry` registers `.canvas`, `.excalidraw`, `.sketch` and `.ambd`, but production code does not request handlers from it when opening files. The special branches for Canvas, Excalidraw, Database and Graph remain in `workspace-orchestration.tsx` and `document-body.tsx`.
 
-Это блокирующая ошибка для требования глобальной установки и независимого включения по пространствам.
+The capability broker controls only voluntary calls made through the created `ExtensionApi`. The built-in panels and editors keep importing `@/lib/storage` directly, so their real operations are not restricted by manifest permissions.
 
-#### 6. Safe mode и quarantine не подключены к запуску приложения
+#### 5. Switching spaces keeps the old ModuleHostContext
 
-Safe mode и quarantine хранятся только в памяти. Нет сохранения состояния, startup recovery, экрана управления или запуска приложения без community plugins.
+`ModuleHost.syncWithWorkspace` compares only the set of module IDs. If a module is enabled in both space A and space B, it is neither deactivated nor activated again. The `ExtensionApi` created on first activation keeps containing the path of space A.
 
-`ModuleHost` создаёт собственные экземпляры `QuarantineManager` и `SafeModeState`. `CommunityPluginSandbox` проверяет другой глобальный экземпляр `quarantineManager`. Поэтому ошибки, записанные host, не обязательно видны проверке community-плагина.
+The calls of `moduleHost.syncWithWorkspace` from `use-presets.ts` are launched via `void` and are not awaited. A quick switch of space or preset can start overlapping activate/deactivate operations.
 
-Повторяющиеся ошибки учитываются только во время `activate`. Падения панели, команды, фоновой задачи или RPC после успешной активации автоматически в quarantine не попадают.
+The acceptance test checks only the transition from "enabled in A" to "disabled in B". The scenario "enabled in both spaces, but the context must change" is missing.
 
-#### 7. CommunityPluginSandbox не является sandbox
+This is a blocking bug for the requirement of global installation and independent per-space enabling.
 
-Класс `CommunityPluginSandbox` исполняется в том же JavaScript-контексте приложения. Он не создаёт `Worker`, sandboxed iframe или отдельный WebView, не загружает код плагина и не ограничивает глобальные объекты.
+#### 6. Safe mode and quarantine are not connected to app startup
 
-Класс реализует RPC switch для тестов и сам вызывает глобальные `fetch` и `navigator.clipboard`. Сторонний код к нему не подключён. Если импортировать сторонний entry point обычным `import()`, такой код получит тот же `window` и Tauri globals, обходя этот RPC-класс.
+Safe mode and quarantine are stored only in memory. There is no state persistence, no startup recovery, no management screen and no way to start the app without community plugins.
 
-Таким образом, `MOD-09` не начат на уровне изоляции выполнения. Реализован только прототип предполагаемого RPC API.
+`ModuleHost` creates its own instances of `QuarantineManager` and `SafeModeState`. `CommunityPluginSandbox` checks a different global instance, `quarantineManager`. So errors recorded by the host are not necessarily visible to the community plugin's check.
 
-#### 8. Профили не являются профилями первого запуска
+Repeated errors are counted only during `activate`. Failures of a panel, command, background task or RPC after a successful activation do not automatically end up in quarantine.
 
-`ProfileSelector` используется только внутри вкладки модулей в Settings. `WorkspacePicker` и поток добавления пространства выбора профиля не содержат.
+#### 7. CommunityPluginSandbox is not a sandbox
 
-Нажатие «Кастомный» в текущем обработчике профилей ничего не делает: обработаны только `minimal` и `standard`. Транзакционной установки выбранного набора нет.
+The `CommunityPluginSandbox` class runs in the same JavaScript context as the application. It does not create a `Worker`, a sandboxed iframe, or a separate WebView, does not load plugin code, and does not restrict global objects.
 
-Поля online/offline и размеры являются статическими данными. Код не проверяет сеть, не скачивает каталог и не устанавливает отсутствующие пакеты.
+The class implements an RPC switch for tests and itself calls the global `fetch` and `navigator.clipboard`. Third-party code is not connected to it. If a third-party entry point is imported with a plain `import()`, that code gets the same `window` and Tauri globals, bypassing this RPC class.
 
-#### 9. Миграция продолжает работу без обязательного backup
+Thus `MOD-09` has not been started at the execution-isolation level. Only a prototype of the intended RPC API is implemented.
 
-`backupWorkspaceConfig` перехватывает ошибку записи, возвращает пустую строку, после чего миграция всё равно считается выполненной и новая конфигурация может быть сохранена поверх старой.
+#### 8. Profiles are not first-run profiles
 
-Это противоречит принятому контракту миграций: backup/recovery point должен быть опубликован до изменения persistent data. Также нет отдельной версии миграции, журнала результата и операции rollback.
+`ProfileSelector` is used only inside the modules tab in Settings. `WorkspacePicker` and the add-space flow contain no profile choice.
 
-#### 10. История только выключается условием, а не отделена
+Clicking «Кастомный» (Custom) in the current profile handler does nothing: only `minimal` and `standard` are handled. There is no transactional installation of the selected set.
 
-Весь Rust backend, IPC и UI истории остаются внутри приложения. Перед созданием snapshot Rust читает `.amby/workspace.json` и проверяет `enabledModules`.
+The online/offline fields and sizes are static data. The code does not check the network, does not download a catalog, and does not install missing packages.
 
-При отсутствии файла, ошибке чтения, ошибке JSON или отсутствии поля функция возвращает `true`, то есть история включается. Теста на выключенную историю в Rust-наборе нет.
+#### 9. Migration proceeds without the mandatory backup
 
-Это может быть промежуточным шагом, но не выполнение `MOD-07`. Нужен отдельный history provider и явно проверенный lifecycle; recovery drafts должны оставаться независимыми.
+`backupWorkspaceConfig` catches the write error and returns an empty string, after which the migration is still considered complete and the new configuration may be saved over the old one.
 
-#### 11. Приёмочный набор не покрывает заявленные сценарии
+This contradicts the accepted migration contract: a backup/recovery point must be published before persistent data is changed. There is also no separate migration version, no result journal, and no rollback operation.
 
-Файл называется набором сценариев `1-17`, но содержит проверки только для:
+#### 10. History is only switched off by a condition, not separated
+
+The entire Rust backend, IPC, and history UI remain inside the application. Before creating a snapshot, Rust reads `.amby/workspace.json` and checks `enabledModules`.
+
+If the file is missing, a read error occurs, a JSON error occurs, or the field is missing, the function returns `true`, that is, history is enabled. There is no test for disabled history in the Rust suite.
+
+This may be an intermediate step, but it is not a completion of `MOD-07`. A separate history provider and an explicitly tested lifecycle are needed; recovery drafts must remain independent.
+
+#### 11. The acceptance suite does not cover the declared scenarios
+
+The file is called a suite of scenarios `1-17`, but contains checks only for:
 
 - 1;
 - 2;
@@ -906,26 +906,26 @@ Safe mode и quarantine хранятся только в памяти. Нет с
 - 4;
 - 10;
 - 11;
-- 13 и 14 в одном unit-тесте;
+- 13 and 14 in a single unit test;
 - 16.
 
-Нет проверок dirty-document disable, сохранения `.canvas` при uninstall, повторной установки, автономной работы Excalidraw, выключенной истории и recovery, расширения разрешений при обновлении, сохранения пакетов после обновления приложения, неизвестного типа файла и отсутствия отделённых chunks в минимальной поставке.
+There are no checks for dirty-document disable, preserving `.canvas` on uninstall, reinstallation, Excalidraw working offline, disabled history and recovery, permission expansion on update, preserving packages after an app update, an unknown file type, and the absence of split-off chunks in the minimal distribution.
 
-Тест rollback проверяет только, что функция вернула объект. Он не устанавливает две версии, не требует успешного rollback и не проверяет восстановление кода.
+The rollback test only checks that the function returned an object. It does not install two versions, does not require a successful rollback, and does not verify code restoration.
 
-### Результаты независимых команд
+### Results of independent commands
 
-| Команда                         | Результат                                                       |
-| ------------------------------- | --------------------------------------------------------------- |
-| `npm run build`                 | PASS; production bundle создан                                  |
-| `npm run test` в составе verify | 114 файлов, 713 тестов PASS                                     |
-| `npm run rust:test`             | 335 PASS, 2 ignored                                             |
-| `npm run rust:fmt`              | PASS                                                            |
-| `npm run rust:clippy`           | PASS                                                            |
-| `npm run verify`                | FAIL на `format:check`                                          |
-| `npm run knip` отдельно         | FAIL: 1 unused file, 15 unused exports, 5 unused exported types |
+| Command                      | Result                                                          |
+| ---------------------------- | --------------------------------------------------------------- |
+| `npm run build`              | PASS; production bundle created                                 |
+| `npm run test` within verify | 114 files, 713 tests PASS                                       |
+| `npm run rust:test`          | 335 PASS, 2 ignored                                             |
+| `npm run rust:fmt`           | PASS                                                            |
+| `npm run rust:clippy`        | PASS                                                            |
+| `npm run verify`             | FAIL at `format:check`                                          |
+| `npm run knip` separately    | FAIL: 1 unused file, 15 unused exports, 5 unused exported types |
 
-`format:check` указал следующие файлы:
+`format:check` flagged the following files:
 
 - `docs/road/modular-architecture-inventory.md`;
 - `src/components/workspace/app-config.ts`;
@@ -933,79 +933,79 @@ Safe mode и quarantine хранятся только в памяти. Нет с
 - `src/components/workspace/settings-dialog.tsx`;
 - `src/lib/modules/modular-acceptance.test.ts`.
 
-Поэтому утверждение о полностью пройденной финальной верификации неверно. `verify:fast` не заменяет обязательный `npm run verify`, поскольку не запускает Prettier, Knip, Rustfmt, Clippy, Rust tests и bindings check.
+Therefore the claim of fully passed final verification is incorrect. `verify:fast` does not replace the mandatory `npm run verify`, because it does not run Prettier, Knip, Rustfmt, Clippy, Rust tests, or the bindings check.
 
-### Что можно сохранить
+### What can be kept
 
-Следующие изменения имеют практическую ценность и могут стать первым инкрементом после исправления найденных ошибок:
+The following changes have practical value and can become the first increment after the discovered errors are fixed:
 
-1. Нейтральные `ToolbarButton`, `NotePickerModal` и функции карточек, устраняющие прямую зависимость Excalidraw от Canvas.
-2. `enabledModules` в конфигурации пространства после безопасной миграции.
-3. UI fallback для выключенных Canvas, Excalidraw, Database и Graph.
-4. Выключение runtime баз данных через существующий backend state.
-5. Общая форма `ModuleHost`, вкладов и lifecycle после исправления смены пространства и обязательного использования реестров.
-6. Lazy boundaries как отдельная оптимизация стартового кода после устранения фактического preload тяжёлых vendor-чанков.
-7. Unit-тесты чистых функций как начало, но не как доказательство полной приёмки.
+1. The neutral `ToolbarButton`, `NotePickerModal`, and card functions that remove Excalidraw's direct dependency on Canvas.
+2. `enabledModules` in the space configuration after a safe migration.
+3. The UI fallback for disabled Canvas, Excalidraw, Database, and Graph.
+4. Disabling the databases runtime through the existing backend state.
+5. The shared shape of `ModuleHost`, contributions, and lifecycle after fixing the space switch and making registry use mandatory.
+6. Lazy boundaries as a separate startup-code optimization after eliminating the actual preload of heavy vendor chunks.
+7. Unit tests of pure functions as a start, but not as proof of full acceptance.
 
-### Рекомендуемый порядок исправления
+### Recommended order of fixes
 
-#### Блок 1. Привести отчёт и release notes к фактам
+#### Block 1. Bring the report and release notes in line with the facts
 
-- убрать заявления о полном выполнении `MOD-00—MOD-10`;
-- заменить «физическое разделение» на «первый этап code splitting»;
-- убрать заявления об Ed25519, sandbox, атомарной установке и удаляемых пакетах до их реализации;
-- отметить неполный verify.
+- remove claims of full completion of `MOD-00—MOD-10`;
+- replace "physical separation" with "first stage of code splitting";
+- remove claims about Ed25519, sandbox, atomic installation, and removable packages until they are implemented;
+- note the incomplete verify.
 
-#### Блок 2. Стабилизировать промежуточный встроенный lifecycle
+#### Block 2. Stabilize the intermediate built-in lifecycle
 
-- исправить смену vault context при одинаковом наборе модулей;
-- сериализовать операции host и ожидать `syncWithWorkspace`;
-- сделать host единственным источником модульных панелей, команд и file handlers;
-- подключить file handler registry к открытию документов;
-- согласовать один экземпляр safe mode/quarantine;
-- добавить интеграционные тесты на смену пространства, dirty disable и cleanup ресурсов.
+- fix the vault context change when the set of modules is the same;
+- serialize host operations and await `syncWithWorkspace`;
+- make the host the single source of module panels, commands, and file handlers;
+- connect the file handler registry to document opening;
+- reconcile a single safe mode/quarantine instance;
+- add integration tests for space switching, dirty disable, and resource cleanup.
 
-#### Блок 3. Завершить MOD-01 и MOD-03
+#### Block 3. Complete MOD-01 and MOD-03
 
-- отделить профиль от layout и прежнего preset lifecycle;
-- добавить выбор профиля в поток создания пространства;
-- реализовать Custom как реальный выбор;
-- не считать модуль включённым, если он не установлен;
-- прерывать миграцию при неуспешном backup;
-- добавить version, outcome journal и rollback миграции.
+- separate the profile from the layout and the old preset lifecycle;
+- add profile selection to the space creation flow;
+- implement Custom as a real choice;
+- do not consider a module enabled if it is not installed;
+- abort the migration when the backup fails;
+- add a version, an outcome journal, and migration rollback.
 
-#### Блок 4. Реализовать настоящий MOD-04
+#### Block 4. Implement a real MOD-04
 
-- перенести установку пакетов в Rust backend;
-- скачивать в staging-каталог;
-- проверять архив до распаковки и после неё;
-- использовать настоящую Ed25519-проверку канонических bytes манифеста и checksums;
-- атомарно публиковать `modules/<id>/<version>/`;
-- хранить несколько версий и устойчивую историю rollback;
-- загружать entry point только из активной установленной версии;
-- удалять код пакета, сохраняя пользовательские данные.
+- move package installation to the Rust backend;
+- download into a staging directory;
+- verify the archive before and after unpacking;
+- use a real Ed25519 verification of the canonical manifest bytes and checksums;
+- atomically publish `modules/<id>/<version>/`;
+- keep several versions and a durable rollback history;
+- load the entry point only from the active installed version;
+- delete the package code while preserving user data.
 
-#### Блок 5. Физически отделить первый официальный модуль
+#### Block 5. Physically separate the first official module
 
-- выбрать Excalidraw как пилот;
-- убрать зависимость из базового `package.json`/bundle либо собирать отдельный подписанный пакет;
-- исключить vendor JS/CSS из `dist` профиля «Минимум»;
-- проверить размер Tauri bundle до и после;
-- протестировать установку, запуск, отключение, удаление и повторную установку на реальных файлах.
+- choose Excalidraw as the pilot;
+- remove the dependency from the base `package.json`/bundle, or build a separate signed package;
+- exclude vendor JS/CSS from the `dist` of the "Minimum" profile;
+- check the Tauri bundle size before and after;
+- test installation, launch, disabling, removal, and reinstallation on real files.
 
-Только после этого можно переносить Canvas, History и Databases и начинать `MOD-09` с настоящей отдельной средой исполнения.
+Only after this can Canvas, History, and Databases be moved and `MOD-09` started with a real separate execution environment.
 
-### Критерий следующей приёмки
+### Criteria for the next acceptance
 
-Следующая заявка на завершение должна содержать:
+The next completion request must contain:
 
-1. Ссылку на реальный каталог установленного пакета и его файлы.
-2. Тест с поддельной строкой `ed25519:anything`, который обязательно отклоняется криптографической проверкой.
-3. Сборку «Минимум», в которой отсутствуют JS/CSS Excalidraw и Canvas.
-4. Перезапуск приложения с сохранённым rollback и quarantine.
-5. Переключение A → B при одинаково включённом модуле с подтверждением нового vault context.
-6. Полный sandbox escape test в отдельном runtime.
-7. Все 18 сценариев исходного плана, включая проверку filesystem и desktop behavior.
-8. Успешные `npm run verify` и `npm run build`.
+1. A link to the real directory of an installed package and its files.
+2. A test with a forged `ed25519:anything` string that is necessarily rejected by cryptographic verification.
+3. A "Minimum" build in which Excalidraw and Canvas JS/CSS are absent.
+4. An application restart with a preserved rollback and quarantine.
+5. A switch A → B with a module equally enabled, with confirmation of the new vault context.
+6. A full sandbox escape test in a separate runtime.
+7. All 18 scenarios of the original plan, including checks of the filesystem and desktop behavior.
+8. Successful `npm run verify` and `npm run build`.
 
-До выполнения этих условий текущий результат следует принимать как архитектурный прототип, а не завершённую модульную систему.
+Until these conditions are met, the current result should be accepted as an architectural prototype, not a completed modular system.

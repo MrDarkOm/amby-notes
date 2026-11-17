@@ -1,51 +1,51 @@
-# Задание: обследование «приложение не замечает собственных изменений»
+# Task: investigating "the app does not notice its own changes"
 
-Для агента, который продолжает работу. Проект: Amby Notes (Tauri 2 / Rust в `src-tauri/src/`, React 19 / TS в `src/`, Zustand, синхронизация в `sync/` и `src-tauri/src/sync/`). Сначала прочитай `AGENTS.md` и `docs/ai/MAP.md`.
+For the agent continuing the work. Project: Amby Notes (Tauri 2 / Rust in `src-tauri/src/`, React 19 / TS in `src/`, Zustand, sync in `sync/` and `src-tauri/src/sync/`). First read `AGENTS.md` and `docs/ai/MAP.md`.
 
-## Состояние
+## State
 
-- Ветка `dev`, коммит `f841c938`, рабочая папка чистая. Ничего не отправлено на GitHub.
-- Работа по уведомлениям (`docs/notices.md`, §16) закончена и влита.
-- Нужен итог: таблица дыр и план. Код на этом этапе не меняется.
+- Branch `dev`, commit `f841c938`, working tree clean. Nothing has been pushed to GitHub.
+- The notices work (`docs/notices.md`, §16) is finished and merged.
+- The needed result: a table of gaps and a plan. The code is not changed at this stage.
 
-## Проблема
+## Problem
 
-Наблюдатель файлов (`src-tauri/src/watcher.rs`, `reconcile_self_write`) намеренно пропускает записи самого Amby: по отпечатку записи, а не по времени. Значит, каждая операция Rust должна сама сообщить интерфейсу, что изменила. Иначе экран показывает старое. Два подтверждённых случая уже исправлены:
+The file watcher (`src-tauri/src/watcher.rs`, `reconcile_self_write`) deliberately skips Amby's own writes: by write fingerprint, not by time. This means every Rust operation must itself tell the UI what it changed. Otherwise the screen shows stale data. Two confirmed cases have already been fixed:
 
-1. Удалённый скетч оставался в дереве: `deleted_paths` в Rust содержал только `.md`, исправлено в `recycle_bin.rs`.
-2. База показывала «0 строк» после переноса свойств: открытые базы не перечитывались, исправлено в `use-document-mutations.tsx` и `property-migration.ts`.
+1. A deleted sketch stayed in the tree: `deleted_paths` in Rust contained only `.md`, fixed in `recycle_bin.rs`.
+2. A database showed "0 rows" after a property migration: open databases were not re-read, fixed in `use-document-mutations.tsx` and `property-migration.ts`.
 
-Главный открытый вопрос — синхронизация. Если записи синхронизации наблюдатель тоже считает «своими», то после получения правок с другого компьютера открытая заметка или база может показывать старое. Это не проверено.
+The main open question is sync. If the watcher also treats sync writes as "its own", then after receiving edits from another computer an open note or database may show stale data. This has not been verified.
 
-## Этап 1. Опись (только факты)
+## Stage 1. Inventory (facts only)
 
-Запиши в `docs/audit/mutation-inventory.md`. Папка `docs/audit` есть только в `dev`. Если файл уже есть, его начала прошлая сессия: проверь и дополни.
+Write it to `docs/audit/mutation-inventory.md`. The `docs/audit` folder exists only in `dev`. If the file already exists, a previous session started it: check it and complete it.
 
-1. **Команды Rust, которые меняют данные.** Все `#[tauri::command]` в `src-tauri/src/`, которые пишут, переносят, переименовывают, удаляют, архивируют или восстанавливают заметки, папки, холсты и скетчи, вложения, базы (поля, строки, значения, виды), свойства и группы свойств, историю, корзину, настройки хранилища, модули. По каждой — строка таблицы:
-   - имя и `файл:строка`;
-   - что меняет;
-   - что возвращает (тип; есть ли список изменённого — `FsMutationResult` с `deletedPaths` / `pathChanges` / `treePatch`, ревизии);
-   - шлёт ли событие (`emit`) и какое.
-2. **Вызовы в интерфейсе.** По каждой команде — все места вызова в `src/`, обычно через `src/lib/storage/`, и что вызывающий код делает с результатом: `applyMutationResult` / `handleApplyMutation`, `patchDoc`, `refreshTree`, `useDatabaseStore…invalidate…` или ничего.
-3. **Подписки.** Все `listen(` и подписки на события бэкенда в `src/`: файл, событие, что обновляет обработчик.
-4. **Записи вне команд.** Применение удалённых правок синхронизацией, миграции, восстановление, фоновые задачи. По каждой записи:
-   - что пишет;
-   - регистрируется ли она как своя запись для наблюдателя;
-   - шлёт ли событие интерфейсу.
-5. **Что не удалось выяснить** и где ты смотрел.
+1. **Rust commands that change data.** All `#[tauri::command]` in `src-tauri/src/` that write, move, rename, delete, archive, or restore notes, folders, canvases and sketches, attachments, databases (fields, rows, values, views), properties and property groups, history, trash, vault settings, modules. One table row per command:
+   - name and `file:line`;
+   - what it changes;
+   - what it returns (type; whether there is a list of what changed — `FsMutationResult` with `deletedPaths` / `pathChanges` / `treePatch`, revisions);
+   - whether it sends an event (`emit`) and which one.
+2. **Calls in the UI.** For each command — all call sites in `src/`, usually via `src/lib/storage/`, and what the calling code does with the result: `applyMutationResult` / `handleApplyMutation`, `patchDoc`, `refreshTree`, `useDatabaseStore…invalidate…`, or nothing.
+3. **Subscriptions.** All `listen(` calls and backend event subscriptions in `src/`: file, event, what the handler updates.
+4. **Writes outside commands.** Applying remote edits via sync, migrations, restore, background tasks. For each write:
+   - what it writes;
+   - whether it is registered as the app's own write for the watcher;
+   - whether it sends an event to the UI.
+5. **What could not be determined** and where you looked.
 
-## Этап 2. Разбор
+## Stage 2. Analysis
 
-Запиши в `docs/audit/mutation-refresh-gaps.md`. По описи для каждой операции ответь на вопрос: что после неё должно обновиться на экране, и обновляется ли? Проверь дерево, открытые заметки (буфер и ревизия), открытые холсты и скетчи, открытые базы (строки, поля, перечень баз), панель свойств, историю и журнал. Отдельно и подробно разбери синхронизацию по пункту выше.
+Write it to `docs/audit/mutation-refresh-gaps.md`. Based on the inventory, for each operation answer the question: what should be updated on screen after it, and is it? Check the tree, open notes (buffer and revision), open canvases and sketches, open databases (rows, fields, the list of databases), the properties panel, history and the log. Analyze sync separately and in detail, per the item above.
 
-Итог:
+The outcome:
 
-- таблица дыр: операция, что не обновляется, последствие для человека, насколько это опасно для данных;
-- рекомендация: закрыть дыры точечно или ввести общее правило — каждая операция возвращает список изменённого (файлы, базы, поля), а интерфейс по нему решает, что перечитать. Частично так уже работает дерево через `treePatch`.
+- a table of gaps: operation, what is not updated, consequence for the person, how dangerous it is for the data;
+- a recommendation: close the gaps one by one or introduce a general rule — every operation returns a list of what changed (files, databases, fields), and the UI decides from it what to re-read. The tree already partly works this way via `treePatch`.
 
-## Правила
+## Rules
 
-- На этих этапах код не менять, не коммитить, не переключать ветки. Пишутся только два файла отчёта.
-- Не трогать `src/lib/bindings.ts`.
-- Не открывать установленный `/Applications/Amby.app`: в нём настоящее хранилище владельца.
-- Отчёт владельцу — по-русски, просто. В нём: сколько нашлось команд, вызовов, подписок и фоновых записей; главные дыры; ответ про синхронизацию.
+- At these stages do not change code, do not commit, do not switch branches. Only the two report files are written.
+- Do not touch `src/lib/bindings.ts`.
+- Do not open the installed `/Applications/Amby.app`: it holds the owner's real vault.
+- The report to the owner is in Russian, simple. It includes: how many commands, calls, subscriptions, and background writes were found; the main gaps; the answer about sync.

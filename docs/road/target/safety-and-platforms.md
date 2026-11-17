@@ -1,33 +1,33 @@
-# Безопасность данных и платформы: что осталось
+# Data safety and platforms: what is left
 
-## Ключ подписи модулей (высокая важность)
+## Module signing key (high importance)
 
-Приватная часть прежнего официального ключа `amby-official-2026` лежала в репозитории; ключ отозван
-(2026-11-17) и заменён ключом `amby-official-2026-11`: его секретная часть есть только в Связке ключей
-владельца (`npm run modules:new-key`), публичная вписана в код. До включения сторонних модулей
-(`INSTALLED_MODULE_EXECUTION_ENABLED`), публикации пакетов и анонса плагинов пакеты нужно переподписать.
-Также нужно: подпись всего manifest и ограничение размера скачивания во время потока. Подробности:
+The private part of the former official key `amby-official-2026` was stored in the repository; the key has been revoked
+(2026-11-17) and replaced with the key `amby-official-2026-11`: its secret part exists only in the owner's Keychain
+(`npm run modules:new-key`), the public part is written into the code. Before third-party modules are enabled
+(`INSTALLED_MODULE_EXECUTION_ENABLED`), packages are published and plugins are announced, the packages must be re-signed.
+Also needed: signing the whole manifest and limiting the download size while streaming. Details:
 [../../security-advisories.md](../../security-advisories.md).
 
-## Хвосты протокола записи (из передачи 2026-09/10)
+## Write protocol leftovers (from the 2026-09/10 handoff)
 
-Полный текст: локальный архив, `docs/archive/handoffs/claude-handoff.md`.
+Full text: local archive, `docs/archive/handoffs/claude-handoff.md`.
 
-- Общий `JournalFile` и исход `recovery-required` вне Relation; блокировка только затронутой базы.
-- Тест с убийством процесса в матрице отказов.
-- Окно разрешения конфликта при внешней правке; общая защита записи Canvas/Excalidraw.
-- Управление карантинными журналами и корзиной (сейчас только уведомление).
-- Матрица restart/conflict в настоящем WebView.
-- Итоговая независимая приёмка.
+- A shared `JournalFile` and the `recovery-required` outcome outside Relation; blocking only the affected database.
+- A process-kill test in the failure matrix.
+- A conflict resolution window for an external edit; shared write protection for Canvas/Excalidraw.
+- Management of quarantined journals and the trash (currently only a notice).
+- A restart/conflict matrix in a real WebView.
+- Final independent acceptance.
 
-## Windows и Linux
+## Windows and Linux
 
-- Чек-лист [../../windows-release-checklist.md](../../windows-release-checklist.md): открыты WIN-DATA, WIN-UI,
-  WIN-KEY, WIN-PERF.
-- Корзина Windows (`SHFileOperationW`) может удалить без предупреждения большие файлы и файлы на сетевых дисках.
-- Linux: нативная проверка хранилища отложена ([../../native-storage-contract.md](../../native-storage-contract.md)).
+- Checklist [../../windows-release-checklist.md](../../windows-release-checklist.md): WIN-DATA, WIN-UI,
+  WIN-KEY, WIN-PERF are open.
+- The Windows trash (`SHFileOperationW`) may delete large files and files on network drives without a warning.
+- Linux: the native vault check is postponed ([../../native-storage-contract.md](../../native-storage-contract.md)).
 
-## Производительность
+## Performance
 
-Замеры: [../../performance-baseline.md](../../performance-baseline.md). Не начаты S7.2–S7.4; сначала повторный
-замер после инкрементального дерева.
+Measurements: [../../performance-baseline.md](../../performance-baseline.md). S7.2–S7.4 not started; first a repeat
+measurement after the incremental tree.

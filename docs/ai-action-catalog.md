@@ -1,257 +1,257 @@
-# Каталог действий ИИ-агента Amby
+# Amby AI agent action catalog
 
-Статус: проект каталога; агентные adapters ещё не реализованы. Версия: 1.
-Дата инвентаризации: 2026-09-30, рабочее дерево с незакоммиченными изменениями.
+Status: catalog draft; the agent adapters are not implemented yet. Version: 1.
+Inventory date: 2026-09-30, working tree with uncommitted changes.
 
-Связанные документы: [контракт](ai-harness.md), [журнал](ai-state-format.md),
-план, оркестрация,
-приёмка.
+Related documents: [contract](ai-harness.md), [journal](ai-state-format.md),
+plan, orchestration,
+acceptance.
 
-## 1. Как читать каталог
+## 1. How to read the catalog
 
-Это стартовая карта domain families, а не завершённая инвентаризация каждого
-menu item. H-00 сопоставляет её с реальным UI и native IPC, добавляет input/output,
-точные schemas, tests и gaps. H-01 закрепляет каждое имя/schema version. До
-прохождения соответствующего gate все новые агентные действия со статусом `M`
-остаются `missingImplementation`, даже если в приложении уже существует похожий
-метод. Этот документ не регистрирует tools и не меняет права приложения.
+This is a starter map of domain families, not a finished inventory of every
+menu item. H-00 reconciles it with the real UI and native IPC, and adds input/output,
+exact schemas, tests and gaps. H-01 pins every name/schema version. Until the
+corresponding gate is passed, all new agent actions with the status `M`
+remain `missingImplementation`, even if the app already has a similar
+method. This document does not register tools and does not change app permissions.
 
-Статусы: `M` — `missingImplementation`; `U` — `requiresUserInteraction`;
-`B` — `blockedByPolicy`; `I` — `implemented` с evidence, пока не присвоен ни одной
-строке. Runtime возвращает полный статус, причину, module/capability versions.
-Запись нескольких action IDs в строке объединяет только документацию; каждая
-команда получает отдельную закрытую schema. Wildcard tools не создаются.
+Statuses: `M` — `missingImplementation`; `U` — `requiresUserInteraction`;
+`B` — `blockedByPolicy`; `I` — `implemented` with evidence, not assigned to any
+row yet. The runtime returns the full status, the reason, and module/capability versions.
+Listing several action IDs in one row merges only the documentation; each
+command gets its own closed schema. No wildcard tools are created.
 
-`R`/`W` ниже — логическое чтение/изменение ресурсов. Физические sidecars,
-locks и snapshots определяются adapter, согласно контракту shared metadata.
-Слово «undo» обозначает требуемую будущую гарантию, не оценку нынешнего UI undo.
+`R`/`W` below are logical reads/changes of resources. Physical sidecars,
+locks and snapshots are defined by the adapter, according to the shared metadata contract.
+The word "undo" denotes the required future guarantee, not an assessment of the current UI undo.
 
-## 2. Текущие точки интеграции
+## 2. Current integration points
 
-| Основа           | Проверенный интерфейс/путь                                                                                                             | Ограничение для агента                                                         |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Storage boundary | [StoragePort](../src/lib/storage/port.ts), [DesktopAdapter](../src/lib/storage/desktop-adapter.ts)                                     | Не выдавать модели raw port; scope и actor нужны в Rust                        |
-| Notes            | [commands/notes.rs](../src-tauri/src/commands/notes.rs), `readNote`, `writeNote`                                                       | Есть revision/generation; добавить grant, durable operation ID и editor bridge |
-| Структура        | [commands/mutations.rs](../src-tauri/src/commands/mutations.rs), bundle operations                                                     | Рассчитывать весь effect closure и shared undo                                 |
-| Базы             | [DatabasePort](../src/lib/storage/database-port.ts), [commands/database.rs](../src-tauri/src/commands/database.rs)                     | Existing API не доказывает scoped query/aggregate и agent recovery             |
-| History          | [commands/history.rs](../src-tauri/src/commands/history.rs)                                                                            | Нужны pins журналов и scoped доступ к старым snapshots                         |
-| Доски            | [canvas-format.ts](../src/lib/canvas-format.ts), [sketch-format.ts](../src/lib/sketch-format.ts)                                       | Codec не равен headless command API; соблюдать source envelope                 |
-| Settings         | [app-config.ts](../src/components/workspace/app-config.ts), [settings repository](../src/lib/storage/settings-repository.ts)           | Raw JSON writes и frontend queues не заменяют backend key-level policy/CAS     |
-| Themes           | [themes.ts](../src/lib/themes.ts), [theme preferences](../src/themes/preferences.ts)                                                   | Только валидированные данные и поддерживаемые значения                         |
-| Modules          | [SDK](../src/lib/modules/host/sdk.ts), [types](../src/lib/modules/types.ts), [package_manager.rs](../src-tauri/src/package_manager.rs) | Проверить runtime isolation и согласование installer/registry                  |
+| Basis            | Verified interface/path                                                                                                                | Limitation for the agent                                                            |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Storage boundary | [StoragePort](../src/lib/storage/port.ts), [DesktopAdapter](../src/lib/storage/desktop-adapter.ts)                                     | Do not hand the raw port to the model; scope and actor are needed in Rust           |
+| Notes            | [commands/notes.rs](../src-tauri/src/commands/notes.rs), `readNote`, `writeNote`                                                       | Revision/generation exist; add a grant, a durable operation ID and an editor bridge |
+| Structure        | [commands/mutations.rs](../src-tauri/src/commands/mutations.rs), bundle operations                                                     | Compute the whole effect closure and shared undo                                    |
+| Databases        | [DatabasePort](../src/lib/storage/database-port.ts), [commands/database.rs](../src-tauri/src/commands/database.rs)                     | The existing API does not prove scoped query/aggregate and agent recovery           |
+| History          | [commands/history.rs](../src-tauri/src/commands/history.rs)                                                                            | Journal pins and scoped access to old snapshots are needed                          |
+| Boards           | [canvas-format.ts](../src/lib/canvas-format.ts), [sketch-format.ts](../src/lib/sketch-format.ts)                                       | A codec is not a headless command API; respect the source envelope                  |
+| Settings         | [app-config.ts](../src/components/workspace/app-config.ts), [settings repository](../src/lib/storage/settings-repository.ts)           | Raw JSON writes and frontend queues do not replace backend key-level policy/CAS     |
+| Themes           | [themes.ts](../src/lib/themes.ts), [theme preferences](../src/themes/preferences.ts)                                                   | Only validated data and supported values                                            |
+| Modules          | [SDK](../src/lib/modules/host/sdk.ts), [types](../src/lib/modules/types.ts), [package_manager.rs](../src-tauri/src/package_manager.rs) | Check runtime isolation and installer/registry alignment                            |
 
-## 3. Каталог и разрешённые чтения
+## 3. Catalog and allowed reads
 
-| Предлагаемые действия                                | Основа                            | Scope и результат                                                  | Пакет; статус |
-| ---------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------ | ------------- |
-| `app.capabilities.list`, `app.capabilities.describe` | Новый registry                    | Только доступные descriptors, limitations и версии                 | H-10/H-12; M  |
-| `workspace.tree.list`                                | `listFiles`                       | R выбранного поддерева; scoped children/counts, cursor             | H-20; M       |
-| `note.read`, `note.metadata.get`                     | `readNote`, `getNoteMetadata`     | R note; source revision, bounded chunks; без auto-includes соседей | H-11/H-20; M  |
-| `workspace.search`                                   | `searchNotes`                     | R scope до ranking/snippets/limit; query budget                    | H-20/H-32; M  |
-| `workspace.tags.list`, `workspace.links.query`       | `listTags`, `getLinkGraph`        | Scoped tags, edges и counts, обе стороны связи разрешены           | H-20/H-40; M  |
-| `history.list`, `history.diff`                       | Snapshots + новый journal API     | R истории конкретных ресурсов; after revoke перепроверка           | H-24; M       |
-| `run.inspect`, `run.changes.list`                    | Новый runtime/journal             | Scope по каждому событию/receipt, resumable cursor                 | H-24/H-31; M  |
-| `settings.describe`, `settings.get`                  | App config + новый typed registry | Только разрешённые keys, type/default/effective scope              | H-44/H-45; M  |
+| Proposed actions                                     | Basis                           | Scope and result                                                       | Package; status |
+| ---------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------- | --------------- |
+| `app.capabilities.list`, `app.capabilities.describe` | New registry                    | Only available descriptors, limitations and versions                   | H-10/H-12; M    |
+| `workspace.tree.list`                                | `listFiles`                     | R of the selected subtree; scoped children/counts, cursor              | H-20; M         |
+| `note.read`, `note.metadata.get`                     | `readNote`, `getNoteMetadata`   | R note; source revision, bounded chunks; no auto-includes of neighbors | H-11/H-20; M    |
+| `workspace.search`                                   | `searchNotes`                   | R scope before ranking/snippets/limit; query budget                    | H-20/H-32; M    |
+| `workspace.tags.list`, `workspace.links.query`       | `listTags`, `getLinkGraph`      | Scoped tags, edges and counts, both sides of a link are allowed        | H-20/H-40; M    |
+| `history.list`, `history.diff`                       | Snapshots + new journal API     | R of the history of specific resources; re-check after revoke          | H-24; M         |
+| `run.inspect`, `run.changes.list`                    | New runtime/journal             | Scope per each event/receipt, resumable cursor                         | H-24/H-31; M    |
+| `settings.describe`, `settings.get`                  | App config + new typed registry | Only allowed keys, type/default/effective scope                        | H-44/H-45; M    |
 
-Исторические версии и snippets не получают более широкие права, чем живые
-ресурсы. При перемещении заметки в запрещённый раздел старый note ID не сохраняет
-доступ. В каталоге не раскрываются названия приватных installed projects/skills.
+Historical versions and snippets do not get broader rights than live
+resources. When a note is moved to a forbidden section, the old note ID does not keep
+access. The catalog does not reveal the names of private installed projects/skills.
 
-## 4. Заметки, дерево, связи, вложения
+## 4. Notes, tree, links, attachments
 
-| Предлагаемые действия                                                             | Текущая основа                                                            | Scope, эффекты и требуемый undo                                                                 | Пакет; статус |
-| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------- |
-| `note.create`                                                                     | `createNote` + согласованная запись содержимого                           | W parent; no-replace, host ID; undo untouched object через archive                              | H-11; M       |
-| `note.patch`, `note.replace`                                                      | `readNote`/`writeNote`                                                    | R/W note, exact revision; snapshot после flush пользователя; lossless source patch              | H-11; M       |
-| `folder.create`                                                                   | `createFolder`                                                            | W parent; undo только пустой/неизменённой созданной структуры                                   | H-40; M       |
-| `item.rename.preview`, `item.move.preview`                                        | `previewRenameRefactor`, `previewMoveRefactor`                            | R разрешённого closure; безопасный отказ при закрытых backlinks                                 | H-40; M       |
-| `item.rename`, `item.move`                                                        | `renameItem`, `moveItem`                                                  | W source/destination + rewritten links/metadata; inverse domain plan                            | H-40; M       |
-| `item.archive`, `archive.restore`                                                 | `archiveItem`, `restoreTrash`                                             | W всего bundle; ID manifest, conflict-safe restore; current rights обязательны                  | H-40; M       |
-| `item.systemTrash`                                                                | `deleteItem`                                                              | Внешний OS effect, restoration через OS; `manualExternal`                                       | H-40; U       |
-| `note.properties.get`                                                             | `getNoteProperties`                                                       | R note; scoped logical projection sidecar                                                       | H-40; M       |
-| `note.property.set`, `note.property.remove`, `note.properties.reorder`            | `upsertCustomProperty`, `deleteCustomProperty`, `reorderCustomProperties` | W свойств note; logical field inverse, shared sidecar CAS                                       | H-40; M       |
-| `note.tags.patch`, `note.links.patch`                                             | Нужен общий lossless adapter над source/frontmatter                       | R/W note; preserve label/unknown syntax; не сериализовать UI controls                           | H-40; M       |
-| `note.icon.set`                                                                   | `use-view-state-store`, `icon-values`                                     | W metadata конкретного объекта; typed `IconValue`, field undo                                   | H-40/H-45; M  |
-| `note.layers.list`, `note.layer.create`, `note.layer.attach`, `note.layer.unlink` | `noteLayers`, `createLayer`, attach/unlink APIs                           | Bundle closure; identity/paths/metadata, reversible domain step                                 | H-40; M       |
-| `note.layer.archive`                                                              | Новой безопасной операции пока нет; `deleteLayer` использует system trash | W слоя и bundle metadata; нужен internal archive/restore                                        | H-40; M       |
-| `asset.importBytes`, `asset.attach`                                               | `importAssetBytes`, существующая note/bundle логика                       | W destination и referencing document; scoped input handle, MIME/size; shared assets сохраняются | H-40; M       |
-| `history.restore`                                                                 | `restoreSnapshot`                                                         | W live resource; snapshot перед restore, expected revision                                      | H-23/H-40; M  |
+| Proposed actions                                                                  | Current basis                                                             | Scope, effects and required undo                                                               | Package; status |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | --------------- |
+| `note.create`                                                                     | `createNote` + coordinated content write                                  | W parent; no-replace, host ID; undo of an untouched object via archive                         | H-11; M         |
+| `note.patch`, `note.replace`                                                      | `readNote`/`writeNote`                                                    | R/W note, exact revision; snapshot after the user's flush; lossless source patch               | H-11; M         |
+| `folder.create`                                                                   | `createFolder`                                                            | W parent; undo only of an empty/unchanged created structure                                    | H-40; M         |
+| `item.rename.preview`, `item.move.preview`                                        | `previewRenameRefactor`, `previewMoveRefactor`                            | R of the allowed closure; safe refusal when backlinks are closed                               | H-40; M         |
+| `item.rename`, `item.move`                                                        | `renameItem`, `moveItem`                                                  | W source/destination + rewritten links/metadata; inverse domain plan                           | H-40; M         |
+| `item.archive`, `archive.restore`                                                 | `archiveItem`, `restoreTrash`                                             | W of the whole bundle; ID manifest, conflict-safe restore; current rights are mandatory        | H-40; M         |
+| `item.systemTrash`                                                                | `deleteItem`                                                              | External OS effect, restoration through the OS; `manualExternal`                               | H-40; U         |
+| `note.properties.get`                                                             | `getNoteProperties`                                                       | R note; scoped logical sidecar projection                                                      | H-40; M         |
+| `note.property.set`, `note.property.remove`, `note.properties.reorder`            | `upsertCustomProperty`, `deleteCustomProperty`, `reorderCustomProperties` | W note properties; logical field inverse, shared sidecar CAS                                   | H-40; M         |
+| `note.tags.patch`, `note.links.patch`                                             | A common lossless adapter over source/frontmatter is needed               | R/W note; preserve label/unknown syntax; do not serialize UI controls                          | H-40; M         |
+| `note.icon.set`                                                                   | `use-view-state-store`, `icon-values`                                     | W metadata of a specific object; typed `IconValue`, field undo                                 | H-40/H-45; M    |
+| `note.layers.list`, `note.layer.create`, `note.layer.attach`, `note.layer.unlink` | `noteLayers`, `createLayer`, attach/unlink APIs                           | Bundle closure; identity/paths/metadata, reversible domain step                                | H-40; M         |
+| `note.layer.archive`                                                              | There is no safe operation yet; `deleteLayer` uses system trash           | W of the layer and bundle metadata; an internal archive/restore is needed                      | H-40; M         |
+| `asset.importBytes`, `asset.attach`                                               | `importAssetBytes`, existing note/bundle logic                            | W destination and referencing document; scoped input handle, MIME/size; shared assets are kept | H-40; M         |
+| `history.restore`                                                                 | `restoreSnapshot`                                                         | W live resource; snapshot before restore, expected revision                                    | H-23/H-40; M    |
 
-`note.create` с содержимым — один logical step с recovery для промежутка между
-созданием и заполнением файла. Оставшаяся пустая заметка не считается полным
-успехом. При lossless structured patch нельзя найти однозначный фрагмент —
-возвращается диагностика/preview, а не массовая пересериализация документа.
+`note.create` with content is one logical step with recovery for the interval between
+creating and filling the file. A leftover empty note is not counted as full
+success. If a lossless structured patch cannot find an unambiguous fragment,
+a diagnostic/preview is returned, not a mass re-serialization of the document.
 
-`asset.importBytes` получает bounded data либо host-issued input handle.
-Произвольный абсолютный `sourcePath` моделью не задаётся. Системный picker может
-выдать handle выбранного пользователем файла; grant на весь каталог не возникает.
+`asset.importBytes` receives bounded data or a host-issued input handle.
+An arbitrary absolute `sourcePath` is not set by the model. The system picker
+can issue a handle for a file chosen by the user; a grant for a whole directory does not arise.
 
-### 4.1 Расхождение текущих контрактов удаления
+### 4.1 Discrepancy between the current deletion contracts
 
-Правила проекта и [data-safety-contract](data-safety-contract.md) задают vault-local
-restorable deletion. [Актуальный vault-format](vault-format.md) и проверенные
-`delete_item`/`archive_item` в рабочем дереве различают system trash и internal
-archive. H-00 обязан зафиксировать это расхождение перед реализацией. Настоящий
-проект использует разные action IDs и не объявляет нынешнее OS удаление
-автоматически обратимым. Эти документы не меняют реализацию удаления и не
-переопределяют репозиторные инструкции.
+The project rules and [data-safety-contract](data-safety-contract.md) define vault-local
+restorable deletion. The [current vault-format](vault-format.md) and the verified
+`delete_item`/`archive_item` in the working tree distinguish system trash from internal
+archive. H-00 must record this discrepancy before implementation. This
+draft uses different action IDs and does not declare the current OS deletion
+automatically reversible. These documents do not change the deletion implementation and do not
+override the repository instructions.
 
-## 5. Базы и представления
+## 5. Databases and views
 
-Авторитетные значения строк находятся в Markdown frontmatter; schema и views —
-в durable manifest/`.ambd/`; SQLite — rebuildable projection. Legacy shards
-и fallback чтения описаны в [database format](database-format.md); нельзя
-самостоятельно мигрировать их «для удобства» агента.
+The authoritative row values live in Markdown frontmatter; the schema and views live in a
+durable manifest/`.ambd/`; SQLite is a rebuildable projection. Legacy shards
+and the read fallback are described in [database format](database-format.md); do not
+migrate them on your own "for the agent's convenience".
 
-| Предлагаемые действия                                                                 | Методы DatabasePort / gap                                           | Scope, проверка и undo                                              | Пакет; статус |
-| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------- |
-| `database.list`, `database.describe`                                                  | `listDatabases`, `getDatabaseNoteContext`                           | R schema и разрешённые rows; не выдавать private totals             | H-41; M       |
-| `database.query`, `database.aggregate`                                                | `queryDatabase`, `aggregateDatabase`                                | Policy до вычисления relation/rollup/count; bounded query           | H-41; M       |
-| `database.create`, `database.rename`                                                  | `createDatabase`, `renameDatabase`                                  | W parent/container; attached/standalone, durable manifest inverse   | H-41; M       |
-| `database.property.create`, `database.property.rename`, `database.properties.reorder` | Соответствующие create/rename/reorder методы                        | W schema; stable propertyId/storageKey; revision-based inverse      | H-41; M       |
-| `database.property.changeType`, `database.property.delete`                            | `changeDatabasePropertyType`, `deleteDatabaseProperty`              | W schema + все изменяемые rows; preview потерь/conversions; backups | H-41; M       |
-| `database.values.patch`, `database.relation.set`                                      | `applyDatabaseValueBatch`, `updateDatabaseRelationValue`            | R/W конкретных cells/notes, R relation targets, inverse всей batch  | H-41; M       |
-| `database.row.create`, `database.asset.import`                                        | `createDatabaseRow`, `importDatabaseAsset`                          | W parent/row/assets; coordinated IDs и archive undo                 | H-41; M       |
-| `database.view.get`, `database.view.create`, `database.view.update`                   | `getDatabaseView`, `createDatabaseView`, `updateDatabaseViewConfig` | R/W view и schema; allowed layout/filter/sort/group types           | H-41; M       |
-| `database.view.rename`, `database.view.duplicate`, `database.view.delete`             | Одноимённые DatabasePort методы                                     | W view/order/default references; multi-file inverse                 | H-41; M       |
-| `database.views.reorder`, `database.view.setDefault`                                  | `reorderDatabaseViews`, `setDefaultDatabaseView`                    | W manifest, expected revisions, logical inverse                     | H-41; M       |
-| `database.yaml.sync`, `database.yaml.resolveConflict`                                 | `syncDatabaseYaml`, `resolveDatabaseYamlConflict`                   | W точных keys; явное решение конфликта, dirty bridge                | H-41; M       |
-| `database.template.create`, `database.template.update`, `database.template.apply`     | Полного API в прочитанном DatabasePort нет                          | Требуются общий domain contract и inventory фактических templates   | H-41; M       |
-| `database.linkedView.create`, `database.pageLayout.update`                            | Отдельный план развития; текущая поддержка не подтверждена          | Сначала реализованный module API, scoped source и durable metadata  | H-41; M       |
+| Proposed actions                                                                      | DatabasePort methods / gap                                          | Scope, check and undo                                                          | Package; status |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------ | --------------- |
+| `database.list`, `database.describe`                                                  | `listDatabases`, `getDatabaseNoteContext`                           | R schema and allowed rows; do not expose private totals                        | H-41; M         |
+| `database.query`, `database.aggregate`                                                | `queryDatabase`, `aggregateDatabase`                                | Policy before computing relation/rollup/count; bounded query                   | H-41; M         |
+| `database.create`, `database.rename`                                                  | `createDatabase`, `renameDatabase`                                  | W parent/container; attached/standalone, durable manifest inverse              | H-41; M         |
+| `database.property.create`, `database.property.rename`, `database.properties.reorder` | The corresponding create/rename/reorder methods                     | W schema; stable propertyId/storageKey; revision-based inverse                 | H-41; M         |
+| `database.property.changeType`, `database.property.delete`                            | `changeDatabasePropertyType`, `deleteDatabaseProperty`              | W schema + all changed rows; preview of losses/conversions; backups            | H-41; M         |
+| `database.values.patch`, `database.relation.set`                                      | `applyDatabaseValueBatch`, `updateDatabaseRelationValue`            | R/W specific cells/notes, R relation targets, inverse of the whole batch       | H-41; M         |
+| `database.row.create`, `database.asset.import`                                        | `createDatabaseRow`, `importDatabaseAsset`                          | W parent/row/assets; coordinated IDs and archive undo                          | H-41; M         |
+| `database.view.get`, `database.view.create`, `database.view.update`                   | `getDatabaseView`, `createDatabaseView`, `updateDatabaseViewConfig` | R/W view and schema; allowed layout/filter/sort/group types                    | H-41; M         |
+| `database.view.rename`, `database.view.duplicate`, `database.view.delete`             | DatabasePort methods of the same names                              | W view/order/default references; multi-file inverse                            | H-41; M         |
+| `database.views.reorder`, `database.view.setDefault`                                  | `reorderDatabaseViews`, `setDefaultDatabaseView`                    | W manifest, expected revisions, logical inverse                                | H-41; M         |
+| `database.yaml.sync`, `database.yaml.resolveConflict`                                 | `syncDatabaseYaml`, `resolveDatabaseYamlConflict`                   | W exact keys; explicit conflict resolution, dirty bridge                       | H-41; M         |
+| `database.template.create`, `database.template.update`, `database.template.apply`     | The DatabasePort as read has no full API                            | A common domain contract and an inventory of the actual templates are required | H-41; M         |
+| `database.linkedView.create`, `database.pageLayout.update`                            | A separate development plan; current support is not confirmed       | First an implemented module API, a scoped source and durable metadata          | H-41; M         |
 
-Штатные `undoDatabaseMutation`/`redoDatabaseMutation` не вызываются как «откатить
-последнее» без identity: последним может оказаться пользовательский шаг. H-41
-связывает domain history с harness operation IDs или использует свой проверенный
-inverse adapter. Два независимых undo механизма не должны отменять одну операцию
-дважды или потерять промежуточные пользовательские изменения.
+The standard `undoDatabaseMutation`/`redoDatabaseMutation` are not called as "undo
+the last one" without identity: the last step may turn out to be the user's. H-41
+ties domain history to the harness operation IDs or uses its own verified
+inverse adapter. Two independent undo mechanisms must not undo one operation
+twice or lose intermediate user changes.
 
-Все layouts и property types перечисляет актуальный module descriptor. Новые
-возможности из плана баз появляются
-в каталоге после их реализации и проверки. Обязательный scenario нельзя закрыть
-«табличным view» вместо запрошенного другого layout без решения пользователя.
+All layouts and property types are listed by the current module descriptor. New
+capabilities from the databases plan appear
+in the catalog after they are implemented and verified. A mandatory scenario cannot be closed
+with a "table view" instead of another requested layout without the user's decision.
 
-## 6. Canvas и Excalidraw
+## 6. Canvas and Excalidraw
 
-Согласовать с планом единой доски.
-Один renderer не означает один формат: `.canvas` и `.excalidraw` сохраняют
-свои источники и ограничения. Предлагаемая внешняя family `board` использует
-общий command service и отдельные codec adapters; старый Canvas UI не становится
-второй независимой реализацией агентных команд.
+Align with the unified board plan.
+One renderer does not mean one format: `.canvas` and `.excalidraw` keep
+their own sources and limitations. The proposed external `board` family uses
+a common command service and separate codec adapters; the old Canvas UI does not become
+a second independent implementation of the agent commands.
 
-| Предлагаемые действия                                          | Основа/gap                                     | Scope, результат и undo                                                     | Пакет; статус     |
-| -------------------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------- | ----------------- |
-| `board.create`, `board.read`                                   | `createCanvasFile`, `createSketchFile`, codecs | Format явно задан; R/W board parent/source; no UI mount                     | H-42/H-43; M      |
-| `board.card.insert`, `board.card.update`, `board.card.remove`  | Общие commands из плана доски                  | W scene, R embedded notes/assets; stable element IDs, snapshot/inverse      | H-42/H-43; M      |
-| `board.edge.connect`, `board.edge.update`, `board.edge.remove` | Headless domain service требуется              | W scene; валидные endpoints/bindings; geometric link не relation базы       | H-42/H-43; M      |
-| `board.elements.patch`, `board.elements.duplicate`             | Sketch/Canvas codec + domain validator         | W selected elements, unknown fields остальных сохранены                     | H-42/H-43; M      |
-| `board.group`, `board.ungroup`, `board.layout`                 | Shared grouping/layout commands                | W explicit selection; finite geometry, bounded cost, deterministic seed     | H-42/H-43; M      |
-| `board.drawing.add`                                            | Excalidraw-only shapes/text/arrows             | W `.excalidraw`; `.canvas` возвращает unsupportedCapability                 | H-43; M           |
-| `board.card.convertToNote`                                     | Composite note+board domain command            | W parent + scene; создание note и замена card согласованы, dependency undo  | H-40/H-42/H-43; M |
-| `board.validate`, `board.preview`                              | Headless validation/render bridge              | R scene и всех включённых в preview sources; результаты с revisions         | H-42/H-43; M      |
-| `board.export`                                                 | Export pipeline требуется inventory            | R scene, W scoped destination либо user-picked handle; no silent conversion | H-42/H-43; M      |
+| Proposed actions                                               | Basis/gap                                      | Scope, result and undo                                                                | Package; status   |
+| -------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------- | ----------------- |
+| `board.create`, `board.read`                                   | `createCanvasFile`, `createSketchFile`, codecs | Format set explicitly; R/W board parent/source; no UI mount                           | H-42/H-43; M      |
+| `board.card.insert`, `board.card.update`, `board.card.remove`  | Common commands from the board plan            | W scene, R embedded notes/assets; stable element IDs, snapshot/inverse                | H-42/H-43; M      |
+| `board.edge.connect`, `board.edge.update`, `board.edge.remove` | A headless domain service is required          | W scene; valid endpoints/bindings; a geometric link is not a database relation        | H-42/H-43; M      |
+| `board.elements.patch`, `board.elements.duplicate`             | Sketch/Canvas codec + domain validator         | W selected elements, unknown fields of the others are preserved                       | H-42/H-43; M      |
+| `board.group`, `board.ungroup`, `board.layout`                 | Shared grouping/layout commands                | W explicit selection; finite geometry, bounded cost, deterministic seed               | H-42/H-43; M      |
+| `board.drawing.add`                                            | Excalidraw-only shapes/text/arrows             | W `.excalidraw`; `.canvas` returns unsupportedCapability                              | H-43; M           |
+| `board.card.convertToNote`                                     | Composite note+board domain command            | W parent + scene; note creation and card replacement are coordinated, dependency undo | H-40/H-42/H-43; M |
+| `board.validate`, `board.preview`                              | Headless validation/render bridge              | R scene and all sources included in the preview; results with revisions               | H-42/H-43; M      |
+| `board.export`                                                 | The export pipeline needs an inventory         | R scene, W scoped destination or user-picked handle; no silent conversion             | H-42/H-43; M      |
 
-Preview проверяет отсутствующие targets, finite coordinates, bounds, bindings и
-читаемость. Модель не получает screenshot с недоступными note cards. Без прав
-на исходный embed показывается нейтральная заглушка без кэшированного текста.
-Внешний URL в карточке не даёт права выполнить network fetch.
+Preview checks missing targets, finite coordinates, bounds, bindings and
+legibility. The model does not get a screenshot with inaccessible note cards. Without rights
+to the source embed, a neutral placeholder is shown without cached text.
+An external URL in a card does not grant the right to perform a network fetch.
 
-Если requested drawing невозможно выразить в исходном формате, preview предлагает
-явное создание/преобразование копии. Открытие `.canvas` не превращает его в
-`.excalidraw`. Сохранение unknown JSON/opaque fields проверяется настоящими codecs.
+If the requested drawing cannot be expressed in the source format, the preview offers
+an explicit creation/conversion of a copy. Opening a `.canvas` does not turn it into
+an `.excalidraw`. Preservation of unknown JSON/opaque fields is verified with the real codecs.
 
-## 7. Настройки и оформление
+## 7. Settings and appearance
 
-`settings.patch` принимает конечный список typed keys и ожидаемых presence/value
-revisions. Он не принимает имя JSON-файла, произвольный JSON pointer или полный
-`prefs`. Backend отказывает на неизвестном ключе/значении; нормализация invalid
-input в defaults не используется как успешное выполнение команды агента.
+`settings.patch` accepts a finite list of typed keys and expected presence/value
+revisions. It does not accept a JSON file name, an arbitrary JSON pointer or the full
+`prefs`. The backend refuses on an unknown key/value; normalizing invalid
+input to defaults is not used as a successful execution of an agent command.
 
-### 7.1 Предлагаемый начальный allowlist
+### 7.1 Proposed initial allowlist
 
-В таблице указаны реально наблюдаемые ключи `AppPreferences`, хранящиеся глобально
-в `settings.json`. Поддержка workspace override не предполагается автоматически.
+The table lists the actually observed `AppPreferences` keys, stored globally
+in `settings.json`. Workspace override support is not assumed automatically.
 
-| Keys                                                | Значения/ограничения                                     | Права и пакет            |
-| --------------------------------------------------- | -------------------------------------------------------- | ------------------------ |
-| `prefs.theme`                                       | `system` либо существующий валидный theme ID             | Global appearance; H-44  |
-| `prefs.accent`                                      | `violet`, `sky`, `teal`, `emerald`, `amber`, `rose`      | Global appearance; H-44  |
-| `prefs.fontScale`                                   | `sm`, `md`, `lg`                                         | Global appearance; H-44  |
-| `prefs.fontFamily`                                  | `system`, `sans`, `serif`, `mono`                        | Global appearance; H-44  |
-| `prefs.density`                                     | `comfortable`, `compact`                                 | Global appearance; H-44  |
-| `prefs.rainbowTree`, `prefs.treeGuides`             | Boolean                                                  | Global appearance; H-44  |
-| `prefs.language`                                    | Реестр поддерживаемых языков приложения                  | Global language; H-45    |
-| `prefs.tooltipDelayMs`                              | Ограничения актуального typed registry                   | Global interaction; H-45 |
-| `prefs.editor.defaultViewMode`                      | `source`, `live`, `read`; live не обходит lossless guard | Global editor; H-45      |
-| `prefs.editor.contentWidth`                         | `normal`, `wide`, `full`                                 | Global editor; H-45      |
-| `prefs.docks.leftPinned`, `prefs.docks.rightPinned` | Boolean                                                  | Global layout; H-45      |
+| Keys                                                | Values/limitations                                                | Rights and package       |
+| --------------------------------------------------- | ----------------------------------------------------------------- | ------------------------ |
+| `prefs.theme`                                       | `system` or an existing valid theme ID                            | Global appearance; H-44  |
+| `prefs.accent`                                      | `violet`, `sky`, `teal`, `emerald`, `amber`, `rose`               | Global appearance; H-44  |
+| `prefs.fontScale`                                   | `sm`, `md`, `lg`                                                  | Global appearance; H-44  |
+| `prefs.fontFamily`                                  | `system`, `sans`, `serif`, `mono`                                 | Global appearance; H-44  |
+| `prefs.density`                                     | `comfortable`, `compact`                                          | Global appearance; H-44  |
+| `prefs.rainbowTree`, `prefs.treeGuides`             | Boolean                                                           | Global appearance; H-44  |
+| `prefs.language`                                    | The registry of supported app languages                           | Global language; H-45    |
+| `prefs.tooltipDelayMs`                              | Limits of the current typed registry                              | Global interaction; H-45 |
+| `prefs.editor.defaultViewMode`                      | `source`, `live`, `read`; live does not bypass the lossless guard | Global editor; H-45      |
+| `prefs.editor.contentWidth`                         | `normal`, `wide`, `full`                                          | Global editor; H-45      |
+| `prefs.docks.leftPinned`, `prefs.docks.rightPinned` | Boolean                                                           | Global layout; H-45      |
 
-Все строки allowlist пока имеют статус M. Остальные настройки инвентаризируются
-H-45: отсутствие в начальном списке должно иметь причину и явный статус в
-runtime catalog. Глобальный effect всегда обозначается пользователю, даже если
-run ограничен папкой. Требование «только этот раздел» не даёт global settings grant.
+All allowlist rows still have the status M. The remaining settings are inventoried
+by H-45: absence from the initial list must have a reason and an explicit status in the
+runtime catalog. A global effect is always indicated to the user, even if the
+run is limited to a folder. A requirement of "only this section" does not grant a global settings grant.
 
-| Действия/область                                                    | Основа и контракт                                                                                     | Пакет; статус     |
-| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ----------------- |
-| `theme.list`, `theme.create`, `theme.update`, `theme.select`        | Validator token allowlist; новая пользовательская копия, built-ins immutable; no CSS/JS/remote assets | H-44; M           |
-| `workspace.layout.patch`, `workspace.session.patch`                 | `WorkspaceConfig`, `SessionFile`, существующие stores; typed per-object keys, revision/undo           | H-45; M           |
-| `workspace.tabs.open`, `workspace.tabs.close`, `workspace.navigate` | Existing tabs/actions; transient с optional persisted session; dirty close guard                      | H-45; M           |
-| `module.describe`, `module.setEnabled`                              | Module host + database module state; enable не выдаёт новые permissions                               | H-45; M           |
-| `prefs.editor.autosaveMs`, startup/window/shortcuts settings        | Нужны bounds, влияние на lifecycle, individual key policy и native checks                             | H-45; M           |
-| Provider profiles/endpoints, credentials, network grants            | Доверенная пользовательская форма; секреты модели не возвращаются                                     | H-30/H-45; U      |
-| Security, journal/retention policy, agent budgets/grants            | Host control plane; собственные права агент не меняет                                                 | H-20/H-24/H-31; B |
-| Updater, debug logs, experimental flags                             | Отдельный пользовательский flow; не часть appearance grant                                            | H-45; U           |
+| Actions/area                                                        | Basis and contract                                                                       | Package; status   |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------- |
+| `theme.list`, `theme.create`, `theme.update`, `theme.select`        | Validator token allowlist; a new user copy, built-ins immutable; no CSS/JS/remote assets | H-44; M           |
+| `workspace.layout.patch`, `workspace.session.patch`                 | `WorkspaceConfig`, `SessionFile`, existing stores; typed per-object keys, revision/undo  | H-45; M           |
+| `workspace.tabs.open`, `workspace.tabs.close`, `workspace.navigate` | Existing tabs/actions; transient with an optional persisted session; dirty close guard   | H-45; M           |
+| `module.describe`, `module.setEnabled`                              | Module host + database module state; enabling does not grant new permissions             | H-45; M           |
+| `prefs.editor.autosaveMs`, startup/window/shortcuts settings        | Bounds, lifecycle impact, individual key policy and native checks are needed             | H-45; M           |
+| Provider profiles/endpoints, credentials, network grants            | A trusted user form; model secrets are not returned                                      | H-30/H-45; U      |
+| Security, journal/retention policy, agent budgets/grants            | Host control plane; the agent does not change its own rights                             | H-20/H-24/H-31; B |
+| Updater, debug logs, experimental flags                             | A separate user flow; not part of the appearance grant                                   | H-45; U           |
 
-Просьба поставить произвольный установленный шрифт не считается поддержанной:
-нынешняя модель предоставляет четыре font families. Расширение списка требует
-отдельного domain/UI контракта и тестов, а не записи неизвестной строки.
-Undo setting восстанавливает ключ с учётом отсутствия значения и inheritance;
-новое значение соседнего ключа не теряется при общей записи файла.
+A request to set an arbitrary installed font is not considered supported:
+the current model provides four font families. Extending the list requires
+a separate domain/UI contract and tests, not writing an unknown string.
+Undo of a setting restores the key with regard to the absence of a value and inheritance;
+a new value of a neighboring key is not lost on a shared file write.
 
-## 8. Навыки, обучение, плагины и управление заданием
+## 8. Skills, learning, plugins and run control
 
-| Предлагаемые действия                                                    | Контракт                                                                            | Пакет; статус     |
-| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- | ----------------- |
-| `skill.list`, `skill.read`, `skill.propose`                              | Scoped metadata/content; pinned digests; proposal не активирует навык               | H-50/H-51/H-52; M |
-| `skill.evaluate`, `skill.activate`, `skill.rollback`                     | Host-owned evaluation; exact candidate hash, ownership и activation policy          | H-61/H-63; M      |
-| `memory.query`, `memory.propose`                                         | Typed provenance; факт/предпочтение/вывод различаются                               | H-62; M           |
-| `learning.extract`, `learning.evaluate`                                  | Runtime service jobs с отдельным budget; не unbounded recursive agent tool          | H-60/H-61; M      |
-| `plugin.project.create`, `plugin.project.read`, `plugin.project.patch`   | Только выданный project namespace; source versioning/undo                           | H-71; M           |
-| `plugin.build`, `plugin.test`, `plugin.preview`                          | Trusted fixed runner; synthetic profile, no arbitrary shell/network                 | H-71/H-72; M      |
-| `plugin.install`, `plugin.activate`, `plugin.rollback`, `plugin.disable` | Exact artifact + permissions; user gate для расширения, registry/recovery agreement | H-73; M           |
-| `plugin.uninstall`                                                       | Сохранить данные по умолчанию; отдельная очистка с preview                          | H-73; M           |
-| `run.undo.preview`, `run.undo.apply`                                     | Dependency closure, current grant, inverse revisions; отдельные receipts            | H-23/H-24; M      |
-| `run.stop`, `run.resume`                                                 | Доверенные user controls; pending writes сначала reconcile                          | H-31/H-33; U      |
+| Proposed actions                                                         | Contract                                                                           | Package; status   |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- | ----------------- |
+| `skill.list`, `skill.read`, `skill.propose`                              | Scoped metadata/content; pinned digests; a proposal does not activate the skill    | H-50/H-51/H-52; M |
+| `skill.evaluate`, `skill.activate`, `skill.rollback`                     | Host-owned evaluation; exact candidate hash, ownership and activation policy       | H-61/H-63; M      |
+| `memory.query`, `memory.propose`                                         | Typed provenance; fact/preference/inference are distinguished                      | H-62; M           |
+| `learning.extract`, `learning.evaluate`                                  | Runtime service jobs with a separate budget; not an unbounded recursive agent tool | H-60/H-61; M      |
+| `plugin.project.create`, `plugin.project.read`, `plugin.project.patch`   | Only the granted project namespace; source versioning/undo                         | H-71; M           |
+| `plugin.build`, `plugin.test`, `plugin.preview`                          | Trusted fixed runner; synthetic profile, no arbitrary shell/network                | H-71/H-72; M      |
+| `plugin.install`, `plugin.activate`, `plugin.rollback`, `plugin.disable` | Exact artifact + permissions; user gate for expansion, registry/recovery agreement | H-73; M           |
+| `plugin.uninstall`                                                       | Keep data by default; separate cleanup with a preview                              | H-73; M           |
+| `run.undo.preview`, `run.undo.apply`                                     | Dependency closure, current grant, inverse revisions; separate receipts            | H-23/H-24; M      |
+| `run.stop`, `run.resume`                                                 | Trusted user controls; pending writes are reconciled first                         | H-31/H-33; U      |
 
-Learning services вызываются host по настройке пользователя. Навык не может
-сам активировать новую версию или произвольно запускать evaluator тысячи раз.
-Служебные operations видны в журнале, но не все являются доступными модели tools.
+Learning services are invoked by the host according to the user's setting. A skill cannot
+activate a new version by itself or arbitrarily run the evaluator thousands of times.
+Service operations are visible in the journal, but not all of them are tools available to the model.
 
-## 9. Намеренные границы
+## 9. Intentional boundaries
 
-| Возможность                                                                  | Статус и причина                                                           |
-| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| Произвольные `readFile`/`writeFile`, `readGlobalRaw`/`writeGlobalRaw`        | B: обход typed adapters, policy, invariants и undo                         |
-| Shell/process/native code приложения                                         | B: вне SDK мастерской и пространства пользователя                          |
-| Выбор vault/системного файла, ввод API key                                   | U: доверенный OS/credential flow выдаёт конкретный handle                  |
-| Постоянный purge, очистка AI audit/undo snapshots                            | U: user control plane, preview необратимых последствий                     |
-| Произвольная отправка данных, публикация, clipboard/external open            | B в обычной grant; отдельный явно разрешённый connector contract требуется |
-| Изменение чужих metadata `.obsidian/`, `.git/` и произвольных `.amby/` files | B: domain operations работают только с собственной объявленной metadata    |
-| Vault ID migration, backup recovery, rebuild index                           | U по умолчанию: domain maintenance, собственные recovery contracts         |
+| Capability                                                                      | Status and reason                                                                       |
+| ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Arbitrary `readFile`/`writeFile`, `readGlobalRaw`/`writeGlobalRaw`              | B: bypass of typed adapters, policy, invariants and undo                                |
+| Shell/process/native code of the app                                            | B: outside the SDK of the workshop and the user's space                                 |
+| Choosing a vault/system file, entering an API key                               | U: a trusted OS/credential flow issues a specific handle                                |
+| Permanent purge, clearing AI audit/undo snapshots                               | U: user control plane, preview of irreversible consequences                             |
+| Arbitrary sending of data, publishing, clipboard/external open                  | B under an ordinary grant; a separate explicitly allowed connector contract is required |
+| Changing others' metadata in `.obsidian/`, `.git/` and arbitrary `.amby/` files | B: domain operations work only with their own declared metadata                         |
+| Vault ID migration, backup recovery, index rebuild                              | U by default: domain maintenance, own recovery contracts                                |
 
-Внутренний index refresh после mutation — host effect и отражается в receipt.
-Он не разрешает модели запустить миграцию source data. Команда полного rebuild
-не должна раскрывать названия/ошибки закрытых объектов через progress.
+An internal index refresh after a mutation is a host effect and is reflected in the receipt.
+It does not allow the model to start a migration of source data. A full rebuild command
+must not reveal the names/errors of closed objects through progress.
 
-## 10. Правило расширения каталога
+## 10. Catalog extension rule
 
-Для каждого нового модуля, включая творческий модуль,
-реализация предоставляет domain descriptor, source-of-truth, typed operations,
-scope resolver, preconditions, verifier, undo/recovery и acceptance evidence.
-Только после этого новая возможность появляется в агентном каталоге.
-Просьба агента «включить модуль» не делает запланированную функцию реализованной.
+For every new module, including the creative module,
+the implementation provides a domain descriptor, source-of-truth, typed operations,
+scope resolver, preconditions, verifier, undo/recovery and acceptance evidence.
+Only after that does the new capability appear in the agent catalog.
+An agent's request to "enable the module" does not make a planned feature implemented.
 
-H-00/H-46 ведут coverage ledger: user action → domain operation → agent action →
-permission → inverse → scenario → evidence. Для необратимых/manual действий
-фиксируется честное исключение; для обязательных сценариев `missingImplementation`
-блокирует соответствующий gate. Подготовка этого проекта каталога не является
-свидетельством полноты ledger.
+H-00/H-46 maintain a coverage ledger: user action → domain operation → agent action →
+permission → inverse → scenario → evidence. For irreversible/manual actions
+an honest exception is recorded; for mandatory scenarios `missingImplementation`
+blocks the corresponding gate. The preparation of this catalog draft is not
+evidence of the ledger's completeness.
