@@ -86,8 +86,8 @@ describe("InfoPanel frontmatter properties", () => {
       container.querySelector('[data-sortable-property-id="count-id"] .lucide-hash'),
     ).not.toBeNull()
     expect(
-      container.querySelector('[data-sortable-property-id="custom-id"]')?.textContent,
-    ).toContain("🌿")
+      container.querySelector('[data-sortable-property-id="custom-id"] img')?.getAttribute("src"),
+    ).toContain("emoji_u1f33f.svg")
     expect(container.textContent).not.toContain("◆")
   })
 
@@ -248,7 +248,7 @@ describe("InfoPanel frontmatter properties", () => {
     )
 
     // Verify custom emoji is displayed for priority
-    expect(screen.getByText("🔥")).not.toBeNull()
+    expect(document.querySelector('img[src*="emoji_u1f525.svg"]')).not.toBeNull()
 
     const priorityTrigger = screen.getByTitle("priority")
     fireEvent.click(priorityTrigger)

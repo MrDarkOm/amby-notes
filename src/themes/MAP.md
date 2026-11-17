@@ -16,6 +16,20 @@ portable theme format and localization contract.
 | i18next initialization only               | [i18n.ts](../lib/i18n.ts)                                                                                                                                                                            |
 | Workspace icon encoding / rendering       | [icon-values.ts](../components/workspace/icon-values.ts), [icon-value.tsx](../components/workspace/icon-value.tsx), [EmojiPickerPanel.tsx](../components/workspace/tiptap/EmojiPickerPanel.tsx)      |
 
+Interface emoji use [EmojiGlyph](../components/ui/emoji-glyph.tsx) and the
+[pinned resolver/manifest](../lib/emoji/emoji-resolver.ts). Picker data and error
+fallback live in [picker-data.ts](../lib/emoji/picker-data.ts); packaged-CSP stylesheet
+loading in [picker-styles.ts](../lib/emoji/picker-styles.ts). Multilingual search
+vocabulary: [registry](../locales/emoji-search.ts),
+[keyword adapter](../lib/emoji/search-keywords.ts) and
+[Mart index activation](../lib/emoji/picker-search.ts). The bounded picker cache is
+[picker-runtime.ts](../lib/emoji/picker-runtime.ts), warmed by
+[EmojiPickerWarmup](../components/workspace/emoji-picker-warmup.tsx). Resource preparation,
+licenses and the text-rendering boundary: [emoji-icons.md](../../docs/emoji-icons.md).
+
+The sync action uses [sync-icon.ts](sync-icon.ts): neutral outer triangular arrowheads, with
+state colour on the circular `.amby-sync-badge` fill inside the arcs in `app.css`.
+
 Settings content is centered at a maximum of 760px across sections and search;
 scroll areas reserve a stable gutter and inset their thumbs from panel edges.
 

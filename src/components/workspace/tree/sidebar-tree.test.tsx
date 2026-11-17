@@ -110,6 +110,56 @@ describe("SidebarTree folder click (TREE-02)", () => {
     fireEvent.click(row(container, "b"))
     expect(onSelect).toHaveBeenCalledWith("b")
   })
+
+  it.each([[], undefined])(
+    "when on, an empty or JSON-only folder opens nothing (%s)",
+    (children) => {
+      setToggle(true)
+      const onSelect = vi.fn()
+      const { container } = render(
+        <SidebarTree items={[{ ...folder, children }]} selectedId={null} onSelect={onSelect} />,
+      )
+      fireEvent.click(row(container, "f"))
+      fireEvent.keyDown(row(container, "f"), { key: "Enter" })
+      fireEvent.keyDown(row(container, "f"), { key: " " })
+      expect(onSelect).not.toHaveBeenCalled()
+    },
+  )
+
+  it("when on, Space toggles and Shift-click only selects a range", () => {
+    setToggle(true)
+    const onSelect = vi.fn()
+    const other = { ...folder, id: "other", path: "/vault/Other", name: "Other" }
+    const { container } = render(
+      <SidebarTree items={[folder, other]} selectedId={null} onSelect={onSelect} />,
+    )
+    fireEvent.click(row(container, "f"), { metaKey: true })
+    fireEvent.click(row(container, "other"), { shiftKey: true })
+    expect(row(container, "other").getAttribute("aria-expanded")).toBe("true")
+    expect(row(container, "f").getAttribute("aria-selected")).toBe("true")
+    expect(row(container, "other").getAttribute("aria-selected")).toBe("true")
+    fireEvent.keyDown(row(container, "other"), { key: " " })
+    expect(row(container, "other").getAttribute("aria-expanded")).toBe("false")
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it("when on, the context menu still opens the folder in a tab", async () => {
+    setToggle(true)
+    const onSelect = vi.fn()
+    const onOpenInNewTab = vi.fn()
+    const { container } = render(
+      <SidebarTree
+        items={[folder]}
+        selectedId={null}
+        onSelect={onSelect}
+        onOpenInNewTab={onOpenInNewTab}
+      />,
+    )
+    fireEvent.contextMenu(row(container, "f"))
+    fireEvent.click(await screen.findByText("Открыть в новой вкладке"))
+    expect(onOpenInNewTab).toHaveBeenCalledWith("f")
+    expect(onSelect).not.toHaveBeenCalled()
+  })
 })
 
 describe("SidebarTree rename trigger", () => {

@@ -1,5 +1,7 @@
 "use client"
 
+import { EmojiGlyph } from "@/components/ui/emoji-glyph"
+
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { createPortal } from "react-dom"
@@ -718,7 +720,7 @@ function CalloutContext({
           }}
         >
           <span className="amby-block-row-icon amby-block-row-emoji" aria-hidden="true">
-            {String(node?.attrs.emoji ?? "💡")}
+            <EmojiGlyph value={String(node?.attrs.emoji ?? "💡")} />
           </span>
           <span className="amby-block-row-label">{t("callout.changeEmoji")}</span>
         </MotionRowButton>

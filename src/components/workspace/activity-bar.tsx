@@ -400,6 +400,14 @@ export function ActivityBar({
         whileTap={{ scale: 0.88, y: 1 }}
         transition={motionTransitions.fast}
       >
+        {sync && (
+          <span
+            className="amby-sync-badge"
+            data-sync-state={sync.state}
+            role="status"
+            aria-label={t(`sync.refresh.${sync.state}`)}
+          />
+        )}
         {sync && (sync.busy || sync.state === "running") && !reducedMotion ? (
           <MotionSpinner>
             <Icon className={cn("size-4", sync && "amby-sync-arrows")} />
@@ -414,14 +422,7 @@ export function ActivityBar({
             )}
           />
         )}
-        {sync && (
-          <span
-            className="amby-sync-badge"
-            data-sync-state={sync.state}
-            role="status"
-            aria-label={t(`sync.refresh.${sync.state}`)}
-          />
-        )}
+
         {def.id === "notices" && noticesSummary && (
           <span
             data-testid="notices-dock-count"

@@ -11,13 +11,7 @@ import {
   readRecoveryDraft,
   discardRecoveryDraft,
 } from "../../src/lib/recovery-drafts"
-import {
-  createDatabase,
-  listDatabases,
-  noteLayers,
-  setStorageAdapter,
-  settingsRepository,
-} from "../../src/lib/storage"
+import { createDatabase, listDatabases, noteLayers, setStorageAdapter } from "../../src/lib/storage"
 import { createDatabaseLayoutPort } from "../../src/lib/storage/database-layout-repository"
 import type { StorageContractContext } from "../../src/lib/storage/storage-contract"
 import { AutosaveCoordinator } from "../../src/components/workspace/autosave/autosave-coordinator"
@@ -33,6 +27,29 @@ export const nativeNoteCases: Array<{
   name: string
   run: (context: StorageContractContext) => Promise<void>
 }> = [
+  {
+    name: "native removal returns a tree patch for empty and JSON-only folders",
+    async run({ adapter, vaultPath }) {
+      for (const mode of ["archive", "permanent", "archive-action"] as const) {
+        for (const jsonOnly of [false, true]) {
+          const folder = await adapter.createFolder(vaultPath, `${mode}-${jsonOnly}`)
+          if (jsonOnly) await adapter.writeFile(joinStoragePath(folder, "data.json"), "{}\n")
+          const result =
+            mode === "archive-action"
+              ? await adapter.archiveItem(vaultPath, folder)
+              : await adapter.deleteItem(vaultPath, folder, mode)
+          check(
+            result.treePatch?.ops.some((op) => op.kind === "remove" && op.paths.includes(folder)),
+            `${mode}: the IPC result removes the folder without a full reload`,
+          )
+          check(
+            !(await adapter.listFiles(vaultPath)).some((item) => item.path === folder),
+            `${mode}: the removed folder is absent from disk`,
+          )
+        }
+      }
+    },
+  },
   {
     name: "native attachment imports use unique typed names and preserve the original display name",
     async run({ adapter, vaultPath }) {
@@ -584,7 +601,7 @@ export const nativeNoteCases: Array<{
     async run({ adapter, vaultPath }) {
       const note = await adapter.createNote(vaultPath, vaultPath, "Delete Failure")
       const original = await adapter.readFile(note.primaryPath!)
-      await settingsRepository.writeVaultRaw("archive", "blocker")
+      await adapter.writeFile(joinStoragePath(vaultPath, ".amby/archive"), "blocker")
 
       let failed = false
       try {

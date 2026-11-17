@@ -3,6 +3,7 @@
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
+import { EmojiGlyph } from "@/components/ui/emoji-glyph"
 import { parseIconValue } from "./icon-values"
 import { KNOWN_ICONS } from "./tree/tree-types"
 
@@ -49,7 +50,7 @@ export function IconValue({
           className,
         )}
       >
-        {value}
+        <EmojiGlyph value={value} />
       </span>
     )
   }

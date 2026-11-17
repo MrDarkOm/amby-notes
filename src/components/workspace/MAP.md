@@ -57,6 +57,7 @@ so it never jumps to another tab; Back and Forward need no file for the graph or
 Link graph: [lazy store](use-link-graph-store.ts).
 Dialogs: [store](use-overlays-store.ts), shown by [workspace-overlays.tsx](orchestration/workspace-overlays.tsx). Tab strips read the unsaved mark themselves ([connected-tab-bars.tsx](orchestration/connected-tab-bars.tsx)). The root takes the active document through [use-active-document.ts](orchestration/use-active-document.ts) (identity, path, default layer; never the text), and the pane renderers read buffers from the doc store when they run, not from a prop.
 
+`prefs.files.folderClickToggles` makes folder activation expand only.
 Folder selection opens a `folder` tab; derive content from the `TreeItem` tree. Icons share `EmojiPickerPanel`, `IconValue` and view-state overrides.
 The root `sidebar-tree.tsx`, `document-editor.tsx`, `canvas-editor.tsx` and
 `sketch-editor.tsx` are compatibility entry points; follow their re-exports.

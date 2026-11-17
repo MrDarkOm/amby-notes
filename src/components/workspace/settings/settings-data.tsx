@@ -203,10 +203,10 @@ export function FolderClickSetting() {
       hint={t("settings.general.folderClickTogglesHint")}
     >
       <Switch
-        checked={files.folderClickToggles}
+        checked={!files.folderClickToggles}
         onCheckedChange={(next) =>
           // A failed save is already reported by the settings window.
-          void setPrefs({ files: { ...files, folderClickToggles: next } }).catch(() => {})
+          void setPrefs({ files: { ...files, folderClickToggles: !next } }).catch(() => {})
         }
       />
     </Row>

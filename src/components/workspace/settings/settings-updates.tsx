@@ -17,6 +17,7 @@ import { openWebAddressInBrowser } from "../tiptap/external-open"
 import { ManualDownloadLink } from "../manual-download-link"
 import { useSettingsStore } from "../use-settings-store"
 import { Row } from "./settings-common"
+import { EmojiLicenses } from "./emoji-licenses"
 import type { UpdateChannelPref } from "../app-config"
 
 const SOURCE_CODE_URL = "https://github.com/MrDarkOm/amby-notes"
@@ -273,6 +274,9 @@ export function UpdateSettings() {
         >
           {t("settings.updates.sourceAction")}
         </Button>
+      </Row>
+      <Row label={t("settings.updates.thirdPartyLicenses")}>
+        <EmojiLicenses />
       </Row>
     </>
   )

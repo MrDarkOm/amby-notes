@@ -2,6 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Interface emoji inherit each existing slot's optical size, never its foreground colour. */
+.amby-emoji-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: -0.12em;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.amby-emoji-glyph > img {
+  display: block;
+  width: 1em;
+  height: 1em;
+  max-width: none;
+  object-fit: contain;
+  user-select: none;
+}
+
 .amby-pdf-export-root {
   position: fixed;
   top: 0;
@@ -5188,22 +5207,23 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
 .amby-activity-button[data-sync-state="problem"] {
   --amby-sync-color: hsl(var(--destructive));
 }
-/* RefreshCw's lower arc and its arrowhead share the status color. */
-.amby-sync-arrows path:nth-of-type(n + 3) {
-  stroke: var(--amby-sync-color);
+.amby-sync-arrows {
+  position: relative;
+  z-index: 1;
 }
 .amby-sync-badge {
   position: absolute;
   inset: 0;
   margin: auto;
-  width: 3px;
-  height: 3px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--amby-sync-color);
+  opacity: 0.8;
   pointer-events: none;
 }
 .amby-sync-badge[data-sync-state="checking"] {
-  opacity: 0.5;
+  opacity: 0.25;
 }
 
 /* The menu of an inactive sync button: one line of the reason, then the actions. */
@@ -6677,4 +6697,15 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   outline-offset: -2px;
   border-radius: 6px;
   background: hsl(var(--primary) / 0.08);
+}
+
+/* One retained picker: geometrically laid out for image/row warmup, never interactive. */
+.amby-emoji-picker-parking {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 352px;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: -1;
 }

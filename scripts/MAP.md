@@ -3,6 +3,14 @@
 The command source of truth is [package.json](../package.json), not copied
 command lists in historical plans. Use Node.js 20.19+ or 22.12+, npm 10+, and Rust.
 
+Local emoji resources: `npm run emoji:prepare` ([prepare-noto-emoji.mjs](prepare-noto-emoji.mjs)) imports a
+pinned official Noto/Unicode release, verifies checksums and generates the manifest,
+picker additions and shipped licenses. Search vocabulary: `npm run emoji:prepare-search`
+([prepare-emoji-search.mjs](prepare-emoji-search.mjs)) imports pinned CLDR annotations
+and licenses with source checksums. See [contract](../docs/emoji-icons.md).
+SVG optimization uses pinned SVGO (development dependency only), preserves license
+comments and records both original Git blobs and optimized output hashes. No Python is needed.
+
 | Task                                                                                                               | Owner / command                                                                                                                                                                                                                                                                                                                                 |
 | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Agent map links, reachability and size                                                                             | [check-project-map.mjs](check-project-map.mjs), `npm run docs:check`                                                                                                                                                                                                                                                                            |
