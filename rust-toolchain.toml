@@ -3,6 +3,6 @@
 # build nobody caused. Raise this deliberately (and fix what the new Clippy says) in a commit
 # of its own. `rust-version` in src-tauri/Cargo.toml is kept at the same minor version.
 [toolchain]
-channel = "1.99.1"
+channel = "1.100.0"
 profile = "minimal"
 components = ["rustfmt", "clippy"]

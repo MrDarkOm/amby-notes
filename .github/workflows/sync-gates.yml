@@ -113,8 +113,8 @@ jobs:
           ]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - name: Set up Rust stable
-        run: rustup toolchain install stable --profile minimal
+      - name: Set up Rust (rust-toolchain.toml)
+        run: rustup toolchain install
       - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2
         with:
           tool: cargo-mutants@${{ env.CARGO_MUTANTS_VERSION }}
@@ -244,8 +244,8 @@ jobs:
           ]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - name: Set up Rust stable
-        run: rustup toolchain install stable --profile minimal
+      - name: Set up Rust (rust-toolchain.toml)
+        run: rustup toolchain install
       - run: cargo build --release --manifest-path sync/Cargo.toml -p amby-sync-simrun
       # Seeds do not overlap between runners: runner g = job * SIM_PROCESSES + process takes
       # 1 + g * SIM_SCENARIOS .. (g + 1) * SIM_SCENARIOS in both modes. A failure is reproduced
@@ -292,8 +292,8 @@ jobs:
         seed: [1, 100001, 200001, 300001]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - name: Set up Rust stable
-        run: rustup toolchain install stable --profile minimal
+      - name: Set up Rust (rust-toolchain.toml)
+        run: rustup toolchain install
       - run: cargo test --release --manifest-path sync/Cargo.toml -p amby-sync-sim --test self_check
         env:
           AMBY_SIM_SEED: ${{ matrix.seed }}
