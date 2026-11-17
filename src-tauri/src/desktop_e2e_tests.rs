@@ -638,3 +638,39 @@ fn bench_300_stories_50_pages() {
         discover_elapsed, initial_scan, reopen
     );
 }
+
+/// SAVE-11 measurement. Run with
+/// `cargo test --manifest-path src-tauri/Cargo.toml note_write_timing -- --ignored --nocapture`.
+/// It times the durable part of `write_note` (revision check, history snapshot,
+/// fsync'd atomic write, index update) on this machine's disk, per note size.
+#[test]
+#[ignore = "timing measurement, not a correctness test"]
+fn note_write_timing_by_size() {
+    let vault = DesktopVault::new("timing");
+    let context = VaultContext::new();
+    let mut notes = Vec::new();
+    for (label, size) in [
+        ("1 KB", 1_000usize),
+        ("100 KB", 100_000),
+        ("1 MB", 1_000_000),
+    ] {
+        let (_, id) = vault.note(&format!("{}.md", label.replace(' ', "")), "start");
+        notes.push((label, size, id));
+    }
+    activate(&context, &vault.0);
+    for (label, size, id) in notes {
+        let mut samples = Vec::new();
+        for round in 0..30 {
+            let line = "lorem ipsum dolor sit amet\n";
+            let mut body = line.repeat(size / line.len());
+            body.push_str(&format!("round {round}\n"));
+            let started = Instant::now();
+            save(&context, &id, &body);
+            samples.push(started.elapsed().as_secs_f64() * 1000.0);
+        }
+        samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let median = samples[samples.len() / 2];
+        let p95 = samples[(samples.len() * 95 / 100).min(samples.len() - 1)];
+        println!("note.write {label}: median {median:.1} ms, p95 {p95:.1} ms");
+    }
+}
