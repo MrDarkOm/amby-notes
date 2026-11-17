@@ -24,6 +24,9 @@ pub use tags::*;
 mod compatibility_fixtures_test;
 
 #[cfg(test)]
+mod history_follow_tests;
+
+#[cfg(test)]
 mod identity_tests;
 
 #[cfg(test)]
