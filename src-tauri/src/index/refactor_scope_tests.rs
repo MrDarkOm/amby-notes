@@ -146,3 +146,23 @@ fn archived_wikilinks_by_name_are_rewritten_when_the_name_is_unique() {
     );
     fs::remove_dir_all(vault).unwrap();
 }
+
+#[test]
+fn a_property_link_in_frontmatter_follows_the_rename_as_before() {
+    // Relation properties are stored as wikilinks in frontmatter; the rewrite keeps updating them
+    // in a note it rewrites (only code and comments are protected).
+    let vault = temp_vault("frontmatter-link");
+    let note = write(
+        &vault,
+        "A.md",
+        "---\nrelated: \"[[Folder/B]]\"\n---\nsee [[Folder/B]]\n```\n[[Folder/B]]\n```\n",
+    );
+    rename_b(&vault);
+    let text = fs::read_to_string(&note).unwrap();
+    assert!(text.contains("related: \"[[Folder/C]]\"\n"), "{text}");
+    assert!(
+        text.ends_with("---\nsee [[Folder/C]]\n```\n[[Folder/B]]\n```\n"),
+        "{text}"
+    );
+    fs::remove_dir_all(vault).unwrap();
+}

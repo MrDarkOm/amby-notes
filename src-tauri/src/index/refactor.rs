@@ -444,9 +444,18 @@ fn files_mentioning_any(vault: &Path, needles: Vec<&str>) -> Vec<(PathBuf, Strin
     found
 }
 
-/// `str::replace` that leaves code, comments and frontmatter alone, as the index does.
+/// `str::replace` that leaves code and comments alone (frontmatter links are still updated).
 fn replace_outside_protected(text: &str, from: &str, to: &str) -> String {
-    let protected = protected_markdown_ranges(text);
+    // Frontmatter is not protected here: relation properties are stored there as wikilinks and
+    // a rename has always updated them. Only code and comments are left alone.
+    let frontmatter_end = protected_markdown_ranges(text)
+        .first()
+        .filter(|(start, _)| *start == 0 && text.starts_with("---"))
+        .map(|(_, end)| *end);
+    let protected: Vec<_> = protected_markdown_ranges(text)
+        .into_iter()
+        .filter(|range| Some(range.1) != frontmatter_end || range.0 != 0)
+        .collect();
     let mut out = String::with_capacity(text.len());
     let mut last = 0;
     for (start, _) in text.match_indices(from) {

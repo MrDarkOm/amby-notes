@@ -606,6 +606,8 @@ Wikilinks and embeds in archived notes (not in the index) are found with the ind
 own parser, so code, comments and frontmatter are skipped, and are rewritten only when
 the name (title, path or file name) belongs to the moved note alone; a name that another
 note also has is left as written. Alias, heading and block parts are kept.
+In every file it rewrites, a wikilink inside code or a `%%` comment is left as
+written; the same link in frontmatter (for example a relation property) is updated.
 
 Exact textual references (Markdown links and embeds, Canvas and Excalidraw file
 references) are updated only in normal vault notes and in the archive
