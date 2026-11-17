@@ -15,7 +15,10 @@ Use this map for app bootstrap, permissions and packaging; use
 | Frontend integration guards                        | [tauri-capabilities.test.ts](../src/lib/tauri-capabilities.test.ts), [tauri-build-config.test.ts](../src/lib/tauri-build-config.test.ts) |
 
 `lib.rs` composes state/plugins/windows and the Specta command builder. Put new
-commands in `src/commands/` and domain behavior in the owning service. The main
+commands in `src/commands/` and domain behavior in the owning service. Per-keystroke
+write commands (`write_note`, `write_file` in `commands/notes.rs`) are `async` and run on
+`spawn_blocking`, never on the main thread; `WriteSequencer` there keeps writes to one note or path in
+IPC arrival order. The main
 window lifecycle (restore/recreate on Dock click or a second launch, closing the
 hidden settings window with it) lives in `src/state.rs`. Its `handle_run_event` is also used by the isolated
 native UI harness in `src/native_contract.rs` so smoke tests exercise the same

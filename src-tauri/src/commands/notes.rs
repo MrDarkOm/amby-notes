@@ -44,23 +44,127 @@ fn file_revision(path: &std::path::Path) -> Result<String, String> {
     }
 }
 
+/// Orders blocking writes per key (a note id or a file path). A ticket is taken when the
+/// command starts, which is IPC arrival order; `wait` blocks the pool thread until every
+/// earlier ticket for the same key has finished, and dropping the ticket (after the write,
+/// on failure, or when the command future is cancelled) lets the next one go. Writes to
+/// different keys do not wait for each other. The frontend already awaits each save before
+/// sending the next; this keeps the backend order intact even if it does not.
+pub(crate) struct WriteSequencer {
+    state: std::sync::Mutex<std::collections::HashMap<String, QueueCounters>>,
+    turn: std::sync::Condvar,
+}
+
+#[derive(Default)]
+struct QueueCounters {
+    next: u64,
+    serving: u64,
+    /// Finished tickets that are not yet at the head of the queue.
+    finished: std::collections::BTreeSet<u64>,
+}
+
+pub(crate) struct WriteTicket {
+    sequencer: &'static WriteSequencer,
+    key: String,
+    number: u64,
+}
+
+impl WriteSequencer {
+    fn new() -> Self {
+        Self {
+            state: std::sync::Mutex::new(std::collections::HashMap::new()),
+            turn: std::sync::Condvar::new(),
+        }
+    }
+
+    pub(crate) fn ticket(&'static self, key: String) -> WriteTicket {
+        let mut state = self.state.lock_or_recover();
+        let counters = state.entry(key.clone()).or_default();
+        let number = counters.next;
+        counters.next += 1;
+        WriteTicket {
+            sequencer: self,
+            key,
+            number,
+        }
+    }
+}
+
+impl WriteTicket {
+    /// Blocks until it is this ticket's turn.
+    pub(crate) fn wait(&mut self) {
+        let mut state = self.sequencer.state.lock_or_recover();
+        while state
+            .get(&self.key)
+            .is_some_and(|counters| counters.serving != self.number)
+        {
+            state = self
+                .sequencer
+                .turn
+                .wait(state)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+}
+
+impl Drop for WriteTicket {
+    fn drop(&mut self) {
+        let mut state = self.sequencer.state.lock_or_recover();
+        if let Some(counters) = state.get_mut(&self.key) {
+            // A ticket dropped before its turn (cancelled command) must not stall
+            // later ones: it passes the turn on once everything before it is done.
+            counters.finished.insert(self.number);
+            while counters.finished.remove(&counters.serving) {
+                counters.serving += 1;
+            }
+            if counters.serving == counters.next {
+                state.remove(&self.key);
+            }
+        }
+        self.sequencer.turn.notify_all();
+    }
+}
+
+pub(crate) fn write_sequencer() -> &'static WriteSequencer {
+    static SEQUENCER: std::sync::OnceLock<WriteSequencer> = std::sync::OnceLock::new();
+    SEQUENCER.get_or_init(WriteSequencer::new)
+}
+
 /// Writes a Canvas/Excalidraw/generic text file and returns its new revision.
 /// With `expected_revision` the current bytes are compared under the mutation
 /// gate first; a mismatch writes nothing. `None` keeps the unconditional
 /// overwrite used by explicit conflict resolution and tests.
 #[tauri::command]
 #[specta::specta]
-pub fn write_file(
+pub async fn write_file(
     window: tauri::WebviewWindow,
-    scope: tauri::State<paths::VaultScope>,
-    db: tauri::State<'_, VaultContext>,
-    watcher_state: tauri::State<'_, WatcherState>,
+    path: String,
+    content: String,
+    expected_revision: Option<String>,
+) -> Result<String, crate::model::WriteFileError> {
+    // The write is a fsync plus a history snapshot: off the main thread, strictly
+    // in arrival order per path (see `WriteSequencer`).
+    let ticket = write_sequencer().ticket(format!("file:{path}"));
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut ticket = ticket;
+        ticket.wait();
+        write_file_blocking(&window, path, content, expected_revision)
+    })
+    .await
+    .map_err(|error| crate::model::WriteFileError::failed(format!("write task failed: {error}")))?
+}
+
+fn write_file_blocking(
+    window: &tauri::WebviewWindow,
     path: String,
     content: String,
     expected_revision: Option<String>,
 ) -> Result<String, crate::model::WriteFileError> {
     use crate::model::WriteFileError;
     use tauri::Manager;
+    let scope = window.state::<paths::VaultScope>();
+    let db = window.state::<VaultContext>();
+    let watcher_state = window.state::<WatcherState>();
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(&scope, &path).map_err(WriteFileError::failed)?;
     let vault = scope.get().map_err(WriteFileError::failed)?;
@@ -234,13 +338,32 @@ fn commit_note_write_under_gate(
 
 #[tauri::command]
 #[specta::specta]
-pub fn write_note(
+pub async fn write_note(
     app: tauri::AppHandle,
-    db: tauri::State<'_, VaultContext>,
-    watcher_state: tauri::State<'_, WatcherState>,
     request: WriteNoteRequest,
     operation_id: Option<String>,
 ) -> Result<WriteNoteOutcome, WriteNoteError> {
+    // fsync, the history snapshot and SQLite run on the blocking pool, not on the
+    // main thread that also delivers WebView keyboard input. Tickets are taken here,
+    // in arrival order, so writes to one note still commit strictly in that order.
+    let ticket = write_sequencer().ticket(format!("note:{}", request.note_id));
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut ticket = ticket;
+        ticket.wait();
+        write_note_blocking(&app, request, operation_id)
+    })
+    .await
+    .map_err(|error| WriteNoteError::failed(format!("write task failed: {error}")))?
+}
+
+fn write_note_blocking(
+    app: &tauri::AppHandle,
+    request: WriteNoteRequest,
+    operation_id: Option<String>,
+) -> Result<WriteNoteOutcome, WriteNoteError> {
+    use tauri::Manager;
+    let db = app.state::<VaultContext>();
+    let watcher_state = app.state::<WatcherState>();
     use tauri::Emitter;
     let telemetry =
         crate::logging::OperationGuard::begin("note.write", operation_id, request.note_id.clone());
@@ -630,5 +753,68 @@ mod tests {
             "the save must merge into the file as it is under the gate, got: {saved}"
         );
         let _ = std::fs::remove_dir_all(&vault);
+    }
+
+    #[test]
+    fn writes_to_one_key_run_in_ticket_order_even_when_threads_start_late() {
+        let sequencer: &'static super::WriteSequencer =
+            Box::leak(Box::new(super::WriteSequencer::new()));
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let tickets: Vec<_> = (0..5).map(|_| sequencer.ticket("note:a".into())).collect();
+        let mut handles = Vec::new();
+        // Start the workers in reverse: the last ticket's thread is ready first.
+        for (number, mut ticket) in tickets.into_iter().enumerate().rev() {
+            let order = order.clone();
+            handles.push(std::thread::spawn(move || {
+                ticket.wait();
+                std::thread::sleep(Duration::from_millis(10));
+                order.lock().unwrap().push(number);
+            }));
+            std::thread::sleep(Duration::from_millis(15));
+        }
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        assert_eq!(*order.lock().unwrap(), vec![0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn a_cancelled_ticket_does_not_stall_later_writes_and_other_keys_do_not_wait() {
+        let sequencer: &'static super::WriteSequencer =
+            Box::leak(Box::new(super::WriteSequencer::new()));
+        let first = sequencer.ticket("note:a".into());
+        let cancelled = sequencer.ticket("note:a".into());
+        let mut third = sequencer.ticket("note:a".into());
+        let mut other = sequencer.ticket("note:b".into());
+        other.wait(); // a different key is never blocked by `first`
+        drop(cancelled); // dropped before its turn
+        drop(first);
+        third.wait(); // would hang if the cancelled ticket stalled the queue
+        drop(third);
+        drop(other);
+        assert!(
+            sequencer.state.lock().unwrap().is_empty(),
+            "idle keys are forgotten"
+        );
+    }
+
+    #[test]
+    fn write_commands_are_async_and_do_the_blocking_work_off_the_main_thread() {
+        let source = include_str!("notes.rs");
+        let production = source.split("#[cfg(test)]").next().unwrap();
+        for name in ["write_note", "write_file"] {
+            assert!(
+                production.contains(&format!("pub async fn {name}(")),
+                "{name} must be an async command"
+            );
+            assert!(
+                !production.contains(&format!("pub fn {name}(")),
+                "{name} must not be a synchronous command"
+            );
+        }
+        let spawns = production
+            .matches("tauri::async_runtime::spawn_blocking")
+            .count();
+        assert!(spawns >= 2, "both writes must run on the blocking pool");
     }
 }
