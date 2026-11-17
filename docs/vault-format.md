@@ -602,6 +602,23 @@ unsafe rewrites of ambiguous text. Each changed source note is snapshotted
 before the refactor; if a link rewrite fails, already rewritten source notes
 are restored to their pre-refactor text.
 
+Wikilinks and embeds in archived notes (not in the index) are found with the index's
+own parser, so code, comments and frontmatter are skipped, and are rewritten only when
+the name (title, path or file name) belongs to the moved note alone; a name that another
+note also has is left as written. Alias, heading and block parts are kept.
+In every file it rewrites, a wikilink inside code or a `%%` comment is left as
+written; the same link in frontmatter (for example a relation property) is updated.
+
+Exact textual references (Markdown links and embeds, Canvas and Excalidraw file
+references) are updated only in normal vault notes and in the archive
+(`.amby/archive`, so links work after a restore). Only Canvas and Excalidraw
+files also have quoted paths rewritten; a quoted path in Markdown is ordinary
+text and is left alone. The trash (`.trash/`), backups, history, recovery and
+every other part of `.amby/`, `.obsidian/`, `.git/`, other hidden or reserved
+folders and symlinks are never entered or changed. The preview counts exactly
+the files that will be written. The rule lives in `refactor_may_enter`
+(`src-tauri/src/index/refactor.rs`) and reuses `RESERVED_DIRECTORIES`.
+
 A rename that changes only letter case is a real filesystem mutation. Amby
 first verifies that the requested spelling resolves to the same filesystem
 entry (rather than a distinct colliding file), then renames through a unique
