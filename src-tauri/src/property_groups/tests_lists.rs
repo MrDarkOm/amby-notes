@@ -1,6 +1,5 @@
 //! A multi-select is a YAML list the backend gives as a list of strings, never glued with commas
 //! (docs/sync-plan.md, З62): an option may hold a comma, and toggling another option must not split it.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::testkit::*;
 use super::*;

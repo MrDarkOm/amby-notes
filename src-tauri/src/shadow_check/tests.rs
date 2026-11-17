@@ -1,6 +1,10 @@
 //! The shadow check must stay quiet for a correct patch, name a corrupted one, and never write
 //! to the vault.
 
+// The module is declared `#[cfg(all(test, debug_assertions))]`, which clippy's
+// `allow-unwrap-in-tests` does not recognize as test code.
+#![allow(clippy::unwrap_used)]
+
 use super::enabled::{apply_patch, check_once_for_tests, diff_against_full};
 use crate::commands::mutations::rename_item_inner;
 use crate::database::runtime_state::DatabaseRuntimeState;

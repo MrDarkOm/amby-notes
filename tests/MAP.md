@@ -4,6 +4,9 @@
 `tests/**/*.test.{ts,tsx}`. Default environment is Node; component files opt into
 `happy-dom`. Check an existing nearby test before choosing a harness.
 
+`tests/` has its own [tsconfig.json](tsconfig.json) (same strictness as `src/`); `npm run typecheck`
+checks it after `src/`. `scripts/*.mjs` are plain JavaScript and are not type-checked.
+
 | Change                               | Verification owner                                                                                                                                                                                            |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Pure logic, stores, parsers, queues  | Colocated tests beside the implementation in `src/`                                                                                                                                                           |

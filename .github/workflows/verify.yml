@@ -56,7 +56,8 @@ jobs:
           echo "Code changed: $code"
 
   # Always runs, also for documentation-only changes: the maps and entry points are checked,
-  # and every file (documentation included) must be formatted.
+  # the version is the same in every manifest, the update-channel script is tested, and every
+  # file (documentation included) must be formatted.
   docs:
     name: Documentation and formatting
     runs-on: ubuntu-latest
@@ -65,10 +66,12 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - run: npm run docs:check
+      - run: npm run version:check
+      - run: npm run test:update-channels
       - run: npm run format:check
 
   frontend:
@@ -81,7 +84,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - run: npm run typecheck
@@ -99,7 +102,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - run: npm run test
@@ -116,7 +119,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - name: Read the Playwright version
@@ -156,10 +159,10 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
-      - name: Set up Rust stable
-        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
+      - name: Set up Rust (rust-toolchain.toml)
+        run: rustup toolchain install
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
@@ -186,10 +189,10 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
-      - name: Set up Rust stable
-        run: rustup toolchain install stable --profile minimal
+      - name: Set up Rust (rust-toolchain.toml)
+        run: rustup toolchain install
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
@@ -222,10 +225,10 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
-      - name: Set up Rust stable
-        run: rustup toolchain install stable --profile minimal
+      - name: Set up Rust (rust-toolchain.toml)
+        run: rustup toolchain install
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target

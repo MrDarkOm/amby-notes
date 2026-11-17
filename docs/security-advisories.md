@@ -6,10 +6,11 @@ warning suppression is prohibited. This record is the review authority for
 those temporary exceptions.
 
 Direct dependency review on 2026-08-24: `tauri` 2.11.5 is the current compatible
-release. `rfd` 0.17.2 was evaluated but requires resolving `tauri-plugin-dialog`
-back to 2.4.2 and introduces duplicate dialog crates, so the shared compatible
-0.16.0 release remains in use. No direct update reduces the listed advisories
-without a Tauri/Specta compatibility migration.
+release. The direct `rfd` dependency now follows the 0.17 line used by
+`tauri-plugin-dialog`, so the lock file holds a single `rfd` (the earlier
+0.16 pin, needed while the plugin still resolved 0.16, is gone). No direct
+update reduces the listed advisories without a Tauri/Specta compatibility
+migration.
 
 | Advisory IDs                                                                                  | Affected crates                                                                                | Owner and target                                                             | Decision                                                                                                                                        | Review by  |
 | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
@@ -23,6 +24,15 @@ without a Tauri/Specta compatibility migration.
 2. Prefer a compatible direct dependency update and remove exceptions that it resolves.
 3. Reconfirm target reachability, owner and review date before retaining any exception.
 4. Never ignore a vulnerability without a separately approved mitigation plan.
+
+## npm `overrides` in package.json
+
+Each override exists for a security reason recorded below; remove it when upstream resolves the
+patched version itself, then run `npm run verify`.
+
+- `lodash-es` 4.18.1: Excalidraw's chain pins older versions ([remediation 2026-09-29](#dependency-remediation--2026-09-29)).
+- `@excalidraw/excalidraw` → `nanoid` 3.3.18 and `@excalidraw/mermaid-to-excalidraw` → `nanoid` 5.1.16: same section.
+- `@excalidraw/excalidraw` → `sass` 1.105.2 (its `chokidar` no longer pulls `braces`) and `mermaid` → `katex` `$katex` (one patched KaTeX for the direct and Mermaid copies): [remediation 2026-10-16](#dependency-remediation--2026-10-16).
 
 ## Dependency remediation — 2026-09-29
 

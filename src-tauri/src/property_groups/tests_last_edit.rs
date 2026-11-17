@@ -1,6 +1,5 @@
 //! Every edit of the line of a note stamps the time of the edit (docs/sync-plan.md, З70), so that
 //! sync keeps the later of two edits made on two computers. Red until written.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::files::set_edit_clock;
 use super::testkit::*;

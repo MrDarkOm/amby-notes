@@ -403,20 +403,17 @@ fn tokenize(expression: &str) -> Result<Vec<Token>, FormulaError> {
             }
             character if character.is_ascii_digit() || character == '.' => {
                 let mut value = character.to_string();
-                while chars
-                    .peek()
-                    .is_some_and(|next| next.is_ascii_digit() || *next == '.')
-                {
-                    value.push(chars.next().unwrap());
+                while let Some(next) = chars.next_if(|next| next.is_ascii_digit() || *next == '.') {
+                    value.push(next);
                 }
                 Token::Number(value)
             }
             character if character.is_ascii_alphabetic() || character == '_' => {
                 let mut value = character.to_string();
-                while chars.peek().is_some_and(|next| {
-                    next.is_ascii_alphanumeric() || *next == '_' || *next == '-'
-                }) {
-                    value.push(chars.next().unwrap());
+                while let Some(next) = chars
+                    .next_if(|next| next.is_ascii_alphanumeric() || *next == '_' || *next == '-')
+                {
+                    value.push(next);
                 }
                 match value.to_ascii_lowercase().as_str() {
                     "and" => Token::And,

@@ -586,7 +586,9 @@ pub(super) fn create_workshop_of(
     kind: WorkshopShape,
 ) -> Result<CreatedWorkshop, ProjectError> {
     validate_operation_id(&request.operation_id)?;
-    let request_rev = request_revision(&serde_json::to_value(request).unwrap())?;
+    let request_rev = request_revision(
+        &serde_json::to_value(request).map_err(|error| io_failure("serialize", error))?,
+    )?;
 
     let resumed = match replay(env, &request.operation_id, kind.operation, &request_rev)? {
         Replay::Fresh => None,
@@ -765,7 +767,8 @@ pub(super) fn create_workshop_of(
             workshop_file_text: Some(file_text.clone()),
             manifest_write: None,
         },
-        expected_result: serde_json::to_value(&created).unwrap(),
+        expected_result: serde_json::to_value(&created)
+            .map_err(|error| io_failure("serialize", error))?,
         extra: BTreeMap::new(),
     };
 
@@ -884,7 +887,9 @@ fn plot_targets(
 
 pub fn create_story(env: &Env, request: &CreateStoryRequest) -> Result<CreatedStory, ProjectError> {
     validate_operation_id(&request.operation_id)?;
-    let request_rev = request_revision(&serde_json::to_value(request).unwrap())?;
+    let request_rev = request_revision(
+        &serde_json::to_value(request).map_err(|error| io_failure("serialize", error))?,
+    )?;
 
     let resumed = match replay(env, &request.operation_id, OP_CREATE_STORY, &request_rev)? {
         Replay::Fresh => None,
@@ -1097,7 +1102,8 @@ pub fn create_story(env: &Env, request: &CreateStoryRequest) -> Result<CreatedSt
             workshop_file_text: None,
             manifest_write: None,
         },
-        expected_result: serde_json::to_value(&created).unwrap(),
+        expected_result: serde_json::to_value(&created)
+            .map_err(|error| io_failure("serialize", error))?,
         extra: BTreeMap::new(),
     };
 
@@ -1236,7 +1242,9 @@ pub fn create_workshop_section(
     request: &CreateWorkshopSectionRequest,
 ) -> Result<CreatedWorkshopSectionResult, ProjectError> {
     validate_operation_id(&request.operation_id)?;
-    let request_rev = request_revision(&serde_json::to_value(request).unwrap())?;
+    let request_rev = request_revision(
+        &serde_json::to_value(request).map_err(|error| io_failure("serialize", error))?,
+    )?;
 
     let resumed = match replay(env, &request.operation_id, OP_CREATE_SECTION, &request_rev)? {
         Replay::Fresh => None,
@@ -1323,7 +1331,8 @@ pub fn create_workshop_section(
             workshop_file_text: Some(file_text.clone()),
             manifest_write: manifest_write.clone(),
         },
-        expected_result: serde_json::to_value(&result).unwrap(),
+        expected_result: serde_json::to_value(&result)
+            .map_err(|error| io_failure("serialize", error))?,
         extra: BTreeMap::new(),
     };
 

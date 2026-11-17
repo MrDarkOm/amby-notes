@@ -1,6 +1,5 @@
 //! Migration from `properties.json` to the groups (docs/sync-plan.md, appendix З: З19–З22, З38–З42).
 //! Red until written.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeMap;
 

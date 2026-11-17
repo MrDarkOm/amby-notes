@@ -1269,7 +1269,9 @@ pub(crate) fn body_with_identity_field(
             ));
         }
         let insertion = bom.len() + opening.len();
-        let eol = opening.strip_prefix("---").unwrap();
+        let eol = opening
+            .strip_prefix("---")
+            .expect("`opening` is one of the two literals that start with `---`");
         format!(
             "{}{field}: {id}{eol}{}",
             &content[..insertion],

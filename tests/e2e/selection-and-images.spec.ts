@@ -480,7 +480,7 @@ test("a picture can be moved by dragging the picture itself", async ({ page }, t
     )
     .toEqual(["Before", "After", "Target", "PICTURE"])
   await waitForAutosaveWindow(page)
-  const stored = await storedMarkdown(page, "Note")
+  const stored = (await storedMarkdown(page, "Note")) ?? ""
   expect(stored.indexOf("![Picture]")).toBeGreaterThan(stored.indexOf("Target"))
   expect(stored.match(/!\[Picture\]/gu)).toHaveLength(1)
   await editor.press("Meta+z")

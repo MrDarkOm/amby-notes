@@ -978,10 +978,10 @@ fn inspect_container_links(vault: &Path, root: &Path, diagnostics: &mut Vec<Disc
         ".ambd/assets",
     ] {
         let path = root.join(relative);
-        if (path.exists() || fs::symlink_metadata(&path).is_ok())
-            && paths::confine(vault, &path).is_err()
-        {
-            let error = paths::confine(vault, &path).unwrap_err();
+        if !(path.exists() || fs::symlink_metadata(&path).is_ok()) {
+            continue;
+        }
+        if let Err(error) = paths::confine(vault, &path) {
             push_diagnostic(
                 diagnostics,
                 DiagnosticCode::SymlinkEscape,

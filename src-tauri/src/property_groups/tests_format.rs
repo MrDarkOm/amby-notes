@@ -1,7 +1,6 @@
 //! The files on disk: 16 files of JSON Lines, one line per note, only the differences from the
 //! template (docs/sync-plan.md, appendix З with З.11: З1, З2, З4, З6–З8, З23, З47–З51, З53). Red
 //! until `property_groups` is written: its bodies are `todo!()` today.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use serde_json::{json, Value};
 

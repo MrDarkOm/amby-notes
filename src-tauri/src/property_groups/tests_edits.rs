@@ -1,7 +1,6 @@
 //! Edits that touch the header and the group: the order of the two writes, a crash at every
 //! write, the journal and who finishes it (docs/sync-plan.md, appendix З: З9, З28, З29). Red until
 //! written.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::testkit::*;
 use super::*;

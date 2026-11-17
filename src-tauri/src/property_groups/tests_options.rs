@@ -1,6 +1,5 @@
 //! Options of a select (docs/sync-plan.md, З62): the new form of `settings` is JSON, the old one a
 //! comma list; a value outside the options is judged by either form. Written with the code.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::header::{options_of, outside_options, same_settings};
 use crate::property_template::lookup;

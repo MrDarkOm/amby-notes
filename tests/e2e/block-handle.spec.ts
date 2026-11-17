@@ -112,7 +112,7 @@ test("dragging the last block out removes its column and can be undone", async (
   await expect(editor.getByText("Left text", { exact: true })).toBeVisible()
   await expect(editor.getByText("Right text", { exact: true })).toBeVisible()
   await waitForAutosaveWindow(page)
-  const markdown = await storedMarkdown(page, "Columns")
+  const markdown = (await storedMarkdown(page, "Columns")) ?? ""
   expect(markdown).not.toContain("amby:column")
   expect(markdown.match(/Right text/gu)).toHaveLength(1)
   await editor.press("Meta+z")

@@ -1,6 +1,5 @@
 //! Sleeping designs and the hint about a rename outside Amby (docs/sync-plan.md, appendix З: З3,
 //! З3а, З34, З37, З44). Red until written.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::testkit::*;
 use super::*;

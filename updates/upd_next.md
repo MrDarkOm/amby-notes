@@ -374,3 +374,24 @@
 - Внутреннее (UI-12): 27 жёстко прописанных русских и английских слов поиска в меню блока (`BlockActionsPanel.tsx`) вынесены в ключи локали `blockMenu.aliases.*` (слова через `|`); поиск по-прежнему учитывает слова всех языков сразу, какой бы ни был язык интерфейса (`block-menu-aliases.ts`). Заодно «заголовок» теперь находит уровни заголовка так же, как «heading», и добавлены русские «выровнять», «подпись», «описание». Тест: `block-menu-search.test.tsx`.
 
 - Внутреннее (UI-07): из `app.css` удалены мёртвые стили: 37 классов (77 правил целиком и 12 лишних селекторов в общих правилах; `.md-body` и `.amby-read-body` — 33 правила; также `amby-block-handle-menu*/plus/swatch*`, `amby-slash-*`, `amby-ctx-type-*`, `amby-ctx-input`, `amby-ctx-replace-btn`, `amby-debug-counters/overview-*/report-actions/unavailable`, `amby-help-context/count/description`, `amby-selectable`, `history-diff-added/removed`, `database-property-drop-before/after`, `sync-eyebrow`, `sync-backup-link`, `sync-account-heading/connection`, `sync-settings-sections`, `amby-callout`) и токены `--image-shadow`, `--image-selected-shadow`, `--image-selected-border`. Оставлены: классы Excalidraw, highlight.js, ProseMirror, CodeMirror и собираемые по частям (`amby-cell-*`, `amby-image-wrap--*`, `amby-crop-*--*`, `is-<уровень>`); токены `--color-surface-low/lowest` (переменные Excalidraw), `--workspace-bg` и `--panel-row-active-bg` (часть формата тем), `--app-density-*-min` (читает скрипт плотности).
+- Инструменты (TOOL-03): прямая зависимость `rfd` поднята до 0.17, в `Cargo.lock` остался один `rfd`; причина в `docs/security-advisories.md` обновлена.
+
+- Инструменты (TOOL-04): `clippy::unwrap_used` включён как `deny` для боевого Rust (`[lints.clippy]`, в тестах разрешён через `clippy.toml`); 21 бесполезный `#![allow]` в тестовых файлах убран, 21 `unwrap` в боевом коде заменён ошибкой или `expect` с причиной. Поведение не менялось.
+
+- Инструменты (TOOL-05): `tests/tsconfig.json` и проверка `tsc` для тестов внутри `npm run typecheck`; исправлены накопившиеся ошибки типов в тестах. Скрипты `scripts/*.mjs` остаются непроверяемым JavaScript.
+
+- Инструменты (TOOL-06): последние три предупреждения линтера исправлены (`option-actions.tsx` стал `.ts`), `npm run lint` идёт с `--max-warnings 0`.
+
+- Инструменты (TOOL-07): `version:check` и `test:update-channels` запускаются в задаче `docs` проверки (`verify.yml`), а не только при выпуске.
+
+- Инструменты (TOOL-09): `rust-toolchain.toml` (Rust 1.99.1), `rust-version = "1.99"`, `.nvmrc` (Node 22), `--locked` в cargo-командах приложения и `sync/`; рабочие процессы `verify.yml` и `sync.yml` читают версии из этих файлов. В CI не проверено.
+
+- Инструменты (TOOL-10): `tauri-action` в `release.yml` закреплён за коммитом (тег `v1` подвижный), добавлен `.github/dependabot.yml` для GitHub Actions.
+
+- Инструменты (TOOL-11): `scripts/dev-only-paths.txt` внесён в собственный список: на `beta` и `main` устаревшая копия больше не остаётся (`promote` читает список из `dev`).
+
+- Инструменты (TOOL-12): из карты мастерской убрана ссылка на удалённый тест `empty-action.test.tsx`; других отсутствующих тестов в картах нет.
+
+- Инструменты (TOOL-13): `sync:lint` (fmt, clippy, cargo-deny) добавлен в `verify:full`; нужен установленный `cargo-deny`.
+
+- Инструменты (TOOL-14): `@types/d3-force` перенесён в `devDependencies` (lock-файл обновлён офлайн), причины всех `overrides` собраны в `docs/security-advisories.md`.

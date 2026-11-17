@@ -28,7 +28,7 @@ backend of notebooks is [notebooks.rs](../../../../../src-tauri/src/project/note
 (`EmptyAction`) and the hint lines wrap (`break-words`) instead of ending in an ellipsis, and the notice of missing
 sections wraps its button. With a universe or the standalone stories shown, the parts "Anchors" and "Notes" carry no
 "Story" caption; an absent base is a quiet line that points at the panel's "Create the missing sections".
-Tests: `empty-action.test.tsx`, "fits a narrow panel" in `creative-panel.test.tsx`.
+Tests: none for the wrapping itself (the class-name assertions were dropped in `8465744c`); check a narrow panel by eye.
 
 **One bar.** The universe and the story are one card, the universe a small grey line over the story (`scope-bar.tsx`); each choice has its own small arrow, shown while the bar is hovered, that opens its page (the story's only when a story is chosen), and the "Continue: …" line sits in the same frame. Names wrap instead of ending in an ellipsis. A scope with no story shows a "Create the first story" prompt in the story's place and hides its empty parts. The universe is
 `universeFilter` (`null` is "Standalone stories", stored as `standalone`; the rows of the "Universes" base come from

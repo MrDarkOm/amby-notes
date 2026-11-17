@@ -476,7 +476,8 @@ pub fn add_story_links(
             workshop_file_text: Some(plan.file_text.clone()),
             manifest_write: plan.write.clone(),
         },
-        expected_result: serde_json::to_value(&plan.result).unwrap(),
+        expected_result: serde_json::to_value(&plan.result)
+            .map_err(|error| io_failure("serialize", error))?,
         extra: BTreeMap::new(),
     };
     if resumed.is_some() {
@@ -685,7 +686,8 @@ pub fn ensure_plot_links(
                 manifest_write: plan.write.clone(),
             },
         },
-        expected_result: serde_json::to_value(&plan.result).unwrap(),
+        expected_result: serde_json::to_value(&plan.result)
+            .map_err(|error| io_failure("serialize", error))?,
         extra: BTreeMap::new(),
     };
     if resumed.is_some() {
