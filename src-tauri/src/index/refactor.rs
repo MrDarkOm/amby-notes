@@ -5,10 +5,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
+use super::links::{build_note_lookup, extract_links, protected_markdown_ranges};
 use super::note_index::relative_path;
 use crate::frontmatter;
 use crate::history;
-use crate::vault::scan::is_markdown;
+use crate::vault::scan::{is_markdown, is_reserved_directory};
 
 #[derive(Clone, Debug)]
 pub struct PlannedWikiRewrite {
@@ -33,6 +34,10 @@ pub struct InboundWikiRewriteInputs {
     inbound_links: Vec<(String, String, String)>,
     literal_changes: Vec<(String, String)>,
     moved_absolute: HashMap<PathBuf, PathBuf>,
+    /// Wikilink targets (normalized, as the index reads them) that resolve to a moved note and
+    /// to no other, with the new target text. Archived notes are not indexed, so their wikilinks
+    /// are matched against this instead.
+    archive_targets: HashMap<String, String>,
 }
 
 pub fn refactor_preview(plan: &[PlannedWikiRewrite]) -> RefactorPreview {
@@ -94,6 +99,7 @@ pub fn collect_inbound_wiki_rewrite_inputs(
         }
     }
 
+    let archive_targets = archive_wiki_targets(conn, &targets)?;
     let mut inbound_links = Vec::new();
     for (target_id, replacement) in targets {
         let mut statement = conn
@@ -137,7 +143,82 @@ pub fn collect_inbound_wiki_rewrite_inputs(
         inbound_links,
         literal_changes,
         moved_absolute,
+        archive_targets,
     })
+}
+
+/// The names the index resolves a wikilink by (title, path, file name; lowercase, no `.md`).
+fn note_link_keys(path: &str, title: &str) -> HashSet<String> {
+    let path = path.trim_end_matches(".md").to_lowercase();
+    let mut keys = HashSet::from([title.to_lowercase(), path.clone()]);
+    if let Some(name) = path.rsplit('/').next() {
+        keys.insert(name.to_string());
+    }
+    keys
+}
+
+/// For each moved note (`targets`: id to new target), the link names that unambiguously mean it.
+/// A name shared with another note is dropped: the archived note's own location is gone, so it
+/// cannot be decided and the link stays as written.
+fn archive_wiki_targets(
+    conn: &Connection,
+    targets: &HashMap<String, String>,
+) -> Result<HashMap<String, String>, String> {
+    if targets.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let mut statement = conn
+        .prepare("SELECT id, path, title FROM notes")
+        .map_err(|error| error.to_string())?;
+    let notes = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    drop(statement);
+    let mut owners = HashMap::<String, usize>::new();
+    for (_, path, title) in &notes {
+        for key in note_link_keys(path, title) {
+            *owners.entry(key).or_default() += 1;
+        }
+    }
+    let lookup = build_note_lookup(conn)?;
+    let mut keys = HashMap::new();
+    for (id, path, title) in &notes {
+        let Some(replacement) = targets.get(id) else {
+            continue;
+        };
+        for key in note_link_keys(path, title) {
+            if owners.get(&key) == Some(&1) && lookup.get(&key) == Some(id) {
+                keys.insert(key, replacement.clone());
+            }
+        }
+    }
+    Ok(keys)
+}
+
+/// Markdown notes under `.amby/archive` (never its `.meta`, hidden folders or symlinks).
+fn archived_notes(vault: &Path) -> Vec<PathBuf> {
+    let root = crate::archive::archive_root(vault);
+    let mut found = WalkDir::new(&root)
+        .into_iter()
+        .filter_entry(|entry| {
+            entry.depth() == 0
+                || !entry.file_type().is_dir()
+                || !entry.file_name().to_string_lossy().starts_with('.')
+        })
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_file() && is_markdown(entry.path()))
+        .map(walkdir::DirEntry::into_path)
+        .collect::<Vec<_>>();
+    found.sort();
+    found
 }
 
 /// Perform the disk-heavy part of an inbound link refactor without holding a
@@ -165,6 +246,38 @@ pub fn build_inbound_wiki_rewrites(
         let next = replace_wiki_target(&raw, &replacement);
         if raw != next {
             by_source.entry(source).or_default().push((raw, next));
+        }
+    }
+
+    // Wikilinks of archived notes, read with the index's own parser (code, comments and
+    // frontmatter are skipped), so they keep working after a restore.
+    if !inputs.archive_targets.is_empty() {
+        for source in archived_notes(vault) {
+            let Ok(content) = fs::read_to_string(&source) else {
+                continue;
+            };
+            let editable = if frontmatter::parse_markdown(&content)
+                .frontmatter_status
+                .is_malformed()
+            {
+                match frontmatter::split_frontmatter_envelope(&content) {
+                    Some((_, body)) => body,
+                    None => continue,
+                }
+            } else {
+                content.as_str()
+            };
+            for (raw, target, _) in extract_links(editable) {
+                if let Some(replacement) = inputs.archive_targets.get(&target) {
+                    let next = replace_wiki_target(&raw, replacement);
+                    if raw != next {
+                        by_source
+                            .entry(source.clone())
+                            .or_default()
+                            .push((raw, next));
+                    }
+                }
+            }
         }
     }
 
@@ -199,6 +312,13 @@ pub fn build_inbound_wiki_rewrites(
             .cloned()
             .unwrap_or_else(|| source.to_path_buf());
         for (old_rel, new_rel) in &inputs.literal_changes {
+            // A quoted path is link syntax only in Canvas and sketch JSON; in Markdown it is
+            // ordinary text (or a code sample) and stays as written.
+            let quoted = matches!(
+                source.extension().and_then(|ext| ext.to_str()),
+                Some("canvas" | "excalidraw")
+            )
+            .then(|| (format!("\"{old_rel}\""), format!("\"{new_rel}\"")));
             for (old, new) in [
                 (format!("]({old_rel})"), format!("]({new_rel})")),
                 (format!("](/{old_rel})"), format!("](/{new_rel})")),
@@ -206,8 +326,10 @@ pub fn build_inbound_wiki_rewrites(
                 (format!("](/{old_rel}#"), format!("](/{new_rel}#")),
                 (format!("]({old_rel}^"), format!("]({new_rel}^")),
                 (format!("](/{old_rel}^"), format!("](/{new_rel}^")),
-                (format!("\"{old_rel}\""), format!("\"{new_rel}\"")),
-            ] {
+            ]
+            .into_iter()
+            .chain(quoted)
+            {
                 if editable.contains(&old) {
                     literal_by_source
                         .entry(rewritten_source.clone())
@@ -240,21 +362,55 @@ pub fn build_inbound_wiki_rewrites(
         .collect())
 }
 
-/// The Markdown, canvas and sketch files of the vault (the same walk as ever, hidden folders
-/// included) whose text contains one of `needles`, with that text. Unreadable files are skipped.
+/// Whether a link refactor may enter the folder `relative` (path from the vault root). Only
+/// normal folders and the archive (`<vault>/.amby/archive`, so links work after a restore)
+/// qualify. Trash, backups, history, recovery, `.obsidian`, `.git`, every other hidden or
+/// reserved folder and the archive's own `.meta` are never entered, so never rewritten.
+fn refactor_may_enter(relative: &Path) -> bool {
+    let Some(names) = relative
+        .components()
+        .map(|part| part.as_os_str().to_str())
+        .collect::<Option<Vec<_>>>()
+    else {
+        return false;
+    };
+    let normal = |names: &[&str]| {
+        names
+            .iter()
+            .all(|name| !name.starts_with('.') && !is_reserved_directory(name))
+    };
+    match names.as_slice() {
+        [] | [".amby"] => true,
+        [".amby", "archive", rest @ ..] => normal(rest),
+        [".amby", ..] => false,
+        all => normal(all),
+    }
+}
+
+/// The Markdown, canvas and sketch files of notes and the archive (see [`refactor_may_enter`])
+/// whose text contains one of `needles`, with that text. Symlinks are never followed.
+/// Unreadable files are skipped.
 fn files_mentioning_any(vault: &Path, needles: Vec<&str>) -> Vec<(PathBuf, String)> {
     if needles.is_empty() {
         return Vec::new();
     }
     let files = WalkDir::new(vault)
         .into_iter()
+        .filter_entry(|entry| {
+            !entry.file_type().is_dir()
+                || entry
+                    .path()
+                    .strip_prefix(vault)
+                    .is_ok_and(refactor_may_enter)
+        })
         .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_file())
         .map(walkdir::DirEntry::into_path)
         .filter(|source| {
             matches!(
                 source.extension().and_then(|ext| ext.to_str()),
                 Some("md" | "canvas" | "excalidraw")
-            ) && source.is_file()
+            )
         })
         .collect::<Vec<_>>();
     let workers = std::thread::available_parallelism()
@@ -288,6 +444,23 @@ fn files_mentioning_any(vault: &Path, needles: Vec<&str>) -> Vec<(PathBuf, Strin
     found
 }
 
+/// `str::replace` that leaves code, comments and frontmatter alone, as the index does.
+fn replace_outside_protected(text: &str, from: &str, to: &str) -> String {
+    let protected = protected_markdown_ranges(text);
+    let mut out = String::with_capacity(text.len());
+    let mut last = 0;
+    for (start, _) in text.match_indices(from) {
+        if start < last || protected.iter().any(|(a, b)| start >= *a && start < *b) {
+            continue;
+        }
+        out.push_str(&text[last..start]);
+        out.push_str(to);
+        last = start + from.len();
+    }
+    out.push_str(&text[last..]);
+    out
+}
+
 pub fn apply_planned_wiki_rewrites(
     vault: &Path,
     plan: &[PlannedWikiRewrite],
@@ -312,7 +485,11 @@ pub fn apply_planned_wiki_rewrites(
         };
         let mut next = editable.to_string();
         for (raw, replacement) in &rewrite.replacements {
-            next = next.replace(&format!("[[{raw}]]"), &format!("[[{replacement}]]"));
+            next = replace_outside_protected(
+                &next,
+                &format!("[[{raw}]]"),
+                &format!("[[{replacement}]]"),
+            );
         }
         for (raw, replacement) in &rewrite.literal_replacements {
             next = next.replace(raw, replacement);
