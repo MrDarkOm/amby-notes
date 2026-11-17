@@ -55,7 +55,8 @@ import { updateImageNode, type ImagePatch } from "./image-edit"
 import { useSmartPlacement, type AnchorRect } from "./use-smart-placement"
 import { BLOCK_TEXT_COLORS as TEXT_COLORS, CALLOUT_SWATCHES } from "@/lib/themes"
 import { motionTransitions } from "@/lib/motion-config"
-import { isEnterKey } from "@/lib/keyboard"
+import { matchesAlias } from "./block-menu-aliases"
+import { isComposingKeyEvent, isEnterKey } from "@/lib/keyboard"
 
 const MotionRowButton = React.forwardRef<
   HTMLButtonElement,
@@ -166,8 +167,7 @@ export function BlockActionsPanel({
     canTurnInto &&
     (matches(t("blockPanel.turnInto")) ||
       turnIntoItems.some((i) => matches(t(`blockItems.${i.id}.title`))))
-  const splitVisible =
-    canSplitParagraph && (matches("split") || matches("разделить") || matches("block"))
+  const splitVisible = canSplitParagraph && matchesAlias(matches, "split")
   const insertVisible = matches(t("blockPanel.insertAbove")) || matches(t("blockPanel.insertBelow"))
 
   function chooseTurnInto(item: BlockInsertItem) {
@@ -264,7 +264,7 @@ export function BlockActionsPanel({
 
   function onMenuKey(event: KeyboardEvent) {
     const key = event.key
-    if (event.isComposing) return
+    if (isComposingKeyEvent(event)) return
     const handled = () => {
       event.preventDefault()
       event.stopPropagation()
@@ -276,7 +276,7 @@ export function BlockActionsPanel({
         const next = stepIndex(subActive, count, key === "ArrowDown" ? 1 : -1)
         setSubActive(next)
         revealRow(submenuRows()[next])
-      } else if (key === "Enter") {
+      } else if (isEnterKey(event)) {
         handled()
         const item = shownTurnIntoItems[Math.min(subActive, count - 1)]
         if (item) chooseTurnInto(item)
@@ -298,7 +298,7 @@ export function BlockActionsPanel({
       const next = key === "Home" ? 0 : rows.length - 1
       setActive(next)
       revealRow(rows[next])
-    } else if (key === "Enter") {
+    } else if (isEnterKey(event)) {
       handled()
       rows[Math.min(active, rows.length - 1)]?.click()
       if (rows[Math.min(active, rows.length - 1)] === turnIntoBtnRef.current) setSubActive(0)
@@ -633,15 +633,10 @@ function CalloutContext({
       ? "expanded"
       : "none"
 
-  const showBg = matches("background") || matches("фон") || matches("color")
-  const showText = matches("text color") || matches("color") || matches("текст")
-  const showEmoji = matches("emoji") || matches("эмодзи") || matches(t("callout.changeEmoji"))
-  const showFolding =
-    matches("fold") ||
-    matches("collapse") ||
-    matches("сворач") ||
-    matches("раскрыт") ||
-    matches(t("callout.foldable"))
+  const showBg = matchesAlias(matches, "background")
+  const showText = matchesAlias(matches, "textColor")
+  const showEmoji = matchesAlias(matches, "emoji") || matches(t("callout.changeEmoji"))
+  const showFolding = matchesAlias(matches, "fold") || matches(t("callout.foldable"))
 
   if (!showBg && !showText && !showEmoji && !showFolding) return null
 
@@ -764,19 +759,7 @@ function HeadingContext({
   const node = editor.state.doc.nodeAt(nodePos)
   const currentLevel = (node?.attrs.level as number) ?? 1
 
-  if (
-    !matches("heading") &&
-    !matches("уровень") &&
-    !matches("level") &&
-    !matches("h1") &&
-    !matches("h2") &&
-    !matches("h3") &&
-    !matches("h4") &&
-    !matches("h5") &&
-    !matches("h6")
-  ) {
-    return null
-  }
+  if (!matchesAlias(matches, "heading")) return null
 
   function setLevel(level: 1 | 2 | 3 | 4 | 5 | 6) {
     editor
@@ -938,11 +921,10 @@ function ImageContext({
 
   const alignLabel = t("blockPanel.align")
   const detailsLabel = t("blockPanel.imageDetails")
-  const showAlign = matches(alignLabel) || matches("align")
+  const showAlign = matches(alignLabel) || matchesAlias(matches, "align")
   const showDetails =
     matches(detailsLabel) ||
-    matches("alt") ||
-    matches("caption") ||
+    matchesAlias(matches, "imageDetails") ||
     matches(t("editorToolbar.imageCaption"))
   const alignments = [
     { id: "left", Icon: AlignLeft, label: t("editorToolbar.imageAlignLeft") },
@@ -1093,16 +1075,7 @@ function ListContext({
     editor.commands.focus()
   }
 
-  if (
-    !matches("list") &&
-    !matches("список") &&
-    !matches("bullet") &&
-    !matches("ordered") &&
-    !matches("task") &&
-    !matches("тип")
-  ) {
-    return null
-  }
+  if (!matchesAlias(matches, "list")) return null
 
   const buttons = [
     {

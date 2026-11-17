@@ -2395,6 +2395,15 @@ const ru = {
     groupPlaceholder: "Группа",
     groupFallback: "Группа",
     reset: "Сбросить",
+    color: "Цвет",
+    colorNames: {
+      "1": "Красный",
+      "2": "Оранжевый",
+      "3": "Жёлтый",
+      "4": "Зелёный",
+      "5": "Бирюзовый",
+      "6": "Фиолетовый",
+    },
     textCard: "Текстовая карточка",
     noteCard: "Карточка-заметка",
     group: "Группа",
@@ -2593,6 +2602,19 @@ const ru = {
     row: "строка",
     column: "столбец",
     table: "таблица",
+  },
+  blockMenu: {
+    aliases: {
+      split: "разделить",
+      background: "фон",
+      textColor: "текст",
+      emoji: "эмодзи",
+      fold: "сворач|раскрыт",
+      heading: "заголовок|уровень",
+      align: "выровнять|выравнивание",
+      imageDetails: "подпись|описание",
+      list: "список|тип",
+    },
   },
   blockPanel: {
     noSettings: "Нет настроек для этого блока",
@@ -4255,7 +4277,20 @@ const ru = {
   },
 }
 
-const en: typeof ru = {
+/**
+ * The shape English must follow: every key of `ru`, except that the Russian-only plural forms
+ * (`_few`, `_many`) are optional. English has only `_one` and `_other`.
+ */
+type PluralOnlyRu<K> = K extends `${string}_few` | `${string}_many` ? K : never
+type LocaleShape<T> = {
+  [K in keyof T as K extends PluralOnlyRu<K> ? never : K]: T[K] extends string
+    ? string
+    : LocaleShape<T[K]>
+} & {
+  [K in keyof T as K extends PluralOnlyRu<K> ? K : never]?: string
+}
+
+const en: LocaleShape<typeof ru> = {
   databaseLayout: {
     title: "The database format has been updated",
     line: "Update your data to continue using databases. A backup will be created before updating.",
@@ -5000,15 +5035,11 @@ const en: typeof ru = {
     serverTruncated: "Showing the last {{count}}",
     serverKeptUntil: "kept until {{until}}",
     serverDeletedAgo_one: "deleted {{count}} day ago",
-    serverDeletedAgo_few: "deleted {{count}} days ago",
-    serverDeletedAgo_many: "deleted {{count}} days ago",
     serverDeletedAgo: "deleted {{count}} days ago",
     serverDeletedToday: "deleted today",
     serverRestore: "Restore",
     serverRestoreResult: "Restored {{restored}} of {{total}}",
     serverRestoreDamaged_one: ", one is damaged",
-    serverRestoreDamaged_few: ", {{count}} are damaged",
-    serverRestoreDamaged_many: ", {{count}} are damaged",
     serverRestoreDamaged: ", {{count}} are damaged",
     serverRestoredAs: "Restored as “{{name}}”",
     preview: "Preview",
@@ -5176,12 +5207,8 @@ const en: typeof ru = {
     unlockDatabase: "Unlock database",
     rowsCount: "{{count}} rows",
     rowsCount_one: "{{count}} row",
-    rowsCount_few: "{{count}} rows",
-    rowsCount_many: "{{count}} rows",
     propertiesCount: "{{count}} properties",
     propertiesCount_one: "{{count}} property",
-    propertiesCount_few: "{{count}} properties",
-    propertiesCount_many: "{{count}} properties",
   },
   databaseTable: {
     title: "Title",
@@ -5252,8 +5279,6 @@ const en: typeof ru = {
     noMatch: "Nothing found",
     noViews: "No views",
     viewCount_one: "{{count}} view",
-    viewCount_few: "{{count}} views",
-    viewCount_many: "{{count}} views",
     viewCount_other: "{{count}} views",
   },
   databaseLayouts: {
@@ -5663,8 +5688,6 @@ const en: typeof ru = {
     scopesTopLevel: "Workspace folders",
     entriesCount: "{{count}} entries",
     entriesCount_one: "{{count}} entry",
-    entriesCount_few: "{{count}} entries",
-    entriesCount_many: "{{count}} entries",
     hintKind: "type",
     kinds: {
       all: "All",
@@ -5724,10 +5747,6 @@ const en: typeof ru = {
     databasePropertyMoveTitle: "Move note properties?",
     databasePropertyMoveDescription_one:
       "This note has {{count}} property. Add it to “{{database}}”, or save a backup.",
-    databasePropertyMoveDescription_few:
-      "This note has {{count}} properties. Add them to “{{database}}”, or save a backup.",
-    databasePropertyMoveDescription_many:
-      "This note has {{count}} properties. Add them to “{{database}}”, or save a backup.",
     databasePropertyMoveDescription_other:
       "This note has {{count}} properties. Add them to “{{database}}”, or save a backup.",
     databasePropertyMoveDatabase: "Add to database",
@@ -5889,12 +5908,8 @@ const en: typeof ru = {
     snapshotContent: "Original text of the saved version",
     addedLines: "+{{count}} lines",
     addedLines_one: "+{{count}} line",
-    addedLines_few: "+{{count}} lines",
-    addedLines_many: "+{{count}} lines",
     removedLines: "−{{count}} lines",
     removedLines_one: "−{{count}} line",
-    removedLines_few: "−{{count}} lines",
-    removedLines_many: "−{{count}} lines",
     identical: "Matches the saved version on disk",
     simplifiedDiff:
       "Large document: the changed section is shown in full. Use the adjacent tabs to see the complete text.",
@@ -6635,6 +6650,15 @@ const en: typeof ru = {
     groupPlaceholder: "Group",
     groupFallback: "Group",
     reset: "Reset",
+    color: "Color",
+    colorNames: {
+      "1": "Red",
+      "2": "Orange",
+      "3": "Yellow",
+      "4": "Green",
+      "5": "Cyan",
+      "6": "Purple",
+    },
     textCard: "Text card",
     noteCard: "Note card",
     group: "Group",
@@ -6833,6 +6857,19 @@ const en: typeof ru = {
     row: "row",
     column: "column",
     table: "table",
+  },
+  blockMenu: {
+    aliases: {
+      split: "split|block",
+      background: "background|color",
+      textColor: "text color|color",
+      emoji: "emoji",
+      fold: "fold|collapse",
+      heading: "heading|level|h1|h2|h3|h4|h5|h6",
+      align: "align",
+      imageDetails: "alt|caption",
+      list: "list|bullet|ordered|task",
+    },
   },
   blockPanel: {
     noSettings: "No settings for this block",
@@ -7310,8 +7347,6 @@ const en: typeof ru = {
       createFirstStory: "Create the first story",
       standalone: "Standalone stories",
       storiesCount_one: "{{count}} story",
-      storiesCount_few: "{{count}} stories",
-      storiesCount_many: "{{count}} stories",
       storiesCount_other: "{{count}} stories",
       sections: { anchors: "Anchors" },
       add: "Add",
@@ -7611,8 +7646,6 @@ const en: typeof ru = {
       loadFailed: "Could not load the workshop",
       retry: "Retry",
       diagnostics_one: "{{count}} warning",
-      diagnostics_few: "{{count}} warnings",
-      diagnostics_many: "{{count}} warnings",
       diagnostics_other: "{{count}} warnings",
     },
     diagnostic: {
@@ -7915,8 +7948,6 @@ const en: typeof ru = {
     verifying: "Verifying…",
     restoring: "Restoring…",
     files_one: "{{count}} file",
-    files_few: "{{count}} files",
-    files_many: "{{count}} files",
     files_other: "{{count}} files",
     verify: "Verify",
     restore: "Restore…",
@@ -8156,8 +8187,6 @@ const en: typeof ru = {
       limitHistory: "History {{days}}, up to {{size}}",
       limitHistoryDays: "History {{days}}",
       days_one: "{{count}} day",
-      days_few: "{{count}} days",
-      days_many: "{{count}} days",
       days_other: "{{count}} days",
       ownerChangesPlan: "The plan is changed by the owner of the server",
       noSubscription: "No subscription · sync is not available",

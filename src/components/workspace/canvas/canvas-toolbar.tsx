@@ -55,6 +55,7 @@ export function ColorSwatches({ onPick }: { onPick: (key: string | undefined) =>
       <button
         type="button"
         title={t("canvas.reset")}
+        aria-label={t("canvas.reset")}
         onClick={() => onPick(undefined)}
         className="size-4 rounded-full border border-border bg-transparent hover:scale-110"
       />
@@ -62,6 +63,8 @@ export function ColorSwatches({ onPick }: { onPick: (key: string | undefined) =>
         <button
           key={key}
           type="button"
+          title={t(`canvas.colorNames.${key}`)}
+          aria-label={t(`canvas.colorNames.${key}`)}
           onClick={() => onPick(key)}
           className="size-4 rounded-full border border-foreground/20 hover:scale-110"
           style={{ backgroundColor: colorToCss(key) }}
@@ -457,6 +460,8 @@ export function CanvasSelectionBar({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
+                title={t("canvas.color")}
+                aria-label={t("canvas.color")}
                 className="flex size-7 items-center justify-center rounded-lg text-foreground hover:bg-accent"
               >
                 <Palette className="size-3.5" />
@@ -543,6 +548,8 @@ export function CanvasSelectionBar({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
+                title={t("canvas.color")}
+                aria-label={t("canvas.color")}
                 className="flex size-7 items-center justify-center rounded-lg text-foreground hover:bg-accent"
               >
                 <Palette className="size-3.5" />
