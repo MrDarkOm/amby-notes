@@ -1,1701 +1,1701 @@
-# ИИ: планы
+# AI: plans
 
-Статус на 2026-11-03 (сверено с кодом). Контракты ИИ-агента: [ai-harness](../ai-harness.md), [состояние и журнал](../ai-state-format.md), [каталог действий](../ai-action-catalog.md), [Codex](../ai-codex-provider.md). Отложенное: [target/ai.md](target/ai.md).
+Status as of 2026-11-03 (checked against the code). AI agent contracts: [ai-harness](../ai-harness.md), [state and log](../ai-state-format.md), [action catalog](../ai-action-catalog.md), [Codex](../ai-codex-provider.md). Deferred: [target/ai.md](target/ai.md).
 
-| Часть                      | Что                                                             | Статус                                                        |
-| -------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------- |
-| 1. Этап 1                  | Панель ИИ, ИИ только читает хранилище                           | сделано                                                       |
-| 2. Подключения провайдеров | API, Codex, Claude Code CLI, перенос настроек, каталоги моделей | этапы 1–5 сделаны; вход Claude Code (OAuth) проверит владелец |
-| 3. План агента             | Реестр действий, журнал, права, откат (пакеты H)                | не начат                                                      |
-| 4. Оркестрация             | Исполнение пакетов H агентами                                   | не начата                                                     |
-| 5. Приёмка                 | Сценарии и доказательства для агента                            | спецификация, результатов нет                                 |
+| Part                    | What                                                            | Status                                                             |
+| ----------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------ |
+| 1. Stage 1              | AI panel, AI only reads the vault                               | done                                                               |
+| 2. Provider connections | API, Codex, Claude Code CLI, settings migration, model catalogs | stages 1–5 done; the owner will verify Claude Code sign-in (OAuth) |
+| 3. Agent plan           | Action registry, log, permissions, rollback (H packages)        | not started                                                        |
+| 4. Orchestration        | Agents executing the H packages                                 | not started                                                        |
+| 5. Acceptance           | Scenarios and evidence for the agent                            | specification, no results                                          |
 
 ---
 
-## Часть 1. ИИ, этап 1: новая панель и ИИ, который только читает
+## Part 1. AI, stage 1: the new panel and an AI that only reads
 
-_Бывший файл `ai-stage-1-plan.md`, объединён 2026-11-03._
+_Formerly the file `ai-stage-1-plan.md`, merged 2026-11-03._
 
-> **Статус на 2026-11-02:** в работе (ядро ИИ: `src-tauri/src/ai.rs`, `src/lib/ai.ts`). Подключения провайдеров — [ai-provider-connections-plan](ai.md).
+> **Status as of 2026-11-02:** in progress (AI core: `src-tauri/src/ai.rs`, `src/lib/ai.ts`). Provider connections — [ai-provider-connections-plan](ai.md).
 
-Статус: реализация в работе. Дата: 2026-10-30. Версия: 1.
+Status: implementation in progress. Date: 2026-10-30. Version: 1.
 
-Решения владельца (2026-10-30):
+Owner's decisions (2026-10-30):
 
-- Первый шаг — новая оболочка панели и ИИ, который **только читает** хранилище.
-  Изменять заметки, настройки и файлы ИИ на этом этапе не может.
-- Точка входа одна — боковая панель ИИ. Меню над выделением, `/ai` и палитра — следующие этапы.
-- Контекст: текущая заметка по умолчанию + `@`-упоминания заметок и папок + самостоятельный
-  поиск ИИ по существующему полнотекстовому индексу. Векторного индекса нет.
-- Беседы хранятся в `.amby/ai/` хранилища и переживают перезапуск.
+- The first step is the new panel shell and an AI that **only reads** the vault.
+  At this stage the AI cannot change notes, settings, or files.
+- There is a single entry point — the AI side panel. The menu over a selection, `/ai`, and the palette are later stages.
+- Context: the current note by default + `@` mentions of notes and folders + the AI's own
+  search over the existing full-text index. There is no vector index.
+- Conversations are stored in the vault's `.amby/ai/` and survive a restart.
 
-Этап 1 — подмножество большого плана агента ([ai-harness-plan.md](ai.md)):
-он делает ранние части H-30 (протокол провайдера с вызовами инструментов), H-31
-(цикл выполнения в Rust) и H-33 (панель) только для чтения. Реестр действий, журнал,
-права на запись и откат (H-10…H-24) этап 1 не затрагивает и не заменяет. Всё, что
-пишет на диск от имени ИИ, ждёт этих пакетов.
+Stage 1 is a subset of the big agent plan ([ai-harness-plan.md](ai.md)):
+it delivers the early read-only parts of H-30 (provider protocol with tool calls), H-31
+(execution loop in Rust), and H-33 (panel). The action registry, log,
+write permissions, and rollback (H-10…H-24) are not touched or replaced by stage 1. Everything that
+writes to disk on the AI's behalf waits for those packages.
 
-### 1. Требования
+### 1. Requirements
 
-Идентификаторы `AI1-*` используются в тестах (`// AI1-R3`).
+Identifiers `AI1-*` are used in tests (`// AI1-R3`).
 
-#### Беседа и интерфейс
+#### Conversation and interface
 
-- **AI1-U1** Панель: заголовок с названием беседы, кнопки «Список бесед», «Новая беседа», «Модели».
-- **AI1-U2** Ответ показывается как Markdown (markdown-it, `html: false`, ссылки только
-  `http(s)` и внутренние). Стриминг сохраняется. Код и списки читаются в узкой панели.
-- **AI1-U3** Шаги ИИ видны во время выполнения и сохраняются в беседе: «Искал «…» · N заметок»,
-  «Прочитал X, Y». Шаг можно развернуть и увидеть, какие заметки найдены.
-- **AI1-U4** Источники: ИИ ссылается на прочитанные заметки как `[n]`. Под ответом —
-  чипы источников; нажатие открывает заметку. Ссылка на удалённую или переименованную
-  заметку не ломает отображение.
-- **AI1-U5** Действия с ответом: копировать, повторить, «Сохранить как заметку» (создание
-  новой заметки — действие пользователя через обычный путь создания, не ИИ).
-- **AI1-U6** Пустая беседа: подсказки-примеры; при отсутствии моделей — понятный переход к настройке.
-- **AI1-U7** Выбор модели внутри поля ввода; метка «локально»/«облако» по адресу провайдера
-  (loopback/LAN → «локально»).
-- **AI1-U8** Остановка в любой момент, в том числе между шагами инструментов. Ошибки
-  показываются по безопасному коду, без текста ответа провайдера.
-- **AI1-U9** Все видимые строки — в `src/locales/resources.ts` со всеми переводами.
+- **AI1-U1** Panel: a header with the conversation title, buttons «Список бесед» (Conversation list), «Новая беседа» (New conversation), «Модели» (Models).
+- **AI1-U2** The answer is shown as Markdown (markdown-it, `html: false`, links only
+  `http(s)` and internal). Streaming is preserved. Code and lists are readable in a narrow panel.
+- **AI1-U3** The AI's steps are visible during execution and are saved in the conversation: «Искал «…» · N заметок» (Searched "…" · N notes),
+  «Прочитал X, Y» (Read X, Y). A step can be expanded to see which notes were found.
+- **AI1-U4** Sources: the AI refers to the notes it read as `[n]`. Under the answer there are
+  source chips; clicking one opens the note. A link to a deleted or renamed
+  note does not break the display.
+- **AI1-U5** Actions on an answer: copy, retry, «Сохранить как заметку» (Save as note) (creating
+  a new note is a user action through the ordinary creation path, not the AI's).
+- **AI1-U6** Empty conversation: example prompts; if there are no models — a clear path to setup.
+- **AI1-U7** Model choice inside the input field; a "local"/"cloud" label by the provider's
+  address (loopback/LAN → "local").
+- **AI1-U8** Stopping at any moment, including between tool steps. Errors
+  are shown by a safe code, without the provider's response text.
+- **AI1-U9** All visible strings are in `src/locales/resources.ts` with all translations.
 
-#### Контекст
+#### Context
 
-- **AI1-C1** Текущая заметка добавляется чипом автоматически при создании беседы и при
-  переключении заметки, пока пользователь не убрал её вручную. Берётся текст из открытого
-  буфера (несохранённые правки тоже), как сейчас.
-- **AI1-C2** `@` в поле ввода открывает выбор заметок и папок (через существующий поиск);
-  выбранное становится чипом. Чип можно убрать.
-- **AI1-C3** Папка-чип даёт ИИ список её заметок и разрешение их читать, а не весь текст сразу.
-- **AI1-C4** Переключатель «Поиск по хранилищу» на беседу. Выключен — ИИ видит только чипы.
-- **AI1-C5** Бюджет контекста: общий лимит символов на прикреплённые тексты; превышение
-  обрезается с явной пометкой в чипе («обрезано»), а не молча.
+- **AI1-C1** The current note is added as a chip automatically when a conversation is created and when
+  the note is switched, until the user removes it manually. The text is taken from the open
+  buffer (unsaved edits too), as it is now.
+- **AI1-C2** `@` in the input field opens a picker of notes and folders (through the existing search);
+  the chosen item becomes a chip. A chip can be removed.
+- **AI1-C3** A folder chip gives the AI the list of its notes and permission to read them, not all the text at once.
+- **AI1-C4** A per-conversation "Search the vault" toggle. When off, the AI sees only the chips.
+- **AI1-C5** Context budget: a total character limit on attached texts; overflow
+  is truncated with an explicit mark in the chip («обрезано» (truncated)), not silently.
 
-#### Чтение хранилища (инструменты)
+#### Reading the vault (tools)
 
-- **AI1-R1** Инструменты только для чтения, выполняются в Rust над **активным** хранилищем:
+- **AI1-R1** Read-only tools, executed in Rust over the **active** vault:
   `search_notes(query, limit)`, `read_note(id, offset?, maxChars?)`, `list_folder(path)`,
-  `get_links(id)` (исходящие и обратные ссылки).
-- **AI1-R2** Ни один инструмент не пишет на диск и не меняет индекс. Тест проверяет, что
-  после полного цикла с инструментами файлы хранилища и `.amby/` побайтно не изменились
-  (кроме файла беседы).
-- **AI1-R3** Пути канонизируются; `..`, абсолютные пути, симлинки наружу, `.amby/` и
-  исключённые из индекса папки недоступны. Ответ инструмента об отказе — обычный
-  результат для модели, а не падение цикла.
-- **AI1-R4** Лимиты: ≤ 8 вызовов инструментов за ответ, ≤ 20 000 символов на одно чтение,
-  ≤ 60 000 символов результатов инструментов за ответ, ≤ 10 результатов поиска.
-  Исчерпание лимита — финальный запрос к модели без инструментов.
-- **AI1-R5** Когда «Поиск по хранилищу» выключен, `search_notes`/`list_folder` модели не
-  предлагаются, а `read_note` разрешён только для заметок из чипов. Проверка в Rust, по
-  списку, который пришёл с запросом, а не по словам модели.
-- **AI1-R6** Если хранилище сменилось во время ответа — ответ прерывается, ничего из
-  нового хранилища не читается.
-- **AI1-R7** Чтение берёт версию с диска. Для открытой заметки с несохранёнными правками
-  это может отставать на интервал автосохранения; текущая заметка из AI1-C1 этого не касается.
+  `get_links(id)` (outgoing links and backlinks).
+- **AI1-R2** No tool writes to disk or changes the index. A test checks that
+  after a full cycle with tools the vault files and `.amby/` are byte-for-byte unchanged
+  (except the conversation file).
+- **AI1-R3** Paths are canonicalized; `..`, absolute paths, symlinks pointing outside, `.amby/`, and
+  folders excluded from the index are inaccessible. A tool's refusal response is an ordinary
+  result for the model, not a crash of the loop.
+- **AI1-R4** Limits: ≤ 8 tool calls per answer, ≤ 20,000 characters per read,
+  ≤ 60,000 characters of tool results per answer, ≤ 10 search results.
+  Exhausting a limit means a final request to the model without tools.
+- **AI1-R5** When "Search the vault" is off, `search_notes`/`list_folder` are not offered to the
+  model, and `read_note` is allowed only for notes from the chips. The check is in Rust, against the
+  list that came with the request, not against the model's words.
+- **AI1-R6** If the vault changed during an answer, the answer is aborted and nothing from the
+  new vault is read.
+- **AI1-R7** Reading takes the version from disk. For an open note with unsaved edits
+  this may lag behind by the autosave interval; the current note from AI1-C1 is not affected.
 
-#### Провайдеры
+#### Providers
 
-- **AI1-P1** Вызовы инструментов для всех четырёх семейств: OpenAI-совместимые (`tools`/
-  `tool_calls`), Azure, Anthropic (`tool_use`/`tool_result`), Ollama (`tools`). Стриминг
-  текста и вызовов инструментов.
-- **AI1-P2** У модели флаг «умеет инструменты» (по умолчанию да для облачных, нет для
-  локальных; меняется в настройках модели). Без инструментов работают только чипы
-  (AI1-C1…C3), поиск недоступен, переключатель AI1-C4 показывает почему.
-- **AI1-P3** Ошибка «модель не поддерживает tools» от провайдера даёт понятное сообщение
-  и предложение выключить флаг, а не общий сбой.
-- **AI1-P4** Тестовый провайдер (fake) в Rust с заранее записанными сценариями ответов —
-  основа всех тестов цикла. Сеть в тестах не используется.
+- **AI1-P1** Tool calls for all four families: OpenAI-compatible (`tools`/
+  `tool_calls`), Azure, Anthropic (`tool_use`/`tool_result`), Ollama (`tools`). Streaming
+  of text and of tool calls.
+- **AI1-P2** A model has a "supports tools" flag (by default yes for cloud, no for
+  local; changeable in the model settings). Without tools only chips work
+  (AI1-C1…C3), search is unavailable, and the AI1-C4 toggle shows why.
+- **AI1-P3** A "model does not support tools" error from the provider gives a clear message
+  and a suggestion to turn the flag off, not a generic failure.
+- **AI1-P4** A test provider (fake) in Rust with pre-recorded response scenarios is
+  the basis of all loop tests. The network is not used in tests.
 
-#### Приватность
+#### Privacy
 
-- **AI1-S1** Первый запрос с облачной моделью и включённым поиском в этом хранилище
-  показывает одно понятное подтверждение: «ИИ сможет искать и читать заметки этого
-  хранилища и отправлять найденный текст провайдеру X». Ответ запоминается на хранилище
-  и провайдера; отказ = беседы этого хранилища с этим провайдером идут без поиска.
-- **AI1-S2** В логах и отладке нет текста заметок, запросов и ответов — только коды,
-  размеры и id. Ключи провайдеров по-прежнему только через credentials.
+- **AI1-S1** The first request with a cloud model and search enabled in this vault
+  shows one clear confirmation: «ИИ сможет искать и читать заметки этого
+  хранилища и отправлять найденный текст провайдеру X» (The AI will be able to search and read notes in this vault and send the text it finds to provider X). The answer is remembered per vault
+  and provider; a refusal = conversations of this vault with this provider run without search.
+- **AI1-S2** Logs and debug output contain no note text, queries, or answers — only codes,
+  sizes, and ids. Provider keys remain only via credentials, as before.
 
-#### Хранение бесед
+#### Conversation storage
 
-- **AI1-H1** Беседа — файл `.amby/ai/chats/<ULID>.json`, версия формата `1`: id, title,
-  createdAt, updatedAt, modelId, вкл/выкл поиска, чипы контекста (id/путь, не текст),
-  сообщения, шаги инструментов (запрос, id найденных заметок — без текста результатов).
-- **AI1-H2** Запись атомарная через существующие функции Rust; сохраняется после каждого
-  завершённого ответа и при остановке. Повреждённый файл не удаляется и не перезаписывается:
-  беседа помечается недоступной в списке, файл остаётся как есть.
-- **AI1-H3** Неизвестные поля и будущие версии формата сохраняются/открываются только для
-  чтения, не теряются при перезаписи.
-- **AI1-H4** Удаление беседы перемещает файл в `.amby/trash/` (восстановимо), без окончательного удаления.
-- **AI1-H5** `.amby/ai/` **не синхронизируется** (как всё неназванное). Добавить строку в
-  таблицу `docs/vault-format.md` и проверить, что тест соответствия правил синхронизации проходит.
-- **AI1-H6** Название беседы — первые слова первого вопроса; переименование вручную.
-  Список: группы «Сегодня/Вчера/Ранее», поиск по названиям.
-- **AI1-H7** Старое поведение (беседа в памяти) уходит без миграции — сохранённых данных нет.
+- **AI1-H1** A conversation is a file `.amby/ai/chats/<ULID>.json`, format version `1`: id, title,
+  createdAt, updatedAt, modelId, search on/off, context chips (id/path, not text),
+  messages, tool steps (the query, ids of notes found — without the text of the results).
+- **AI1-H2** The write is atomic through the existing Rust functions; it is saved after every
+  completed answer and on stop. A corrupted file is neither deleted nor overwritten:
+  the conversation is marked unavailable in the list, and the file stays as it is.
+- **AI1-H3** Unknown fields and future format versions are preserved/opened
+  read-only and are not lost on rewrite.
+- **AI1-H4** Deleting a conversation moves the file to `.amby/trash/` (recoverable), with no permanent deletion.
+- **AI1-H5** `.amby/ai/` is **not synced** (like everything not named). Add a row to the
+  table in `docs/vault-format.md` and check that the sync-rules conformance test passes.
+- **AI1-H6** The conversation title is the first words of the first question; manual rename.
+  List: groups "Today/Yesterday/Earlier", search by titles.
+- **AI1-H7** The old behavior (a conversation in memory) goes away without migration — there is no saved data.
 
-### 2. Архитектура
+### 2. Architecture
 
 ```text
 UI (src/components/workspace/ai/)
-  ai-panel.tsx          оболочка, переключение «беседа / список / модели»
-  chat-view.tsx         сообщения, шаги, источники
-  composer.tsx          поле, @-выбор, чипы, модель, кнопка
-  chat-list.tsx         список бесед
-  use-ai-chat-store.ts  Zustand: активная беседа, стриминг, чипы
-src/lib/ai.ts           клиент: aiRunTurn, события, ошибки
-src/lib/storage/…       ai-chat-repository (list/load/save/trash бесед) по правилам storage
+  ai-panel.tsx          shell, switching "conversation / list / models"
+  chat-view.tsx         messages, steps, sources
+  composer.tsx          field, @-picker, chips, model, button
+  chat-list.tsx         conversation list
+  use-ai-chat-store.ts  Zustand: active conversation, streaming, chips
+src/lib/ai.ts           client: aiRunTurn, events, errors
+src/lib/storage/…       ai-chat-repository (list/load/save/trash conversations) per the storage rules
 Rust
-  ai.rs → ai/           mod.rs (как сейчас), providers/*.rs (+tools), fake.rs
-  ai/tools.rs           read-only инструменты над VaultContext
-  ai/turn.rs            цикл: модель → инструменты → модель, лимиты, отмена
-  ai/chats.rs           хранение бесед в .amby/ai/chats/
+  ai.rs → ai/           mod.rs (as now), providers/*.rs (+tools), fake.rs
+  ai/tools.rs           read-only tools over VaultContext
+  ai/turn.rs            loop: model → tools → model, limits, cancellation
+  ai/chats.rs           conversation storage in .amby/ai/chats/
 ```
 
-- Новая команда `ai_run_turn(request)`: конфиг модели, сообщения, прикреплённый контекст
-  (тексты чипов-заметок из буферов + id разрешённых заметок/папок), флаг поиска, streamId.
-  События `ai:event` с номером: `token`, `toolStart`, `toolEnd`, `done`, `error`.
-  Существующая `ai_chat` остаётся до перевода всех вызовов, потом удаляется.
-- Цикл в Rust, а не в UI: модель не получает доступа к IPC, лимиты и проверки чипов
-  (AI1-R5) нельзя обойти из webview. Блокировка индекса берётся только на время
-  конкретного инструмента, сетевой запрос к модели — без блокировок.
-- Типы и команды — через Specta; `bindings.ts` регенерирует `npm run rust:test`.
-- Модуль `amby.ai`: разрешения манифеста сужаются до `ui-panel`, `read-notes`
-  (сейчас там `write-notes`, хотя запись не используется).
+- A new command `ai_run_turn(request)`: model config, messages, attached context
+  (texts of note chips from buffers + ids of permitted notes/folders), the search flag, streamId.
+  `ai:event` events with a sequence number: `token`, `toolStart`, `toolEnd`, `done`, `error`.
+  The existing `ai_chat` stays until all calls are migrated, then is deleted.
+- The loop is in Rust, not in the UI: the model gets no access to IPC, and the limits and chip checks
+  (AI1-R5) cannot be bypassed from the webview. The index lock is taken only for the duration of
+  a specific tool; the network request to the model runs without locks.
+- Types and commands go through Specta; `bindings.ts` is regenerated by `npm run rust:test`.
+- The `amby.ai` module: manifest permissions are narrowed to `ui-panel`, `read-notes`
+  (currently it has `write-notes`, although writing is not used).
 
-### 3. Пакеты и порядок
+### 3. Packages and order
 
-Процесс «сначала тесты» (как в sync-plan §6): заглушки интерфейсов → тесты по этому
-плану отдельной сессией, каждый со ссылкой на `AI1-*` → красный прогон → ревью тестов →
-отдельный коммит тестов → реализация другой сессией, тесты заморожены.
+The "tests first" process (as in sync-plan §6): interface stubs → tests per this
+plan in a separate session, each linked to an `AI1-*` → red run → test review →
+separate test commit → implementation by another session, tests frozen.
 
-| Пакет | Что                                                                      | Требования | Модель / усилие |
-| ----- | ------------------------------------------------------------------------ | ---------- | --------------- |
-| T     | Заглушки + все тесты Rust и Vitest, красный прогон                       | все        | Sonnet medium   |
-| A     | Rust: протокол tools для 4 семейств + fake-провайдер                     | P1–P4      | Sonnet medium   |
-| B     | Rust: read-only инструменты, канонизация, лимиты                         | R1–R7, S2  | Sonnet medium   |
-| C     | Rust: `ai_run_turn`, события, отмена, смена хранилища                    | R4–R6, U8  | Sonnet medium   |
-| D     | Rust + storage: беседы в `.amby/ai/`, корзина, vault-format              | H1–H7      | Sonnet medium   |
-| E     | UI: панель, Markdown, шаги, источники, список бесед, локали              | U1–U9, H6  | Sonnet low      |
-| F     | UI: чипы, `@`-выбор, бюджет контекста, подтверждение приватности         | C1–C5, S1  | Sonnet low      |
-| G     | MAP-файлы, `upd_next.md`, нативная проверка с реальными Ollama и облаком | —          | Haiku           |
+| Package | What                                                                | Requirements | Model / effort |
+| ------- | ------------------------------------------------------------------- | ------------ | -------------- |
+| T       | Stubs + all Rust and Vitest tests, red run                          | all          | Sonnet medium  |
+| A       | Rust: tools protocol for 4 families + fake provider                 | P1–P4        | Sonnet medium  |
+| B       | Rust: read-only tools, canonicalization, limits                     | R1–R7, S2    | Sonnet medium  |
+| C       | Rust: `ai_run_turn`, events, cancellation, vault change             | R4–R6, U8    | Sonnet medium  |
+| D       | Rust + storage: conversations in `.amby/ai/`, trash, vault-format   | H1–H7        | Sonnet medium  |
+| E       | UI: panel, Markdown, steps, sources, conversation list, locales     | U1–U9, H6    | Sonnet low     |
+| F       | UI: chips, `@`-picker, context budget, privacy confirmation         | C1–C5, S1    | Sonnet low     |
+| G       | MAP files, `upd_next.md`, native check with real Ollama and a cloud | —            | Haiku          |
 
-A → C; B → C; C и D → E → F → G. A, B, D можно делать параллельно.
+A → C; B → C; C and D → E → F → G. A, B, D can be done in parallel.
 
-Ревью: строгое — B, C, D (чтение хранилища и запись бесед на диск); выборочное — E, F.
+Review: strict — B, C, D (reading the vault and writing conversations to disk); selective — E, F.
 
-### 4. Приёмка
+### 4. Acceptance
 
 - `npm run verify`, `npm run rust:test`, strict Clippy, `npm run docs:check`.
-- Нативно: Ollama (локальная модель без tools и с tools), один облачный провайдер;
-  сценарии: вопрос по текущей заметке, по `@`-заметке, по папке, поиск по хранилищу,
-  остановка во время поиска, перезапуск с сохранённой беседой, смена хранилища во время ответа,
-  отказ в подтверждении приватности.
-- Проверка AI1-R2: снимок хэшей хранилища до и после сценариев совпадает (кроме `.amby/ai/`).
+- Native: Ollama (a local model without tools and with tools), one cloud provider;
+  scenarios: a question about the current note, about an `@` note, about a folder, vault search,
+  stopping during a search, restart with a saved conversation, vault change during an answer,
+  refusing the privacy confirmation.
+- Checking AI1-R2: the vault hash snapshot before and after the scenarios matches (except `.amby/ai/`).
 
-### 5. Следующие этапы (не входят в этап 1)
+### 5. Next stages (not part of stage 1)
 
-1. Меню над выделением и `/ai`: результат как предпросмотр, вставляет пользователь.
-2. Векторный поиск (по желанию, локальные эмбеддинги).
-3. Запись через план агента H: реестр действий, журнал, откат — затем «Подготовить/Выполнить».
+1. The menu over a selection and `/ai`: the result as a preview, the user inserts it.
+2. Vector search (optional, local embeddings).
+3. Writing via the agent plan H: action registry, log, rollback — then "Prepare/Execute".
 
 ---
 
-## Часть 2. Подключения ИИ: провайдеры, API и CLI
+## Part 2. AI connections: providers, API, and CLI
 
-_Бывший файл `ai-provider-connections-plan.md`, объединён 2026-11-03._
+_Formerly the file `ai-provider-connections-plan.md`, merged 2026-11-03._
 
-Статус на 2026-11-03: этапы 1–5 реализованы (модель подключений, перенос с резервной копией,
-каталоги API, Codex и Claude Code CLI, экран провайдеров; подключения лежат в отдельном
-`ai-connections.json`). Не проверено: вход Claude Code (OAuth) и настоящий аккаунт — проверка за
-владельцем; этап 6 (чат и выпуск) подтвердить по журналу ниже.
+Status as of 2026-11-03: stages 1–5 implemented (connection model, migration with a backup,
+API catalogs, Codex and Claude Code CLI, the providers screen; connections live in a separate
+`ai-connections.json`). Not verified: Claude Code sign-in (OAuth) and a real account — verification is up to the
+owner; stage 6 (chat and release) to be confirmed against the log below.
 
-### Результат для пользователя
+### Result for the user
 
-В настройках пользователь добавляет подключение провайдера, выбирает способ
-«API» или поддерживаемый «CLI», подключает аккаунт и включает нужные модели
-из полученного каталога. В чате появляются только включённые модели.
-Ручное добавление моделей доступно только у локальных провайдеров.
+In settings the user adds a provider connection, chooses a method
+"API" or a supported "CLI", connects an account, and enables the needed models
+from the received catalog. Only enabled models appear in the chat.
+Adding models manually is available only for local providers.
 
-Пример: «Добавить провайдера → OpenAI → API → ключ → список моделей» либо
+Example: «Добавить провайдера → OpenAI → API → ключ → список моделей» (Add provider → OpenAI → API → key → model list) or
 «Добавить провайдера → OpenAI → Codex CLI → проверка установки → вход →
-список моделей». Два подключения могут существовать одновременно.
+список моделей» (Add provider → OpenAI → Codex CLI → installation check → sign-in → model list). Two connections can exist at the same time.
 
-CLI сначала устанавливается пользователем: экран показывает инструкцию,
-официальную ссылку, команду для копирования и кнопку повторной проверки.
-Команды установки не выполняются при открытии настроек. Установка и вход
-являются разными состояниями. Установка CLI не гарантирует доступ к моделям.
+The CLI is first installed by the user: the screen shows instructions,
+the official link, a command to copy, and a re-check button.
+Installation commands are not run when settings are opened. Installation and sign-in
+are different states. Installing the CLI does not guarantee access to models.
 
-### Что есть сейчас — подтверждено кодом
+### What exists now — confirmed by the code
 
-- `app-config.ts`: `AiSettings` хранит `models` и `activeModelId`;
-  адрес, провайдер и `credentialId` повторяются в каждой модели.
-- `models-manager.tsx`: добавление/редактирование одной модели, включая
-  произвольное имя облачной модели. Общей карточки подключения нет.
-- `ai-panel.tsx`: модель ищется по `chat.modelId` и `activeModelId`;
-  список чата строится из всех `ai.models`.
-- `src/lib/ai.ts` и `src-tauri/src/ai.rs`: запросы идут через Rust;
-  команд получения каталога моделей пока нет.
-- `ai/codex/launch.rs`: уже есть поиск Codex CLI, проверка версии,
-  вход, выход, отмена входа и запуск app-server.
-- Codex запускается в изолированном окружении Amby. Нельзя обещать
-  автоматическое использование входа из пользовательского `~/.codex`.
-- Ключи находятся в системном хранилище. Новый формат продолжает ссылаться
-  на `credentialId`; перенос ключей в JSON не требуется.
+- `app-config.ts`: `AiSettings` stores `models` and `activeModelId`;
+  the address, provider, and `credentialId` are repeated in every model.
+- `models-manager.tsx`: adding/editing a single model, including an
+  arbitrary cloud model name. There is no shared connection card.
+- `ai-panel.tsx`: the model is looked up by `chat.modelId` and `activeModelId`;
+  the chat list is built from all `ai.models`.
+- `src/lib/ai.ts` and `src-tauri/src/ai.rs`: requests go through Rust;
+  there are no commands for fetching a model catalog yet.
+- `ai/codex/launch.rs`: already has Codex CLI discovery, version check,
+  sign-in, sign-out, sign-in cancellation, and app-server launch.
+- Codex runs in Amby's isolated environment. We cannot promise
+  automatic use of a sign-in from the user's `~/.codex`.
+- Keys are in the system store. The new format keeps referring to
+  `credentialId`; moving keys into JSON is not required.
 
-### Решения по устройству
+### Structural decisions
 
-#### Провайдер, подключение и модель
+#### Provider, connection, and model
 
-Разделить три сущности:
+Split three entities:
 
-- **Провайдер** — статическое определение: ID, название, локальный/облачный,
-  поддерживаемые способы подключения и адаптеры каталога/запросов.
-- **Подключение** — стабильный ID, провайдер, способ API/CLI, название,
-  endpoint/версия API или тип CLI, ссылка на ключ и настройки соединения.
-  Несколько подключений одного провайдера допустимы.
-- **Модель** — стабильный внутренний ID, `connectionId`, ID у провайдера,
-  название, флаг включения и происхождение: каталог/локальная пользовательская.
-  Ссылки старых чатов продолжают использовать внутренние ID.
+- **Provider** — a static definition: ID, name, local/cloud,
+  supported connection methods, and catalog/request adapters.
+- **Connection** — a stable ID, provider, API/CLI method, name,
+  endpoint/API version or CLI type, a reference to the key, and connection settings.
+  Several connections of one provider are allowed.
+- **Model** — a stable internal ID, `connectionId`, the provider's ID,
+  name, an enabled flag, and origin: catalog/local user-defined.
+  References from old chats keep using internal IDs.
 
-Каталог и состояние соединения отделены от пользовательского выбора моделей.
-Обновление каталога не должно включать все модели или сбрасывать переключатели.
-Новые модели первоначально выключены. При первом подключении пользователь
-сам выбирает модели; существующие перенесённые модели сохраняют включение.
+The catalog and connection state are separate from the user's model selection.
+Refreshing the catalog must not enable all models or reset the toggles.
+New models are initially off. On the first connection the user picks the models
+themselves; existing migrated models keep their enabled state.
 
-Активная модель — отдельный выбор для новых бесед. Если модель текущей беседы
-отключена или удалена, историю можно читать, а отправка требует явного выбора
-доступной модели. Автоматически отправлять текст другому провайдеру нельзя.
-Уже запущенный запрос завершается с конфигурацией, захваченной при старте.
+The active model is a separate choice for new conversations. If the model of the current conversation
+is disabled or removed, the history can be read, but sending requires an explicit choice of an
+available model. Text must never be sent automatically to another provider.
+A request that is already running finishes with the configuration captured at its start.
 
-#### Матрица способов подключения
+#### Connection method matrix
 
-| Провайдер                         | API / локальный HTTP                                                 | CLI                                                                 |
-| --------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| OpenAI                            | существующий API, добавить каталог                                   | Codex, существующий транспорт; добавить каталог                     |
-| Anthropic                         | существующий API, добавить каталог                                   | Claude Code CLI (`claude-cli`), отдельный адаптер `ai/claude_code/` |
-| OpenRouter, Groq, Mistral         | существующий совместимый API, каталог по адаптеру                    | показывать только при наличии реализованного адаптера               |
-| Azure OpenAI                      | существующий API; отдельно проверить получение доступных deployments | отдельного адаптера сейчас нет                                      |
-| Ollama, LM Studio, MLX, llama.cpp | локальный endpoint, каталог и ручной ввод                            | локальный сервер не считать CLI-транспортом чата                    |
+| Provider                          | API / local HTTP                                                        | CLI                                                                  |
+| --------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| OpenAI                            | existing API, add a catalog                                             | Codex, existing transport; add a catalog                             |
+| Anthropic                         | existing API, add a catalog                                             | Claude Code CLI (`claude-cli`), a separate adapter `ai/claude_code/` |
+| OpenRouter, Groq, Mistral         | existing compatible API, catalog per adapter                            | show only when an implemented adapter exists                         |
+| Azure OpenAI                      | existing API; separately verify how available deployments are retrieved | there is no separate adapter at the moment                           |
+| Ollama, LM Studio, MLX, llama.cpp | local endpoint, catalog and manual entry                                | do not treat a local server as a CLI chat transport                  |
 
-Выбор CLI не является произвольной командой shell. Каждому CLI нужен адаптер
-с проверенным протоколом, авторизацией, каталогом, отменой и границами доступа.
-Первый вертикальный сценарий — API + Codex. Следующий CLI — Claude Code:
-выпуск адаптера зависит от проверки, что можно сохранить доступ только к
-разрешённым заметкам. Добавление Gemini и других новых провайдеров — отдельное
-расширение реестра после основных этапов.
+Choosing a CLI is not an arbitrary shell command. Every CLI needs an adapter
+with a verified protocol, authorization, catalog, cancellation, and access boundaries.
+The first vertical scenario is API + Codex. The next CLI is Claude Code:
+releasing the adapter depends on verifying that access can be kept limited to
+the permitted notes. Adding Gemini and other new providers is a separate
+registry extension after the main stages.
 
-Облачные модели не вводятся вручную. Для Azure нужно до выпуска выяснить,
-какие права/параметры нужны для перечисления deployments: каталог общих моделей
-не заменяет список развёртываний аккаунта. Если список недоступен, интерфейс
-объясняет ограничение, сохраняет прежнее подключение и не предлагает неверный
-универсальный `/models` как рабочее решение.
+Cloud models are not entered manually. For Azure, before release we need to find out
+which permissions/parameters are required to list deployments: a catalog of general models
+does not replace the list of the account's deployments. If the list is unavailable, the interface
+explains the limitation, keeps the previous connection, and does not offer an incorrect
+universal `/models` as a working solution.
 
-#### Каталог и возможности
+#### Catalog and capabilities
 
-Rust получает каталог с теми же настройками соединения и ключом, что используются
-для отправки. Поддержать пагинацию, дедупликацию, ограничение размера ответа,
-таймаут, безопасные ошибки и отмену/игнорирование устаревшего результата.
-Endpoint проходит существующую валидацию; ключи и ответы с секретами не попадают
-в журнал или текст ошибок. CSP браузера не расширяется.
+Rust fetches the catalog using the same connection settings and key that are used
+for sending. Support pagination, deduplication, a response size limit,
+a timeout, safe errors, and cancellation/ignoring of a stale result.
+The endpoint goes through the existing validation; keys and responses containing secrets do not end up
+in the log or error text. The browser CSP is not widened.
 
-Не все модели из каталога подходят для текстового чата или текущего транспорта.
-Отдельно учитывать возможности транспорта и модели: текстовый чат, инструменты,
-нужный API. Не показывать embedding/image/audio-модель как пригодную для чата.
-Не переносить облачное правило `supportsTools=true` на весь каталог.
-Если достоверных метаданных нет, применить явно описанную политику адаптера и
-показать ограничение; не проверять доступ платным запросом без действия пользователя.
+Not all models from the catalog are suitable for text chat or the current transport.
+Account separately for transport and model capabilities: text chat, tools,
+the required API. Do not show an embedding/image/audio model as suitable for chat.
+Do not carry the cloud rule `supportsTools=true` over to the entire catalog.
+If there is no reliable metadata, apply an explicitly described adapter policy and
+show the limitation; do not check access with a paid request without a user action.
 
-Ошибка обновления сохраняет последний каталог и выбор. Исчезнувшая модель
-помечается недоступной, её запись и история сохраняются. Кэш каталога имеет
-время обновления; пользовательские переключатели не являются кэшем.
-Для CLI каталог также не означает подтверждённое право аккаунта на каждую модель.
+A refresh error keeps the last catalog and selection. A model that disappeared
+is marked unavailable, and its entry and history are kept. The catalog cache has
+a refresh time; user toggles are not a cache.
+For a CLI, the catalog also does not mean the account is confirmed to be entitled to every model.
 
-### Этапы реализации и приёмка
+### Implementation stages and acceptance
 
-#### 1. Доменная модель и совместимость чтения
+#### 1. Domain model and read compatibility
 
-Вынести типы и чистые операции подключений из `app-config.ts` в сфокусированный
-модуль. Добавить реестр адаптеров и селекторы доступных моделей.
-Спроектировать версионированный AI-раздел, сохраняя остальные настройки.
-Пока не подключать новую запись на старте приложения.
+Extract the connection types and pure operations from `app-config.ts` into a focused
+module. Add an adapter registry and selectors of available models.
+Design a versioned AI section, preserving the other settings.
+Do not wire the new write into app startup yet.
 
-Готово, когда тесты покрывают несколько подключений одного провайдера, локальные
-пользовательские модели, включение/отключение, стабильные ID и чтение старой формы.
-Существующий экран и чат продолжают работать.
+Done when tests cover several connections of one provider, local
+custom models, enabling/disabling, stable IDs, and reading the old shape.
+The existing screen and chat keep working.
 
-#### 2. Перенос сохранённых настроек
+#### 2. Migration of saved settings
 
-Перед записью: read-only preflight, неизменяемая резервная копия исходного
-`settings.json`, версия переноса, проверка результата, атомарная публикация,
-запись исхода и обнаружение завершения при повторном старте. Не объединять
-подключения с разными ключами, адресами, версиями API или несовместимыми настройками.
-Старые ID моделей, подписи и ссылки на ключи сохраняются.
+Before writing: a read-only preflight, an immutable backup of the original
+`settings.json`, a migration version, result verification, atomic publication,
+outcome recording, and detection of completion on a repeated start. Do not merge
+connections with different keys, addresses, API versions, or incompatible settings.
+Old model IDs, labels, and key references are preserved.
 
-Миграция не удаляет ключи и облачные модели, даже если их пока нет в каталоге.
-Откат восстанавливает резервную копию до нового редактирования; после изменений
-нужен отдельный экспорт текущей версии, чтобы откат не стёр новые подключения.
-Неизвестная будущая версия блокирует перезапись AI-раздела.
+The migration does not delete keys and cloud models, even if they are not in the catalog yet.
+Rollback restores the backup before new editing; after changes,
+a separate export of the current version is needed so that rollback does not erase new connections.
+An unknown future version blocks overwriting the AI section.
 
-Готово, когда проверены пустые/старые/повреждённые настройки, ошибка записи,
-прерывание на границах публикации, повторный запуск и восстановление из копии.
-Перенос не затрагивает файлы заметок и чатов.
+Done when empty/old/corrupted settings, a write error,
+interruption at publication boundaries, a repeated run, and restoring from the copy are tested.
+The migration does not touch note and chat files.
 
-#### 3. Каталоги API и локальных серверов
+#### 3. API and local server catalogs
 
-Добавить типизированные команды каталога, адаптеры для существующих API-семейств
-и локальных серверов; генерировать Specta bindings штатным тестом.
-Разделить сетевой ответ, нормализацию каталога и пользовательские переключатели.
-Отдельно проверить Azure и различия путей OpenAI-совместимых сервисов.
+Add typed catalog commands, adapters for the existing API families
+and local servers; generate Specta bindings with the standard test.
+Separate the network response, catalog normalization, and user toggles.
+Check Azure and the path differences of OpenAI-compatible services separately.
 
-Готово, когда интеграционные тесты с локальным mock-сервером проверяют авторизацию,
-пагинацию, URL, 401/403/429, таймаут, неверный/слишком большой ответ и безопасные
-ошибки. Нет запросов к платным сервисам в автоматических тестах.
+Done when integration tests with a local mock server check authorization,
+pagination, URLs, 401/403/429, timeout, an invalid/too large response, and safe
+errors. There are no requests to paid services in automated tests.
 
-#### 4. Подключения CLI
+#### 4. CLI connections
 
-Расширить существующий Codex-адаптер получением каталога через app-server.
-Использовать существующие проверку версии, изолированное окружение и управление
-жизненным циклом процесса. После входа/выхода обновлять состояние и каталог.
-Добавить экран установки и повторной проверки с инструкцией для текущей ОС.
+Extend the existing Codex adapter by fetching the catalog through the app-server.
+Use the existing version check, isolated environment, and process
+lifecycle management. After sign-in/sign-out, refresh the state and the catalog.
+Add an install and re-check screen with instructions for the current OS.
 
-Затем исследовать и реализовать Claude Code отдельным адаптером: подтвердить
-машинный протокол каталога и чата, поток, отмену, вход и отключение произвольных
-инструментов. Зафиксировать результат проверки протокола до подключения UI.
-Если CLI не даёт каталога, не подменять его ручным вводом облачной модели.
+Then investigate and implement Claude Code as a separate adapter: confirm
+the machine protocol of the catalog and chat, the stream, cancellation, sign-in, and disabling arbitrary
+tools. Record the protocol verification result before wiring the UI.
+If the CLI does not provide a catalog, do not substitute it with manual entry of a cloud model.
 
-Готово, когда fake-CLI тесты проверяют отсутствие/неподдерживаемую версию,
-отсутствие входа, повреждённый ответ, отмену, таймаут и завершение дочернего
-процесса. Реальный native smoke отдельно проверяет установленный Codex.
-CLI не получает shell-доступ к хранилищу вместо существующих read-only инструментов.
+Done when fake-CLI tests check a missing/unsupported version,
+no sign-in, a corrupted response, cancellation, timeout, and termination of the child
+process. A real native smoke separately checks the installed Codex.
+The CLI does not get shell access to the vault in place of the existing read-only tools.
 
-#### 5. Экран провайдеров
+#### 5. Providers screen
 
-Заменить список редактируемых моделей карточками подключений. Добавление:
-провайдер → способ → параметры/проверка CLI → подключение → выбор моделей.
-Внутри карточки: состояние, подключение/выход, каталог с поиском и переключателями,
-обновление списка. Ключ редактируется один раз на подключение.
-Добавление своей модели видно только для локального провайдера по реестру,
-а не просто для произвольного URL, который оказался локальным.
+Replace the list of editable models with connection cards. Adding:
+provider → method → parameters/CLI check → connection → model selection.
+Inside a card: state, connect/sign out, a catalog with search and toggles,
+list refresh. The key is edited once per connection.
+Adding a custom model is visible only for a local provider per the registry,
+and not just for an arbitrary URL that happens to be local.
 
-Сохранение сериализовано, ошибки видимы, поздние ответы не меняют другое
-подключение. Удаление подключения явно описывает удаление настройки и ключа;
-общий `credentialId` нельзя удалить, пока на него ссылается другое подключение.
-Удаление не стирает историю. Все строки — RU/EN в `resources.ts`.
+Saving is serialized, errors are visible, late responses do not change another
+connection. Deleting a connection explicitly describes the deletion of the setting and the key;
+a shared `credentialId` cannot be deleted while another connection references it.
+Deletion does not erase history. All strings are RU/EN in `resources.ts`.
 
-Готово, когда компонентные и браузерные сценарии проходят подключение API,
-отсутствующий CLI, вход, пустой каталог, поиск, переключатели, локальную модель,
-сбой сохранения и повторное открытие экрана. Проверить узкое окно и клавиатуру.
+Done when component and browser scenarios pass connecting an API,
+a missing CLI, sign-in, an empty catalog, search, toggles, a local model,
+a save failure, and reopening the screen. Check a narrow window and the keyboard.
 
-#### 6. Чат и выпуск
+#### 6. Chat and release
 
-Подключить единый resolver модели/соединения к отправке, инструментам, согласию
-на чтение заметок и выбору модели. В меню учитывать несколько подключений
-одного провайдера. Обновление ключа/адреса/аккаунта инвалидирует соответствующее
-согласие и каталог по существующему контракту согласий.
-Отключённые модели исключены и из меню, и из программного пути отправки.
-Отсутствие активных моделей открывает понятный переход в настройки.
+Wire a single model/connection resolver into sending, tools, consent
+to read notes, and model selection. In the menu, account for several connections
+of one provider. Updating the key/address/account invalidates the corresponding
+consent and catalog under the existing consent contract.
+Disabled models are excluded from both the menu and the programmatic send path.
+The absence of active models opens a clear transition to settings.
 
-Готово, когда проверены старые беседы, отключение текущей модели, изменение
-настроек во время потока, отмена, смена хранилища и переключение API/CLI.
-Обязательны `npm run build`, `npm run verify`, браузерный smoke, native smoke
-и native build для IPC/desktop-изменений. В журнале этапа записать фактически
-выполненные команды, ограничения и результаты. Версию без выпуска не повышать.
+Done when old conversations, disabling the current model, changing
+settings during a stream, cancellation, vault change, and switching API/CLI are tested.
+`npm run build`, `npm run verify`, a browser smoke, a native smoke,
+and a native build for IPC/desktop changes are mandatory. In the stage log, record the commands actually
+run, limitations, and results. Do not bump the version without a release.
 
-### Порядок работы
+### Working order
 
-Этапы 1 → 2 → 3 → 4 → 5 → 6, отдельными проверяемыми партиями.
-Новый экран включается только после готовности переноса и рабочего вертикального
-сценария API + Codex CLI. Перед каждым следующим этапом сверять план с фактическим
-diff, сохранять чужие рабочие изменения и отмечать завершение только по проверкам.
+Stages 1 → 2 → 3 → 4 → 5 → 6, in separate verifiable batches.
+The new screen is enabled only after the migration is ready and the working vertical
+scenario API + Codex CLI. Before each next stage, check the plan against the actual
+diff, preserve other people's working changes, and mark completion only based on checks.
 
-### Журнал
+### Log
 
-- 2026-10-31: проверены текущие владельцы настроек, UI, запросов, ключей,
-  выбора моделей и запуска Codex. Составлены этапы и критерии. Продуктовая
-  реализация подключений пока не начата.
-- Проверки партии планирования: `npm run build` и `docs:check` прошли.
-  `npm run verify` прошёл фронтенд, форматирование и Clippy, но завершился
-  на Rust-тестах: 1079 прошли, 149 упали, 10 пропущены. В отчёте есть запреты
-  окружения на локальные порты и доступ к системной корзине/Finder;
-  полный gate не считается пройденным. `bindings:check` в цепочке не выполнялся.
-  Native smoke/build для изменений документации не запускались.
+- 2026-10-31: checked the current owners of settings, UI, requests, keys,
+  model selection, and Codex launch. Stages and criteria drawn up. The product
+  implementation of connections is not started yet.
+- Checks of the planning batch: `npm run build` and `docs:check` passed.
+  `npm run verify` passed the frontend, formatting, and Clippy, but ended
+  at the Rust tests: 1079 passed, 149 failed, 10 skipped. The report contains environment
+  prohibitions on local ports and access to the system trash/Finder;
+  the full gate is not considered passed. `bindings:check` was not run in the chain.
+  Native smoke/build were not run for documentation changes.
 
-- 2026-10-31: начата подготовка этапа 1: добавлена изолированная модель
-  подключений, преобразование старого списка в памяти, выбор доступных моделей
-  и согласование каталога. Сохранение, миграция и интерфейс не переключены;
-  этапы 1–6 остаются незавершёнными.
-- Проверки подготовительной партии: целевые тесты прошли (35), `build` и
-  `docs:check` прошли. Повторный `verify` прошёл 3041 frontend-тест,
-  форматирование, knip и Clippy, но Rust-тесты завершились результатом
-  1079 прошли, 149 упали, 10 пропущены; среди ошибок запреты локальных
-  портов и системной корзины. `bindings:check` не достигнут. Полный gate
-  не пройден; браузерный и native smoke для новой функции не выполнялись,
-  поскольку новая функция пока не включена.
+- 2026-10-31: preparation of stage 1 started: added an isolated model
+  of connections, in-memory conversion of the old list, selection of available models,
+  and catalog reconciliation. Saving, migration, and the interface are not switched over;
+  stages 1–6 remain unfinished.
+- Checks of the preparatory batch: targeted tests passed (35), `build` and
+  `docs:check` passed. A repeated `verify` passed 3041 frontend tests,
+  formatting, knip, and Clippy, but the Rust tests ended with
+  1079 passed, 149 failed, 10 skipped; among the errors are prohibitions on local
+  ports and the system trash. `bindings:check` was not reached. The full gate
+  did not pass; browser and native smoke for the new feature were not run,
+  since the new feature is not enabled yet.
 
-- Начата разработка переноса: изолированный Rust-прототип сохраняет точную
-  резервную копию, различает подготовленную и завершённую публикацию,
-  восстанавливается после прерывания и отказывает в откате при изменениях.
-  Есть общий с обычной записью блокировщик и защита от записи устаревшей
-  версии. Прототип ещё не подключён на старте: этап 2 не завершён.
-  Целевые проверки: 4 теста миграции, тест защиты версии, 5 тестов домена
-  и 9 тестов прежнего экрана прошли.
+- Migration development started: an isolated Rust prototype saves an exact
+  backup, distinguishes prepared from completed publication,
+  recovers after interruption, and refuses rollback when there are changes.
+  There is a locker shared with ordinary writes and protection against writing a stale
+  version. The prototype is not yet wired in at startup: stage 2 is not complete.
+  Targeted checks: 4 migration tests, a version-protection test, 5 domain tests,
+  and 9 tests of the previous screen passed.
 
-- Подготовлен, но не подключён к интерфейсу, запрос Codex `model/list`:
-  [схема ответа](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/json/v2/ModelListResponse.json),
-  [параметры](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/json/v2/ModelListParams.json);
-  список не подтверждает права аккаунта. Протокольные тесты проверили
-  страницы, повтор курсора, дедупликацию и фильтрацию; fake CLI — завершение
-  дочернего процесса. Вывод в интерфейс и IPC пока не реализованы.
-- Проверка Azure: [официальный список deployments](https://learn.microsoft.com/en-us/rest/api/aifoundry/accountmanagement/deployments/list?view=rest-aifoundry-accountmanagement-2025-06-01) относится к management API и требует subscription ID, resource group, имя аккаунта и авторизацию управления. Существующих endpoint и inference API key недостаточно для этого маршрута; универсальный `/models` не внедрён, существующие настройки сохраняются.
-- Подготовка API-каталогов остаётся тестовой: целевые mock HTTP-тесты авторизации, страниц, 401, неверного и слишком большого ответа прошли вне sandbox; первоначальный bind внутри sandbox получил `EPERM`.
-- Текущий срез: при первом открытии экрана ИИ в desktop включён перенос v1 с
-  backup и проверяемым rollback. Реализованы API-каталоги и Codex model/list,
-  карточки подключений, сохранение выбора, локальные пользовательские модели,
-  проверка доступности модели при отправке в frontend и Rust. WebKit smoke и
-  изолированный native IPC-контракт прошли на предыдущем состоянии партии;
-  после последних изменений обязательные проверки повторяются. Claude Code
-  пока не представлен в интерфейсе: протокол и граница доступа ещё проверяются.
-- Claude Code 2.1.312: в отдельном `CLAUDE_CONFIG_DIR` машинный initialize
-  [Agent SDK](https://code.claude.com/docs/en/agent-sdk/typescript) вернул
-  пять моделей без отправки промпта, статус входа — signed out. Документированы
-  `--safe-mode`, `--restricted`, `--tools ""` и запрет MCP в
-  [CLI reference](https://code.claude.com/docs/en/cli-reference); вход,
-  завершение процесса, поток чата и устойчивость этой границы к атакующим
-  ответам пока не проверены. Способ не предлагается до этих проверок.
-- Политика каталога: для официального OpenAI endpoint показываются семейства
-  Chat Completions `gpt-3.5-turbo`, `gpt-4`, `gpt-5`, `chatgpt-4`, `o1`,
-  `o3`, `o4`, кроме известных Responses-only Codex/Pro и deep-research;
-  остальные совместимые API и локальные серверы фильтруются по признакам
-  нетекстовых семейств и доступным метаданным модальностей. Неизвестная
-  поддержка инструментов не включается автоматически. Для GPT-5 и o-серии
-  используется `max_completion_tokens`.
+- Prepared, but not wired to the interface, the Codex `model/list` request:
+  [response schema](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/json/v2/ModelListResponse.json),
+  [parameters](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/json/v2/ModelListParams.json);
+  the list does not confirm account entitlements. Protocol tests checked
+  pages, cursor repetition, deduplication, and filtering; the fake CLI — termination
+  of the child process. Surfacing in the interface and IPC are not implemented yet.
+- Azure check: [official list of deployments](https://learn.microsoft.com/en-us/rest/api/aifoundry/accountmanagement/deployments/list?view=rest-aifoundry-accountmanagement-2025-06-01) belongs to the management API and requires a subscription ID, resource group, account name, and management authorization. The existing endpoint and inference API key are not enough for this route; the universal `/models` is not introduced, existing settings are preserved.
+- Preparation of the API catalogs remains test-only: targeted mock HTTP tests of authorization, pages, 401, an invalid and too large response passed outside the sandbox; the initial bind inside the sandbox got `EPERM`.
+- Current slice: on the first opening of the AI screen in desktop, migration v1 with
+  backup and verifiable rollback is enabled. Implemented: API catalogs and Codex model/list,
+  connection cards, saving the selection, local custom models,
+  a model availability check on send in the frontend and Rust. WebKit smoke and
+  the isolated native IPC contract passed on the previous state of the batch;
+  after the latest changes the mandatory checks are being repeated. Claude Code
+  is not yet presented in the interface: the protocol and access boundary are still being verified.
+- Claude Code 2.1.312: in a separate `CLAUDE_CONFIG_DIR`, the machine initialize
+  of the [Agent SDK](https://code.claude.com/docs/en/agent-sdk/typescript) returned
+  five models without sending a prompt, the sign-in status was signed out. Documented
+  are `--safe-mode`, `--restricted`, `--tools ""` and the MCP prohibition in the
+  [CLI reference](https://code.claude.com/docs/en/cli-reference); sign-in,
+  process termination, the chat stream, and the resilience of this boundary to attacker
+  responses are not yet verified. The method is not offered until these checks.
+- Catalog policy: for the official OpenAI endpoint, the Chat Completions families
+  `gpt-3.5-turbo`, `gpt-4`, `gpt-5`, `chatgpt-4`, `o1`,
+  `o3`, `o4` are shown, except known Responses-only Codex/Pro and deep-research;
+  other compatible APIs and local servers are filtered by markers
+  of non-text families and available modality metadata. Unknown tool
+  support is not enabled automatically. For GPT-5 and the o-series,
+  `max_completion_tokens` is used.
 
-- 2026-10-31, итог партии: `npm run verify` прошёл полностью (Rust: 1243 прошли,
-  0 упали, 10 пропущены; `bindings:check`, knip, Clippy), `npm run build` и
-  `docs:check` прошли. Нативный контракт `npm run test:storage:live` прошёл целиком,
-  включая «AI catalog and reversible migration use real IPC» и запрет отправки
-  через отключённую модель. Ранние 149 падений Rust-тестов были ограничениями
-  sandbox (локальные порты, корзина), вне него не воспроизводятся.
-  Не проверено: реальный вход Claude (OAuth) — sandbox запретил локальный listener;
-  Claude Code остаётся выключенным в интерфейсе до проверки владельцем.
+- 2026-10-31, batch result: `npm run verify` passed in full (Rust: 1243 passed,
+  0 failed, 10 skipped; `bindings:check`, knip, Clippy), `npm run build` and
+  `docs:check` passed. The native contract `npm run test:storage:live` passed in full,
+  including "AI catalog and reversible migration use real IPC" and the ban on sending
+  through a disabled model. The early 149 Rust test failures were sandbox restrictions
+  (local ports, trash) and do not reproduce outside it.
+  Not verified: a real Claude sign-in (OAuth) — the sandbox forbade a local listener;
+  Claude Code stays disabled in the interface until the owner verifies it.
 
-- 2026-10-31, Claude Code CLI (этап 4, вторая часть). Адаптер: `src-tauri/src/ai/claude_code.rs`,
-  `claude_code/launch.rs`, `claude_code/home.rs`; в интерфейсе — способ `claude-cli` у Anthropic,
-  провайдер `claude-code` на проводе, общая карточка CLI в `connections-manager.tsx`.
-  Проверено вручную на Claude Code 2.1.312 в отдельном `CLAUDE_CONFIG_DIR` (без входа):
-  - `claude auth status --json` → `{"loggedIn":false,…}`, код выхода 1; `claude auth login
---claudeai` печатает «Opening browser…» и ссылку, сам открывает браузер и слушает
-    `localhost`-порт (запись `open` перехвачена подменой в `PATH`); `auth logout` есть.
-    Вход до конца **не проходился**: OAuth проверит владелец.
-  - Каталог: `-p --input-format stream-json --output-format stream-json` + запрос
-    `{"type":"control_request","request_id":…,"request":{"subtype":"initialize"}}` возвращает
-    `models[]` (`value`, `displayName`) без промпта и без входа; процесс завершается по EOF stdin.
-  - Граница доступа: `--safe-mode` отключает и явный `--mcp-config` (проверено через
-    `mcp_status`: список пуст), поэтому мост Amby работает с `--restricted
+- 2026-10-31, Claude Code CLI (stage 4, second part). Adapter: `src-tauri/src/ai/claude_code.rs`,
+  `claude_code/launch.rs`, `claude_code/home.rs`; in the interface — the `claude-cli` method for Anthropic,
+  the `claude-code` provider on the wire, a shared CLI card in `connections-manager.tsx`.
+  Checked manually on Claude Code 2.1.312 in a separate `CLAUDE_CONFIG_DIR` (without signing in):
+  - `claude auth status --json` → `{"loggedIn":false,…}`, exit code 1; `claude auth login
+--claudeai` prints "Opening browser…" and a link, opens the browser itself and listens on a
+    `localhost` port (the `open` call was intercepted by a substitute in `PATH`); `auth logout` exists.
+    The sign-in was **not completed**: the owner will check OAuth.
+  - Catalog: `-p --input-format stream-json --output-format stream-json` + the request
+    `{"type":"control_request","request_id":…,"request":{"subtype":"initialize"}}` returns
+    `models[]` (`value`, `displayName`) without a prompt and without signing in; the process exits on stdin EOF.
+  - Access boundary: `--safe-mode` also disables an explicit `--mcp-config` (checked via
+    `mcp_status`: the list is empty), so the Amby bridge works with `--restricted
 --strict-mcp-config --disable-slash-commands --tools "" --permission-mode dontAsk
---permission-prompts none --no-session-persistence` и `--allowedTools` только с
-    `mcp__amby__*`. Токен моста передаётся переменной `AMBY_MCP_TOKEN` (в `--mcp-config` стоит
-    `${AMBY_MCP_TOKEN}`, раскрытие подтверждено), в argv его нет. Строка `init` реального
-    потока (`tools`, `mcp_servers`, `skills`) проверяется охранником: любой инструмент не из
-    моста, чужой MCP-сервер или навык, как и `tool_use` вне списка, останавливают ответ
-    (`agentBoundary`) и убивают процесс. Окружение очищено (`env_clear`, без `ANTHROPIC_API_KEY`
-    и токенов), рабочая папка пустая, `DISABLE_AUTOUPDATER`/`DISABLE_TELEMETRY` включены.
-  - Без входа реальный поток даёт `assistant` с `error:"authentication_failed"` и `result`
-    с `is_error:true` («Please run /login») — это `missingCredential`.
-    Не проверено на реальном аккаунте: формы `stream_event`/`tool_use` после входа (разобраны по
-    документации Agent SDK и покрыты fake-CLI), работа моста с настоящим MCP-запросом Claude,
-    устойчивость границы к атакующему тексту заметки, а также `auth login` в sandbox (локальный
-    OAuth-listener там запрещён; вне sandbox вход не запускался по условию задачи).
-    Тесты (написаны вместе с кодом, а не до него): Rust `ai::claude_code` — 52 теста: разбор
-    потока, охранник, argv, окружение, fake-CLI (отсутствие, неподдерживаемая версия, нет входа,
-    битый ответ, отмена, таймаут простоя и общий, завершение дочернего процесса, вход/выход,
-    каталог); `consent` — отдельное согласие; vitest — `connections-claude.test.ts`,
+--permission-prompts none --no-session-persistence` and `--allowedTools` only with
+    `mcp__amby__*`. The bridge token is passed via the `AMBY_MCP_TOKEN` variable (`--mcp-config` holds
+    `${AMBY_MCP_TOKEN}`, expansion confirmed); it is not in argv. The `init` line of the real
+    stream (`tools`, `mcp_servers`, `skills`) is checked by the guard: any tool that is not from the
+    bridge, a foreign MCP server or skill, like a `tool_use` outside the list, stops the response
+    (`agentBoundary`) and kills the process. The environment is cleared (`env_clear`, without `ANTHROPIC_API_KEY`
+    and tokens), the working folder is empty, `DISABLE_AUTOUPDATER`/`DISABLE_TELEMETRY` are on.
+  - Without signing in, the real stream gives an `assistant` with `error:"authentication_failed"` and a `result`
+    with `is_error:true` ("Please run /login") — this is `missingCredential`.
+    Not verified on a real account: the `stream_event`/`tool_use` shapes after signing in (parsed from the
+    Agent SDK documentation and covered by a fake CLI), the bridge working with a real Claude MCP request,
+    the boundary's resistance to hostile note text, and also `auth login` in the sandbox (the local
+    OAuth listener is forbidden there; outside the sandbox the sign-in was not started, by the task's terms).
+    Tests (written together with the code, not before it): Rust `ai::claude_code` — 52 tests: stream
+    parsing, guard, argv, environment, fake CLI (absence, unsupported version, not signed in,
+    broken response, cancellation, idle and overall timeout, child process termination, sign-in/sign-out,
+    catalog); `consent` — separate consent; vitest — `connections-claude.test.ts`,
     `connections-manager-claude.test.tsx`, `ai-panel-claude.test.tsx`; native IPC —
-    `tests/native/ai-contract.ts` (статус, отказ без согласия, ход и каталог при выполненном входе).
+    `tests/native/ai-contract.ts` (status, refusal without consent, turn and catalog with sign-in completed).
 
 ---
 
-## Часть 3. ИИ-агент Amby: архитектура и полный план реализации
+## Part 3. The Amby AI agent: architecture and full implementation plan
 
-_Бывший файл `ai-harness-plan.md`, объединён 2026-11-03._
+_Formerly the file `ai-harness-plan.md`, merged 2026-11-03._
 
-> **Статус на 2026-11-02:** план, не реализован. Из него начат только этап 1 (панель и ИИ, который только читает — [ai-stage-1-plan](ai.md)); реестр действий, журнал, права записи и откат (H-10…H-24) не начаты.
+> **Status as of 2026-11-02:** a plan, not implemented. Only stage 1 has been started (the panel and an AI that only reads — [ai-stage-1-plan](ai.md)); the action registry, the log, write permissions and undo (H-10…H-24) have not been started.
 
-Статус: план, реализация не начата в рамках этого документа.  
-Дата: 2026-09-30. Версия плана: 2. Первая редакция: 2026-09-24.
+Status: a plan; implementation has not started within the scope of this document.
+Date: 2026-09-30. Plan version: 2. First edition: 2026-09-24.
 
-План подготовлен по текущему рабочему дереву, включая незакоммиченные изменения.
-Наличие файла или существующего теста не означает, что соответствующая возможность
-проверена для агентного использования. Перед реализацией выполняется пакет H-00.
+The plan was prepared from the current working tree, including uncommitted changes.
+The presence of a file or an existing test does not mean that the corresponding capability
+has been verified for agent use. Before implementation, package H-00 is carried out.
 
-Связанные документы:
+Related documents:
 
-- [Оркестрация: пакеты работ, зависимости и задания агентам](ai.md).
-- [Приёмка: сценарии, критерии и доказательства](ai.md).
-- [Подробный контракт harness: действия, права, runtime, навыки и плагины](../ai-harness.md).
-- [Формат журнала, состояния и восстановления](../ai-state-format.md).
-- [Начальный каталог действий с привязкой к текущим API](../ai-action-catalog.md).
-- [Контракт файлов и сохранения](../vault-format.md).
-- [Совместимость Markdown](../markdown-compatibility.md).
-- [Нативная проверка storage](../native-storage-contract.md).
-- [Базы: система](../database-system.md), [формат](../database-format.md), [runtime](../database-runtime.md).
-- [Темы и локализация](../themes-and-localization.md).
-- [План модульной архитектуры](modules.md).
+- [Orchestration: work packages, dependencies and assignments to agents](ai.md).
+- [Acceptance: scenarios, criteria and evidence](ai.md).
+- [Detailed harness contract: actions, permissions, runtime, skills and plugins](../ai-harness.md).
+- [Log, state and recovery format](../ai-state-format.md).
+- [Initial action catalog tied to the current APIs](../ai-action-catalog.md).
+- [File and save contract](../vault-format.md).
+- [Markdown compatibility](../markdown-compatibility.md).
+- [Native storage check](../native-storage-contract.md).
+- [Databases: system](../database-system.md), [format](../database-format.md), [runtime](../database-runtime.md).
+- [Themes and localization](../themes-and-localization.md).
+- [Modular architecture plan](modules.md).
 
-Во второй редакции добавлены проекты конкретных контрактов и учтено рабочее
-дерево на 2026-09-30. Они уточняют режимы выполнения, field-level permissions,
-editor barriers, результаты частичной записи, crash recovery, обучение и
-plugin lifecycle. H-00/H-01 остаются запланированными: перед реализацией нужны
-актуальный baseline, полная UI-инвентаризация, schemas и исполняемые fixtures.
-Действующие форматы данных имеют приоритет перед предлагаемыми агентными
-adapters; найденные расхождения зафиксированы в каталоге для разрешения в H-00.
+The second edition adds drafts of concrete contracts and accounts for the working
+tree as of 2026-09-30. They refine execution modes, field-level permissions,
+editor barriers, partial-write results, crash recovery, learning and
+plugin lifecycle. H-00/H-01 remain planned: before implementation we need
+a current baseline, a full UI inventory, schemas and executable fixtures.
+The existing data formats take priority over the proposed agent
+adapters; discrepancies found are recorded in the catalog to be resolved in H-00.
 
-### 1. Цель и границы
+### 1. Goal and boundaries
 
-ИИ выполняет содержательные действия пользователя через API приложения: работает
-с заметками, папками, базами, представлениями, Canvas, Excalidraw, оформлением,
-настройками и разрешёнными расширениями. Пользователь может попросить создать
-плагин и последовательно дорабатывать его в приложении.
+The AI performs the user's substantive actions through the application API: it works
+with notes, folders, databases, views, Canvas, Excalidraw, appearance,
+settings and permitted extensions. The user can ask it to create a
+plugin and iterate on it step by step inside the application.
 
-Каждое действие наблюдаемо. Каждое поддерживаемое изменение имеет описанный
-способ восстановления. Агент работает только в выданной области пространства
-и с разрешёнными ключами настроек. Обучение навыкам подчиняется тем же ограничениям.
+Every action is observable. Every supported change has a described
+way of being restored. The agent works only within the granted area of the space
+and with permitted settings keys. Skill learning is subject to the same restrictions.
 
-Обязательные продуктовые требования:
+Mandatory product requirements:
 
-1. Действия доступны без кликов по интерфейсу и без монтирования редактора.
-2. UI и агент используют общую доменную логику, сохраняющую контракты Amby.
-3. Журнал охватывает чтение, поиск, попытки изменений, отказы, ошибки,
-   проверки, отмену, откат, работу с памятью, навыками и плагинами.
-4. Откат отдельного действия и задания целиком сохраняет последующие правки
-   пользователя. Конфликт показывается явно.
-5. Задание переживает закрытие панели и восстанавливается после перезапуска
-   приложения без повторного создания объектов.
-6. Агент знает доступные возможности текущей версии и включённых модулей.
-7. Навыки версионируются; улучшения проходят проверку и могут быть отменены.
-8. Пользователь видит область доступа, ход работы, результат, историю,
-   использованные навыки и может остановить выполнение.
-9. Облачному провайдеру передаётся только разрешённый контекст. Локальное
-   хранение Amby не означает автоматически локальную обработку моделью.
-10. Расход модели и фонового обучения ограничен отдельными бюджетами.
+1. Actions are available without clicking through the interface and without mounting an editor.
+2. The UI and the agent share domain logic that preserves the Amby contracts.
+3. The log covers reading, search, change attempts, refusals, errors,
+   checks, cancellation, undo, and work with memory, skills and plugins.
+4. Undoing a single action and a whole job preserves the user's later edits.
+   A conflict is shown explicitly.
+5. A job survives closing the panel and is restored after an application restart
+   without re-creating objects.
+6. The agent knows the available capabilities of the current version and of enabled modules.
+7. Skills are versioned; improvements pass verification and can be undone.
+8. The user sees the access scope, progress, result, history and
+   the skills used, and can stop execution.
+9. Only permitted context is passed to a cloud provider. Amby's local
+   storage does not automatically mean local processing by the model.
+10. Spending on the model and on background learning is limited by separate budgets.
 
-Термин «все действия пользователя» означает покрытие инвентаризации H-00.
-Каждое действие получает статус `implemented`, `requiresUserInteraction`,
-`blockedByPolicy` или `missingImplementation` с причиной и пакетом-владельцем.
-Неизвестные возможности и заглушки не считаются поддержкой. Все заявленные
-в этом плане сценарии реализуются; намеренные границы отмечаются отдельно.
+The term "all user actions" means coverage of the H-00 inventory.
+Each action gets a status of `implemented`, `requiresUserInteraction`,
+`blockedByPolicy` or `missingImplementation` with a reason and an owning package.
+Unknown capabilities and stubs do not count as support. All scenarios declared
+in this plan are implemented; intentional boundaries are marked separately.
 
-За пределами обычного агентного доступа: произвольный shell, изменение кода
-самого приложения, чтение секретов, изменение политики безопасности и журнала,
-самовольное расширение области, публикация наружу, обновление бинарника Amby.
-Выбор системной папки и ввод секрета остаются действиями пользователя.
-Плагин может расширять функциональность только через проверенный SDK и выданные
-права; возможность писать плагин не выдаёт системные полномочия.
+Outside ordinary agent access: arbitrary shell, changing the code
+of the application itself, reading secrets, changing the security policy and the log,
+unilateral expansion of the scope, publishing outward, updating the Amby binary.
+Choosing a system folder and entering a secret remain user actions.
+A plugin may extend functionality only through the verified SDK and granted
+permissions; the ability to write a plugin does not grant system privileges.
 
-### 2. Исходное состояние
+### 2. Starting state
 
-| Область    | Наблюдаемая основа                                                                                                                                | Что требуется                                                                               |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| ИИ         | `src/components/workspace/ai-panel.tsx`, `src/lib/ai.ts`, `src-tauri/src/ai.rs`: текстовый чат, streaming, отмена, несколько семейств провайдеров | Структурированные tool calls, долговечные задания, проверенный контекст, журнал             |
-| Данные     | `src/lib/storage/port.ts`, `database-port.ts`, Rust `commands/`, `bundle/`, `database/`                                                           | Общий контракт операций с происхождением, scope, preconditions и receipt                    |
-| Редакторы  | `use-doc-store.ts`, `autosave/autosave-coordinator.ts`, recovery, serialization lifecycle                                                         | Координация агентных изменений с открытыми буферами и несколькими окнами                    |
-| Схемы      | `src/lib/canvas-format.ts`, `sketch-format.ts`, редакторы Canvas/Excalidraw                                                                       | Операции над элементами без UI, layout, сохранение неизвестных полей и проверка изображения |
-| Настройки  | `app-config.ts`, `use-settings-store.ts`, `settings-repository.ts`, `src/themes/`                                                                 | Узкие типизированные операции, backend allowlist ключей, CAS и откат отдельных значений     |
-| Расширения | `src/lib/modules/`, Rust `package_manager.rs`, `commands/modules.rs`                                                                              | Аудит реального исполнения, единая политика, изоляция SDK, мастерская                       |
-| Проверки   | Vitest, Rust tests, native contract/UI runners                                                                                                    | Детерминированный fake provider с настоящими mutations, failure injection, eval corpus      |
+| Area       | Observed basis                                                                                                                                 | What is required                                                                        |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| AI         | `src/components/workspace/ai-panel.tsx`, `src/lib/ai.ts`, `src-tauri/src/ai.rs`: text chat, streaming, cancellation, several provider families | Structured tool calls, durable jobs, verified context, log                              |
+| Data       | `src/lib/storage/port.ts`, `database-port.ts`, Rust `commands/`, `bundle/`, `database/`                                                        | A shared operation contract with provenance, scope, preconditions and receipt           |
+| Editors    | `use-doc-store.ts`, `autosave/autosave-coordinator.ts`, recovery, serialization lifecycle                                                      | Coordinating agent changes with open buffers and multiple windows                       |
+| Schemas    | `src/lib/canvas-format.ts`, `sketch-format.ts`, Canvas/Excalidraw editors                                                                      | Element operations without UI, layout, preserving unknown fields and image verification |
+| Settings   | `app-config.ts`, `use-settings-store.ts`, `settings-repository.ts`, `src/themes/`                                                              | Narrow typed operations, a backend allowlist of keys, CAS and undo of individual values |
+| Extensions | `src/lib/modules/`, Rust `package_manager.rs`, `commands/modules.rs`                                                                           | Audit of real execution, a single policy, SDK isolation, a workshop                     |
+| Checks     | Vitest, Rust tests, native contract/UI runners                                                                                                 | A deterministic fake provider with real mutations, failure injection, an eval corpus    |
 
-`CommunityPluginSandbox` и Worker runtime существуют, но отсутствие DOM в Worker
-само по себе не доказывает изоляцию сети, IPC и host API. H-70 проверяет обходы
-реальным исполняемым кодом в production runtime. Прошлые аудиты и release notes
-содержат сведения о разных состояниях дерева; H-00 проверяет актуальные факты.
+`CommunityPluginSandbox` and the Worker runtime exist, but the absence of a DOM in the Worker
+does not by itself prove isolation of the network, IPC and the host API. H-70 checks for bypasses
+with real executable code in the production runtime. Past audits and release notes
+contain information about different states of the tree; H-00 verifies the current facts.
 
-Текущий `package.json` задаёт `verify -> verify:full`, включая форматирование,
-Knip, Clippy, Rust tests и проверку bindings. Описание старого сокращённого
-`verify` в документах не уменьшает этот gate. В `vitest.config.ts` сейчас
-включены также `tests/**/*.test.{ts,tsx}`; существующие component tests учитывать,
-но не принимать за доказательство поведения нативного приложения.
+The current `package.json` sets `verify -> verify:full`, including formatting,
+Knip, Clippy, Rust tests and the bindings check. A description of the old shortened
+`verify` in documents does not reduce this gate. `vitest.config.ts` now
+also includes `tests/**/*.test.{ts,tsx}`; take existing component tests into account,
+but do not treat them as proof of native application behavior.
 
-### 3. Архитектура
+### 3. Architecture
 
 ```mermaid
 flowchart TD
-  U[Пользователь: запрос и область] --> UI[Панель задач и scoped context bridge]
-  UI --> IPC[Storage / типизированный Tauri IPC]
-  IPC --> R[Runtime заданий в Rust]
-  R --> M[Адаптер модели]
+  U[User: request and scope] --> UI[Task panel and scoped context bridge]
+  UI --> IPC[Storage / typed Tauri IPC]
+  IPC --> R[Job runtime in Rust]
+  R --> M[Model adapter]
   M --> R
-  R --> C[Каталог действий и схемы]
-  R --> P[Backend policy и preconditions]
-  P --> J[Журнал intent и снимки]
-  J --> D[Общие доменные операции Amby]
-  D --> V[Проверка durable результата]
+  R --> C[Action catalog and schemas]
+  R --> P[Backend policy and preconditions]
+  P --> J[Intent log and snapshots]
+  J --> D[Shared Amby domain operations]
+  D --> V[Durable result verification]
   V --> J
   J --> UI
-  J --> L[Предложение урока]
-  L --> E[Проверки на тестовых пространствах]
-  E --> S[Версии навыков и scoped память]
+  J --> L[Lesson proposal]
+  L --> E[Checks on test spaces]
+  E --> S[Skill versions and scoped memory]
   S --> R
 ```
 
-#### 3.1 Размещение ответственности
+#### 3.1 Allocation of responsibility
 
-- Rust владеет политикой, run lifecycle, журналом, очередью действий,
-  credentials, inference transport, восстановлением и durable mutations.
-- UI передаёт выбранные пользователем объекты/область и наблюдения редактора,
-  отображает состояние, запрашивает действия через storage. Закрытие панели
-  не является владельцем жизненного цикла задания.
-- Открытые буферы остаются в существующих stores и autosave coordinator.
-  Новый bridge согласует их с runtime, не создавая вторую модель документов.
-- Каталог действий принадлежит приложению. Модель получает только разрешённые
-  дескрипторы и не регистрирует новые привилегированные обработчики.
-- Доменная операция не вызывает LLM и не зависит от открытой вкладки. Сетевой
-  вызов модели никогда не выполняется под блокировкой записи vault.
-- События выполнения имеют последовательные номера. UI восстанавливает
-  пропущенные события из журнала, а не только слушает transient events.
+- Rust owns policy, run lifecycle, the log, the action queue,
+  credentials, inference transport, recovery and durable mutations.
+- The UI passes the objects/scope selected by the user and editor observations,
+  displays state, and requests actions through storage. Closing the panel
+  does not own the job lifecycle.
+- Open buffers stay in the existing stores and the autosave coordinator.
+  The new bridge reconciles them with the runtime without creating a second document model.
+- The action catalog belongs to the application. The model receives only permitted
+  descriptors and does not register new privileged handlers.
+- A domain operation does not call an LLM and does not depend on an open tab. A network
+  call to the model is never made under the vault write lock.
+- Execution events have sequence numbers. The UI restores
+  missed events from the log, not only by listening to transient events.
 
-Предлагаемые новые границы, окончательное разбиение фиксируется в H-01:
+Proposed new boundaries; the final split is fixed in H-01:
 
 ```text
 src-tauri/src/app_actions/    # registry, policy, executor, receipts, domain adapters
 src-tauri/src/agent/          # runtime, context, providers, journal, recovery,
                              # skills, learning, evaluation, plugin authoring
 src-tauri/src/commands/agent.rs
-src/lib/storage/agent-port.ts # через существующий StoragePort / adapters
-src/lib/agent/               # чистые UI-facing модели и helpers
+src/lib/storage/agent-port.ts # via the existing StoragePort / adapters
+src/lib/agent/               # pure UI-facing models and helpers
 src/components/workspace/ai/ # tasks, scope, changes, history, skills, workbench
-tests/fixtures/agent/        # только synthetic fixtures
+tests/fixtures/agent/        # synthetic fixtures only
 ```
 
-Это целевые каталоги, а не свидетельство существующей реализации. Большие модули
-разделять по ответственности; `lib.rs` и `workspace.tsx` остаются точками сборки.
+These are target directories, not evidence of an existing implementation. Split large modules
+by responsibility; `lib.rs` and `workspace.tsx` remain assembly points.
 
-#### 3.2 Контракт действия
+#### 3.2 Action contract
 
-`ActionDescriptor` содержит стабильный `id`, версию, описание, схемы входа/выхода,
-module dependency, effect class, требования к правам, доступность preview,
-тип проверки результата, класс отмены и лимиты размеров.
+`ActionDescriptor` contains a stable `id`, a version, a description, input/output schemas,
+module dependency, effect class, permission requirements, preview availability,
+result verification type, undo class and size limits.
 
-`ActionRequest` содержит `runId`, `operationId`, параметры и preconditions.
-Actor, действующая grant и проверенные resource references назначаются host,
-а не доверяются полям, присланным моделью или плагином.
+`ActionRequest` contains `runId`, `operationId`, parameters and preconditions.
+The actor, the effective grant and verified resource references are assigned by the host,
+and are not trusted from fields sent by the model or a plugin.
 
-`ActionReceipt` содержит реальный исход, созданные IDs, before/after revisions,
-перечень затронутых ресурсов, journal references, verification result,
-состояние индекса и возможность отката. `succeeded` с cache status `pending`
-отличается от `failedBeforePublish`; восстановление индекса не повторяет уже
-выполненную запись. Точная таблица outcomes находится в подробном контракте.
+`ActionReceipt` contains the real outcome, created IDs, before/after revisions,
+the list of affected resources, journal references, the verification result,
+the index state and undo availability. `succeeded` with cache status `pending`
+differs from `failedBeforePublish`; index recovery does not repeat a write
+that has already been performed. The exact outcomes table is in the detailed contract.
 
-Общие ошибки: `permissionDenied`, `scopeChanged`, `moduleUnavailable`,
+Common errors: `permissionDenied`, `scopeChanged`, `moduleUnavailable`,
 `revisionConflict`, `dirtyBufferConflict`, `validationFailed`,
 `journalUnavailable`, `quotaExceeded`, `cancelled`, `outcomeUnknown`,
-`unsupportedCapability`, `idempotencyConflict`. Transport errors остаются
-отдельно от domain errors.
+`unsupportedCapability`, `idempotencyConflict`. Transport errors stay
+separate from domain errors.
 
-Видимые изменения интерфейса, например открытие вкладки, могут иметь session-only
-undo. Durable изменения должны иметь durable inverse. Внешние необратимые
-эффекты не включаются в общий обещанный откат; по умолчанию они недоступны.
+Visible interface changes, for example opening a tab, may have session-only
+undo. Durable changes must have a durable inverse. External irreversible
+effects are not included in the general promised undo; by default they are unavailable.
 
-#### 3.3 Каталог покрытия
+#### 3.3 Coverage catalog
 
-H-00 расширяет следующую таблицу до каждой реальной пользовательской операции.
-H-46 закрывает пробелы; ограничение модулем не превращает реализацию в `done`.
+H-00 extends the following table to every real user operation.
+H-46 closes the gaps; restricting to a module does not turn an implementation into `done`.
 
-| Домен         | Минимальное покрытие                                                                                    | Основные пакеты  |
-| ------------- | ------------------------------------------------------------------------------------------------------- | ---------------- |
-| Заметки       | Поиск/чтение, создание, точечные правки body/source, заголовки, списки, таблицы, ссылки, колонки        | H-11, H-32, H-40 |
-| Структура     | Папки, rename/move, bundles/layers, archive/trash/restore, согласованные backlinks                      | H-40             |
-| Метаданные    | Теги, иконки, разрешённый frontmatter, custom properties, закрепления                                   | H-40, H-45       |
-| Базы          | Attached/standalone, schema, options, rows/values, relation, formula, templates, assets, YAML sync      | H-41             |
-| Представления | Поддерживаемые layout, фильтры, сортировка, группировка, видимость свойств, linked views                | H-41             |
-| Canvas        | Карточки заметок/текста/локальных вложений, связи, группы, координаты и layout                          | H-42             |
-| Excalidraw    | Наброски из редактируемых элементов, текст, стрелки, группы, изображения из разрешённых assets, заметки | H-43             |
-| Внешний вид   | Валидные темы, отдельные токены, доступные шрифты/масштаб, preview и откат                              | H-44             |
-| Настройки     | Зарегистрированные ключи workspace/global, панели, раскладка, доступные shortcuts                       | H-44, H-45       |
-| Модули        | Список, состояние, разрешённое включение/выключение, зависимости и пресеты                              | H-45             |
-| История       | Scoped просмотр своих действий, diff, отмена, восстановление после сбоя                                 | H-23, H-24, H-33 |
-| Навыки/память | Просмотр, создание, изменение, version pinning, disable/revert/forget                                   | H-50—H-63        |
-| Плагины       | Создание проекта, изменение кода, тест, preview, локальная установка, обновление, rollback              | H-70—H-74        |
+| Domain        | Minimum coverage                                                                                   | Main packages    |
+| ------------- | -------------------------------------------------------------------------------------------------- | ---------------- |
+| Notes         | Search/read, create, targeted body/source edits, headings, lists, tables, links, columns           | H-11, H-32, H-40 |
+| Structure     | Folders, rename/move, bundles/layers, archive/trash/restore, consistent backlinks                  | H-40             |
+| Metadata      | Tags, icons, permitted frontmatter, custom properties, pins                                        | H-40, H-45       |
+| Databases     | Attached/standalone, schema, options, rows/values, relation, formula, templates, assets, YAML sync | H-41             |
+| Views         | Supported layouts, filters, sorting, grouping, property visibility, linked views                   | H-41             |
+| Canvas        | Cards for notes/text/local attachments, links, groups, coordinates and layout                      | H-42             |
+| Excalidraw    | Sketches from editable elements, text, arrows, groups, images from permitted assets, notes         | H-43             |
+| Appearance    | Valid themes, individual tokens, available fonts/scale, preview and undo                           | H-44             |
+| Settings      | Registered workspace/global keys, panels, layout, available shortcuts                              | H-44, H-45       |
+| Modules       | List, state, permitted enabling/disabling, dependencies and presets                                | H-45             |
+| History       | Scoped view of its own actions, diff, undo, recovery after a failure                               | H-23, H-24, H-33 |
+| Skills/memory | Viewing, creating, changing, version pinning, disable/revert/forget                                | H-50—H-63        |
+| Plugins       | Project creation, code changes, test, preview, local install, update, rollback                     | H-70—H-74        |
 
-Неподдерживаемые приложением типы представлений, произвольные системные шрифты,
-новые форматы схем и незарегистрированные настройки не выдумываются агентом.
-Расширение продукта проводится отдельным явным пакетом, если оно необходимо
-для обязательного сценария. Генерация растровых изображений внешним сервисом
-не требуется для редактируемых набросков Excalidraw.
+View types unsupported by the application, arbitrary system fonts,
+new schema formats and unregistered settings are not invented by the agent.
+Extending the product is done through a separate explicit package if it is needed
+for a mandatory scenario. Generating raster images through an external service
+is not required for editable Excalidraw sketches.
 
-### 4. Политика области доступа
+### 4. Access scope policy
 
-Grant выдаётся backend после явного выбора в доверенном UI и содержит:
+A grant is issued by the backend after an explicit choice in the trusted UI and contains:
 
-- persistent workspace identity, canonical root и текущую vault generation;
-- отдельные read/write roots и при необходимости разрешённые object IDs;
-- allowlist действий и ключей настроек с `workspace`/`global` scope;
-- доступные namespace памяти, навыков, plugin project и журнала;
-- выбранный provider profile, допустимость передачи контента этому provider;
-- срок действия/ревизию grant, бюджеты и правила подтверждений.
+- a persistent workspace identity, the canonical root and the current vault generation;
+- separate read/write roots and, if needed, permitted object IDs;
+- an allowlist of actions and settings keys with `workspace`/`global` scope;
+- the available namespaces for memory, skills, plugin project and log;
+- the selected provider profile and whether content may be sent to this provider;
+- the grant's expiry/revision, budgets and confirmation rules.
 
-По умолчанию задание принадлежит одному workspace. Работа только с глобальными
-настройками возможна с отдельной grant. Смешанное задание «заметки + глобальная
-тема» явно показывает обе области и применяет права к каждой операции.
+By default a job belongs to a single workspace. Work on global settings alone
+is possible with a separate grant. A mixed job, "notes + global theme", explicitly
+shows both scopes and applies permissions to each operation.
 
-Policy проверяется до чтения, до передачи контекста модели и непосредственно
-перед публикацией изменений. Смена vault, отзыв прав, выключение модуля и
-изменение policy revision останавливают дальнейшие действия. Старый receipt
-или подтверждение не выдаёт право работать в новом контексте.
+Policy is checked before reading, before passing context to the model, and immediately
+before publishing changes. Switching the vault, revoking permissions, disabling a module and
+a change of policy revision stop further actions. An old receipt
+or confirmation does not grant the right to work in a new context.
 
-Обязательные пограничные случаи:
+Mandatory edge cases:
 
 - Canonical containment, symlinks/junctions, drive/UNC, case-only rename,
-  Unicode paths, несуществующий leaf с проверенным родителем, TOCTOU.
-- Все затронутые ресурсы rename/move/refactor/batch входят в write scope.
-  Backlink за пределами scope блокирует общий refactor до нового решения
-  пользователя. Агент не получает текст или имя недоступной заметки.
-- Relation, transclusion, preview, counts и aggregates не раскрывают данные
-  соседнего раздела. Фильтрация scope выполняется до выдачи результатов и лимита.
-- Схема базы может лежать за пределами разрешённой папки со строками: доступ
-  к строкам не даёт автоматически право менять manifest всей базы.
-- Scope ограничивает также историю, старые snapshots, embeddings, память,
-  исходники навыков, вывод тестов и renderer previews. Контекст, накопленный до
-  сужения прав, пересобирается; старые кеши и provider conversation IDs не
-  переиспользуются для закрытых данных.
-- Содержимое заметки/импортированного навыка является данными. Оно не становится
-  системной инструкцией и не может изменять policy. Текущий chat prompt,
-  вставляющий заметку в system text, заменить в H-32.
-- API keys остаются в credential storage. Настройка внешнего вида не даёт права
-  менять endpoint модели, сеть, credentials, sandbox или правила логирования.
-- Внутренние операции с журналом разрешены host, но raw доступ к этим каталогам
-  через файловые инструменты агента отсутствует.
+  Unicode paths, a non-existent leaf with a verified parent, TOCTOU.
+- All resources affected by a rename/move/refactor/batch fall within the write scope.
+  A backlink outside the scope blocks the general refactor until a new decision
+  by the user. The agent does not receive the text or name of an inaccessible note.
+- Relation, transclusion, preview, counts and aggregates do not reveal data
+  from an adjacent section. Scope filtering is applied before results are returned and before the limit.
+- A database schema may live outside the permitted folder holding its rows: access
+  to the rows does not automatically grant the right to change the manifest of the whole database.
+- Scope also constrains history, old snapshots, embeddings, memory,
+  skill sources, test output and renderer previews. Context accumulated before
+  rights were narrowed is rebuilt; old caches and provider conversation IDs are not
+  reused for closed data.
+- The content of a note/an imported skill is data. It does not become
+  a system instruction and cannot change policy. The current chat prompt,
+  which inserts a note into the system text, is to be replaced in H-32.
+- API keys stay in credential storage. An appearance setting does not grant the right
+  to change the model endpoint, network, credentials, sandbox or logging rules.
+- Internal operations on the log are permitted to the host, but raw access to these directories
+  through the agent's file tools is absent.
 
-### 5. Журнал, данные для отмены и crash recovery
+### 5. Log, undo data and crash recovery
 
-#### 5.1 Durable формат
+#### 5.1 Durable format
 
-Предлагаемый формат v1: приложение хранит AI state в выделенном подкаталоге
-app data, `ai/v1/workspaces/<opaque-workspace-id>/`; глобальные задачи используют
-отдельный `ai/v1/global/`. Путь не выдаётся модели как writable directory.
-Workspace identity не основана только на basename папки и не меняет note IDs.
-Перемещение/копирование vault требует явной проверки привязки журнала к root;
-по совпадению имён старые grants не восстанавливаются.
+Proposed format v1: the application stores AI state in a dedicated subdirectory of
+app data, `ai/v1/workspaces/<opaque-workspace-id>/`; global tasks use
+a separate `ai/v1/global/`. The path is not given to the model as a writable directory.
+Workspace identity is not based on the folder basename alone and does not change note IDs.
+Moving/copying a vault requires an explicit check of the log's binding to the root;
+old grants are not restored on a name match.
 
-Источник истины — версионированные immutable event/operation records и
-content-addressed blobs исходных данных. SQLite-проекция для поиска по журналу
-перестраивается из этих записей и не смешивается с `.amby/notes.db`.
-Проект точного файлового контракта и схемы публикации описан в
-[ai-state-format](../ai-state-format.md). H-01 закрепляет его schemas; H-21 доказывает
-crash consistency. Новые версии формата имеют preflight, backup, migration
-outcome и документированный rollback.
+The source of truth is versioned immutable event/operation records and
+content-addressed blobs of the original data. The SQLite projection for searching the log
+is rebuilt from these records and is not mixed with `.amby/notes.db`.
+A draft of the exact file contract and the publication schema is described in
+[ai-state-format](../ai-state-format.md). H-01 fixes its schemas; H-21 proves
+crash consistency. New format versions have a preflight, backup, migration
+outcome and a documented rollback.
 
-Запись содержит event sequence, timestamps, run/step/operation ID, actor,
+A record contains an event sequence, timestamps, run/step/operation ID, actor,
 scope reference, action/schema version, redacted parameters, resource IDs,
-expected/actual revisions, outcome, verification и inverse references.
-Learning proposals ссылаются на evidence events. История не хранит скрытые
-рассуждения модели; пользователь получает краткое объяснение действия.
+expected/actual revisions, outcome, verification and inverse references.
+Learning proposals reference evidence events. The history does not store the model's hidden
+reasoning; the user gets a short explanation of the action.
 
-Отдельные события фиксируют запрос/завершение модели с разрешёнными references
-контекста и usage, изменение плана, запрос/решение подтверждения, смену grant,
-pause/resume, старт/результат фоновой проверки. Это позволяет восстановить
-последовательность работы, даже если модель не вызвала ни одного инструмента.
+Separate events record the model request/completion with permitted context
+references and usage, plan changes, confirmation request/decision, grant changes,
+pause/resume, start/result of a background check. This makes it possible to reconstruct the
+sequence of work even if the model never called a tool.
 
-Credentials, заголовки авторизации, секреты из transport errors не попадают
-в журнал. Полный raw prompt не логируется по умолчанию. Текст заметок в снимках
-для отмены защищён тем же scope и хранится локально; его не отправляют модели
-целиком ради перечисления истории. Provider usage при отсутствии данных
-помечается `unknown`, а не нулём.
+Credentials, authorization headers and secrets from transport errors do not enter
+the log. The full raw prompt is not logged by default. Note text in undo
+snapshots is protected by the same scope and stored locally; it is not sent to the model
+in full just to enumerate the history. Provider usage, when data is absent,
+is marked `unknown`, not zero.
 
-#### 5.2 Порядок изменения
+#### 5.2 Order of a change
 
-1. Разрешить action, определить полный набор ресурсов, проверить grant,
-   module state, редакторские буферы и expected revisions.
-2. Взять существующий механизм serialization/locks в стабильном порядке;
-   повторить preconditions на актуальном состоянии.
-3. Надёжно сохранить необходимые before blobs, inverse plan и `prepared` intent.
-   Неудача журнала/снимка запрещает mutation.
-4. Выполнить доменную операцию через существующие atomic/no-replace helpers.
-5. Перечитать результат, сохранить receipt/outcome и verification. Опубликовать
-   события UI и обновить derived state без повторной записи источника.
-6. При сбое между шагами recovery сопоставляет intent, before/after fingerprints
-   и domain recovery records. Неоднозначность даёт `needsRecovery`, не blind retry.
+1. Resolve the action, determine the full set of resources, check the grant,
+   module state, editor buffers and expected revisions.
+2. Take the existing serialization/locks mechanism in a stable order;
+   repeat the preconditions on the current state.
+3. Reliably save the necessary before blobs, the inverse plan and a `prepared` intent.
+   A log/snapshot failure forbids the mutation.
+4. Perform the domain operation through the existing atomic/no-replace helpers.
+5. Re-read the result, save the receipt/outcome and verification. Publish
+   UI events and update derived state without rewriting the source.
+6. On a failure between steps, recovery matches the intent, before/after fingerprints
+   and domain recovery records. Ambiguity yields `needsRecovery`, not a blind retry.
 
-JSON events публикуются атомарно со sync файла/каталога по возможностям платформы;
-связанные blobs durable до публикации intent. Одновременное изменение файла и
-журнала не объявляется единой filesystem-транзакцией. Окна сбоя между ними
-покрываются reconciliation и failure injection.
+JSON events are published atomically with a file/directory sync, as far as the platform allows;
+related blobs are durable before the intent is published. A simultaneous change of a file and
+the log is not declared a single filesystem transaction. The failure windows between them
+are covered by reconciliation and failure injection.
 
-`operationId` создаётся executor и сохраняется до первого side effect. Повтор
-той же операции с тем же digest возвращает receipt; другие параметры с этим ID
-отклоняются. Повтор пользовательского сообщения получает submission ID,
-предотвращающий повторный запуск при transport retry.
+`operationId` is created by the executor and saved before the first side effect. A repeat
+of the same operation with the same digest returns the receipt; other parameters with that ID
+are rejected. A repeat of a user message gets a submission ID
+that prevents a second launch on transport retry.
 
-#### 5.3 Откат и сроки хранения
+#### 5.3 Undo and retention periods
 
-- Изменение текста восстанавливает bytes снимка при совпадении after revision.
-  Для разрешённого field-level merge проверяются именно изменённые поля.
-- Созданный объект можно убрать, только если его содержимое и новые зависимые
-  объекты не изменены пользователем; undo перемещает его во внутренний архив
-  Amby с manifest восстановления. Системная корзина имеет отдельный manual
-  contract и не включается в обещанный автоматический откат.
-- Rename/move восстанавливает контейнер, слои, пути и переписанные ссылки.
-- Настройки откатываются по затронутым ключам; чужие изменения других ключей
-  сохраняются. Изменение того же ключа вызывает конфликт.
-- База восстанавливает durable metadata/values и затем перестраивает projection.
-- Задача из нескольких шагов откатывается в обратном порядке зависимостей.
-  Частичный откат имеет отдельный статус и перечень оставшихся эффектов.
-- Ручной откат и автоматическая компенсация проходят policy и журналирование.
-  Stop запрещает новые шаги, но не обещает мгновенно прервать atomic publication.
-  Завершённые шаги остаются видимыми; Stop и Undo — разные операции.
-- Каждое восстановление — новая запись. Агент не стирает аудит своего действия.
-- Активные/неразрешённые задачи и обещанные пользователю точки отката защищены
-  от pruning. Лимит диска приостанавливает новые изменения вместо удаления
-  необходимых snapshots. Срок хранения и утрата возможности старого отката
-  видны пользователю; очистка — отдельная пользовательская операция.
-- Удаление заметки по обычной команде не равно полному удалению её исторических
-  копий. Явное forget/purge учитывает snapshots, память, skills evidence и кеши;
-  после очистки UI не обещает восстановление удалённых данных.
+- A text change restores the snapshot bytes if the after revision matches.
+  For a permitted field-level merge, exactly the changed fields are checked.
+- A created object can be removed only if its content and new dependent
+  objects have not been changed by the user; undo moves it to Amby's internal
+  archive with a restore manifest. The system trash has a separate manual
+  contract and is not included in the promised automatic undo.
+- Rename/move restores the container, layers, paths and rewritten links.
+- Settings are undone by the affected keys; other changes to other keys
+  are preserved. A change to the same key causes a conflict.
+- A database restores durable metadata/values and then rebuilds the projection.
+- A multi-step task is undone in reverse dependency order.
+  A partial undo has a separate status and a list of the remaining effects.
+- Manual undo and automatic compensation go through policy and logging.
+  Stop forbids new steps but does not promise to instantly interrupt an atomic publication.
+  Completed steps stay visible; Stop and Undo are different operations.
+- Every restore is a new record. The agent does not erase the audit of its own action.
+- Active/unresolved tasks and undo points promised to the user are protected
+  from pruning. A disk limit pauses new changes instead of deleting
+  needed snapshots. The retention period and the loss of the ability to undo old changes
+  are visible to the user; cleanup is a separate user operation.
+- Deleting a note by the ordinary command does not equal full deletion of its historical
+  copies. An explicit forget/purge accounts for snapshots, memory, skills evidence and caches;
+  after cleanup the UI does not promise recovery of the deleted data.
 
-### 6. Runtime, контекст и редактирование
+### 6. Runtime, context and editing
 
-#### 6.1 Жизненный цикл
+#### 6.1 Lifecycle
 
 Run: `queued → running → waitingForUser / pausedConflict / needsRecovery →
-running → succeeded / failed / cancelled`. Отдельно хранятся завершённые
-операции и `undoAvailable / partiallyUndone / undone`. Остановка процесса
-оставляет interrupted run для recovery; завершение stream ответа не означает
-завершение всей задачи.
+running → succeeded / failed / cancelled`. Completed operations and
+`undoAvailable / partiallyUndone / undone` are stored separately. A process stop
+leaves an interrupted run for recovery; the end of a response stream does not mean
+the end of the whole task.
 
-Долгие задачи имеют checkpoints: цель, выполненные шаги, receipts, открытые
-вопросы, текущий scope, версии модели/API/навыков. Продолжение повторно проверяет
-права и revisions. После перезапуска новые writes не начинаются до reconciliation
-и пользовательского продолжения задачи. Смена модели записывается в checkpoint.
+Long tasks have checkpoints: the goal, completed steps, receipts, open
+questions, the current scope, model/API/skill versions. Resuming re-checks
+permissions and revisions. After a restart, new writes do not begin until reconciliation
+and the user's resumption of the task. A model change is recorded in the checkpoint.
 
-Начальные инженерные лимиты для проверки в H-01: 40 model requests,
-200 tool calls, 10 минут активного исполнения на один run; одна операция имеет
-собственный timeout. Бюджет ожидания пользователя учитывается отдельно, при
-ожидании нет polling модели. Фоновый разбор — не более одного предложения за
-задание, 8 model requests и 2 минут. Значения конфигурируемы пользователем;
-агент не увеличивает их сам. Повтор одинаковой ошибки после двух попыток
-восстановления завершает шаг с диагностикой. Это проектные defaults, не
-описание нынешних настроек приложения.
+Initial engineering limits to verify in H-01: 40 model requests,
+200 tool calls, 10 minutes of active execution per run; a single operation has
+its own timeout. The budget for waiting on the user is counted separately, and while
+waiting there is no model polling. Background analysis — at most one proposal per
+job, 8 model requests and 2 minutes. The values are configurable by the user;
+the agent does not raise them itself. Repeating the same error after two recovery
+attempts ends the step with a diagnostic. These are design defaults, not
+a description of the application's current settings.
 
-#### 6.2 Провайдеры
+#### 6.2 Providers
 
-Ввести общий stream protocol: text delta, tool-call begin/arguments/end,
-tool result, usage, completion, error/cancel. Частичные JSON arguments не
-исполняются. Проверять schema, размер и action availability перед вызовом.
-Разные tools из одного ответа проходят собственные preconditions; конкурентное
-чтение допустимо, конфликтующие writes сериализуются.
+Introduce a common stream protocol: text delta, tool-call begin/arguments/end,
+tool result, usage, completion, error/cancel. Partial JSON arguments are not
+executed. Check the schema, size and action availability before the call.
+Different tools from one response go through their own preconditions; concurrent
+reads are permitted, conflicting writes are serialized.
 
-H-30 сначала доказывает один end-to-end provider adapter, затем реализует
-контракт для текущих семейств Ollama/OpenAI-compatible/Anthropic/Azure.
-Capability probe определяет поддержку инструментов конкретным endpoint/model.
-Несовместимая модель остаётся доступной для обсуждения и получает понятный
-статус отсутствия режима действий. Модель не обязана быть одной марки.
-Structured tool calling не подменяется исполнением кода из текстового ответа.
+H-30 first proves one end-to-end provider adapter, then implements the
+contract for the current Ollama/OpenAI-compatible/Anthropic/Azure families.
+A capability probe determines tool support for a specific endpoint/model.
+An incompatible model stays available for discussion and gets a clear
+status that action mode is absent. The model need not be of one brand.
+Structured tool calling is not replaced by executing code from a text response.
 
-#### 6.3 Контекст и открытые буферы
+#### 6.3 Context and open buffers
 
-Context содержит явные ссылки на выбранные объекты, scoped search results,
-прочитанные fragments с revisions, доступные actions и нужные skills.
-Truncation обозначается явно; агент может запросить следующий фрагмент.
-Сводка длинного диалога хранит receipts и нерешённые ограничения, а не
-используется как источник истинных revision/permissions.
+Context contains explicit references to the selected objects, scoped search results,
+read fragments with revisions, available actions and the needed skills.
+Truncation is marked explicitly; the agent may request the next fragment.
+A summary of a long dialogue keeps receipts and unresolved constraints, and is not
+used as a source of true revisions/permissions.
 
-На каждом окне bridge регистрирует владельца открытого документа и dirty state.
-Перед mutation executor запрашивает сериализацию/flush затронутого буфера через
-существующий lifecycle и autosave coordinator. Snapshot для агентного undo
-берётся после успешного сохранения предшествующих пользовательских правок.
-Если пользователь редактирует параллельно или flush не подтверждён, mutation
-останавливается с конфликтом. Нельзя молча заменить in-memory buffer дисковой
-версией. Потеря окна/lease требует recovery, а не предположения «документ чистый».
-Закрытые документы обрабатываются тем же доменным API без editor instance.
+In each window the bridge registers the owner of the open document and its dirty state.
+Before a mutation the executor requests serialization/flush of the affected buffer through the
+existing lifecycle and autosave coordinator. The snapshot for agent undo
+is taken after the preceding user edits are saved successfully.
+If the user edits in parallel or the flush is not confirmed, the mutation
+stops with a conflict. The in-memory buffer must never be silently replaced by the on-disk
+version. Loss of a window/lease requires recovery, not an assumption that "the document is clean".
+Closed documents are handled by the same domain API without an editor instance.
 
-### 7. Навыки и обучение
+### 7. Skills and learning
 
-#### 7.1 Разные виды долговременных данных
+#### 7.1 Different kinds of long-term data
 
-| Вид              | Содержание                                            | Правила изменения                                     |
-| ---------------- | ----------------------------------------------------- | ----------------------------------------------------- |
-| Контракты Amby   | Каталог действий, schemas, ограничения хранения       | Версионируются с приложением; агент не переписывает   |
-| Предпочтения     | Явные пользовательские предпочтения в заданном scope  | Видимы, редактируемы, можно забыть/отключить          |
-| Навыки           | Повторяемые процедуры и способы проверки              | Версии, evidence, тесты, disable/revert               |
-| Журнал           | Факты действий и результатов                          | Пишет host; исторические события не редактирует агент |
-| Рабочий контекст | План конкретного задания, receipts, выбранные ресурсы | Ограничен run и пересобирается при смене прав         |
+| Kind            | Contents                                                 | Rules for change                                                |
+| --------------- | -------------------------------------------------------- | --------------------------------------------------------------- |
+| Amby contracts  | Action catalog, schemas, storage constraints             | Versioned with the application; the agent does not rewrite them |
+| Preferences     | Explicit user preferences in a given scope               | Visible, editable, can be forgotten/disabled                    |
+| Skills          | Repeatable procedures and ways of verification           | Versions, evidence, tests, disable/revert                       |
+| Log             | Facts of actions and results                             | Written by the host; the agent does not edit historical events  |
+| Working context | The plan of a specific job, receipts, selected resources | Limited to the run and rebuilt when permissions change          |
 
-Skill package: `SKILL.md`, references/templates и при необходимости resources.
-Тело совместимо с форматом Agent Skills в пределах поддерживаемых полей;
-собственные version/provenance/eval records хранятся рядом. Импортируемый
-`scripts/` не становится разрешением на исполнение. Код проходит правила
-плагинов H-70—H-74. Отсутствующие capabilities показываются до запуска навыка.
+Skill package: `SKILL.md`, references/templates and, if needed, resources.
+The body is compatible with the Agent Skills format within the supported fields;
+own version/provenance/eval records are stored alongside. An imported
+`scripts/` does not become permission to execute. Code goes through the rules of
+plugins H-70—H-74. Missing capabilities are shown before a skill is run.
 
-Skill revision содержит immutable hash, автора/источник, parent revision,
-scope, required actions/modules и версии, evidence references, проверки,
-статус `draft / proposed / verified / active / disabled / archived`.
-Пользовательские и bundled навыки имеют владельцев; автономный curator
-обрабатывает только явно выделенную ему коллекцию. Запущенная задача использует
-фиксированный snapshot версий до checkpoint/restart.
+A skill revision contains an immutable hash, author/source, parent revision,
+scope, required actions/modules and versions, evidence references, checks,
+status `draft / proposed / verified / active / disabled / archived`.
+User and bundled skills have owners; the autonomous curator
+processes only the collection explicitly allocated to it. A running job uses
+a fixed snapshot of versions until a checkpoint/restart.
 
-#### 7.2 Цикл обучения
+#### 7.2 The learning cycle
 
-1. Выбрать законченную задачу с надёжными receipts или явным исправлением.
-2. Найти существующий навык и определить повторяемый урок. Разовая просьба,
-   временный сбой и отсутствие проверки не становятся общей инструкцией.
-3. Создать proposal с diff, evidence, scope, parent hash и заявленным улучшением.
-4. Проверить schemas, ссылки, размеры, запрещённые возможности, отсутствие
-   секретов/частных значений за пределами исходного scope.
-5. Выполнить старую и новую версию на свежих fixtures с одинаковым model config;
-   отдельный holdout corpus не передаётся автору proposal.
-6. Сравнить correctness, scope violations, целостность данных, undo,
-   interventions, tool calls, latency и tokens. LLM judge применим к оформлению,
-   но не заменяет механическую проверку файлов, прав и revisions.
-7. В начальном `propose` режиме показать пользователю результат. `autoVerified`
-   включается отдельно и применим только к проверенным классам text-only
-   изменений внутри agent-owned collection, без новых прав и executable code.
-8. Активировать revision через журнал; ухудшения ведут к disable/revert с
-   сохранением результатов. «Предложение создано» не означает «обучение успешно».
+1. Select a finished task with reliable receipts or an explicit correction.
+2. Find an existing skill and identify a repeatable lesson. A one-off request,
+   a temporary failure and the lack of verification do not become a general instruction.
+3. Create a proposal with a diff, evidence, scope, parent hash and the claimed improvement.
+4. Check schemas, links, sizes, forbidden capabilities, and the absence of
+   secrets/private values outside the original scope.
+5. Run the old and new version on fresh fixtures with the same model config;
+   a separate holdout corpus is not passed to the proposal's author.
+6. Compare correctness, scope violations, data integrity, undo,
+   interventions, tool calls, latency and tokens. An LLM judge is applicable to presentation,
+   but does not replace mechanical verification of files, permissions and revisions.
+7. In the initial `propose` mode, show the user the result. `autoVerified`
+   is enabled separately and applies only to verified classes of text-only
+   changes inside an agent-owned collection, without new permissions and executable code.
+8. Activate the revision through the log; regressions lead to disable/revert with
+   the results preserved. "Proposal created" does not mean "learning succeeded".
 
-Learning jobs не имеют обычного write-доступа к vault. Eval запускается на
-копиях synthetic fixtures через те же domain actions и изолированный test state.
-Replay не повторяет реальные пользовательские mutations и внешние эффекты.
-Урок из ограниченной папки остаётся ограниченным. Публикация в общий skill
-namespace — отдельная операция с очисткой контента и явным пользовательским
-выбором; сводка сама по себе не снимает исходный scope.
+Learning jobs have no ordinary write access to the vault. Eval runs on
+copies of synthetic fixtures through the same domain actions and an isolated test state.
+Replay does not repeat real user mutations and external effects.
+A lesson from a restricted folder stays restricted. Publishing to the shared skill
+namespace is a separate operation with content cleanup and an explicit user
+choice; a summary by itself does not lift the original scope.
 
-Curator объединяет дубликаты по содержанию и результатам, показывает diff,
-сохраняет ссылки/support files и архивирует с возможностью восстановления.
-Один лишь возраст или малое число запусков не доказывают бесполезность навыка.
-Обновление API Amby помечает несовместимые навыки и запускает их проверки.
+The curator merges duplicates by content and results, shows a diff,
+preserves links/support files and archives with the possibility of restoring.
+Age alone or a small number of runs does not prove a skill is useless.
+An update to the Amby API marks incompatible skills and runs their checks.
 
-### 8. Мастерская плагинов
+### 8. Plugin workshop
 
-Результат этапа: пользователь просит сделать плагин, видит проект и preview,
-просит доработку, получает новую проверенную версию и может локально установить
-или откатить её внутри приложения.
+Result of the stage: the user asks for a plugin to be made, sees the project and preview,
+asks for refinements, gets a new verified version and can install it locally
+or roll it back inside the application.
 
-- Plugin project хранится в отдельном разрешённом namespace, связанном с run.
-- Агент получает узкие инструменты scaffold/read/patch/build/test/preview;
-  сборка выполняется доверенным runner с фиксированным toolchain. Произвольные
-  shell-команды и install scripts зависимостей не выдаются модели.
-- Первая версия использует поддерживаемое SDK и разрешённые bundled dependencies.
-  Добавление внешних зависимостей требует отдельного проверяемого механизма.
-- Preview использует изолированные данные. Доступ к живому vault выдаётся
-  отдельно. SDK использует тот же action executor и журнал, включая действия
-  установленного AI-created плагина вне исходного диалога.
-- Плагин работает с пересечением собственных разрешений, текущей grant и
-  пользовательской policy. Callback, background task или новый skill не расширяют его.
-- Worker без DOM не считается достаточным security boundary. Выбор runtime
-  подтверждается escape/network/IPC/resource-limit тестами на desktop.
-- Изменение прав между версиями показывается до установки. Локальный плагин
-  помечается как локальный; ему не присваивается подпись официального издателя.
-- Установка, активная версия, crash quarantine и rollback переживают restart.
-  Uninstall сохраняет пользовательские данные. Data migration плагина имеет
-  версию, preflight, backup и проверенный путь восстановления.
+- The plugin project is stored in a separate permitted namespace tied to the run.
+- The agent gets narrow scaffold/read/patch/build/test/preview tools;
+  the build is performed by a trusted runner with a fixed toolchain. Arbitrary
+  shell commands and dependency install scripts are not given to the model.
+- The first version uses the supported SDK and permitted bundled dependencies.
+  Adding external dependencies requires a separate verifiable mechanism.
+- Preview uses isolated data. Access to the live vault is granted
+  separately. The SDK uses the same action executor and log, including the actions
+  of an installed AI-created plugin outside the original dialogue.
+- A plugin works with the intersection of its own permissions, the current grant and
+  the user's policy. A callback, background task or new skill does not expand them.
+- A Worker without a DOM is not considered a sufficient security boundary. The runtime choice
+  is confirmed by escape/network/IPC/resource-limit tests on desktop.
+- A change of permissions between versions is shown before installation. A local plugin
+  is marked as local; it is not assigned the signature of an official publisher.
+- Installation, the active version, crash quarantine and rollback survive a restart.
+  Uninstall preserves user data. A plugin's data migration has
+  a version, a preflight, a backup and a verified recovery path.
 
-### 9. Этапы и готовность
+### 9. Stages and readiness
 
-| Этап                | Пакеты    | Результат и gate                                                 |
-| ------------------- | --------- | ---------------------------------------------------------------- |
-| Подготовка          | H-00—H-01 | Проверенная инвентаризация, baseline и замороженные контракты G0 |
-| 1. Действия         | H-10—H-12 | Общий API, renderer bridge и truthful capability catalog G1      |
-| 2. Защита и история | H-20—H-24 | Policy, журнал, recovery и конфликтобезопасный undo G2           |
-| 3. Агент заметок    | H-30—H-34 | Настоящий tool loop, context, task UI, полный note scenario G3   |
-| 4. Возможности Amby | H-40—H-46 | Заметка + база + схема + настройки, закрытая карта покрытия G4   |
-| 5. Навыки           | H-50—H-52 | Проверенные навыки, версии, подбор и управление G5               |
-| 6. Обучение         | H-60—H-63 | Предложения на evidence, eval, bounded curator, rollback G6      |
-| 7. Плагины          | H-70—H-74 | Мастерская, реальная изоляция, установка и полная приёмка G7     |
+| Stage                     | Packages  | Result and gate                                                |
+| ------------------------- | --------- | -------------------------------------------------------------- |
+| Preparation               | H-00—H-01 | Verified inventory, baseline and frozen G0 contracts           |
+| 1. Actions                | H-10—H-12 | Shared API, renderer bridge and truthful capability catalog G1 |
+| 2. Protection and history | H-20—H-24 | Policy, journal, recovery and conflict-safe undo G2            |
+| 3. Notes agent            | H-30—H-34 | Real tool loop, context, task UI, full note scenario G3        |
+| 4. Amby capabilities      | H-40—H-46 | Note + database + schema + settings, closed coverage map G4    |
+| 5. Skills                 | H-50—H-52 | Verified skills, versions, selection and management G5         |
+| 6. Learning               | H-60—H-63 | Evidence-based proposals, eval, bounded curator, rollback G6   |
+| 7. Plugins                | H-70—H-74 | Workshop, real isolation, installation and full acceptance G7  |
 
-Первые работающие вертикальные сценарии появляются на G3, полноценная работа
-с контентом — на G4. G3 и G4 не означают завершение всего плана. Обучение и
-создание плагинов закрываются только своими gates. Скорость выполнения этапов
-оценивается после H-00; календарные обещания без baseline не требуются.
+The first working vertical scenarios appear at G3, full-fledged work
+with content at G4. G3 and G4 do not mean the whole plan is complete. Learning and
+plugin creation are closed only by their own gates. The speed of the stages
+is estimated after H-00; calendar promises without a baseline are not required.
 
-### 10. Заимствования и источники
+### 10. Borrowings and sources
 
-Материалы просмотрены 2026-09-24. Это архитектурные ориентиры. До переноса кода
-H-00 фиксирует конкретный upstream commit/tag, нужные файлы, лицензию и условия
-атрибуции. Ссылка на `main` не является воспроизводимой зависимостью.
+The materials were reviewed on 2026-09-24. They are architectural references. Before any code is
+carried over, H-00 records the specific upstream commit/tag, the files needed, the license and the
+attribution terms. A link to `main` is not a reproducible dependency.
 
 - [Hermes Skills](https://hermes-agent.nousresearch.com/docs/user-guide/features/skills):
-  progressive disclosure, skill creation/update, процедуры отдельно от краткой памяти.
+  progressive disclosure, skill creation/update, procedures kept separate from short-term memory.
 - [Hermes Curator](https://hermes-agent.nousresearch.com/docs/user-guide/features/curator)
-  и [исходник](https://github.com/NousResearch/hermes-agent/blob/main/agent/curator.py):
-  обслуживание коллекции, evidence, archive/restore, версии и per-mutation ledger.
-  Документация допускает mutation при сбое ledger; Amby требует durable intent
-  до изменения и не переносит эту best-effort семантику.
+  and [source](https://github.com/NousResearch/hermes-agent/blob/main/agent/curator.py):
+  collection maintenance, evidence, archive/restore, versions and a per-mutation ledger.
+  The documentation allows a mutation when the ledger fails; Amby requires a durable intent
+  before the change and does not carry over this best-effort semantics.
 - [OpenClaw Skill Workshop](https://docs.openclaw.ai/tools/skill-workshop/how-it-works):
-  staged proposal, target hash, stale detection, rollback metadata до apply.
+  staged proposal, target hash, stale detection, rollback metadata before apply.
 - [OpenClaw Self-learning](https://docs.openclaw.ai/tools/self-learning):
-  критерии полезного урока и режимы. Его direct-edit auto maintenance отличается
-  от proposal path; для Amby все изменения обучения проходят общий журнал.
+  criteria for a useful lesson and the modes. Its direct-edit auto maintenance differs
+  from the proposal path; for Amby, all learning changes go through the shared journal.
 - [OpenClaw Agent loop](https://docs.openclaw.ai/concepts/agent-loop):
-  session queues, lifecycle events, durable ownership и отмена.
+  session queues, lifecycle events, durable ownership and cancellation.
 - [Hermes Self-Evolution](https://github.com/NousResearch/hermes-agent-self-evolution):
-  варианты навыков и сравнение на eval. В просмотренном README оптимизация
-  skills реализована, более широкое самоизменение кода описано как будущее.
+  skill variants and comparison on eval. In the README as reviewed, skill optimization
+  is implemented, while broader code self-modification is described as future work.
 
-Первое внедрение использует управляемый proposal/eval процесс. DSPy/GEPA или
-другой оптимизатор можно подключить позже через тот же интерфейс proposals,
-не выдавая ему права изменять policy, gates и контрольные ожидания.
+The first rollout uses a managed proposal/eval process. DSPy/GEPA or
+another optimizer can be plugged in later through the same proposals interface,
+without giving it the right to change policy, gates and control expectations.
 
-### 11. Как запускать реализацию
+### 11. How to start the implementation
 
-Точка входа для будущего исполнителя — этот план; предметные контракты находятся
-в `docs/ai-harness.md`, `docs/ai-state-format.md` и `docs/ai-action-catalog.md`.
-Новые планы [единой доски](boards.md),
-[баз](../archive/README.md) и
-[творческого модуля](../archive/README.md) согласуются через общие
-domain APIs. Их наличие не считается реализацией возможностей для агента.
+The entry point for a future executor is this plan; the subject contracts are in
+`docs/ai-harness.md`, `docs/ai-state-format.md` and `docs/ai-action-catalog.md`.
+The new plans for [the unified board](boards.md),
+[databases](../archive/README.md) and the
+[creative module](../archive/README.md) are aligned through shared
+domain APIs. Their existence is not counted as implementing the capabilities for the agent.
 
-Оркестратор начинает с [инструкции запуска](ai.md#инструкция-для-оркестратора),
-ведёт статусы пакетов и не перескакивает через gates. Проверки и evidence
-определены в [документе приёмки](ai.md).
-Этот план разрешает описанные работы только после отдельной команды пользователя
-начать реализацию; текущая задача — подготовка документов.
+The orchestrator starts with the [launch instructions](ai.md#orchestrator-instructions),
+tracks package statuses and does not skip gates. Checks and evidence
+are defined in the [acceptance document](ai.md).
+This plan permits the described work only after a separate user command
+to start the implementation; the current task is preparing documents.
 
-#### Проверка документационной редакции от 2026-09-30
+#### Documentation revision check of 2026-09-30
 
-Добавлены три предметные спецификации, обновлены план/оркестрация/приёмка и
-публичный changelog. Код приложения, зависимости и конфигурация в этой работе
-не изменялись; исходное дерево уже содержало отдельные пользовательские изменения.
+Three subject specifications were added, and the plan/orchestration/acceptance and
+the public changelog were updated. Application code, dependencies and configuration were not
+changed in this work; the source tree already contained separate user changes.
 
-- Проверены существование относительных ссылок и ссылки на заголовки, уникальность
-  34 H-пакетов, 70 Q-семейств и 16 дополнительных именованных вариантов.
-- Форматирование изменённой документации и `git diff --check` прошли.
-- `npm run build` прошёл; Vite сообщает о большом chunk и неэффективном dynamic
-  import существующего `src/lib/debug/health.ts`.
-- `npm run verify` прошёл: 892 frontend-теста, 401 Rust-тест, 2 Rust-теста
-  проигнорированы согласно существующей конфигурации; проверка generated bindings
-  прошла. ESLint сообщает одно предупреждение о зависимости React hook в
+- Checked: relative links and heading links exist, and 34 H-packages,
+  70 Q-families and 16 additional named variants are unique.
+- Formatting of the changed documentation and `git diff --check` passed.
+- `npm run build` passed; Vite reports a large chunk and an ineffective dynamic
+  import of the existing `src/lib/debug/health.ts`.
+- `npm run verify` passed: 892 frontend tests, 401 Rust tests, 2 Rust tests
+  ignored per the existing configuration; the generated bindings check
+  passed. ESLint reports one warning about a React hook dependency in
   `settings-modules.tsx`.
-- Native packaging и интерактивные сценарии нового агента не запускались:
-  агент ещё не реализован, desktop code/IPC/permissions в этой работе не менялись.
+- Native packaging and interactive scenarios of the new agent were not run:
+  the agent is not implemented yet, and desktop code/IPC/permissions were not changed in this work.
 
-Это проверка состояния репозитория при подготовке документов. Она не является
-PASS для G0–G7 или подтверждением будущего harness. H-00 повторяет baseline checks
-при старте реализации; результаты от другого состояния дерева не наследуются.
+This is a check of the repository state while preparing the documents. It is not a
+PASS for G0–G7 or a confirmation of the future harness. H-00 repeats the baseline checks
+when implementation starts; results from a different tree state are not inherited.
 
 ---
 
-## Часть 4. ИИ-агент Amby: исполнение через оркестрацию
+## Part 4. The Amby AI agent: execution through orchestration
 
-_Бывший файл `ai-harness-orchestration.md`, объединён 2026-11-03._
+_Formerly the file `ai-harness-orchestration.md`, merged on 2026-11-03._
 
-> **Статус на 2026-11-02:** план, не реализован. Из него начат только этап 1 (панель и ИИ, который только читает — [ai-stage-1-plan](ai.md)); реестр действий, журнал, права записи и откат (H-10…H-24) не начаты.
+> **Status as of 2026-11-02:** plan, not implemented. Only stage 1 has been started (the panel and an AI that only reads — [ai-stage-1-plan](ai.md)); the action registry, journal, write permissions and rollback (H-10…H-24) are not started.
 
-Статус: все пакеты запланированы. Дата: 2026-09-30. Версия: 2.
+Status: all packages are planned. Date: 2026-09-30. Version: 2.
 
-Контракт: [архитектурный план](ai.md).  
-Проверки: [приёмка](ai.md).
+Contract: [architectural plan](ai.md).
+Checks: [acceptance](ai.md).
 
-Подготовлены проекты [контракта](../ai-harness.md),
-[формата состояния](../ai-state-format.md) и [каталога действий](../ai-action-catalog.md).
-Исполнители уточняют их в H-00/H-01 относительно фактического baseline.
-Эти документы не закрывают пакеты: schemas, fixtures и implementation evidence
-ещё не созданы. Текущий этап работы ограничен документацией.
+Drafts of the [contract](../ai-harness.md),
+[state format](../ai-state-format.md) and [action catalog](../ai-action-catalog.md) have been prepared.
+Executors refine them in H-00/H-01 against the actual baseline.
+These documents do not close the packages: schemas, fixtures and implementation evidence
+have not been created yet. The current stage of work is limited to documentation.
 
-### Правила координации
+### Coordination rules
 
-Один оркестратор отвечает за общий результат, контракты, integration и gates.
-Работа может выполняться последовательно либо независимыми агентами после
-явной команды пользователя на реализацию с оркестрацией. Для четырёх доступных
-слотов использовать максимум трёх исполнителей плюс оркестратора. Новые
-пользовательские задачи в sidebar для технических подзадач не создавать.
+One orchestrator is responsible for the overall result, contracts, integration and gates.
+Work can be done sequentially or by independent agents after an
+explicit user command to implement with orchestration. With four available
+slots, use at most three executors plus the orchestrator. Do not create new
+user tasks in the sidebar for technical subtasks.
 
-Каждый пакет имеет одного владельца. Независимый проверяющий получает diff,
-контракт и сценарии приёмки, а не только итоговое сообщение исполнителя.
-Проверяющий может быть отдельным агентом после завершения автора; постоянного
-свободного слота для него не требуется. Число агентов не является критерием качества.
+Each package has one owner. An independent reviewer receives the diff,
+the contract and the acceptance scenarios, not only the executor's final message.
+The reviewer can be a separate agent after the author finishes; a permanently
+free slot for them is not required. The number of agents is not a quality criterion.
 
-Правила рабочего дерева:
+Working tree rules:
 
-1. В H-00 записать HEAD, текущую ветку и список уже изменённых файлов. Сейчас
-   дерево содержит существенные пользовательские изменения в модулях, данных,
-   настройках и документации. Они не являются работой этого плана.
-2. Продолжать от `dev` или согласованного пользователем состояния; новые ветки
-   именовать `codex/...`. Не переключать и не сбрасывать чужие изменения.
-3. Git worktree не переносит незакоммиченные файлы. Изолированное выполнение
-   допустимо только из baseline, содержащего нужное состояние. При отсутствии
-   такого baseline работать в общем checkout с эксклюзивным владением файлами;
-   не делать скрытый commit/stash ради запуска агентов.
-4. В общем checkout перед редактированием назначать владельцев пересекающихся
-   файлов. Параллельные агенты не запускают форматирование всего репозитория,
-   git clean/reset или массовые генераторы.
-5. Общие generated bindings и полные проверки запускает интегратор последовательно.
-   При смене baseline все затронутые контракты перепроверяются.
-6. Реальные vault, API keys и пользовательские настройки не становятся fixtures.
+1. In H-00, record HEAD, the current branch and the list of already changed files. Right now the
+   tree contains substantial user changes in modules, data,
+   settings and documentation. They are not the work of this plan.
+2. Continue from `dev` or a state agreed with the user; name new branches
+   `codex/...`. Do not switch or reset other people's changes.
+3. A git worktree does not carry over uncommitted files. Isolated execution
+   is acceptable only from a baseline that contains the needed state. If there is no
+   such baseline, work in the shared checkout with exclusive file ownership;
+   do not make a hidden commit/stash just to launch agents.
+4. In the shared checkout, assign owners for overlapping files before editing.
+   Parallel agents do not run formatting of the whole repository,
+   git clean/reset or bulk generators.
+5. Shared generated bindings and full checks are run by the integrator sequentially.
+   When the baseline changes, all affected contracts are re-verified.
+6. Real vaults, API keys and user settings do not become fixtures.
 
-Оркестратор единолично интегрирует изменения `src-tauri/src/lib.rs`,
-`src-tauri/src/commands/mod.rs`, общих storage ports/adapters,
+The orchestrator alone integrates changes to `src-tauri/src/lib.rs`,
+`src-tauri/src/commands/mod.rs`, shared storage ports/adapters,
 `src/lib/bindings.ts`, `src/locales/resources.ts`, `package.json`,
-Tauri capabilities/config и `updates/upd_next.md`. Исполнитель передаёт точный
-integration patch или отдельно согласованное владение. Bindings генерируются
-через Specta, вручную не редактируются. Другие shared files назначаются в H-00.
+Tauri capabilities/config and `updates/upd_next.md`. An executor hands over an exact
+integration patch or separately agreed ownership. Bindings are generated
+through Specta and are not edited by hand. Other shared files are assigned in H-00.
 
-### Состояния и отчётность
+### States and reporting
 
-Допустимые состояния пакета: `planned`, `ready`, `running`, `needsIntegration`,
-`needsReview`, `blocked`, `done`. Причина `blocked` включает конкретную отсутствующую
-зависимость, доказательство и следующий возможный шаг. Gate имеет состояние
-`notRun`, `failed`, `passed`; «код написан» не равен `passed`.
+Allowed package states: `planned`, `ready`, `running`, `needsIntegration`,
+`needsReview`, `blocked`, `done`. The `blocked` reason includes the specific missing
+dependency, the evidence and the next possible step. A gate has the state
+`notRun`, `failed`, `passed`; "code written" does not equal `passed`.
 
-При запуске реализации создать `docs/road/ai-harness-progress.md` с таблицей:
+When implementation starts, create `docs/road/ai-harness-progress.md` with the table:
 
 ```text
 package | owner | status | baseline | touched files | checks | evidence | blockers
 ```
 
-Отчёт исполнителя:
+Executor report:
 
 ```text
-Пакет:
+Package:
 Baseline / branch:
-Изменено и зачем:
-Файлы:
-Контракт / migrations / generated bindings:
-Проверки: команда, exit code, путь к synthetic evidence:
-Не проверено и почему:
-Integration patch для общих файлов:
-Оставшиеся риски / следующие зависимости:
+What changed and why:
+Files:
+Contract / migrations / generated bindings:
+Checks: command, exit code, path to synthetic evidence:
+Not checked and why:
+Integration patch for shared files:
+Remaining risks / next dependencies:
 ```
 
-`done` выставляет оркестратор после integration и review. Unavailable native
-runner, provider credentials или целевая ОС фиксируются как `notRun/blocked`,
-а не как условный PASS. Можно продолжать независимые пакеты, но нельзя объявлять
-соответствующий продуктовый gate завершённым.
+`done` is set by the orchestrator after integration and review. An unavailable native
+runner, provider credentials or target OS are recorded as `notRun/blocked`,
+not as a conditional PASS. Independent packages can continue, but the
+corresponding product gate cannot be declared complete.
 
-Каждый завершённый integration batch обновляет русский changelog, проходит
-`npm run build` и применимые проверки из документа приёмки. Версию приложения
-не повышать до отдельного запроса commit-and-push. Теги, GitHub Release и
-продвижение dev → beta → main требуют отдельной команды.
+Each completed integration batch updates the Russian changelog and passes
+`npm run build` and the applicable checks from the acceptance document. Do not bump the
+app version until a separate commit-and-push request. Tags, GitHub Release and
+promotion dev → beta → main require a separate command.
 
-### Волны и зависимости
+### Waves and dependencies
 
-Волна задаёт максимум возможной параллельности, а не требование одновременно
-редактировать все перечисленные файлы. Реальные `Depends` обязательны.
+A wave sets the maximum possible parallelism, not a requirement to edit
+all listed files at the same time. The real `Depends` are mandatory.
 
-| Волна | Пакеты                  | Условие начала / gate                                           |
-| ----- | ----------------------- | --------------------------------------------------------------- |
-| W0    | H-00 → H-01             | Инвентаризация, baseline, contract freeze; G0                   |
-| W1    | H-10; затем H-11 + H-12 | Общие action types; G1                                          |
-| W2    | H-20 + H-21             | Зафиксирован G1; независимые policy и journal                   |
-| W3    | H-22 → H-23 → H-24      | Исполнение с журналом, восстановление, read API; G2             |
-| W4    | H-30 + H-32; затем H-31 | G2; runtime зависит от provider/context                         |
-| W5    | H-33 → H-34             | Runtime интегрирован; G3                                        |
-| W6    | H-40 + H-41 + H-44      | G3; отдельные domain adapters                                   |
-| W7    | H-42 + H-43 + H-45      | H-40; H-45 также требует H-44                                   |
-| W8    | H-46                    | Все adapters этапа 4; G4                                        |
-| W9    | H-50 → H-51 → H-52      | Реальные domain workflows; G5                                   |
-| W10   | H-60 + H-61             | G5; extraction и evaluator имеют общий frozen proposal contract |
-| W11   | H-62 → H-63             | H-60/H-61; G6                                                   |
-| W12   | H-70 → H-71             | G4/G5; допустимо параллельно W10/W11 при свободных слотах       |
-| W13   | H-72 + H-73             | H-71, замороженный workbench API                                |
-| W14   | H-74                    | G6 и H-70—H-73; G7                                              |
+| Wave | Packages               | Start condition / gate                                        |
+| ---- | ---------------------- | ------------------------------------------------------------- |
+| W0   | H-00 → H-01            | Inventory, baseline, contract freeze; G0                      |
+| W1   | H-10; then H-11 + H-12 | Shared action types; G1                                       |
+| W2   | H-20 + H-21            | G1 frozen; independent policy and journal                     |
+| W3   | H-22 → H-23 → H-24     | Execution with journal, recovery, read API; G2                |
+| W4   | H-30 + H-32; then H-31 | G2; runtime depends on provider/context                       |
+| W5   | H-33 → H-34            | Runtime integrated; G3                                        |
+| W6   | H-40 + H-41 + H-44     | G3; separate domain adapters                                  |
+| W7   | H-42 + H-43 + H-45     | H-40; H-45 also requires H-44                                 |
+| W8   | H-46                   | All stage 4 adapters; G4                                      |
+| W9   | H-50 → H-51 → H-52     | Real domain workflows; G5                                     |
+| W10  | H-60 + H-61            | G5; extraction and evaluator share a frozen proposal contract |
+| W11  | H-62 → H-63            | H-60/H-61; G6                                                 |
+| W12  | H-70 → H-71            | G4/G5; may run in parallel with W10/W11 if slots are free     |
+| W13  | H-72 + H-73            | H-71, frozen workbench API                                    |
+| W14  | H-74                   | G6 and H-70—H-73; G7                                          |
 
-Граф критического пути: G0 → G1 → G2 → G3 → G4 → G5 → G6 → G7.
-Мастерская может частично разрабатываться после G5, но финальная приёмка требует
-завершения обучения и проверки общей policy. Если два пакета требуют одного
-store/adapter, интегратор сериализует изменения независимо от номера волны.
+Critical path graph: G0 → G1 → G2 → G3 → G4 → G5 → G6 → G7.
+The workshop can be partially developed after G5, but final acceptance requires
+completing learning and verifying the shared policy. If two packages need the same
+store/adapter, the integrator serializes the changes regardless of wave number.
 
-### Подготовка
+### Preparation
 
-#### H-00. Инвентаризация и фактический baseline
+#### H-00. Inventory and actual baseline
 
-- **Depends:** нет. **Владелец:** интегратор/архитектор.
-- **Читать:** AGENTS.md, package scripts, storage ports, commands, все UI actions,
-  stores, native runners, модульный план/аудит, текущие database format/mutations.
-- **Сделать:** каталог всех пользовательских действий с input/output, owner,
-  UI-only dependencies, source-of-truth, текущим undo и тестами. Проверить
-  module runtime, пути данных и различия документации/кода. Зафиксировать
-  исходные проверки; несвязанные ошибки отделить от блокирующих зависимостей.
-  Зафиксировать версии/лицензии upstream материалов для планируемых заимствований.
-- **Артефакт:** `docs/ai-action-catalog.md`, progress baseline и integration ownership.
-- **Уточнение второй редакции:** каталог уже содержит стартовые API references,
-  но не полную UI coverage. Разрешить расхождение system trash/internal archive,
-  проверить границы shared sidecars, доступные database layouts и зависимости
-  от планов единой доски/творческого модуля; сохранить честные M/U/B статусы.
-- **Готово:** каждая группа из каталога плана имеет реальные code references;
-  строки `missingImplementation` имеют владельца; существующие проблемы storage
-  и plugin isolation не скрыты release notes. Проверки Q01.
+- **Depends:** none. **Owner:** integrator/architect.
+- **Read:** AGENTS.md, package scripts, storage ports, commands, all UI actions,
+  stores, native runners, the module plan/audit, current database format/mutations.
+- **Do:** a catalog of all user actions with input/output, owner,
+  UI-only dependencies, source-of-truth, current undo and tests. Check the
+  module runtime, data paths and differences between documentation and code. Record the
+  initial checks; separate unrelated errors from blocking dependencies.
+  Record versions/licenses of upstream materials for the planned borrowings.
+- **Artifact:** `docs/ai-action-catalog.md`, progress baseline and integration ownership.
+- **Second-revision clarification:** the catalog already contains starter API references,
+  but not full UI coverage. Resolve the system trash/internal archive discrepancy,
+  check the boundaries of shared sidecars, the available database layouts and the dependencies
+  on the unified board / creative module plans; keep honest M/U/B statuses.
+- **Done:** every group from the plan's catalog has real code references;
+  `missingImplementation` rows have an owner; existing storage and plugin
+  isolation problems are not hidden by release notes. Checks Q01.
 
-#### H-01. Контракты и каркас приёмки
+#### H-01. Contracts and acceptance scaffolding
 
-- **Depends:** H-00. **Владелец:** архитектор с проверкой data-safety reviewer.
-- **Сделать:** закрепить Action/Receipt/Grant/Run/Event/Skill/Proposal schemas,
-  revisions, operation IDs, lock ordering и storage layout v1. Описать модель
-  undo, границы атомарности, quotas, scope на derived data и привязку vault.
-  Подготовить synthetic fixtures и общий test driver interface без LLM-зависимости.
-- **Артефакт:** `docs/ai-harness.md`, `docs/ai-state-format.md`, schemas и начальный
-  `tests/fixtures/agent/` с expected invariants. Отдельно решить transport/context
-  для открытых документов и безопасный typed settings patch.
-- **Уточнение второй редакции:** взять подготовленные проекты как исходный
-  контракт; закрепить canonical request digest, resource/effect closure,
+- **Depends:** H-00. **Owner:** architect, reviewed by a data-safety reviewer.
+- **Do:** fix the Action/Receipt/Grant/Run/Event/Skill/Proposal schemas,
+  revisions, operation IDs, lock ordering and storage layout v1. Describe the undo
+  model, atomicity boundaries, quotas, scope over derived data and vault binding.
+  Prepare synthetic fixtures and a shared test driver interface with no LLM dependency.
+- **Artifact:** `docs/ai-harness.md`, `docs/ai-state-format.md`, schemas and an initial
+  `tests/fixtures/agent/` with expected invariants. Separately decide the transport/context
+  for open documents and a safe typed settings patch.
+- **Second-revision clarification:** take the prepared drafts as the initial
+  contract; fix the canonical request digest, resource/effect closure,
   mixed workspace/global journal ownership, lock order, orphan receipt recovery,
-  privacy purge и именованные варианты Q-сценариев. Не считать Markdown schema
-  заменой исполняемого validator или crash fixture.
-- **Готово:** policy, persistence и UI owners могут реализовывать контракты без
-  несовместимых предположений; Q01, Q02; G0. Изменения контрактов далее требуют
-  review всех downstream owners и обновления fixtures.
+  privacy purge and the named variants of the Q scenarios. Do not treat a Markdown schema
+  as a substitute for an executable validator or a crash fixture.
+- **Done:** the policy, persistence and UI owners can implement the contracts without
+  incompatible assumptions; Q01, Q02; G0. Later contract changes require
+  review by all downstream owners and updating the fixtures.
 
-### Этап 1. Общие действия
+### Stage 1. Shared actions
 
-#### H-10. Registry и типизированная граница
+#### H-10. Registry and typed boundary
 
-- **Depends:** G0. **Владелец:** backend actions.
-- **Основные файлы:** новый `src-tauri/src/app_actions/`, generated types через интегратора.
-- **Сделать:** descriptors, schema validation, executor interface, availability,
-  stable errors, preview/verify/undo interfaces. Actor/grant выдаёт host.
-  Имена инструментов являются адаптером к registry, а не отдельным набором mutations.
-- **Готово:** invalid/unknown/version-mismatched actions отвергаются до побочных
-  эффектов; UI/AI адаптеры используют одинаковые domain semantics; Q02.
-  Публичные agent writes пока не включены.
+- **Depends:** G0. **Owner:** backend actions.
+- **Main files:** new `src-tauri/src/app_actions/`, generated types via the integrator.
+- **Do:** descriptors, schema validation, executor interface, availability,
+  stable errors, preview/verify/undo interfaces. The host issues the actor/grant.
+  Tool names are an adapter to the registry, not a separate set of mutations.
+- **Done:** invalid/unknown/version-mismatched actions are rejected before side
+  effects; UI/AI adapters use the same domain semantics; Q02.
+  Public agent writes are not enabled yet.
 
-#### H-11. Вертикальная операция заметки и bridge редактора
+#### H-11. Vertical note operation and editor bridge
 
-- **Depends:** H-10. **Владелец:** notes/editor integration.
-- **Основные файлы:** notes/mutations services, `use-doc-store.ts`, autosave coordinator,
-  serialization lifecycle, новый focused bridge hook.
-- **Сделать:** create/read/patch note через общие services; flush/lease протокол
-  открытых буферов, stale draft rejection, события всех окон. Snapshot после
-  предшествующего пользовательского save; закрытый документ не требует mount.
-  UI и agent adapter не вызывают Tauri commands друг через друга.
-- **Готово:** реальные версии/IDs проходят весь путь; BOM/YAML/Source-only
-  сохраняются; текущая заметка не затирается stale AI ответом; Q04, Q08, Q11.
-  Fault/undo подключаются к этому adapter в H-22/H-23.
+- **Depends:** H-10. **Owner:** notes/editor integration.
+- **Main files:** notes/mutations services, `use-doc-store.ts`, autosave coordinator,
+  serialization lifecycle, a new focused bridge hook.
+- **Do:** create/read/patch note through the shared services; flush/lease protocol
+  for open buffers, stale draft rejection, events for all windows. A snapshot after the
+  preceding user save; a closed document does not require a mount.
+  The UI and agent adapters do not call Tauri commands through each other.
+- **Done:** real versions/IDs go through the whole path; BOM/YAML/Source-only
+  are preserved; the current note is not overwritten by a stale AI response; Q04, Q08, Q11.
+  Fault/undo are connected to this adapter in H-22/H-23.
 
-#### H-12. Каталог доступных возможностей
+#### H-12. Catalog of available capabilities
 
-- **Depends:** H-10. **Владелец:** module/context integration.
-- **Основные файлы:** registry, module host/registries, storage API.
-- **Сделать:** machine-readable catalog и компактные описания; фильтрация по
-  module state/API version; события enable/disable. Выделить server policy
-  checking point H-20, не считать скрытие tool достаточной защитой.
-- **Готово:** disabled/missing module не рекламируется как доступный;
-  stale cached tool выдаёт `moduleUnavailable`; Q02, Q12; G1 после H-11.
+- **Depends:** H-10. **Owner:** module/context integration.
+- **Main files:** registry, module host/registries, storage API.
+- **Do:** a machine-readable catalog and compact descriptions; filtering by
+  module state/API version; enable/disable events. Set aside a server policy
+  checking point for H-20; do not treat hiding a tool as sufficient protection.
+- **Done:** a disabled/missing module is not advertised as available;
+  a stale cached tool yields `moduleUnavailable`; Q02, Q12; G1 after H-11.
 
-### Этап 2. Права, журнал и восстановление
+### Stage 2. Permissions, journal and recovery
 
-#### H-20. Backend grants и scoped чтение
+#### H-20. Backend grants and scoped reads
 
-- **Depends:** G1. **Владелец:** security/backend.
-- **Основные файлы:** policy, `paths.rs`, vault context integration, scoped query adapters.
-- **Сделать:** read/write roots, object IDs, keys настроек, provider consent,
-  revocation, generation check; фильтрация поиска/агрегатов до выдачи данных.
-  Проверить indirect reads и все ресурсы multi-file operations. Grant issuance
-  доступен только доверенному пользовательскому действию, не tool arguments.
-- **Готово:** чтение/изменение/metadata leakage за scope блокируются, включая
-  symlink и vault switch; Q03—Q07. Negative tests вызывают executor напрямую.
+- **Depends:** G1. **Owner:** security/backend.
+- **Main files:** policy, `paths.rs`, vault context integration, scoped query adapters.
+- **Do:** read/write roots, object IDs, settings keys, provider consent,
+  revocation, generation check; filtering of search/aggregates before data is returned.
+  Check indirect reads and all resources of multi-file operations. Grant issuance
+  is available only to a trusted user action, not to tool arguments.
+- **Done:** reads/changes/metadata leakage beyond the scope are blocked, including
+  symlink and vault switch; Q03—Q07. Negative tests call the executor directly.
 
-#### H-21. Durable журнал и snapshots
+#### H-21. Durable journal and snapshots
 
-- **Depends:** G1. **Владелец:** persistence.
-- **Основные файлы:** новый agent journal/storage, `app_data.rs` integration.
-- **Сделать:** versioned event records, sequence, immutable before blobs,
+- **Depends:** G1. **Owner:** persistence.
+- **Main files:** new agent journal/storage, `app_data.rs` integration.
+- **Do:** versioned event records, sequence, immutable before blobs,
   reconstruction index, atomic publication, redaction, quotas, retention/pinning,
-  migration/backup/recovery. Журналирование всех tool attempts и отказов.
-- **Готово:** crash в каждой фазе записи не создаёт фиктивный success; удаление
-  derived index восстанавливает журнал; нет секретов; snapshots не исчезают
-  от фонового pruning; Q09, Q10, Q19, Q20.
+  migration/backup/recovery. Journaling of all tool attempts and refusals.
+- **Done:** a crash in any write phase does not create a fake success; deleting the
+  derived index restores the journal; no secrets; snapshots do not disappear
+  through background pruning; Q09, Q10, Q19, Q20.
 
-#### H-22. Executor с идемпотентностью и recovery
+#### H-22. Executor with idempotency and recovery
 
-- **Depends:** H-20, H-21, H-11. **Владелец:** backend integration.
-- **Основные файлы:** action executor, notes adapter, agent recovery.
-- **Сделать:** соединить policy → preconditions → durable intent → domain mutation
+- **Depends:** H-20, H-21, H-11. **Owner:** backend integration.
+- **Main files:** action executor, notes adapter, agent recovery.
+- **Do:** connect policy → preconditions → durable intent → domain mutation
   → receipt → verification; lock ordering, idempotency, commit/index separation.
-  Добавить failure-injection seams и startup reconciliation. Journal unavailable
-  блокирует новые side effects; уже выполненный, но неподтверждённый шаг остаётся
-  uncertain до восстановления.
-- **Готово:** retries не дублируют заметки; падения до/после publication и receipt
-  проверены настоящими файлами; Q09, Q13, Q14, Q16, Q17.
+  Add failure-injection seams and startup reconciliation. An unavailable journal
+  blocks new side effects; a step that has already been executed but not confirmed stays
+  uncertain until recovery.
+- **Done:** retries do not duplicate notes; crashes before/after publication and receipt
+  are verified with real files; Q09, Q13, Q14, Q16, Q17.
 
-#### H-23. Откат действий и групп
+#### H-23. Rollback of actions and groups
 
-- **Depends:** H-22. **Владелец:** recovery/undo.
-- **Сделать:** inverse registry, dependency graph, group preview, revision checks,
-  compensation receipts, partiallyUndone и повторный откат. Доступность undo
-  учитывает текущие права, snapshots и зависимые пользовательские изменения.
-  Сначала note actions; новые adapters обязаны подключать свой inverse contract.
-- **Готово:** полный/частичный откат, новый пользовательский edit и concurrent undo
-  проверены; audit не переписывается; Q15, Q16, Q18, Q19.
+- **Depends:** H-22. **Owner:** recovery/undo.
+- **Do:** inverse registry, dependency graph, group preview, revision checks,
+  compensation receipts, partiallyUndone and repeated rollback. Undo availability
+  accounts for current permissions, snapshots and dependent user changes.
+  Note actions first; new adapters must connect their own inverse contract.
+- **Done:** full/partial rollback, a new user edit and concurrent undo
+  are verified; the audit is not rewritten; Q15, Q16, Q18, Q19.
 
-#### H-24. API истории и управления областью
+#### H-24. History and scope management API
 
-- **Depends:** H-20, H-21, H-23. **Владелец:** integration/storage.
-- **Сделать:** scoped list/get/diff/undo-preview/undo, cursor pagination,
-  event catch-up, safe grant selection API и журнал доступов. Tools получают
-  только разрешённые события/фрагменты. Synthetic browser adapter поддерживает
-  contract tests; native-only возможности честно сообщают unavailable.
-- **Готово:** журнал чужой папки/старой grant не читается косвенно; подготовлена
-  typed UI boundary; Q06, Q18, Q20; G2 после native executor smoke.
+- **Depends:** H-20, H-21, H-23. **Owner:** integration/storage.
+- **Do:** scoped list/get/diff/undo-preview/undo, cursor pagination,
+  event catch-up, a safe grant selection API and an access log. Tools receive
+  only permitted events/fragments. A synthetic browser adapter supports
+  contract tests; native-only capabilities honestly report unavailable.
+- **Done:** the journal of another folder / of an old grant is not readable indirectly; a
+  typed UI boundary is prepared; Q06, Q18, Q20; G2 after the native executor smoke.
 
-### Этап 3. Runtime и первый агент
+### Stage 3. Runtime and the first agent
 
-#### H-30. Provider protocol и contract fixtures
+#### H-30. Provider protocol and contract fixtures
 
-- **Depends:** G2. **Владелец:** inference/backend.
-- **Основные файлы:** `ai.rs`, новые provider adapters и fixtures.
-- **Сделать:** normalize streaming text/tool calls/results, cancel, usage,
-  capability detection и limits. Сначала один live provider, затем все текущие
-  transport families по единому contract. URL/credentials protections сохраняются.
-  Fake provider детерминированно выдаёт сценарии tools/errors для всей приёмки.
-- **Готово:** partial JSON, malformed calls, multiple calls, truncation, retry,
-  rate limit, disconnect и cancellation проверены; Q21, Q22, Q28.
+- **Depends:** G2. **Owner:** inference/backend.
+- **Main files:** `ai.rs`, new provider adapters and fixtures.
+- **Do:** normalize streaming text/tool calls/results, cancel, usage,
+  capability detection and limits. First one live provider, then all current
+  transport families under a single contract. URL/credentials protections are preserved.
+  A fake provider deterministically emits tools/errors scenarios for the whole acceptance.
+- **Done:** partial JSON, malformed calls, multiple calls, truncation, retry,
+  rate limit, disconnect and cancellation are verified; Q21, Q22, Q28.
 
-#### H-31. Долговечный цикл выполнения
+#### H-31. Durable execution loop
 
-- **Depends:** H-30, H-32, H-22, H-24. **Владелец:** runtime/backend.
-- **Сделать:** state machine, task queue, checkpoints, bounded retries, budgets,
-  Stop, user-wait, resume и sequence events. Host исполняет tools только после
-  schema/policy checks. Завершение сообщения модели не обходится как success
-  задачи, пока обязательные verification не выполнены.
-- **Готово:** двойная отправка не создаёт второй run; панель можно закрыть;
-  restart/смена vault/провайдера не повторяют effects; Q13, Q23—Q26, Q28.
+- **Depends:** H-30, H-32, H-22, H-24. **Owner:** runtime/backend.
+- **Do:** state machine, task queue, checkpoints, bounded retries, budgets,
+  Stop, user-wait, resume and sequence events. The host executes tools only after
+  schema/policy checks. The end of a model message is not treated as task success
+  until the required verifications are done.
+- **Done:** a double submit does not create a second run; the panel can be closed;
+  restart/vault/provider change do not repeat effects; Q13, Q23—Q26, Q28.
 
-#### H-32. Контекст и scoped сессии
+#### H-32. Context and scoped sessions
 
-- **Depends:** H-20, H-24, H-11, H-12. **Владелец:** context/retrieval.
-- **Сделать:** active selection references, chunked reads, scoped search,
+- **Depends:** H-20, H-24, H-11, H-12. **Owner:** context/retrieval.
+- **Do:** active selection references, chunked reads, scoped search,
   revision-bound context, clear truncation, persistent conversation/checkpoint.
-  Content из notes/tool outputs отделить от policy instructions. Compaction
-  сохраняет unresolved requirements и receipts. Отзыв scope удаляет недоступный
-  контент из дальнейших model requests и invalidate provider caches.
-- **Готово:** «здесь» привязано к конкретному объекту; ambiguous target уточняется;
-  injection и cross-scope retrieval не расширяют доступ; Q04—Q08, Q27, Q29.
+  Separate content from notes/tool outputs from policy instructions. Compaction
+  preserves unresolved requirements and receipts. Scope revocation removes inaccessible
+  content from further model requests and invalidates provider caches.
+- **Done:** "here" is bound to a specific object; an ambiguous target is clarified;
+  injection and cross-scope retrieval do not widen access; Q04—Q08, Q27, Q29.
 
-#### H-33. Панель задач и прозрачное выполнение
+#### H-33. Task panel and transparent execution
 
-- **Depends:** H-31, H-24. **Владелец:** frontend.
-- **Основные файлы:** `ai-panel.tsx`, `workspace/ai/`, focused Zustand store;
-  локализацию и theme tokens интегрирует назначенный владелец.
-- **Сделать:** режимы обсуждения/подготовки/выполнения, scope picker, plan/progress,
+- **Depends:** H-31, H-24. **Owner:** frontend.
+- **Main files:** `ai-panel.tsx`, `workspace/ai/`, a focused Zustand store;
+  localization and theme tokens are integrated by the assigned owner.
+- **Do:** discussion/preparation/execution modes, scope picker, plan/progress,
   change previews, exact pending approvals, Stop/Resume/Undo, history/filter/diff,
-  budget indicators. Обсуждение технически лишено mutating tools. Preview approval
-  связан с конкретным plan hash и revisions; stale preview применяется заново
-  только после обновления. Существующее разрешение не спрашивается на каждом шаге.
-- **Готово:** readable keyboard-accessible RU/EN flow, reconnect восстанавливает
-  состояние; pending dialog не разрешает другую версию действия; Q18, Q26, Q29, Q30.
+  budget indicators. Discussion is technically stripped of mutating tools. A preview approval
+  is bound to a specific plan hash and revisions; a stale preview is applied again
+  only after a refresh. An existing permission is not asked for at every step.
+- **Done:** a readable keyboard-accessible RU/EN flow, reconnect restores
+  the state; a pending dialog does not authorize another version of the action; Q18, Q26, Q29, Q30.
 
-#### H-34. Приёмка первого агента
+#### H-34. First agent acceptance
 
-- **Depends:** H-30—H-33. **Владелец:** интегратор + независимый reviewer.
-- **Сделать:** notes vertical workflow в browser harness и реальном Tauri,
+- **Depends:** H-30—H-33. **Owner:** integrator + independent reviewer.
+- **Do:** the notes vertical workflow in the browser harness and in real Tauri,
   fresh/reopened vault, editor dirty state, multi-window, cancel/restart,
-  network/provider failures. Проверить production build с AI module disabled.
-- **Готово:** Q01—Q30 применимы и проходят; один live model выполняет note scenario,
-  fake provider проходит все fault cases; G3. Никаких заявлений о полноте
-  остальных доменов на этом этапе.
+  network/provider failures. Check the production build with the AI module disabled.
+- **Done:** Q01—Q30 are applicable and pass; one live model performs the note scenario,
+  the fake provider passes all fault cases; G3. No claims about the completeness
+  of the other domains at this stage.
 
-### Этап 4. Полное покрытие прикладных сценариев
+### Stage 4. Full coverage of applied scenarios
 
-#### H-40. Заметки, структура, свойства и слои
+#### H-40. Notes, structure, properties and layers
 
-- **Depends:** G3. **Владелец:** note domain.
-- **Сделать:** закрыть каталог заметок/папок/tags/properties/icons и source edits;
-  rename/move с backlinks, bundle/layer lifecycle, trash/restore, attachments.
-  Preview перечисляет все effects; наружные links и shared assets учитываются
-  policy. Стабильные IDs и opaque YAML не переписываются автоматически.
-  Internal archive, system trash и archive отдельного слоя имеют разные actions.
-  Автоматический undo не вызывает current `deleteItem`/`deleteLayer`, отправляющие
-  данные в OS trash; manual исключения остаются видимыми в coverage.
-- **Готово:** Q04, Q08, Q11, Q15—Q17, Q31, Q32; операции доступны без открытого
-  редактора и отменяются через общий журнал.
+- **Depends:** G3. **Owner:** note domain.
+- **Do:** close the catalog of notes/folders/tags/properties/icons and source edits;
+  rename/move with backlinks, bundle/layer lifecycle, trash/restore, attachments.
+  Preview lists all effects; outgoing links and shared assets are accounted for by
+  policy. Stable IDs and opaque YAML are not rewritten automatically.
+  Internal archive, system trash and the archive of an individual layer have different actions.
+  Automatic undo does not call the current `deleteItem`/`deleteLayer`, which send
+  data to the OS trash; manual exceptions stay visible in coverage.
+- **Done:** Q04, Q08, Q11, Q15—Q17, Q31, Q32; operations are available without an open
+  editor and are undone through the shared journal.
 
-#### H-41. Базы и представления
+#### H-41. Databases and views
 
-- **Depends:** G3. **Владелец:** database domain.
-- **Сделать:** registry adapters для всех поддерживаемых database operations,
-  включая schema/options/values/relations, layouts/filters/grouping/linked views,
-  templates/assets и YAML sync. Для пробелов H-00 реализовать требуемый общий
-  domain API отдельными внутренними подзадачами; direct JSON/SQL writes модели
-  не выдавать. Совместить domain history и agent inverse через один receipt.
-- **Готово:** проект с attached базой и несколькими views работает после restart,
-  locked schema и scope границы проверяются, undo не удаляет пользовательские
-  значения; Q33—Q36. Формулы вычисляются после сохранения, ошибки видны.
+- **Depends:** G3. **Owner:** database domain.
+- **Do:** registry adapters for all supported database operations,
+  including schema/options/values/relations, layouts/filters/grouping/linked views,
+  templates/assets and YAML sync. For the gaps found in H-00, implement the required shared
+  domain API as separate internal subtasks; do not expose direct JSON/SQL writes
+  to the model. Combine domain history and agent inverse through a single receipt.
+- **Done:** a project with an attached database and several views works after restart,
+  locked schema and scope boundaries are verified, undo does not delete user
+  values; Q33—Q36. Formulas are computed after saving, errors are visible.
 
-#### H-42. Canvas без UI-автоматизации
+#### H-42. Canvas without UI automation
 
-- **Depends:** H-40. **Владелец:** Canvas.
-- **Сделать:** create/read/patch scene, note/text/image cards, edges/groups,
-  reusable layout, bounds validation, stable IDs и сохранение unknown fields.
-  Выделить editor-independent scene transformations; persist только через executor.
-  Согласовать общий `board` command service с H-43 и планом единой доски:
-  один владелец shared contracts, отдельные format adapters, без двух моделей
-  документа и конкурирующих history stacks.
-- **Готово:** карточки открывают настоящие заметки, внешние ссылки не обогащают
-  scope, round-trip и undo сохраняют неизвестные данные; Q37, Q39.
+- **Depends:** H-40. **Owner:** Canvas.
+- **Do:** create/read/patch scene, note/text/image cards, edges/groups,
+  reusable layout, bounds validation, stable IDs and preservation of unknown fields.
+  Extract editor-independent scene transformations; persist only through the executor.
+  Align the shared `board` command service with H-43 and the unified board plan:
+  one owner of shared contracts, separate format adapters, without two document
+  models and competing history stacks.
+- **Done:** cards open real notes, external links do not enrich
+  the scope, round-trip and undo preserve unknown data; Q37, Q39.
 
-#### H-43. Excalidraw: наброски и схемы
+#### H-43. Excalidraw: sketches and diagrams
 
-- **Depends:** H-40. **Владелец:** Sketch.
-- **Сделать:** semantic scene builder для текста/фигур/стрелок/групп/embeddables,
-  deterministic layout и patch по IDs; renderer preview как результат проверки.
-  Использовать существующий format/serializer и совместимые Excalidraw helpers;
-  не хранить editor runtime fields в документе.
-  Использовать согласованный с H-42 `board` contract; Excalidraw-only возможности
-  не включать для `.canvas`. Shared files закрепить до параллельных работ.
-- **Готово:** заметки встроены и кликабельны, редактирование одного элемента
-  сохраняет остальные, переносимость/visual/undo checks проходят; Q38, Q39.
+- **Depends:** H-40. **Owner:** Sketch.
+- **Do:** a semantic scene builder for text/shapes/arrows/groups/embeddables,
+  deterministic layout and patch by IDs; renderer preview as a verification result.
+  Use the existing format/serializer and compatible Excalidraw helpers;
+  do not store editor runtime fields in the document.
+  Use the `board` contract aligned with H-42; do not enable Excalidraw-only capabilities
+  for `.canvas`. Pin shared files before parallel work.
+- **Done:** notes are embedded and clickable, editing one element
+  preserves the rest, portability/visual/undo checks pass; Q38, Q39.
 
-#### H-44. Темы и типографика
+#### H-44. Themes and typography
 
-- **Depends:** G3. **Владелец:** appearance/settings.
-- **Сделать:** typed backend allowlist, validated theme creation/patch/select,
-  preview, existing font choices/scale и field-level settings inverse. Согласовать
-  с очередью пользовательских settings patches, чтобы два writer не теряли ключи.
-  Новая тема получает свой ID и не заменяет built-in.
-- **Готово:** видимый эффект и restart persistence, запрет remote/CSS/JS payload,
-  конфликт того же ключа и сохранение соседних ключей; Q40—Q42.
+- **Depends:** G3. **Owner:** appearance/settings.
+- **Do:** a typed backend allowlist, validated theme creation/patch/select,
+  preview, existing font choices/scale and a field-level settings inverse. Align
+  with the queue of user settings patches so that two writers do not lose keys.
+  A new theme gets its own ID and does not replace a built-in one.
+- **Done:** visible effect and restart persistence, a ban on remote/CSS/JS payloads,
+  a conflict on the same key and preservation of neighboring keys; Q40—Q42.
 
-#### H-45. Workspace, остальные настройки и модули
+#### H-45. Workspace, other settings and modules
 
-- **Depends:** H-40, H-44, H-12. **Владелец:** workspace/modules.
-- **Сделать:** закрыть remaining settings/action catalog: tabs, panels/layout,
-  favorites/view-state, shortcuts, presets, enable/disable modules. Для transient
-  операций обозначить session undo; для durable — versioned inverse. Missing
-  package не скачивается молча; установка проходит выделенный разрешённый flow.
-- **Готово:** runtime правдив после module changes, глобальные настройки явно
-  отделены от workspace, policy/credentials недоступны, Q12, Q41, Q42, Q44.
+- **Depends:** H-40, H-44, H-12. **Owner:** workspace/modules.
+- **Do:** close the remaining settings/action catalog: tabs, panels/layout,
+  favorites/view-state, shortcuts, presets, enable/disable modules. For transient
+  operations, designate session undo; for durable ones, a versioned inverse. A missing
+  package is not downloaded silently; installation goes through a dedicated permitted flow.
+- **Done:** the runtime is truthful after module changes, global settings are explicitly
+  separated from the workspace, policy/credentials are inaccessible, Q12, Q41, Q42, Q44.
 
-#### H-46. Составные задачи и закрытие карты покрытия
+#### H-46. Composite tasks and closing the coverage map
 
-- **Depends:** H-40—H-45. **Владелец:** интегратор + reviewer.
-- **Сделать:** scenario «заметка + база + views + Excalidraw + тема», task DAG,
-  verification всех артефактов, group undo и recovery на каждом шаге. Дополнить
-  каталог всеми actions из UI. Каждую missingImplementation закрыть owner patch
-  либо вынести на явное продуктовое решение, не помечать как готовую.
-- **Готово:** Q31—Q44, G4; все обязательные действия каталога реализованы,
-  намеренные исключения обоснованы и видны пользователю.
+- **Depends:** H-40—H-45. **Owner:** integrator + reviewer.
+- **Do:** the scenario "note + database + views + Excalidraw + theme", task DAG,
+  verification of all artifacts, group undo and recovery at every step. Complete the
+  catalog with all actions from the UI. Close each missingImplementation with an owner patch
+  or escalate it to an explicit product decision; do not mark it as done.
+- **Done:** Q31—Q44, G4; all required catalog actions are implemented,
+  intentional exceptions are justified and visible to the user.
 
-### Этап 5. Навыки
+### Stage 5. Skills
 
-#### H-50. Версии и хранилище навыков
+#### H-50. Skill versions and storage
 
-- **Depends:** G4, H-21, H-24. **Владелец:** skills/backend.
-- **Сделать:** package parser, immutable revisions, manifests, owned namespaces,
-  required capabilities, source attribution, install/disable/archive/revert и
-  frozen run snapshot. Все skill writes идут через journal/executor.
-- **Готово:** broken imports/paths/duplicate names/version conflicts определены,
-  active run не переключает revision посреди шага, Q45, Q46, Q48, Q49.
+- **Depends:** G4, H-21, H-24. **Owner:** skills/backend.
+- **Do:** package parser, immutable revisions, manifests, owned namespaces,
+  required capabilities, source attribution, install/disable/archive/revert and
+  a frozen run snapshot. All skill writes go through the journal/executor.
+- **Done:** broken imports/paths/duplicate names/version conflicts are handled,
+  an active run does not switch revision in the middle of a step, Q45, Q46, Q48, Q49.
 
-#### H-51. Подбор и начальная библиотека
+#### H-51. Selection and the initial library
 
-- **Depends:** H-50, H-32. **Владелец:** skills/context + workflow author.
-- **Сделать:** компактный catalog, загрузку нужных instructions/resources,
-  explicit invocation и conservative automatic matching. Подготовить skills
-  для project/database/diagram/theme на работающих actions с verification steps.
-  Каждому навыку дать positive/negative triggers и tests на лишнюю активацию.
-- **Готово:** skill экономит повторный поиск процедуры, не дублирует schema;
-  hidden scope/disabled module фильтруются до catalog; Q45—Q47.
+- **Depends:** H-50, H-32. **Owner:** skills/context + workflow author.
+- **Do:** a compact catalog, loading of the needed instructions/resources,
+  explicit invocation and conservative automatic matching. Prepare skills
+  for project/database/diagram/theme on top of working actions with verification steps.
+  Give each skill positive/negative triggers and tests for spurious activation.
+- **Done:** a skill saves re-searching for a procedure, does not duplicate the schema;
+  hidden scope/disabled module are filtered before the catalog; Q45—Q47.
 
-#### H-52. UI навыков и явное обучение
+#### H-52. Skills UI and explicit teaching
 
-- **Depends:** H-50, H-51. **Владелец:** frontend/skills.
-- **Сделать:** список, текст, версии/diff/evidence, enable/disable/revert,
-  команда «запомни этот способ» и preview proposal. Импорт локального источника
-  подчиняется scope; внешние skill scripts остаются неисполняемыми до H-70.
-- **Готово:** пользователь понимает, чему агент научен и какая версия используется;
-  replay не активирует навыки скрытно; Q48—Q50; G5.
+- **Depends:** H-50, H-51. **Owner:** frontend/skills.
+- **Do:** list, text, versions/diff/evidence, enable/disable/revert,
+  the "remember this way" command and proposal preview. Import of a local source
+  is subject to scope; external skill scripts remain non-executable until H-70.
+- **Done:** the user understands what the agent has been taught and which version is used;
+  replay does not activate skills covertly; Q48—Q50; G5.
 
-### Этап 6. Обучение, eval и память
+### Stage 6. Learning, eval and memory
 
-#### H-60. Извлечение уроков и proposals
+#### H-60. Lesson extraction and proposals
 
-- **Depends:** G5. **Владелец:** learning/runtime.
-- **Сделать:** bounded post-run job с отделённым context, positive/negative
-  evidence, prior-skill lookup, candidate diff и parent hash. Run statuses и
-  receipts отделяют проверенный успех от утверждения модели. `off/propose`
-  работают без фоновых writes в vault; явные corrections имеют источник.
-- **Готово:** одна процедура не размножается на каждый run; temporary failures,
-  неизвестный outcome и private data не превращаются в global skills; Q51, Q52, Q55.
+- **Depends:** G5. **Owner:** learning/runtime.
+- **Do:** a bounded post-run job with a separated context, positive/negative
+  evidence, prior-skill lookup, candidate diff and parent hash. Run statuses and
+  receipts separate verified success from the model's claim. `off/propose`
+  work without background writes to the vault; explicit corrections have a source.
+- **Done:** one procedure is not multiplied on every run; temporary failures,
+  unknown outcome and private data do not turn into global skills; Q51, Q52, Q55.
 
-#### H-61. Evaluator и применение проверенных версий
+#### H-61. Evaluator and applying verified versions
 
-- **Depends:** G5, H-50. **Владелец:** evaluation/backend, независимый от автора урока.
-- **Сделать:** evaluator interface, isolated fixture runner, baseline/candidate
+- **Depends:** G5, H-50. **Owner:** evaluation/backend, independent of the lesson author.
+- **Do:** evaluator interface, isolated fixture runner, baseline/candidate
   comparison, holdout suite, statistical repeat protocol, policy/data-integrity
-  gates, budgets. Proposal contract согласован с H-60 до параллельной работы.
-  Promotion применяет exact tested revision; drift требует reevaluation.
-- **Готово:** вредное/бесполезное улучшение отклоняется; оценщик не изменяет criteria;
-  нет replay реальных mutations; Q53, Q54, Q56, Q57.
+  gates, budgets. The proposal contract is aligned with H-60 before parallel work.
+  Promotion applies the exact tested revision; drift requires reevaluation.
+- **Done:** a harmful/useless improvement is rejected; the evaluator does not change the criteria;
+  no replay of real mutations; Q53, Q54, Q56, Q57.
 
-#### H-62. Scoped память и обслуживание библиотеки
+#### H-62. Scoped memory and library maintenance
 
-- **Depends:** H-60, H-61. **Владелец:** memory/curator.
-- **Сделать:** явно управляемые preferences/facts, provenance и scope propagation,
-  deduplication, expiry, forget и зависимые caches/proposals. Curator предлагает
-  consolidation/archival только для agent-owned collection, сохраняет support
-  files и не повторяется бесконечно. Редкие навыки не удаляются только из-за возраста.
-- **Готово:** чужой namespace не меняется, пользовательский pin соблюдается,
-  forget прекращает retrieval удалённого урока, Q55, Q58, Q59.
+- **Depends:** H-60, H-61. **Owner:** memory/curator.
+- **Do:** explicitly managed preferences/facts, provenance and scope propagation,
+  deduplication, expiry, forget and dependent caches/proposals. The curator proposes
+  consolidation/archival only for the agent-owned collection, preserves support
+  files and does not repeat endlessly. Rare skills are not deleted merely because of age.
+- **Done:** another namespace is not changed, the user's pin is honored,
+  forget stops retrieval of the deleted lesson, Q55, Q58, Q59.
 
-#### H-63. Управление обучением и приёмка
+#### H-63. Learning management and acceptance
 
-- **Depends:** H-60—H-62. **Владелец:** frontend + reviewer.
-- **Сделать:** экран предложений, evidence/diff/eval, accept/reject/revert,
-  off/propose/autoVerified, отдельный бюджет и kill switch. Переключение mode
-  не подтверждает задним числом старые proposals. Отзыв прав прекращает pending jobs.
-- **Готово:** пользователь видит действительное изменение навыка, стоимость и
-  основания; Q51—Q59, G6. AutoVerified не является обязательным default.
+- **Depends:** H-60—H-62. **Owner:** frontend + reviewer.
+- **Do:** a proposals screen, evidence/diff/eval, accept/reject/revert,
+  off/propose/autoVerified, a separate budget and a kill switch. Switching the mode
+  does not retroactively approve old proposals. Revoking permissions stops pending jobs.
+- **Done:** the user sees the actual skill change, the cost and
+  the grounds; Q51—Q59, G6. AutoVerified is not a mandatory default.
 
-### Этап 7. Плагины внутри приложения
+### Stage 7. Plugins inside the app
 
-#### H-70. SDK и настоящая изоляция
+#### H-70. SDK and real isolation
 
-- **Depends:** G4, G5. **Владелец:** security/modules.
-- **Сделать:** проверить текущий Worker с hostile plugin fixtures: globals,
+- **Depends:** G4, G5. **Owner:** security/modules.
+- **Do:** test the current Worker with hostile plugin fixtures: globals,
   network, direct IPC, filesystem, resource exhaustion, callback lifetime.
-  Выбрать/доработать runtime по результату; все доступные host methods проходят
-  schemas, grant intersection, revocation и executor. Ограничить UI contributions.
-- **Готово:** production native tests доказывают scope и отсутствие обходов;
-  Q60—Q62. Без этого package installation generated code заблокирован.
+  Choose/improve the runtime based on the result; all available host methods go through
+  schemas, grant intersection, revocation and the executor. Limit UI contributions.
+- **Done:** production native tests prove the scope and the absence of bypasses;
+  Q60—Q62. Without this, installation of generated code packages is blocked.
 
-#### H-71. Проект плагина и доверенный build runner
+#### H-71. Plugin project and trusted build runner
 
-- **Depends:** H-70, H-50. **Владелец:** plugin toolchain.
-- **Сделать:** versioned plugin project, templates/examples SDK, source patch,
-  compile diagnostics, test/preview manifests. Выделить trusted compiler runtime
-  и доступные dependencies; run без общего shell/host filesystem. Все исходники,
-  artifacts и логи имеют quotas, ownership и revisions.
-- **Готово:** простой плагин собирается на поддерживаемых desktop platforms,
-  исправление compiler error через агента воспроизводимо; Q63, Q64.
+- **Depends:** H-70, H-50. **Owner:** plugin toolchain.
+- **Do:** a versioned plugin project, SDK templates/examples, source patch,
+  compile diagnostics, test/preview manifests. Provide a trusted compiler runtime
+  and available dependencies; run without a shared shell/host filesystem. All sources,
+  artifacts and logs have quotas, ownership and revisions.
+- **Done:** a simple plugin builds on the supported desktop platforms,
+  fixing a compiler error through the agent is reproducible; Q63, Q64.
 
-#### H-72. Интерфейс мастерской и итерации
+#### H-72. Workshop interface and iterations
 
-- **Depends:** H-71. **Владелец:** frontend/workbench.
-- **Сделать:** source/project view, diff, diagnostics, isolated preview,
-  conversation с привязкой к project revision, test results и возврат версии.
-  Простой UI плагина использует SDK contribution model, не получает DOM приложения.
-- **Готово:** пользователь просит новую функцию, видит изменения и работающий
-  preview; manual edits кода не перезаписываются stale generation; Q63—Q65.
+- **Depends:** H-71. **Owner:** frontend/workbench.
+- **Do:** source/project view, diff, diagnostics, isolated preview,
+  a conversation bound to the project revision, test results and version restore.
+  A simple plugin UI uses the SDK contribution model and does not get the app's DOM.
+- **Done:** the user asks for a new feature, sees the changes and a working
+  preview; manual code edits are not overwritten by a stale generation; Q63—Q65.
 
-#### H-73. Установка, происхождение и lifecycle
+#### H-73. Installation, provenance and lifecycle
 
-- **Depends:** H-71, H-45. **Владелец:** package-manager integration.
-- **Сделать:** installation exact tested artifact hash, permission diff,
+- **Depends:** H-71, H-45. **Owner:** package-manager integration.
+- **Do:** installation of the exact tested artifact hash, permission diff,
   local-generated provenance, staged activation, old version rollback,
-  persistent quarantine и restart recovery. Plugin migrations имеют свой
-  preflight/backup/outcome и не смешиваются с заменой package files.
-- **Готово:** grant не расширяется при update, previous version живёт после crash,
-  uninstall сохраняет данные; Q62, Q65—Q67.
+  persistent quarantine and restart recovery. Plugin migrations have their own
+  preflight/backup/outcome and are not mixed with replacing package files.
+- **Done:** a grant is not widened on update, the previous version survives a crash,
+  uninstall preserves data; Q62, Q65—Q67.
 
-#### H-74. Полная приёмка и готовность к выпуску
+#### H-74. Full acceptance and release readiness
 
-- **Depends:** G6, H-70—H-73. **Владелец:** интегратор + независимый reviewer.
-- **Сделать:** пройти всю матрицу Q01—Q70 на итоговом diff; fresh/existing state,
-  migration rollback, module off, fake/live providers, packaged desktop, три ОС.
-  Закрыть action catalog, docs, RU/EN и changelog. Повторить только затронутые
-  проверки после исправлений; весь required gate выполнить на финальном состоянии.
-- **Готово:** G7 с evidence и без скрытых NOT RUN. Подготовить итоговый handoff:
-  что работает, ограничения, проверки, native packaging evidence. Commit/push,
-  patch release и публикация выполняются только по отдельной команде пользователя.
+- **Depends:** G6, H-70—H-73. **Owner:** integrator + independent reviewer.
+- **Do:** pass the entire Q01—Q70 matrix on the final diff; fresh/existing state,
+  migration rollback, module off, fake/live providers, packaged desktop, three OSes.
+  Close the action catalog, docs, RU/EN and changelog. Repeat only the affected
+  checks after fixes; run the entire required gate on the final state.
+- **Done:** G7 with evidence and no hidden NOT RUN. Prepare the final handoff:
+  what works, limitations, checks, native packaging evidence. Commit/push,
+  patch release and publication are done only on a separate user command.
 
-### Шаблон задания исполнителю
+### Executor task template
 
 ```text
-Выполни пакет H-XX из docs/road/ai-harness-orchestration.md.
-Прочитай AGENTS.md, архитектурный контракт, пакет и связанные Q-сценарии.
-Baseline: <HEAD + сведения о рабочем дереве>.
-Зависимости уже приняты: <ID и evidence>.
-Твоё эксклюзивное владение: <файлы/каталоги>.
-Общие integration files редактирует <owner>; передай ему integration patch.
+Execute package H-XX from docs/road/ai-harness-orchestration.md.
+Read AGENTS.md, the architectural contract, the package and the related Q scenarios.
+Baseline: <HEAD + working tree information>.
+Dependencies already accepted: <IDs and evidence>.
+Your exclusive ownership: <files/directories>.
+Shared integration files are edited by <owner>; hand them an integration patch.
 
-Реализуй полный контракт пакета, включая failure/rollback paths и применимые
-проверки. Пользовательские изменения сохраняй. Не меняй версию приложения.
-Не объявляй mocked тест доказательством native поведения. Если зависимость
-не реализована, сообщи конкретный blocker и продолжи независимую часть.
-Не расширяй scope и не выполняй соседние пакеты без назначения оркестратора.
-Заверши отчётом по установленной форме с командами, exit codes и evidence.
+Implement the full contract of the package, including failure/rollback paths and the applicable
+checks. Preserve user changes. Do not change the app version.
+Do not declare a mocked test as proof of native behavior. If a dependency
+is not implemented, report the specific blocker and continue the independent part.
+Do not widen scope and do not execute adjacent packages without orchestrator assignment.
+Finish with a report in the established form with commands, exit codes and evidence.
 ```
 
-### Шаблон независимой проверки
+### Independent review template
 
 ```text
-Проверь пакет H-XX на baseline <...> по архитектурному контракту и Q-сценариям.
-Сначала прочитай итоговый diff и реальные call sites, затем targeted tests.
-Проверь обходы policy, failure windows, stale revisions, scopes, undo, module
-lifecycle, headless execution и сохранность исходных данных по применимости.
-Отдели подтверждённые дефекты от непроверенных гипотез. Для каждого дефекта дай
-воспроизведение, затронутый контракт и минимальный способ исправления.
-Отдельно перечисли пропущенные evidence и заявленные, но отсутствующие paths.
-Не исправляй несвязанный код. Не ставь PASS при незапущенной обязательной проверке.
+Review package H-XX on baseline <...> against the architectural contract and the Q scenarios.
+First read the final diff and the real call sites, then targeted tests.
+Check policy bypasses, failure windows, stale revisions, scopes, undo, module
+lifecycle, headless execution and preservation of source data, as applicable.
+Separate confirmed defects from unverified hypotheses. For each defect give
+a reproduction, the affected contract and a minimal way to fix it.
+Separately list missing evidence and claimed but absent paths.
+Do not fix unrelated code. Do not give PASS if a required check was not run.
 ```
 
-### Инструкция для оркестратора
+### Orchestrator instructions
 
-Следующий текст предназначен для будущего запуска реализации:
+The following text is intended for a future implementation launch:
 
 ```text
-Реализуй полный план ИИ-агента Amby из:
+Implement the full Amby AI agent plan from:
 - docs/road/ai-harness-plan.md;
 - docs/road/ai-harness-orchestration.md;
 - docs/road/ai-harness-acceptance.md.
 
-Используй оркестрацию агентов для независимых пакетов. Начни с H-00 и H-01,
-сохрани текущее пользовательское рабочее дерево и создай progress ledger.
-Не считай наличие прототипа или старую запись в changelog доказательством
-готовности. Назначай владельцев файлов, проверяй dependencies и integration.
-Веди статусы H-00—H-74, перечисленные в документе, и gates G0—G7.
+Use agent orchestration for independent packages. Start with H-00 and H-01,
+preserve the current user working tree and create a progress ledger.
+Do not treat the existence of a prototype or an old changelog entry as proof of
+readiness. Assign file owners, check dependencies and integration.
+Track the statuses H-00—H-74 listed in the document and gates G0—G7.
 
-Продвигайся до полной реализации всех обязательных этапов. После каждого
-batch выполняй build и применимые проверки; перед review — npm run verify.
-Сгенерированные bindings обновляй только через Rust/Specta. При backend/IPC/
-permissions изменениях выполняй native проверки и соответствующую сборку.
-Используй synthetic vault и test profiles; не трогай личные данные и credentials.
+Advance to full implementation of all required stages. After each
+batch run the build and the applicable checks; before review run npm run verify.
+Update generated bindings only through Rust/Specta. For backend/IPC/
+permissions changes run native checks and the corresponding build.
+Use a synthetic vault and test profiles; do not touch personal data and credentials.
 
-Обеспечь фактическое исполнение через общие actions, серверную policy,
-durable журнал до записи, recovery и конфликтобезопасный undo. Навыки,
-память, обучение и плагины подчиняются тем же scope. Данные из заметок не
-могут менять права или системные инструкции. Каждое заявление об успехе
-подтверждай receipts, проверками и повторным открытием результата.
+Ensure actual execution through shared actions, server-side policy,
+a durable journal before the write, recovery and conflict-safe undo. Skills,
+memory, learning and plugins are subject to the same scope. Data from notes
+cannot change permissions or system instructions. Confirm every claim of success
+with receipts, checks and re-opening the result.
 
-Не сокращай план до chat-only MVP, одного провайдера, mocked undo или UI
-демонстрации. G3 — промежуточный результат, полный результат — G7.
-Не меняй версию, не коммить, не пушь, не создавай теги и релизы без отдельного
-запроса. При объективном blocker укажи причину и продолжай доступные пакеты.
-Финальный отчёт должен честно отделять выполненное от blocked/notRun.
+Do not shrink the plan to a chat-only MVP, a single provider, mocked undo or a UI
+demo. G3 is an intermediate result, the full result is G7.
+Do not change the version, commit, push, or create tags and releases without a separate
+request. On an objective blocker, state the reason and continue the available packages.
+The final report must honestly separate what was done from blocked/notRun.
 ```
 
 ---
 
-## Часть 5. ИИ-агент Amby: приёмка и доказательства
+## Part 5. The Amby AI agent: acceptance and evidence
 
-_Бывший файл `ai-harness-acceptance.md`, объединён 2026-11-03._
+_Formerly the file `ai-harness-acceptance.md`, merged on 2026-11-03._
 
-> **Статус на 2026-11-02:** план, не реализован. Из него начат только этап 1 (панель и ИИ, который только читает — [ai-stage-1-plan](ai.md)); реестр действий, журнал, права записи и откат (H-10…H-24) не начаты.
+> **Status as of 2026-11-02:** plan, not implemented. Only stage 1 has been started (the panel and an AI that only reads — [ai-stage-1-plan](ai.md)); the action registry, journal, write permissions and rollback (H-10…H-24) are not started.
 
-Статус: спецификация проверок; результаты реализации ещё не получены.  
-Дата: 2026-09-30. Версия: 2.
+Status: specification of checks; implementation results have not been obtained yet.
+Date: 2026-09-30. Version: 2.
 
-[Архитектура](ai.md) · [Пакеты и оркестрация](ai.md)
+[Architecture](ai.md) · [Packages and orchestration](ai.md)
 
-Подробные основания проверок: [контракт](../ai-harness.md),
-[формат состояния](../ai-state-format.md), [каталог](../ai-action-catalog.md).
-Статусы всех новых сценариев — `notRun`; документация не является evidence PASS.
+Detailed grounds for the checks: [contract](../ai-harness.md),
+[state format](../ai-state-format.md), [catalog](../ai-action-catalog.md).
+The statuses of all new scenarios are `notRun`; documentation is not PASS evidence.
 
-### 1. Уровни проверки
+### 1. Verification levels
 
-- **U — unit/contract:** чистая логика, schemas, policy, transforms, state machine.
-- **I — integration:** настоящий executor/domain services, temporary filesystem,
-  journal и recovery; fake provider допустим, mocked mutations недопустимы.
+- **U — unit/contract:** pure logic, schemas, policy, transforms, state machine.
+- **I — integration:** a real executor/domain services, temporary filesystem,
+  journal and recovery; a fake provider is acceptable, mocked mutations are not.
 - **N — native:** production IPC, StoragePort/DesktopAdapter, Tauri runtime,
-  реальные events/files/restart и по применимости несколько окон.
-- **V — visual/manual:** native UI, сцены и настройки, клавиатура, RU/EN.
-- **L — live provider:** реальная модель и transport; отдельные synthetic data,
-  явный бюджет и настроенный test credential profile.
+  real events/files/restart and, as applicable, multiple windows.
+- **V — visual/manual:** native UI, scenes and settings, keyboard, RU/EN.
+- **L — live provider:** a real model and transport; separate synthetic data,
+  an explicit budget and a configured test credential profile.
 
-Unit PASS не заменяет I/N/V/L там, где этот уровень указан. Browser localStorage
-fallback подтверждает свой контракт, но не нативные grants, credentials или
-атомарность файлов. Скриншот подтверждает отображение; сохранение проверяется
-повторным чтением и открытием в новом процессе.
+A unit PASS does not replace I/N/V/L where that level is specified. The browser localStorage
+fallback confirms its own contract, but not native grants, credentials or
+file atomicity. A screenshot confirms display; saving is verified by
+re-reading and opening in a new process.
 
-### 2. Среда и evidence
+### 2. Environment and evidence
 
-Все сценарии используют отдельные временные vault и app-data profiles, не
-пользовательские настройки. В corpus нужны `Allowed/`, `Restricted/`, вложенные
-папки, ссылки между областями, существующие user edits, BOM/CRLF/opaque Markdown,
-bundles, attached/standalone базы, Canvas и Excalidraw с неизвестными полями.
+All scenarios use separate temporary vault and app-data profiles, not
+the user's settings. The corpus needs `Allowed/`, `Restricted/`, nested
+folders, links between areas, existing user edits, BOM/CRLF/opaque Markdown,
+bundles, attached/standalone databases, Canvas and Excalidraw with unknown fields.
 
-Test driver умеет заранее задавать tool calls модели, задержки, malformed
-ответы, потерю связи, exact crash points, fs write errors и заполнение quotas.
-Сбой процесса проверяется завершением процесса/перезапуском там, где проверяется
-durability; исключение внутри mock-функции не эквивалентно crash.
+The test driver can preset model tool calls, delays, malformed
+responses, connection loss, exact crash points, fs write errors and quota exhaustion.
+A process failure is verified by terminating the process/restarting where
+durability is being verified; an exception inside a mock function is not equivalent to a crash.
 
-Артефакт каждого прогона содержит:
+The artifact of each run contains:
 
 ```text
 scenarioId / packageId / baseline / build mode / OS
@@ -1707,199 +1707,199 @@ status: PASS | FAIL | NOT RUN | BLOCKED
 reason / retained synthetic reproduction path
 ```
 
-Во время реализации локальные отчёты хранить в существующем ignored evidence
-каталоге или временной директории; большие логи и vault не коммитить. В progress
-документе остаются компактные результаты и ссылки. Credentials и content реальных
-пользовательских vault в evidence недопустимы.
+During implementation, keep local reports in the existing ignored evidence
+directory or a temporary directory; do not commit large logs and vaults. The progress
+document keeps compact results and links. Credentials and content of real
+user vaults are not permitted in evidence.
 
-### 3. Контракты, права и сохранность
+### 3. Contracts, permissions and data safety
 
-| ID  | Сценарий и проверяемый результат                                                                                                                                                                   | Уровень   |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| Q01 | Инвентаризация сопоставлена с production UI/commands; baseline содержит список предшествующих изменений и реальные результаты required checks. Ни один обязательный action не потерян из каталога. | U, review |
-| Q02 | Неизвестный action, неправильная schema/version и поддельный actor/grant отклоняются до domain call. UI и agent path имеют одинаковый source-data результат.                                       | U, I      |
-| Q03 | Чтение/запись соседнего root, traversal, absolute/UNC path и подмена object ID заблокированы через прямой вызов executor. После отказа файловых изменений нет.                                     | U, I, N   |
-| Q04 | Symlink/junction, case-only path, Unicode и подмена родителя между preview/write не выводят action за canonical root. Rename затрагивает весь bundle согласованно.                                 | I, N      |
-| Q05 | Vault A → B и A → A с новой generation во время LLM/tool await не позволяют завершить старый write. Отзыв grant действует на уже запланированные вызовы.                                           | I, N      |
-| Q06 | Search snippets, counts, aggregates, graph/backlinks, history и diff не раскрывают соседний scope; ограничения применены до ranking/limit.                                                         | U, I, N   |
-| Q07 | Заметка/skill/tool output с инструкцией расширить права, прочитать credentials или отключить журнал не изменяет policy и не получает результат запрещённого вызова.                                | I, L      |
-| Q08 | Dirty editor, выделение устаревшей revision и второй редактор не теряют пользовательские правки. Bridge flush подтверждён; конфликт виден вместо silent overwrite.                                 | I, N, V   |
-| Q09 | Ошибка snapshot/intent publication блокирует mutation. Crash после durable file write до receipt оставляет recoverable uncertain operation, а не фиктивный success/отсутствие действия.            | I, N      |
-| Q10 | Новый пустой journal, migration старой версии, unknown future version и повреждённый record имеют безопасный исход. Rebuild derived journal index не меняет записи и blobs.                        | I         |
-| Q11 | BOM, CRLF, неизвестный YAML/HTML, source-only Markdown, маркеры `amby:columns` и пустые блоки сохраняются по существующему контракту; допустимость Live Preview не расширена без fixtures.         | U, I, N   |
-| Q12 | Module disable/uninstall между plan и execute отзывает capability. Повторное включение в другом vault не использует старый context/grant.                                                          | U, I, N   |
-| Q13 | Повтор submission/operation после transport retry возвращает тот же результат без duplicate note/row. Тот же operation ID с другими arguments отвергается.                                         | I, N      |
-| Q14 | Durable save при ошибке SQLite projection остаётся одним save; index rebuild исправляет только derived state. UI видит сохранение и отдельную проблему индекса.                                    | I, N      |
-| Q15 | Undo одной операции восстанавливает исходные bytes/keys/IDs. Повтор Undo не вносит новых изменений. Изменения других ресурсов не затронуты.                                                        | I, N      |
-| Q16 | Multi-step task: сбой на каждом шаге, reverse dependency undo и частичный rollback сохраняют точный список эффектов. Нет заявления «полностью отменено» при конфликте.                             | I, N      |
-| Q17 | Rename/move с backlink за write scope и schema базы за scope строки останавливаются до первой записи; скрытые имена/содержимое не выдаются в diagnostic.                                           | I, N      |
-| Q18 | List/get/diff/undo работают через scoped журнал. Удаление/подмена события агентом недоступны; undo создаёт новое событие с actor и source operation.                                               | I, N, V   |
-| Q19 | Quota и retention не удаляют необходимые snapshots активного/обещанного undo. Новые writes при нехватке места приостановлены. После user purge старый undo обозначен unavailable.                  | I, N      |
-| Q20 | Secrets в auth/header/provider error и module config редактируются до логирования/выдачи. Export истории сохраняет scope. Reconnect получает события без пропусков/двойных эффектов.               | U, I, N   |
+| ID  | Scenario and verifiable result                                                                                                                                                                               | Level     |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------- |
+| Q01 | The inventory is mapped to the production UI/commands; the baseline contains the list of preceding changes and the real results of required checks. No required action is lost from the catalog.             | U, review |
+| Q02 | An unknown action, a wrong schema/version and a forged actor/grant are rejected before the domain call. The UI and agent paths produce the same source-data result.                                          | U, I      |
+| Q03 | Reading/writing a neighbouring root, traversal, an absolute/UNC path and object ID substitution are blocked through a direct executor call. No file changes remain after a refusal.                          | U, I, N   |
+| Q04 | Symlink/junction, case-only path, Unicode and parent substitution between preview/write do not take the action outside the canonical root. Rename affects the whole bundle consistently.                     | I, N      |
+| Q05 | Vault A → B and A → A with a new generation during an LLM/tool await do not let the old write complete. Revoking a grant applies to calls that are already scheduled.                                        | I, N      |
+| Q06 | Search snippets, counts, aggregates, graph/backlinks, history and diff do not reveal a neighbouring scope; restrictions are applied before ranking/limit.                                                    | U, I, N   |
+| Q07 | A note/skill/tool output with an instruction to expand permissions, read credentials or disable the log does not change policy and does not get the result of a forbidden call.                              | I, L      |
+| Q08 | A dirty editor, a selection of a stale revision and a second editor do not lose user edits. The bridge flush is confirmed; a conflict is visible instead of a silent overwrite.                              | I, N, V   |
+| Q09 | A snapshot/intent publication error blocks the mutation. A crash after a durable file write but before the receipt leaves a recoverable uncertain operation, not a fictitious success/absence of the action. | I, N      |
+| Q10 | A new empty journal, a migration from an old version, an unknown future version and a corrupted record have a safe outcome. Rebuilding the derived journal index does not change records and blobs.          | I         |
+| Q11 | BOM, CRLF, unknown YAML/HTML, source-only Markdown, `amby:columns` markers and empty blocks are preserved under the existing contract; Live Preview admissibility is not extended without fixtures.          | U, I, N   |
+| Q12 | Module disable/uninstall between plan and execute revokes the capability. Re-enabling in another vault does not use the old context/grant.                                                                   | U, I, N   |
+| Q13 | A repeated submission/operation after a transport retry returns the same result without a duplicate note/row. The same operation ID with different arguments is rejected.                                    | I, N      |
+| Q14 | A durable save with a SQLite projection error remains a single save; an index rebuild fixes only derived state. The UI sees the save and, separately, the index problem.                                     | I, N      |
+| Q15 | Undo of a single operation restores the original bytes/keys/IDs. Repeating Undo introduces no new changes. Changes to other resources are untouched.                                                         | I, N      |
+| Q16 | Multi-step task: a failure at each step, reverse dependency undo and partial rollback preserve the exact list of effects. There is no claim of "fully undone" when there is a conflict.                      | I, N      |
+| Q17 | Rename/move with a backlink outside the write scope and a database schema outside the row scope stop before the first write; hidden names/content are not disclosed in diagnostics.                          | I, N      |
+| Q18 | List/get/diff/undo work through the scoped journal. Deleting/forging an event by the agent is not possible; undo creates a new event with an actor and source operation.                                     | I, N, V   |
+| Q19 | Quota and retention do not delete the snapshots needed for an active/promised undo. New writes are suspended when space runs out. After a user purge, the old undo is marked unavailable.                    | I, N      |
+| Q20 | Secrets in auth/header/provider errors and module config are redacted before logging/disclosure. History export preserves scope. Reconnect receives events without gaps/double effects.                      | U, I, N   |
 
-В Q11 под `amby:columns` понимаются точные существующие HTML-маркеры колонок;
-fixture должен проверять их реальные bytes, widths, порядок и пустые блоки.
+In Q11, `amby:columns` means the exact existing HTML column markers;
+the fixture must check their real bytes, widths, order and empty blocks.
 
-### 4. Runtime и взаимодействие
+### 4. Runtime and interaction
 
-| ID  | Сценарий и проверяемый результат                                                                                                                                                                    | Уровень |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| Q21 | Каждый provider adapter разбирает text/tool/result/usage/completion fixtures; broken/partial JSON, большой ответ и неизвестный tool не запускают mutation.                                          | U, I    |
-| Q22 | Реальная capability probe и live tool call для каждой заявленной совместимой конфигурации. Модель без tools явно остаётся discussion-only. Непроверенная конфигурация не помечена certified.        | I, L    |
-| Q23 | Stop до tool, внутри atomic publication и после publication прекращает последующие шаги; завершённый эффект имеет receipt и undo. Поздний stream не оживляет cancelled run.                         | I, N    |
-| Q24 | Закрытие панели, reload окна и restart приложения сохраняют run/checkpoint. Resume проверяет grants/revisions и не повторяет completed effects.                                                     | I, N, V |
-| Q25 | Два run меняют один документ или setting: expected revision и очередь предотвращают lost update. Независимые reads не блокируются ожиданием provider.                                               | I, N    |
-| Q26 | Budgets и loop detector прекращают бесконечные model/tool retry. User wait не расходует model calls. Продление бюджета задаёт пользователь; stale approval не подтверждает новый plan.              | U, I, N |
-| Q27 | Большая заметка и длинный диалог: truncation видима, chunks имеют revisions, compaction сохраняет нерешённые требования и receipts. Отзыв scope удаляет прежний контент из новых provider requests. | U, I, L |
-| Q28 | Disconnect, rate limit, timeout, credential failure и fallback модели не повторяют effects и не выдают секреты. Usage missing обозначен unknown. Unknown execution outcome проходит reconcile.      | U, I, L |
-| Q29 | Discussion не имеет mutating tools; Prepare создаёт только preview в служебном state. Выполнение применяет exact reviewed plan; изменение цели/revision требует нового preview.                     | I, N, V |
-| Q30 | Note scenario: поиск → создание → правка → verification → restart → undo. Проверены RU/EN, keyboard focus, progress/error/recovery UI и production build с выключенным AI.                          | N, V, L |
+| ID  | Scenario and verifiable result                                                                                                                                                                                     | Level   |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| Q21 | Each provider adapter parses text/tool/result/usage/completion fixtures; broken/partial JSON, a large response and an unknown tool do not start a mutation.                                                        | U, I    |
+| Q22 | A real capability probe and a live tool call for each declared compatible configuration. A model without tools explicitly remains discussion-only. An unverified configuration is not marked certified.            | I, L    |
+| Q23 | Stop before a tool, inside an atomic publication and after publication halts subsequent steps; a completed effect has a receipt and undo. A late stream does not revive a cancelled run.                           | I, N    |
+| Q24 | Closing the panel, reloading the window and restarting the app preserve the run/checkpoint. Resume checks grants/revisions and does not repeat completed effects.                                                  | I, N, V |
+| Q25 | Two runs change the same document or setting: the expected revision and the queue prevent a lost update. Independent reads are not blocked by waiting on the provider.                                             | I, N    |
+| Q26 | Budgets and the loop detector stop infinite model/tool retries. User wait does not consume model calls. Extending the budget is up to the user; a stale approval does not confirm a new plan.                      | U, I, N |
+| Q27 | A large note and a long dialogue: truncation is visible, chunks have revisions, compaction preserves unresolved requirements and receipts. Revoking a scope removes the former content from new provider requests. | U, I, L |
+| Q28 | Disconnect, rate limit, timeout, credential failure and model fallback do not repeat effects and do not leak secrets. Missing usage is marked unknown. An unknown execution outcome goes through reconcile.        | U, I, L |
+| Q29 | Discussion has no mutating tools; Prepare creates only a preview in the service state. Execution applies the exact reviewed plan; a change of target/revision requires a new preview.                              | I, N, V |
+| Q30 | Note scenario: search → create → edit → verification → restart → undo. Checked: RU/EN, keyboard focus, progress/error/recovery UI and a production build with AI turned off.                                       | N, V, L |
 
-### 5. Доменные возможности
+### 5. Domain capabilities
 
-| ID  | Сценарий и проверяемый результат                                                                                                                                                              | Уровень    |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| Q31 | Заметки/папки создаются, переименовываются, перемещаются, архивируются, удаляются и восстанавливаются через штатные semantics; identity conflicts не обходятся агентом.                       | I, N       |
-| Q32 | Note properties/tags/icons/layers/attachments изменяются с проверкой формата и undo. UI синхронизирован; пользовательские unknown fields и shared assets не удалены.                          | U, I, N    |
-| Q33 | Attached и standalone database: schema, typed values, options/status и все поддерживаемые layouts сохраняются и перечитываются. Empty database корректна.                                     | I, N, V    |
-| Q34 | Filters/sorts/groups/visible fields/default/linked views дают ожидаемые строки. Счётчики не включают недоступные данные. Formula/relation ошибки диагностируются без потери исходных values.  | U, I, N    |
-| Q35 | Schema lock, YAML sync conflict, invalid values и concurrency отвергаются до опасной записи; relation targets валидируются в пределах разрешённой области.                                    | I, N       |
-| Q36 | Undo database batch восстанавливает durable данные, templates/assets и projection. Пользовательская новая строка или изменённая ячейка вызывает соответствующий конфликт.                     | I, N       |
-| Q37 | Canvas builder создаёт редактируемые cards/edges/groups, открывающие настоящие заметки. Patch одного элемента сохраняет unknown JSON и прочие элементы.                                       | U, I, N, V |
-| Q38 | Excalidraw sketch содержит редактируемые figures/text/arrows/note embeds, корректные bindings и IDs. Перезапуск и открытие вне Amby проверяют переносимость supported JSON.                   | U, I, N, V |
-| Q39 | Scene verification проверяет bounds, finite coordinates, отсутствующие targets, overlap и читаемость подписей. Visual feedback не означает разрешение читать скрытые note embeds.             | U, I, V    |
-| Q40 | Создание и изменение темы проходит token validator. JS/CSS/remote resource payload отвергается. Built-in theme не перезаписана; выбранный font/scale поддерживается приложением.              | U, I, N, V |
-| Q41 | Global и workspace settings scopes различаются. Undo одного ключа сохраняет соседние пользовательские изменения, конфликт того же ключа не затирается.                                        | I, N       |
-| Q42 | Settings policy запрещает credentials/provider endpoints/security/logging settings без отдельного предусмотренного пользовательского flow. Imported preset не увеличивает grant.              | U, I, N    |
-| Q43 | Составной проект создаёт note + database + два view + Excalidraw + разрешённую настройку; все IDs связаны, результат переживает restart, task undo учитывает зависимости.                     | I, N, V, L |
-| Q44 | Итоговая action coverage matrix сопоставлена с реальным UI. Нет обязательных missingImplementation, скрытых заглушек и «успешных» no-op операций. Transient actions имеют честный undo class. | review, N  |
+| ID  | Scenario and verifiable result                                                                                                                                                                              | Level      |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| Q31 | Notes/folders are created, renamed, moved, archived, deleted and restored through the standard semantics; identity conflicts are not bypassed by the agent.                                                 | I, N       |
+| Q32 | Note properties/tags/icons/layers/attachments are changed with format checking and undo. The UI is in sync; the user's unknown fields and shared assets are not deleted.                                    | U, I, N    |
+| Q33 | Attached and standalone database: schema, typed values, options/status and all supported layouts are saved and re-read. An empty database is correct.                                                       | I, N, V    |
+| Q34 | Filters/sorts/groups/visible fields/default/linked views give the expected rows. Counters do not include inaccessible data. Formula/relation errors are diagnosed without losing the source values.         | U, I, N    |
+| Q35 | Schema lock, YAML sync conflict, invalid values and concurrency are rejected before a dangerous write; relation targets are validated within the permitted area.                                            | I, N       |
+| Q36 | Undo of a database batch restores durable data, templates/assets and the projection. A new user row or a changed cell raises the corresponding conflict.                                                    | I, N       |
+| Q37 | The Canvas builder creates editable cards/edges/groups that open real notes. A patch of a single element preserves unknown JSON and the other elements.                                                     | U, I, N, V |
+| Q38 | An Excalidraw sketch contains editable figures/text/arrows/note embeds, correct bindings and IDs. Restart and opening outside Amby verify the portability of the supported JSON.                            | U, I, N, V |
+| Q39 | Scene verification checks bounds, finite coordinates, missing targets, overlap and label legibility. Visual feedback does not imply permission to read hidden note embeds.                                  | U, I, V    |
+| Q40 | Creating and changing a theme passes the token validator. A JS/CSS/remote resource payload is rejected. A built-in theme is not overwritten; the chosen font/scale is supported by the app.                 | U, I, N, V |
+| Q41 | Global and workspace settings scopes are distinguished. Undo of a single key preserves neighbouring user changes; a conflict on the same key is not overwritten.                                            | I, N       |
+| Q42 | The settings policy forbids credentials/provider endpoints/security/logging settings without a separate, designed user flow. An imported preset does not increase a grant.                                  | U, I, N    |
+| Q43 | A composite project creates a note + database + two views + Excalidraw + a permitted setting; all IDs are linked, the result survives restart, task undo takes dependencies into account.                   | I, N, V, L |
+| Q44 | The final action coverage matrix is mapped to the real UI. There are no required missingImplementation entries, hidden stubs or "successful" no-op operations. Transient actions have an honest undo class. | review, N  |
 
-### 6. Навыки и обучение
+### 6. Skills and learning
 
-| ID  | Сценарий и проверяемый результат                                                                                                                                                   | Уровень |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| Q45 | Skill package parser проверяет manifest, support paths, required actions/API/modules, размер и scope. Неизвестные executable resources не исполняются при чтении.                  | U, I    |
-| Q46 | Run использует закреплённые skill revisions. Изменение/disable коллекции не подменяет уже проверенные instructions; revoked permissions всё равно действуют немедленно.            | I, N    |
-| Q47 | Positive/negative triggers выбирают подходящий навык без переполнения контекста; нерелевантные и закрытые namespaces не попадают в catalog/search.                                 | U, I, L |
-| Q48 | Пользователь видит содержимое, источник, version diff и evidence; skill revert возвращает точный package, включая support files.                                                   | I, N, V |
-| Q49 | Handwritten/bundled/pinned skills не меняются автономно. Duplicate name не подменяет доверенный skill незаметно. Explicit revision conflict останавливает apply.                   | I       |
-| Q50 | «Запомни этот способ» создаёт предложение на текущем workflow, показывает scope и не разрешает executable code или глобальную публикацию.                                          | I, N, L |
-| Q51 | Проверенная сложная процедура/явное исправление создаёт bounded proposal. Обычный успех, временная ошибка и неподтверждённый итог допускают abstain.                               | U, I, L |
-| Q52 | Повторный урок обновляет подходящее предложение/навык; one-off имена, частные пути и chat narrative не копируются в global procedure.                                              | I, L    |
-| Q53 | Baseline/candidate eval выполняется в свежих fixtures тем же executor, не касается реального vault и не вызывает внешние side effects. Candidate не меняет expected results.       | I       |
-| Q54 | Заведомо плохой candidate проигрывает/reject; полезный проходит только exact tested hash. Изменившийся parent или candidate требует нового сравнения.                              | I, L    |
-| Q55 | Evidence из Restricted не появляется в Allowed/global skills, памяти, embeddings или summaries. Scope narrowing и source deletion invalidate dependent retrieval.                  | I, N    |
-| Q56 | Safety/data-loss/undo нарушения всегда блокируют promotion, даже при хорошей текстовой оценке. Улучшение одного сценария не скрывает регрессию контрольного набора.                | I, L    |
-| Q57 | Learning budgets, offline mode и отмена действуют на фоновые jobs. Mode change не применяет старые pending proposals автоматически.                                                | I, N    |
-| Q58 | Curator consolidation сохраняет template/support references и rollback. Rare/pinned/user-owned skill не исчезает только из-за счётчика или возраста.                               | I       |
-| Q59 | Off/propose/autoVerified, evidence/eval UI и forget/revert проверены. Forget удаляет доступные copies/caches и предотвращает повторное извлечение из сохранённых learning records. | I, N, V |
+| ID  | Scenario and verifiable result                                                                                                                                                                     | Level   |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| Q45 | The skill package parser checks the manifest, support paths, required actions/API/modules, size and scope. Unknown executable resources are not executed on read.                                  | U, I    |
+| Q46 | A run uses pinned skill revisions. Changing/disabling a collection does not replace instructions that have already been verified; revoked permissions still take effect immediately.               | I, N    |
+| Q47 | Positive/negative triggers select a suitable skill without overflowing the context; irrelevant and closed namespaces do not reach the catalog/search.                                              | U, I, L |
+| Q48 | The user sees the content, source, version diff and evidence; skill revert returns the exact package, including support files.                                                                     | I, N, V |
+| Q49 | Handwritten/bundled/pinned skills are not changed autonomously. A duplicate name does not silently replace a trusted skill. An explicit revision conflict stops the apply.                         | I       |
+| Q50 | "Remember this way" creates a proposal on the current workflow, shows the scope and does not permit executable code or global publication.                                                         | I, N, L |
+| Q51 | A verified complex procedure/explicit correction creates a bounded proposal. An ordinary success, a temporary error and an unconfirmed outcome allow abstain.                                      | U, I, L |
+| Q52 | A repeated lesson updates a suitable proposal/skill; one-off names, private paths and the chat narrative are not copied into a global procedure.                                                   | I, L    |
+| Q53 | A baseline/candidate eval runs on fresh fixtures with the same executor, does not touch the real vault and does not trigger external side effects. The candidate does not change expected results. | I       |
+| Q54 | A deliberately bad candidate loses/is rejected; a useful one passes only on the exact tested hash. A changed parent or candidate requires a new comparison.                                        | I, L    |
+| Q55 | Evidence from Restricted does not appear in Allowed/global skills, memory, embeddings or summaries. Scope narrowing and source deletion invalidate dependent retrieval.                            | I, N    |
+| Q56 | Safety/data-loss/undo violations always block promotion, even with a good text score. An improvement in one scenario does not hide a regression in the control set.                                | I, L    |
+| Q57 | Learning budgets, offline mode and cancellation apply to background jobs. A mode change does not automatically apply old pending proposals.                                                        | I, N    |
+| Q58 | Curator consolidation preserves template/support references and rollback. A rare/pinned/user-owned skill does not disappear merely because of a counter or age.                                    | I       |
+| Q59 | Off/propose/autoVerified, evidence/eval UI and forget/revert are checked. Forget deletes the accessible copies/caches and prevents re-extraction from saved learning records.                      | I, N, V |
 
-### 7. Плагины и итоговая приёмка
+### 7. Plugins and final acceptance
 
-| ID  | Сценарий и проверяемый результат                                                                                                                                                                                           | Уровень |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| Q60 | Реальный hostile plugin пытается вызвать host globals, Node APIs, filesystem, direct Tauri IPC и сеть вне broker. Native runtime блокирует обходы. Проверка наличия/отсутствия строки в коде не считается тестом изоляции. | I, N    |
-| Q61 | CPU loop, memory pressure, oversized messages и callbacks после revoke/terminate не вызывают зависания приложения и не исполняют новые actions. Resource limits проверены.                                                 | I, N    |
-| Q62 | SDK action действует с пересечением plugin rights/user policy/current scope. Подмена actor, вызов legacy writeFile и фоновые задачи не обходят журнал или scope.                                                           | I, N    |
-| Q63 | По запросу создаётся рабочий plugin project; агент исправляет реальную compiler/test ошибку и добавляет функцию. Manual source edit между read/patch не потерян.                                                           | I, N, L |
-| Q64 | Build runner использует допустимые toolchain/dependencies и не исполняет произвольные install hooks. Preview получает synthetic data и имеет отдельные network/filesystem limits.                                          | I, N    |
-| Q65 | Пользователь устанавливает exact tested artifact, видит permission diff и local provenance. Preview success не считается installation; restart загружает выбранную версию.                                                 | I, N, V |
-| Q66 | Crash activation, permission expansion и migration failure сохраняют рабочую предыдущую версию/данные; rollback и quarantine переживают restart.                                                                           | I, N    |
-| Q67 | Update/uninstall generated plugin не удаляет заметки и user data; продолженные plugin actions журналируются с plugin/version/run provenance.                                                                               | I, N    |
-| Q68 | Fresh install и upgrade существующего AI state: versioned preflight/backup/migration/outcome/recovery; downgrade неизвестного формата не переписывает данные.                                                              | I, N    |
-| Q69 | Итоговый packaged app проверен на macOS/Windows/Linux по применимым storage/path/runtime различиям; ограничения платформ честно перечислены. UI/module off не оставляет скрытые jobs.                                      | N, V    |
-| Q70 | Финальный diff, action catalog, docs, generated bindings, RU/EN, theme boundary и release notes согласованы. Все required commands имеют результаты; ни один обязательный FAIL/NOT RUN не превращён в PASS.                | review  |
+| ID  | Scenario and verifiable result                                                                                                                                                                                                                                           | Level   |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| Q60 | A real hostile plugin tries to call host globals, Node APIs, the filesystem, direct Tauri IPC and the network outside the broker. The native runtime blocks the bypasses. Checking for the presence/absence of a string in the code does not count as an isolation test. | I, N    |
+| Q61 | A CPU loop, memory pressure, oversized messages and callbacks after revoke/terminate do not hang the app and do not execute new actions. Resource limits are checked.                                                                                                    | I, N    |
+| Q62 | An SDK action operates on the intersection of plugin rights/user policy/current scope. Actor forgery, a call to legacy writeFile and background tasks do not bypass the journal or scope.                                                                                | I, N    |
+| Q63 | On request a working plugin project is created; the agent fixes a real compiler/test error and adds a feature. A manual source edit between read/patch is not lost.                                                                                                      | I, N, L |
+| Q64 | The build runner uses permitted toolchain/dependencies and does not execute arbitrary install hooks. Preview receives synthetic data and has separate network/filesystem limits.                                                                                         | I, N    |
+| Q65 | The user installs the exact tested artifact, sees the permission diff and local provenance. Preview success is not counted as installation; restart loads the selected version.                                                                                          | I, N, V |
+| Q66 | An activation crash, permission expansion and migration failure preserve the working previous version/data; rollback and quarantine survive restart.                                                                                                                     | I, N    |
+| Q67 | Updating/uninstalling a generated plugin does not delete notes and user data; continued plugin actions are journaled with plugin/version/run provenance.                                                                                                                 | I, N    |
+| Q68 | Fresh install and upgrade of an existing AI state: versioned preflight/backup/migration/outcome/recovery; a downgrade of an unknown format does not rewrite data.                                                                                                        | I, N    |
+| Q69 | The final packaged app is checked on macOS/Windows/Linux for applicable storage/path/runtime differences; platform limitations are honestly listed. UI/module off leaves no hidden jobs.                                                                                 | N, V    |
+| Q70 | The final diff, action catalog, docs, generated bindings, RU/EN, theme boundary and release notes are consistent. All required commands have results; no required FAIL/NOT RUN has been turned into PASS.                                                                | review  |
 
 ### 8. Gates
 
-| Gate | Обязательный результат                             | Доказательство                                                           |
-| ---- | -------------------------------------------------- | ------------------------------------------------------------------------ |
-| G0   | H-00/H-01 завершены, contracts и ownership приняты | Q01/Q02, baseline, fixture/schema review                                 |
-| G1   | Headless action contract и editor bridge работают  | Q02/Q08/Q11/Q12 на соответствующем наборе, без публичных agent writes    |
-| G2   | Writes ограничены, journal/recovery/undo работают  | Q03—Q20 через integration и note native smoke                            |
-| G3   | Первый агент заметок                               | Q01—Q30, один проверенный live provider, contract fixtures всех adapters |
-| G4   | Все прикладные сценарии                            | Q31—Q44 плюс regression Q03—Q30, составная задача и undo                 |
-| G5   | Версии и применение навыков                        | Q45—Q50 и прогон domain workflows с навыками                             |
-| G6   | Управляемое обучение                               | Q51—Q59, baseline/candidate reports и negative promotion tests           |
-| G7   | Полный план выполнен                               | Q60—Q70, полная regression matrix и native packaging                     |
+| Gate | Required result                                       | Evidence                                                               |
+| ---- | ----------------------------------------------------- | ---------------------------------------------------------------------- |
+| G0   | H-00/H-01 completed, contracts and ownership accepted | Q01/Q02, baseline, fixture/schema review                               |
+| G1   | Headless action contract and editor bridge work       | Q02/Q08/Q11/Q12 on the corresponding set, without public agent writes  |
+| G2   | Writes are restricted, journal/recovery/undo work     | Q03—Q20 through integration and note native smoke                      |
+| G3   | The first note agent                                  | Q01—Q30, one verified live provider, contract fixtures of all adapters |
+| G4   | All applied scenarios                                 | Q31—Q44 plus regression Q03—Q30, composite task and undo               |
+| G5   | Skill versions and application                        | Q45—Q50 and a run of domain workflows with skills                      |
+| G6   | Managed learning                                      | Q51—Q59, baseline/candidate reports and negative promotion tests       |
+| G7   | The full plan is complete                             | Q60—Q70, the full regression matrix and native packaging               |
 
-Q-номера обозначают семейства сценариев. H-01 фиксирует подварианты и их gate
-в машинном manifest: например, `Q04.paths` нужен к G2, `Q04.bundleRename`
-и `Q17.backlinkRefactor` — к G4, `Q06.skillEvidence` — к G5/G6. G0 проверяет
-Q02 на уровне schema/контракта, G1 — через registry. G2/G3 проверяют семейства
-на поставляемом наборе note actions; новые adapters обязаны повторно пройти
-общие policy/journal/undo сценарии в своём gate. Подвариант будущего этапа
-остаётся planned с конкретным gate, а не получает фиктивный PASS. G7 включает
-все обязательные подварианты. Менять назначенный gate ради скрытия failure нельзя.
+Q-numbers denote families of scenarios. H-01 fixes the sub-variants and their gate
+in a machine manifest: for example, `Q04.paths` is needed by G2, `Q04.bundleRename`
+and `Q17.backlinkRefactor` by G4, `Q06.skillEvidence` by G5/G6. G0 checks
+Q02 at the schema/contract level, G1 through the registry. G2/G3 check the families
+on the shipped set of note actions; new adapters must pass the
+common policy/journal/undo scenarios again in their own gate. A sub-variant of a future stage
+stays planned with a specific gate rather than getting a fictitious PASS. G7 includes
+all required sub-variants. Changing the assigned gate to hide a failure is not allowed.
 
-G3 разрешает один live adapter как промежуточный результат. К G7 каждая
-заявленная поддерживаемой provider family имеет live smoke хотя бы на одной
-доступной совместимой модели. Остальные models имеют capability status и не
-считаются автоматически проверенными. Нет credentials/ОС — соответствующий
-пункт остаётся BLOCKED; функционально готовые независимые пакеты можно принять.
+G3 allows one live adapter as an intermediate result. By G7 every
+provider family declared as supported has a live smoke on at least one
+available compatible model. Other models have a capability status and are not
+considered verified automatically. No credentials/OS — the corresponding
+item stays BLOCKED; functionally ready independent packages can be accepted.
 
-#### 8.1 Уточнённые варианты второй редакции
+#### 8.1 Refined variants of the second edition
 
-Ниже закреплены дополнительные обязательные варианты существующих Q-семейств.
-Они не заменяют основные сценарии. H-01 переносит IDs в исполняемый manifest;
-до реализации каждый имеет статус `notRun`.
+Below are additional required variants of the existing Q families.
+They do not replace the main scenarios. H-01 moves the IDs into the executable manifest;
+until implemented, each has the status `notRun`.
 
-| Вариант                 | Что доказать                                                                                                                                               | Gate; уровень                            |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| `Q02.legacyBypass`      | Модель/плагин не может обойти policy через legacy IPC, поддельный actor или raw storage; privileged UI channel не делегируется tool output                 | G2 executor, G3 runtime, G7 plugin; I, N |
-| `Q06.mixedJournal`      | Global setting effect workspace run виден без раскрытия приватных соседних events; query после revoke фильтрует backlog и projection                       | G4; I, N                                 |
-| `Q08.expiredBarrier`    | Timeout/закрытие второго окна не разрешает затереть dirty buffer; snapshot агента следует после согласованного пользовательского save                      | G2; I, N, V                              |
-| `Q09.orphanRecords`     | Intent без event и receipt без event обнаруживаются после restart; нет blind retry или удаления recovery как мусора                                        | G2; I, N                                 |
-| `Q09.auditDisclosure`   | Отказ записи audit останавливает новый read disclosure/provider request; сбой после публикации остаётся recoverable, не failedBeforePublish                | G3; I, N                                 |
-| `Q10.corruptRecovery`   | Подмена target/backup paths, chain gap и неизвестный version не вызывают data writes; запись не восстанавливается из недоверенного указателя без проверки  | G2; I, N                                 |
-| `Q13.providerDuplicate` | Новый provider tool-call ID при transport replay не создаёт новую operation; отличие arguments при прежнем operation ID даёт idempotencyConflict           | G3; I, L                                 |
-| `Q15.sharedSidecar`     | Field undo note property/settings сохраняет соседние изменения в общем физическом JSON; whole-file snapshot не даёт права затирать их                      | G4; I, N                                 |
-| `Q16.undoDependencies`  | Новая пользовательская связь/строка блокирует удаление созданного объекта; partial undo сохраняет точный остаток graph effects                             | G4; I, N                                 |
-| `Q19.provenanceForget`  | User forget учитывает payloads, summaries, embeddings, skills, proposals и plugin artifacts; обычная очистка индекса не удаляет durable данные             | G6 для learning, G7 для plugins; I, N    |
-| `Q29.reviewedPlan`      | Preview с заранее резервируемыми IDs применяет точные content/schema/scene bytes; новый model-generated content не проходит по старому plan digest         | G3 для note, G4 для composite; I, N      |
-| `Q31.trashDistinction`  | Internal archive восстанавливается в Amby; system trash обозначен manualExternal и не выдаётся за автоматический undo; layer archive не вызывает OS delete | G4; I, N, V                              |
-| `Q38.boardAdapters`     | Общие board commands сохраняют исходный `.canvas`/`.excalidraw`; drawing-only action отвергается для Canvas, unknown envelope переживает patch/undo        | G4; U, I, N                              |
-| `Q41.typedSettings`     | Patch только allowlisted keys, не raw JSON; prefs.fontFamily принимает лишь поддерживаемые families; global effect виден пользователю                      | G4; U, I, N, V                           |
-| `Q55.staleCandidate`    | Изменившийся base/candidate/corpus digest аннулирует promotion; scope-derived skill не попадает в global library автоматически                             | G6; I                                    |
-| `Q65.artifactBinding`   | Смена source/dependency lock/compiler/artifact permissions сбрасывает approval; backend publication и frontend registry согласуются после restart          | G7; I, N                                 |
+| Variant                 | What to prove                                                                                                                                                                | Gate; level                              |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `Q02.legacyBypass`      | A model/plugin cannot bypass policy through legacy IPC, a forged actor or raw storage; the privileged UI channel is not delegated to tool output                             | G2 executor, G3 runtime, G7 plugin; I, N |
+| `Q06.mixedJournal`      | A global setting effect of a workspace run is visible without disclosing private neighbouring events; a query after revoke filters the backlog and projection                | G4; I, N                                 |
+| `Q08.expiredBarrier`    | A timeout/closing of a second window does not permit overwriting a dirty buffer; the agent snapshot follows after a reconciled user save                                     | G2; I, N, V                              |
+| `Q09.orphanRecords`     | An intent without an event and a receipt without an event are detected after restart; no blind retry or deleting recovery as garbage                                         | G2; I, N                                 |
+| `Q09.auditDisclosure`   | An audit write failure stops a new read disclosure/provider request; a failure after publication stays recoverable, not failedBeforePublish                                  | G3; I, N                                 |
+| `Q10.corruptRecovery`   | Substituted target/backup paths, a chain gap and an unknown version do not cause data writes; a record is not restored from an untrusted pointer without verification        | G2; I, N                                 |
+| `Q13.providerDuplicate` | A new provider tool-call ID on transport replay does not create a new operation; a difference in arguments under the same operation ID yields idempotencyConflict            | G3; I, L                                 |
+| `Q15.sharedSidecar`     | A field undo of a note property/settings preserves neighbouring changes in a shared physical JSON; a whole-file snapshot gives no right to overwrite them                    | G4; I, N                                 |
+| `Q16.undoDependencies`  | A new user relation/row blocks deletion of the created object; partial undo preserves the exact remainder of graph effects                                                   | G4; I, N                                 |
+| `Q19.provenanceForget`  | User forget covers payloads, summaries, embeddings, skills, proposals and plugin artifacts; an ordinary index cleanup does not delete durable data                           | G6 for learning, G7 for plugins; I, N    |
+| `Q29.reviewedPlan`      | A preview with pre-reserved IDs applies the exact content/schema/scene bytes; new model-generated content does not pass under the old plan digest                            | G3 for note, G4 for composite; I, N      |
+| `Q31.trashDistinction`  | An internal archive is restored in Amby; the system trash is marked manualExternal and is not passed off as an automatic undo; a layer archive does not trigger an OS delete | G4; I, N, V                              |
+| `Q38.boardAdapters`     | Common board commands preserve the original `.canvas`/`.excalidraw`; a drawing-only action is rejected for Canvas, an unknown envelope survives patch/undo                   | G4; U, I, N                              |
+| `Q41.typedSettings`     | Patch only allowlisted keys, not raw JSON; prefs.fontFamily accepts only supported families; the global effect is visible to the user                                        | G4; U, I, N, V                           |
+| `Q55.staleCandidate`    | A changed base/candidate/corpus digest invalidates promotion; a scope-derived skill does not automatically get into the global library                                       | G6; I                                    |
+| `Q65.artifactBinding`   | A change of source/dependency lock/compiler/artifact permissions resets the approval; backend publication and frontend registry agree after restart                          | G7; I, N                                 |
 
-### 9. Протокол оценки навыков
+### 9. Skill evaluation protocol
 
-Начальный корпус — не менее 30 прикладных задач: заметки/структура, базы/views,
-схемы, оформление/settings и составные задания. Не менее 10 задач отдельно
-зарезервированы как holdout; их ожидаемые результаты недоступны автору proposal.
-Корпус policy/crash/undo дополняет эти задачи и всегда исполняется детерминированно.
+The initial corpus is at least 30 applied tasks: notes/structure, databases/views,
+diagrams, styling/settings and composite assignments. At least 10 tasks are separately
+reserved as a holdout; their expected results are unavailable to the proposal author.
+The policy/crash/undo corpus supplements these tasks and is always executed deterministically.
 
-Для каждого candidate:
+For each candidate:
 
-1. Записать baseline skill hash, candidate hash, action schema versions,
-   model/provider parameters, fixtures и бюджет до начала сравнения.
-2. Выполнить baseline и candidate на независимых чистых копиях. Для модельных
-   сценариев минимум три парных прогона; при неоднозначном результате оставить
-   proposal pending или расширить выборку в пределах бюджета. Три запуска
-   сами по себе не доказывают статистическую значимость.
-3. Проверить механически filenames/IDs/relations/views, expected content,
-   preservation bytes, scope, receipts и undo. Нормализовать только заранее
-   объявленные volatile IDs/timestamps, не скрывать форматные изменения.
-4. Отдельным reviewer оценить читаемость/композицию при необходимости.
-   Его вывод не может отменить механический safety failure. Оценщик получает
-   результат как данные; instructions из candidate не становятся его правилами.
-5. Сравнить success rate и обязательные invariants, число ручных исправлений,
-   tool calls, model requests/tokens и latency. Стоимость в деньгах показывать
-   только при известном актуальном тарифе; иначе оставить tokens/unknown cost.
-6. Для autoVerified требовать отсутствие любых safety/data/undo failures на
-   контрольном корпусе, отсутствие correctness regression и подтверждённую
-   пользу по заранее выбранному критерию. Допустимое увеличение стоимости
-   задаёт пользователь; default tolerance для automation — 0% без доказанного
-   выигрыша в correctness. При равном качестве/стоимости новая версия не
-   принимается лишь из-за отличающегося текста.
+1. Record the baseline skill hash, candidate hash, action schema versions,
+   model/provider parameters, fixtures and the budget before the comparison starts.
+2. Run the baseline and the candidate on independent clean copies. For model
+   scenarios, at least three paired runs; with an ambiguous result keep the
+   proposal pending or extend the sample within the budget. Three runs
+   by themselves do not prove statistical significance.
+3. Mechanically check filenames/IDs/relations/views, expected content,
+   preservation bytes, scope, receipts and undo. Normalize only the pre-declared
+   volatile IDs/timestamps, do not hide format changes.
+4. Have a separate reviewer assess readability/composition when needed.
+   Its verdict cannot override a mechanical safety failure. The evaluator receives the
+   result as data; instructions from the candidate do not become its rules.
+5. Compare success rate and required invariants, the number of manual fixes,
+   tool calls, model requests/tokens and latency. Show the monetary cost
+   only when the current rate is known; otherwise leave tokens/unknown cost.
+6. For autoVerified, require the absence of any safety/data/undo failures on
+   the control corpus, the absence of a correctness regression and a confirmed
+   benefit by a pre-selected criterion. The acceptable cost increase
+   is set by the user; the default tolerance for automation is 0% without a proven
+   gain in correctness. With equal quality/cost a new version is not
+   accepted merely because its text differs.
 
-Порог на corpus является инженерным gate для проверенных сценариев. Он не
-означает гарантированную безошибочность модели на любых новых задачах.
+The corpus threshold is an engineering gate for the verified scenarios. It does not
+mean a guaranteed absence of model errors on arbitrary new tasks.
 
-### 10. Команды и границы проверки
+### 10. Commands and verification boundaries
 
-Существующие команды, использовать актуальный `package.json`:
+Existing commands; use the current `package.json`:
 
 ```bash
 npm run build
@@ -1911,33 +1911,33 @@ npm run test:native:ui
 npm run tauri build
 ```
 
-- После каждого integration batch обязательно `npm run build`.
-- Перед review — `npm run verify`; текущий `verify:full` включает version check,
-  typecheck, lint, Vitest, format check, Knip, Rustfmt, Clippy, Rust tests и bindings.
-- После Rust/IPC изменений — Rust tests с генерацией Specta; bindings не менять
-  вручную. Если `bindings:check` видит незакоммиченный правильный generated diff,
-  это отдельно описывается: сравнить повторную генерацию с подготовленным файлом
-  и зафиксировать отсутствие drift, не подменять исходный exit code PASS.
-- Backend-heavy этапы проходят strict Clippy. Изменение IPC, capabilities,
-  plugins или packaging требует соответствующей native build, помимо web build.
-- Нативные runners не заменяют ручную проверку editor lifecycle и packaging.
-  Использовать отдельные test app-data profiles; не запускать disruptive tests
-  в пользовательском desktop профиле.
-- Предлагаемые новые `test:agent:contract`, `test:agent:native` и `eval:agent`
-  команды вводятся реализацией H-01/H-34/H-61. Пока их нет, они не являются
-  доступными командами и не могут фигурировать в отчёте как выполненные.
-- Feature flags для агентных writes, learning и plugin authoring сначала
-  выключены; включение для проверки явно относится к synthetic test profile.
-- При неизвестной платформенной возможности runner завершает сценарий как
-  BLOCKED/NOT RUN с причиной. Нельзя исключить его без следа из итогового gate.
+- After each integration batch `npm run build` is mandatory.
+- Before review — `npm run verify`; the current `verify:full` includes the version check,
+  typecheck, lint, Vitest, format check, Knip, Rustfmt, Clippy, Rust tests and bindings.
+- After Rust/IPC changes — Rust tests with Specta generation; do not change bindings
+  by hand. If `bindings:check` sees an uncommitted correct generated diff,
+  describe it separately: compare the repeated generation with the prepared file
+  and record the absence of drift; do not substitute a PASS for the original exit code.
+- Backend-heavy stages pass strict Clippy. A change to IPC, capabilities,
+  plugins or packaging requires the corresponding native build, in addition to the web build.
+- Native runners do not replace manual verification of the editor lifecycle and packaging.
+  Use separate test app-data profiles; do not run disruptive tests
+  in the user's desktop profile.
+- The proposed new `test:agent:contract`, `test:agent:native` and `eval:agent`
+  commands are introduced by the implementation of H-01/H-34/H-61. Until they exist, they are not
+  available commands and cannot appear in a report as executed.
+- Feature flags for agent writes, learning and plugin authoring are off at first;
+  turning them on for verification explicitly belongs to a synthetic test profile.
+- With an unknown platform capability the runner finishes the scenario as
+  BLOCKED/NOT RUN with a reason. It cannot be excluded from the final gate without a trace.
 
-### 11. Финальный handoff реализации
+### 11. Final implementation handoff
 
-Отчёт содержит закрытые H-пакеты и G-gates, ссылки на evidence, фактическую
-coverage matrix, migrations и rollback, native packaging, provider coverage,
-известные ограничения, непроверенные сценарии и точный итог required checks.
-Отдельно показать полный пользовательский сценарий и пример сохранённых
-чужих правок при отказе от автоматического отката.
+The report contains the closed H packages and G gates, links to evidence, the actual
+coverage matrix, migrations and rollback, native packaging, provider coverage,
+known limitations, unverified scenarios and the exact outcome of required checks.
+Show separately the full user scenario and an example of preserving
+others' edits when automatic rollback is declined.
 
-Полная реализация закончена при G7. Подготовленные документы, passing unit
-suite, демонстрационный чат и промежуточный G3 не являются выполнением G7.
+The full implementation is finished at G7. Prepared documents, a passing unit
+suite, a demo chat and an intermediate G3 are not the fulfilment of G7.
