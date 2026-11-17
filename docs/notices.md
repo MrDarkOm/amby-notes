@@ -5,7 +5,7 @@ yet been brought in line with them: what differs and in what order it is being c
 
 This document answers the question "how does the program tell a person about something other than the content itself":
 an error, a warning, a conflict, a question, an event, the result of an action. Not notices: loading
-indicators, empty states, hints for fields, and the failure fallback (it has its own [section](#14-the-failure-fallback)).
+indicators, empty states, hints for fields, and the failure placeholder (it has its own [section](#14-failure-placeholder)).
 
 ## 1. The essentials in five lines
 
