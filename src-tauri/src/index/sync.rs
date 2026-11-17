@@ -330,6 +330,71 @@ pub(super) fn upsert_scanned_note(
     Ok(existed.is_some())
 }
 
+/// What the index decided for one scanned note: the id it claims, the key it was stored under.
+pub(super) struct IdentityProbe {
+    rel_path: String,
+    claimed: Option<String>,
+    id: String,
+    duplicate: bool,
+}
+
+impl IdentityProbe {
+    pub(super) fn new(note: &ScannedNote, id: &str, duplicate: bool) -> Self {
+        Self {
+            rel_path: note.rel_path.clone(),
+            claimed: note.parsed_id.clone(),
+            id: id.to_string(),
+            duplicate,
+        }
+    }
+}
+
+/// Notes the index held under one path that are now found under another, with the old path gone:
+/// renames that did not go through Amby (sync, Finder). Identity is the `amby-id`; anything
+/// ambiguous is left out so a history is never moved to the wrong note: an id claimed by more than
+/// one file, a path-scoped key, an old path still on disk (a copy, a swap), a missing row.
+pub(super) fn detect_moves(
+    vault: &Path,
+    db_by_id: &HashMap<String, String>,
+    probes: &[IdentityProbe],
+) -> Vec<(String, String)> {
+    let mut claims: HashMap<&str, usize> = HashMap::new();
+    for probe in probes {
+        if let Some(id) = probe.claimed.as_deref() {
+            *claims.entry(id).or_default() += 1;
+        }
+    }
+    let scanned: HashSet<&str> = probes.iter().map(|probe| probe.rel_path.as_str()).collect();
+    let mut moves = Vec::new();
+    for probe in probes {
+        if probe.duplicate
+            || is_path_identity(&probe.id)
+            || probe.claimed.as_deref() != Some(probe.id.as_str())
+            || claims.get(probe.id.as_str()) != Some(&1)
+        {
+            continue;
+        }
+        let Some(old) = db_by_id
+            .get(&probe.id)
+            .filter(|old| **old != probe.rel_path)
+        else {
+            continue;
+        };
+        if scanned.contains(old.as_str()) || abs_from_rel(vault, old).symlink_metadata().is_ok() {
+            continue;
+        }
+        moves.push((old.clone(), probe.rel_path.clone()));
+    }
+    moves
+}
+
+/// A failure only leaves the versions at the old path, as for a rename in Amby.
+pub(super) fn relink_history(vault: &Path, moves: &[(String, String)]) {
+    if let Err(error) = history::relink_moved_sources(vault, moves) {
+        tracing::warn!(event = "history_move_failed", error = %error);
+    }
+}
+
 pub fn sync_vault(conn: &Connection, vault: &Path) -> Result<SyncReport, String> {
     sync_vault_with_changes(conn, vault, &HashSet::new())
 }
@@ -412,12 +477,14 @@ fn sync_vault_inner(
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     let mut seen_ids = HashSet::new();
     let mut seen_paths = HashSet::new();
+    let mut probes = Vec::new();
     let mut inserted = 0;
     let mut updated = 0;
     let mut path_to_id = HashMap::new();
 
     for note in notes {
         let (id, duplicate) = resolve_scanned_id(vault, &note, &seen_ids, &mut warnings);
+        probes.push(IdentityProbe::new(&note, &id, duplicate));
         if note.unchanged && !duplicate {
             seen_paths.insert(note.rel_path.clone());
             seen_ids.insert(id.clone());
@@ -474,6 +541,10 @@ fn sync_vault_inner(
     }
     tx.execute("INSERT INTO index_metadata (key, value) VALUES ('identity_version', '4') ON CONFLICT(key) DO UPDATE SET value = excluded.value", [])
         .map_err(|error| error.to_string())?;
+    // Before the commit: if it fails, the next pass sees the same move and finds nothing left.
+    if allow_writes {
+        relink_history(vault, &detect_moves(vault, &db_by_id, &probes));
+    }
     tx.commit().map_err(|e| e.to_string())?;
 
     Ok(SyncReport {

@@ -707,6 +707,52 @@ pub fn move_snapshot_sources(
     Ok(moved)
 }
 
+/// A note the index already knew under `old` (by its `amby-id`) is now at `new`, and the old path
+/// is gone: a rename made by sync or outside Amby. Its versions follow it (CORE-03). A pair is
+/// skipped, never merged, when the old path has no versions or the new path already has some (they
+/// belong to another note). Returns the number of versions that moved; one atomic manifest write.
+pub fn relink_moved_sources(vault: &Path, moves: &[(String, String)]) -> Result<usize, String> {
+    let _lock = history_lock();
+    let root = history_root(vault);
+    if moves.is_empty() || !manifest_path(&root).exists() {
+        return Ok(0);
+    }
+    let mut manifest = load_manifest(&root)?;
+    let occupied = manifest
+        .snapshots
+        .iter()
+        .map(|snapshot| snapshot.source_path.clone())
+        .collect::<HashSet<_>>();
+    // Two olds to one new, or a chain (a new that is another old), are not a plain rename.
+    let mut targets = HashSet::new();
+    let sources = moves
+        .iter()
+        .map(|(old, _)| old.as_str())
+        .collect::<HashSet<_>>();
+    let renames = moves
+        .iter()
+        .filter(|(old, new)| {
+            old != new
+                && occupied.contains(old)
+                && !occupied.contains(new)
+                && !sources.contains(new.as_str())
+                && targets.insert(new.clone())
+        })
+        .cloned()
+        .collect::<BTreeMap<String, String>>();
+    let mut moved = 0;
+    for snapshot in &mut manifest.snapshots {
+        if let Some(new_path) = renames.get(&snapshot.source_path) {
+            snapshot.source_path = new_path.clone();
+            moved += 1;
+        }
+    }
+    if moved > 0 {
+        write_manifest(&root, &manifest)?;
+    }
+    Ok(moved)
+}
+
 pub fn get_history_stats(vault: &Path) -> Result<HistoryStats, String> {
     let _lock = history_lock();
     Ok(history_stats(&load_manifest(&history_root(vault))?))

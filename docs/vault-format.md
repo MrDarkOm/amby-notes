@@ -430,6 +430,21 @@ history and a new note at the old path starts with none. A failure to move them
 is logged and leaves them at the old path; the files are not affected. Archive
 keeps them at the original path, where the note returns on restore.
 
+A rename that Amby did not make (arrived through sync, or done in Finder or
+another app) is recognised by the index when it next reads the vault: a note
+under a new path whose `amby-id` the index held for an old path that no longer
+exists. The versions of the old path move to the new one in the same atomic
+manifest write, before the index commit; an interrupted or failed move leaves
+them at the old path, never lost. Nothing moves when identity is ambiguous: the
+id is claimed by more than one file, the note is keyed by its path (broken or
+unusable header), the old path still exists (a copy, a swap of names), the new
+path already has versions of its own, or two moves meet. A note the index never
+saw with an `amby-id` (renamed before its first indexing) keeps its versions at
+the old path. The same rules apply to the point update for changed paths and to the
+full scan; the point update sees only the files under the changed paths, so a
+second, not yet indexed claimant of the id elsewhere is seen by the next full
+scan only.
+
 Live Preview keeps the source text of a block until the block is edited (see
 `markdown-compatibility.md`). The save that may write a block in the editor's
 own form for the first time since the note was loaded replaces the last file
