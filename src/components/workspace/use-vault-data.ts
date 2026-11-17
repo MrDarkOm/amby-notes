@@ -68,6 +68,7 @@ import {
   planVaultStartup,
   type VaultActivatedPayload,
 } from "./windows/vault-window-lifecycle"
+import { VAULT_ACTIVATED_EVENT } from "./windows/settings-window-vault"
 import { findArchivedCopy, isArchivePath } from "./sync/restore-archived-note"
 import {
   filterLocalTreeWatcherChanges,
@@ -78,7 +79,6 @@ import {
 } from "./watcher-tree-reconciliation"
 
 const EMPTY_SESSION_MAP: Record<string, string> = {}
-const VAULT_ACTIVATED_EVENT = "amby:vault-activated"
 
 /**
  * Owns the vault tree, link graph, session persistence, and the Rust-side
