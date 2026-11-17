@@ -299,7 +299,7 @@ tab.open_singleton
 tab.split_down
 tab.split_right
 tab.switch
-terminate_flush_started
+terminate_cancelled_for_flush
 terminate_flush_timeout
 terminate_hook_failed
 text_page_index_update_failed

@@ -25,12 +25,15 @@ native UI harness in `src/native_contract.rs` so smoke tests exercise the same
 helper-window cleanup and restore path. On macOS both also install `app_menu`: the default menu with
 Amby's own Quit item (`QUIT_MENU_ID`, Cmd+Q). `request_quit` asks every editing window to close, so
 each saves its edits in its own close handler; the predefined Quit item would end the process without a
-close request. Dock → Quit and logout also send `terminate:` without a close request, and tao implements no
-`applicationShouldTerminate:` (so no public Tauri API sees them: `RunEvent::ExitRequested` does not fire,
-`RunEvent::Exit` cannot be prevented). [terminate_gate.rs](src/terminate_gate.rs) can add that method to tao's
-delegate (`NSTerminateLater`, `request_quit`, 5 s timer), but it is OFF (`HOOK_ENABLED`): checked natively,
-AppKit's terminate-later loop did not run tao's main-thread work, so the app never quit. Dock Quit and logout
-behave as before; recovery drafts keep recent typing. `TerminateGate` is the tested state machine. The update
+close request. Dock → Quit and `tell application to quit` also send `terminate:` without a close request, and tao
+implements no `applicationShouldTerminate:` (so `RunEvent::ExitRequested` does not fire).
+[terminate_gate.rs](src/terminate_gate.rs) adds that method to tao's delegate and never answers `NSTerminateLater`
+(AppKit's terminate-later loop does not run tao's main-thread work: the app hung). A quit with an editing window
+open is answered `NSTerminateCancel`, then `request_quit` runs on the normal event loop (every window saves in its
+close handler and the app exits with the last one); a 5 s timer calls `exit(0)` if it is still running, and a second
+Dock Quit meanwhile only cancels again. Logout, restart and shutdown (`keyAEQuitReason` of the current Apple
+Event) and a quit with no editing window are answered `NSTerminateNow`, as before; recovery drafts keep recent
+typing. `TerminateGate` is the tested state machine. The update
 install in the renderer has its own path, see [src/lib map](../src/lib/MAP.md).
 Vault access is granted dynamically to the selected canonical vault; do not
 add broad static filesystem scopes or relax CSP to silence tests.
