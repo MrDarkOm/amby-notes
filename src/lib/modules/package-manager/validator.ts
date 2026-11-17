@@ -269,11 +269,10 @@ export async function validateChecksums(
  * `src-tauri/src/package_manager.rs` (a test enforces it).
  */
 export const OFFICIAL_ED25519_KEY_ID = "amby-official-2026-11"
-// TODO(MOD-01): replace the all-zero placeholder with the public key printed by
-// `npm run modules:new-key` (and the same value in package_manager.rs). The
-// all-zero key never verifies anything, so no official package is trusted until then.
+// Public half of `amby-official-2026-11` (private half only in the owner's macOS
+// Keychain). Must equal OFFICIAL_ED25519_PUBLIC_KEY_HEX in package_manager.rs.
 export const OFFICIAL_ED25519_PUBLIC_KEY_HEX =
-  "0000000000000000000000000000000000000000000000000000000000000000"
+  "84ea52d28bb574f90353409e5046c92000de6a5ecdc95daf983ac0dad26ffcd1"
 
 export interface OfficialTrustAnchor {
   keyId: string

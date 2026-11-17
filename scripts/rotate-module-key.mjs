@@ -23,7 +23,7 @@ export function run(argv = process.argv.slice(2), options = {}) {
     "The private key is stored in the Keychain (service amby-module-signing) and was not printed.",
     "Next step: send the key id and the public key above (they are not secret) to the developer, who",
     "puts the public key into OFFICIAL_ED25519_PUBLIC_KEY_HEX in src-tauri/src/package_manager.rs",
-    "and src/lib/modules/package-manager/validator.ts (search TODO(MOD-01)).",
+    "and src/lib/modules/package-manager/validator.ts.",
   ].join("\n")
 }
 

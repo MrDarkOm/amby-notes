@@ -85,10 +85,10 @@ released build contains a package signed by the old key.
 
 Done in code (2026-11-17):
 
-- New key id `amby-official-2026-11`. `OFFICIAL_ED25519_PUBLIC_KEY_HEX` in
-  `src-tauri/src/package_manager.rs` and `validator.ts` is an all-zero placeholder
-  (`TODO(MOD-01)`); the all-zero key is rejected explicitly by both verifiers, so no official
-  package verifies until the real public key is filled in. `amby-official-2026` is not accepted.
+- New key id `amby-official-2026-11`, created by the owner on 2026-11-17; its public half is
+  `OFFICIAL_ED25519_PUBLIC_KEY_HEX` in `src-tauri/src/package_manager.rs` and `validator.ts`, and
+  the private half exists only in the owner's macOS Keychain. Both verifiers reject an all-zero
+  key explicitly. `amby-official-2026` is not accepted.
 - No private key in the repository. Tests sign with an ephemeral key generated at test
   time (`package-manager/test-signing.ts`, Rust `TestSigner`) that is not in the production trust
   list. Guard tests fail if the old public key or the test key is trusted, if the Rust and
@@ -104,8 +104,8 @@ Owner steps:
    (PKCS8 DER as hex) in the Keychain (service `amby-module-signing`, account
    `amby-official-2026-11`) via `security -i`, so the secret is never in argv, and prints only the key
    id and the public key. It refuses to overwrite an existing entry unless `--replace` is passed.
-2. Give the printed public key (not secret) to the developer, who replaces both `TODO(MOD-01)`
-   placeholders. For CI put the same private key in the secret `AMBY_MODULE_SIGNING_KEY`; take it
+2. Give the printed public key (not secret) to the developer, who puts it into both
+   `OFFICIAL_ED25519_PUBLIC_KEY_HEX` constants (done 2026-11-17). For CI put the same private key in the secret `AMBY_MODULE_SIGNING_KEY`; take it
    from the Keychain by hand, never through chat or a file in the repository.
 3. Run `npm run build:modules` to re-sign packages. Reissue anything that was distributed under the
    old key. Do not enable installed-module execution or third-party packages before that and the

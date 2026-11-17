@@ -16,16 +16,11 @@ use crate::paths;
 /// `amby-official-2026` leaked (its private half was committed) and is revoked:
 /// it is not accepted anywhere. See docs/security-advisories.md (MOD-01).
 pub const OFFICIAL_ED25519_KEY_ID: &str = "amby-official-2026-11";
-/// Public half of the official key, 64 hex characters.
-///
-/// TODO(MOD-01): replace the all-zero placeholder with the public key printed by
-/// `npm run modules:new-key`, and the same value in
-/// `src/lib/modules/package-manager/validator.ts`. The all-zero key can never
-/// verify a signature (`verify_ed25519` rejects it), so until it is replaced no
-/// official package is trusted. Do not enable third-party packages or installed
-/// module execution while this is the placeholder (guard tests enforce that).
+/// Public half of the official key `amby-official-2026-11` (created 2026-11-17 with
+/// `npm run modules:new-key`; the private half lives only in the owner's macOS Keychain).
+/// Must equal `OFFICIAL_ED25519_PUBLIC_KEY_HEX` in `src/lib/modules/package-manager/validator.ts`.
 pub const OFFICIAL_ED25519_PUBLIC_KEY_HEX: &str =
-    "0000000000000000000000000000000000000000000000000000000000000000";
+    "84ea52d28bb574f90353409e5046c92000de6a5ecdc95daf983ac0dad26ffcd1";
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
 pub struct ModuleSignature {
