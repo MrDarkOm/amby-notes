@@ -10,14 +10,13 @@ import type { SpotlightCreateAction } from "../sidebar-search"
 import type { TreeItem } from "../sidebar-tree"
 import { PresetNameDialog } from "../preset-name-dialog"
 import { VaultManagerDialog } from "../vault/vault-manager"
-import type { VaultRecord } from "../workspace-picker"
 import { useOverlaysStore } from "../use-overlays-store"
+import { useTabsStore } from "../use-tabs-store"
+import { useVaultStore } from "../use-vault-store"
 import { searchNotes, revealVaultFolder } from "@/lib/storage"
 
 export interface WorkspaceOverlaysProps {
-  vault: string
   displayTreeItems: TreeItem[]
-  activeFileId: string | null
   quickOpenCreateActions: SpotlightCreateAction[]
   handleSelect: (fileId: string, displayTitle?: string) => Promise<void>
   handleOpenInNewTab: (fileId: string) => Promise<void>
@@ -26,7 +25,6 @@ export interface WorkspaceOverlaysProps {
     inNewTab?: boolean,
     initialContent?: string,
   ) => Promise<void>
-  vaults: VaultRecord[]
   loadVault: (path: string | null, activateBackend?: boolean) => Promise<void>
   handleOpenVault: () => Promise<void>
   handleRenameVault: (id: string, name: string) => void
@@ -60,15 +58,24 @@ export function WorkspaceOverlays({
   )
 }
 
+/** The open vault: the overlays exist only while one is open, so it is never null here. */
+function useOpenVault(): string {
+  return useVaultStore((s) => s.vault) ?? ""
+}
+
+function useActiveFileId(): string | null {
+  return useTabsStore((s) => s.tabs.find((tab) => tab.key === s.activeTabKey)?.fileId ?? null)
+}
+
 function QuickOpenOverlay({
-  vault,
   displayTreeItems,
-  activeFileId,
   quickOpenCreateActions,
   handleSelect,
   handleOpenInNewTab,
   handleNewFileIn,
 }: WorkspaceOverlaysProps) {
+  const vault = useOpenVault()
+  const activeFileId = useActiveFileId()
   const mode = useOverlaysStore((s) => s.quickOpenMode)
   const setMode = useOverlaysStore((s) => s.setQuickOpenMode)
   return (
@@ -87,12 +94,9 @@ function QuickOpenOverlay({
   )
 }
 
-function SearchOverlay({
-  vault,
-  displayTreeItems,
-  activeFileId,
-  handleSelect,
-}: WorkspaceOverlaysProps) {
+function SearchOverlay({ displayTreeItems, handleSelect }: WorkspaceOverlaysProps) {
+  const vault = useOpenVault()
+  const activeFileId = useActiveFileId()
   const open = useOverlaysStore((s) => s.searchOpen)
   const setOpen = useOverlaysStore((s) => s.setSearchOpen)
   return (
@@ -110,14 +114,14 @@ function SearchOverlay({
 }
 
 function VaultManagerOverlay({
-  vault,
-  vaults,
   loadVault,
   handleOpenVault,
   handleRenameVault,
   handleDeleteVault,
   handleMoveVault,
 }: WorkspaceOverlaysProps) {
+  const vault = useOpenVault()
+  const vaults = useVaultStore((s) => s.vaults)
   const open = useOverlaysStore((s) => s.vaultManagerOpen)
   const setOpen = useOverlaysStore((s) => s.setVaultManagerOpen)
   return (
@@ -136,12 +140,8 @@ function VaultManagerOverlay({
   )
 }
 
-function SettingsOverlay({
-  vault,
-  activeModules,
-  setModuleEnabled,
-  adoptPreset,
-}: WorkspaceOverlaysProps) {
+function SettingsOverlay({ activeModules, setModuleEnabled, adoptPreset }: WorkspaceOverlaysProps) {
+  const vault = useOpenVault()
   const open = useOverlaysStore((s) => s.settingsOpen)
   const target = useOverlaysStore((s) => s.settingsTarget)
   const setOpen = useOverlaysStore((s) => s.setSettingsOpen)

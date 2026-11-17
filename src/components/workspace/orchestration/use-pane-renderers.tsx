@@ -26,7 +26,7 @@ import type { DocumentEditorProps, DocumentViewMode } from "../document-editor"
 import type { HeaderTab } from "../header-tabs"
 import { cn } from "@/lib/utils"
 import type { LayoutLeafItem } from "../split-tree"
-import { PaneTabBar } from "../pane-tab-bar"
+import { ConnectedPaneTabBar } from "./connected-tab-bars"
 import { canvasLayerPath, sketchLayerPath } from "../workspace-tree-utils"
 import { FolderView } from "../folder-view"
 import type { TreeItem } from "../sidebar-tree"
@@ -138,7 +138,6 @@ interface UsePaneRenderersParams {
   isFocusMode: boolean
   graphEnabled: boolean
   activePaneId: string
-  unsavedFileIds: Set<string>
   isLeftSidebarVisible: boolean
   leftDockPinned: boolean
   isRightSidebarVisible: boolean
@@ -244,7 +243,6 @@ export function usePaneRenderers({
   isFocusMode,
   graphEnabled,
   activePaneId,
-  unsavedFileIds,
   isLeftSidebarVisible,
   leftDockPinned,
   isRightSidebarVisible,
@@ -695,13 +693,12 @@ export function usePaneRenderers({
         )}
       >
         {isMultiPane ? (
-          <PaneTabBar
+          <ConnectedPaneTabBar
             paneId={leaf.id}
             tabs={leafHeaderTabs}
             activeTabKey={leafActiveKey}
             activeFileId={leafActiveTab?.fileId}
             isPaneFocused={isPaneFocused}
-            unsavedFileIds={unsavedFileIds}
             favorites={favorites}
             edges={edges}
             isLeftSidebarOpen={isLeftSidebarVisible}
