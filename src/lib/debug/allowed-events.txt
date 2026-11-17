@@ -138,6 +138,8 @@ file.set_icon
 file.toggle_favorite
 file.wiki_link_open_failed
 file_revision.save_without_baseline
+flush_request.failed
+flush_request.listen_failed
 frontend_started
 helper_window_close_failed
 history.change_listen_failed
@@ -296,6 +298,9 @@ tab.open_singleton
 tab.split_down
 tab.split_right
 tab.switch
+terminate_flush_started
+terminate_flush_timeout
+terminate_hook_failed
 text_page_index_update_failed
 trash_anomaly
 tree.activate_tab
@@ -312,7 +317,9 @@ unhandled_window_error
 update_database_property_config
 update_database_property_options
 updater.automatic_update_failed
+updater.flush_failed
 updater.install_failed
+updater.install_skipped
 updater.version_read_failed
 upsert_custom_property
 vault.reveal_failed

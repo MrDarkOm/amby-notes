@@ -18,6 +18,7 @@ import { confirm } from "@/lib/confirm"
 import { confirmations } from "@/lib/confirmations"
 import { useAppNoticesStore } from "./notices/use-app-notices-store"
 import { adoptAsyncDisposer } from "@/lib/async-disposable"
+import { answerFlushRequests } from "@/lib/flush-all-windows"
 import { applySessionRemap, reconcileTreeBackedTabTitles } from "./workspace-mutations"
 import {
   flattenFileItems,
@@ -516,6 +517,19 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     document.addEventListener("visibilitychange", onVisibilityChange)
     return () => document.removeEventListener("visibilitychange", onVisibilityChange)
   }, [])
+
+  // Another window (the update in the settings window) asks every editing window to save before the
+  // program is replaced (SAVE-04): the same flush as the close handler below.
+  React.useEffect(() => {
+    if (!desktop) return
+    return adoptAsyncDisposer(
+      answerFlushRequests(
+        getCurrentWindow().label,
+        async () => (await flushBeforeLeaving(useVaultStore.getState().generation)).safe,
+      ),
+      (error) => logger.warn("flush_request.listen_failed", { errorType: errorType(error) }),
+    )
+  }, [desktop])
 
   // A close request must wait for all queues in this renderer. A failed save keeps its recovery draft,
   // so the window may close after it. When the draft could not be written either (a full disk), the

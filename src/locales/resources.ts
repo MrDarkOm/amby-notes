@@ -510,6 +510,8 @@ const ru = {
       restarting: "Перезапуск приложения…",
       error: "Не удалось проверить обновления. Повторите попытку позже.",
       installError: "Не удалось установить {{version}}.",
+      flushError:
+        "Версия {{version}} не установлена: открытые правки не удалось сохранить. Исправьте это и повторите.",
     },
     data: {
       location: "Папка настроек",
@@ -4783,6 +4785,8 @@ const en: LocaleShape<typeof ru> = {
       restarting: "Restarting the app…",
       error: "Could not check for updates. Try again later.",
       installError: "Could not install {{version}}.",
+      flushError:
+        "{{version}} was not installed because open edits could not be saved. Fix that and try again.",
     },
     data: {
       location: "Settings folder",

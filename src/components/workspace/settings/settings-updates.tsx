@@ -9,6 +9,7 @@ import {
   checkForAppUpdate,
   getCurrentAppVersion,
   isAppUpdaterAvailable,
+  UpdateFlushError,
   type AvailableAppUpdate,
   type UpdateInstallProgress,
 } from "@/lib/app-updater"
@@ -29,6 +30,8 @@ type UpdateUiState =
   | { phase: "installing" | "restarting" }
   | { phase: "error" }
   | { phase: "installError"; version: string }
+  // Open edits could not be saved, so nothing was installed; the update stays for a retry (SAVE-04).
+  | { phase: "flushError"; version: string }
 
 export function UpdateSettings() {
   const { t } = useTranslation()
@@ -160,7 +163,7 @@ export function UpdateSettings() {
         return
       }
       setState({ phase: "restarting" })
-    } catch {
+    } catch (error) {
       installingUpdateRef.current = null
       if (!mountedRef.current) {
         // Releasing the update handle: a failure changes nothing for the person.
@@ -170,6 +173,11 @@ export function UpdateSettings() {
       if (updateChannel !== channelRef.current || updateChannel !== prefsChannelRef.current) {
         foundChannelRef.current = null
         setUpdate(null)
+      }
+      if (error instanceof UpdateFlushError) {
+        // Nothing was replaced: the same button installs again once the edits can be saved.
+        setState({ phase: "flushError", version: update.version })
+        return
       }
       // The version stays downloadable by hand from its release (the updater says why in the log).
       setState({ phase: "installError", version: update.version })
@@ -196,6 +204,8 @@ export function UpdateSettings() {
     t("settings.updates.restarting")
   ) : state.phase === "error" ? (
     t("settings.updates.error")
+  ) : state.phase === "flushError" ? (
+    t("settings.updates.flushError", { version: state.version })
   ) : state.phase === "installError" ? (
     <>
       {t("settings.updates.installError", { version: state.version })}{" "}
