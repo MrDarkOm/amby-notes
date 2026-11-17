@@ -5,7 +5,6 @@ import type { PanelScope } from "../app-config"
 import type { RefreshSync } from "../sync/use-refresh-sync"
 import type { SpotlightCreateAction } from "../sidebar-search"
 import type { Tab } from "../use-tabs-store"
-import type { VaultRecord } from "../workspace-picker"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { motion } from "motion/react"
@@ -19,14 +18,14 @@ import type { TreeItem } from "../sidebar-tree"
 import { ModuleRequiredFallback } from "../editor/module-required-fallback"
 import { motionTransitions } from "@/lib/motion-config"
 import { WorkspaceOverlays } from "./workspace-overlays"
+import { useTabsStore } from "../use-tabs-store"
+import { useVaultStore } from "../use-vault-store"
 
 interface WorkspaceFocusLayoutProps {
   setFocusShowLeft: React.Dispatch<React.SetStateAction<boolean>>
   setFocusShowRight: React.Dispatch<React.SetStateAction<boolean>>
-  activeTab: Tab | null
   graphEnabled: boolean
   handleSelect: (fileId: string, displayTitle?: string) => Promise<void>
-  vault: string
   treeItems: TreeItem[]
   handleBack: (key?: unknown) => Promise<void> | undefined
   handleOpenInNewTab: (fileId: string) => Promise<void>
@@ -89,9 +88,7 @@ interface WorkspaceFocusLayoutProps {
   focusShowRight: boolean
   rightButtons: ActivityButton[]
   displayTreeItems: TreeItem[]
-  activeFileId: string | null
   quickOpenCreateActions: SpotlightCreateAction[]
-  vaults: VaultRecord[]
   loadVault: (path: string | null, activateBackend?: boolean) => Promise<void>
   handleOpenVault: () => Promise<void>
   handleRenameVault: (id: string, name: string) => void
@@ -107,10 +104,8 @@ interface WorkspaceFocusLayoutProps {
 export function WorkspaceFocusLayout({
   setFocusShowLeft,
   setFocusShowRight,
-  activeTab,
   graphEnabled,
   handleSelect,
-  vault,
   treeItems,
   handleBack,
   handleOpenInNewTab,
@@ -144,9 +139,7 @@ export function WorkspaceFocusLayout({
   focusShowRight,
   rightButtons,
   displayTreeItems,
-  activeFileId,
   quickOpenCreateActions,
-  vaults,
   loadVault,
   handleOpenVault,
   handleRenameVault,
@@ -159,6 +152,9 @@ export function WorkspaceFocusLayout({
   propertyMigrationDialog,
 }: WorkspaceFocusLayoutProps) {
   const { t } = useTranslation()
+  // What the layout shows depends on the active tab and the open vault; it reads them itself.
+  const activeTab = useTabsStore((s) => s.tabs.find((tab) => tab.key === s.activeTabKey) ?? null)
+  const vault = useVaultStore((s) => s.vault) ?? ""
   return (
     <div
       data-help-area="content"
@@ -302,14 +298,11 @@ export function WorkspaceFocusLayout({
       )}
 
       <WorkspaceOverlays
-        vault={vault}
         displayTreeItems={displayTreeItems}
-        activeFileId={activeFileId}
         quickOpenCreateActions={quickOpenCreateActions}
         handleSelect={handleSelect}
         handleOpenInNewTab={handleOpenInNewTab}
         handleNewFileIn={handleNewFileIn}
-        vaults={vaults}
         loadVault={loadVault}
         handleOpenVault={handleOpenVault}
         handleRenameVault={handleRenameVault}

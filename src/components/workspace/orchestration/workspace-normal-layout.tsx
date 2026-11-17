@@ -4,14 +4,14 @@ import type { LayoutLeafItem, LayoutSplitDivider } from "../split-tree"
 import type { ModuleContext } from "../modules"
 import type { PanelScope } from "../app-config"
 import type { RefreshSync } from "../sync/use-refresh-sync"
-import { type SplitPaneOptions, type Tab, useTabsStore } from "../use-tabs-store"
+import { type SplitPaneOptions, useTabsStore } from "../use-tabs-store"
 import type { SpotlightCreateAction } from "../sidebar-search"
-import type { VaultRecord } from "../workspace-picker"
 import * as React from "react"
 import { ActivityBar } from "../activity-bar"
 import { PanelHost } from "../panel-host"
 import { ResizeHandle } from "../resize-handle"
-import { HeaderTabs, type HeaderTab } from "../header-tabs"
+import type { HeaderTab } from "../header-tabs"
+import { ConnectedHeaderTabs } from "./connected-tab-bars"
 import type { HelpContext } from "../help-modal"
 import type { SettingsNavigationTarget } from "../settings-navigation"
 import { cn } from "@/lib/utils"
@@ -25,8 +25,6 @@ import { type PanelPresence, usePanelLength, usePanelPresence } from "./use-pane
 
 interface WorkspaceNormalLayoutProps {
   headerTabs: HeaderTab[]
-  activeTabKey: string
-  unsavedFileIds: Set<string>
   handleTabChange: (key: string) => void
   handleTabClose: (key: string) => void
   toggleSidebar: (side: Side) => void
@@ -35,9 +33,6 @@ interface WorkspaceNormalLayoutProps {
   leftDockPinned: boolean
   rightDockPinned: boolean
   setDockPinned: (side: Side, pinned: boolean) => void
-  vaultName: string | undefined
-  vaults: VaultRecord[]
-  vault: string
   loadVault: (path: string | null, activateBackend?: boolean) => Promise<void>
   handleOpenVault: () => Promise<void>
   handleCloseAllTabs: () => void
@@ -45,8 +40,6 @@ interface WorkspaceNormalLayoutProps {
   leftWidth: number
   rightPanelEnabled: boolean
   rightWidth: number
-  activeTab: Tab | null
-  favorites: Set<string>
   handleToggleFavorite: (id: string) => void
   singlePaneId: string
   isMultiPane: boolean
@@ -85,7 +78,6 @@ interface WorkspaceNormalLayoutProps {
     onSetButtonHidden: (defId: string, hidden: boolean) => void
   }
   currentHelpContext: HelpContext
-  isLeftSidebarOpen: boolean
   resizingSide: Side | null
   setSidebarHover: (side: Side, hovering: boolean) => void
   panelRenderProps: PanelRenderProps
@@ -94,7 +86,6 @@ interface WorkspaceNormalLayoutProps {
   splitLayout: { leaves: LayoutLeafItem[]; dividers: LayoutSplitDivider[] }
   renderPaneLeaf: (leafItem: LayoutLeafItem) => React.JSX.Element
   paneDnd: { tabDrag: ActiveTabDragState | null; hoverTarget: ActivePaneHoverTarget | null }
-  isRightSidebarOpen: boolean
   rightButtons: ActivityButton[]
   displayTreeItems: TreeItem[]
   handleOpenInNewTab: (fileId: string) => Promise<void>
@@ -104,7 +95,6 @@ interface WorkspaceNormalLayoutProps {
     inNewTab?: boolean,
     initialContent?: string,
   ) => Promise<void>
-  activeFileId: string | null
   quickOpenCreateActions: SpotlightCreateAction[]
   handleRenameVault: (id: string, name: string) => void
   handleDeleteVault: (id: string) => Promise<void>
@@ -118,8 +108,6 @@ interface WorkspaceNormalLayoutProps {
 
 export function WorkspaceNormalLayout({
   headerTabs,
-  activeTabKey,
-  unsavedFileIds,
   handleTabChange,
   handleTabClose,
   toggleSidebar,
@@ -128,9 +116,6 @@ export function WorkspaceNormalLayout({
   leftDockPinned,
   rightDockPinned,
   setDockPinned,
-  vaultName,
-  vaults,
-  vault,
   loadVault,
   handleOpenVault,
   handleCloseAllTabs,
@@ -138,8 +123,6 @@ export function WorkspaceNormalLayout({
   leftWidth,
   rightPanelEnabled,
   rightWidth,
-  activeTab,
-  favorites,
   handleToggleFavorite,
   singlePaneId,
   isMultiPane,
@@ -169,7 +152,6 @@ export function WorkspaceNormalLayout({
   handleOpenInNewTab,
   handleSelect,
   handleNewFileIn,
-  activeFileId,
   quickOpenCreateActions,
   handleRenameVault,
   handleDeleteVault,
@@ -195,10 +177,8 @@ export function WorkspaceNormalLayout({
   )
   return (
     <div className="flex h-screen flex-col overflow-hidden">
-      <HeaderTabs
+      <ConnectedHeaderTabs
         tabs={headerTabs}
-        activeTabKey={activeTabKey}
-        unsavedFileIds={unsavedFileIds}
         onTabChange={handleTabChange}
         onTabClose={handleTabClose}
         onToggleLeftSidebar={() => toggleSidebar("left")}
@@ -212,9 +192,6 @@ export function WorkspaceNormalLayout({
         onSetLeftDockPinned={(pinned) => setDockPinned("left", pinned)}
         onSetRightDockPinned={(pinned) => setDockPinned("right", pinned)}
         onOpenPlusModal={() => useOverlaysStore.getState().setQuickOpenMode("new")}
-        vaultName={vaultName}
-        vaults={vaults}
-        currentVaultPath={vault}
         onSwitchVault={loadVault}
         onAddVault={handleOpenVault}
         onManageVaults={() => useOverlaysStore.getState().setVaultManagerOpen(true)}
@@ -222,8 +199,6 @@ export function WorkspaceNormalLayout({
         leftTreeWidth={isCompactLayout ? 0 : leftWidth}
         rightPanelWidth={isCompactLayout || !rightDockPinned || !rightPanelEnabled ? 0 : rightWidth}
         rightPanelEnabled={rightPanelEnabled}
-        activeFileId={activeTab?.fileId}
-        favorites={favorites}
         onToggleFavorite={handleToggleFavorite}
         showWorkspacePicker={false}
         paneId={singlePaneId}
@@ -459,14 +434,11 @@ export function WorkspaceNormalLayout({
       </div>
 
       <WorkspaceOverlays
-        vault={vault}
         displayTreeItems={displayTreeItems}
-        activeFileId={activeFileId}
         quickOpenCreateActions={quickOpenCreateActions}
         handleSelect={handleSelect}
         handleOpenInNewTab={handleOpenInNewTab}
         handleNewFileIn={handleNewFileIn}
-        vaults={vaults}
         loadVault={loadVault}
         handleOpenVault={handleOpenVault}
         handleRenameVault={handleRenameVault}

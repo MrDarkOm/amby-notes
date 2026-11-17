@@ -225,7 +225,6 @@ export function WorkspaceOrchestration() {
   const openDocs = useDocStore.getState().openDocs
   // Stable setters (value-or-updater, like setState); see use-tabs-store.
   const { setTabs, setActiveTabKey } = useTabsStore.getState()
-  const unsavedFileIds = useDocStore((s) => s.unsavedFileIds)
   // Keep editor scroll offsets outside the keyed editor components so a tab can
   // be temporarily hidden or remounted without losing the user's position.
   const scrollPositionsRef = React.useRef<Record<string, number>>({})
@@ -514,11 +513,9 @@ export function WorkspaceOrchestration() {
     isCompactLayout,
     leftWidth,
     rightWidth,
-    isLeftSidebarOpen,
     resizingSide,
     setSidebarHover,
     startResize,
-    isRightSidebarOpen,
   } = useWorkspaceDock({
     refreshSync,
     presetOptions,
@@ -1444,7 +1441,6 @@ export function WorkspaceOrchestration() {
       isFocusMode,
       graphEnabled,
       activePaneId,
-      unsavedFileIds,
       isLeftSidebarVisible,
       leftDockPinned,
       isRightSidebarVisible,
@@ -1508,10 +1504,8 @@ export function WorkspaceOrchestration() {
       <WorkspaceFocusLayout
         setFocusShowLeft={setFocusShowLeft}
         setFocusShowRight={setFocusShowRight}
-        activeTab={activeTab}
         graphEnabled={graphEnabled}
         handleSelect={handleSelect}
-        vault={vault}
         treeItems={treeItems}
         handleBack={handleBack}
         handleOpenInNewTab={handleOpenInNewTab}
@@ -1545,9 +1539,7 @@ export function WorkspaceOrchestration() {
         focusShowRight={focusShowRight}
         rightButtons={rightButtons}
         displayTreeItems={displayTreeItems}
-        activeFileId={activeFileId}
         quickOpenCreateActions={quickOpenCreateActions}
-        vaults={vaults}
         loadVault={loadVault}
         handleOpenVault={handleOpenVault}
         handleRenameVault={handleRenameVault}
@@ -1568,8 +1560,6 @@ export function WorkspaceOrchestration() {
   return (
     <WorkspaceNormalLayout
       headerTabs={headerTabs}
-      activeTabKey={activeTabKey}
-      unsavedFileIds={unsavedFileIds}
       handleTabChange={handleTabChange}
       handleTabClose={handleTabClose}
       toggleSidebar={toggleSidebar}
@@ -1578,9 +1568,6 @@ export function WorkspaceOrchestration() {
       leftDockPinned={leftDockPinned}
       rightDockPinned={rightDockPinned}
       setDockPinned={setDockPinned}
-      vaultName={vaultName}
-      vaults={vaults}
-      vault={vault}
       loadVault={loadVault}
       handleOpenVault={handleOpenVault}
       handleCloseAllTabs={handleCloseAllTabs}
@@ -1588,8 +1575,6 @@ export function WorkspaceOrchestration() {
       leftWidth={leftWidth}
       rightPanelEnabled={rightPanelEnabled}
       rightWidth={rightWidth}
-      activeTab={activeTab}
-      favorites={favorites}
       handleToggleFavorite={handleToggleFavorite}
       singlePaneId={singlePaneId}
       isMultiPane={isMultiPane}
@@ -1606,7 +1591,6 @@ export function WorkspaceOrchestration() {
       activityBarPresetProps={activityBarPresetProps}
       activityDockProps={activityDockProps}
       currentHelpContext={currentHelpContext}
-      isLeftSidebarOpen={isLeftSidebarOpen}
       resizingSide={resizingSide}
       setSidebarHover={setSidebarHover}
       panelRenderProps={panelRenderProps}
@@ -1615,13 +1599,11 @@ export function WorkspaceOrchestration() {
       splitLayout={splitLayout}
       renderPaneLeaf={renderPaneLeaf}
       paneDnd={paneDnd}
-      isRightSidebarOpen={isRightSidebarOpen}
       rightButtons={rightButtons}
       displayTreeItems={displayTreeItems}
       handleOpenInNewTab={handleOpenInNewTab}
       handleSelect={handleSelect}
       handleNewFileIn={handleNewFileIn}
-      activeFileId={activeFileId}
       quickOpenCreateActions={quickOpenCreateActions}
       handleRenameVault={handleRenameVault}
       handleDeleteVault={handleDeleteVault}
