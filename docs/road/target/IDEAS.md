@@ -1,37 +1,37 @@
-# Amby — идеи на будущее
+# Amby — ideas for the future
 
-Этот файл хранит продуктовые идеи, которые стоит обдумать, но которые пока не
-включены в обязательный roadmap. Запись здесь не означает обещание реализации
-или конкретный срок.
+This file holds product ideas worth thinking about that are not yet part of the
+mandatory roadmap. An entry here is not a promise of implementation or a
+specific deadline.
 
-## Статусы
+## Statuses
 
-- `Идея` — зафиксировано направление, решение ещё не принято.
-- `Исследование` — собираются сценарии, ограничения и варианты реализации.
-- `Кандидат` — идея достаточно проработана для включения в roadmap.
-- `Отложено` — сейчас неактуально, но контекст нужно сохранить.
+- `Idea` — a direction is recorded, no decision has been made yet.
+- `Research` — scenarios, constraints and implementation options are being gathered.
+- `Candidate` — the idea is developed enough to be included in the roadmap.
+- `Deferred` — not relevant right now, but the context needs to be preserved.
 
-## Шаблон новой идеи
+## New idea template
 
 ```md
-## Название
+## Title
 
-- Статус: Идея
-- Добавлено: YYYY-MM-DD
+- Status: Idea
+- Added: YYYY-MM-DD
 
-### Зачем
+### Why
 
-Какую пользовательскую проблему решает идея.
+Which user problem the idea solves.
 
-### Как это может работать
+### How it could work
 
-Ожидаемое поведение с точки зрения пользователя.
+Expected behavior from the user's point of view.
 
-### Вопросы и риски
+### Questions and risks
 
-Что необходимо решить до включения в roadmap.
+What has to be decided before inclusion in the roadmap.
 ```
 
 ---
 
-Сейчас идей в списке нет.
+There are currently no ideas on the list.

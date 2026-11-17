@@ -1,17 +1,17 @@
-# Отложенное: цели «на потом»
+# Deferred: "for later" goals
 
-Здесь собрано то, что сознательно отложили или не начинали. Сверено с кодом и коммитами на 2026-11-03.
-Это не контракты и не обещания сроков: перед работой проверьте текущий код. Когда пункт сделан, удалите его
-отсюда, а в `updates/upd_next.md` запишите изменение.
+This collects what was deliberately postponed or never started. Checked against the code and commits as of 2026-11-03.
+These are not contracts and not promised deadlines: check the current code before starting work. When an item is done, remove it
+from here and record the change in `updates/upd_next.md`.
 
-| Файл                                               | Что внутри                                                          |
-| -------------------------------------------------- | ------------------------------------------------------------------- |
-| [sync.md](sync.md)                                 | Синхронизация: Э2б, Э5, приложение Ж, дальние идеи                  |
-| [ai.md](ai.md)                                     | ИИ: проверки владельца, запись через агента, векторный поиск        |
-| [editor-and-boards.md](editor-and-boards.md)       | Блоки редактора, доска Excalidraw                                   |
-| [safety-and-platforms.md](safety-and-platforms.md) | Хвосты безопасности данных, ключ подписи, Windows и Linux           |
-| [dependencies.md](dependencies.md)                 | Крупные обновления зависимостей: Tailwind 4, rusqlite, криптография |
-| [IDEAS.md](IDEAS.md)                               | Продуктовые идеи без решения                                        |
+| File                                               | What is inside                                               |
+| -------------------------------------------------- | ------------------------------------------------------------ |
+| [sync.md](sync.md)                                 | Sync: Э2б, Э5, appendix Ж, distant ideas                     |
+| [ai.md](ai.md)                                     | AI: owner's checks, writing through an agent, vector search  |
+| [editor-and-boards.md](editor-and-boards.md)       | Editor blocks, Excalidraw board                              |
+| [safety-and-platforms.md](safety-and-platforms.md) | Data-safety leftovers, signing key, Windows and Linux        |
+| [dependencies.md](dependencies.md)                 | Major dependency updates: Tailwind 4, rusqlite, cryptography |
+| [IDEAS.md](IDEAS.md)                               | Product ideas with no decision                               |
 
-Планы лежат рядом, по категориям: [ИИ](../ai.md), [мобильная версия](../mobile.md), [доски](../boards.md),
-[модули](../modules.md), [синхронизация](../sync.md), [аудит стабилизации баз данных](../../audit/database-stabilization.md).
+Plans sit alongside, by category: [AI](../ai.md), [mobile version](../mobile.md), [boards](../boards.md),
+[modules](../modules.md), [sync](../sync.md), [database stabilization audit](../../audit/database-stabilization.md).

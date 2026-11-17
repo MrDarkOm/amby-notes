@@ -1,204 +1,204 @@
-# Excalidraw как единая доска Amby: подробное задание для Claude Code
+# Excalidraw as Amby's unified board: detailed assignment for Claude Code
 
-> **Статус на 2026-11-02:** не начат. Новые возможности плана в коде не реализованы; основа — прежний редактор досок (`src/components/workspace/canvas/`, `canvas-editor.tsx`, `src/lib/canvas-format.ts`). Находки F01–F12 не перепроверялись по текущему коду.
+> **Status as of 2026-11-02:** not started. The plan's new capabilities are not implemented in the code; the basis is the previous board editor (`src/components/workspace/canvas/`, `canvas-editor.tsx`, `src/lib/canvas-format.ts`). Findings F01–F12 have not been re-checked against the current code.
 
-Дата: 30 сентября 2026 года.
+Date: 30 September 2026.
 
-Статус: план реализации на основании текущего кода. Описанные новые возможности ещё не реализованы. Предлагаемые имена типов, файлов, команд и форматов расширений не являются существующими API.
+Status: an implementation plan based on the current code. The new capabilities described are not yet implemented. The proposed names of types, files, commands and extension formats are not existing APIs.
 
-## 1. Цель и ожидаемый результат
+## 1. Goal and expected result
 
-Развить встроенный Excalidraw в единый редактор досок Amby, который позволяет работать с заметками, строить аккуратные карты и редактировать существующие Obsidian `.canvas`. Пользователь должен иметь возможность пользоваться одним инструментом для структурированных карт и свободного рисования.
+Evolve the built-in Excalidraw into a unified Amby board editor that lets people work with notes, build tidy maps and edit existing Obsidian `.canvas` files. The user should be able to use a single tool for structured maps and free drawing.
 
-Главный сценарий: открыть существующую карту, перетащить на неё заметку, прочитать и изменить её, вытянуть связь к новой карточке, упорядочить ветку, сохранить, перезапустить приложение и продолжить работу. Карта должна сохранять совместимость со своим исходным форматом, а заметки оставаться обычными Markdown-файлами.
+The main scenario: open an existing map, drag a note onto it, read and change it, pull a connection out to a new card, tidy up a branch, save, restart the app and carry on working. The map must stay compatible with its original format, and notes must remain ordinary Markdown files.
 
-### 1.1. Обязательная законченная версия
+### 1.1. Required complete version
 
-- Открытие и редактирование поддерживаемого JSON Canvas 1.0 непосредственно в `.canvas` через новую доску.
-- Сохранение и развитие существующих `.excalidraw`, включая произвольные рисунки.
-- Два набора инструментов в одном интерфейсе: «Карта» и «Рисование» с явным учётом возможностей формата.
-- Полноценные Markdown-карточки и живые карточки заметок, вложений и веб-ссылок.
-- Вставка заметок из дерева, поиск, создание новой заметки с доски, превращение текстовой карточки в заметку.
-- Удобные связи: создание, переподключение, подпись, направление, привязка к сторонам, создание карточки из конца связи.
-- Группы, выравнивание, распределение, управляемая автораскладка, работа с ветками.
-- Поиск по доске, миникарта, восстановление позиции просмотра, навигация клавиатурой.
-- Проверенные undo/redo, автосохранение, конфликты внешних изменений, восстановление после сбоя.
-- Переносимость `.canvas`, явная конвертация в копию `.excalidraw`, контролируемый экспорт совместимой части рисунка в `.canvas`.
-- PNG/SVG-экспорт с видимым содержимым карточек, а не только их рамками.
-- Единый пользовательский модуль после завершения приёмки, без автоматической конвертации старых файлов.
+- Opening and editing supported JSON Canvas 1.0 directly in `.canvas` through the new board.
+- Preserving and evolving existing `.excalidraw` files, including arbitrary drawings.
+- Two toolsets in one interface: "Map" and "Drawing", with explicit accounting for format capabilities.
+- Full Markdown cards and live cards for notes, attachments and web links.
+- Inserting notes from the tree, search, creating a new note from the board, turning a text card into a note.
+- Convenient connections: creating, reconnecting, labelling, direction, snapping to sides, creating a card from the end of a connection.
+- Groups, alignment, distribution, managed auto-layout, working with branches.
+- Board search, minimap, restoring the view position, keyboard navigation.
+- Verified undo/redo, autosave, external-change conflicts, recovery after a crash.
+- `.canvas` portability, explicit conversion to a `.excalidraw` copy, controlled export of the compatible part of a drawing to `.canvas`.
+- PNG/SVG export with the visible content of cards, not only their frames.
+- A single user-facing module after acceptance is complete, without automatic conversion of old files.
 
-### 1.2. Что не должно задерживать эту версию
+### 1.2. What must not delay this version
 
-Совместное редактирование, облачная синхронизация, AI-генерация карт, полноценный редактор PDF, произвольные сторонние JavaScript-аддоны, полная совместимость с форматом плагина Obsidian Excalidraw `.excalidraw.md`, автоматическое извлечение смысловых отношений из текста и законченная «Творческая мастерская» — отдельные задачи.
+Collaborative editing, cloud sync, AI map generation, a full PDF editor, arbitrary third-party JavaScript add-ons, full compatibility with the Obsidian Excalidraw plugin format `.excalidraw.md`, automatic extraction of semantic relations from text and a finished "Creative workshop" are separate tasks.
 
-Сам Excalidraw не является готовой предметной моделью заметок и отношений. «Аддоны» в этом задании — внутренние расширения Amby через управляемые команды, карточки и публичный API движка. Новая платформа произвольных плагинов не требуется.
+Excalidraw itself is not a ready-made domain model of notes and relations. "Add-ons" in this assignment are internal Amby extensions through managed commands, cards and the engine's public API. A new platform for arbitrary plugins is not required.
 
-## 2. Как начать и соблюдать границы работы
+## 2. How to start and keep within the boundaries of the work
 
-1. Прочитать `AGENTS.md`, этот документ, `docs/vault-format.md`, `docs/markdown-compatibility.md`, `docs/data-safety-contract.md`, `docs/engineering.md`, `docs/themes-and-localization.md` и `docs/claude-handoff.md`.
-2. Проверить актуальные `git status`, ветку, полный tracked diff и содержимое relevant untracked-файлов. На момент подготовки: ветка `dev`, HEAD `698c3eb`, версия приложения `0.1.5`, значительный незакоммиченный diff от другой работы.
-3. Сохранить существующие изменения. Не использовать reset/clean/stash для очистки рабочего дерева. Не переписывать предыдущие планы и статусы как будто они завершены.
-4. Сверить каждую находку ниже с актуальной реализацией. Этот документ фиксирует состояние на дату анализа, а не заменяет чтение кода.
-5. Задача этого документа — доски. Старые планы баз данных и безопасности не означают поручение закончить все их этапы перед Excalidraw. Реализовать или переиспользовать только необходимые общие предпосылки, прежде всего сохранение с проверкой ревизии и общий lifecycle редактора.
-6. Если общий механизм уже развивается другой работой, использовать один согласованный интерфейс. Не создавать второй transaction engine, второй редактор Markdown или отдельную систему идентификаторов заметок.
-7. Работать законченными этапами E0–E12. Не отмечать этап готовым по наличию компонентов или успешному парсерному тесту: проверять производственный путь от открытия до повторного чтения файла.
-8. После каждой партии обновлять `updates/upd_next.md`, форматировать затронутые файлы, запускать требуемые проверки и записывать фактический результат.
-9. Не менять версию, не делать commit/push, не создавать теги, релизы и продвижения веток без отдельного поручения пользователя.
-10. При проверках использовать отдельные синтетические vault. Не экспериментировать с пользовательскими заметками.
+1. Read `AGENTS.md`, this document, `docs/vault-format.md`, `docs/markdown-compatibility.md`, `docs/data-safety-contract.md`, `docs/engineering.md`, `docs/themes-and-localization.md` and `docs/claude-handoff.md`.
+2. Check the current `git status`, the branch, the full tracked diff and the contents of the relevant untracked files. At the time of preparation: branch `dev`, HEAD `698c3eb`, app version `0.1.5`, a significant uncommitted diff from other work.
+3. Preserve the existing changes. Do not use reset/clean/stash to clean the working tree. Do not rewrite previous plans and statuses as if they were completed.
+4. Check each finding below against the current implementation. This document records the state as of the analysis date and does not replace reading the code.
+5. The subject of this document is boards. The old database and security plans do not mean an instruction to finish all their stages before Excalidraw. Implement or reuse only the necessary shared prerequisites, above all saving with revision checking and the shared editor lifecycle.
+6. If a shared mechanism is already being developed by other work, use one agreed interface. Do not create a second transaction engine, a second Markdown editor or a separate system of note identifiers.
+7. Work in complete stages E0–E12. Do not mark a stage as ready because components exist or a parser test passes: verify the production path from opening to re-reading the file.
+8. After each batch update `updates/upd_next.md`, format the affected files, run the required checks and record the actual result.
+9. Do not change the version, do not commit/push, do not create tags, releases or branch promotions without a separate instruction from the user.
+10. For checks use separate synthetic vaults. Do not experiment with the user's notes.
 
-## 3. Подтверждённая существующая основа
+## 3. Confirmed existing foundation
 
-Установленные при анализе версии: `@excalidraw/excalidraw` 0.18.1, `@xyflow/react` 12.11.2. Диапазоны в `package.json` и фактическую версию перед разработкой проверить повторно. Обновление библиотеки не является обязательной частью задания.
+Versions installed at the time of analysis: `@excalidraw/excalidraw` 0.18.1, `@xyflow/react` 12.11.2. Re-check the ranges in `package.json` and the actual version before development. Upgrading the library is not a required part of the assignment.
 
-| Область                 | Существующие точки                                                                                              | Что использовать                                                                                             |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Обёртка Excalidraw      | `src/components/workspace/sketch/sketch-editor.tsx`                                                             | Создание элементов, публичные props, lifecycle и интеграция с workspace                                      |
-| Карточка заметки        | `src/components/workspace/sketch/sketch-note-embeddable.tsx`                                                    | Начальная визуальная реализация; модель загрузки требует замены                                              |
-| Панель инструментов     | `src/components/workspace/sketch/sketch-objects-toolbar.tsx`                                                    | Базовые инструменты, адаптивное раскрытие                                                                    |
-| Формат рисунка          | `src/lib/sketch-format.ts` и тесты                                                                              | Существующее сохранение, фильтрация runtime state; разделить чтение, диагностику и создание нового файла     |
-| Старый Canvas           | `src/components/workspace/canvas/`                                                                              | Карточки, handles, подписи, DnD, группы, шаблоны, история, миникарта                                         |
-| JSON Canvas             | `src/lib/canvas-format.ts` и тесты                                                                              | Начальное описание схемы и сохранение extras; отделить codec от React Flow                                   |
-| Раскладка               | `canvas-alignment.ts`, `canvas-layout.ts`                                                                       | Проверенные части геометрии; алгоритм layout не считать достаточным для циклов и сложных графов без проверки |
-| Шаблоны и Mermaid       | `canvas-templates.ts`, `canvas-mermaid.ts`                                                                      | Повторно использовать генерацию через предметные команды, не через второй renderer                           |
-| Буферы досок            | `orchestration/use-sketch-workspace.ts`, `use-canvas-workspace.ts`                                              | Текущая интеграция автосохранения, recovery и загрузки                                                       |
-| Общий autosave          | `autosave/autosave-coordinator.ts`, `autosave-lifecycle.ts`                                                     | Очередь по документу, поколения vault, flush, результаты операций                                            |
-| Документы               | `use-doc-store.ts`, `file-actions/use-markdown-autosave.ts`                                                     | Единый буфер заметки, dirty state, конфликты, текущий note save path                                         |
-| Поверхность редактора   | `editor/document-body.tsx`, `editor/document-editor.tsx`, `editor/note-editing-policy.ts`                       | Маршрутизация слоёв и правила допуска Source/Live Preview                                                    |
-| Право редактирования    | `database/peek/editor-surface-lease.ts`                                                                         | Существующий механизм единственного writable editor surface; расширять и проверять всех callers              |
-| Превью Markdown         | `common/card-markdown.ts`, `tiptap/transclusion-view.tsx`                                                       | Базовое превью и существующие ограничения безопасного отображения                                            |
-| Выбор и перенос заметок | `common/note-picker-modal.tsx`, `src/lib/canvas-dnd.ts`                                                         | Общий выбор заметки и pointer-based drag из дерева                                                           |
-| Storage                 | `src/lib/storage.ts`, `src/lib/storage/port.ts`, repositories и adapters                                        | Единственная граница файлового I/O во frontend                                                               |
-| Backend                 | `src-tauri/src/frontmatter.rs`, `history.rs`, `paths.rs`, `recovery.rs`, `watcher.rs`                           | Атомарная запись, история, ограничения путей, восстановление, внешние события                                |
-| Rename/move             | `src-tauri/src/index/refactor.rs`, `bundle/`, команды mutations                                                 | Перепривязка ссылок и операции файлового дерева                                                              |
-| Модули                  | `sketch/sketch-module.tsx`, `canvas/canvas-module.tsx`, `src/lib/modules/`, `modules.ts`, `module-lifecycle.ts` | Регистрация file handlers, конфигурация, включение/отключение и сохранение перед отключением                 |
-| Темы и строки           | `src/themes/`, `src/locales/resources.ts`                                                                       | Все статические стили, токены, русский источник и остальные переводы                                         |
+| Area                       | Existing touchpoints                                                                                            | What to use                                                                                                                        |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Excalidraw wrapper         | `src/components/workspace/sketch/sketch-editor.tsx`                                                             | Element creation, public props, lifecycle and integration with the workspace                                                       |
+| Note card                  | `src/components/workspace/sketch/sketch-note-embeddable.tsx`                                                    | Initial visual implementation; the loading model needs replacing                                                                   |
+| Toolbar                    | `src/components/workspace/sketch/sketch-objects-toolbar.tsx`                                                    | Basic tools, adaptive expansion                                                                                                    |
+| Drawing format             | `src/lib/sketch-format.ts` and tests                                                                            | Existing saving, runtime state filtering; separate reading, diagnostics and creating a new file                                    |
+| Old Canvas                 | `src/components/workspace/canvas/`                                                                              | Cards, handles, labels, DnD, groups, templates, history, minimap                                                                   |
+| JSON Canvas                | `src/lib/canvas-format.ts` and tests                                                                            | Initial schema description and preserving extras; separate the codec from React Flow                                               |
+| Layout                     | `canvas-alignment.ts`, `canvas-layout.ts`                                                                       | Verified parts of the geometry; do not consider the layout algorithm sufficient for cycles and complex graphs without verification |
+| Templates and Mermaid      | `canvas-templates.ts`, `canvas-mermaid.ts`                                                                      | Reuse generation through domain commands, not through a second renderer                                                            |
+| Board buffers              | `orchestration/use-sketch-workspace.ts`, `use-canvas-workspace.ts`                                              | Current integration of autosave, recovery and loading                                                                              |
+| Shared autosave            | `autosave/autosave-coordinator.ts`, `autosave-lifecycle.ts`                                                     | Per-document queue, vault generations, flush, operation results                                                                    |
+| Documents                  | `use-doc-store.ts`, `file-actions/use-markdown-autosave.ts`                                                     | The single note buffer, dirty state, conflicts, the current note save path                                                         |
+| Editor surface             | `editor/document-body.tsx`, `editor/document-editor.tsx`, `editor/note-editing-policy.ts`                       | Layer routing and the Source/Live Preview admission rules                                                                          |
+| Editing right              | `database/peek/editor-surface-lease.ts`                                                                         | The existing mechanism of a single writable editor surface; extend it and check all callers                                        |
+| Markdown preview           | `common/card-markdown.ts`, `tiptap/transclusion-view.tsx`                                                       | The basic preview and the existing safe-display constraints                                                                        |
+| Selecting and moving notes | `common/note-picker-modal.tsx`, `src/lib/canvas-dnd.ts`                                                         | Shared note selection and pointer-based drag from the tree                                                                         |
+| Storage                    | `src/lib/storage.ts`, `src/lib/storage/port.ts`, repositories and adapters                                      | The only file I/O boundary in the frontend                                                                                         |
+| Backend                    | `src-tauri/src/frontmatter.rs`, `history.rs`, `paths.rs`, `recovery.rs`, `watcher.rs`                           | Atomic writes, history, path restrictions, recovery, external events                                                               |
+| Rename/move                | `src-tauri/src/index/refactor.rs`, `bundle/`, mutation commands                                                 | Re-pointing links and file-tree operations                                                                                         |
+| Modules                    | `sketch/sketch-module.tsx`, `canvas/canvas-module.tsx`, `src/lib/modules/`, `modules.ts`, `module-lifecycle.ts` | Registering file handlers, configuration, enabling/disabling and saving before disabling                                           |
+| Themes and strings         | `src/themes/`, `src/locales/resources.ts`                                                                       | All static styles, tokens, the Russian source and the other translations                                                           |
 
-Во время первичного аудита выполнены 9 связанных Vitest-файлов, 41 тест прошёл. Это не проверка всей программы, нативного UI, импорта из Obsidian или всех найденных проблем.
+During the initial audit, 9 related Vitest files were run, and 41 tests passed. This is not a check of the whole program, the native UI, import from Obsidian or all the problems found.
 
-## 4. Исходные находки и обязательные исправления
+## 4. Initial findings and required fixes
 
-### F01. Ошибка загрузки маскируется пустым документом — P0
+### F01. A load error is masked by an empty document — P0
 
-В `loadSketchBuffer` и `loadCanvasBuffer` исключение чтения/валидации заменяется новым пустым документом. `parseSketch` и `parseCanvas` также имеют tolerant fallback. Это смешивает «новый документ» с «существующий документ не прочитан». После действия пользователя пустое состояние может пойти в автосохранение по исходному пути.
+In `loadSketchBuffer` and `loadCanvasBuffer` a read/validation exception is replaced with a new empty document. `parseSketch` and `parseCanvas` also have a tolerant fallback. This conflates "a new document" with "an existing document was not read". After a user action the empty state may go into autosave at the original path.
 
-Исправление: typed load result, исходные байты и диагностическое состояние; новый пустой файл создаётся только явной командой создания. Повреждённый, недоступный или неподдерживаемый файл не получает writable editor. Recovery рассматривается отдельно, с сохранением дискового исходника и подтверждённым выбором восстановления.
+Fix: a typed load result, the original bytes and a diagnostic state; a new empty file is created only by an explicit create command. A corrupted, inaccessible or unsupported file does not get a writable editor. Recovery is handled separately, preserving the on-disk original and with a confirmed choice of recovery.
 
-### F02. Дополнительные поля рисунка теряются на границе редактора — P0
+### F02. Extra drawing fields are lost at the editor boundary — P0
 
-`serializeSketch` умеет принимать unknown top-level fields, но `handleChange` и `flushSketch` передают только `elements`, `appState`, `files`. Из-за этого исходные `source`, дополнительные данные и потенциальные расширения не проходят реальный цикл редактирования. Изолированный тест serializer этого не обнаруживает.
+`serializeSketch` can accept unknown top-level fields, but `handleChange` and `flushSketch` pass only `elements`, `appState`, `files`. As a result the original `source`, extra data and potential extensions do not go through the real editing cycle. An isolated serializer test does not detect this.
 
-Исправление: source envelope, сохранение неизвестных полей по устойчивым ID, тест через настоящий callback редактора. Отдельно проверить, что upstream `restoreElements` не выкидывает неизвестные поля элементов. Для неподдерживаемых типов, которые невозможно сохранить безопасно, использовать просмотр/исходник, а не исчезновение элементов.
+Fix: a source envelope, preserving unknown fields by stable IDs, a test through the real editor callback. Separately check that upstream `restoreElements` does not drop unknown element fields. For unsupported types that cannot be saved safely, use view/source mode rather than letting elements vanish.
 
-### F03. Контракт истории не соответствует API 0.18.1 — P0
+### F03. The history contract does not match the 0.18.1 API — P0
 
-Локальный вручную описанный `ExcalidrawImperativeAPI` содержит `commitToHistory`. У установленной библиотеки `updateScene` использует `captureUpdate`; доступны `IMMEDIATELY`, `NEVER`, `EVENTUALLY`.
+The locally hand-written `ExcalidrawImperativeAPI` contains `commitToHistory`. In the installed library `updateScene` uses `captureUpdate`; `IMMEDIATELY`, `NEVER`, `EVENTUALLY` are available.
 
-Исправление: реальные опубликованные типы библиотеки либо вывод типа из публичного prop; локальные действия — осознанные undo checkpoints, внешний reload и инициализация — без попадания в историю. Удалить фиктивную типизацию, скрывающую несовместимость. Проверять результат undo/redo, а не только аргумент mock-функции.
+Fix: the library's real published types, or inferring the type from the public prop; local actions are deliberate undo checkpoints, external reload and initialization stay out of history. Remove the fictitious typing that hides the incompatibility. Check the result of undo/redo, not only the argument of a mock function.
 
-### F04. Карточки заметок не обновляются вслед за содержимым — P1
+### F04. Note cards do not update following the content — P1
 
-В `SketchNoteEmbeddable` чтение зависит от `[notePath, vault]`. Нет подписки на dirty buffer заметки, её сохранение или watcher invalidation. Одна и та же карточка может показывать старое содержимое, пока не будет перемонтирована.
+In `SketchNoteEmbeddable` reading depends on `[notePath, vault]`. There is no subscription to the note's dirty buffer, its save or watcher invalidation. The same card can show stale content until it is remounted.
 
-Исправление: общий preview/document provider с приоритетом актуального открытого буфера, подписками и кешем. Не перечитывать один файл независимо для каждой карточки.
+Fix: a shared preview/document provider that prioritizes the current open buffer, with subscriptions and a cache. Do not re-read one file independently for each card.
 
-### F05. Ссылки Excalidraw не участвуют в текущем rename — P0
+### F05. Excalidraw links do not take part in the current rename — P0
 
-Карточка создаёт `amby://note/${encodeURIComponent(relPath)}`. Backend refactor ищет Markdown-вхождения и строку вида `"relative/path.md"`; URI с префиксом и кодированием не совпадает. Пример: `amby://note/Folder%2FNote.md`.
+The card creates `amby://note/${encodeURIComponent(relPath)}`. The backend refactor looks for Markdown occurrences and a string of the form `"relative/path.md"`; a URI with a prefix and encoding does not match. Example: `amby://note/Folder%2FNote.md`.
 
-Исправление: общий parser/resolver ссылки, типизированное переписывание соответствующих полей JSON и интеграция с rename/move. Для заметок с надёжным `amby-id` сохранять ID и portable path; для остальных сохранять путь, не выдавая временный индексный ID за стабильный.
+Fix: a shared link parser/resolver, typed rewriting of the corresponding JSON fields and integration with rename/move. For notes with a reliable `amby-id` preserve the ID and the portable path; for the rest preserve the path, without passing off a temporary index ID as stable.
 
-### F06. Направление `.canvas` в sketch parser не является импортом — P0
+### F06. Treating `.canvas` in the sketch parser is not an import — P0
 
-Текущий validator рисунка допускает объект без `elements`. JSON Canvas проходит как рисунок с пустой сценой, а `nodes`/`edges` остаются дополнительными полями до следующего сохранения из редактора.
+The current drawing validator accepts an object without `elements`. JSON Canvas passes as a drawing with an empty scene, and `nodes`/`edges` remain extra fields until the next save from the editor.
 
-Исправление: отдельные codecs и явное определение формата; несовпадение расширения и содержимого требует диагностики. Добавление `.canvas` в manifest без адаптера запрещено.
+Fix: separate codecs and explicit format detection; a mismatch between extension and content requires a diagnostic. Adding `.canvas` to the manifest without an adapter is forbidden.
 
-### F07. Частичная реализация JSON Canvas не равна полному отображению — P1
+### F07. A partial JSON Canvas implementation is not the same as full display — P1
 
-В старом Canvas `link` отображается через file-card; `subpath` и фон группы могут сохраняться в данных без соответствующего отображения. Validator требует одновременно `nodes` и `edges`, хотя в спецификации они необязательны.
+In the old Canvas, `link` is displayed through a file-card; `subpath` and the group background may be saved in the data without corresponding display. The validator requires both `nodes` and `edges`, although they are optional in the specification.
 
-Исправление: матрица поддержки и отдельные тесты чтения, отображения, изменения и сохранения. Наличие поля в TypeScript не является готовностью функции.
+Fix: a support matrix and separate tests for reading, display, modification and saving. The presence of a field in TypeScript is not feature readiness.
 
-### F08. Работа с внутренним DOM Excalidraw хрупкая — P1
+### F08. Working with Excalidraw's internal DOM is fragile — P1
 
-Есть `querySelector` по `data-testid` и внутренним CSS-классам для undo/redo, zoom, меню; `MutationObserver` изменяет hyperlink popup и добавляет кнопку Browse.
+There are `querySelector` calls on `data-testid` and internal CSS classes for undo/redo, zoom, menus; a `MutationObserver` modifies the hyperlink popup and adds a Browse button.
 
-Исправление: использовать публичные callbacks и собственную React-панель действий для карточки. Если библиотека не предоставляет публичную команду undo, сохранить доступные upstream controls/shortcuts или сделать документированную изолированную интеграцию. Не придумывать отсутствующий API и не заменять selector зависимость синтетическими keyboard events без проверки.
+Fix: use public callbacks and our own React action panel for the card. If the library does not provide a public undo command, keep the available upstream controls/shortcuts or make a documented isolated integration. Do not invent a non-existent API and do not replace the selector dependency with synthetic keyboard events without verification.
 
-### F09. Полная сериализация выполняется на каждом `onChange` — P1
+### F09. Full serialization is performed on every `onChange` — P1
 
-`handleChange` начинает с JSON-сериализации всех элементов и файлов, включая изменения, которые могут относиться к просмотру. Disk debounce не устраняет эту стоимость.
+`handleChange` starts with JSON serialization of all elements and files, including changes that may relate to the view. The disk debounce does not eliminate this cost.
 
-Исправление: дешёвое определение документных изменений, coalescing и ограниченные checkpoints; финальный flush обязателен. Решение проверять профилированием, а не только количеством сохранений.
+Fix: cheap detection of document changes, coalescing and bounded checkpoints; a final flush is mandatory. Verify the decision by profiling, not only by the number of saves.
 
-### F10. Формат ссылки допускается шире, чем реально отрисовывается — P1
+### F10. The link format is accepted more broadly than it is actually rendered — P1
 
-`validateEmbeddable` допускает `note:`, а custom renderer/open handler обрабатывают только `amby://note/`. В ряде handlers `decodeURIComponent` не защищён от ошибки.
+`validateEmbeddable` accepts `note:`, while the custom renderer/open handler process only `amby://note/`. In several handlers `decodeURIComponent` is not protected against errors.
 
-Исправление: единая функция разбора с typed invalid result, определённая политика legacy-ссылок, безопасная заглушка для некорректных URI.
+Fix: a single parsing function with a typed invalid result, a defined policy for legacy links, a safe placeholder for malformed URIs.
 
-### F11. Произвольная строка Markdown пока не является полноценной карточкой — P1
+### F11. An arbitrary Markdown string is not yet a full card — P1
 
-Текстовая карточка Excalidraw — rectangle с обычным text label. Это не Markdown-редактор. `renderCardHtml` создаёт стилизованные wiki-link spans, но в самой sketch-карточке нет обработчика перехода по ним.
+An Excalidraw text card is a rectangle with an ordinary text label. It is not a Markdown editor. `renderCardHtml` creates styled wiki-link spans, but the sketch card itself has no handler for navigating through them.
 
-Исправление: разделить «надпись/стикер» и «Markdown-карточку»; использовать единый безопасный preview и маршрутизацию ссылок. Не хранить единственную копию Markdown как нарисованный текст.
+Fix: separate "caption/sticker" from "Markdown card"; use a single safe preview and link routing. Do not store the only copy of Markdown as drawn text.
 
-### F12. Общая защита досок ревизиями ещё не доказана — P0
+### F12. Shared board protection by revisions is not yet proven — P0
 
-Текущие sketch/canvas coordinators вызывают generic `writeFile`. В handoff и data-safety contract явно отмечена необходимость общей защиты от устаревшей записи. Watcher, атомарный rename и последовательная очередь сами по себе не проверяют, что исходный файл не изменился извне.
+The current sketch/canvas coordinators call the generic `writeFile`. The handoff and the data-safety contract explicitly note the need for shared protection against stale writes. A watcher, an atomic rename and a sequential queue do not by themselves verify that the source file has not been changed externally.
 
-Исправление: согласованный с остальным проектом read/write outcome с raw revision, проверкой перед публикацией, историей и typed conflict. Не обещать идеальный межпроцессный CAS обычной файловой системе: документировать остаточное окно внешней гонки и гарантии восстановления.
+Fix: a read/write outcome consistent with the rest of the project, with a raw revision, a pre-publish check, history and a typed conflict. Do not promise perfect cross-process CAS on an ordinary file system: document the residual window for an external race and the recovery guarantees.
 
-## 5. Архитектурное решение
+## 5. Architectural decision
 
-### 5.1. Один пользовательский редактор, два исходных формата
+### 5.1. One user-facing editor, two source formats
 
-`.canvas` и `.excalidraw` остаются самостоятельными форматами на диске. Новый интерфейс использует Excalidraw как основной renderer и interaction engine. Формат документа определяет допустимые операции, а выбранная панель «Карта/Рисование» — удобство доступа к ним.
+`.canvas` and `.excalidraw` remain independent formats on disk. The new interface uses Excalidraw as the main renderer and interaction engine. The document format determines the permitted operations, and the selected «Карта/Рисование» (Map/Drawing) panel is a convenience for accessing them.
 
-| Документ                           | Авторитетное содержимое                                  | Допустимые действия                                                     | Сохранение                                 |
-| ---------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------ |
-| `.canvas`                          | Исходный JSON Canvas и его сохранённые opaque-фрагменты  | Карточки, файлы, ссылки, группы и связи в поддерживаемом контракте      | Обновляется тот же `.canvas`               |
-| `.excalidraw`                      | Исходная Excalidraw-сцена, её envelope и расширения Amby | Карточки плюс обычные фигуры, рисунки, изображения и инструменты движка | Обновляется тот же `.excalidraw`           |
-| Неподдерживаемый/повреждённый файл | Исходные байты                                           | Просмотр диагностики, исходника, сохранение явной копии                 | Автосохранение по исходному пути запрещено |
+| Document                   | Authoritative content                                         | Permitted actions                                                         | Saving                                   |
+| -------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------- | ---------------------------------------- |
+| `.canvas`                  | The source JSON Canvas and its preserved opaque fragments     | Cards, files, links, groups and connections within the supported contract | The same `.canvas` is updated            |
+| `.excalidraw`              | The source Excalidraw scene, its envelope and Amby extensions | Cards plus ordinary shapes, drawings, images and engine tools             | The same `.excalidraw` is updated        |
+| Unsupported/corrupted file | The source bytes                                              | View diagnostics, view the source, save an explicit copy                  | Autosave to the source path is forbidden |
 
-Не создавать два независимо редактируемых полных представления документа. Для `.canvas` сцена Excalidraw — проекция исходной модели. Для `.excalidraw` обычные элементы движка остаются исходной сценой, а предметные индексы карточек и связей выводятся из её метаданных. У обоих документов одна последовательность локальных изменений и один persistence coordinator.
+Do not create two independently editable full representations of a document. For `.canvas`, the Excalidraw scene is a projection of the source model. For `.excalidraw`, ordinary engine elements remain the source scene, while the domain indexes of cards and connections are derived from its metadata. Both documents have one sequence of local changes and one persistence coordinator.
 
-### 5.2. Ранний технический прототип — обязательное условие
+### 5.2. An early technical prototype is a mandatory precondition
 
-До массового переноса UI проверить реальным Excalidraw 0.18.1:
+Before mass migration of the UI, verify with the real Excalidraw 0.18.1:
 
-1. React/DOM-карточку с Markdown, прокруткой и редактированием текста.
-2. Drag карточки за заголовок, resize и pan при масштабе 25%, 100%, 200%.
-3. Привязанную к embeddable стрелку и её поведение при resize/move.
-4. Четыре пользовательские точки подключения и создание новой карточки из конца стрелки.
-5. Доступность pointer events поверх HTML-карточки, focus, text selection и IME.
-6. Группу без непреднамеренного clipping и изменения порядка наложения.
-7. Custom card в PNG/SVG-экспорте и переносимом native-файле.
-8. Историю действий, дублирование и clipboard для managed objects.
+1. A React/DOM card with Markdown, scrolling and text editing.
+2. Dragging a card by its title, resize and pan at 25%, 100%, 200% zoom.
+3. An arrow bound to an embeddable and its behavior on resize/move.
+4. Four custom connection points and creating a new card from the end of an arrow.
+5. Pointer-event availability on top of an HTML card, focus, text selection and IME.
+6. A group without unintended clipping or changes to the stacking order.
+7. A custom card in PNG/SVG export and in a portable native file.
+8. Action history, duplication and clipboard for managed objects.
 
-Для каждой проверки записать: используемый публичный API, ограничения, доказательство в browser и Tauri. `renderEmbeddable` не считать автоматическим решением экспорта, истории или перехвата всех событий.
+For each check, record: the public API used, the limitations, and proof in the browser and in Tauri. Do not treat `renderEmbeddable` as an automatic solution for export, history or intercepting all events.
 
-Если требуемое действие невозможно через публичный API, сначала искать локальную адаптацию без изменения движка. Затем оформить небольшой изолированный patch/fork с причиной, размером сопровождения, лицензией и проверками обновления. Не закапывать зависимость в monkey patch внутренних объектов. Пока критический сценарий не решён, старый Canvas остаётся доступен как временный резерв; это не означает завершение замены.
+If the required action is impossible through the public API, first look for a local adaptation without changing the engine. Then set up a small isolated patch/fork with the reason, the maintenance size, the license and update checks. Do not bury the dependency in a monkey patch of internal objects. Until a critical scenario is solved, the old Canvas remains available as a temporary fallback; this does not mean the replacement is complete.
 
-### 5.3. Разделение ответственности
+### 5.3. Separation of responsibility
 
-Предлагаемые логические части, а не обязательный список новых файлов:
+The proposed logical parts, not a mandatory list of new files:
 
-- `board-document`: формат, исходные данные, capability flags, dirty/checkpoint и диагностика.
-- `canvas-codec`: JSON Canvas без зависимости от React Flow или Excalidraw.
-- `excalidraw-codec`: исходная сцена, unknown fields и расширения Amby.
-- `canvas-scene-adapter`: проекция `.canvas` в scene и перевод изменений обратно в команды предметной модели.
-- `board-commands`: создание, изменение, удаление, группировка, соединение и раскладка.
-- `board-note-provider`: identity resolution, общий открытый буфер, preview cache, invalidation.
-- `board-persistence`: общий autosave/recovery через storage port, без прямого FS.
-- `board-renderer`: Excalidraw и собственные React overlays/panels; не владеет долговечной копией заметки.
-- `board-view-state`: viewport, выделение, открытая панель и локальные настройки просмотра.
+- `board-document`: format, source data, capability flags, dirty/checkpoint and diagnostics.
+- `canvas-codec`: JSON Canvas without a dependency on React Flow or Excalidraw.
+- `excalidraw-codec`: the source scene, unknown fields and Amby extensions.
+- `canvas-scene-adapter`: projection of `.canvas` into a scene and translation of changes back into domain-model commands.
+- `board-commands`: creating, changing, deleting, grouping, connecting and layout.
+- `board-note-provider`: identity resolution, the shared open buffer, preview cache, invalidation.
+- `board-persistence`: shared autosave/recovery through the storage port, without direct FS.
+- `board-renderer`: Excalidraw and custom React overlays/panels; it does not own a durable copy of the note.
+- `board-view-state`: viewport, selection, the open panel and local view settings.
 
-Размещать части в существующих `sketch/`, `canvas/`, `common/`, `orchestration/` или небольшой общей `board/` по фактической повторной используемости. Не создавать абстрактную платформу ради будущих расширений. `workspace.tsx` не должен становиться владельцем новой параллельной модели доски.
+Place the parts in the existing `sketch/`, `canvas/`, `common/`, `orchestration/` or a small shared `board/` according to actual reuse. Do not create an abstract platform for the sake of future extensions. `workspace.tsx` must not become the owner of a new parallel board model.
 
-### 5.4. Команды и история
+### 5.4. Commands and history
 
-Нужен единый путь исполнения предметных действий. Предлагаемый минимальный набор:
+A single execution path for domain actions is needed. The proposed minimal set:
 
 ```text
 createTextCard / insertNoteCard / insertAssetCard / insertLinkCard
@@ -209,38 +209,38 @@ alignSelection / distributeSelection / layoutSelection
 duplicateSelection / removeSelection / convertTextCardToNote
 ```
 
-Каждая команда имеет document identity, generation, ожидаемый локальный checkpoint и определённую границу undo. Создание карточки вместе со связью — одно действие. Перетаскивание через сотни pointer events — один undo step. Обновление preview после сохранения заметки — не редактирование доски.
+Each command has a document identity, a generation, an expected local checkpoint and a defined undo boundary. Creating a card together with a connection is one action. A drag across hundreds of pointer events is one undo step. Updating a preview after a note is saved is not a board edit.
 
-Прямые изменения сцены встроенными инструментами тоже должны проходить reconcile managed objects. Обязательно проверить delete/duplicate/paste/group/undo из меню и shortcuts самого Excalidraw: предметная модель не должна видеть только собственную панель Amby.
+Direct scene changes by the built-in tools must also go through reconciliation of managed objects. It is mandatory to verify delete/duplicate/paste/group/undo from Excalidraw's own menu and shortcuts: the domain model must not see only the Amby panel itself.
 
-Не вести одновременно независимый `CanvasHistory` и upstream Excalidraw history для одной редактируемой доски. Выбрать владельца истории после E1 и синхронизировать связанные метаданные в том же checkpoint.
+Do not maintain an independent `CanvasHistory` and the upstream Excalidraw history at the same time for one editable board. Choose the history owner after E1 and synchronize the related metadata in the same checkpoint.
 
-## 6. Данные, идентичность и сохранение неизвестного
+## 6. Data, identity and preservation of the unknown
 
-### 6.1. Не смешивать идентификаторы
+### 6.1. Do not mix identifiers
 
-Различать ID заметки, ID карточки на доске, ID элемента Excalidraw и ID связи. Одна заметка может иметь несколько карточек на одной или разных досках; у каждой собственная геометрия. Дублирование карточки не дублирует заметку.
+Distinguish the note ID, the card ID on the board, the Excalidraw element ID and the connection ID. One note can have several cards on one or different boards; each has its own geometry. Duplicating a card does not duplicate the note.
 
-Для `.canvas` сохранять исходные node/edge IDs. Если одна карточка отрисовывается несколькими scene elements, поддерживать стабильное отображение `nodeId → elementIds`, включая label/background/preview. Для imported source не генерировать заново все IDs при каждом открытии.
+For `.canvas`, preserve the source node/edge IDs. If one card is rendered by several scene elements, maintain a stable `nodeId → elementIds` mapping, including label/background/preview. For an imported source, do not regenerate all IDs on every open.
 
-### 6.2. Предлагаемая ссылка на заметку
+### 6.2. Proposed note reference
 
 ```ts
-// Концептуальная схема для проектирования. Не существует в коде на дату плана.
+// Conceptual schema for design. Does not exist in code at the date of the plan.
 interface BoardNoteReference {
   path: string // portable vault-relative path
-  noteId?: string // только доверенный стабильный ID, если он уже есть
-  subpath?: string // сохранённая ссылка на heading/block
+  noteId?: string // only a trusted stable ID, if one already exists
+  subpath?: string // a preserved reference to a heading/block
 }
 ```
 
-Разрешать ID и путь согласованно. Если доверенный ID однозначно найден по новому пути — показывать актуальную заметку, а актуализацию сохранённого path проводить контролируемой mutation. Если ID и path указывают на разные существующие заметки, показать конфликт ссылки вместо незаметной подмены. При duplicate IDs не выбирать случайный результат.
+Resolve the ID and the path consistently. If a trusted ID is unambiguously found at a new path, show the current note, and update the saved path through a controlled mutation. If the ID and the path point to different existing notes, show a reference conflict instead of a silent substitution. With duplicate IDs, do not pick a random result.
 
-Существующие legacy `amby://note/...` должны продолжать открываться. Их обновление не является разрешением массово переписать frontmatter. Замечание «эта заметка не имеет стабильного ID» не должно блокировать чтение карточки по пути; редактирование следует действующей note policy.
+Existing legacy `amby://note/...` links must keep opening. Updating them is not permission to mass-rewrite frontmatter. The remark "this note has no stable ID" must not block reading a card by path; editing follows the current note policy.
 
-### 6.3. Расширения Amby в `.excalidraw`
+### 6.3. Amby extensions in `.excalidraw`
 
-Для управляемых элементов использовать поддерживаемое движком `customData` с собственным namespace и версией. Например:
+For managed elements, use the engine-supported `customData` with its own namespace and a version. For example:
 
 ```json
 {
@@ -256,568 +256,568 @@ interface BoardNoteReference {
 }
 ```
 
-Это пример будущего контракта. Валидировать реальные note IDs, ограничивать размеры payload, не воспринимать любые `customData` как доверенные. Сохранить сторонние namespaces. При конфликте уже существующего ключа или более новой версии не перезаписывать его.
+This is an example of a future contract. Validate real note IDs, limit payload sizes, and do not treat any `customData` as trusted. Preserve third-party namespaces. On a conflict with an already existing key or a newer version, do not overwrite it.
 
-Долговечные Markdown-тексты карточек, связи и пользовательские настройки раскладки хранятся с документом, а не только в SQLite или восстанавливаемом кеше `.amby/`. Текст связанной заметки не копируется как второй редактируемый источник. Preview snapshot допустим только как явно устаревающее производное изображение/превью для переносимости и экспорта.
+Durable Markdown card texts, connections and user layout settings are stored with the document, and not only in SQLite or in the recoverable `.amby/` cache. The text of a linked note is not copied as a second editable source. A preview snapshot is acceptable only as an explicitly aging derived image/preview for portability and export.
 
-Для `.canvas` стандартные node/edge поля являются основным контрактом. Опциональные расширения Amby не заменяют `text`, `file`, `subpath` или endpoints. До записи новых extension-полей проверить их сохранение при реальном редактировании в Obsidian. Если чужое приложение их отбрасывает, основная карта всё равно должна остаться полноценной; невозможность сохранить дополнительные настройки должна быть документирована.
+For `.canvas`, the standard node/edge fields are the primary contract. Optional Amby extensions do not replace `text`, `file`, `subpath` or endpoints. Before writing new extension fields, verify that they are preserved during real editing in Obsidian. If a foreign application drops them, the main map must still remain fully functional; the inability to preserve additional settings must be documented.
 
-### 6.4. Source envelope и сохранность
+### 6.4. Source envelope and preservation
 
-Загрузчик хранит исходный raw source, формат, revision, распознанные объекты и opaque data. Отдельно отличает пустой новый документ от непустого неизвестного формата.
+The loader keeps the raw source, the format, the revision, the recognized objects and the opaque data. It separately distinguishes an empty new document from a non-empty unknown format.
 
-- Открытие, смена темы, pan/zoom, просмотр карточки и закрытие без правок не меняют байты файла и не создают history snapshot.
-- На редактировании изменяются только затронутые поля/объекты. Неизвестные данные, порядок массивов, идентификаторы, исходный Markdown и вложения не теряются.
-- Реализовать сохранение через parser с исходными диапазонами/структурные patches там, где необходима сохранность байтов вне изменения. Не заменять это regexp по произвольному JSON.
-- Не заявлять byte-exact по `JSON.parse → JSON.stringify`: такой цикл меняет форматирование, может терять точность чисел и duplicate keys.
-- Для неоднозначного JSON, duplicate keys, значений вне безопасного числового диапазона или будущих типов выбрать поддержанный lossless путь либо режим просмотра/исходника. Не «исправлять» файл при загрузке.
-- BOM и исходный стиль EOL учитывать на уровне raw source и backend write. Revision вычислять по полному источнику, а не по нормализованной проекции.
-- Unknown fields сохранять и на реальном редакторном пути, и при undo, reload, restore, duplication и export-copy.
-- Удаление видимой известной карточки может удалить соответствующий source node и его связи. Отсутствие неизвестного элемента в проекции не означает намеренное удаление.
+- Opening, changing the theme, pan/zoom, viewing a card and closing without edits do not change the file's bytes and do not create a history snapshot.
+- On editing, only the affected fields/objects change. Unknown data, array order, identifiers, source Markdown and attachments are not lost.
+- Implement saving through a parser with source ranges/structural patches wherever byte preservation outside the change is needed. Do not replace this with a regexp over arbitrary JSON.
+- Do not claim byte-exact for `JSON.parse → JSON.stringify`: such a cycle changes formatting and can lose number precision and duplicate keys.
+- For ambiguous JSON, duplicate keys, values outside the safe numeric range or future types, choose a supported lossless path or a view/source mode. Do not "fix" the file on load.
+- Take the BOM and the source EOL style into account at the level of the raw source and the backend write. Compute the revision over the full source, not over the normalized projection.
+- Preserve unknown fields both on the real editor path and during undo, reload, restore, duplication and export-copy.
+- Deleting a visible known card may delete the corresponding source node and its connections. The absence of an unknown element in the projection does not mean intentional deletion.
 
-Новый формат расширений сначала документируется и покрывается fixtures, затем включается запись. Миграция существующего durable формата требует версии, preflight, backup, outcome, completion detection и безопасного rollback.
+The new extension format is first documented and covered by fixtures, and only then is writing enabled. Migrating an existing durable format requires a version, a preflight, a backup, an outcome, completion detection and a safe rollback.
 
-## 7. Контракт совместимости `.canvas`
+## 7. `.canvas` compatibility contract
 
-Основной внешний источник: [JSON Canvas 1.0](https://jsoncanvas.org/spec/1.0/). При реализации читать спецификацию непосредственно; тестировать её необязательные поля и значения по умолчанию.
+The main external source: [JSON Canvas 1.0](https://jsoncanvas.org/spec/1.0/). During implementation, read the specification directly; test its optional fields and default values.
 
-| Объект/свойство    | Требуемое поведение новой доски                                       | Проверка                                           |
-| ------------------ | --------------------------------------------------------------------- | -------------------------------------------------- |
-| Top-level          | `nodes`/`edges` могут отсутствовать; неизвестные поля остаются        | `{}`, только nodes, только edges, extensions       |
-| Порядок nodes      | Сохраняет z-order; группы не переставляются автоматически назад       | Перекрывающиеся карточки и группа                  |
-| Text               | Хранит исходный Markdown, визуально отображает безопасную часть       | Callouts, таблицы, wiki links, code, opaque syntax |
-| File               | Ссылается на существующий файл без его копирования                    | Markdown, image, PDF и неизвестное вложение        |
-| Subpath            | Открывает/показывает нужный heading или block; не отбрасывается       | Повторяющиеся заголовки, missing anchor, block ID  |
-| Link               | Отдельная URL-карточка, не попытка `readFile(https://...)`            | HTTP(S), offline, invalid URL                      |
-| Group              | Область с подписью и исходными bounds, без обязательного clipping     | Вложенные и пересекающиеся группы                  |
-| Group background   | Сохраняет путь и режим; корректно отображает поддержанное изображение | cover, ratio, repeat, missing asset                |
-| Размеры/координаты | Не меняются только из-за открытия или измерения DOM                   | Отрицательные координаты, разные размеры           |
-| Цвета              | Сохраняет исходные preset/hex, отображает через theme mapping         | Все пресеты и пользовательский hex                 |
-| Edge               | Сохраняет endpoints, стороны, наконечники, подпись, цвет              | Оба направления, без стрелок, без sides            |
-| Несколько связей   | Сохраняет отдельные edge IDs между одинаковыми nodes                  | Parallel edges и разные подписи                    |
-| Циклы/self-edge    | Не теряет связь; если interaction ограничен, сохраняет и сообщает     | A→B→C→A и A→A                                      |
-| Dangling edge      | Показывает диагностируемую проблему, не удаляет молча                 | Несуществующий endpoint                            |
-| Unknown extension  | Хранит непрозрачно; не применяет как JS/HTML                          | Сторонние поля на document/node/edge               |
-| Unknown node type  | Сохраняет без потерь либо блокирует visual write                      | Будущий тип и несвязанные известные nodes          |
+| Object/property      | Required behavior of the new board                                             | Check                                             |
+| -------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------- |
+| Top-level            | `nodes`/`edges` may be absent; unknown fields remain                           | `{}`, only nodes, only edges, extensions          |
+| Node order           | Preserves z-order; groups are not automatically moved to the back              | Overlapping cards and a group                     |
+| Text                 | Stores the source Markdown, visually renders the safe part                     | Callouts, tables, wiki links, code, opaque syntax |
+| File                 | Refers to an existing file without copying it                                  | Markdown, image, PDF and an unknown attachment    |
+| Subpath              | Opens/shows the needed heading or block; is not dropped                        | Repeated headings, missing anchor, block ID       |
+| Link                 | A separate URL card, not an attempt at `readFile(https://...)`                 | HTTP(S), offline, invalid URL                     |
+| Group                | An area with a label and source bounds, without mandatory clipping             | Nested and intersecting groups                    |
+| Group background     | Preserves the path and mode; correctly renders a supported image               | cover, ratio, repeat, missing asset               |
+| Sizes/coordinates    | Do not change merely because of opening or DOM measurement                     | Negative coordinates, different sizes             |
+| Colors               | Preserves source preset/hex, renders through the theme mapping                 | All presets and a custom hex                      |
+| Edge                 | Preserves endpoints, sides, arrowheads, label, color                           | Both directions, without arrows, without sides    |
+| Multiple connections | Preserves separate edge IDs between the same nodes                             | Parallel edges and different labels               |
+| Cycles/self-edge     | Does not lose the connection; if interaction is limited, preserves and reports | A→B→C→A and A→A                                   |
+| Dangling edge        | Shows a diagnosable problem, does not delete silently                          | A non-existent endpoint                           |
+| Unknown extension    | Stored opaquely; not applied as JS/HTML                                        | Third-party fields on document/node/edge          |
+| Unknown node type    | Preserves losslessly or blocks visual write                                    | A future type and unrelated known nodes           |
 
-### 7.1. Открыть, преобразовать и экспортировать — разные действия
+### 7.1. Open, convert and export are different actions
 
-«Открыть `.canvas`» сохраняет исходный путь и формат. «Создать копию Excalidraw» создаёт новый файл через no-replace, оставляя исходник и его вложения на месте. «Экспортировать в `.canvas`» предварительно классифицирует объекты: точно представимые, требующие явного преобразования, непредставимые.
+"Open `.canvas`" keeps the source path and format. "Create an Excalidraw copy" creates a new file via no-replace, leaving the source and its attachments in place. "Export to `.canvas`" pre-classifies objects: exactly representable, requiring explicit conversion, unrepresentable.
 
-Нельзя автоматически превращать свободный рисунок в растровую картинку в `.canvas`, удалять рисунки или терять смысл связей. При ограничениях показать конкретный список и предложить экспорт выбранной совместимой части либо сохранение native-копии. Отмена не создаёт побочных файлов.
+A freehand drawing must not be automatically turned into a raster image in `.canvas`, drawings must not be deleted, and the meaning of connections must not be lost. When there are limitations, show a concrete list and offer to export the selected compatible part or to save a native copy. Cancelling creates no side files.
 
-В JSON Canvas нет стандартного сохранения произвольных freehand strokes, всех форм стрелок и всех параметров Excalidraw. Эти инструменты в `.canvas` должны вести к явной работе с копией или быть недоступны с понятным объяснением. Выбор панели инструментов не меняет расширение файла.
+JSON Canvas has no standard way to preserve arbitrary freehand strokes, all arrow shapes and all Excalidraw parameters. In `.canvas`, these tools must lead to explicit work with a copy or be unavailable with a clear explanation. Choosing a toolbar does not change the file extension.
 
-### 7.2. Уровни совместимости
+### 7.2. Compatibility levels
 
-Отдельно отмечать сохранность данных, корректность отображения и возможность редактирования. Например, сохранённый фон группы без рендеринга — сохранность PASS, отображение PARTIAL. Файл, который остался синтаксически валидным, но потерял одну карточку, не считается совместимым.
+Separately mark data preservation, rendering correctness and editability. For example, a preserved group background without rendering is preservation PASS, rendering PARTIAL. A file that remained syntactically valid but lost one card is not considered compatible.
 
-Golden fixtures должны проходить путь `source → loader → live editor → edit → writer → reopen`. Нужна ручная проверка representative fixtures в актуальной версии Obsidian с фиксацией версии. Если Obsidian недоступен, записать это как непроведённую проверку и не заявлять полноценную визуальную совместимость.
+Golden fixtures must pass the path `source → loader → live editor → edit → writer → reopen`. A manual check of representative fixtures in the current version of Obsidian, recording the version, is needed. If Obsidian is unavailable, record this as a check not performed and do not claim full visual compatibility.
 
-## 8. Карточки и работа с заметками
+## 8. Cards and working with notes
 
-### 8.1. Виды карточек
+### 8.1. Card kinds
 
-| Вид               | Данные                                        | Основные действия                                                  |
-| ----------------- | --------------------------------------------- | ------------------------------------------------------------------ |
-| Markdown-карточка | Текст непосредственно в доске                 | Читать, редактировать, превратить в заметку                        |
-| Заметка           | Ссылка на Markdown-файл/ID и optional subpath | Читать живое содержимое, открыть сбоку/во вкладке, заменить ссылку |
-| Вложение          | Portable path                                 | Показать поддержанный preview, открыть файл, заменить ссылку       |
-| Веб-ссылка        | URL                                           | Показать локальную карточку URL, открыть через безопасный opener   |
-| Стикер/надпись    | Обычный элемент Excalidraw                    | Быстрая подпись и оформление в native-документе                    |
+| Kind          | Data                                                      | Main actions                                                        |
+| ------------- | --------------------------------------------------------- | ------------------------------------------------------------------- |
+| Markdown card | Text directly in the board                                | Read, edit, turn into a note                                        |
+| Note          | A reference to a Markdown file/ID and an optional subpath | Read live content, open on the side/in a tab, replace the reference |
+| Attachment    | Portable path                                             | Show a supported preview, open the file, replace the reference      |
+| Web link      | URL                                                       | Show a local URL card, open via a safe opener                       |
+| Sticker/label | An ordinary Excalidraw element                            | A quick label and styling in a native document                      |
 
-Для заметок нужны modes: «Название», «Кратко», «Содержимое». Начальный размер — разумный preset, высота ограничена; длинный документ скроллится внутри. Автоматическое обновление текста не должно неожиданно раздвигать всю карту. Auto-height — отдельная явная настройка.
+Notes need modes: «Название» (Title), «Кратко» (Brief), «Содержимое» (Content). The initial size is a reasonable preset, height is limited; a long document scrolls inside. Automatic text updates must not unexpectedly push the whole map apart. Auto-height is a separate explicit setting.
 
-### 8.2. Общий provider
+### 8.2. Shared provider
 
-Порядок получения данных: актуальный открытый буфер → кеш по identity/revision → чтение через storage. При нескольких карточках одной заметки разделять запрос и результат. Смена vault отменяет/обесценивает старые запросы; запоздавший ответ не попадает в новый vault.
+The order of obtaining data: the current open buffer → a cache by identity/revision → a read through storage. When several cards refer to one note, share the request and the result. A vault change cancels/invalidates old requests; a late response does not reach the new vault.
 
-Кеш должен учитывать revision, subpath, режим preview и необходимые renderer options. Watcher и локальный save инвалидируют соответствующую заметку, а не все карточки мира. Ошибки доступа, missing file, unresolved anchor и malformed metadata имеют разные состояния; прошлое содержимое можно показывать как устаревшее, но не как актуальное.
+The cache must account for the revision, subpath, preview mode and the necessary renderer options. The watcher and a local save invalidate the corresponding note, not all cards in the world. Access errors, a missing file, an unresolved anchor and malformed metadata have different states; past content may be shown as stale, but not as current.
 
-Заметки с неверным/дублирующимся ID и неподдерживаемым Markdown следуют общим правилам репозитория. Карточка не должна «лечить» YAML regexp-удалением frontmatter или запускать миграцию ради preview.
+Notes with an invalid/duplicate ID and unsupported Markdown follow the general repository rules. A card must not "heal" YAML by regexp-removing frontmatter or run a migration for the sake of a preview.
 
-### 8.3. Редактирование
+### 8.3. Editing
 
-Первый надёжный путь — боковой редактор выбранной заметки с сохранением места на карте. Inline editing добавить после проверки общего lifecycle. Использовать существующий Markdown-editor policy: только byte-exact syntax допускается в Live Preview, остальное редактируется в Source.
+The first reliable path is a side editor for the selected note that keeps its place on the map. Add inline editing after verifying the shared lifecycle. Use the existing Markdown-editor policy: only byte-exact syntax is allowed in Live Preview, the rest is edited in Source.
 
-Расширить `EditorSurfaceLeaseManager` для board surface или извлечь его в общее место, сохранив семантику. Наличие manager в `database/peek/` не доказывает, что все поверхности уже используют его: проверить реальные callers. Одна заметка имеет одного writable owner в окне. Другие карточки показывают актуальный preview и действие перехода к активному редактору. Перед transfer — flush и корректная передача dirty state, без второго autosave таймера.
+Extend `EditorSurfaceLeaseManager` for the board surface or extract it into a shared location, preserving the semantics. The presence of the manager in `database/peek/` does not prove that all surfaces already use it: check the real callers. One note has one writable owner in a window. Other cards show the current preview and an action to go to the active editor. Before a transfer — flush and a correct handover of the dirty state, without a second autosave timer.
 
-История текста заметки и история геометрии доски — разные области. При фокусе в note editor `Cmd/Ctrl+Z` отменяет текст; при фокусе на доске — действие доски. Смена фокуса не теряет несохранённые данные.
+The note text history and the board geometry history are different areas. When focus is in a note editor, `Cmd/Ctrl+Z` undoes text; when focus is on the board, it undoes a board action. A focus change does not lose unsaved data.
 
-### 8.4. Создание заметки и преобразование карточки
+### 8.4. Creating a note and converting a card
 
-Команда предлагает имя и папку с разумным default от расположения доски. Уникальное имя определяется backend no-replace, а не только frontend-проверкой. Новая заметка создаётся существующим note creation path с корректной идентичностью.
+The command proposes a name and a folder with a reasonable default based on the board's location. A unique name is determined by the backend no-replace, and not only by a frontend check. The new note is created by the existing note creation path with correct identity.
 
-При преобразовании Markdown-карточки сохранить текст byte-exact, её координаты, размеры, цвет и все связи; заменить источник содержимого на созданную заметку. Если создание файла не удалось, карточка остаётся текстовой. Если файл создан, а запись доски не завершилась, операция сообщает recoverable partial outcome и позволяет повторно привязать уже созданный файл без дубликата.
+When converting a Markdown card, preserve the text byte-exact, its coordinates, sizes, color and all connections; replace the content source with the created note. If creating the file failed, the card remains a text card. If the file was created but the board write did not complete, the operation reports a recoverable partial outcome and allows re-linking the already created file without a duplicate.
 
-Undo преобразования возвращает текстовую карточку, но не удаляет молча созданную заметку, которую пользователь уже мог изменить. Определить и показать это поведение. Автоматический rollback нового файла разрешён только если операция доказала его неизменность и следует существующему контракту restorable deletion; никаких прямых `unlink` пользовательских файлов.
+Undo of the conversion returns the text card, but does not silently delete the created note, which the user may already have changed. Define and show this behavior. An automatic rollback of the new file is allowed only if the operation has proved it unchanged and follows the existing restorable deletion contract; no direct `unlink` of user files.
 
-### 8.5. Внутренние ссылки и вложения
+### 8.5. Internal links and attachments
 
-Обработать `[[note]]`, aliases, headings, block refs, обычные Markdown-ссылки, локальные изображения и transclusions через существующий resolver/storage. Относительные ссылки внутри заметки разрешаются от заметки, а не от файла доски. Для текстовой карточки зафиксировать контекст разрешения от доски.
+Handle `[[note]]`, aliases, headings, block refs, ordinary Markdown links, local images and transclusions through the existing resolver/storage. Relative links inside a note are resolved from the note, not from the board file. For a text card, fix the resolution context relative to the board.
 
-Перенос текста карточки в заметку в другой папке требует анализа относительных ссылок: либо сохранять контекст без изменения текста выбором папки, либо явной контролируемой перепривязкой с проверкой исходника. Не заявлять byte-exact conversion, если при этом незаметно изменены ссылки.
+Moving a card's text into a note in another folder requires an analysis of relative links: either preserve the context without changing the text by choosing the folder, or an explicit controlled re-linking with a check of the source. Do not claim byte-exact conversion if links were silently changed in the process.
 
-Вложенные transclusions ограничить по глубине, количеству и объёму. Циклы A→B→A показывают заглушку. Нажатие на ссылку не должно одновременно тащить карточку или открывать всю заметку двойным кликом.
+Limit nested transclusions by depth, count and size. Cycles A→B→A show a placeholder. Clicking a link must not simultaneously drag the card or open the whole note on a double click.
 
-PDF/audio/video и неизвестные вложения должны как минимум сохраняться как работающие file cards. Богатые previews добавлять по возможностям существующего storage и renderer; не считать отсутствие полноценного PDF-editor блокером.
+PDF/audio/video and unknown attachments must at minimum be preserved as working file cards. Add rich previews according to the capabilities of the existing storage and renderer; do not treat the absence of a full PDF editor as a blocker.
 
-## 9. Связи: точный interaction contract
+## 9. Connections: the exact interaction contract
 
-### 9.1. Базовые действия
+### 9.1. Basic actions
 
-- При наведении/выделении карточки показывать точки подключения сверху, справа, снизу и слева; hit area остаётся удобной на разных zoom.
-- Drag от точки к другой карточке создаёт связь с preview маршрута и подсветкой допустимой цели.
-- Drag в пустое место открывает выбор «Текст / Заметка / Существующая заметка». После выбора создаются карточка и связь одним действием. `Escape` оставляет исходный документ неизменным.
-- У выделенной связи доступны оба конца для переподключения. Отмена возвращает прежние endpoints и geometry.
-- Двойной клик по подписи открывает inline input; Enter завершает, Escape отменяет. Для связи без подписи есть явное действие добавления.
-- Доступны «без стрелок», «стрелка к цели», «стрелка к источнику», «двусторонняя», смена цвета и удаление связи.
-- Несколько связей между теми же карточками сохраняются отдельно. Повтор жеста не должен незаметно перезаписывать существующую подпись.
-- Удаление карточки корректно удаляет её локальные связи из текущей доски и восстанавливает всё одним undo. Сама заметка не удаляется.
+- On hover/selection of a card, show connection points at the top, right, bottom and left; the hit area stays comfortable at different zoom levels.
+- Dragging from a point to another card creates a connection with a route preview and highlighting of a valid target.
+- Dragging into empty space opens a choice of "Text / Note / Existing note". After the choice, a card and a connection are created in one action. `Escape` leaves the source document unchanged.
+- A selected connection has both ends available for reconnecting. Cancelling returns the previous endpoints and geometry.
+- Double-clicking a label opens an inline input; Enter finishes, Escape cancels. A connection without a label has an explicit add action.
+- Available: "no arrows", "arrow to target", "arrow to source", "bidirectional", color change and deleting the connection.
+- Several connections between the same cards are preserved separately. Repeating the gesture must not silently overwrite an existing label.
+- Deleting a card correctly deletes its local connections from the current board and restores everything with one undo. The note itself is not deleted.
 
-### 9.2. Привязка и маршрутизация
+### 9.2. Binding and routing
 
-Использовать native binding engine настолько, насколько он обеспечивает контракт. При импорте/программном создании согласованно обновлять endpoints, обратные `boundElements`, label binding и версии элементов. Не достаточно записать только `startBinding` у стрелки.
+Use the engine's native binding as far as it provides the contract. On import/programmatic creation, consistently update endpoints, the reverse `boundElements`, label binding and element versions. Writing only `startBinding` on the arrow is not enough.
 
-Прямой и ортогональный маршрут — обязательные варианты для native-доски. Для `.canvas` это представление стандартной связи; нестандартные route points/стили не выдавать за поля JSON Canvas. При отсутствии sides использовать документированное автоопределение без бессмысленного сохранения новых полей только после открытия.
+A straight and an orthogonal route are mandatory variants for a native board. For `.canvas` this is a representation of a standard connection; do not present non-standard route points/styles as JSON Canvas fields. When sides are absent, use the documented auto-detection without pointlessly saving new fields just because the file was opened.
 
-Проверить binding для moving/resizing обеих карточек, отрицательных координат, групп, duplicate/paste, undo и смены масштаба. В прототипе исследовать `focus/gap` и `fixedPoint` именно установленной версии; не копировать формулы из другого major/minor API.
+Verify binding for moving/resizing both cards, negative coordinates, groups, duplicate/paste, undo and zoom changes. In the prototype, investigate `focus/gap` and `fixedPoint` of exactly the installed version; do not copy formulas from another major/minor API.
 
-Полное obstacle-avoiding routing — отдельная степень качества. В первой версии маршрут должен быть детерминированным и не проходить через endpoint-карточки. Для произвольных препятствий измерить эффект и стоимость более сложного routing; не обещать «нулевые пересечения» для любого графа.
+Full obstacle-avoiding routing is a separate degree of quality. In the first version the route must be deterministic and must not pass through the endpoint cards. For arbitrary obstacles, measure the effect and the cost of more complex routing; do not promise "zero crossings" for any graph.
 
-### 9.3. Визуальная связь и отношение между заметками
+### 9.3. A visual connection and a relation between notes
 
-Обычная стрелка принадлежит доске. Она не дописывает `[[...]]` в Markdown и не создаёт database Relation. Подпись «связан с» сама по себе не является durable отношением вне доски.
+An ordinary arrow belongs to the board. It does not append `[[...]]` to Markdown and does not create a database Relation. A "related to" label by itself is not a durable relation outside the board.
 
-Будущая команда «Создать отношение» может использовать API баз/творческого модуля после отдельной спецификации. Не добавлять в этот релиз второй источник предметных отношений. Для полезной навигации допустим перестраиваемый индекс «На каких досках размещена заметка»; его источник — файлы досок, не скрытая запись в Markdown.
+A future "Create relation" command may use the databases/creative module API after a separate specification. Do not add a second source of domain relations in this release. For useful navigation, a rebuildable index "Which boards a note is placed on" is acceptable; its source is the board files, not a hidden write into Markdown.
 
-## 10. Режимы интерфейса, группы и карты
+## 10. Interface modes, groups and maps
 
-### 10.1. Режим «Карта»
+### 10.1. "Map" mode
 
-Основные инструменты: выбор, перемещение холста, текстовая карточка, заметка, связь, группа, вложение. У новых карточек ровные контуры, обычная читаемая типографика, согласованные отступы и размеры. Не менять roughness/font/background уже существующих элементов при переключении режима.
+Main tools: select, pan the canvas, text card, note, connection, group, attachment. New cards have even outlines, ordinary readable typography, consistent paddings and sizes. Do not change the roughness/font/background of already existing elements when switching the mode.
 
-Панель свойств контекстная: у карточки источник/вид/цвет, у связи endpoints/подпись/наконечники, у группы название/фон. Все действия доступны с клавиатуры и через меню; hover не является единственным способом управления.
+The properties panel is contextual: for a card — source/kind/color, for a connection — endpoints/label/arrowheads, for a group — name/background. All actions are available from the keyboard and through menus; hover is not the only way to control.
 
-### 10.2. Режим «Рисование»
+### 10.2. "Drawing" mode
 
-Сохранить обычные Excalidraw tools, библиотеку, freehand, фигуры, текст, изображения и рамки. Карточки заметок остаются доступны. UI не должен перекрывать upstream controls так, что функции пропадают без замены.
+Keep the ordinary Excalidraw tools, library, freehand, shapes, text, images and frames. Note cards remain available. The UI must not cover upstream controls so that functions disappear without a replacement.
 
-Для `.canvas` показывать только допустимые операции либо предлагать явную native-копию до выполнения несовместимого действия. Не рисовать объект, который следующий autosave незаметно отбросит.
+For `.canvas`, show only permitted operations or offer an explicit native copy before an incompatible action is performed. Do not draw an object that the next autosave would silently drop.
 
-### 10.3. Клавиатура и focus
+### 10.3. Keyboard and focus
 
-| Контекст                | Действие         | Ожидаемое поведение                                                                    |
-| ----------------------- | ---------------- | -------------------------------------------------------------------------------------- |
-| Доска                   | Space + drag     | Pan; не вводит пробел в неактивный редактор                                            |
-| Карточка в режиме карты | Tab              | Создать дочернюю карточку с одной связью при включённой карте-ветке                    |
-| Карточка в режиме карты | Enter            | Создать соседнюю карточку в определённой ветке; при неоднозначном родителе явный выбор |
-| Выделение               | Delete/Backspace | Удалить элементы доски, не файлы заметок                                               |
-| Доска                   | Cmd/Ctrl+Z, redo | История доски                                                                          |
-| Note/text editor        | Те же shortcuts  | История и навигация соответствующего редактора                                         |
-| Любой временный жест    | Escape           | Отменить connection/edit/menu без изменения источника                                  |
-| Доска                   | Cmd/Ctrl+F       | Поиск по доске; фокус и переход к найденной карточке                                   |
+| Context               | Action             | Expected behavior                                                                       |
+| --------------------- | ------------------ | --------------------------------------------------------------------------------------- |
+| Board                 | Space + drag       | Pan; does not type a space into an inactive editor                                      |
+| Card in map mode      | Tab                | Create a child card with one connection when the branch map is enabled                  |
+| Card in map mode      | Enter              | Create a sibling card in a defined branch; with an ambiguous parent, an explicit choice |
+| Selection             | Delete/Backspace   | Delete board elements, not note files                                                   |
+| Board                 | Cmd/Ctrl+Z, redo   | Board history                                                                           |
+| Note/text editor      | The same shortcuts | History and navigation of the corresponding editor                                      |
+| Any temporary gesture | Escape             | Cancel connection/edit/menu without changing the source                                 |
+| Board                 | Cmd/Ctrl+F         | Search the board; focus and jump to the found card                                      |
 
-Tab/Enter не перехватываются в input, textarea, contenteditable, IME composition и доступной keyboard navigation вне режима создания веток. Shortcut conflicts с Excalidraw решить на уровне focus router; не навешивать обработчики на всё окно без ограничения активной поверхности.
+Tab/Enter are not intercepted in input, textarea, contenteditable, IME composition and accessible keyboard navigation outside the branch-creation mode. Resolve shortcut conflicts with Excalidraw at the focus router level; do not attach handlers to the whole window without restricting them to the active surface.
 
-### 10.4. Группы
+### 10.4. Groups
 
-Для JSON Canvas группа — визуальная область. Excalidraw frame и group не считать точными эквивалентами: frame может менять clipping и membership.
+For JSON Canvas, a group is a visual area. Do not consider an Excalidraw frame and group exact equivalents: a frame can change clipping and membership.
 
-Определить members на старте жеста по принятому правилу и не пересчитывать их хаотично при каждом пикселе drag. Перемещение группы переносит выбранных участников и связи согласованно. Проверить пересечение двух групп, вложенность, частично попавшую карточку и ручное перемещение наружу.
+Determine members at the start of the gesture by the adopted rule and do not recompute them chaotically at every pixel of the drag. Moving a group moves the selected members and connections consistently. Check the intersection of two groups, nesting, a partially included card and a manual move outside.
 
-Скрытие/сворачивание группы не удаляет дочерние nodes. Для shared/cyclic графов «свернуть ветку» требует явно выбранного дерева/корня; не скрывать узлы, используемые другой открытой веткой, без понятного поведения. Локальное сворачивание можно хранить как view state; переносимое состояние требует документированного extension contract.
+Hiding/collapsing a group does not delete the child nodes. For shared/cyclic graphs, "collapse branch" requires an explicitly chosen tree/root; do not hide nodes used by another open branch without a clear behavior. Local collapsing can be stored as view state; a portable state requires a documented extension contract.
 
-### 10.5. Раскладка
+### 10.5. Layout
 
-Обязательны выравнивание по сторонам/центрам, равные интервалы, сетка и направляющие, horizontal/vertical layout, layout только выделения и pinned positions. Автораскладка выполняется явной командой с preview или одним undo; новые данные не должны постоянно пересобирать ручную композицию.
+Mandatory: alignment by sides/centers, equal spacing, grid and guides, horizontal/vertical layout, layout of only the selection, and pinned positions. Auto-layout runs by an explicit command with a preview or a single undo; new data must not constantly rebuild a manual composition.
 
-Рассмотреть существующий `computeAutoLayout` как стартовый алгоритм. Проверить DAG, циклы, disconnected components, группы и variable card sizes. При недостаточности выбрать библиотеку layout после локального сравнения, а не писать сложный graph engine с нуля. Версию/лицензию/размер зависимости проверить перед добавлением. Routing стрелок пересчитывается согласованно с конечной геометрией.
+Consider the existing `computeAutoLayout` as a starting algorithm. Check DAGs, cycles, disconnected components, groups and variable card sizes. If insufficient, choose a layout library after a local comparison, rather than writing a complex graph engine from scratch. Check the dependency's version/license/size before adding it. Arrow routing is recomputed consistently with the final geometry.
 
-Mind-map: корень, дочерние/соседние карточки, левое/правое или радиальное размещение. Полный свободный граф не обязан иметь единственного родителя; неоднозначность не решать произвольным первым edge.
+Mind-map: a root, child/sibling cards, left/right or radial placement. A full free graph is not required to have a single parent; do not resolve ambiguity with an arbitrary first edge.
 
-## 11. Сохранение, внешние изменения и восстановление
+## 11. Saving, external changes and recovery
 
-### 11.1. Один lifecycle документа
+### 11.1. One document lifecycle
 
-Loader возвращает raw content, format, revision и diagnostics. Редактор изменяет локальную ревизию. Persistence coordinator сохраняет последнюю подтверждённую модель через storage. Успешная запись возвращает новую disk revision; именно она становится базой следующего save.
+The loader returns raw content, format, revision and diagnostics. The editor changes the local revision. The persistence coordinator saves the last confirmed model through storage. A successful write returns a new disk revision; it becomes the base of the next save.
 
-Не путать dirty доски и dirty заметки, открытой из карточки. Закрытие доски должно сначала обработать принадлежащую её поверхности note editor lease, flush сериализации и autosave/recovery обоих документов.
+Do not confuse the dirty state of the board with the dirty state of a note opened from a card. Closing the board must first handle the note editor lease owned by its surface, the serialization flush and autosave/recovery of both documents.
 
-### 11.2. Обязательные failure boundaries
+### 11.2. Mandatory failure boundaries
 
-1. Чтение/валидация: ошибка не превращается в пустой writable buffer.
-2. Подготовка записи: исходная ревизия и scope проверяются backend.
-3. History snapshot: обязательная ошибка останавливает замену исходника.
-4. Временная запись/publication: ошибка не обнуляет исходный файл.
-5. Ответ старой записи: не очищает новое dirty и новый recovery draft.
-6. Внешнее изменение: clean документ обновляется, dirty документ получает конфликт.
-7. Внешнее удаление: dirty buffer остаётся доступен для восстановления/копии; autosave не воссоздаёт файл без выбранного действия.
-8. Смена vault: старые запросы и saves не попадают в новый scope.
-9. Crash/restart: последняя не сохранённая правка восстанавливается через существующий journal с явным выбором при расхождении.
-10. Rename открытой dirty-доски/заметки: remap buffer, очередь, recovery и references согласованы; запоздавший save не создаёт старый путь.
+1. Read/validation: an error does not turn into an empty writable buffer.
+2. Write preparation: the source revision and scope are checked by the backend.
+3. History snapshot: a mandatory error stops replacing the source.
+4. Temporary write/publication: an error does not zero the source file.
+5. Response of an old write: does not clear the new dirty state and the new recovery draft.
+6. External change: a clean document is refreshed, a dirty document gets a conflict.
+7. External deletion: the dirty buffer remains available for recovery/copy; autosave does not recreate the file without a chosen action.
+8. Vault change: old requests and saves do not reach the new scope.
+9. Crash/restart: the last unsaved edit is restored through the existing journal with an explicit choice on divergence.
+10. Rename of an open dirty board/note: buffer remap, queue, recovery and references are consistent; a late save does not create the old path.
 
-### 11.3. Rename/move ссылок
+### 11.3. Rename/move of links
 
-Обработать как стандартные `.canvas` file/subpath и group background, так и Excalidraw note reference/customData/legacy URI. Менять только поля-ссылки, а не совпадающий текст подписи, code block или посторонние metadata. Percent-encoding декодируется контролируемо один раз; ошибка не роняет доску.
+Handle both the standard `.canvas` file/subpath and group background, and the Excalidraw note reference/customData/legacy URI. Change only the link fields, and not a coinciding label text, code block or foreign metadata. Percent-encoding is decoded in a controlled way exactly once; an error does not bring the board down.
 
-Нужны случаи пробелов, кириллицы, Unicode normalization, `#`, `%`, перемещения папки, case-only rename на соответствующей FS и bundle promotion. За пределы vault ссылки не переписывать и не открывать через обход guard.
+Cases needed: spaces, Cyrillic, Unicode normalization, `#`, `%`, folder moves, case-only rename on a corresponding FS and bundle promotion. Do not rewrite links beyond the vault and do not open them by bypassing the guard.
 
-При многофайловом refactor создавать preflight/recovery point и учитывать dirty открытые доски. Нельзя переписать файл на диске, после чего старый editor buffer вернёт старую ссылку. Использовать общий mutation protocol, включая recoverable partial outcome и идемпотентный retry.
+In a multi-file refactor, create a preflight/recovery point and account for dirty open boards. A file on disk must not be rewritten and then have the old editor buffer bring back the old link. Use the shared mutation protocol, including a recoverable partial outcome and an idempotent retry.
 
-### 11.4. Состояние просмотра
+### 11.4. View state
 
-Viewport, последнее выделение, открытая панель, локальный zoom и результаты поиска не должны сами делать source dirty. Хранить их в существующей view-state системе с ключом vault/document и remap при rename. При повторном открытии восстанавливать валидный viewport; fit-to-content только для первого открытия или явной команды.
+The viewport, last selection, open panel, local zoom and search results must not make the source dirty on their own. Store them in the existing view-state system keyed by vault/document, with remap on rename. On reopen, restore a valid viewport; fit-to-content only for the first open or an explicit command.
 
-Не сохранять файлы библиотеки Excalidraw внутри случайного appState. Если пользовательские library items должны переживать перезапуск, определить отдельный versioned portable/user-settings contract, использовать `onLibraryChange` и проверить отключение модуля. Не считать наличие кнопки библиотеки доказательством её persistence.
+Do not store Excalidraw library files inside an arbitrary appState. If user library items must survive a restart, define a separate versioned portable/user-settings contract, use `onLibraryChange`, and verify module disabling. Do not treat the presence of a library button as proof of its persistence.
 
-## 12. Экспорт и переносимость
+## 12. Export and portability
 
 ### 12.1. PNG/SVG
 
-Собственный HTML renderer карточки не гарантирует попадание её содержимого в экспорт движка. Проверить этот путь в E1; реализовать специальную экспортную проекцию или контролируемый snapshot карточки, если upstream API её не учитывает.
+The card's own HTML renderer does not guarantee that its content lands in the engine's export. Verify this path in E1; implement a dedicated export projection or a controlled card snapshot if the upstream API does not account for it.
 
-- Экспортировать всю доску или выделение, выбирать фон и разумный масштаб.
-- Учитывать подписи стрелок, группы, изображения, шрифты и светлую/тёмную тему.
-- Для длинной карточки явно определить: видимая область или развёрнутое содержимое. Не обрезать незаметно и не менять размеры исходной доски ради экспорта.
-- Экспорт snapshot соответствует одному согласованному checkpoint, включая актуальный dirty note buffer при разрешённом просмотре.
-- Экспорт не изменяет исходный документ, его history и dirty flags.
-- Не вставлять исполняемый HTML/JavaScript и произвольные внешние ресурсы в SVG.
-- Ошибки загрузки вложений/шрифтов показывать до сообщения об успешном экспорте.
+- Export the whole board or the selection, choose the background and a sensible scale.
+- Account for arrow labels, groups, images, fonts and the light/dark theme.
+- For a long card, define explicitly: visible area or expanded content. Do not crop silently and do not change the source board's sizes for the sake of export.
+- A snapshot export corresponds to one consistent checkpoint, including the current dirty note buffer when viewing is allowed.
+- Export does not change the source document, its history and dirty flags.
+- Do not embed executable HTML/JavaScript or arbitrary external resources in the SVG.
+- Show attachment/font loading errors before the success message of the export.
 
-### 12.2. Native Excalidraw вне Amby
+### 12.2. Native Excalidraw outside Amby
 
-Обычные фигуры/файлы должны оставаться рабочими. Для Amby note-card определить визуальный fallback: название/путь/снимок preview как производные данные, если generic Excalidraw не умеет выполнить custom renderer. Не обещать живое чтение локального vault сторонним приложением.
+Ordinary shapes/files must keep working. For an Amby note card, define a visual fallback: title/path/preview snapshot as derived data, if generic Excalidraw cannot run the custom renderer. Do not promise live reading of the local vault by a third-party application.
 
-Проверить сценарий «открыть в standalone Excalidraw → отредактировать обычную фигуру → снова открыть в Amby». Сохранение customData, managed IDs и fallback должно быть подтверждено. Если сторонний редактор удалил данные расширения, Amby показывает деградацию, а не подменяет оставшееся содержимое новым пустым объектом.
+Verify the scenario "open in standalone Excalidraw → edit an ordinary shape → open in Amby again". Preservation of customData, managed IDs and the fallback must be confirmed. If a third-party editor removed the extension data, Amby shows the degradation rather than replacing the remaining content with a new empty object.
 
 ### 12.3. `.excalidraw.md`
 
-Не направлять файлы плагина Obsidian Excalidraw в обычный JSON parser. Их Markdown-wrapper, ссылки и возможное упакованное содержимое требуют отдельного адаптера и fixtures. До его реализации — исходник/диагностика или явная инструкция экспорта в поддержанный JSON, без автосохранения поверх исходного Markdown.
+Do not route Obsidian Excalidraw plugin files into the ordinary JSON parser. Their Markdown wrapper, links and possible packed content require a separate adapter and fixtures. Until it is implemented — source/diagnostics or an explicit instruction to export to supported JSON, without autosaving over the source Markdown.
 
-## 13. Производительность, доступность и безопасность
+## 13. Performance, accessibility and security
 
-### 13.1. Измерения
+### 13.1. Measurements
 
-Сначала записать baseline release-сборки на известном устройстве, отдельно browser и Tauri. Синтетические наборы:
+First record a release-build baseline on a known device, browser and Tauri separately. Synthetic sets:
 
-| Набор | Состав                                                    | Проверяемое                                                        |
-| ----- | --------------------------------------------------------- | ------------------------------------------------------------------ |
-| S     | 50 карточек, 75 связей, 10 заметок, несколько изображений | Повседневные жесты, старт, autosave                                |
-| M     | 300 карточек, 450 связей, 100 уникальных заметок          | Viewport culling, shared preview cache, поиск, layout              |
-| L     | 1000 карточек, 1500 связей, 300 уникальных заметок        | Устойчивость, память, постепенная загрузка, отмена долгих операций |
+| Set | Composition                                  | What is checked                                                |
+| --- | -------------------------------------------- | -------------------------------------------------------------- |
+| S   | 50 cards, 75 links, 10 notes, several images | Everyday gestures, startup, autosave                           |
+| M   | 300 cards, 450 links, 100 unique notes       | Viewport culling, shared preview cache, search, layout         |
+| L   | 1000 cards, 1500 links, 300 unique notes     | Stability, memory, gradual loading, cancelling long operations |
 
-Добавить варианты одной длинной заметки, много карточек одного файла и native рисунка с большими image assets. Не оценивать нагрузку только числом DOM-узлов.
+Add variants with one long note, many cards of one file, and a native drawing with large image assets. Do not assess load by the number of DOM nodes alone.
 
-Предварительные цели на зафиксированном устройстве: видимый отклик обычного действия p95 до 100 мс на S/M, отсутствие повторяющихся длинных main-thread задач при pan, плавность вблизи частоты экрана, первый полезный кадр M до 2 секунд при тёплом кеше. Это цели, а не результаты. Если они нереалистичны на целевом WebView, записать замеры и обоснованный бюджет до объявления этапа готовым.
+Preliminary targets on the fixed device: visible response of an ordinary action p95 up to 100 ms on S/M, no repeated long main-thread tasks during pan, smoothness close to the screen refresh rate, first useful frame of M within 2 seconds with a warm cache. These are targets, not results. If they are unrealistic on the target WebView, record the measurements and a justified budget before declaring the stage ready.
 
-Для L приоритет — отсутствие зависания/потери данных, явный progress и возможность отмены. Обязательны числа времени сериализации, parse/load, layout, количества readFile и потребления памяти; один FPS screenshot недостаточен.
+For L the priority is no freezes/data loss, explicit progress and the ability to cancel. The numbers for serialization time, parse/load, layout, number of readFile calls and memory consumption are mandatory; a single FPS screenshot is insufficient.
 
-### 13.2. Оптимизация
+### 13.2. Optimization
 
-- Не сериализовать полный `files` blob на каждом hover, scroll или selection.
-- Проверять документные версии элементов и meaningful appState; при необходимости использовать доступный публичный scene version API.
-- Coalesce изменения с максимальной задержкой и обязательным flush на lifecycle boundaries.
-- Поддержать видимость/упрощённый preview вне viewport без потери source nodes и connected edges.
-- Не монтировать отдельный Tiptap для каждой видимой карточки: активный редактор один, остальные — preview.
-- Ограничить cache по памяти и корректно освобождать leases/listeners/observers при закрытии и смене vault.
-- Тяжёлый layout/parse при необходимости выносить в worker, не предоставляя ему обход storage boundary.
-- Preview update одной заметки не должен перерисовывать всю workspace или перечитывать дерево.
+- Do not serialize the full `files` blob on every hover, scroll or selection.
+- Check the document versions of elements and meaningful appState; if needed, use the available public scene version API.
+- Coalesce changes with a maximum delay and a mandatory flush at lifecycle boundaries.
+- Support visibility/simplified preview outside the viewport without losing source nodes and connected edges.
+- Do not mount a separate Tiptap for every visible card: there is one active editor, the rest are previews.
+- Limit the cache by memory and correctly release leases/listeners/observers on close and vault change.
+- Move heavy layout/parse to a worker when necessary, without giving it a way around the storage boundary.
+- A preview update of one note must not redraw the whole workspace or re-read the tree.
 
-### 13.3. Доступность и оформление
+### 13.3. Accessibility and styling
 
-Строки — только `src/locales/resources.ts`, все поддержанные языки. Тема и palette — `src/themes/`. Иконки — `IconValue` и существующие encoded values. Не передавать encoded icon как обычную строку текста.
+Strings go only in `src/locales/resources.ts`, for all supported languages. Theme and palette — `src/themes/`. Icons — `IconValue` and the existing encoded values. Do not pass an encoded icon as an ordinary text string.
 
-Keyboard focus должен быть видимым, карточки и связи имеют доступные названия, состояние selected/editing сообщается ассистивным технологиям. Нужен доступный список объектов доски для навигации там, где canvas-rendering сам по себе недостаточен. Цвет не является единственным носителем типа/направления связи. Проверить контраст, reduced motion, узкую панель и системный масштаб.
+Keyboard focus must be visible, cards and links have accessible names, and the selected/editing state is announced to assistive technologies. An accessible list of board objects is needed for navigation where canvas rendering alone is insufficient. Colour is not the only carrier of link type/direction. Check contrast, reduced motion, a narrow panel and system scale.
 
-### 13.4. Границы безопасности
+### 13.4. Security boundaries
 
-Весь FS через storage/Rust guards. Относительные пути нормализуются без разрешения выхода из vault; absolute path, `..`, symlink и чужой URI не обходят guard. Не расширять статические Tauri filesystem scopes.
+All FS goes through the storage/Rust guards. Relative paths are normalized without allowing escape from the vault; an absolute path, `..`, symlink and foreign URI do not bypass the guard. Do not widen the static Tauri filesystem scopes.
 
-HTML в Markdown не исполняется. Веб-карточка по умолчанию показывает URL без фонового сетевого запроса и произвольного iframe. Rich embed разрешается отдельной безопасной политикой. Проверить `javascript:`, `data:`, `file:`, malformed percent-encoding и неподдерживаемые схемы.
+HTML in Markdown is not executed. A web card by default shows the URL without a background network request and without an arbitrary iframe. A rich embed is allowed by a separate safe policy. Check `javascript:`, `data:`, `file:`, malformed percent-encoding and unsupported schemes.
 
-Импортированный SVG/HTML и JSON customData не являются кодом. Размеры текста, файлов, числа объектов и глубины вложенности имеют проверяемые пределы. При превышении — диагностика/отмена, а не частично записанный документ. В диагностических логах не печатать содержимое заметок и секретные URL.
+Imported SVG/HTML and JSON customData are not code. Text sizes, file sizes, the number of objects and nesting depth have verifiable limits. On exceeding them — diagnostics/cancel, not a partially written document. Diagnostic logs must not print note contents and secret URLs.
 
-## 14. Объединение модулей и переход со старого Canvas
+## 14. Merging modules and moving off the old Canvas
 
-Сохранить ID `amby.excalidraw` как владельца расширенной доски, если актуальная модульная архитектура не требует другого. Пользовательское название можно сделать «Доска»/«Excalidraw» через локализацию. Переименование не требует миграции пользовательских файлов.
+Keep the ID `amby.excalidraw` as the owner of the extended board unless the current module architecture requires otherwise. The user-facing name can be made "Доска" (Board)/"Excalidraw" through localization. Renaming does not require migration of user files.
 
-### 14.1. Переходный период
+### 14.1. Transition period
 
-Старый `amby.canvas` и React Flow остаются доступны до полной приёмки нового `.canvas` режима. Не регистрировать два конкурирующих writer/file handler на одно расширение без явного выбора владельца. Использовать feature flag или resolver strategy, а не случайный порядок активации модулей.
+The old `amby.canvas` and React Flow remain available until the new `.canvas` mode is fully accepted. Do not register two competing writers/file handlers for one extension without an explicit choice of owner. Use a feature flag or a resolver strategy, not a random module activation order.
 
-Сохранить существующие пути слоёв: `.canvas` и `.excalidraw` могут одновременно лежать в bundle и содержать разные документы. Единый UI не означает слияние этих двух файлов. Вкладки/выбор слоя должны однозначно показывать, какой документ открыт.
+Keep the existing layer paths: `.canvas` and `.excalidraw` can lie in a bundle at the same time and contain different documents. A single UI does not mean merging these two files. Tabs/layer selection must unambiguously show which document is open.
 
-Проверить `.sketch`: manifest объявляет расширение, но фактическую поддержку дерева, backend scan, создания и загрузки надо доказать. Не удалять заявленный legacy handler без диагностики/миграционного контракта и не выдавать alias за полный формат Sketch.app.
+Verify `.sketch`: the manifest declares the extension, but actual support for the tree, backend scan, creation and loading must be proven. Do not remove a declared legacy handler without diagnostics/a migration contract, and do not present an alias as the full Sketch.app format.
 
-### 14.2. Переключение по умолчанию
+### 14.2. Switching the default
 
-После E10–E11 назначить новый renderer владельцем `.canvas`, обновить registry/profile/default handlers и raw fallback при выключенном модуле. Отключение сначала выполняет serialize/flush/recovery; при неуспехе состояние модуля не должно превращать несохранённый документ в недоступный.
+After E10–E11, make the new renderer the owner of `.canvas`, update the registry/profile/default handlers and the raw fallback when the module is disabled. Disabling first performs serialize/flush/recovery; on failure, the module state must not turn an unsaved document into an inaccessible one.
 
-Если перенос конфигурации `amby.canvas → amby.excalidraw` меняет persistent settings, он имеет версию, идемпотентность и rollback. Не включать модуль, который пользователь явно отключил, без понятного правила перехода. Различать отсутствие старой настройки и явный отказ пользователя.
+If the configuration transfer `amby.canvas → amby.excalidraw` changes persistent settings, it has a version, idempotency and rollback. Do not enable a module that the user explicitly disabled without a clear transition rule. Distinguish the absence of the old setting from the user's explicit refusal.
 
-### 14.3. Удаление старого renderer
+### 14.3. Removing the old renderer
 
-Только после выполнения матрицы, ручных проверок, parity существующих полезных действий и отсутствия вызовов React Flow в рабочем `.canvas` пути. Сначала извлечь общие codecs/geometry/templates, затем убрать мёртвую обёртку и зависимости, если они действительно больше нигде не нужны.
+Only after the matrix is completed, manual checks pass, parity of the existing useful actions is reached, and there are no React Flow calls in the working `.canvas` path. First extract the shared codecs/geometry/templates, then remove the dead wrapper and dependencies if they are really not needed anywhere else.
 
-`@xyflow/react` может потребоваться будущему или другому модулю; проверять актуальные usages и knip. Не удалять папку `canvas/` целиком вместе с полезными тестами и форматом. Обратимое переключение renderer не должно требовать конвертации файлов назад.
+`@xyflow/react` may be needed by a future or another module; check current usages and knip. Do not delete the `canvas/` folder wholesale together with useful tests and the format. A reversible renderer switch must not require converting files back.
 
-## 15. План реализации по этапам
+## 15. Implementation plan by stage
 
-Нумерация отражает зависимости. Внутри этапа можно менять порядок независимых задач, но интеграция и проверки выполняются на согласованном состоянии. Нельзя заканчивать работу после E1 или E4 и называть весь план реализованным.
+The numbering reflects dependencies. Within a stage, independent tasks can be reordered, but integration and checks are performed on a consistent state. It is not allowed to stop work after E1 or E4 and call the whole plan implemented.
 
-### E0. Baseline, fixtures и контракт
+### E0. Baseline, fixtures and contract
 
-Зависимости: нет. Результат: проверенное текущее состояние и воспроизводимые примеры.
+Dependencies: none. Result: a verified current state and reproducible examples.
 
-- E0.1: сверить F01–F12, actual dependency versions и текущие shared persistence изменения.
-- E0.2: собрать synthetic fixture vault с `.canvas`, `.excalidraw`, заметками, ссылками, вложениями, foreign metadata и неправильными файлами.
-- E0.3: записать исходные hashes/bytes, версии приложений и baseline S/M/L.
-- E0.4: уточнить владельца истории, document identity, правила raw preservation и совместимость форматов в коротком ADR.
-- E0.5: зафиксировать текущие падающие gates отдельно от будущих регрессий; не подменять baseline «всё зелёное» старым отчётом.
+- E0.1: reconcile F01–F12, actual dependency versions and current shared persistence changes.
+- E0.2: assemble a synthetic fixture vault with `.canvas`, `.excalidraw`, notes, links, attachments, foreign metadata and malformed files.
+- E0.3: record the original hashes/bytes, application versions and baseline S/M/L.
+- E0.4: clarify the history owner, document identity, raw preservation rules and format compatibility in a short ADR.
+- E0.5: record the currently failing gates separately from future regressions; do not substitute "all green" from an old report for the baseline.
 
-Приёмка: fixtures воспроизводимы, риски названы, минимальные source-preservation tests выполняются через настоящие loaders. Результат этапа ещё не даёт оснований менять default handler.
+Acceptance: fixtures are reproducible, risks are named, minimal source-preservation tests run through the real loaders. The result of the stage still gives no grounds to change the default handler.
 
-### E1. Исправление P0 и проверка осуществимости Excalidraw
+### E1. P0 fix and Excalidraw feasibility check
 
-Зависимости: E0. Результат: безопасная существующая интеграция и работающий прототип критических interactions.
+Dependencies: E0. Result: a safe existing integration and a working prototype of the critical interactions.
 
-- E1.1: typed load failures, запрет empty fallback для существующих файлов, отрицательные tests.
-- E1.2: envelope сохранения дополнительных полей на callback/flush/reopen.
-- E1.3: реальные API types, `captureUpdate`, границы undo, отсутствие dirty от mount/theme/pan.
-- E1.4: общий parser legacy note URI и защищённый decode; исправить очевидный rename gap с сохранением unknown source.
-- E1.5: выполнить все восемь проверок прототипа из §5.2, включая живой renderer, не только mocks.
-- E1.6: выбрать одну схему истории и способ mapping source↔scene; зафиксировать ограничения/нужный минимальный upstream patch.
+- E1.1: typed load failures, a ban on the empty fallback for existing files, negative tests.
+- E1.2: an envelope preserving additional fields on callback/flush/reopen.
+- E1.3: real API types, `captureUpdate`, undo boundaries, no dirty from mount/theme/pan.
+- E1.4: a shared parser for the legacy note URI and a protected decode; fix the obvious rename gap while preserving unknown source.
+- E1.5: perform all eight prototype checks from §5.2, including the live renderer, not just mocks.
+- E1.6: choose a single history scheme and a source↔scene mapping method; record the limitations/the minimal upstream patch needed.
 
-Приёмка: F01/F02/F03/F06/F10 закрыты исполняемыми проверками; карточка, resize, связь, undo и export feasibility показаны в Tauri. При невозможности критического взаимодействия не продолжать массовый перенос на непроверенном предположении.
+Acceptance: F01/F02/F03/F06/F10 are closed by executable checks; card, resize, link, undo and export feasibility are shown in Tauri. If a critical interaction is impossible, do not continue the mass migration on an unverified assumption.
 
-### E2. Согласованное сохранение досок и recovery
+### E2. Consistent board saving and recovery
 
-Зависимости: E1 и согласованный общий mutation contract. Результат: доски сохраняются с revision/conflict semantics.
+Dependencies: E1 and an agreed shared mutation contract. Result: boards are saved with revision/conflict semantics.
 
-- E2.1: расширить/переиспользовать storage port и Rust commands для чтения raw revision и безопасной записи доски; версии IPC types и generated bindings согласованы.
-- E2.2: перенести sketch/canvas writers на этот путь с историей и typed outcomes.
-- E2.3: выполнить failure injection по §11.2, включая external write/delete и старые save responses.
-- E2.4: проверить rename/remap pending queues, закрытие слоя/окна, vault switch и module disable.
-- E2.5: сохранить recovery drafts до фактического успеха актуальной записи; journal читается после restart.
+- E2.1: extend/reuse the storage port and Rust commands for reading the raw revision and safely writing a board; IPC type versions and generated bindings are consistent.
+- E2.2: move the sketch/canvas writers to this path with history and typed outcomes.
+- E2.3: perform failure injection per §11.2, including external write/delete and old save responses.
+- E2.4: verify rename/remap of pending queues, closing a layer/window, vault switch and module disable.
+- E2.5: keep recovery drafts until the current write actually succeeds; the journal is readable after restart.
 
-Приёмка: источник не повреждается на failure boundaries, stale save обнаруживается в пределах документированного контракта, recovery после crash доступно. Atomic write без revision check не закрывает этап.
+Acceptance: the source is not corrupted at failure boundaries, a stale save is detected within the documented contract, recovery after a crash is available. An atomic write without a revision check does not close the stage.
 
-### E3. Независимый codec JSON Canvas и предметные команды
+### E3. Independent JSON Canvas codec and domain commands
 
-Зависимости: E1; сохранение подключать только после E2. Результат: поддерживаемая модель `.canvas`, не связанная с React Flow.
+Dependencies: E1; connect saving only after E2. Result: a supported `.canvas` model not tied to React Flow.
 
-- E3.1: выделить codec/validator/opaque envelope из `canvas-format.ts`, не сломав старый renderer.
-- E3.2: реализовать optional arrays, schema diagnostics, сохранение unknown fields и raw-source policy.
-- E3.3: определить операции над nodes/edges, mapping IDs и meaningful diff; сохранить исходные defaults/отсутствие полей.
-- E3.4: добавить fixtures на все строки §7, malformed/future cases и byte-exact no-op.
-- E3.5: определить typed capabilities формата, включая несовместимые drawing actions.
+- E3.1: extract the codec/validator/opaque envelope from `canvas-format.ts` without breaking the old renderer.
+- E3.2: implement optional arrays, schema diagnostics, preservation of unknown fields and the raw-source policy.
+- E3.3: define operations on nodes/edges, ID mapping and a meaningful diff; preserve the original defaults/absence of fields.
+- E3.4: add fixtures for all rows of §7, malformed/future cases and a byte-exact no-op.
+- E3.5: define typed format capabilities, including incompatible drawing actions.
 
-Приёмка: codec и реальные операции не теряют неизвестное содержимое; невалидные данные не приводят к writable пустой сцене. Старый Canvas продолжает открываться.
+Acceptance: the codec and real operations do not lose unknown content; invalid data does not lead to a writable empty scene. The old Canvas keeps opening.
 
-### E4. `.canvas` в новой доске: первая вертикальная поставка
+### E4. `.canvas` in the new board: first vertical delivery
 
-Зависимости: E2, E3 и доказанный prototype E1. Результат: открыть, изменить и сохранить простую реальную карту через Excalidraw.
+Dependencies: E2, E3 and the proven E1 prototype. Result: open, change and save a simple real map through Excalidraw.
 
-- E4.1: text/file/link/group projection с исходными координатами, размерами, IDs и z-order.
-- E4.2: edges projection с endpoints, sides, arrowheads, color и labels; единая undo boundary.
-- E4.3: translate move/resize/create/delete/duplicate в изменения source document; echo suppression не глотает реальные edits.
-- E4.4: format-aware toolbar; неподдерживаемая операция предлагает явную копию до изменения документа.
-- E4.5: controlled handler routing под флагом и reopen с реального диска.
+- E4.1: text/file/link/group projection with the original coordinates, sizes, IDs and z-order.
+- E4.2: edges projection with endpoints, sides, arrowheads, color and labels; a single undo boundary.
+- E4.3: translate move/resize/create/delete/duplicate into changes of the source document; echo suppression does not swallow real edits.
+- E4.4: a format-aware toolbar; an unsupported operation offers an explicit copy before the document is changed.
+- E4.5: controlled handler routing under a flag and reopen from the real disk.
 
-Приёмка: imported fixture изменён в новом UI, сохранён как `.canvas`, повторно открыт с сохранением данных. Test только `toScene/fromScene` недостаточен. Старый handler пока остаётся резервом.
+Acceptance: an imported fixture is changed in the new UI, saved as `.canvas`, and reopened with the data preserved. A test of only `toScene/fromScene` is insufficient. The old handler remains as a fallback for now.
 
-### E5. Живые заметки, Markdown-карточки и вложения
+### E5. Live notes, Markdown cards and attachments
 
-Зависимости: E4; provider может использоваться и native sketch. Результат: одна заметка остаётся одним документом во всех поверхностях.
+Dependencies: E4; the provider can also be used by a native sketch. Result: one note remains one document on all surfaces.
 
-- E5.1: общий note provider/cache/subscriptions, missing/error/stale states и identity resolution.
-- E5.2: Markdown-карточка с исходным текстом и безопасным preview; существующий Source/Live Preview guard.
-- E5.3: sidebar editing через общий doc store и lease, корректный focus/undo/flush.
+- E5.1: a shared note provider/cache/subscriptions, missing/error/stale states and identity resolution.
+- E5.2: a Markdown card with source text and a safe preview; the existing Source/Live Preview guard.
+- E5.3: sidebar editing through the shared doc store and a lease, correct focus/undo/flush.
 - E5.4: wiki/Markdown links, attachments, headings/blocks, bounded transclusions.
-- E5.5: display modes и размеры; обновление preview не меняет геометрию и source dirty без команды.
-- E5.6: тест вкладка→карточка→другая карточка, внешнее изменение и readonly ID cases.
+- E5.5: display modes and sizes; a preview update does not change geometry or source dirty without a command.
+- E5.6: a test tab→card→another card, an external change and readonly ID cases.
 
-Приёмка: изменения одной заметки видны во всех её карточках без перемонтирования; одновременно не работают два независимых writable buffers.
+Acceptance: changes to one note are visible in all its cards without remounting; two independent writable buffers do not work at the same time.
 
-### E6. Удобные связи и клавиатурное создание карты
+### E6. Convenient links and keyboard map creation
 
-Зависимости: E4, базовые карточки E5. Результат: полный основной interaction cycle.
+Dependencies: E4, the basic E5 cards. Result: a full main interaction cycle.
 
-- E6.1: четыре ports, hover/focus states, привязка endpoints и preview target.
-- E6.2: drag-to-empty → выбор/создание карточки → связь как одно действие.
-- E6.3: reconnect обоих концов, подписи, направление, цвет, прямой/ортогональный маршрут.
-- E6.4: multiedges, циклы/self-edges, удаление и восстановление связанных элементов.
-- E6.5: Tab/Enter для управляемых веток, Escape/cancel, shortcuts внутри активной поверхности.
-- E6.6: реальные mouse/trackpad/keyboard проверки при разных zoom и в locked mode.
+- E6.1: four ports, hover/focus states, endpoint binding and target preview.
+- E6.2: drag-to-empty → choose/create a card → a link as a single action.
+- E6.3: reconnecting both ends, labels, direction, color, straight/orthogonal routing.
+- E6.4: multiedges, cycles/self-edges, deletion and restoration of linked elements.
+- E6.5: Tab/Enter for managed branches, Escape/cancel, shortcuts inside the active surface.
+- E6.6: real mouse/trackpad/keyboard checks at different zoom levels and in locked mode.
 
-Приёмка: §9 работает без обращения к внутреннему DOM движка для предметных действий; отсутствуют dangling bindings после duplicate/delete/undo.
+Acceptance: §9 works without touching the engine's internal DOM for domain actions; there are no dangling bindings after duplicate/delete/undo.
 
-### E7. Создание заметок, DnD и безопасное переименование
+### E7. Note creation, DnD and safe renaming
 
-Зависимости: E2, E5, E6. Результат: доска встроена в файловую модель Amby.
+Dependencies: E2, E5, E6. Result: the board is embedded in Amby's file model.
 
-- E7.1: pointer drag из дерева, вставка существующей заметки, multi-selection там, где поддержано деревом.
-- E7.2: создание Markdown-файла с доски и преобразование текстовой карточки с сохранением связей.
-- E7.3: import attachment через действующий storage, clipboard image, drop в правильную позицию сцены.
-- E7.4: complete reference rewrite для `.canvas` и `.excalidraw`, bundles, Unicode и subpaths.
-- E7.5: coordination dirty buffers/queues/history/recovery при rename, restore и внешнем удалении.
-- E7.6: отдельные тесты частичного результата многофайловой операции и повторного запуска.
+- E7.1: pointer drag from the tree, inserting an existing note, multi-selection where the tree supports it.
+- E7.2: creating a Markdown file from the board and converting a text card while preserving links.
+- E7.3: attachment import through the current storage, clipboard image, drop at the correct scene position.
+- E7.4: complete reference rewrite for `.canvas` and `.excalidraw`, bundles, Unicode and subpaths.
+- E7.5: coordination of dirty buffers/queues/history/recovery on rename, restore and external deletion.
+- E7.6: separate tests for a partial result of a multi-file operation and for re-running it.
 
-Приёмка: rename заметки/папки не ломает карточки; source note не дублируется при копировании карточки; failure создания не уничтожает исходный текст.
+Acceptance: renaming a note/folder does not break cards; the source note is not duplicated when a card is copied; a creation failure does not destroy the original text.
 
-### E8. Группы, автораскладка, поиск и навигация
+### E8. Groups, auto-layout, search and navigation
 
-Зависимости: E5–E7. Результат: удобная ежедневная работа с картами среднего размера.
+Dependencies: E5–E7. Result: convenient daily work with medium-sized maps.
 
-- E8.1: группы, подписи, фоны, перенос members, nested/overlap semantics.
-- E8.2: align/distribute/snap, выбранная область layout, pinned nodes и один undo checkpoint.
-- E8.3: управляемый mind-map root/branch и сворачивание с сохранением исходных nodes.
-- E8.4: поиск названий и доступного содержимого карточек, выделение результата, fit selection, миникарта.
-- E8.5: сохранение viewport/view-state без source write, навигация назад к месту на карте.
-- E8.6: адаптировать существующие templates/Mermaid там, где они уже предоставлялись; сохранять diagnostics converter и не обещать editable shapes для SVG fallback.
+- E8.1: groups, labels, backgrounds, moving members, nested/overlap semantics.
+- E8.2: align/distribute/snap, layout of the selected area, pinned nodes and a single undo checkpoint.
+- E8.3: a managed mind-map root/branch and collapsing while preserving the source nodes.
+- E8.4: search of titles and of the accessible content of cards, highlighting the result, fit selection, minimap.
+- E8.5: saving viewport/view-state without a source write, navigating back to a place on the map.
+- E8.6: adapt the existing templates/Mermaid where they were already provided; keep converter diagnostics and do not promise editable shapes for the SVG fallback.
 
-Приёмка: операции работают на cyclic/disconnected fixture, pinned узлы не прыгают, результаты поиска открывают нужный объект, скрытие не удаляет исходные данные.
+Acceptance: operations work on a cyclic/disconnected fixture, pinned nodes do not jump, search results open the right object, hiding does not delete the source data.
 
-### E9. Экспорт, форматные ограничения и внешняя переносимость
+### E9. Export, format limitations and external portability
 
-Зависимости: E4–E8. Результат: пользователь может перенести и показать свою работу.
+Dependencies: E4–E8. Result: the user can transfer and show their work.
 
-- E9.1: PNG/SVG whole/selection с содержимым managed cards и предсказуемым clipping.
-- E9.2: explicit `.canvas → .excalidraw` copy и preflight `.excalidraw → .canvas` export.
-- E9.3: native fallback/round-trip в standalone Excalidraw, сохранение custom metadata.
-- E9.4: чтение после изменения `.canvas` в Obsidian, unknown extension survival и фиксация limitations.
-- E9.5: export failure/cancel не меняет source, не затирает existing target и не оставляет непонятные partial files.
+- E9.1: PNG/SVG whole/selection with the content of managed cards and predictable clipping.
+- E9.2: explicit `.canvas → .excalidraw` copy and a preflight `.excalidraw → .canvas` export.
+- E9.3: native fallback/round-trip in standalone Excalidraw, preservation of custom metadata.
+- E9.4: reading after a `.canvas` change in Obsidian, unknown extension survival and recording the limitations.
+- E9.5: an export failure/cancel does not change the source, does not overwrite the existing target and does not leave unclear partial files.
 
-Приёмка: визуальные артефакты проверены глазами, loss report точен, внешние проверки названы с версиями. Непроведённую внешнюю проверку нельзя заменить утверждением «JSON валиден».
+Acceptance: visual artifacts are checked by eye, the loss report is accurate, external checks are named with versions. A skipped external check cannot be replaced by the statement "the JSON is valid".
 
-### E10. Производительность, доступность и качество UI
+### E10. Performance, accessibility and UI quality
 
-Зависимости: E5–E9. Результат: измеренное качество для S/M/L и поддержанных платформ.
+Dependencies: E5–E9. Result: measured quality for S/M/L and the supported platforms.
 
-- E10.1: eliminate full stringify on view-only events, cache dedup и viewport preview strategy.
-- E10.2: замерить main-thread, reads, serializer/parse/layout time, память и cleanup после многократного открытия.
-- E10.3: keyboard/object-list accessibility, focus recovery, IME, reduced motion, dark/light и узкий layout.
-- E10.4: проверить все supported locale resources и theme boundaries.
-- E10.5: security-negative fixtures путей, URI, SVG/HTML, больших payload и recursive embeds.
+- E10.1: eliminate full stringify on view-only events, cache dedup and a viewport preview strategy.
+- E10.2: measure main-thread, reads, serializer/parse/layout time, memory and cleanup after repeated opening.
+- E10.3: keyboard/object-list accessibility, focus recovery, IME, reduced motion, dark/light and a narrow layout.
+- E10.4: check all supported locale resources and theme boundaries.
+- E10.5: security-negative fixtures for paths, URIs, SVG/HTML, large payloads and recursive embeds.
 
-Приёмка: опубликованы реальные замеры и отклонения от целей; никаких заявлений о native performance по dev-browser alone.
+Acceptance: real measurements and deviations from the targets are published; no claims about native performance from the dev browser alone.
 
-### E11. Общая регрессия и подтверждение замены Canvas
+### E11. Overall regression and confirmation of the Canvas replacement
 
-Зависимости: E1–E10. Результат: единая матрица доказательств по реальным пользовательским сценариям.
+Dependencies: E1–E10. Result: a single evidence matrix over real user scenarios.
 
-- E11.1: пройти автоматическую и ручную матрицу §16 на итоговом коде.
-- E11.2: проверить browser fallback и packaged Tauri, закрытие окна, module disable, restart и смену vault.
-- E11.3: выполнить `npm run verify`, `npm run build`, необходимые Rust/native проверки последовательно.
-- E11.4: выполнить отдельное ревью сохранности данных, handlers, history и imports; исправить найденные регрессии и повторить затронутые сценарии.
-- E11.5: составить parity список старого Canvas: перенесено, улучшено, известное ограничение. Не скрывать пропавшие команды.
+- E11.1: go through the automated and manual matrix §16 on the final code.
+- E11.2: check the browser fallback and the packaged Tauri, window close, module disable, restart and vault change.
+- E11.3: run `npm run verify`, `npm run build`, and the necessary Rust/native checks sequentially.
+- E11.4: perform a separate review of data safety, handlers, history and imports; fix the regressions found and repeat the affected scenarios.
+- E11.5: compile a parity list of the old Canvas: carried over, improved, known limitation. Do not hide missing commands.
 
-Приёмка: нет открытых P0/P1 потери/подмены данных; базовые сценарии работают. Временный fallback старого Canvas явно отмечен, если ещё требуется; в таком случае полная замена не объявляется.
+Acceptance: no open P0/P1 data loss/substitution; the basic scenarios work. A temporary fallback to the old Canvas is explicitly marked if still required; in that case the full replacement is not declared.
 
-### E12. Переход по умолчанию, очистка и передача
+### E12. Default switch, cleanup and handoff
 
-Зависимости: E11. Результат: новый редактор является основным для досок, старые файлы сохранены.
+Dependencies: E11. Result: the new editor is the main one for boards, old files are preserved.
 
-- E12.1: выполнить controlled переключение `.canvas` handler и profile/module config, проверить явные disabled preferences.
-- E12.2: оставить документированный обратимый renderer rollback на период стабилизации без обратной конвертации данных.
-- E12.3: удалить только доказанно мёртвый UI/код, сохранить общие codecs/tests; проверить dependencies и knip.
-- E12.4: обновить docs форматов, совместимости, shortcuts, recovery и public changelog с фактически реализованным поведением.
-- E12.5: итоговый gate/build на финальном дереве, отчёт о native/external проверках, оставшихся ограничениях и расположении evidence.
+- E12.1: perform a controlled switch of the `.canvas` handler and profile/module config, check explicit disabled preferences.
+- E12.2: keep a documented reversible renderer rollback for the stabilization period without converting data back.
+- E12.3: remove only provably dead UI/code, keep the shared codecs/tests; check dependencies and knip.
+- E12.4: update the docs on formats, compatibility, shortcuts, recovery and the public changelog with the actually implemented behaviour.
+- E12.5: a final gate/build on the final tree, a report on native/external checks, remaining limitations and the location of the evidence.
 
-Приёмка: свежая установка и upgrade settings открывают оба формата правильным renderer, старые bundles не сливаются, отключение модуля не теряет данные. Версия приложения не меняется без отдельной команды выпуска.
+Acceptance: a fresh install and an upgrade of settings open both formats with the correct renderer, old bundles are not merged, disabling the module does not lose data. The application version does not change without a separate release command.
 
-## 16. Матрица приёмки
+## 16. Acceptance matrix
 
-Каждая строка должна иметь automated regression там, где логика автоматизируема, и manual evidence там, где результат зависит от реального canvas/WebView. Не помечать все проверки пройденными одним mocked component test.
+Each row must have an automated regression where the logic can be automated, and manual evidence where the result depends on the real canvas/WebView. Do not mark all checks as passed with a single mocked component test.
 
-| ID  | Сценарий                                        | Ожидаемый результат                                                      |
-| --- | ----------------------------------------------- | ------------------------------------------------------------------------ |
-| A01 | Открыть и закрыть оба формата без правок        | Bytes/hash/mtime исходника не меняются                                   |
-| A02 | Pan, zoom, theme, select и preview scroll       | Нет document save и новых undo действий                                  |
-| A03 | Invalid/truncated JSON и read error             | Диагностика, исходник не заменён пустой сценой                           |
-| A04 | Передать `.canvas` в sketch load path           | Typed mismatch, отсутствие silent coercion                               |
-| A05 | Top-level/node/edge/element unknown fields      | Сохраняются после настоящего edit/save/reopen                            |
-| A06 | Duplicate keys, future type, oversized integer  | Lossless handling или явный readonly, без потери                         |
-| A07 | BOM/CRLF и Markdown в JSON-строке               | Сохраняются по контракту; no-op byte-exact                               |
-| A08 | JSON Canvas optional arrays/default endpoints   | Корректная загрузка и неизменённые defaults                              |
-| A09 | Z-order, overlapping groups, group backgrounds  | Представление и round-trip сохраняют исходный смысл                      |
-| A10 | Импорт карты с text/file/link/group             | Все объекты отображаются правильным типом                                |
-| A11 | Повторное открытие после edit в Obsidian        | Нет потери nodes/edges/ссылок; ограничения зафиксированы                 |
-| N01 | Одна заметка во вкладке и трёх карточках        | Один буфер, актуальное содержимое во всех preview                        |
-| N02 | Две попытки редактировать одну заметку          | Один writable owner и понятный переход к нему                            |
-| N03 | Markdown не допускается в Live Preview          | Source, исходный текст остаётся byte-exact                               |
-| N04 | Subpath heading/block, alias, missing anchor    | Правильный фрагмент или точная диагностика                               |
-| N05 | Wiki links, локальные images и transclusions    | Правильный контекст разрешения, нет raw HTML execution                   |
-| N06 | Note rename/move и folder/bundle promotion      | Карточки остаются привязанными, старый путь не воссоздаётся              |
-| N07 | Legacy ID, отсутствующий ID, duplicate ID       | Общая identity policy, без скрытой миграции                              |
-| N08 | Создать заметку при name collision              | Уникальный no-replace результат, чужой файл цел                          |
-| N09 | Convert text card → note, затем undo            | Текст/связи восстановлены; заметка не удалена молча                      |
-| N10 | Ошибка записи доски после создания заметки      | Recoverable outcome, retry не создаёт дубликат                           |
-| N11 | Внешняя правка/удаление связанной заметки       | Preview invalidation или явный конфликт dirty editor                     |
-| N12 | Циклические transclusions и длинные заметки     | Ограниченная загрузка, интерфейс остаётся управляемым                    |
-| C01 | Создать, подписать, изменить направление связи  | Сохраняются endpoints, label и arrows                                    |
-| C02 | Drag-to-empty, confirm/cancel                   | Одна команда либо отсутствие изменений                                   |
-| C03 | Reconnect обоих концов и Escape                 | Новая привязка или точный возврат прежней                                |
-| C04 | Move/resize endpoints на трёх zoom              | Стрелка привязана к правильной стороне                                   |
-| C05 | Parallel edges, цикл, self-edge                 | Нет незаметной дедупликации и исчезновения                               |
-| C06 | Delete/duplicate/paste/undo через upstream UI   | Source и managed metadata остаются согласованными                        |
-| C07 | Copy connected fragment между досками           | Новые локальные IDs, корректные внутренние bindings, note refs сохранены |
-| C08 | Locked mode и неактивный скрытый слой           | Команды изменения/drag/drop не обходят блокировку                        |
-| L01 | Перенести группу с выбранными members           | Геометрия и связи двигаются согласованно                                 |
-| L02 | Layout selection с pinned nodes и циклом        | Детерминированный результат, pinned неподвижны, undo полный              |
-| L03 | Collapse/expand ветки с общим потомком          | Source не теряется, поведение общего узла определено                     |
-| L04 | Поиск, fit selection, reopen viewport           | Переход к правильному объекту без source mutation                        |
-| D01 | Failure history/temp write/publication          | Исходник цел, success не объявлен                                        |
-| D02 | Внешняя запись между load и save                | Typed conflict в документированных границах, доступно восстановление     |
-| D03 | Ответ save N после edit N+1                     | Новое dirty и draft не очищены                                           |
-| D04 | Crash до/после publication                      | Recovery различает исходное/сохранённое/новое состояние                  |
-| D05 | Dirty external delete и закрытие окна           | Буфер не пропадает и не создаёт файл без выбранного действия             |
-| D06 | Vault switch во время load/save/preview         | Нет утечки данных/записи в другой vault                                  |
-| D07 | Rename во время ожидающего autosave             | Единственный правильный путь и recovery key                              |
-| D08 | Module disable при failed flush                 | Правки остаются доступны; отключение корректно прервано                  |
-| X01 | PNG/SVG с note cards, labels и assets           | Содержимое видимо и соответствует checkpoint                             |
-| X02 | Export cancel/target collision/error            | Source и существующий target не изменены                                 |
-| X03 | Native → Canvas с непредставимыми strokes       | Предварительный loss report, никакой silent deletion                     |
-| X04 | Canvas → native copy                            | Исходник untouched, новая копия открывается                              |
-| X05 | Standalone Excalidraw round-trip                | Рабочие фигуры, проверенное сохранение metadata/fallback                 |
-| S01 | Traversal/symlink/malformed URI                 | Backend guard и безопасная диагностика                                   |
-| S02 | Script/HTML/SVG/remote embed payload            | Нет исполнения/фонового произвольного доступа                            |
-| P01 | S/M/L и повторное открытие 20 раз               | Замеры, отсутствие необъяснённого роста listeners/cache                  |
-| P02 | Много карточек одного файла                     | Dedup чтения, локальные updates без полного tree refresh                 |
-| U01 | Keyboard, IME, focus, screen reader list        | Доступное управление без конфликтов shortcuts                            |
-| U02 | Темы, языки, узкая панель, platform modifiers   | Читаемый UI и корректные подписи/команды                                 |
-| M01 | Оба слоя `.canvas`/`.excalidraw` в одном bundle | Оба отдельных документа доступны, данные не смешаны                      |
-| M02 | Upgrade profiles/disabled modules/rollback      | Идемпотентный переход с сохранением выбора пользователя                  |
+| ID  | Scenario                                            | Expected result                                                           |
+| --- | --------------------------------------------------- | ------------------------------------------------------------------------- |
+| A01 | Open and close both formats without edits           | Source bytes/hash/mtime do not change                                     |
+| A02 | Pan, zoom, theme, select and preview scroll         | No document save and no new undo actions                                  |
+| A03 | Invalid/truncated JSON and read error               | Diagnostics, the source is not replaced by an empty scene                 |
+| A04 | Pass a `.canvas` into the sketch load path          | Typed mismatch, no silent coercion                                        |
+| A05 | Top-level/node/edge/element unknown fields          | Preserved after a real edit/save/reopen                                   |
+| A06 | Duplicate keys, future type, oversized integer      | Lossless handling or an explicit readonly, without loss                   |
+| A07 | BOM/CRLF and Markdown in a JSON string              | Preserved per contract; no-op byte-exact                                  |
+| A08 | JSON Canvas optional arrays/default endpoints       | Correct loading and unchanged defaults                                    |
+| A09 | Z-order, overlapping groups, group backgrounds      | Representation and round-trip preserve the original meaning               |
+| A10 | Import a map with text/file/link/group              | All objects are displayed with the correct type                           |
+| A11 | Reopening after an edit in Obsidian                 | No loss of nodes/edges/links; limitations recorded                        |
+| N01 | One note in a tab and three cards                   | One buffer, current content in all previews                               |
+| N02 | Two attempts to edit one note                       | One writable owner and a clear transition to it                           |
+| N03 | Markdown is not allowed in Live Preview             | Source, the original text stays byte-exact                                |
+| N04 | Subpath heading/block, alias, missing anchor        | The correct fragment or an exact diagnostic                               |
+| N05 | Wiki links, local images and transclusions          | Correct resolution context, no raw HTML execution                         |
+| N06 | Note rename/move and folder/bundle promotion        | Cards stay linked, the old path is not recreated                          |
+| N07 | Legacy ID, missing ID, duplicate ID                 | Shared identity policy, no hidden migration                               |
+| N08 | Create a note on a name collision                   | A unique no-replace result, the foreign file is intact                    |
+| N09 | Convert text card → note, then undo                 | Text/links restored; the note is not silently deleted                     |
+| N10 | Board write error after creating a note             | Recoverable outcome, retry does not create a duplicate                    |
+| N11 | External edit/deletion of a linked note             | Preview invalidation or an explicit conflict with the dirty editor        |
+| N12 | Cyclic transclusions and long notes                 | Bounded loading, the interface stays manageable                           |
+| C01 | Create, label, change the direction of a link       | Endpoints, label and arrows are preserved                                 |
+| C02 | Drag-to-empty, confirm/cancel                       | One command or no changes                                                 |
+| C03 | Reconnect both ends and Escape                      | A new binding or an exact return to the previous one                      |
+| C04 | Move/resize endpoints at three zoom levels          | The arrow is bound to the correct side                                    |
+| C05 | Parallel edges, cycle, self-edge                    | No silent deduplication or disappearance                                  |
+| C06 | Delete/duplicate/paste/undo via the upstream UI     | Source and managed metadata stay consistent                               |
+| C07 | Copy a connected fragment between boards            | New local IDs, correct internal bindings, note refs preserved             |
+| C08 | Locked mode and an inactive hidden layer            | Change/drag/drop commands do not bypass the lock                          |
+| L01 | Move a group with selected members                  | Geometry and links move consistently                                      |
+| L02 | Layout selection with pinned nodes and a cycle      | Deterministic result, pinned stay still, undo is complete                 |
+| L03 | Collapse/expand a branch with a shared child        | Source is not lost, the shared node's behaviour is defined                |
+| L04 | Search, fit selection, reopen viewport              | Navigation to the right object without source mutation                    |
+| D01 | Failure of history/temp write/publication           | The source is intact, success is not declared                             |
+| D02 | External write between load and save                | Typed conflict within the documented limits, recovery available           |
+| D03 | Save response N after edit N+1                      | The new dirty state and the draft are not cleared                         |
+| D04 | Crash before/after publication                      | Recovery distinguishes the original/saved/new state                       |
+| D05 | Dirty external delete and window close              | The buffer is not lost and does not create a file without a chosen action |
+| D06 | Vault switch during load/save/preview               | No data leak/write into another vault                                     |
+| D07 | Rename during a pending autosave                    | The single correct path and recovery key                                  |
+| D08 | Module disable on a failed flush                    | Edits remain available; disabling is correctly aborted                    |
+| X01 | PNG/SVG with note cards, labels and assets          | Content is visible and corresponds to the checkpoint                      |
+| X02 | Export cancel/target collision/error                | Source and the existing target are unchanged                              |
+| X03 | Native → Canvas with unrepresentable strokes        | A preliminary loss report, no silent deletion                             |
+| X04 | Canvas → native copy                                | Source untouched, the new copy opens                                      |
+| X05 | Standalone Excalidraw round-trip                    | Working shapes, verified metadata/fallback preservation                   |
+| S01 | Traversal/symlink/malformed URI                     | Backend guard and a safe diagnostic                                       |
+| S02 | Script/HTML/SVG/remote embed payload                | No execution/background arbitrary access                                  |
+| P01 | S/M/L and reopening 20 times                        | Measurements, no unexplained growth of listeners/cache                    |
+| P02 | Many cards of one file                              | Read dedup, local updates without a full tree refresh                     |
+| U01 | Keyboard, IME, focus, screen reader list            | Accessible control without shortcut conflicts                             |
+| U02 | Themes, languages, narrow panel, platform modifiers | Readable UI and correct labels/commands                                   |
+| M01 | Both `.canvas`/`.excalidraw` layers in one bundle   | Both separate documents are available, data is not mixed                  |
+| M02 | Upgrade profiles/disabled modules/rollback          | An idempotent transition preserving the user's choice                     |
 
-### 16.1. Обязательный сквозной пользовательский прогон
+### 16.1. Mandatory end-to-end user run
 
-1. Открыть синтетический vault с картой из Obsidian и native рисунком.
-2. Открыть `.canvas`; сверить число/типы объектов, положение, подписи и groups.
-3. Перетащить существующую заметку, открыть её сбоку, изменить текст, увидеть обновлённую карточку.
-4. Из порта карточки вытянуть связь в пустое место, создать новую карточку и подписать связь.
-5. Превратить новую текстовую карточку в заметку, затем переименовать заметку и папку.
-6. Переместить/изменить размер карточек, сгруппировать, выровнять, выполнить layout выделения с pinned узлом.
-7. Несколько раз отменить и повторить действия; проверить текст заметки отдельно от истории доски.
-8. Изменить карту внешним процессом при локальных несохранённых правках; разрешить конфликт без потери обеих версий.
-9. Закрыть окно, перезапустить, восстановить тестовый crash draft и убедиться в правильном viewport.
-10. Экспортировать PNG/SVG, визуально проверить карточки и подписи.
-11. Открыть сохранённый `.canvas` в Obsidian и снова в Amby.
-12. Создать native-копию, дорисовать произвольную фигуру, проверить standalone round-trip и явное ограничение обратного Canvas-export.
-13. Выключить и включить модуль; оба исходных файла остаются доступными и целыми.
+1. Open a synthetic vault with a map from Obsidian and a native drawing.
+2. Open the `.canvas`; check the number/types of objects, position, labels and groups.
+3. Drag an existing note, open it in the side panel, change the text, see the updated card.
+4. From a card port, pull a link into an empty space, create a new card and label the link.
+5. Turn the new text card into a note, then rename the note and the folder.
+6. Move/resize cards, group them, align them, run a selection layout with a pinned node.
+7. Undo and redo actions several times; check the note text separately from the board history.
+8. Change the map with an external process while there are local unsaved edits; resolve the conflict without losing either version.
+9. Close the window, restart, restore a test crash draft and make sure the viewport is correct.
+10. Export PNG/SVG, visually check the cards and labels.
+11. Open the saved `.canvas` in Obsidian and again in Amby.
+12. Create a native copy, draw an arbitrary shape, check the standalone round-trip and the explicit limitation of the reverse Canvas export.
+13. Disable and enable the module; both source files stay available and intact.
 
-## 17. Проверки и артефакты работы
+## 17. Checks and work artifacts
 
-### 17.1. Автоматические проверки
+### 17.1. Automated checks
 
-Для каждой партии — focused tests на затронутую логику и `npm run build`. Перед передачей этапа на review — `npm run verify` по актуальному `package.json`. В репозитории `verify` включает больше проверок, чем старое краткое описание в AGENTS: не заменять его произвольным сокращённым набором.
+For each batch — focused tests on the affected logic and `npm run build`. Before handing a stage over for review — `npm run verify` according to the current `package.json`. In the repository `verify` includes more checks than the old short description in AGENTS: do not replace it with an arbitrary reduced set.
 
 ```sh
 npm run verify
 npm run build
 ```
 
-После Rust/IPC изменений выполнить Rust tests и проверить generated bindings; backend-heavy работа требует strict Clippy. Если полный `verify` уже выполнил эти команды на неизменном дереве, записать результат и не повторять без причины.
+After Rust/IPC changes, run the Rust tests and check the generated bindings; backend-heavy work requires strict Clippy. If a full `verify` has already run these commands on an unchanged tree, record the result and do not repeat without a reason.
 
 ```sh
 npm run rust:test
@@ -826,100 +826,100 @@ npm run rust:fmt
 npm run bindings:check
 ```
 
-Форматировать touched frontend/docs через Prettier, Rust — Rustfmt. Новые fixtures и tests должны проверять пользовательские свойства и failure boundaries, а не повторять implementation буквально.
+Format touched frontend/docs with Prettier, Rust with Rustfmt. New fixtures and tests must check user-visible properties and failure boundaries, not repeat the implementation literally.
 
-Vitest поддерживает существующие happy-dom tests, но canvas mocks не подтверждают реальные binding/focus/export. Дополнить настоящими browser interaction сценариями и packaged WebView. При необходимости расширить существующий harness; не считать отсутствие исходной browser component infrastructure причиной оставить interaction непроверенным.
+Vitest supports the existing happy-dom tests, but canvas mocks do not confirm real binding/focus/export. Supplement with real browser interaction scenarios and the packaged WebView. If necessary, extend the existing harness; do not treat the absence of the original browser component infrastructure as a reason to leave an interaction unverified.
 
-### 17.2. Нативные проверки
+### 17.2. Native checks
 
-Изменения storage, IPC, watcher, dialogs, shortcuts и window lifecycle проверять в `npm run tauri dev`; browser `npm run dev` проверяет только web fallback. После IPC/config/permissions/packaging изменений нужна соответствующая native build.
+Changes to storage, IPC, watcher, dialogs, shortcuts and window lifecycle are checked in `npm run tauri dev`; the browser `npm run dev` checks only the web fallback. After IPC/config/permissions/packaging changes a corresponding native build is needed.
 
-Выбирать поддержанный локальной платформой debug bundle без подписи/публикации, документировать точную команду. Не запускать разные Cargo feature builds параллельно в общем target: в предыдущей работе это уже вызывало непоказательные rustdoc/artifact ошибки.
+Choose a debug bundle supported by the local platform without signing/publishing, and document the exact command. Do not run different Cargo feature builds in parallel in a shared target: in earlier work this already caused unrepresentative rustdoc/artifact errors.
 
-Проверить macOS, Windows и Linux по доступности реальных сред. Отсутствующую платформу обозначить «не проверено» с перечнем её сценариев. Не менять CSP/scopes ради успешного теста и не объявлять production packaging проверенным по browser preview.
+Check macOS, Windows and Linux according to the availability of real environments. Mark a missing platform as "not verified" with a list of its scenarios. Do not change the CSP/scopes for the sake of a passing test and do not declare production packaging verified from a browser preview.
 
-### 17.3. Документация, которую надо обновить при реализации
+### 17.3. Documentation to update during implementation
 
 - `docs/vault-format.md`: durable board metadata, refs, revision/recovery, import/export boundaries.
-- `docs/markdown-compatibility.md`: только фактические изменения общих правил Markdown, если такие были.
-- Новый `docs/board-format.md` или эквивалент: версии расширений, ownership IDs, mapping и совместимость.
-- Новый `docs/board-compatibility.md` или эквивалент: JSON Canvas/external Excalidraw matrix, supported/partial/readonly cases.
-- `docs/engineering.md`: реальные новые команды тестирования/fixtures, если они появились.
-- `docs/claude-handoff.md`: достигнутые этапы, фактические проверки и оставшееся.
-- `updates/upd_next.md`: только завершённые пользовательские результаты и точные developer outcomes; не рекламировать весь план как уже сделанную функцию.
+- `docs/markdown-compatibility.md`: only actual changes to the shared Markdown rules, if there were any.
+- New `docs/board-format.md` or equivalent: extension versions, ownership IDs, mapping and compatibility.
+- New `docs/board-compatibility.md` or equivalent: JSON Canvas/external Excalidraw matrix, supported/partial/readonly cases.
+- `docs/engineering.md`: actual new testing commands/fixtures, if any appeared.
+- `docs/claude-handoff.md`: the stages reached, the actual checks and what remains.
+- `updates/upd_next.md`: only completed user results and exact developer outcomes; do not advertise the whole plan as an already-done feature.
 
-### 17.4. Evidence и отчёт этапа
+### 17.4. Evidence and the stage report
 
-Локально сохранять versioned synthetic fixtures, исходные/итоговые hashes, результаты round-trip, test logs, native commands, screenshots/recordings и performance measurements. Не коммитить vault пользователя, recovery payload, секреты, bundles и машинные пути.
+Locally keep versioned synthetic fixtures, original/final hashes, round-trip results, test logs, native commands, screenshots/recordings and performance measurements. Do not commit the user's vault, recovery payloads, secrets, bundles and machine paths.
 
-Отчёт каждого этапа содержит: выполненные task IDs, затронутые контракты, результаты команд с exit status, ручные сценарии и окружение, известные ограничения, оставшиеся blockers. Фраза «тесты прошли» без указания набора не закрывает этап.
+Each stage's report contains: the completed task IDs, the affected contracts, command results with exit status, manual scenarios and the environment, known limitations, remaining blockers. The phrase "tests passed" without naming the set does not close the stage.
 
-Новая регрессия блокирует передачу этапа. Существующее несвязанное падение не исправлять скрытым расширением scope и не ослаблять тест ради green; записать исходное и текущее состояние, продолжать независимую работу и явно обозначить, какой gate не закрыт. Commit/push допустимы только по отдельному поручению и правилам AGENTS.
+A new regression blocks handing over the stage. Do not fix an existing unrelated failure by silently expanding scope and do not weaken a test to get green; record the original and current state, continue independent work and explicitly state which gate is not closed. Commit/push are permissible only on separate instruction and per the AGENTS rules.
 
-## 18. Решения, которых следует избегать
+## 18. Decisions to avoid
 
-- Регистрация `.canvas` в sketch manifest без двустороннего адаптера.
-- Автоматическое переименование `.canvas` в `.excalidraw` или запись Excalidraw JSON под расширением `.canvas`.
-- Полная реконструкция документа только из видимых scene elements без opaque source.
-- Одновременное независимое редактирование source model и scene model с взаимными useEffect-синхронизациями.
-- Прямая запись заметки из карточки через новый `writeFile` autosave в обход общего note lifecycle.
-- Стабильные связи только по title или только по временному SQLite ID.
-- Скрытая миграция YAML ради вставки заметки на карту.
-- DOM selectors по upstream test IDs как основной API предметных операций.
-- CSS-подмена, которая прячет ошибку или отсутствующий инструмент вместо реализации поведения.
-- Неконтролируемое удаление файла при undo создания карточки.
-- Объявление картинки со снимком карты полноценным редактируемым Canvas-export.
-- Автоматическое превращение стрелок в Markdown-ссылки/database relations.
-- Удаление старого Canvas до проверки соответствия функций и сохранности imported files.
-- Выпуск/повышение версии как часть обычного этапа разработки.
+- Registering `.canvas` in the sketch manifest without a two-way adapter.
+- Automatically renaming `.canvas` to `.excalidraw` or writing Excalidraw JSON under the `.canvas` extension.
+- Fully reconstructing a document only from visible scene elements without an opaque source.
+- Simultaneous independent editing of the source model and the scene model with mutual useEffect synchronizations.
+- Writing a note directly from a card via a new `writeFile` autosave, bypassing the shared note lifecycle.
+- Stable links only by title or only by a temporary SQLite ID.
+- A hidden YAML migration just to insert a note onto a map.
+- DOM selectors on upstream test IDs as the main API for domain operations.
+- A CSS override that hides an error or a missing tool instead of implementing the behaviour.
+- Uncontrolled file deletion on undoing a card creation.
+- Declaring a picture with a map snapshot a full editable Canvas export.
+- Automatically turning arrows into Markdown links/database relations.
+- Removing the old Canvas before verifying feature parity and the integrity of imported files.
+- Releasing/bumping the version as part of an ordinary development stage.
 
-## 19. Источники и проверка актуальности
+## 19. Sources and currency check
 
-Основной источник о текущей программе — перечисленные файлы рабочего дерева, включая незакоммиченные изменения. Внешняя документация проверялась 30 сентября 2026 года; перед использованием API сверять её с установленной версией библиотеки.
+The primary source about the current program is the listed working-tree files, including uncommitted changes. External documentation was checked on 30 September 2026; before using an API, compare it with the installed library version.
 
-- [JSON Canvas 1.0](https://jsoncanvas.org/spec/1.0/) — структура переносимых карт и значения по умолчанию.
+- [JSON Canvas 1.0](https://jsoncanvas.org/spec/1.0/) — the structure of portable maps and the default values.
 - [Excalidraw props](https://docs.excalidraw.com/docs/@excalidraw/excalidraw/api/props/) — `customData`, custom embeds, link/paste/library callbacks.
-- [Excalidraw imperative API](https://docs.excalidraw.com/docs/@excalidraw/excalidraw/api/props/excalidraw-api) — scene updates, capture policy, scrolling и остальные публичные действия.
-- [Obsidian Canvas](https://help.obsidian.md/plugins/canvas) — справка пользовательского инструмента; фактическую совместимость проверять на fixtures в доступной версии приложения.
+- [Excalidraw imperative API](https://docs.excalidraw.com/docs/@excalidraw/excalidraw/api/props/excalidraw-api) — scene updates, capture policy, scrolling and the other public actions.
+- [Obsidian Canvas](https://help.obsidian.md/plugins/canvas) — help for the user-facing tool; check actual compatibility on fixtures in an available version of the application.
 
-План не предполагает, что online docs точно соответствуют пакету 0.18.1. В конфликте сначала проверить local types/runtime и оформить воспроизведение.
+The plan does not assume that the online docs exactly match package 0.18.1. In case of a conflict, first check the local types/runtime and record a reproduction.
 
-## 20. Готовый запрос для Claude Code
+## 20. Ready-made prompt for Claude Code
 
 ```text
-Прочитай AGENTS.md и docs/excalidraw-canvas-claude-plan.md целиком.
-Реализуй описанную единую доску Amby на базе Excalidraw по этапам E0–E12:
-совместимое открытие/редактирование .canvas, живые карточки заметок,
-удобные связи, группы и раскладка, надёжное сохранение и проверенный экспорт.
+Read AGENTS.md and docs/excalidraw-canvas-claude-plan.md in full.
+Implement the described unified Amby board on top of Excalidraw in stages E0–E12:
+compatible opening/editing of .canvas, live note cards,
+convenient links, groups and layout, reliable saving and verified export.
 
-Сохрани весь текущий незакоммиченный diff и перепроверь находки F01–F12
-по актуальному коду. Сначала baseline, P0 и реальный прототип interactions;
-не подключай .canvas напрямую к sketch parser и не удаляй старый Canvas
-до общей приёмки. Используй существующие storage, doc store,
-autosave/recovery, Markdown policy и module lifecycle.
+Keep the entire current uncommitted diff and re-verify findings F01–F12
+against the current code. First the baseline, P0 and a real interaction prototype;
+do not connect .canvas directly to the sketch parser and do not remove the old Canvas
+before the overall acceptance. Use the existing storage, doc store,
+autosave/recovery, Markdown policy and module lifecycle.
 
-Это реализация именно плана досок. Старые handoff-планы прочитай как контекст
-общих ограничений и зависимостей, но не запускай заново несвязанные проекты.
-Если необходимый общий механизм уже меняется, переиспользуй согласованный
-контракт, не создавай параллельный.
+This is the implementation of the boards plan specifically. Read the old handoff plans as context
+for shared constraints and dependencies, but do not restart unrelated projects.
+If a required shared mechanism is already being changed, reuse the agreed
+contract, do not create a parallel one.
 
-Следуй матрице совместимости, правилам Source/Live Preview и сохранности
-пользовательских данных. Новые файлы создавай no-replace; не мигрируй
-frontmatter и не конвертируй исходные .canvas автоматически.
+Follow the compatibility matrix, the Source/Live Preview rules and the integrity of
+user data. Create new files no-replace; do not migrate
+frontmatter and do not convert source .canvas files automatically.
 
-После каждой партии обновляй updates/upd_next.md, форматируй touched files,
-запускай focused tests и npm run build. Перед review этапа выполняй полный
-npm run verify; для Rust/IPC и desktop изменений добавляй необходимые
-Rust, bindings и native проверки. Проверяй настоящий renderer и Tauri,
-а не только mocked components. Записывай ограничения и непроведённые тесты.
+After each batch update updates/upd_next.md, format the touched files,
+run focused tests and npm run build. Before a stage review run the full
+npm run verify; for Rust/IPC and desktop changes add the necessary
+Rust, bindings and native checks. Check the real renderer and Tauri,
+not only mocked components. Record limitations and tests not run.
 
-Продолжай последовательно до завершения предусмотренного объёма;
-не выдавай прототип или первый .canvas import за выполненный весь план.
-Рутинные решения принимай самостоятельно по контракту. При доказанном
-блокере публичного API документируй варианты и продолжай независимую работу;
-не скрывай снижение возможностей и не обходи защиту данных.
+Continue sequentially until the intended scope is complete;
+do not present a prototype or the first .canvas import as the whole plan being done.
+Make routine decisions yourself per the contract. On a proven
+public API blocker, document the options and continue independent work;
+do not hide reduced capabilities and do not bypass data protection.
 
-Не делай commit, push, теги, публикацию и повышение версии без отдельного
-поручения. Итог: работающий редактор, regression fixtures/tests,
-обновлённые контракты и отчёт E0–E12 с фактическими результатами.
+Do not commit, push, tag, publish or bump the version without a separate
+instruction. Result: a working editor, regression fixtures/tests,
+updated contracts and an E0–E12 report with actual results.
 ```

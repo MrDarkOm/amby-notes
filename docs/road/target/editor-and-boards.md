@@ -1,24 +1,24 @@
-# Редактор и доски: что осталось
+# Editor and boards: what is left
 
-## Редактор
+## Editor
 
-Источник: [аудит редактора](../../audit/editor-audit-2026-10/03-combined-analysis.md). Основное сделано (подсказки `[[`,
-поиск в заметке, сноски, вставка Markdown, математика, Mermaid, вложения, блочные клавиши, Live без потерь).
-В коде не найдено (проверено поиском по именам файлов, не полным аудитом):
+Source: [editor audit](../../audit/editor-audit-2026-10/03-combined-analysis.md). The main part is done (`[[` suggestions,
+search within a note, footnotes, Markdown paste, math, Mermaid, attachments, block keys, lossless Live).
+Not found in the code (checked by searching file names, not by a full audit):
 
-- переключатель (`<details>`) и складные заголовки;
-- выделение `==текст==`;
-- оглавление, вставка даты, `@`-упоминание;
-- настраиваемые клавиши редактора;
-- не проверялись: перетаскивание блоков, drop файлов в Tauri, режим чтения, Cmd+F в нативном окне.
+- toggle (`<details>`) and collapsible headings;
+- `==text==` highlighting;
+- table of contents, date insertion, `@` mention;
+- configurable editor keys;
+- not checked: block drag and drop, file drop in Tauri, reading mode, Cmd+F in the native window.
 
-## Доска Excalidraw
+## Excalidraw board
 
-План [../excalidraw-canvas-claude-plan.md](../boards.md): этапы E0–E12 не начаты; старый
-Canvas (`src/components/workspace/canvas/`) остаётся. Совместное редактирование, облако и ИИ-генерация карт
-в план не входят.
+The plan [../excalidraw-canvas-claude-plan.md](../boards.md): stages E0–E12 not started; the old
+Canvas (`src/components/workspace/canvas/`) remains. Collaborative editing, cloud and AI map generation
+are not part of the plan.
 
-## Рабочая область
+## Workspace
 
-Дерево областей и перенос вкладок сделаны (`split-tree.ts`). Одиночный `secondaryTabKey` ещё используется в
-части кода. Не проверено: две области с одной заметкой (синхронизация курсора и прокрутки), узкий экран.
+The area tree and tab transfer are done (`split-tree.ts`). A single `secondaryTabKey` is still used in
+part of the code. Not checked: two areas with the same note (cursor and scroll synchronization), narrow screen.

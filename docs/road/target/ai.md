@@ -1,23 +1,23 @@
-# ИИ: что осталось
+# AI: what is left
 
-Планы: [../ai-stage-1-plan.md](../ai.md), [../ai-provider-connections-plan.md](../ai.md),
-[../ai-harness-plan.md](../ai.md). Сделано: панель с сохранёнными беседами, ИИ только читает,
-подключения провайдеров (API, Codex, Claude Code CLI), перенос настроек с резервной копией, каталоги моделей.
+Plans: [../ai-stage-1-plan.md](../ai.md), [../ai-provider-connections-plan.md](../ai.md),
+[../ai-harness-plan.md](../ai.md). Done: a panel with saved conversations, AI that only reads,
+provider connections (API, Codex, Claude Code CLI), settings migration with a backup, model catalogs.
 
-## Проверки за владельцем
+## Checks for the owner
 
-- Вход Claude Code (OAuth) и ход на настоящем аккаунте; устойчивость границы доступа к заметке-ловушке.
-- Этап 6 плана подключений («Чат и выпуск»): подтвердить по журналу плана, что закрыт.
+- Claude Code sign-in (OAuth) and a turn on a real account; robustness of the note access boundary against a trap note.
+- Stage 6 of the connections plan ("Chat and release"): confirm from the plan's log that it is closed.
 
-## Следующие этапы
+## Next stages
 
-1. Меню над выделением и `/ai`: результат как предпросмотр, вставляет пользователь.
-2. Векторный поиск (по желанию, локальные эмбеддинги).
-3. Запись через план агента H: реестр действий, журнал, права, откат (пакеты H-10…H-24). Не начато;
-   подробности в `ai-harness-plan.md`, `ai-harness-orchestration.md`, `ai-harness-acceptance.md`.
+1. A menu over the selection and `/ai`: the result as a preview, the user inserts it.
+2. Vector search (optional, local embeddings).
+3. Writing through the agent plan H: action registry, log, permissions, rollback (packages H-10…H-24). Not started;
+   details in `ai-harness-plan.md`, `ai-harness-orchestration.md`, `ai-harness-acceptance.md`.
 
-## Codex, позже и отдельно
+## Codex, later and separately
 
-- Песочница ОС вокруг процесса Codex.
-- Установка Codex по кнопке (официальный релиз, проверка подписи).
-- Показ лимитов аккаунта.
+- An OS sandbox around the Codex process.
+- Installing Codex with a button (official release, signature check).
+- Showing account limits.
