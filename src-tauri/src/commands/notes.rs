@@ -302,6 +302,44 @@ type CommittedNoteWrite = (
     (Vec<String>, Vec<(String, String, String)>),
 );
 
+/// Resolves the note's current path and commits the write. The resolution (generation
+/// check, index lookup, identity check) happens while holding `mutation_gate`, so a
+/// rename, move or delete cannot complete between finding the path and writing it.
+fn resolve_and_commit_note_write(
+    db: &VaultContext,
+    watcher_state: &WatcherState,
+    request: &WriteNoteRequest,
+    history_reason: &str,
+) -> Result<(u64, String, CommittedNoteWrite), WriteNoteError> {
+    // Lock order: mutation_gate, then conn.
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
+    let (vault_root, generation, destination) = {
+        let conn_guard = db.conn.lock_or_recover();
+        let conn = conn_guard
+            .as_ref()
+            .ok_or_else(|| WriteNoteError::failed("No vault open"))?;
+        if request.expected_generation != conn.generation {
+            return Err(WriteNoteError::failed("Vault changed before note save"));
+        }
+        let destination = vault_index::note_metadata(conn, &conn.root, &request.note_id)
+            .map_err(WriteNoteError::failed)?;
+        if !request.note_id.starts_with(vault_index::OPAQUE_PREFIX) {
+            vault_index::ensure_unique_identity(conn, &request.note_id)
+                .map_err(WriteNoteError::failed)?;
+        }
+        (conn.root.clone(), conn.generation, destination)
+    };
+    let committed = commit_note_write_locked(
+        watcher_state,
+        &vault_root,
+        std::path::Path::new(&destination.path),
+        request,
+        history_reason,
+    )?;
+    Ok((generation, destination.path, committed))
+}
+
+#[cfg(test)]
 fn commit_note_write_under_gate(
     mutation_gate: &std::sync::Mutex<()>,
     watcher_state: &WatcherState,
@@ -311,6 +349,23 @@ fn commit_note_write_under_gate(
     history_reason: &str,
 ) -> Result<CommittedNoteWrite, WriteNoteError> {
     let _mutation_guard = mutation_gate.lock_or_recover();
+    commit_note_write_locked(
+        watcher_state,
+        vault_root,
+        note_path,
+        request,
+        history_reason,
+    )
+}
+
+/// The caller holds `mutation_gate`. A missing file is an error: nothing is created.
+fn commit_note_write_locked(
+    watcher_state: &WatcherState,
+    vault_root: &std::path::Path,
+    note_path: &std::path::Path,
+    request: &WriteNoteRequest,
+    history_reason: &str,
+) -> Result<CommittedNoteWrite, WriteNoteError> {
     let prepared_note = vault_index::prepare_note_write_from_path(
         vault_root,
         note_path,
@@ -373,43 +428,13 @@ fn write_note_blocking(
     }
     let _operation_span = operation_span.enter();
 
-    // A renderer can finish an autosave after another window activated a new
-    // vault. Bind this write to the caller's active generation so it fails
-    // safely instead of resolving the same note ID in the new backend context.
-    let (vault_root, generation, destination) = {
-        let conn_guard = db.conn.lock_or_recover();
-        let conn = conn_guard
-            .as_ref()
-            .ok_or_else(|| WriteNoteError::failed("No vault open"))?;
-        if request.expected_generation != conn.generation {
-            return Err(WriteNoteError::failed("Vault changed before note save"));
-        }
-        let destination = vault_index::note_metadata(conn, &conn.root, &request.note_id)
-            .map_err(WriteNoteError::failed)?;
-        if !request.note_id.starts_with(vault_index::OPAQUE_PREFIX) {
-            vault_index::ensure_unique_identity(conn, &request.note_id)
-                .map_err(WriteNoteError::failed)?;
-        }
-        (conn.root.clone(), conn.generation, destination)
-    };
-
-    // The revision check, the frontmatter merge and the commit form one step under
-    // mutation_gate: a property write or a version restore that runs in between
-    // would otherwise be overwritten by the stale frontmatter without a conflict.
-    // The conn lock is not held here (order: mutation_gate, then conn, as in write_file).
     let history_reason = if request.rewrites_source {
         history::SOURCE_REWRITE_REASON
     } else {
         "note-save"
     };
-    let (path, body, revision, prepared_index_data) = commit_note_write_under_gate(
-        &db.mutation_gate,
-        &watcher_state,
-        &vault_root,
-        std::path::Path::new(&destination.path),
-        &request,
-        history_reason,
-    )?;
+    let (generation, destination_path, (path, body, revision, prepared_index_data)) =
+        resolve_and_commit_note_write(&db, &watcher_state, &request, history_reason)?;
     let index_result = {
         let conn_guard = db.conn.lock_or_recover();
         let conn = conn_guard
@@ -430,7 +455,7 @@ fn write_note_blocking(
     };
     let outcome = match index_result {
         Ok(()) => WriteNoteOutcome {
-            path: destination.path,
+            path: destination_path,
             revision: revision.clone(),
             index_state: IndexState::Healthy,
             warnings: Vec::new(),
@@ -440,7 +465,7 @@ fn write_note_blocking(
             db.mark_index_rebuild_required()
                 .map_err(WriteNoteError::failed)?;
             WriteNoteOutcome {
-                path: destination.path,
+                path: destination_path,
                 revision: revision.clone(),
                 index_state: IndexState::RebuildRequired,
                 warnings: vec![OperationWarning::IndexRebuildRequired],
@@ -801,7 +826,7 @@ mod tests {
     #[test]
     fn write_commands_are_async_and_do_the_blocking_work_off_the_main_thread() {
         let source = include_str!("notes.rs");
-        let production = source.split("#[cfg(test)]").next().unwrap();
+        let production = source.split("#[cfg(test)]\nmod tests").next().unwrap();
         for name in ["write_note", "write_file"] {
             assert!(
                 production.contains(&format!("pub async fn {name}(")),
@@ -816,5 +841,64 @@ mod tests {
             .matches("tauri::async_runtime::spawn_blocking")
             .count();
         assert!(spawns >= 2, "both writes must run on the blocking pool");
+    }
+
+    #[test]
+    fn a_save_waiting_for_the_gate_follows_a_rename_that_completes_first() {
+        use crate::vault_context::VaultContext;
+        let vault = std::env::temp_dir()
+            .join(format!("amby_save11_{}", ulid::Ulid::generate()))
+            .to_path_buf();
+        std::fs::create_dir_all(&vault).expect("create vault");
+        let vault = vault.canonicalize().expect("canonical vault");
+        let id = "01ARZ3NDEKTSV4RRFFQ69G5FAW";
+        let old_path = vault.join("Old.md");
+        let new_path = vault.join("Renamed.md");
+        std::fs::write(&old_path, format!("---\namby-id: {id}\n---\nbody\n")).expect("note");
+        let context = Arc::new(VaultContext::new());
+        context
+            .activate(vault.to_str().unwrap(), |_| Ok(()), |_, _| ())
+            .expect("activate");
+        let generation = context
+            .with_active(|active| Ok(active.generation))
+            .expect("generation");
+        let watcher_state = Arc::new(WatcherState::new());
+
+        // A rename owns the gate: the save below must not look the path up before it ends.
+        let held = context.mutation_gate.lock().expect("gate");
+        let writer = {
+            let (context, watcher_state) = (context.clone(), watcher_state.clone());
+            std::thread::spawn(move || {
+                let request = WriteNoteRequest {
+                    expected_generation: generation,
+                    note_id: id.to_string(),
+                    content: "body edited\n".to_string(),
+                    expected_revision: crate::vault_index::body_revision("body\n"),
+                    origin_window: "main".to_string(),
+                    rewrites_source: false,
+                };
+                super::resolve_and_commit_note_write(
+                    &context,
+                    &watcher_state,
+                    &request,
+                    "note-save",
+                )
+                .map(|_| ())
+            })
+        };
+        std::thread::sleep(Duration::from_millis(300));
+        std::fs::rename(&old_path, &new_path).expect("rename");
+        context
+            .with_active(|active| {
+                crate::vault_index::upsert_note_index(active, &active.root, id, "body\n", &new_path)
+            })
+            .expect("index follows the rename");
+        drop(held);
+
+        writer.join().expect("writer thread").expect("save");
+        let saved = std::fs::read_to_string(&new_path).expect("renamed file");
+        assert!(saved.contains("body edited"), "got: {saved}");
+        assert!(!old_path.exists(), "nothing may reappear at the old path");
+        let _ = std::fs::remove_dir_all(&vault);
     }
 }
