@@ -285,7 +285,7 @@ export interface SketchTemplate {
 }
 
 /** The editor shows the default white background as transparent so the theme background shows. */
-export const SKETCH_DISPLAY_TRANSPARENT = "transparent"
+const SKETCH_DISPLAY_TRANSPARENT = "transparent"
 
 export function sketchTemplateOf(
   sketch: ExcalidrawFile,
