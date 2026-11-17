@@ -178,7 +178,7 @@ fn only_an_absolute_existing_regular_file_is_a_binary() {
         validate_binary(&std::env::temp_dir()),
         Err(CodexError::NotInstalled)
     );
-    let file = std::env::temp_dir().join(format!("amby-codex-test-{}", std::process::id()));
+    let file = std::env::temp_dir().join(format!("amby-codex-test-{}", ulid::Ulid::generate()));
     std::fs::write(&file, b"#!/bin/sh\n").unwrap();
     let canonical = validate_binary(&file).unwrap();
     assert!(canonical.is_absolute());
