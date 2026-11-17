@@ -4,22 +4,22 @@
 - For developers: a plan for the `amby` command line (for people, scripts and AI agents through `amby mcp`) and for moving the vault core into its own crate without Tauri — `docs/road/cli.md`. This is a task description; app behavior did not change.
 - For developers: the remaining Russian documents (plans, audits, contracts, the sync plan) are translated to English; app behavior did not change.
 
-- Пикер эмодзи подготавливается в фоне после запуска и повторно использует одну готовую сетку вместо пересоздания при каждом открытии. При закрытии очищается поиск, обновляются «Недавние» и освобождаются обработчики текущей заметки; смена языка или темы обновляет кэш.
+- The emoji picker is prepared in the background after startup and reuses a single ready-made grid instead of rebuilding it on every open. Closing it clears the search, refreshes "Recents", and releases handlers for the current note; switching language or theme refreshes the cache.
 
-- Обновлена иконка синхронизации: у стрелок оставлены внешние треугольные наконечники, центральная точка убрана. Стрелки нейтральные, состояние показано яркой круглой заливкой внутри дуг с небольшим просветом до стрелок; вращение при обмене сохранено.
+- Updated the sync icon: the arrows keep their outer triangular tips and the center dot is removed. The arrows are neutral, while status is shown with a bright circular fill inside the arcs with a small gap to the arrows; rotation during transfer is preserved.
 
-- Исправлено сжатие SVG-флагов после поиска в пикере: у локальных изображений задан единый внутренний размер с сохранением исходных пропорций рисунка.
+- Fixed SVG flag squashing after searching in the picker: local images now use a uniform intrinsic size while preserving the original artwork proportions.
 
-- Поиск эмодзи учитывает текущий язык приложения и всегда поддерживает английский. Подключён локальный русский словарь Unicode CLDR из 3963 записей; при переключении RU ↔ EN поисковый индекс обновляется. Новые языки подключаются отдельными словарями через общий реестр; исходные Unicode-значения, оттенки кожи и офлайн-работа сохранены.
+- Emoji search respects the current app language and always supports English. A local Russian Unicode CLDR dictionary of 3,963 entries is included; switching RU ↔ EN updates the search index. Additional languages connect as separate dictionaries through a shared registry; original Unicode values, skin tones, and offline operation are preserved.
 
-- В разделах «Эмодзи» и «Иконки» пикера унифицирован поиск: одна и та же иконка Lucide Search и одинаковое оформление поля; убрана отдельная чёрная заливка при фокусе. Выровнен внутренний отступ значка поиска с учётом рамки поля, чтобы он не сдвигался при переключении вкладок.
+- Unified search in the "Emoji" and "Icons" sections of the picker: the same Lucide Search icon and identical input styling, removing the separate black fill on focus. Aligned the search icon's inner padding with the input border so it does not shift when switching tabs.
 
-- Эмодзи и флаги поставляются в оптимизированном SVG: значки сохраняют чёткость при масштабировании, а сжатый набор занимает меньше места, чем PNG. Источники, лицензии и контрольные суммы сохранены; SVGO используется только при подготовке ресурсов, не в приложении.
+- Emoji and flags ship as optimized SVGs: icons stay sharp when scaled, and the compressed set takes less space than PNGs. Sources, licenses, and checksums are preserved; SVGO is used only during resource preparation, not in the app.
 
-- Пикер эмодзи: стили загружаются из локального CSS после инициализации, чтобы нативный WKWebView не оставлял пикер без оформления при действующей политике безопасности. Разрешения приложения не расширены.
+- Emoji picker: styles load from local CSS after initialization so native WKWebView does not leave the picker unstyled under the active security policy. App permissions were not expanded.
 
-- Эмодзи-значки интерфейса и пикер используют локальные изображения Google Noto Emoji: одинаковый набор на разных ОС, без загрузок из интернета. Сохранены Lucide, пользовательские изображения, компоновка и системное отображение эмодзи в обычном тексте.
-- Исправлено распознавание составных эмодзи в значках callout: оттенки кожи, ZWJ, флаги, keycaps и вариационные селекторы сохраняются целиком. Добавлены fallback при недоступном изображении и офлайн-доступ к лицензиям Noto в настройках.
+- Interface emoji icons and the picker use local Google Noto Emoji images: the same set across OSes, with no network downloads. Lucide icons, custom images, layout, and system emoji rendering in regular text are preserved.
+- Fixed recognition of compound emoji in callout icons: skin tones, ZWJ sequences, flags, keycaps, and variation selectors are preserved intact. Added a fallback when an image is unavailable and offline access to Noto licenses in settings.
 
 - Для разработчиков: Rust обновлён до 1.100.0 (`rust-toolchain.toml`, `rust-version` в `src-tauri/Cargo.toml`). Проверки синхронизации в CI (`sync-gates.yml`) теперь тоже берут закреплённую версию, а не плавающую stable.
 
@@ -272,7 +272,7 @@
 
 - Безопасность: `preflight_vault`, `apply_id_migration` и `recover_id_migration` принимают только открытое хранилище, папку из системного диалога или хранилище из списка известных. Раньше окно могло вписать `amby-id` во все `.md` любой папки, например домашней.
 
-- В разделе «Файлы» добавлена настройка «Представлять папки как коллекции». По умолчанию она включена: клик открывает коллекцию. При выключении клик, Enter и пробел только раскрывают папки, пустые папки не открывают вкладки, а заметки со своей папкой и выделение Cmd/Shift сохраняют прежнее поведение. Открытие коллекции доступно через контекстное меню.
+- Added a "Show folders as collections" setting in the "Files" section. It is enabled by default: clicking opens the collection. When turned off, click, Enter, and Space only expand folders, empty folders do not open tabs, and notes with their own folder as well as Cmd/Shift selection keep their previous behavior. Opening the collection remains available from the context menu.
 - Внутреннее: общий контракт хранилища (`storage-contract.ts`, его же гоняет нативный прогон) дополнен случаями переноса, коллизии имён при переносе, обрезки пробелов в имени заметки при создании и переименовании и архива. Браузерный адаптер выровнен с Rust: перенос не перезаписывает одноимённый файл (отказ «уже существует»), имена заметок обрезаются и пустое имя отклоняется, а «Архив» в браузере отказывает (раньше удалял навсегда). В десктопном приложении поведение не менялось.
 - Исправлено: удалённая папка больше не висит в дереве, если в ней нет заметок, холстов и скетчей (пустая папка или папка мастерской только с `.json`); повторное удаление давало «Не удалось удалить 1 из 1». Корень удаления, переноса в архив и безвозвратного удаления теперь попадает в патч дерева, а патч «ничего не затронуто» считается «перечитай дерево», а не «изменений нет». Удаление папки мастерской убирает её из каталога мастерских сразу (раньше запись оставалась до следующего обновления).
 
