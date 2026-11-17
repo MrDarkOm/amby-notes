@@ -163,16 +163,15 @@ require a filesystem rename.
 New notes are published with their `amby-id` in the first atomic no-replace
 write, so there is no temporary on-disk state that requires a second ID write.
 
-For compatibility, a canonical ULID in `id` with no `amby-id` is a legacy
-identity candidate, never a trusted identity. Normal indexing leaves its bytes
-unchanged and uses a disposable path-scoped conflict key: the note is visible,
-openable and searchable, but body/property writes require explicit migration.
-A ULID alone cannot prove Amby ownership: migration is
-separately confirmed with a read-only file preview, raw backups, journal, and
-rollback. It adds `amby-id` with the same value and leaves the entire generic
-`id` property untouched. Duplicate candidates are reported, not migrated.
-Existing durable sidecar keys remain unchanged in this migration; candidate cache
-keys are replaced by the confirmed namespaced identity after refreshing the vault.
+A generic `id`, whatever it holds (a canonical ULID included), belongs to the
+user or to another app. Amby never reads it as identity, never copies it into
+`amby-id`, and never changes or removes it: its bytes stay exact. A note with such
+an `id` and no `amby-id` is treated like any note without `amby-id`: it gets a
+freshly generated one by the same path (index or the ID migration, with journal,
+backup and atomic writes). It is not a conflict, saves are not refused, and notes
+sharing the same foreign `id` are not duplicates. Version-1 migration journals
+written by older builds, which may carry a ULID taken from `id`, are still
+validated, resumed and rolled back.
 
 Both notes with a duplicate ID remain visible in the tree and searchable.
 The existing primary path (or first deterministic path on a rebuild) retains
@@ -198,7 +197,7 @@ key. Once "keep both" gives the copy an `amby-id` of its own, it is an ordinary 
 
 The index's `identity_version = 3` marker invalidates the metadata skip path
 once so older cached interpretations are re-read. SQLite is still disposable;
-rebuilding it neither migrates legacy IDs nor deletes durable property data.
+rebuilding it neither migrates IDs nor deletes durable property data.
 
 Version 3 invalidates the disposable metadata cache only; it never migrates
 Markdown or sidecars. Reverting to version 2 would trust ambiguous generic IDs
@@ -424,7 +423,27 @@ coalesces versions only: the Markdown/text file is still saved after the normal
 short editor debounce, recovery drafts remain durable, and no existing history
 entry is deleted. ID assignment, link refactor, restore, and other explicitly
 forced snapshots keep their recovery points regardless of the autosave interval;
-rename and move retain their existing rollback/recovery contracts.
+rename and move retain their existing rollback/recovery contracts. Versions are
+kept by the note's vault-relative path, and a rename or move made in Amby carries
+them to the new path (one atomic manifest write), so a renamed note keeps its
+history and a new note at the old path starts with none. A failure to move them
+is logged and leaves them at the old path; the files are not affected. Archive
+keeps them at the original path, where the note returns on restore.
+
+A rename that Amby did not make (arrived through sync, or done in Finder or
+another app) is recognised by the index when it next reads the vault: a note
+under a new path whose `amby-id` the index held for an old path that no longer
+exists. The versions of the old path move to the new one in the same atomic
+manifest write, before the index commit; an interrupted or failed move leaves
+them at the old path, never lost. Nothing moves when identity is ambiguous: the
+id is claimed by more than one file, the note is keyed by its path (broken or
+unusable header), the old path still exists (a copy, a swap of names), the new
+path already has versions of its own, or two moves meet. A note the index never
+saw with an `amby-id` (renamed before its first indexing) keeps its versions at
+the old path. The same rules apply to the point update for changed paths and to the
+full scan; the point update sees only the files under the changed paths, so a
+second, not yet indexed claimant of the id elsewhere is seen by the next full
+scan only.
 
 Live Preview keeps the source text of a block until the block is edited (see
 `markdown-compatibility.md`). The save that may write a block in the editor's
@@ -437,10 +456,17 @@ loaded text; the request stays pending until a write that started after it has
 succeeded, and a restored recovery draft asks for it as well. The browser
 development adapter has no history and takes no such snapshot.
 
-History is append-only and is **not automatically pruned**. The History panel
+History is append-only unless the person turns on automatic cleanup in the
+History settings (keep N copies and/or N days per note). Automatic cleanup never
+removes the newest `note-rewrite`, `sync-overwrite` or `restore` snapshot of a
+note, does not count them against the limit, and logs a failed removal instead of
+failing the save. The History panel
 shows per-note and vault-wide version counts and storage use. Its explicit
-cleanup action previews the number of versions and bytes to remove, requires
-confirmation, and currently retains the 20 latest snapshots of every note.
+cleanup action ("clear all") previews the number of versions and bytes to
+remove, requires confirmation, and then removes every snapshot of the vault (or
+of the one note it was started from): it keeps none, not even the newest
+`note-rewrite`, `sync-overwrite` or `restore` one that automatic cleanup
+protects.
 Cleanup moves a snapshot into a staged location, atomically updates the
 manifest, and only then deletes the staged data. A versioned cleanup journal
 restores or completes an interrupted operation before history is used again.
@@ -508,7 +534,9 @@ therefore lose only the stated pending window plus an in-flight write. When a
 filesystem save and its recovery write both fail (for example on a full disk), the
 window does not close and the vault does not switch unless the person explicitly
 chooses to lose the text. A recovery write error is never treated as a successful filesystem
-save.
+save. A failed draft write is logged (`recovery.write_failed`) and shown once as a `warning` card of the
+note, which goes away with the next successful write; a draft that cannot be read is logged
+(`recovery.read_failed`) and shown as a `warning` card too, never taken for a missing draft.
 
 ## Backup and Git policy
 
@@ -588,6 +616,23 @@ Only links resolved by the SQLite index to the moved note are changed, avoiding
 unsafe rewrites of ambiguous text. Each changed source note is snapshotted
 before the refactor; if a link rewrite fails, already rewritten source notes
 are restored to their pre-refactor text.
+
+Wikilinks and embeds in archived notes (not in the index) are found with the index's
+own parser, so code, comments and frontmatter are skipped, and are rewritten only when
+the name (title, path or file name) belongs to the moved note alone; a name that another
+note also has is left as written. Alias, heading and block parts are kept.
+In every file it rewrites, a wikilink inside code or a `%%` comment is left as
+written; the same link in frontmatter (for example a relation property) is updated.
+
+Exact textual references (Markdown links and embeds, Canvas and Excalidraw file
+references) are updated only in normal vault notes and in the archive
+(`.amby/archive`, so links work after a restore). Only Canvas and Excalidraw
+files also have quoted paths rewritten; a quoted path in Markdown is ordinary
+text and is left alone. The trash (`.trash/`), backups, history, recovery and
+every other part of `.amby/`, `.obsidian/`, `.git/`, other hidden or reserved
+folders and symlinks are never entered or changed. The preview counts exactly
+the files that will be written. The rule lives in `refactor_may_enter`
+(`src-tauri/src/index/refactor.rs`) and reuses `RESERVED_DIRECTORIES`.
 
 A rename that changes only letter case is a real filesystem mutation. Amby
 first verifies that the requested spelling resolves to the same filesystem

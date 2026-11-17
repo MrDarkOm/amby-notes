@@ -8,6 +8,8 @@ import {
 } from "../autosave/source-rewrite"
 import { TiptapEditor } from "./TiptapEditor"
 import { markEditorUserIntent } from "./editor-user-intent"
+import { flushEditorSerializations } from "./editor-serialization-lifecycle"
+import type { EditorHandle } from "./constants"
 
 vi.mock("./BlockHandles", () => ({ BlockHandles: () => null }))
 vi.mock("./BubbleToolbar", () => ({ BubbleToolbar: () => null }))
@@ -176,4 +178,113 @@ it("saves a change made through block controls with the mouse only", async () =>
     await vi.advanceTimersByTimeAsync(250)
   })
   expect(onChange).toHaveBeenCalledWith("Second")
+})
+
+// Serialization lifecycle (EDIT-05): the path "edit -> deferred serialization -> onChange -> flush
+// on blur, unmount, window lifecycle or an explicit handle call" is pinned here, so it can move
+// out of the component without changing.
+async function mountEdited(
+  onChange = vi.fn(),
+  extra: Partial<React.ComponentProps<typeof TiptapEditor>> = {},
+) {
+  vi.useFakeTimers()
+  const utils = render(<TiptapEditor value="Original text" onChange={onChange} {...extra} />)
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  const editable = utils.container.querySelector<HTMLElement>(".ProseMirror")!
+  const editor = (editable as HTMLElement & { editor: Editor }).editor
+  const edit = (text = "x") =>
+    act(() => {
+      editor.view.focus()
+      editor.commands.setTextSelection(5)
+      fireEvent.keyDown(editable, { key: "x" })
+      editor.commands.insertContent(text)
+    })
+  return { ...utils, editable, editor, edit, onChange }
+}
+
+it("publishes an edit only after the debounce, and reports the dirty state at once", async () => {
+  const onContentDirty = vi.fn()
+  const { edit, onChange } = await mountEdited(vi.fn(), { onContentDirty })
+  edit()
+  expect(onContentDirty).toHaveBeenCalled()
+  expect(onChange).not.toHaveBeenCalled()
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
+  expect(onChange).toHaveBeenCalledTimes(1)
+  expect(onChange).toHaveBeenCalledWith("Origxinal text")
+})
+
+it("flushes a pending edit when the editor loses focus", async () => {
+  const { edit, editor, onChange } = await mountEdited()
+  edit()
+  expect(onChange).not.toHaveBeenCalled()
+  act(() => {
+    editor.emit("blur", { editor, event: new FocusEvent("blur"), transaction: editor.state.tr })
+  })
+  expect(onChange).toHaveBeenCalledTimes(1)
+  expect(onChange).toHaveBeenCalledWith("Origxinal text")
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
+  expect(onChange).toHaveBeenCalledTimes(1)
+})
+
+it("flushes a pending edit when the editor unmounts", async () => {
+  const { edit, unmount, onChange } = await mountEdited()
+  edit()
+  expect(onChange).not.toHaveBeenCalled()
+  unmount()
+  expect(onChange).toHaveBeenCalledWith("Origxinal text")
+})
+
+it("flushes through the lifecycle registry before autosave and through the editor handle", async () => {
+  const handle = { current: undefined as unknown as EditorHandle }
+  const { edit, onChange } = await mountEdited(vi.fn(), { editorRef: handle })
+  edit()
+  flushEditorSerializations()
+  expect(onChange).toHaveBeenCalledTimes(1)
+  edit("y")
+  handle.current!.flush()
+  expect(onChange).toHaveBeenCalledTimes(2)
+  // Nothing pending: another flush writes nothing.
+  flushEditorSerializations()
+  expect(onChange).toHaveBeenCalledTimes(2)
+})
+
+it("never writes for an untouched editor, and reports it clean when an edit round-trips", async () => {
+  const onContentClean = vi.fn()
+  const { editor, edit, onChange } = await mountEdited(vi.fn(), { onContentClean })
+  flushEditorSerializations()
+  expect(onChange).not.toHaveBeenCalled()
+  edit("x")
+  act(() => {
+    editor.commands.undo()
+  })
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
+  expect(onChange).not.toHaveBeenCalled()
+  expect(onContentClean).toHaveBeenCalled()
+})
+
+it("drops a pending edit when an external value replaces the text", async () => {
+  const { edit, rerender, onChange, editor } = await mountEdited()
+  edit()
+  rerender(<TiptapEditor value="Loaded from disk" onChange={onChange} />)
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
+  expect(editor.getText()).toBe("Loaded from disk")
+  flushEditorSerializations()
+  expect(onChange).not.toHaveBeenCalled()
+})
+
+it("stops flushing through the registry after unmount", async () => {
+  const { unmount, onChange } = await mountEdited()
+  unmount()
+  flushEditorSerializations()
+  expect(onChange).not.toHaveBeenCalled()
 })

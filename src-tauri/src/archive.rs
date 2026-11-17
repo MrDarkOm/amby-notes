@@ -232,7 +232,8 @@ pub fn move_to_archive(vault: &Path, path: &Path) -> Result<FsMutationResult, St
     // `free_path` takes the place itself when it is free and never a taken one: nothing in the
     // archive is replaced.
     let target = crate::commands::import_files::free_path(&parent, &name);
-    fs::rename(&preview.original_path, &target).map_err(|error| error.to_string())?;
+    crate::atomic_fs::rename_no_replace(&preview.original_path, &target)
+        .map_err(|error| error.to_string())?;
     let archived_at = now_ms();
     let mut files = Vec::new();
     if fs::symlink_metadata(&target).is_ok_and(|meta| meta.is_dir()) {
@@ -341,7 +342,7 @@ pub fn restore(vault: &Path, id: &str) -> Result<FsMutationResult, String> {
     let vault_path = vault.canonicalize().map_err(|error| error.to_string())?;
     fs::create_dir_all(target.parent().ok_or("Restore target has no parent")?)
         .map_err(|error| error.to_string())?;
-    fs::rename(&source, &target).map_err(|error| error.to_string())?;
+    crate::atomic_fs::rename_no_replace(&source, &target).map_err(|error| error.to_string())?;
     remove_metas_for(&vault_path, id);
     if let Some(dir) = source.parent() {
         prune_empty_archive_dirs(&vault_path, dir.to_path_buf());

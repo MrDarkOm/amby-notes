@@ -5,6 +5,7 @@ description = "Local-first desktop knowledge workspace"
 authors = ["Amby Authors"]
 license = "AGPL-3.0-only"
 edition = "2021"
+rust-version = "1.100"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -37,7 +38,7 @@ serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
 tokio = { version = "1", features = ["sync", "macros", "net", "time", "rt", "io-util", "process"] }
 url = "2"
 reqwest = { version = "0.13", features = ["json", "rustls", "stream", "webpki-roots"], default-features = false }
-rfd = { version = "0.16", default-features = false, features = ["gtk3"] }
+rfd = { version = "0.17", default-features = false, features = ["gtk3"] }
 futures-util = "0.3"
 rusqlite = { version = "0.41", features = ["bundled", "fallible_uint"] }
 ulid = "3"
@@ -59,6 +60,10 @@ zeroize = "1"
 hex = "0.4"
 unicode-normalization = "0.1"
 
+[target.'cfg(unix)'.dependencies]
+# Rename without replacing (`renameat2` / `renamex_np`) in `atomic_fs.rs`; already in the lock file.
+libc = "0.2"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "3.7"
 objc2 = "0.6"
@@ -66,7 +71,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["NSAppl
 objc2-foundation = { version = "0.3", default-features = false, features = ["NSData", "NSError", "NSFileManager", "NSString", "NSURL"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_UI_Shell"] }
+windows-sys = { version = "0.61.2", features = ["Win32_UI_Shell", "Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 # The server of the sync workspace, started inside a test (stage Э4: the link against a real server).
@@ -94,3 +99,8 @@ opt-level = 3
 opt-level = 3
 [profile.test.package.chacha20poly1305]
 opt-level = 3
+
+[lints.clippy]
+# Panicking on None/Err in shipped code is a decision, not a shortcut: use `?`, a handled error or
+# `expect` with the reason it cannot fail. Tests may unwrap (clippy.toml: allow-unwrap-in-tests).
+unwrap_used = "deny"

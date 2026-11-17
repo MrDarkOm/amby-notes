@@ -513,7 +513,7 @@ impl MiniEngine {
         } else {
             None
         };
-        staged.publish(reason)
+        staged.publish(reason, amby_sync_core::engine::ExpectedLocal::Any)
     }
 
     fn sealed_header(&mut self, item: &ItemId, header: &Header) -> Res<Vec<u8>> {

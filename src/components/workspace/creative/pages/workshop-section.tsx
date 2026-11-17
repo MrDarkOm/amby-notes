@@ -5,6 +5,7 @@ import { useCreateInScope } from "../workshop/use-create-in-scope"
 import { storyLabels } from "../workshop/workshop-model"
 import { SectionGallery } from "./section-gallery"
 import { useWorkshopSectionData } from "./use-workshop-section-data"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface WorkshopSectionProps {
   workshop: WorkshopSummary
@@ -31,11 +32,7 @@ export function WorkshopSection({ workshop, section, onOpenNote }: WorkshopSecti
   )
   return (
     <div className="mb-8 flex w-full min-w-0 flex-col gap-3">
-      {data.failed && (
-        <p role="alert" className="text-xs text-destructive">
-          {t("creative.workshop.loadFailed")}
-        </p>
-      )}
+      {data.failed && <NoticeLine role="alert" text={t("creative.workshop.loadFailed")} />}
       <SectionGallery
         section={section}
         rows={data.rows}

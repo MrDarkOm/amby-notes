@@ -612,12 +612,38 @@ fn snapshot_before_write_at(
                 history_cfg.max_age_days
             },
         };
-        let to_remove = cleanup_candidates(&manifest, &retention, created_at_ms)
+        // The newest snapshot of each kind that is promised as the last copy (the author's spelling
+        // before a Live Preview rewrite, what a sync or a restore replaced) is never cleaned up
+        // automatically, nor counted against the limit (CORE-08).
+        let mut protected = HashSet::new();
+        for reason in [SOURCE_REWRITE_REASON, SYNC_OVERWRITE_REASON, RESTORE_REASON] {
+            if let Some(newest) = manifest
+                .snapshots
+                .iter()
+                .filter(|s| s.source_path == source_path && s.reason == reason)
+                .max_by_key(|s| s.created_at_ms)
+            {
+                protected.insert(newest.id.clone());
+            }
+        }
+        let prunable = HistoryManifest {
+            version: manifest.version,
+            snapshots: manifest
+                .snapshots
+                .iter()
+                .filter(|s| !protected.contains(&s.id))
+                .cloned()
+                .collect(),
+        };
+        let to_remove = cleanup_candidates(&prunable, &retention, created_at_ms)
             .into_iter()
             .filter(|s| s.source_path == source_path)
             .collect::<Vec<_>>();
         for candidate in to_remove {
-            let _ = cleanup_snapshot(&root, &mut manifest, &candidate);
+            // Cleanup is a convenience: a failure keeps the snapshot and must not fail the save.
+            if let Err(error) = cleanup_snapshot(&root, &mut manifest, &candidate) {
+                tracing::warn!(event = "history_autoprune_failed", error = %error);
+            }
         }
     }
 
@@ -635,6 +661,96 @@ pub fn list_snapshots(vault: &Path, source: &Path) -> Result<Vec<SnapshotEntry>,
         .collect::<Vec<_>>();
     snapshots.sort_by_key(|snapshot| std::cmp::Reverse(snapshot.created_at_ms));
     Ok(snapshots)
+}
+
+/// Amby renamed or moved these files: their versions follow them (CORE-03). History is kept by the
+/// vault-relative path of the note; without this, a renamed note showed an empty history and a new
+/// note at the old path showed, and could restore, another note's versions. Snapshot data files are
+/// named by id, so only the manifest changes, in one atomic write. Returns the number of versions
+/// that moved; with no history nothing is written.
+pub fn move_snapshot_sources(
+    vault: &Path,
+    changes: &[crate::model::PathChange],
+) -> Result<usize, String> {
+    let _lock = history_lock();
+    let root = history_root(vault);
+    if !manifest_path(&root).exists() {
+        return Ok(0);
+    }
+    let vault_real = vault.canonicalize().map_err(|error| error.to_string())?;
+    let relative = |path: &str| {
+        Path::new(path)
+            .strip_prefix(&vault_real)
+            .or_else(|_| Path::new(path).strip_prefix(vault))
+            .ok()
+            .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+            .filter(|relative| !relative.is_empty())
+    };
+    let renames = changes
+        .iter()
+        .filter_map(|change| Some((relative(&change.old_path)?, relative(&change.new_path)?)))
+        .collect::<BTreeMap<String, String>>();
+    if renames.is_empty() {
+        return Ok(0);
+    }
+    let mut manifest = load_manifest(&root)?;
+    let mut moved = 0;
+    for snapshot in &mut manifest.snapshots {
+        if let Some(new_path) = renames.get(&snapshot.source_path) {
+            snapshot.source_path = new_path.clone();
+            moved += 1;
+        }
+    }
+    if moved > 0 {
+        write_manifest(&root, &manifest)?;
+    }
+    Ok(moved)
+}
+
+/// A note the index already knew under `old` (by its `amby-id`) is now at `new`, and the old path
+/// is gone: a rename made by sync or outside Amby. Its versions follow it (CORE-03). A pair is
+/// skipped, never merged, when the old path has no versions or the new path already has some (they
+/// belong to another note). Returns the number of versions that moved; one atomic manifest write.
+pub fn relink_moved_sources(vault: &Path, moves: &[(String, String)]) -> Result<usize, String> {
+    let _lock = history_lock();
+    let root = history_root(vault);
+    if moves.is_empty() || !manifest_path(&root).exists() {
+        return Ok(0);
+    }
+    let mut manifest = load_manifest(&root)?;
+    let occupied = manifest
+        .snapshots
+        .iter()
+        .map(|snapshot| snapshot.source_path.clone())
+        .collect::<HashSet<_>>();
+    // Two olds to one new, or a chain (a new that is another old), are not a plain rename.
+    let mut targets = HashSet::new();
+    let sources = moves
+        .iter()
+        .map(|(old, _)| old.as_str())
+        .collect::<HashSet<_>>();
+    let renames = moves
+        .iter()
+        .filter(|(old, new)| {
+            old != new
+                && occupied.contains(old)
+                && !occupied.contains(new)
+                && !sources.contains(new.as_str())
+                && targets.insert(new.clone())
+        })
+        .cloned()
+        .collect::<BTreeMap<String, String>>();
+    let mut moved = 0;
+    for snapshot in &mut manifest.snapshots {
+        if let Some(new_path) = renames.get(&snapshot.source_path) {
+            snapshot.source_path = new_path.clone();
+            moved += 1;
+        }
+    }
+    if moved > 0 {
+        write_manifest(&root, &manifest)?;
+    }
+    Ok(moved)
 }
 
 pub fn get_history_stats(vault: &Path) -> Result<HistoryStats, String> {
@@ -1514,6 +1630,111 @@ mod tests {
             "Auto-prune must keep exactly 2 snapshots"
         );
 
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    // CORE-03: history follows a note when Amby renames or moves it. Before, versions were kept by
+    // path only: the renamed note showed an empty history, and a new note at the old path showed (and
+    // could restore) the versions of another note.
+    fn change(vault: &Path, old: &str, new: &str) -> crate::model::PathChange {
+        crate::model::PathChange {
+            old_path: vault.join(old).to_string_lossy().into_owned(),
+            new_path: vault.join(new).to_string_lossy().into_owned(),
+        }
+    }
+
+    #[test]
+    fn history_follows_a_renamed_note_and_a_new_note_at_the_old_path_has_none() {
+        let vault = temp_vault().canonicalize().unwrap();
+        let old = vault.join("Ideas.md");
+        fs::write(&old, "v1").unwrap();
+        snapshot_before_write(&vault, &old, b"v2", "edit").unwrap();
+        let new = vault.join("Ideas 2026.md");
+        fs::rename(&old, &new).unwrap();
+
+        let moved = move_snapshot_sources(&vault, &[change(&vault, "Ideas.md", "Ideas 2026.md")]);
+        assert_eq!(moved, Ok(1));
+        assert_eq!(list_snapshots(&vault, &new).unwrap().len(), 1);
+        fs::write(&old, "a new note").unwrap();
+        assert!(list_snapshots(&vault, &old).unwrap().is_empty());
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn history_follows_every_note_of_a_moved_folder() {
+        let vault = temp_vault().canonicalize().unwrap();
+        fs::create_dir_all(vault.join("Folder")).unwrap();
+        fs::create_dir_all(vault.join("Other")).unwrap();
+        let note = vault.join("Folder/a.md");
+        fs::write(&note, "v1").unwrap();
+        snapshot_before_write(&vault, &note, b"v2", "edit").unwrap();
+        fs::rename(vault.join("Folder"), vault.join("Other/Folder")).unwrap();
+
+        move_snapshot_sources(
+            &vault,
+            &[change(&vault, "Folder/a.md", "Other/Folder/a.md")],
+        )
+        .unwrap();
+        assert_eq!(
+            list_snapshots(&vault, &vault.join("Other/Folder/a.md"))
+                .unwrap()
+                .len(),
+            1
+        );
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn moving_sources_writes_nothing_when_there_is_no_history() {
+        let vault = temp_vault().canonicalize().unwrap();
+        assert_eq!(
+            move_snapshot_sources(&vault, &[change(&vault, "A.md", "B.md")]),
+            Ok(0)
+        );
+        assert!(!history_root(&vault).exists());
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    // CORE-08: automatic cleanup must not remove the snapshots that are promised as the last copy:
+    // the author's own spelling before a Live Preview rewrite, what a sync replaced, what a restore
+    // replaced. The newest of each kind stays for every note.
+    #[test]
+    fn auto_prune_keeps_the_newest_safety_snapshot_of_each_kind() {
+        let vault = temp_vault();
+        let amby_dir = vault.join(".amby");
+        fs::create_dir_all(&amby_dir).unwrap();
+        fs::write(
+            amby_dir.join("workspace.json"),
+            r#"{"moduleSettings": {"history": {"autoPrune": true, "maxCopies": 2}}}"#,
+        )
+        .unwrap();
+        let note = vault.join("Note.md");
+        fs::write(&note, "author's spelling").unwrap();
+        snapshot_before_write(&vault, &note, b"v1", SOURCE_REWRITE_REASON).unwrap();
+        fs::write(&note, "v1").unwrap();
+        snapshot_before_write(&vault, &note, b"v2", SYNC_OVERWRITE_REASON).unwrap();
+        for (current, next) in [("v2", "v3"), ("v3", "v4"), ("v4", "v5")] {
+            fs::write(&note, current).unwrap();
+            snapshot_before_write(&vault, &note, next.as_bytes(), "edit").unwrap();
+        }
+        let reasons = list_snapshots(&vault, &note)
+            .unwrap()
+            .into_iter()
+            .map(|snapshot| snapshot.reason)
+            .collect::<Vec<_>>();
+        assert!(
+            reasons.iter().any(|reason| reason == SOURCE_REWRITE_REASON),
+            "{reasons:?}"
+        );
+        assert!(
+            reasons.iter().any(|reason| reason == SYNC_OVERWRITE_REASON),
+            "{reasons:?}"
+        );
+        assert_eq!(
+            reasons.iter().filter(|reason| *reason == "edit").count(),
+            2,
+            "{reasons:?}"
+        );
         fs::remove_dir_all(vault).unwrap();
     }
 }

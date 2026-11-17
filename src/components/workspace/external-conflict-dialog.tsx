@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { errorType, logger } from "@/lib/logger"
+import { discardRecoveryDraft } from "@/lib/recovery-drafts"
 import {
   isTauri,
   NoteRevisionConflictError,
@@ -25,6 +26,7 @@ import {
   pendingSourceRewriteSnapshot,
   settleSourceRewriteSnapshot,
 } from "./autosave/source-rewrite"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 /**
  * Prevents an external editor from being silently overwritten by a dirty
@@ -120,6 +122,10 @@ export function ExternalConflictDialog() {
         source: activeConflict.sourceTemplate ?? document.source,
       })
       markSaved(activeConflict.fileId)
+      // The dirty local text is given up: its recovery draft would be offered again on the next open.
+      const scope = { vault, generation: backendGeneration }
+      void discardRecoveryDraft(activeConflict.fileId, scope)
+      void discardRecoveryDraft(document.path, scope)
     }
     clearExternalConflict(activeConflict.fileId)
     emitAutosaveConflictResolution(activeConflict.fileId, "discard")
@@ -242,11 +248,7 @@ export function ExternalConflictDialog() {
             {t("conflict.localCopySaved", { path: copyPath })}
           </p>
         )}
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
+        {error && <NoticeLine role="alert" text={error} />}
         <p className="text-xs text-muted-foreground">{t("conflict.dismissHint")}</p>
       </DialogContent>
     </Dialog>

@@ -1,6 +1,4 @@
-use crate::logging::{
-    DebugBackendStatus, DebugConfig, DebugEvent, DebugRuntime, DebugState, LogLevel,
-};
+use crate::logging::{DebugBackendStatus, DebugConfig, DebugEvent, DebugRuntime, DebugState};
 use std::path::PathBuf;
 
 fn runtime<'a>(state: &'a tauri::State<'_, DebugState>) -> &'a DebugRuntime {
@@ -104,37 +102,12 @@ pub fn log_file_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(log_dir(app)?.join("amby-debug.jsonl"))
 }
 
-fn open_in_system_explorer(path: &std::path::Path) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("explorer")
-            .arg(path)
-            .spawn()
-            .map_err(|_| "OpenFolderFailed".to_owned())?;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(path)
-            .spawn()
-            .map_err(|_| "OpenFolderFailed".to_owned())?;
-    }
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(path)
-            .spawn()
-            .map_err(|_| "OpenFolderFailed".to_owned())?;
-    }
-    Ok(())
-}
-
 #[tauri::command]
 #[specta::specta]
 pub fn open_log_folder(app: tauri::AppHandle) -> Result<(), String> {
     let dir = log_dir(&app)?;
     std::fs::create_dir_all(&dir).map_err(|_| "LogDirectoryUnavailable".to_owned())?;
-    open_in_system_explorer(&dir)
+    crate::system_open::open_path(&dir).map_err(|_| "OpenFolderFailed".to_owned())
 }
 
 #[tauri::command]
@@ -149,114 +122,5 @@ pub fn toggle_devtools(app: tauri::AppHandle, window: tauri::WebviewWindow) -> R
     } else {
         target.open_devtools();
     }
-    Ok(())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn open_devtools(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<(), String> {
-    use tauri::Manager;
-    let target = app
-        .get_webview_window(crate::state::MAIN_WINDOW_LABEL)
-        .unwrap_or(window);
-    target.open_devtools();
-    Ok(())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn is_devtools_open(
-    app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
-) -> Result<bool, String> {
-    use tauri::Manager;
-    let target = app
-        .get_webview_window(crate::state::MAIN_WINDOW_LABEL)
-        .unwrap_or(window);
-    Ok(target.is_devtools_open())
-}
-
-// Compatibility shims for older frontend builds. They expose only sanitized
-// JSONL events; arbitrary text payloads and legacy plaintext logs are rejected.
-#[tauri::command]
-#[specta::specta]
-pub fn get_log_dir_path(app: tauri::AppHandle) -> Result<String, String> {
-    Ok(log_dir(&app)?.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn get_log_file_path(app: tauri::AppHandle) -> Result<String, String> {
-    Ok(log_file_path(&app)?.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn read_log_file(
-    state: tauri::State<'_, DebugState>,
-    max_bytes: Option<usize>,
-) -> Result<String, String> {
-    let _ = max_bytes;
-    runtime(&state)
-        .history()?
-        .iter()
-        .map(serde_json::to_string)
-        .collect::<Result<Vec<_>, _>>()
-        .map(|lines| lines.join("\n"))
-        .map_err(|_| "SerializeFailed".to_owned())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn clear_log_file(state: tauri::State<'_, DebugState>) -> Result<(), String> {
-    runtime(&state).clear()
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn append_log(state: tauri::State<'_, DebugState>, line: String) -> Result<(), String> {
-    if line.len() > 64 * 1024 {
-        return Err("EventTooLarge".to_owned());
-    }
-    let mut imported = 0;
-    for raw in line.lines() {
-        let event: DebugEvent =
-            serde_json::from_str(raw).map_err(|_| "InvalidEventPayload".to_owned())?;
-        runtime(&state).ingest(event)?;
-        imported += 1;
-    }
-    if imported == 0 {
-        return Err("InvalidEventPayload".to_owned());
-    }
-    Ok(())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn get_recent_logs(state: tauri::State<'_, DebugState>) -> Result<Vec<String>, String> {
-    runtime(&state)
-        .recent()
-        .iter()
-        .map(serde_json::to_string)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| "SerializeFailed".to_owned())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn set_debug_mode_enabled(
-    state: tauri::State<'_, DebugState>,
-    enabled: bool,
-) -> Result<(), String> {
-    let current = runtime(&state).status(false, false, false)?.config;
-    runtime(&state).configure(DebugConfig {
-        enabled,
-        log_level: if enabled && current.log_level == LogLevel::Info {
-            LogLevel::Debug
-        } else {
-            current.log_level
-        },
-        log_to_file: current.log_to_file,
-    })?;
     Ok(())
 }

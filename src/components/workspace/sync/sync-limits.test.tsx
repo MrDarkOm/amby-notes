@@ -193,7 +193,7 @@ describe("the wizard meets the limit of storages (У3, Д77)", () => {
     expect(message.textContent).toMatch(/Подключите существующее/)
     expect(message.textContent).toMatch(/обратитесь к владельцу сервера/)
     expect(port.enableVault).toHaveBeenCalledTimes(1)
-    expect(port.enableVault).toHaveBeenCalledWith({ kind: "new", name: "" }, false)
+    expect(port.enableVault).toHaveBeenCalledWith({ kind: "new", name: "" })
     fireEvent.click(screen.getByRole("button", { name: "Выбрать существующее" }))
     await waitFor(() => expect(port.listSpaces).toHaveBeenCalled())
     expect(await screen.findByText("Рабочее")).toBeTruthy()

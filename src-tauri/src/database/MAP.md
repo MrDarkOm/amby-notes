@@ -4,26 +4,28 @@ Owns database durable files, queries and rebuildable projections. Entry commands
 are in [commands/database.rs](../commands/database.rs); frontend contracts are in
 [storage/database-port.ts](../../../src/lib/storage/database-port.ts).
 
-| Concern                                       | Owner                                                                                                    |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Domain/IPC types                              | [model.rs](model.rs)                                                                                     |
-| Failure reasons (stable codes for the UI)     | [failure.rs](failure.rs): `FailureReason`, `classify`; see docs/database-runtime.md §12                  |
-| Durable parse/validation/discovery            | [format.rs](format.rs), [validation.rs](validation.rs), [discovery.rs](discovery.rs)                     |
-| Schema/value mutations and write coordination | [mutations/](mutations/) (one module per kind, see below), [mutation_state.rs](mutation_state.rs)                                     |
-| Rows (create, duplicate) and attachments      | [rows.rs](rows.rs), [assets.rs](assets.rs)                                                               |
-| Saved view operations                         | [views.rs](views.rs)                                                                                     |
-| SQLite projection / incremental publication   | [projection.rs](projection.rs)                                                                           |
-| Query compilation / aggregation               | [query.rs](query.rs)                                                                                     |
+| Concern | Owner |
+| --- | --- |
+| Domain/IPC types | [model.rs](model.rs) |
+| Failure reasons (stable codes for the UI) | [failure.rs](failure.rs): `FailureReason`, `classify`; see docs/database-runtime.md §12 |
+| Durable parse/validation/discovery | [format.rs](format.rs), [validation.rs](validation.rs), [discovery.rs](discovery.rs) |
+| Schema/value mutations and write coordination | [mutations/](mutations/) (one module per kind, see below), [mutation_state.rs](mutation_state.rs) |
+| Rows (create, duplicate) and attachments | [rows.rs](rows.rs), [assets.rs](assets.rs) |
+| Saved view operations | [views.rs](views.rs) |
+| SQLite projection / incremental publication | [projection.rs](projection.rs) |
+| Query compilation / aggregation | [query.rs](query.rs) |
 | Filter operator registry | [filter_operators.rs](filter_operators.rs) |
-| Formula evaluation                            | [formula.rs](formula.rs)                                                                                 |
+| Formula evaluation | [formula.rs](formula.rs) |
 | Rollup aggregation registry / config | [rollup.rs](rollup.rs), [rollup_config.rs](rollup_config.rs) |
-| YAML synchronization                          | [yaml_sync.rs](yaml_sync.rs)                                                                             |
+| YAML synchronization | [yaml_sync.rs](yaml_sync.rs) |
 | Layout v2 / explicit backed-up upgrade | [layout.rs](layout.rs), [layout/tests.rs](layout/tests.rs) |
-| Mutation history                               | [history.rs](history.rs)                                                                                 |
-| Value-batch journal / startup rollback        | [value_batch_recovery.rs](value_batch_recovery.rs)                                                       |
-| Relation journals / activation recovery       | [relation_recovery.rs](relation_recovery.rs), [relation_schema_recovery.rs](relation_schema_recovery.rs) |
+| Mutation history | [history.rs](history.rs) |
+| Value-batch journal / startup rollback | [value_batch_recovery.rs](value_batch_recovery.rs) |
+| Relation journals / activation recovery | [relation_recovery.rs](relation_recovery.rs), [relation_schema_recovery.rs](relation_schema_recovery.rs) |
 | Relation picker search / reference lookup | [relation_lookup.rs](relation_lookup.rs) |
-| Runtime/module state and events               | [runtime_state.rs](runtime_state.rs), [events.rs](events.rs)                                             |
+| Runtime/module state and events | [runtime_state.rs](runtime_state.rs), [events.rs](events.rs) |
+| Command sequence (gate, generation, module switch, lock, projection refresh, notification) | [mutation_run.rs](mutation_run.rs): `run_database_mutation` / `run_database_exclusive` / `run_database_read`, `DatabaseScope`, typed `ProjectionOutcome` and `ProjectionWarning` |
+| Lists the UI reads from the projection (database list, note context, properties, options) | [summary.rs](summary.rs) |
 
 `mutations/` keeps a flat public surface (`database::mutations::*`, re-exported from `mod.rs`):
 `types.rs` request/result types; `create.rs` create/rename database; `property_create.rs`,
@@ -31,7 +33,7 @@ are in [commands/database.rs](../commands/database.rs); frontend contracts are i
 `property_options.rs` property schema edits; `relation_schema.rs` relation config helpers;
 `relation_value.rs` + `relation_write.rs` relation value updates and their rollback;
 `value_batch.rs` value batches; `durable_values.rs` the "no stored values" guard;
-`support.rs` JSON/path helpers. Tests under `mutations/tests/` follow the same names;
+`support.rs` JSON/path helpers (index = hint). Tests under `mutations/tests/` follow the same names;
 `common.rs` holds fixtures shared by several of them.
 
 Read [database format](../../../docs/database-format.md),
@@ -42,6 +44,17 @@ proposals too; confirm actual durable layout in `format.rs` and its fixtures/tes
 Before a watcher-driven projection refresh or rebuild, pending note-index changes are
 consumed first (`ActiveVault::refresh_pending_index`): projection membership depends on
 the note index and can otherwise omit newly received notes.
+Rebuilds freeze per database (`frozen_database_ids`); errors outside containers don't.
+Row/property commands use `DatabaseScope::rebuild_databases_or_warn` (changed database + relation
+closure; unprovable → full).
+
+`commands/database.rs` is a thin boundary: a writing command is one `run_database_mutation` call whose body
+does the durable write and then refreshes through the `DatabaseScope` (`rebuild_or_warn`, `refresh_views`,
+`refresh_values`, `refresh_after_history`, `index_created_row`). Never copy the lock/generation/notify
+sequence into a command, never put SQL in it (add it to `summary.rs`) and never compare warnings by text:
+a new refresh warning is a `ProjectionWarning` variant, its sentence written only in `mutation_run.rs`.
+A failed refresh never undoes the durable write; it is a `ProjectionOutcome::Failed` and, where the result
+carries `warnings`, a warning. The windows are notified only after the locks are released and only on success.
 
 Keep durable writes separate from cache health; disabling a module or rebuilding
 SQLite must not discard source data. Preserve unknown fields. Failed formula or

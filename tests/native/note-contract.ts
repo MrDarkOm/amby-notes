@@ -11,13 +11,7 @@ import {
   readRecoveryDraft,
   discardRecoveryDraft,
 } from "../../src/lib/recovery-drafts"
-import {
-  createDatabase,
-  listDatabases,
-  noteLayers,
-  setStorageAdapter,
-  settingsRepository,
-} from "../../src/lib/storage"
+import { createDatabase, listDatabases, noteLayers, setStorageAdapter } from "../../src/lib/storage"
 import { createDatabaseLayoutPort } from "../../src/lib/storage/database-layout-repository"
 import type { StorageContractContext } from "../../src/lib/storage/storage-contract"
 import { AutosaveCoordinator } from "../../src/components/workspace/autosave/autosave-coordinator"
@@ -607,7 +601,7 @@ export const nativeNoteCases: Array<{
     async run({ adapter, vaultPath }) {
       const note = await adapter.createNote(vaultPath, vaultPath, "Delete Failure")
       const original = await adapter.readFile(note.primaryPath!)
-      await settingsRepository.writeVaultRaw("archive", "blocker")
+      await adapter.writeFile(joinStoragePath(vaultPath, ".amby/archive"), "blocker")
 
       let failed = false
       try {

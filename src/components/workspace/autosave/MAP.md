@@ -12,7 +12,7 @@ Read [vault format](../../../../docs/vault-format.md) before changing persistenc
 | Initial/recovery loading                 | [use-document-loading.ts](../file-actions/use-document-loading.ts), [markdown-recovery-load.ts](../markdown-recovery-load.ts), [recovery-restore.ts](../recovery-restore.ts) |
 | Watcher reconciliation                   | [external-note-reconciliation.ts](../external-note-reconciliation.ts), [watcher-tree-reconciliation.ts](../watcher-tree-reconciliation.ts)                                   |
 | Conflict signal and UI                   | [conflict-events.ts](conflict-events.ts), [external-conflict-dialog.tsx](../external-conflict-dialog.tsx)                                                                    |
-| Queue and durable draft bridge           | [per-key-queue.ts](../../../lib/per-key-queue.ts), [recovery-drafts.ts](../../../lib/recovery-drafts.ts)                                                                     |
+| Queue and durable draft bridge           | [note-mutation-queue.ts](../note-mutation-queue.ts), [recovery-drafts.ts](../../../lib/recovery-drafts.ts)                                                                   |
 | Filesystem save and recovery             | [storage map](../../../lib/storage/MAP.md), [Rust map](../../../../src-tauri/src/MAP.md)                                                                                     |
 
 Body saves and standalone property writes share [note-mutation-queue.ts](../note-mutation-queue.ts).
@@ -33,7 +33,7 @@ A failed save of an open note sets `saveFailed` in [note-notices](../note-notice
 new load); a note that is no longer open gets a record of danger and a toast (`closedSaveFailed`), never a window of the system. A recovery draft that differs from the disk is
 not asked about in a dialog: `resolveMarkdownRecoveryLoad` returns it as an `offer`, `use-document-loading.ts` registers it as a
 draft offer (accept: draft into the buffer, history snapshot, queued save; reject: drop it from the journal) and the note stays read
-only until the answer. The journal keeps the draft meanwhile. Canvas and sketch ask in the window of the application (`confirmations.restoreDraft`, [layer-draft.ts](../orchestration/layer-draft.ts)): only the button "Do not restore" drops the draft; Escape or a click away keeps it and holds the layer ([held-drafts-store.ts](../held-drafts-store.ts)): the disk is shown read only and the question comes again when the layer is shown. A sketch or canvas that Amby itself deleted (to the trash) drops every later save of its closing editor: [deleted-paths.ts](deleted-paths.ts), used by `discardDeleted` of [use-sketch-workspace.ts](../orchestration/use-sketch-workspace.ts) and [use-canvas-workspace.ts](../orchestration/use-canvas-workspace.ts); the compare-and-swap write on the missing file would otherwise ask the question below, and "Overwrite" would bring the deleted file back (opening the path again lifts the guard). The question about overwriting a file changed elsewhere ([file-revision-tracker.ts](file-revision-tracker.ts)) and the questions of the vault switch and of the migration of ids ([use-vault-data.ts](../use-vault-data.ts)) are asked the same way.
+only until the answer. The journal keeps the draft meanwhile. Canvas and sketch ask in the window of the application (`confirmations.restoreDraft`, [layer-draft.ts](../orchestration/layer-draft.ts)): only the button "Do not restore" drops the draft; Escape or a click away keeps it and holds the layer ([held-drafts-store.ts](../held-drafts-store.ts)): the disk is shown read only and the question comes again when the layer is shown. A sketch or canvas that Amby itself deleted (to the trash) drops every later save of its closing editor: [deleted-paths.ts](deleted-paths.ts), used by `discardDeleted` of [use-layer-workspace.ts](../orchestration/use-layer-workspace.ts) (shared by [use-sketch-workspace.ts](../orchestration/use-sketch-workspace.ts) and [use-canvas-workspace.ts](../orchestration/use-canvas-workspace.ts)); the compare-and-swap write on the missing file would otherwise ask the question below, and "Overwrite" would bring the deleted file back (opening the path again lifts the guard). The question about overwriting a file changed elsewhere ([file-revision-tracker.ts](file-revision-tracker.ts)) and the questions of the vault switch and of the migration of ids ([use-vault-data.ts](../use-vault-data.ts)) are asked the same way.
 
 The save that may first rewrite a block's source asks for a history snapshot through
 [source-rewrite.ts](source-rewrite.ts) (`rewritesSource` on the write).
@@ -47,6 +47,10 @@ window lifecycle transitions; do not create a second autosave queue in a compone
 Verification: colocated coordinator/lifecycle/integration tests,
 [use-markdown-autosave.test.ts](../file-actions/use-markdown-autosave.test.ts),
 [document-persistence-stress.test.tsx](../../../../tests/component/document-persistence-stress.test.tsx),
+[autosave-real-integration.test.tsx](../../../../tests/component/autosave-real-integration.test.tsx)
+(the real autosave, vault-data watcher/close paths and `reloadOpenNotes` over a fake storage port: the suite
+to extend for races between typing, external changes, reloads and closing; `autosave-integration-harness.test.ts`
+and the stress test use a fake renderer with its own dirty flag and cannot catch those),
 then targeted browser/native scenarios. Include a failed save, a newer edit during
 an in-flight save, external mutation and a vault/tab transition for relevant changes.
 
@@ -62,3 +66,5 @@ When an external tree refresh no longer contains an open canvas or sketch, the t
 `remap-layer-autosave.ts` moves a canvas or sketch revision baseline before remapping its queued save and changes the queued payload to the new path.
 
 Recovery remapping checks the local queue for edits that arrive during the move. A draft already present at the destination is left intact along with the source; separate windows can still race and need native verification.
+
+A rename or move of a canvas, a sketch or their folder first holds their queued saves and waits for the running write (`holdLayerAutosavesInside` in [autosave-lifecycle.ts](autosave-lifecycle.ts), called by `handleRenameFile`), then resumes the queue under its new path: a write to the old path would ask the "changed elsewhere" question and "Overwrite" would bring the old file back.

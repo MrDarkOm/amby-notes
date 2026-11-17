@@ -764,3 +764,33 @@ fn the_entry_has_the_fields_of_the_contract_in_camel_case() {
     assert_eq!(object["source"], "bundle");
     assert_eq!(ConflictError::NotText.code(), "not_text");
 }
+
+#[test]
+fn a_set_whose_meta_names_a_path_outside_the_vault_is_not_listed_or_read() {
+    // SYNC-03: `meta.json` travels with the sync, so its `path` is not trusted; a path that
+    // leads out of the vault gives no conflict, and nothing outside the vault is read.
+    for path in [
+        "../secret.md",
+        "Notes/../../secret.md",
+        "/etc/passwd",
+        "a\\b.md",
+        "",
+    ] {
+        let vault = TempVault::new("conflicts");
+        std::fs::write(vault.root.parent().unwrap().join("secret.md"), b"secret\n").unwrap();
+        make_set(
+            &vault,
+            ID,
+            "bothEdited",
+            ITEM,
+            path,
+            "other.md",
+            b"other\n",
+            None,
+        );
+        let mut conflicts = store(&vault);
+        let listed = conflicts.list().unwrap();
+        assert!(listed.is_empty(), "{path:?} was listed: {listed:?}");
+        assert!(matches!(conflicts.read(ID), Err(ConflictError::Incomplete)));
+    }
+}

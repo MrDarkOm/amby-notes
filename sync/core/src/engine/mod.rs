@@ -50,8 +50,8 @@ pub use model::{
 };
 pub use ports::{
     AccountInfo, BlobState, ChangeEntry, ChangesPage, Clock, CommitAccepted, CommitItem,
-    CommitReply, FsError, LimitSource, Listing, LocalEntry, LocalFs, LocalKind, NameRules, Remote,
-    RemoteError, RootState, ServerInfo, SnapshotReason, StagedWrite, StateError, StateLock,
-    StateStore, TrashReason, VersionConflict, VersionEntry,
+    CommitReply, ExpectedLocal, FsError, LimitSource, Listing, LocalEntry, LocalFs, LocalKind,
+    NameRules, Remote, RemoteError, RootState, ServerInfo, SnapshotReason, StagedWrite, StateError,
+    StateLock, StateStore, TrashReason, VersionConflict, VersionEntry,
 };
 pub use sync::{Engine, EngineBuilder, EngineConfig, Ports, SyncEngine};

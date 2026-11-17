@@ -29,6 +29,7 @@ import {
 } from "./text-schema-presets"
 import { useOperationId } from "./use-operation-id"
 import { ShownError, projectErrorText } from "@/lib/operation-errors"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 export type CreativeCreationKind = "story" | "universe"
 
@@ -314,11 +315,7 @@ export function CreateProjectDialog({
             </div>
           )}
 
-          {error && (
-            <p role="alert" className="text-xs text-destructive">
-              {error}
-            </p>
-          )}
+          {error && <NoticeLine role="alert" text={error} />}
 
           <DialogFooter>
             <Button type="button" variant="ghost" disabled={pending} onClick={onClose}>

@@ -10,7 +10,11 @@ const native = vi.hoisted(() => ({
   relaunch: vi.fn(),
   confirm: vi.fn(),
   warn: vi.fn(),
+  flushEditingWindows: vi.fn(),
 }))
+
+// SAVE-04: pending edits of every window are flushed before the new version replaces the program.
+vi.mock("@/lib/flush-all-windows", () => ({ flushEditingWindows: native.flushEditingWindows }))
 
 vi.mock("@/lib/storage", () => ({
   isTauri: native.isTauri,
@@ -51,6 +55,7 @@ beforeEach(() => {
   native.getBundleType.mockResolvedValue("nsis")
   native.check.mockResolvedValue(null)
   native.relaunch.mockResolvedValue(undefined)
+  native.flushEditingWindows.mockResolvedValue(true)
 })
 
 afterEach(() => vi.unstubAllEnvs())
@@ -60,7 +65,8 @@ function availableUpdate() {
     currentVersion: "0.1.5",
     version: "0.1.6",
     body: "Synthetic release notes",
-    downloadAndInstall: vi.fn().mockResolvedValue(undefined),
+    download: vi.fn().mockResolvedValue(undefined),
+    install: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -86,14 +92,12 @@ describe("silent startup updates", () => {
       native.getBundleType.mockResolvedValue(bundleType)
       const update = availableUpdate()
       let finishInstall!: () => void
-      update.downloadAndInstall.mockReturnValue(
-        new Promise<void>((resolve) => (finishInstall = resolve)),
-      )
+      update.download.mockReturnValue(new Promise<void>((resolve) => (finishInstall = resolve)))
       native.check.mockResolvedValue(update)
       const { runAutomaticAppUpdate } = await import("./app-updater")
       let result: string | undefined
       const task = runAutomaticAppUpdate().then((value) => (result = value))
-      await vi.waitFor(() => expect(update.downloadAndInstall).toHaveBeenCalledOnce())
+      await vi.waitFor(() => expect(update.download).toHaveBeenCalledOnce())
       expect(result).toBeUndefined()
       expect(native.relaunch).not.toHaveBeenCalled()
       expect(native.confirm).not.toHaveBeenCalled()
@@ -128,7 +132,7 @@ describe("silent startup updates", () => {
     const { checkForAppUpdate } = await import("./app-updater")
     const manual = await checkForAppUpdate()
     await manual!.install()
-    expect(update.downloadAndInstall).toHaveBeenCalledOnce()
+    expect(update.download).toHaveBeenCalledOnce()
     expect(native.getBundleType).not.toHaveBeenCalled()
   })
 
@@ -146,10 +150,8 @@ describe("silent startup updates", () => {
     const { runAutomaticAppUpdate } = await import("./app-updater")
 
     expect(await runAutomaticAppUpdate()).toBe("restarting")
-    expect(update.downloadAndInstall).toHaveBeenCalledWith(expect.any(Function), {
-      timeout: 600_000,
-      restartAfterInstall: true,
-    })
+    expect(update.download).toHaveBeenCalledWith(expect.any(Function), { timeout: 600_000 })
+    expect(update.install).toHaveBeenCalledWith({ restartAfterInstall: true })
     expect(native.relaunch).toHaveBeenCalledOnce()
     expect(update.close).toHaveBeenCalledOnce()
     expect(native.confirm).not.toHaveBeenCalled()
@@ -164,11 +166,11 @@ describe("silent startup updates", () => {
     const second = runAutomaticAppUpdate()
     expect(second).toBe(first)
     await vi.waitFor(() => expect(native.check).toHaveBeenCalledOnce())
-    expect(update.downloadAndInstall).not.toHaveBeenCalled()
+    expect(update.download).not.toHaveBeenCalled()
     finishCheck(update)
     expect(await first).toBe("restarting")
     expect(await second).toBe("restarting")
-    expect(update.downloadAndInstall).toHaveBeenCalledOnce()
+    expect(update.download).toHaveBeenCalledOnce()
     expect(native.relaunch).toHaveBeenCalledOnce()
   })
 
@@ -198,7 +200,7 @@ describe("silent startup updates", () => {
 
   it("names the version that could not be installed, so the journal can offer it for download", async () => {
     const update = availableUpdate()
-    update.downloadAndInstall.mockRejectedValue(new Error("Synthetic rejected update"))
+    update.download.mockRejectedValue(new Error("Synthetic rejected update"))
     native.check.mockResolvedValue(update)
     const { runAutomaticAppUpdate } = await import("./app-updater")
     const { useNoticeJournalStore } = await import("@/lib/notices/use-notice-journal-store")
@@ -215,7 +217,7 @@ describe("silent startup updates", () => {
 
   it("opens the existing version if download or signature verification fails", async () => {
     const update = availableUpdate()
-    update.downloadAndInstall.mockRejectedValue(new Error("Synthetic rejected update"))
+    update.download.mockRejectedValue(new Error("Synthetic rejected update"))
     native.check.mockResolvedValue(update)
     const { runAutomaticAppUpdate } = await import("./app-updater")
     expect(await runAutomaticAppUpdate()).toBe("ready")
@@ -264,7 +266,7 @@ describe("silent startup updates", () => {
 
   it("preserves manual checks and progress reporting", async () => {
     const update = availableUpdate()
-    update.downloadAndInstall.mockImplementation(async (report: (event: DownloadEvent) => void) => {
+    update.download.mockImplementation(async (report: (event: DownloadEvent) => void) => {
       report({ event: "Started", data: { contentLength: 200 } })
       report({ event: "Progress", data: { chunkLength: 100 } })
       report({ event: "Finished" })
@@ -281,6 +283,45 @@ describe("silent startup updates", () => {
       { phase: "installing" },
       { phase: "restarting" },
     ])
+  })
+})
+
+describe("flushing edits before the update replaces the program (SAVE-04)", () => {
+  it("flushes every window after the download and before the install and restart", async () => {
+    const update = availableUpdate()
+    const order: string[] = []
+    update.download.mockImplementation(async () => void order.push("download"))
+    native.flushEditingWindows.mockImplementation(async () => (order.push("flush"), true))
+    update.install.mockImplementation(async () => void order.push("install"))
+    native.relaunch.mockImplementation(async () => void order.push("relaunch"))
+    native.check.mockResolvedValue(update)
+    const { checkForAppUpdate } = await import("./app-updater")
+    await (await checkForAppUpdate())!.install()
+    expect(order).toEqual(["download", "flush", "install", "relaunch"])
+  })
+
+  it("does not install or restart when the edits could not be flushed", async () => {
+    const update = availableUpdate()
+    native.flushEditingWindows.mockResolvedValue(false)
+    native.check.mockResolvedValue(update)
+    const { checkForAppUpdate, UpdateFlushError } = await import("./app-updater")
+    const manual = await checkForAppUpdate()
+    await expect(manual!.install()).rejects.toBeInstanceOf(UpdateFlushError)
+    expect(update.install).not.toHaveBeenCalled()
+    expect(native.relaunch).not.toHaveBeenCalled()
+    // The update stays available for a retry: the handle is not released.
+    expect(update.close).not.toHaveBeenCalled()
+  })
+
+  it("does not install or restart when asking the windows throws", async () => {
+    const update = availableUpdate()
+    native.flushEditingWindows.mockRejectedValue(new Error("Synthetic channel failure"))
+    native.check.mockResolvedValue(update)
+    const { checkForAppUpdate } = await import("./app-updater")
+    const manual = await checkForAppUpdate()
+    await expect(manual!.install()).rejects.toThrow()
+    expect(update.install).not.toHaveBeenCalled()
+    expect(native.relaunch).not.toHaveBeenCalled()
   })
 })
 

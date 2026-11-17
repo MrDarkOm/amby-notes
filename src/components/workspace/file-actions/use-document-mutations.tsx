@@ -27,8 +27,11 @@ import {
   renameItem,
   type FsMutationResult,
   type DatabaseNoteContext,
+  type TreeItem,
   DatabaseOperationError,
 } from "@/lib/storage"
+import { holdLayerAutosavesInside } from "../autosave/autosave-lifecycle"
+import { useVaultStore } from "../use-vault-store"
 import { useDocStore } from "../use-doc-store"
 import { useTabsStore } from "../use-tabs-store"
 import { useTreeMessageStore } from "../tree/use-tree-message-store"
@@ -50,6 +53,16 @@ type Params = Pick<
   "vault" | "treeItems" | "setTreeItems" | "refreshTree" | "backendGeneration"
 > &
   MarkdownAutosaveActions & { handleSelect: (id: string) => Promise<void> }
+
+/** Where a path ended up after a mutation: a moved path, or one under a moved folder. */
+function pathAfterMutation(result: FsMutationResult, path: string): string {
+  for (const { oldPath, newPath } of result.pathChanges) {
+    if (!oldPath || !newPath) continue
+    if (path === oldPath) return newPath
+    if (path.startsWith(`${oldPath}/`)) return `${newPath}${path.slice(oldPath.length)}`
+  }
+  return path
+}
 
 /**
  * The app's own writes do not reach the open databases (the watcher skips them): after a note went into
@@ -191,6 +204,8 @@ export function useDocumentMutations({
       const item = findTreeItem(treeItems, id)
       if (!item) return { status: "skipped" }
       let finishLocalMutation: (() => void) | null = null
+      let releaseLayerSaves: ((newPathOf: (oldPath: string) => string) => void) | null = null
+      let newPathOf = (oldPath: string) => oldPath
       try {
         const path = item.path ?? id
         const preview = await previewRenameRefactor(vault ?? "", path, newName)
@@ -205,7 +220,13 @@ export function useDocumentMutations({
         )
           return { status: "skipped" }
         finishLocalMutation = beginLocalTreeMutation()
+        // A queued save of a canvas or sketch must not meet the old path gone (SAVE-10).
+        releaseLayerSaves = await holdLayerAutosavesInside(
+          useVaultStore.getState().generation,
+          path,
+        )
         const result = await renameItem(vault ?? "", path, newName)
+        newPathOf = (oldPath) => pathAfterMutation(result, oldPath)
         handleApplyMutation(result)
         // A page that databases list changed its title: their lists read it again.
         useDatabaseStore.getState().invalidateHosts()
@@ -222,6 +243,7 @@ export function useDocumentMutations({
         return { status: "failed", text: operationErrorText(error) }
       } finally {
         finishLocalMutation?.()
+        releaseLayerSaves?.(newPathOf)
       }
     },
     [handleApplyMutation, patchDoc, setTabs, treeItems, vault],
@@ -292,14 +314,21 @@ export function useDocumentMutations({
       )
         return "skipped"
 
-      const previousTree = treeItems
-      setTreeItems((current) =>
-        moveTreeItemsOptimistically(
+      // The rollback needs the raw tree the setter holds, not `treeItems`: that one is the displayed
+      // tree, with icons and types of the primary layer mixed in, and would stick to the raw one.
+      let previousTree: TreeItem[] | null = null
+      setTreeItems((current) => {
+        previousTree = current
+        return moveTreeItemsOptimistically(
           current,
           sourceEntries.map(({ source }) => source.id),
           targetId,
-        ),
-      )
+        )
+      })
+      const restoreTree = () => {
+        if (previousTree) setTreeItems(previousTree)
+        else void refreshTree()
+      }
 
       const results: FsMutationResult[] = []
       const finishLocalMutation = beginLocalTreeMutation()
@@ -329,7 +358,7 @@ export function useDocumentMutations({
               }),
             ))
           ) {
-            setTreeItems(previousTree)
+            restoreTree()
             return "skipped"
           }
         }
@@ -393,7 +422,7 @@ export function useDocumentMutations({
         if (results.length) {
           await refreshTree()
         } else {
-          setTreeItems(previousTree)
+          restoreTree()
         }
         console.error("Failed to move item:", error)
         // Said under the tree, where the note was dragged; the cause stays in the log (docs/notices.md, section 10).
@@ -420,7 +449,7 @@ export function useDocumentMutations({
         finishLocalMutation()
       }
     },
-    [handleApplyMutation, offerPropertiesToDatabase, setTreeItems, treeItems, vault],
+    [handleApplyMutation, offerPropertiesToDatabase, refreshTree, setTreeItems, treeItems, vault],
   )
   const handleMergeFile = React.useCallback(
     async (sourceId: string, targetId: string) => {

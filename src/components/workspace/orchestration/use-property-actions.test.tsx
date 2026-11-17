@@ -17,7 +17,6 @@ vi.mock("@/lib/storage", async (original) => ({
 const records = new Map<string, storage.CustomProperty>()
 const empty = { hasFrontmatter: false, properties: [], customProperties: [] }
 const tree = new Map<string, storage.TreeItem>()
-const links = { edges: [] }
 let generation = 100
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -38,7 +37,6 @@ function open() {
       vault,
       activeTab: null,
       treeItemById: tree,
-      linkGraph: links,
       t: i18n.t,
     })
   })

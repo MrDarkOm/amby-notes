@@ -13,8 +13,8 @@ use walkdir::WalkDir;
 use super::identity::{is_path_identity, is_sync_conflict_copy, CONFLICT_PREFIX};
 use super::links::{build_note_lookup, resolve_links_for_note_with};
 use super::sync::{
-    assign_missing_identities, read_scanned_note, resolve_scanned_id, upsert_scanned_note,
-    SyncReport,
+    assign_missing_identities, detect_moves, read_scanned_note, relink_history, resolve_scanned_id,
+    upsert_scanned_note, IdentityProbe, SyncReport,
 };
 use crate::vault::scan::*;
 
@@ -220,8 +220,14 @@ pub fn sync_paths(
     let mut updated = 0;
     let mut path_to_id = HashMap::new();
     let mut upserted = Vec::new();
+    let mut probes = Vec::new();
     for note in notes {
-        let (id, _duplicate) = resolve_scanned_id(vault, &note, &seen_ids, &mut warnings);
+        let (id, duplicate) = resolve_scanned_id(vault, &note, &seen_ids, &mut warnings);
+        // An id that other files already claim (rows under a path key) is not one note's alone:
+        // its history is not moved. Files that claim it and are outside the changed paths are
+        // not visible here; the full scan, which sees them, takes the same decision later.
+        let contested = !is_path_identity(&id) && has_conflict_rows(&tx, &id)?;
+        probes.push(IdentityProbe::new(&note, &id, duplicate || contested));
         if upsert_scanned_note(&tx, &id, &note)? {
             updated += 1;
         } else {
@@ -254,6 +260,8 @@ pub fn sync_paths(
     for id in &upserted {
         resolve_links_for_note_with(&tx, id, &lookup)?;
     }
+    // A rename from sync or outside Amby: the history follows (CORE-03), before the commit.
+    relink_history(vault, &detect_moves(vault, &db_by_id, &probes));
     tx.commit().map_err(|error| error.to_string())?;
 
     Ok(Some(SyncReport {

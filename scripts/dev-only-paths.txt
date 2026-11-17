@@ -1,6 +1,8 @@
 # Files that live only on the dev branch: instructions for AI agents, code maps and working
 # plans. `npm run promote` removes them when dev is promoted to beta, so beta and main carry
 # only the product. One git pathspec per line; blank lines and lines starting with # are skipped.
+# The list itself is development-only too: `promote` reads it from dev (`git show`), so beta and
+# main do not need a copy that goes stale.
 AGENTS.md
 CLAUDE.md
 GEMINI.md
@@ -12,3 +14,4 @@ docs/ai
 docs/road
 docs/audit
 docs/sync-plan.md
+scripts/dev-only-paths.txt

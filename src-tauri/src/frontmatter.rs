@@ -1,12 +1,21 @@
 use serde_yaml::{Mapping, Value};
 use std::fs;
-use std::io::{Read, Write};
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::model::{FrontmatterProperty, FrontmatterStatus, NoteProperties};
 
-static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+// The atomic-write layer lives in `atomic_fs`; the old paths stay valid.
+pub use crate::atomic_fs::{
+    atomic_copy_file_new, atomic_write_bytes, atomic_write_bytes_new, atomic_write_new,
+    AtomicCreateError,
+};
+pub(crate) use crate::atomic_fs::{
+    atomic_rename_with_retry, publish_prepared_no_replace, sync_parent_directory,
+};
+#[cfg(test)]
+pub(crate) use crate::atomic_fs::{
+    clear_atomic_write_failure, inject_nth_atomic_write_abort, inject_nth_atomic_write_failure,
+};
 
 pub const AMBY_ID_FIELD: &str = "amby-id";
 /// Optional Amby-owned display name. It is intentionally namespaced so a
@@ -20,190 +29,11 @@ pub fn is_amby_id(id: &str) -> bool {
         .unwrap_or(false)
 }
 
-#[cfg(test)]
-thread_local! {
-    static FORCE_HARD_LINK_UNSUPPORTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    static FAIL_NO_REPLACE_FALLBACK_COPY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    static CREATE_TARGET_AT_PUBLISH: std::cell::RefCell<Option<Vec<u8>>> = const { std::cell::RefCell::new(None) };
-}
-
-/// Flush the containing directory after publishing a rename. On Unix this
-/// makes the rename durable across a sudden power loss, rather than merely
-/// visible to the running process. Windows does not allow opening directories
-/// as files through the standard library, so the renamed file's own sync is
-/// still the strongest portable guarantee there.
-#[cfg(unix)]
-pub(crate) fn sync_parent_directory(parent: &Path) -> Result<(), String> {
-    fs::File::open(parent)
-        .and_then(|dir| dir.sync_all())
-        .map_err(|error| error.to_string())
-}
-
-#[cfg(not(unix))]
-pub(crate) fn sync_parent_directory(_parent: &Path) -> Result<(), String> {
-    Ok(())
-}
-
-// Test-only fault injection makes every atomic-write boundary observable. It
-// is deliberately compiled out of release builds, so no environment variable
-// or hidden production switch can interrupt a user save.
-#[cfg(test)]
-thread_local! {
-    static FAIL_ATOMIC_WRITE_STAGE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
-}
-
-// Test-only operation-level fault: fail the n-th `atomic_write_bytes` call on
-// this thread, either before the rename (target untouched) or right after it
-// (target published, caller sees an error as after a crash).
-#[cfg(test)]
-thread_local! {
-    static FAIL_NTH_ATOMIC_WRITE: std::cell::Cell<(u64, bool)> = const { std::cell::Cell::new((0, false)) };
-    static ATOMIC_WRITE_CALLS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
-    static ABORT_AT_FAULT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-#[cfg(test)]
-pub(crate) fn inject_nth_atomic_write_failure(nth: u64, after_publish: bool) {
-    ATOMIC_WRITE_CALLS.with(|calls| calls.set(0));
-    FAIL_NTH_ATOMIC_WRITE.with(|fault| fault.set((nth, after_publish)));
-}
-
-/// Like [`inject_nth_atomic_write_failure`] but the process aborts at the
-/// fault, with no unwinding and no error return, to model a real crash.
-#[cfg(test)]
-pub(crate) fn inject_nth_atomic_write_abort(nth: u64, after_publish: bool) {
-    ABORT_AT_FAULT.with(|abort| abort.set(true));
-    inject_nth_atomic_write_failure(nth, after_publish);
-}
-
-#[cfg(test)]
-pub(crate) fn clear_atomic_write_failure() -> u64 {
-    FAIL_NTH_ATOMIC_WRITE.with(|fault| fault.set((0, false)));
-    ATOMIC_WRITE_CALLS.with(|calls| calls.get())
-}
-
-/// Returns `Some(after_publish)` when this call is the one to fail.
-#[cfg(test)]
-fn nth_write_fault() -> Option<bool> {
-    let call = ATOMIC_WRITE_CALLS.with(|calls| {
-        calls.set(calls.get() + 1);
-        calls.get()
-    });
-    let (nth, after) = FAIL_NTH_ATOMIC_WRITE.with(|fault| fault.get());
-    let hit = nth != 0 && call == nth;
-    if hit && ABORT_AT_FAULT.with(|abort| abort.get()) && !after {
-        // Crash before the rename: the target was never touched.
-        std::process::abort();
-    }
-    hit.then_some(after)
-}
-
-#[cfg(not(test))]
-fn nth_write_fault() -> Option<bool> {
-    None
-}
-
-#[cfg(test)]
-fn fail_if_requested(stage: u64) -> Result<(), String> {
-    if FAIL_ATOMIC_WRITE_STAGE.with(|requested| requested.get()) == stage {
-        return Err(format!("injected atomic-write failure at stage {stage}"));
-    }
-    Ok(())
-}
-
-#[cfg(not(test))]
-fn fail_if_requested(_stage: u64) -> Result<(), String> {
-    Ok(())
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum AtomicCreateError {
-    AlreadyExists,
-    Other(String),
-}
-
-fn atomic_create_error(error: std::io::Error) -> AtomicCreateError {
-    if error.kind() == std::io::ErrorKind::AlreadyExists {
-        AtomicCreateError::AlreadyExists
-    } else {
-        AtomicCreateError::Other(error.to_string())
-    }
-}
-
-fn hard_link_is_unsupported(error: &std::io::Error) -> bool {
-    if matches!(error.kind(), std::io::ErrorKind::Unsupported) {
-        return true;
-    }
-    // exFAT/FAT and network filesystems commonly report one of these native
-    // errors instead of ErrorKind::Unsupported. The fallback remains safe
-    // because it reserves the destination with create_new rather than rename.
-    matches!(
-        error.raw_os_error(),
-        Some(1 | 5 | 17 | 18 | 31 | 45 | 50 | 95)
-    )
-}
-
-fn create_hard_link(source: &Path, target: &Path) -> std::io::Result<()> {
-    #[cfg(test)]
-    if FORCE_HARD_LINK_UNSUPPORTED.with(|forced| forced.get()) {
-        return Err(std::io::Error::from_raw_os_error(95));
-    }
-    fs::hard_link(source, target)
-}
-
-fn fallback_copy_temp_new(source: &Path, target: &Path) -> Result<(), AtomicCreateError> {
-    let mut reader = fs::File::open(source).map_err(atomic_create_error)?;
-    let mut created_target = false;
-    let result = (|| -> Result<(), AtomicCreateError> {
-        let mut writer = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(target)
-            .map_err(atomic_create_error)?;
-        created_target = true;
-        #[cfg(test)]
-        if FAIL_NO_REPLACE_FALLBACK_COPY.with(|fail| fail.get()) {
-            return Err(AtomicCreateError::Other(
-                "injected no-replace fallback copy failure".to_string(),
-            ));
-        }
-        std::io::copy(&mut reader, &mut writer).map_err(atomic_create_error)?;
-        writer.sync_all().map_err(atomic_create_error)
-    })();
-    if result.is_err() && created_target {
-        let _ = fs::remove_file(target);
-    }
-    result
-}
-
-/// Publish a fully prepared sibling file without replacing an existing target.
-/// Hard links give an all-or-nothing publish where supported. Filesystems that
-/// reject them use a create_new reservation plus streamed, synced copy; the
-/// reservation preserves the no-overwrite guarantee even under a collision.
-pub(crate) fn publish_prepared_no_replace(
-    temp: &Path,
-    target: &Path,
-) -> Result<(), AtomicCreateError> {
-    #[cfg(test)]
-    if let Some(content) = CREATE_TARGET_AT_PUBLISH.with(|pending| pending.borrow_mut().take()) {
-        fs::write(target, content).map_err(atomic_create_error)?;
-    }
-    match create_hard_link(temp, target) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            Err(AtomicCreateError::AlreadyExists)
-        }
-        Err(error) if hard_link_is_unsupported(&error) => fallback_copy_temp_new(temp, target),
-        Err(error) => Err(atomic_create_error(error)),
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParsedMarkdown {
     pub frontmatter_status: FrontmatterStatus,
     pub id: Option<String>,
     pub display_title: Option<String>,
-    pub legacy_id: Option<String>,
     pub identity_error: Option<String>,
     pub body: String,
     pub frontmatter_tags: Vec<String>,
@@ -215,7 +45,6 @@ pub struct ParsedMarkdown {
 #[derive(Debug, PartialEq, Eq)]
 pub enum ParsedNoteIdentity<'a> {
     TrustedAmby(&'a str),
-    LegacyCandidate(&'a str),
     Missing,
     InvalidAmbyId(&'a str),
 }
@@ -226,14 +55,13 @@ impl ParsedMarkdown {
             ParsedNoteIdentity::InvalidAmbyId(error)
         } else if let Some(id) = self.id.as_deref() {
             ParsedNoteIdentity::TrustedAmby(id)
-        } else if let Some(id) = self.legacy_id.as_deref() {
-            ParsedNoteIdentity::LegacyCandidate(id)
         } else {
             ParsedNoteIdentity::Missing
         }
     }
 
-    /// Only the namespaced service field establishes authoritative identity.
+    /// Only the namespaced service field establishes authoritative identity. A generic `id`
+    /// (a ULID included) belongs to the user or another app and is never read as one.
     pub fn note_id(&self) -> Option<&str> {
         match self.identity() {
             ParsedNoteIdentity::TrustedAmby(id) => Some(id),
@@ -241,19 +69,8 @@ impl ParsedMarkdown {
         }
     }
 
-    /// This candidate is usable only by the explicitly confirmed migration.
-    pub fn migration_id(&self) -> Option<&str> {
-        match self.identity() {
-            ParsedNoteIdentity::TrustedAmby(id) | ParsedNoteIdentity::LegacyCandidate(id) => {
-                Some(id)
-            }
-            _ => None,
-        }
-    }
-
     pub fn indexing_identity_error(&self) -> Option<String> {
         match self.identity() {
-            ParsedNoteIdentity::LegacyCandidate(_) => Some("Legacy identity candidate requires explicit migration; generic id remains user-owned".into()),
             ParsedNoteIdentity::InvalidAmbyId(error) => Some(error.into()),
             _ => None,
         }
@@ -1250,7 +1067,6 @@ pub fn parse_markdown(content: &str) -> ParsedMarkdown {
             },
             id: None,
             display_title: None,
-            legacy_id: None,
             identity_error: None,
             body: content.to_string(),
             frontmatter_tags: Vec::new(),
@@ -1275,14 +1091,6 @@ pub fn parse_markdown(content: &str) -> ParsedMarkdown {
                 .map(str::trim)
                 .filter(|title| !title.is_empty())
                 .map(str::to_string),
-            legacy_id: if map.contains_key(Value::String(AMBY_ID_FIELD.to_string())) {
-                None
-            } else {
-                map.get(Value::String(LEGACY_ID_FIELD.to_string()))
-                    .and_then(Value::as_str)
-                    .filter(|id| is_amby_id(id))
-                    .map(str::to_string)
-            },
             identity_error: map
                 .get(Value::String(AMBY_ID_FIELD.to_string()))
                 .filter(|value| !value.as_str().is_some_and(is_amby_id))
@@ -1306,7 +1114,6 @@ pub fn parse_markdown(content: &str) -> ParsedMarkdown {
             frontmatter_status: FrontmatterStatus::Invalid,
             id: None,
             display_title: None,
-            legacy_id: None,
             identity_error: None,
             body: body.to_string(),
             frontmatter_tags: Vec::new(),
@@ -1318,7 +1125,6 @@ pub fn parse_markdown(content: &str) -> ParsedMarkdown {
             frontmatter_status: FrontmatterStatus::Invalid,
             id: None,
             display_title: None,
-            legacy_id: None,
             identity_error: None,
             body: body.to_string(),
             frontmatter_tags: Vec::new(),
@@ -1438,7 +1244,9 @@ pub(crate) fn body_with_identity_field(
             ));
         }
         let insertion = bom.len() + opening.len();
-        let eol = opening.strip_prefix("---").unwrap();
+        let eol = opening
+            .strip_prefix("---")
+            .expect("`opening` is one of the two literals that start with `---`");
         format!(
             "{}{field}: {id}{eol}{}",
             &content[..insertion],
@@ -1642,193 +1450,6 @@ fn preserve_text_format_bytes(
     }
     bytes.extend_from_slice(normalized.as_bytes());
     Ok(bytes)
-}
-
-pub(crate) fn rename_with_retry<F>(mut rename_op: F) -> std::io::Result<()>
-where
-    F: FnMut() -> std::io::Result<()>,
-{
-    let mut attempts = 0;
-    loop {
-        match rename_op() {
-            Ok(()) => return Ok(()),
-            Err(err) => {
-                attempts += 1;
-                let is_retryable = if cfg!(windows) {
-                    matches!(err.raw_os_error(), Some(5) | Some(32))
-                } else {
-                    #[cfg(test)]
-                    {
-                        err.raw_os_error() == Some(32) || err.raw_os_error() == Some(5)
-                    }
-                    #[cfg(not(test))]
-                    {
-                        false
-                    }
-                };
-
-                if is_retryable && attempts <= 5 {
-                    let sleep_ms = 5 * 3_u64.pow(attempts - 1);
-                    std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
-                    continue;
-                }
-                return Err(err);
-            }
-        }
-    }
-}
-
-pub(crate) fn atomic_rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
-    rename_with_retry(|| fs::rename(from, to))
-}
-
-/// Write a complete replacement beside the target, sync it to disk, then
-/// rename it into place. A unique sibling avoids collisions between concurrent
-/// writes and keeps a crash from leaving a truncated user file at `path`.
-pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| format!("Path has no parent: {}", path.to_string_lossy()))?;
-    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    let name = path.file_name().unwrap_or_default().to_string_lossy();
-    let suffix = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let tmp = parent.join(format!(".{name}.amby-tmp-{}-{suffix}", std::process::id()));
-
-    let nth_fault = nth_write_fault();
-    let write_result = (|| -> Result<(), String> {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp)
-            .map_err(|e| e.to_string())?;
-        if nth_fault == Some(false) {
-            return Err("injected atomic-write failure before publish".to_owned());
-        }
-        fail_if_requested(1)?;
-        file.write_all(content).map_err(|e| e.to_string())?;
-        fail_if_requested(2)?;
-        file.sync_all().map_err(|e| e.to_string())?;
-        fail_if_requested(3)?;
-        drop(file);
-        fail_if_requested(4)?;
-        atomic_rename_with_retry(&tmp, path).map_err(|e| e.to_string())?;
-        if nth_fault == Some(true) {
-            #[cfg(test)]
-            if ABORT_AT_FAULT.with(|abort| abort.get()) {
-                std::process::abort();
-            }
-            return Err("injected atomic-write failure after publish".to_owned());
-        }
-        sync_parent_directory(parent)
-    })();
-    if write_result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    write_result
-}
-
-/// Create a new binary file without ever replacing an existing one. The shared
-/// publish helper prefers an all-or-nothing hard link and falls back to a
-/// create_new reservation plus synced stream copy where hard links are absent.
-pub fn atomic_write_bytes_new(path: &Path, content: &[u8]) -> Result<(), AtomicCreateError> {
-    let parent = path.parent().ok_or_else(|| {
-        AtomicCreateError::Other(format!("Path has no parent: {}", path.display()))
-    })?;
-    fs::create_dir_all(parent).map_err(|err| AtomicCreateError::Other(err.to_string()))?;
-    let name = path.file_name().unwrap_or_default().to_string_lossy();
-    let suffix = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let tmp = parent.join(format!(".{name}.amby-tmp-{}-{suffix}", std::process::id()));
-
-    let write_result = (|| -> Result<(), AtomicCreateError> {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp)
-            .map_err(|err| AtomicCreateError::Other(err.to_string()))?;
-        file.write_all(content)
-            .map_err(|err| AtomicCreateError::Other(err.to_string()))?;
-        file.sync_all()
-            .map_err(|err| AtomicCreateError::Other(err.to_string()))?;
-        drop(file);
-        publish_prepared_no_replace(&tmp, path)?;
-        // The target is now safely published. A stale temp link is harmless,
-        // but remove it eagerly so it cannot clutter the user vault.
-        let _ = fs::remove_file(&tmp);
-        sync_parent_directory(parent).map_err(AtomicCreateError::Other)?;
-        Ok(())
-    })();
-    if write_result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    write_result
-}
-
-/// Atomically copy a file to a new destination without replacing an existing file.
-/// Reads via streaming buffer to avoid allocating the whole source file in memory,
-/// enforces `max_bytes`, fsyncs, and uses the shared no-replace publisher.
-pub fn atomic_copy_file_new(
-    source: &Path,
-    path: &Path,
-    max_bytes: u64,
-) -> Result<u64, AtomicCreateError> {
-    let parent = path.parent().ok_or_else(|| {
-        AtomicCreateError::Other(format!("Path has no parent: {}", path.display()))
-    })?;
-    fs::create_dir_all(parent).map_err(|err| AtomicCreateError::Other(err.to_string()))?;
-    let name = path.file_name().unwrap_or_default().to_string_lossy();
-    let suffix = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let tmp = parent.join(format!(".{name}.amby-tmp-{}-{suffix}", std::process::id()));
-
-    let copy_result = (|| -> Result<u64, AtomicCreateError> {
-        let mut reader =
-            fs::File::open(source).map_err(|err| AtomicCreateError::Other(err.to_string()))?;
-        let mut writer = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp)
-            .map_err(|err| AtomicCreateError::Other(err.to_string()))?;
-
-        let mut total_copied: u64 = 0;
-        let mut buffer = [0u8; 64 * 1024];
-        loop {
-            let read_bytes = reader
-                .read(&mut buffer)
-                .map_err(|err| AtomicCreateError::Other(err.to_string()))?;
-            if read_bytes == 0 {
-                break;
-            }
-            total_copied += read_bytes as u64;
-            if total_copied > max_bytes {
-                return Err(AtomicCreateError::Other(format!(
-                    "File size exceeds maximum allowed limit ({max_bytes} bytes)"
-                )));
-            }
-            writer
-                .write_all(&buffer[..read_bytes])
-                .map_err(|err| AtomicCreateError::Other(err.to_string()))?;
-        }
-
-        writer
-            .sync_all()
-            .map_err(|err| AtomicCreateError::Other(err.to_string()))?;
-        drop(writer);
-
-        publish_prepared_no_replace(&tmp, path)?;
-
-        let _ = fs::remove_file(&tmp);
-        sync_parent_directory(parent).map_err(AtomicCreateError::Other)?;
-        Ok(total_copied)
-    })();
-
-    if copy_result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    copy_result
-}
-
-/// Text wrapper for [`atomic_write_bytes_new`].
-pub fn atomic_write_new(path: &Path, content: &str) -> Result<(), AtomicCreateError> {
-    atomic_write_bytes_new(path, content.as_bytes())
 }
 
 #[cfg(test)]

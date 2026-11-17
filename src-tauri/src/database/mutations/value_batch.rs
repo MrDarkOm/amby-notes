@@ -111,6 +111,11 @@ pub fn apply_value_batch_typed(
     let mut cells_by_note =
         std::collections::BTreeMap::<String, Vec<&DatabaseValueMutation>>::new();
     for cell in &request.cells {
+        if cell.expected_revision.is_empty() {
+            return Err("expectedRevision is required for every cell"
+                .to_owned()
+                .into());
+        }
         if ulid::Ulid::from_string(&cell.note_id).is_err()
             || ulid::Ulid::from_string(&cell.property_id).is_err()
         {
@@ -136,9 +141,11 @@ pub fn apply_value_batch_typed(
 
     let mut planned_writes = Vec::new();
     let mut revisions = Vec::new();
+    let hint = open_hint_connection(vault);
 
     for (note_id, cells) in cells_by_note {
-        let note_path = resolve_note_path_for_id(vault, &container, &note_id)?;
+        let note_path =
+            resolve_note_path_for_id_hinted(hint.as_ref(), vault, &container, &note_id)?;
         let original_bytes = fs::read(&note_path).map_err(|error| error.to_string())?;
         let original_rev = raw_revision(&original_bytes);
         let mut content =
@@ -216,7 +223,7 @@ pub fn apply_value_batch_typed(
         // Check revision conflict only if changes are actually needed
         if !all_already_matched {
             for cell in &cells {
-                if !cell.expected_revision.is_empty() && cell.expected_revision != original_rev {
+                if cell.expected_revision != original_rev {
                     return Err(ValueBatchError::RevisionConflict {
                         note_id: note_id.clone(),
                         actual_revision: original_rev,

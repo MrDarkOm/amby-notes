@@ -257,6 +257,21 @@ describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
       expect(writeSpy.mock.lastCall?.[0]).not.toHaveProperty("rewritesSource")
     })
 
+    it("opens a note with a single-note identity step, never the full-vault migration", async () => {
+      const full = vi.mocked(commands.applyIdMigration)
+      full.mockClear()
+      const single = vi
+        .spyOn(commands, "applyNoteIdMigration")
+        .mockResolvedValue({ status: "ok", data: null })
+      vi.spyOn(commands, "readNote").mockResolvedValue({
+        status: "ok",
+        data: { content: "c", revision: "r", source: "c" },
+      })
+      await notesRepository.readNote("/vault", "note-ulid-1")
+      expect(single).toHaveBeenCalledExactlyOnceWith("note-ulid-1")
+      expect(full).not.toHaveBeenCalled()
+    })
+
     it("delegates readNote and writeNote to generated commands", async () => {
       const readSpy = vi.spyOn(commands, "readNote").mockResolvedValue({
         status: "ok",

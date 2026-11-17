@@ -16,7 +16,6 @@ use crate::sync::account_types::{AccountOverview, BoundVault};
 use crate::sync::backup;
 use crate::sync::conflict_store::NotePick;
 use crate::sync::connection::ConnectionStore;
-use crate::sync::gate;
 use crate::sync::hints::RenameHints;
 use crate::sync::secrets::{SecretStore, SECRET_ACCOUNT_KEY, SECRET_DEVICE_TOKEN};
 use crate::sync::session::{Schedule, SessionConfig, SessionHooks, SyncSession};
@@ -47,7 +46,6 @@ struct Link {
     server_url: Option<String>,
     space_id: [u8; 16],
     space_name: Option<String>,
-    test_vault: bool,
     enabled: bool,
     device_id: Option<String>,
     kept_key: Option<(u32, Vec<u8>)>,
@@ -199,7 +197,7 @@ impl SyncRuntime {
                 if still_linked {
                     Self::forget_link(&vault)?;
                     if let Some(token) = token {
-                        self.rest_current(&vault, VaultSyncStatus::off(gate::gate_closed()), token);
+                        self.rest_current(&vault, VaultSyncStatus::off(), token);
                     }
                 }
             }
@@ -369,7 +367,6 @@ impl SyncRuntime {
             server_url: get(META_SERVER_URL)?,
             space_id,
             space_name: get(META_SPACE_NAME)?,
-            test_vault: get(META_TEST_VAULT)?.as_deref() == Some("1"),
             enabled: get(META_ENABLED)?.as_deref() == Some("1"),
             device_id: get(META_DEVICE_ID)?,
             kept_key,
@@ -394,7 +391,6 @@ impl SyncRuntime {
                 .remove_meta(META_TEST_VAULT)
                 .and_then(|()| store.set_meta(META_ENABLED, "0"))
                 .map_err(|e| state_failure(&e))?;
-            link.test_vault = false;
             link.enabled = false;
         }
         Ok(link)
@@ -404,7 +400,6 @@ impl SyncRuntime {
         vault: &Path,
         server_url: &str,
         space: &LinkedSpace,
-        test_vault: bool,
         enabled: bool,
     ) -> Result<(), SyncError> {
         let mut store = SqliteStateStore::open(vault).map_err(|e| state_failure(&e))?;
@@ -419,7 +414,6 @@ impl SyncRuntime {
         set(META_SERVER_URL, server_url)?;
         set(META_WRAPPED_VK, &hex::encode(&space.wrapped_vk))?;
         set(META_KEY_EPOCH, &space.key_epoch.to_string())?;
-        set(META_TEST_VAULT, if test_vault { "1" } else { "0" })?;
         set(META_ENABLED, if enabled { "1" } else { "0" })
     }
 
@@ -485,11 +479,10 @@ impl SyncRuntime {
         VaultSyncStatus {
             linked: true,
             resumable,
-            test_vault: link.test_vault,
             space_id: Some(hex::encode(link.space_id)),
             space_name: link.space_name.clone(),
             error_code: error_code.map(str::to_string),
-            ..VaultSyncStatus::off(gate::gate_closed())
+            ..VaultSyncStatus::off()
         }
     }
 
@@ -499,13 +492,12 @@ impl SyncRuntime {
         vault: &Path,
         credentials: Credentials,
         space: LinkedSpace,
-        test_vault: bool,
         token: u64,
     ) -> Result<VaultSyncStatus, SyncError> {
         self.stop_session();
         if !self.is_current(token) {
             // The person opened another vault in the meantime.
-            return Ok(VaultSyncStatus::off(gate::gate_closed()));
+            return Ok(VaultSyncStatus::off());
         }
         let session = SyncSession::start(SessionConfig {
             vault: vault.to_path_buf(),
@@ -516,7 +508,6 @@ impl SyncRuntime {
             space_name: space.name.clone(),
             vk: space.vk,
             device_id: credentials.device_id,
-            test_vault,
             schedule: self.schedule,
             hooks: self.hooks.clone(),
             handle: self.handle.clone(),
@@ -527,7 +518,7 @@ impl SyncRuntime {
         if !self.is_current(token) {
             drop(inner);
             session.stop();
-            return Ok(VaultSyncStatus::off(gate::gate_closed()));
+            return Ok(VaultSyncStatus::off());
         }
         inner.vault = Some(vault.to_path_buf());
         inner.resting = None;
@@ -560,7 +551,7 @@ impl SyncRuntime {
         if self.is_current(token) {
             self.rest(vault, status)
         } else {
-            VaultSyncStatus::off(gate::gate_closed())
+            VaultSyncStatus::off()
         }
     }
 
@@ -572,7 +563,6 @@ impl SyncRuntime {
         &self,
         vault: &Path,
         target: SpaceTarget,
-        test_vault: bool,
     ) -> Result<VaultSyncStatus, SyncError> {
         let vault = vault
             .canonicalize()
@@ -599,10 +589,6 @@ impl SyncRuntime {
             (Some(link), Some(credentials)) => Self::link_matches(link, credentials),
             _ => false,
         };
-        // Preserve the legacy value only with its own link; a different account
-        // or space must not inherit local metadata from a stale link.
-        let marked = test_vault || (resumable && link.as_ref().is_some_and(|link| link.test_vault));
-        gate::check_gate(marked)?;
         let credentials = self.credentials()?;
 
         // Finish the copy before creating a space or allowing an incoming/outgoing pass.
@@ -622,7 +608,7 @@ impl SyncRuntime {
                     Ok(space) => space,
                     Err(error) if error.code == "space_not_found" => {
                         Self::forget_link(&vault)?;
-                        self.rest(&vault, VaultSyncStatus::off(gate::gate_closed()));
+                        self.rest(&vault, VaultSyncStatus::off());
                         return Err(error);
                     }
                     Err(error) => return Err(error),
@@ -659,9 +645,9 @@ impl SyncRuntime {
             // What the engine remembers belongs to the stale link, not to this space.
             Self::forget_link(&vault)?;
         }
-        Self::remember_link(&vault, &credentials.server_url, &space, marked, true)?;
+        Self::remember_link(&vault, &credentials.server_url, &space, true)?;
         let token = self.next_epoch();
-        self.start_session(&vault, credentials, space, marked, token)
+        self.start_session(&vault, credentials, space, token)
     }
 
     async fn prepare_backup(vault: &Path) -> Result<(), SyncError> {
@@ -720,7 +706,7 @@ impl SyncRuntime {
             .canonicalize()
             .map_err(|_| SyncError::new("storage_error"))?;
         let Some(link) = Self::read_link(&vault)? else {
-            return Ok(self.rest_current(&vault, VaultSyncStatus::off(gate::gate_closed()), token));
+            return Ok(self.rest_current(&vault, VaultSyncStatus::off(), token));
         };
         // A link made by another device loses its mark and switch first, so a vault that rests
         // shows what switching it on will really ask for.
@@ -769,7 +755,7 @@ impl SyncRuntime {
         if link.server_url.is_none() {
             Self::learn_server(&vault, &credentials.server_url);
         }
-        match self.start_session(&vault, credentials, space, link.test_vault, token) {
+        match self.start_session(&vault, credentials, space, token) {
             Ok(status) => Ok(status),
             Err(error) => {
                 Ok(self.rest_current(&vault, self.resting_status(&link, Some(&error.code)), token))
@@ -799,7 +785,7 @@ impl SyncRuntime {
         let link = Self::read_link(&vault)?;
         let status = match link {
             Some(link) => self.resting_status(&link, None),
-            None => VaultSyncStatus::off(gate::gate_closed()),
+            None => VaultSyncStatus::off(),
         };
         Ok(self.rest(&vault, status))
     }
@@ -810,10 +796,7 @@ impl SyncRuntime {
         if let Some(session) = &inner.session {
             return session.status();
         }
-        inner
-            .resting
-            .clone()
-            .unwrap_or_else(|| VaultSyncStatus::off(gate::gate_closed()))
+        inner.resting.clone().unwrap_or_else(VaultSyncStatus::off)
     }
 
     fn with_session<T>(&self, action: impl FnOnce(&SyncSession) -> T) -> Result<T, SyncError> {

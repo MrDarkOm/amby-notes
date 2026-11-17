@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import * as React from "react"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import "@/lib/i18n"
@@ -187,5 +188,30 @@ describe("AI panel", () => {
     expect(useAiChatStore.getState().chat?.modelId).toBe("other")
     expect(vi.mocked(ai.aiRunTurn).mock.calls[0][0].model).toBe("test")
     vi.mocked(appConfig.loadSettings).mockResolvedValue(original)
+  })
+})
+
+// SHELL-03: the panel needs the text of an open note only to tell whether the attached notes are clipped,
+// so typing in a note that is far from the limit does not render the panel.
+describe("AI panel renders", () => {
+  it("does not render again when the attached note's text changes below the limit", async () => {
+    let commits = 0
+    render(
+      <React.Profiler id="ai" onRender={() => (commits += 1)}>
+        <AiPanel {...props} />
+      </React.Profiler>,
+    )
+    await waitFor(() => expect(useAiChatStore.getState().chat).not.toBeNull())
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300))
+    })
+    const before = commits
+    act(() => {
+      useDocStore.getState().patchDoc("note", { content: "unsaved text, typed more" })
+    })
+    act(() => {
+      useDocStore.getState().patchDoc("note", { content: "unsaved text, typed even more" })
+    })
+    expect(commits).toBe(before)
   })
 })

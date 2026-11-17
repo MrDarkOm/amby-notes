@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest"
-import {
-  canRenderSplit,
-  collectDocumentBufferUsage,
-  selectEvictableDocumentIds,
-} from "./document-buffer-lifecycle"
+import { collectDocumentBufferUsage, selectEvictableDocumentIds } from "./document-buffer-lifecycle"
 import type { Document } from "./use-doc-store"
 import type { Tab } from "./use-tabs-store"
 
@@ -28,11 +24,11 @@ const tab = (key: string, fileId: string): Tab => ({
 })
 
 describe("document buffer lifecycle", () => {
-  it("keeps a buffer while any tab or split pane references it, then releases it after close", () => {
+  it("keeps a buffer while any tab or the active pane references it, then releases it after close", () => {
     const tabs = [tab("first", "one"), tab("second", "two")]
-    const usage = collectDocumentBufferUsage(tabs, "first", "second")
+    const usage = collectDocumentBufferUsage(tabs, "first")
     expect(usage.get("one")).toEqual({ tabRefs: 1, paneRefs: 1 })
-    expect(usage.get("two")).toEqual({ tabRefs: 1, paneRefs: 1 })
+    expect(usage.get("two")).toEqual({ tabRefs: 1, paneRefs: 0 })
 
     const eligible = selectEvictableDocumentIds({
       openDocs: { one: note("one"), two: note("two") },
@@ -40,7 +36,6 @@ describe("document buffer lifecycle", () => {
       externalConflicts: {},
       tabs: [tabs[1]],
       activeTabKey: "second",
-      secondaryTabKey: null,
       hasPendingAutosave: () => false,
       hasRecoveryDraft: () => false,
     })
@@ -54,7 +49,6 @@ describe("document buffer lifecycle", () => {
       externalConflicts: {},
       tabs: [],
       activeTabKey: "",
-      secondaryTabKey: null,
       hasRecoveryDraft: () => false,
     }
     expect(selectEvictableDocumentIds({ ...input, hasPendingAutosave: () => true })).toEqual([])
@@ -96,15 +90,9 @@ describe("document buffer lifecycle", () => {
       externalConflicts: {},
       tabs: [walked],
       activeTabKey: "only",
-      secondaryTabKey: null,
       hasPendingAutosave: () => false,
       hasRecoveryDraft: () => false,
     })
     expect(eligible).toEqual(["old"])
-  })
-
-  it("refuses a split that would mount one note in two editable panes", () => {
-    expect(canRenderSplit(tab("one", "note"), tab("duplicate", "note"))).toBe(false)
-    expect(canRenderSplit(tab("one", "note"), tab("two", "other"))).toBe(true)
   })
 })

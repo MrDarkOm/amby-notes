@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils"
 import { motionTransitions } from "@/lib/motion-config"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { isTauri } from "@/lib/storage"
-import { HEADER_ICON_BTN, TabItem, TabsMenu, type HeaderTab } from "./header-tabs"
+import { HEADER_ICON_BTN, TabItem, TabList, TabsMenu, type HeaderTab } from "./header-tabs"
 import type { ActivePaneHoverTarget, ActiveTabDragState } from "./pane-dnd"
 import type { LayoutLeafItem, LayoutSplitDivider, PaneEdgeFlags } from "./split-tree"
 
@@ -118,6 +118,8 @@ export function PaneTabBar({
           : ""
       : ""
 
+  const hasSelectedTab = tabs.some((tab) => tab.key === activeTabKey)
+
   return (
     <div
       data-pane-tab-bar={paneId}
@@ -129,7 +131,7 @@ export function PaneTabBar({
         rightInsetClass,
       )}
     >
-      <div className="flex h-full min-w-0 max-w-full shrink items-center gap-1 overflow-hidden">
+      <TabList className="flex h-full min-w-0 max-w-full shrink items-center gap-1 overflow-hidden">
         <AnimatePresence initial={false}>
           {tabs.map((tab, index) => {
             const isSelected = activeTabKey === tab.key
@@ -143,6 +145,7 @@ export function PaneTabBar({
                 tab={tab}
                 paneId={paneId}
                 isSelected={isSelected}
+                isTabStop={isSelected || (index === 0 && !hasSelectedTab)}
                 isPaneFocused={isPaneFocused}
                 isUnsaved={unsavedFileIds?.has(tab.fileId)}
                 showDivider={showDivider}
@@ -158,7 +161,7 @@ export function PaneTabBar({
             )
           })}
         </AnimatePresence>
-      </div>
+      </TabList>
 
       <motion.button
         type="button"

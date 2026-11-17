@@ -1,7 +1,7 @@
 import type { RenameOutcome } from "../file-actions/rename-outcome"
 import type { DeleteMode } from "../file-actions/use-document-crud"
 import type { LayerKind } from "../editor/document-actions"
-import type { LinkGraph, PanelId } from "../panel-registry"
+import type { PanelId } from "../panel-registry"
 import type { ModuleContext } from "../modules"
 import type { MoveOutcome } from "../file-actions/use-document-mutations"
 import {
@@ -13,6 +13,7 @@ import {
 import type { NoteLayers } from "@/lib/storage/types"
 import { type SplitPaneOptions, useTabsStore, type Tab } from "../use-tabs-store"
 import type { ViewModePref, ContentWidth } from "../app-config"
+import { isLayerDocument, naturalDocumentLayer } from "../layer-documents"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { GraphTabView, ProjectPage, SurfaceSuspense } from "./lazy-surfaces"
@@ -20,13 +21,12 @@ import { ConnectedCachedDocumentEditor, DocumentEditor } from "./cached-document
 import { createFallbackDocument } from "./fallback-document"
 import { databaseContentWidthKey, NOOP } from "./workspace-constants"
 import { defaultSketchJson } from "@/lib/sketch-format"
-import type { Document } from "../use-doc-store"
+import { useDocStore, type Document } from "../use-doc-store"
 import type { DocumentEditorProps, DocumentViewMode } from "../document-editor"
 import type { HeaderTab } from "../header-tabs"
 import { cn } from "@/lib/utils"
-import { canRenderSplit } from "../document-buffer-lifecycle"
 import type { LayoutLeafItem } from "../split-tree"
-import { PaneTabBar } from "../pane-tab-bar"
+import { ConnectedPaneTabBar } from "./connected-tab-bars"
 import { canvasLayerPath, sketchLayerPath } from "../workspace-tree-utils"
 import { FolderView } from "../folder-view"
 import type { TreeItem } from "../sidebar-tree"
@@ -34,12 +34,13 @@ import { parseCreativeFileId } from "../creative/creative-history"
 import type { DatabaseRowActions } from "../database/use-row-menu"
 import { ModuleRequiredFallback } from "../editor/module-required-fallback"
 import type { DatabaseSummary } from "@/lib/storage/database-types"
-import { openInExplorer, type DatabaseRow } from "@/lib/storage"
+import { type DatabaseRow } from "@/lib/storage"
+import { showInFileManager } from "../show-in-file-manager"
 import { flushEditorSerializations } from "../tiptap/editor-serialization-lifecycle"
 import { usePaneEditorProps } from "./use-pane-editor-props"
+import { useOverlaysStore } from "../use-overlays-store"
 
 interface UsePaneRenderersParams {
-  openDocs: Record<string, Document>
   treeItemById: Map<string, TreeItem>
   activeTabKey: string
   canGoBack: boolean
@@ -71,7 +72,6 @@ interface UsePaneRenderersParams {
   activatePanelAnywhere: (panelId: PanelId) => void
   handleNewDatabase: (parentId: string | null, name: string) => Promise<void>
   displayTreeItems: TreeItem[]
-  setQuickOpenMode: React.Dispatch<React.SetStateAction<"current" | "new" | null>>
   handleOpenVault: () => Promise<void>
   showTagInPanel: (tag: string) => void
   handleWikiLinkClick: (rawLink: string) => Promise<void>
@@ -124,7 +124,6 @@ interface UsePaneRenderersParams {
   refreshTreePaths: (paths: string[]) => Promise<TreeItem[]>
   loadDoc: (fileId: string, itemName: string) => Promise<Document>
   activeTab: Tab | null
-  secondaryTabKey: string | null
   tabs: Tab[]
   handleExitFocusMode: () => Promise<void>
   handleEnterFocusMode: () => Promise<void>
@@ -138,7 +137,6 @@ interface UsePaneRenderersParams {
   isFocusMode: boolean
   graphEnabled: boolean
   activePaneId: string
-  unsavedFileIds: Set<string>
   isLeftSidebarVisible: boolean
   leftDockPinned: boolean
   isRightSidebarVisible: boolean
@@ -147,12 +145,10 @@ interface UsePaneRenderersParams {
   navigateToFile: (fileId: string) => Promise<void>
   handleTabUsageChanged: () => void
   handleCloseAllTabs: () => void
-  linkGraph: LinkGraph
   refreshLinkGraph: () => void
 }
 
 export function usePaneRenderers({
-  openDocs,
   treeItemById,
   activeTabKey,
   canGoBack,
@@ -180,7 +176,6 @@ export function usePaneRenderers({
   activatePanelAnywhere,
   handleNewDatabase,
   displayTreeItems,
-  setQuickOpenMode,
   handleOpenVault,
   showTagInPanel,
   handleWikiLinkClick,
@@ -233,7 +228,6 @@ export function usePaneRenderers({
   refreshTreePaths,
   loadDoc,
   activeTab,
-  secondaryTabKey,
   tabs,
   handleExitFocusMode,
   handleEnterFocusMode,
@@ -247,7 +241,6 @@ export function usePaneRenderers({
   isFocusMode,
   graphEnabled,
   activePaneId,
-  unsavedFileIds,
   isLeftSidebarVisible,
   leftDockPinned,
   isRightSidebarVisible,
@@ -256,12 +249,10 @@ export function usePaneRenderers({
   navigateToFile,
   handleTabUsageChanged,
   handleCloseAllTabs,
-  linkGraph,
   refreshLinkGraph,
 }: UsePaneRenderersParams) {
   const { t } = useTranslation()
   const { paneEditorProps } = usePaneEditorProps({
-    openDocs,
     treeItemById,
     activeTabKey,
     canGoBack,
@@ -289,7 +280,6 @@ export function usePaneRenderers({
     activatePanelAnywhere,
     handleNewDatabase,
     displayTreeItems,
-    setQuickOpenMode,
     handleOpenVault,
     showTagInPanel,
     handleWikiLinkClick,
@@ -344,10 +334,6 @@ export function usePaneRenderers({
   })
   const activeFolder =
     activeTab?.kind === "folder" ? (treeItemById.get(activeTab.fileId) ?? null) : null
-  const secondaryTab = secondaryTabKey
-    ? (tabs.find((t) => t.key === secondaryTabKey && t.kind === "document") ?? null)
-    : null
-  const showSplit = canRenderSplit(activeTab, secondaryTab)
   const documentTabs = React.useMemo(() => {
     const openDocumentTabs = tabs.filter(
       (tab) =>
@@ -362,7 +348,7 @@ export function usePaneRenderers({
     const representativeByFileId = new Map<string, Tab>()
     for (const tab of openDocumentTabs) {
       const current = representativeByFileId.get(tab.fileId)
-      if (!current || tab.key === activeTabKey || (showSplit && tab.key === secondaryTabKey)) {
+      if (!current || tab.key === activeTabKey) {
         representativeByFileId.set(tab.fileId, tab)
       }
     }
@@ -370,7 +356,7 @@ export function usePaneRenderers({
     // front on every selection also moves its (potentially huge) DOM subtree,
     // which forces style/layout work before the newly selected tab can paint.
     return openDocumentTabs.filter((tab) => representativeByFileId.get(tab.fileId) === tab)
-  }, [activeTabKey, isMultiPane, secondaryTabKey, showSplit, tabs])
+  }, [activeTabKey, isMultiPane, tabs])
 
   interface EditorPropsCacheEntry {
     props: DocumentEditorProps
@@ -414,21 +400,11 @@ export function usePaneRenderers({
     return (
       <div className="relative flex min-h-0 min-w-0 flex-1">
         {paneDocTabs.map((tab) => {
-          const visible =
-            leaf && isMultiPane
-              ? tab.key === paneActiveKey
-              : tab.key === activeTabKey || (showSplit && tab.key === secondaryTabKey)
+          const visible = leaf && isMultiPane ? tab.key === paneActiveKey : tab.key === activeTabKey
           const primary = tab.key === activeTabKey
           const showNav = isMultiPane || primary
-          const rawDoc = openDocs[tab.fileId] ?? null
-          const isCanvasOrSketch =
-            tab.kind === "canvas" ||
-            tab.kind === "sketch" ||
-            tab.kind === "database" ||
-            tab.fileId.endsWith(".canvas") ||
-            tab.fileId.endsWith(".excalidraw") ||
-            rawDoc?.path.endsWith(".canvas") ||
-            rawDoc?.path.endsWith(".excalidraw")
+          const rawDoc = useDocStore.getState().openDocs[tab.fileId] ?? null
+          const isCanvasOrSketch = isLayerDocument(tab, rawDoc?.path)
           const treeItem = tab
             ? (treeItemById.get(tab.fileId) ??
               (rawDoc ? treeItemById.get(rawDoc.id) : null) ??
@@ -486,14 +462,7 @@ export function usePaneRenderers({
               : undefined)
 
           const defaultDocLayer: EditorLayer =
-            resolvedPrimaryLayer ??
-            (tab.kind === "canvas" || doc?.path.endsWith(".canvas")
-              ? "canvas"
-              : tab.kind === "sketch" || doc?.path.endsWith(".excalidraw")
-                ? "sketch"
-                : tab.kind === "database"
-                  ? "database"
-                  : "editor")
+            resolvedPrimaryLayer ?? naturalDocumentLayer(tab, doc?.path)
 
           const resolvedActiveLayer =
             (doc?.id ? activeLayers[doc.id] : undefined) ??
@@ -650,7 +619,7 @@ export function usePaneRenderers({
           onToggleFavorite: handleToggleFavorite,
           onShowInExplorer: root
             ? (relative) =>
-                openInExplorer(
+                void showInFileManager(
                   relative ? `${root}${separator}${relative.split("/").join(separator)}` : root,
                 )
             : undefined,
@@ -721,13 +690,12 @@ export function usePaneRenderers({
         )}
       >
         {isMultiPane ? (
-          <PaneTabBar
+          <ConnectedPaneTabBar
             paneId={leaf.id}
             tabs={leafHeaderTabs}
             activeTabKey={leafActiveKey}
             activeFileId={leafActiveTab?.fileId}
             isPaneFocused={isPaneFocused}
-            unsavedFileIds={unsavedFileIds}
             favorites={favorites}
             edges={edges}
             isLeftSidebarOpen={isLeftSidebarVisible}
@@ -765,7 +733,7 @@ export function usePaneRenderers({
               useTabsStore.getState().unsplitAll()
               handleTabUsageChanged()
             }}
-            onOpenPlusModal={() => setQuickOpenMode("new")}
+            onOpenPlusModal={() => useOverlaysStore.getState().setQuickOpenMode("new")}
             onToggleFavorite={handleToggleFavorite}
           />
         ) : null}
@@ -784,7 +752,6 @@ export function usePaneRenderers({
                   style={{ boxShadow: "var(--note-surface-shadow)" }}
                 >
                   <GraphTabView
-                    graph={linkGraph}
                     selectedId={null}
                     onSelect={handleSelect}
                     vault={vault}

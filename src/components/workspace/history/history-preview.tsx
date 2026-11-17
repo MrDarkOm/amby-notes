@@ -31,6 +31,7 @@ import { SnapshotModeToggle, SnapshotPreview, type SnapshotMode } from "../commo
 import { useVaultStore } from "../use-vault-store"
 import { diffHistory } from "./history-model"
 import { useHistory } from "./use-history"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 export function HistoryPreview({
   history,
@@ -393,9 +394,7 @@ function HistoryPreviewContents({
           </div>
         )}
         {history.error && (
-          <p role="alert" className="border-b px-5 py-3 text-xs text-destructive">
-            {history.error}
-          </p>
+          <NoticeLine role="alert" text={history.error} className="border-b px-5 py-3" />
         )}
         {history.loading || history.previewLoading ? (
           <div

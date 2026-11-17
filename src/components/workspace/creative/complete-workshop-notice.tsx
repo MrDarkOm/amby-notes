@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import type { WorkshopGaps } from "./workshop-gaps"
 import type { CompleteWorkshopState } from "./use-complete-workshop"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface CompleteWorkshopNoticeProps {
   gaps: WorkshopGaps
@@ -39,11 +40,7 @@ export function CompleteWorkshopNotice({ gaps, state }: CompleteWorkshopNoticePr
       >
         {state.pending ? t("creative.complete.working") : t("creative.complete.button")}
       </Button>
-      {state.error && (
-        <p role="alert" className="mt-1.5 break-words text-destructive">
-          {state.error}
-        </p>
-      )}
+      {state.error && <NoticeLine role="alert" text={state.error} className="mt-1.5 break-words" />}
       {state.skipped.length > 0 && (
         <p className="mt-1.5 break-words text-muted-foreground">
           {t("creative.complete.skipped", { items: state.skipped.join(", ") })}

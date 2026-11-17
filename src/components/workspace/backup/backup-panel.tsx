@@ -19,6 +19,7 @@ import {
 } from "@/lib/storage"
 import { formatSize } from "@/lib/sync/format-size"
 import { requestOpenRestoredVault } from "./backup-navigation"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface Props {
   vault: string | null
@@ -175,11 +176,7 @@ export function BackupPanel({ vault, port: given }: Props) {
       ) : !vault ? (
         <p className="backup-caption">{t("backups.errors.no_vault_open")}</p>
       ) : null}
-      {error && (
-        <p role="alert" className="text-[12px] text-destructive">
-          {error}
-        </p>
-      )}
+      {error && <NoticeLine role="alert" text={error} />}
       {catalog?.backups.length === 0 && <p className="backup-caption">{t("backups.empty")}</p>}
       {catalog && catalog.vault === vault && catalog.backups.length > 0 && (
         <ul className="backup-list">

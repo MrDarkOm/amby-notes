@@ -190,8 +190,10 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
         }
       })
       .then((off) => (alive ? unlisten.push(off) : off()))
-      .catch(() => {
-        // Nothing to listen to without the desktop application.
+      .catch((error: unknown) => {
+        // The browser build answers with a listener that never fires, so a refusal is a real failure
+        // (SYNC-06): said once, in the centre, as the status listener says it.
+        if (alive) reportSyncListenFailed(error)
       })
     port
       .onRestoredAfterDeletion((paths) => {
@@ -211,8 +213,10 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
         }
       })
       .then((off) => (alive ? unlisten.push(off) : off()))
-      .catch(() => {
-        // Nothing to listen to without the desktop application.
+      .catch((error: unknown) => {
+        // The browser build answers with a listener that never fires, so a refusal is a real failure
+        // (SYNC-06): said once, in the centre, as the status listener says it.
+        if (alive) reportSyncListenFailed(error)
       })
     port
       .onMerged((paths) => {
@@ -232,8 +236,10 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
         }
       })
       .then((off) => (alive ? unlisten.push(off) : off()))
-      .catch(() => {
-        // Nothing to listen to without the desktop application.
+      .catch((error: unknown) => {
+        // The browser build answers with a listener that never fires, so a refusal is a real failure
+        // (SYNC-06): said once, in the centre, as the status listener says it.
+        if (alive) reportSyncListenFailed(error)
       })
     port
       .onAmbyWritten((paths) => {
@@ -243,8 +249,10 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
         if (state.vault) void rereadOpenNoteProperties(state.vault, state.generation)
       })
       .then((off) => (alive ? unlisten.push(off) : off()))
-      .catch(() => {
-        // Nothing to listen to without the desktop application.
+      .catch((error: unknown) => {
+        // The browser build answers with a listener that never fires, so a refusal is a real failure
+        // (SYNC-06): said once, in the centre, as the status listener says it.
+        if (alive) reportSyncListenFailed(error)
       })
     return () => {
       alive = false

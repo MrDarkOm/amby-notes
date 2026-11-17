@@ -102,6 +102,27 @@ describe("useBoardLanes", () => {
     expect(result.current.lanes[2].label).toBeNull()
   })
 
+  it("treats lane keys such as __proto__ and constructor as plain keys", async () => {
+    mockBackend([
+      { key: "__proto__", count: 2 },
+      { key: "hasOwnProperty", count: 1 },
+    ])
+    const { result } = render({
+      options: [...options, { optionId: "constructor", name: "Odd", color: "#94a3b8" }],
+    })
+    await waitFor(() => expect(result.current.status).toBe("ready"))
+    expect(
+      result.current.lanes.map((lane) => [lane.key, lane.count, lane.rows.length, lane.status]),
+    ).toEqual([
+      ["todo", 0, 0, "ready"],
+      ["done", 0, 0, "ready"],
+      ["constructor", 0, 0, "ready"],
+      ["__proto__", 2, 1, "ready"],
+      ["hasOwnProperty", 1, 1, "ready"],
+      ["__empty__", 0, 0, "ready"],
+    ])
+  })
+
   it("pages one lane without touching the others", async () => {
     const query = mockBackend([{ key: "todo", count: 3 }])
     const { result } = render()

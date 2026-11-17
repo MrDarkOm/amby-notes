@@ -64,6 +64,19 @@ export default tseslint.config(
           message:
             'Do not compare event.key/code with "Enter" directly: it fires during IME composition. Use isEnterKey(event) from "@/lib/keyboard".',
         },
+        {
+          // A destructured `key`/`code`: `const { key } = event; if (key === "Enter")`.
+          selector:
+            "BinaryExpression[operator=/^[!=]==?$/]:matches([left.type='Identifier'][left.name=/^(key|code)$/][right.value='Enter'], [right.type='Identifier'][right.name=/^(key|code)$/][left.value='Enter'])",
+          message:
+            'Do not compare key/code with "Enter" directly: it fires during IME composition. Use isEnterKey(event) from "@/lib/keyboard".',
+        },
+        {
+          // `switch (event.key) { case "Enter": ... }`
+          selector: "SwitchCase[test.value='Enter']",
+          message:
+            'Do not switch on "Enter" directly: it fires during IME composition. Test isEnterKey(event) from "@/lib/keyboard" before the switch.',
+        },
       ],
     },
   },

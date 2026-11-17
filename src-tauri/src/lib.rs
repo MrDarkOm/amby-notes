@@ -2,6 +2,7 @@ mod ai;
 mod app_data;
 mod archive;
 mod archive_migration;
+mod atomic_fs;
 mod bundle;
 mod commands;
 mod credentials;
@@ -16,6 +17,7 @@ pub mod logging;
 mod model;
 pub mod package_manager;
 mod page_info;
+mod path_grants;
 mod paths;
 mod project;
 mod property_groups;
@@ -25,8 +27,11 @@ mod recovery;
 mod recycle_bin;
 mod shadow_check;
 mod state;
+mod storage_error;
 pub mod sync;
+mod system_open;
 mod system_recycle_bin;
+mod terminate_gate;
 mod updater;
 pub mod vault;
 mod vault_context;
@@ -48,6 +53,21 @@ use logging::DebugState;
 use state::*;
 use watcher::WatcherState;
 
+/// IPC-03: the paths of a drag-and-drop are remembered here, before the webview can act on them, so
+/// that `import_asset` and `import_files` accept only what the person really dropped. Tauri's own
+/// handler runs first and only queues the event for the page; this one runs before the page answers.
+fn remember_dropped_paths<R: tauri::Runtime>(
+    webview: &tauri::Webview<R>,
+    event: &tauri::WebviewEvent,
+) {
+    use tauri::Manager;
+    if let tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+        webview
+            .state::<path_grants::PathGrants>()
+            .grant_sources(paths);
+    }
+}
+
 /// Single source of truth for the command set — drives both the runtime
 /// invoke handler and the generated TypeScript bindings (so the frontend IPC
 /// types can't drift from the Rust signatures).
@@ -61,6 +81,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::vault::reindex_vault,
         commands::vault::preflight_vault,
         commands::vault::apply_id_migration,
+        commands::vault::apply_note_id_migration,
         commands::vault::inspect_id_migrations,
         commands::vault::recover_id_migration,
         commands::vault::list_files,
@@ -222,6 +243,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::project::create_workshop_entity,
         commands::assets::open_in_explorer,
         commands::external::open_attachment,
+        commands::external::reveal_vault_folder,
+        commands::external::reveal_app_data_folder,
         commands::external::save_attachment_copy,
         commands::external::open_web_address,
         commands::external::fetch_page_info,
@@ -288,17 +311,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::modules::list_installed_module_packages,
         commands::modules::get_module_entry_path,
         commands::modules::verify_module_signature,
-        commands::debug::get_log_dir_path,
-        commands::debug::get_log_file_path,
         commands::debug::open_log_folder,
-        commands::debug::read_log_file,
-        commands::debug::clear_log_file,
-        commands::debug::append_log,
-        commands::debug::get_recent_logs,
-        commands::debug::set_debug_mode_enabled,
-        commands::debug::open_devtools,
         commands::debug::toggle_devtools,
-        commands::debug::is_devtools_open,
         commands::debug::configure_debug,
         commands::debug::get_debug_status,
         commands::debug::append_debug_events,
@@ -335,6 +349,7 @@ pub fn run() {
         }))
         .manage(vault_context::VaultContext::new())
         .manage(WatcherState::new())
+        .manage(path_grants::PathGrants::default())
         .manage(ai::AiStreamState::default())
         .manage(ai::codex::launch::LoginSlot::default())
         .manage(ai::claude_code::launch::ClaudeLoginSlot::default())
@@ -344,6 +359,7 @@ pub fn run() {
         .manage(DebugState(logging::global_runtime()))
         .invoke_handler(builder.invoke_handler())
         .on_menu_event(handle_menu_event)
+        .on_webview_event(remember_dropped_paths)
         .setup(|app| {
             let debug = logging::global_runtime();
             debug.set_app(app.handle().clone());

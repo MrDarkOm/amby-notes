@@ -8,6 +8,7 @@ use crate::model::*;
 use crate::paths;
 use crate::vault_context::VaultContext;
 use crate::watcher::{self, WatcherState};
+use tauri::Manager;
 
 #[tauri::command]
 #[specta::specta]
@@ -27,6 +28,11 @@ pub async fn pick_asset_file(
         let _ = tx.send(path);
     });
     let result = rx.await.map_err(|e| e.to_string())?;
+    // IPC-03: only a file the dialog gave out can be imported later.
+    if let Some(Ok(real)) = result.clone().map(|p| p.into_path()) {
+        app.state::<crate::path_grants::PathGrants>()
+            .grant_sources([real]);
+    }
     Ok(result.map(|p| p.to_string()))
 }
 
@@ -35,6 +41,7 @@ pub async fn pick_asset_file(
 pub fn import_asset(
     context: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
+    grants: tauri::State<'_, crate::path_grants::PathGrants>,
     note_path: String,
     source_path: String,
 ) -> Result<ImportedAsset, String> {
@@ -42,6 +49,10 @@ pub fn import_asset(
     let note = paths::guard(&context, &note_path)?;
     let vault = context.root()?;
     let source = Path::new(&source_path);
+    // IPC-03: the webview names the file, but only a file picked or dropped by the person is copied.
+    if !grants.source_granted(source) {
+        return Err(crate::path_grants::ERR_PATH_NOT_GRANTED.to_string());
+    }
     if !source.is_file() {
         return Err(format!("Source is not a file: {source_path}"));
     }
@@ -160,31 +171,7 @@ pub fn open_in_explorer(
     path: String,
 ) -> Result<(), String> {
     let path = paths::guard(&scope, &path)?;
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        let arg = format!("/select,\"{}\"", path.display());
-        std::process::Command::new("explorer")
-            .raw_arg(&arg)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg("-R")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    crate::system_open::reveal_path(&path).map_err(|code| code.to_string())
 }
 
 #[tauri::command]

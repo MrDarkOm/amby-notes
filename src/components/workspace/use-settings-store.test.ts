@@ -56,6 +56,25 @@ describe("settings store writes", () => {
     })
   })
 
+  it("keeps both of two quick dock changes to different fields", async () => {
+    await useSettingsStore.getState().hydrate()
+    // Two changes before any render: the second must start from the first.
+    const first = useSettingsStore.getState().setDockPrefs({ leftPinned: false })
+    const second = useSettingsStore.getState().setDockPrefs({ rightPinned: false })
+    await Promise.all([first, second])
+
+    expect(useSettingsStore.getState().prefs.docks).toMatchObject({
+      leftPinned: false,
+      rightPinned: false,
+    })
+    expect(
+      saveSettingsPatch.mock.calls[saveSettingsPatch.mock.calls.length - 1][0].prefs.docks,
+    ).toMatchObject({
+      leftPinned: false,
+      rightPinned: false,
+    })
+  })
+
   it("writes nothing when the file cannot be read", async () => {
     loadSettings.mockRejectedValue(new Error("unreadable"))
     await expect(useSettingsStore.getState().setPrefs({ accent: "teal" })).rejects.toThrow()

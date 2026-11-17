@@ -99,6 +99,15 @@ launch. Browser development, Tauri development, and secondary windows do not
 automatically install updates. Manual checks and their progress UI remain
 available in settings.
 
+Installing replaces the program and restarts it, so the update is split into download and
+install, and the edits are flushed between them (SAVE-04). `flushEditingWindows`
+(`src/lib/flush-all-windows.ts`) asks every editing window, the main window and detached note
+windows, to run the same flush as its close handler and waits for all answers (twenty seconds at
+most). A window answers "safe" when each edit is in its file or in a written recovery draft. If
+any window cannot say so, or does not answer, nothing is installed: the settings show a line
+that open edits could not be saved and the same button tries again. The downloaded update is kept
+for that retry.
+
 This startup sequence is shared by Windows, macOS, and Linux. On macOS and
 Linux the native installer returns after replacement; Amby explicitly calls
 the process plugin's `relaunch()` before allowing the workspace to open.

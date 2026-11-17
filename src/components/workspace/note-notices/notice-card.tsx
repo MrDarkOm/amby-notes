@@ -2,6 +2,7 @@ import * as React from "react"
 
 import { NoticeLevelIcon, NoticeShell, type NoticeLevel } from "../notices/notice-level"
 import { noticeIsUrgent } from "../notices/notice-look"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 export interface Notice {
   /** Stable while the same thing is being said; a new urgent one opens the stack. */
@@ -42,11 +43,7 @@ export function Card({ testId, level, title, lines = [], error, actions }: CardP
             {line}
           </p>
         ))}
-        {error && (
-          <p role="alert" className="text-[11px] text-destructive">
-            {error}
-          </p>
-        )}
+        {error && <NoticeLine role="alert" text={error} />}
         {actions && <div className="flex flex-wrap gap-2 pt-1">{actions}</div>}
       </div>
     </NoticeShell>

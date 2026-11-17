@@ -1,6 +1,5 @@
 //! The icons of the basic properties are icons of the Lucide set of the application, written as
 //! `amby-icon:<name>:` with no colour (docs/sync-plan.md, З61). Written with the code.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use serde_json::json;
 

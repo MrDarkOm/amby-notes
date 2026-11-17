@@ -1033,7 +1033,7 @@ fn a_note_lists_who_points_at_it_and_whom_it_points_at() {
                 note_id: chapter.clone(),
                 property_id: created.property_id.clone(),
                 value_json: Some(value),
-                expected_revision: String::new(),
+                expected_revision: text.note_revision(&chapter),
             }],
         },
         None,

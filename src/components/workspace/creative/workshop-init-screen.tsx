@@ -11,6 +11,7 @@ import {
 import { projectLabels } from "./project-labels"
 import { useOperationId } from "./use-operation-id"
 import { projectErrorText } from "@/lib/operation-errors"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface WorkshopInitScreenProps {
   /** The vault-relative folder the workshop will be made in (the setting, or the default). */
@@ -84,11 +85,7 @@ export function WorkshopInitScreen({
       >
         {pending ? t("creative.init.working") : t("creative.init.button")}
       </Button>
-      {error && (
-        <p role="alert" className="break-words text-[11px] text-destructive">
-          {error}
-        </p>
-      )}
+      {error && <NoticeLine role="alert" text={error} className="break-words" />}
       {others.length > 0 && (
         <p className="break-words text-[11px] text-muted-foreground">
           {t("creative.init.others", {

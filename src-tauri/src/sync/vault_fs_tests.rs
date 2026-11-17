@@ -6,8 +6,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use amby_sync_core::engine::rules::is_excluded_path;
-use amby_sync_core::engine::{FsError, LocalFs, LocalKind, RootState, SnapshotReason, TrashReason};
+use amby_sync_core::engine::rules::{is_excluded_path, AMBY_SYNCED_FOLDERS};
+use amby_sync_core::engine::{
+    ExpectedLocal, FsError, LocalFs, LocalKind, RootState, SnapshotReason, TrashReason,
+};
 
 use super::vault_fs::{is_not_entered, pending_journals, FsHooks, VaultFs};
 use crate::{history, recycle_bin};
@@ -86,7 +88,7 @@ impl Drop for Vault {
 fn write(fs: &mut VaultFs, path: &str, bytes: &[u8], snapshot: Option<SnapshotReason>) {
     let mut staged = fs.begin_write(path).unwrap();
     staged.write(bytes).unwrap();
-    staged.publish(snapshot).unwrap();
+    staged.publish(snapshot, ExpectedLocal::Any).unwrap();
 }
 
 // ----- the root and the listing -----
@@ -250,6 +252,19 @@ fn the_walk_enters_exactly_the_folders_of_amby_that_the_rules_of_the_core_keep()
     }
 }
 
+#[test]
+fn the_walk_uses_the_list_of_synchronised_folders_of_the_core() {
+    // SYNC-10: one list, in `rules` of the core; every folder of it is entered by the walk and
+    // kept by the rules
+    for folder in AMBY_SYNCED_FOLDERS {
+        assert!(
+            !is_not_entered(".amby", folder),
+            ".amby/{folder} is not entered"
+        );
+        assert!(!is_excluded_path(&format!(".amby/{folder}/file")));
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn a_symbolic_link_is_a_link_and_is_not_followed() {
@@ -347,7 +362,7 @@ fn a_write_is_atomic_through_a_temporary_file_next_to_the_target() {
     let temps = vault.temp_files();
     assert_eq!(temps.len(), 1, "{temps:?}");
     assert!(temps[0].starts_with(".a.md.amby-tmp-"), "{temps:?}");
-    staged.publish(None).unwrap();
+    staged.publish(None, ExpectedLocal::Any).unwrap();
     assert_eq!(vault.read("Notes/new/a.md").unwrap(), b"first second");
     assert!(vault.temp_files().is_empty(), "no temporary file is left");
 }
@@ -434,7 +449,7 @@ fn a_failed_snapshot_fails_the_write_and_keeps_the_old_file() {
     let mut fs = vault.fs();
     let mut staged = fs.begin_write("a.md").unwrap();
     staged.write(b"new").unwrap();
-    let result = staged.publish(Some(SnapshotReason::SyncOverwrite));
+    let result = staged.publish(Some(SnapshotReason::SyncOverwrite), ExpectedLocal::Any);
     assert!(result.is_err());
     assert_eq!(vault.read("a.md").unwrap(), b"old", "the old file stays");
     assert!(
@@ -778,7 +793,7 @@ impl FsHooks for WrittenRecorder {
 fn write_file(fs: &mut VaultFs, path: &str, bytes: &[u8]) {
     let mut staged = fs.begin_write(path).unwrap();
     staged.write(bytes).unwrap();
-    staged.publish(None).unwrap();
+    staged.publish(None, ExpectedLocal::Any).unwrap();
 }
 
 #[test]
@@ -874,4 +889,57 @@ fn a_batch_reports_a_renamed_properties_directory_and_its_removal() {
             "end".to_string(),
         ]
     );
+}
+
+// ----- a save between the check and the publish (SYNC-01, С9) -----
+
+#[test]
+fn a_publish_over_a_file_that_changed_is_refused_and_keeps_it() {
+    let vault = Vault::new();
+    vault.put("a.md", b"as the decision saw it");
+    let mut fs = vault.fs();
+    let mut staged = fs.begin_write("a.md").unwrap();
+    staged.write(b"from the server").unwrap();
+    vault.put("a.md", b"saved by the person meanwhile");
+    let result = staged.publish(
+        Some(SnapshotReason::SyncOverwrite),
+        ExpectedLocal::Hash(amby_sync_core::crypto::primitives::blake3_hash(
+            b"as the decision saw it",
+        )),
+    );
+    assert!(matches!(result, Err(FsError::Changed(_))), "{result:?}");
+    assert_eq!(
+        vault.read("a.md").unwrap(),
+        b"saved by the person meanwhile"
+    );
+    assert!(vault.temp_files().is_empty());
+}
+
+#[test]
+fn a_publish_of_a_new_file_is_refused_when_one_appeared() {
+    let vault = Vault::new();
+    let mut fs = vault.fs();
+    let mut staged = fs.begin_write("n.md").unwrap();
+    staged.write(b"from the server").unwrap();
+    vault.put("n.md", b"made by the person meanwhile");
+    let result = staged.publish(None, ExpectedLocal::Absent);
+    assert!(matches!(result, Err(FsError::Changed(_))), "{result:?}");
+    assert_eq!(vault.read("n.md").unwrap(), b"made by the person meanwhile");
+    assert!(vault.temp_files().is_empty());
+}
+
+#[test]
+fn a_publish_over_the_expected_file_goes_through() {
+    let vault = Vault::new();
+    vault.put("a.md", b"old");
+    let mut fs = vault.fs();
+    let mut staged = fs.begin_write("a.md").unwrap();
+    staged.write(b"new").unwrap();
+    staged
+        .publish(
+            None,
+            ExpectedLocal::Hash(amby_sync_core::crypto::primitives::blake3_hash(b"old")),
+        )
+        .unwrap();
+    assert_eq!(vault.read("a.md").unwrap(), b"new");
 }

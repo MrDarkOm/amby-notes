@@ -164,7 +164,7 @@ network**; app startup, builds and verification never fetch emoji resources.
    `npm run verify`. Resolver tests check the complete pinned manifest, image
    checksums and all picker skins.
 5. Measure bundle size and repeat the platform/visual matrix below. Update this
-   document and the Russian changelog.
+   document and the changelog.
 
 VS15 remains text presentation; VS16 and qualification aliases resolve through
 the generated map without rewriting the input. Callouts preserve selectors,

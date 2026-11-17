@@ -18,7 +18,6 @@ pub mod backup;
 pub mod clock;
 pub mod conflict_store;
 pub mod connection;
-pub mod gate;
 pub mod hints;
 pub mod password;
 pub mod remote;
@@ -99,7 +98,6 @@ mod conflict_store_tests;
 #[cfg(test)]
 mod connection_tests;
 #[cfg(test)]
-mod gate_tests;
 #[cfg(test)]
 mod hints_tests;
 #[cfg(test)]

@@ -1167,3 +1167,38 @@ fn dependent_rollup_with_unusable_source_manifest_is_cleared_with_diagnostic() {
     assert_eq!(std::fs::read(&manifest_path).unwrap(), valid);
     std::fs::remove_dir_all(&vault).ok();
 }
+
+#[test]
+fn a_long_chain_of_terms_is_evaluated_but_deep_nesting_is_still_refused() {
+    let mut values = BTreeMap::new();
+    values.insert(
+        "a".to_owned(),
+        FormulaValue::Number(Decimal::parse("1").unwrap()),
+    );
+    let chain = vec!["a"; 200].join(" + ");
+    assert_eq!(
+        evaluate(&chain, &values).unwrap(),
+        FormulaValue::Number(Decimal::parse("200").unwrap())
+    );
+    assert_eq!(extract_dependencies(&chain).unwrap(), vec!["a".to_owned()]);
+
+    // Mixed operators and short-circuiting keep their left-to-right meaning.
+    let mixed = format!("{} - 100 * 2", vec!["a"; 150].join(" + "));
+    assert_eq!(
+        evaluate(&mixed, &values).unwrap(),
+        FormulaValue::Number(Decimal::parse("-50").unwrap())
+    );
+    let logic = format!("false and a {}", " and a".repeat(150));
+    assert_eq!(
+        evaluate(&logic, &values).unwrap(),
+        FormulaValue::Boolean(false)
+    );
+
+    // Nesting by parentheses is still bounded.
+    let nested = format!("{}a{}", "(".repeat(200), ")".repeat(200));
+    assert_eq!(parse(&nested).unwrap_err().code, "formulaTooDeep");
+    assert_eq!(
+        evaluate(&nested, &values).unwrap_err().code,
+        "formulaTooDeep"
+    );
+}

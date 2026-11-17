@@ -13,6 +13,7 @@ import { useTreeMessageStore } from "../tree/use-tree-message-store"
 import { useDatabaseStore } from "../database/database-store"
 import { usePropertyMoveRetryStore } from "./property-move-retry-store"
 import { useDocumentMutations } from "./use-document-mutations"
+import { applyIconOverrides } from "../workspace-tree-utils"
 
 const moveItem = vi.fn()
 const renameItem = vi.fn()
@@ -361,5 +362,79 @@ describe("the offer to carry the properties of a moved note to the database", ()
     const message = useTreeMessageStore.getState().message
     expect(message?.titleKey).toBe("notices.tree.propertiesKept")
     expect(message?.action).toBeDefined()
+  })
+})
+
+describe("a move that does not happen puts back the raw tree, not the displayed one", () => {
+  const RAW: TreeItem[] = [
+    {
+      id: "/v/A",
+      path: "/v/A",
+      name: "A",
+      type: "folder",
+      children: [{ id: "n1", path: "/v/A/Идея.md", name: "Идея", type: "file" }],
+    },
+    { id: "/v/B", path: "/v/B", name: "B", type: "folder", children: [] },
+  ]
+
+  // Like the vault data: the raw tree lives in a ref; the displayed one is computed from it.
+  function setupWithRealTree() {
+    const treeRef = { current: RAW }
+    const setTreeItems = vi.fn((action: unknown) => {
+      treeRef.current =
+        typeof action === "function"
+          ? (action as (current: TreeItem[]) => TreeItem[])(treeRef.current)
+          : (action as TreeItem[])
+    })
+    const displayed = applyIconOverrides(RAW, { n1: "star" }, { "/v/A/Идея.md": "database" })
+    const hook = renderHook(() =>
+      useDocumentMutations({
+        vault: "/v",
+        treeItems: displayed,
+        setTreeItems: setTreeItems as never,
+        refreshTree: vi.fn().mockResolvedValue(RAW),
+        backendGeneration: 1,
+        autosave: {} as never,
+        autosaveKey: (id: string) => id as never,
+        handleApplyMutation: vi.fn(),
+        handleContentChange: vi.fn(),
+        handleContentDirty: vi.fn(),
+        recoveryScope: {} as never,
+        releaseUnusedDocumentBuffers: vi.fn(),
+        handleSelect: vi.fn().mockResolvedValue(undefined),
+      }),
+    )
+    return { hook, treeRef, displayed }
+  }
+
+  beforeEach(() => {
+    moveItem.mockReset().mockResolvedValue(moved)
+    previewMoveRefactor.mockReset().mockResolvedValue({ replacements: 0, notes: 0 })
+    getNoteProperties.mockReset().mockResolvedValue({ customProperties: [] })
+    vi.mocked(confirm).mockReset().mockResolvedValue(true)
+  })
+
+  it("after 'no' to the link rewrite the raw tree is the one it was", async () => {
+    previewMoveRefactor.mockResolvedValue({ replacements: 2, notes: 1 })
+    vi.mocked(confirm).mockResolvedValue(false)
+    const { hook, treeRef, displayed } = setupWithRealTree()
+    expect(displayed).not.toEqual(RAW)
+    await act(async () => {
+      await hook.result.current.handleMoveItem(["n1"], "/v/B")
+    })
+    expect(treeRef.current).toEqual(RAW)
+    // Resetting the icon now removes it from what is displayed.
+    const afterReset = applyIconOverrides(treeRef.current, {}, undefined)
+    expect(afterReset[0].children?.[0].icon).toBeUndefined()
+    expect(afterReset[0].children?.[0].type).toBe("file")
+  })
+
+  it("after a failed move the raw tree is the one it was", async () => {
+    moveItem.mockRejectedValue(new Error("boom"))
+    const { hook, treeRef } = setupWithRealTree()
+    await act(async () => {
+      await hook.result.current.handleMoveItem(["n1"], "/v/B")
+    })
+    expect(treeRef.current).toEqual(RAW)
   })
 })

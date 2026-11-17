@@ -146,8 +146,7 @@ impl VaultContext {
 
     pub fn generation(&self) -> Result<u64, String> {
         self.conn
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .as_ref()
             .map(|active| active.generation)
             .ok_or_else(|| "No vault is open".to_string())
@@ -645,5 +644,19 @@ mod tests {
         assert_eq!(fs::read(&record_path).unwrap(), record_bytes);
         assert_eq!(fs::read(&recovery_file).unwrap(), recovery_bytes);
         assert_eq!(fs::read(&note_path).unwrap(), note_bytes);
+    }
+
+    #[test]
+    fn generation_survives_a_connection_mutex_poisoned_by_a_panic() {
+        let context = Arc::new(VaultContext::default());
+        let clone = Arc::clone(&context);
+        let _ = std::thread::spawn(move || {
+            let _guard = clone.conn.lock().unwrap();
+            panic!("poison the connection mutex");
+        })
+        .join();
+        assert!(context.conn.is_poisoned());
+
+        assert_eq!(context.generation(), Err("No vault is open".to_string()));
     }
 }

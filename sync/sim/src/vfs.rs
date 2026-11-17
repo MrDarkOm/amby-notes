@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 use amby_sync_core::crypto::primitives::blake3_hash;
+use amby_sync_core::engine::ExpectedLocal;
 use amby_sync_core::engine::{
     FsError, Listing, LocalEntry, LocalFs, LocalKind, NameRules, RootState, SnapshotReason,
     StagedWrite, TrashReason,
@@ -671,7 +672,11 @@ impl StagedWrite for VfsStaged {
         Ok(())
     }
 
-    fn publish(self: Box<Self>, snapshot: Option<SnapshotReason>) -> Result<(), FsError> {
+    fn publish(
+        self: Box<Self>,
+        snapshot: Option<SnapshotReason>,
+        expected: ExpectedLocal,
+    ) -> Result<(), FsError> {
         let mut inner = self.vfs.0.borrow_mut();
         if inner.disk_full {
             return Err(FsError::NoSpace);
@@ -684,6 +689,24 @@ impl StagedWrite for VfsStaged {
             Some(Node::File { bytes, .. }) => bytes,
             _ => Vec::new(),
         };
+        let found =
+            Vfs::find(&inner, &staged.target).and_then(|stored| match inner.nodes.get(&stored) {
+                Some(Node::File { bytes, .. }) => Some(hash_of(bytes)),
+                _ => None,
+            });
+        let matches = match expected {
+            ExpectedLocal::Any => true,
+            ExpectedLocal::Absent => Vfs::find(&inner, &staged.target)
+                .is_none_or(|stored| !inner.nodes.contains_key(&stored)),
+            ExpectedLocal::Hash(hash) => found == Some(hash),
+        };
+        if !matches {
+            let target = staged.target;
+            inner.events.push(FsEvent::Abort {
+                path: target.clone(),
+            });
+            return Err(FsError::Changed(target));
+        }
         Vfs::publish_inner(&mut inner, &staged.target, bytes, snapshot)
     }
 

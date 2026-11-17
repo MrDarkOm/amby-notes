@@ -19,17 +19,16 @@ const tab = (key: string, fileId: string): Tab => ({
 
 describe("useTabActions buffer ownership", () => {
   beforeEach(() => {
-    useTabsStore.setState({ tabs: [], activeTabKey: "", secondaryTabKey: null })
+    useTabsStore.setState({ tabs: [], activeTabKey: "" })
   })
 
-  it("re-evaluates usage after closing a tab and clears a closed secondary pane", async () => {
+  it("re-evaluates usage after closing a tab", async () => {
     const tabs = [tab("first", "one"), tab("second", "two")]
-    useTabsStore.setState({ tabs, activeTabKey: "first", secondaryTabKey: "second" })
+    useTabsStore.setState({ tabs, activeTabKey: "first" })
     let usageAfterClose: ReturnType<typeof collectDocumentBufferUsage> = new Map()
     const actions = useTabActions({
       activeTab: tabs[0],
       activeTabKey: "first",
-      secondaryTabKey: "second",
       tabs,
       treeItems: [],
       canGoBack: false,
@@ -37,11 +36,7 @@ describe("useTabActions buffer ownership", () => {
       navigateToFile: async () => {},
       onTabUsageChanged: () => {
         const state = useTabsStore.getState()
-        usageAfterClose = collectDocumentBufferUsage(
-          state.tabs,
-          state.activeTabKey,
-          state.secondaryTabKey,
-        )
+        usageAfterClose = collectDocumentBufferUsage(state.tabs, state.activeTabKey)
       },
     })
 
@@ -49,29 +44,9 @@ describe("useTabActions buffer ownership", () => {
 
     expect(useTabsStore.getState()).toMatchObject({
       activeTabKey: "first",
-      secondaryTabKey: null,
       tabs: [tabs[0]],
     })
     expect(usageAfterClose.has("two")).toBe(false)
-  })
-
-  it("selects a different note for split instead of a duplicate tab", async () => {
-    const tabs = [tab("active", "note"), tab("duplicate", "note"), tab("other", "other")]
-    useTabsStore.setState({ tabs, activeTabKey: "active", secondaryTabKey: null })
-    const actions = useTabActions({
-      activeTab: tabs[0],
-      activeTabKey: "active",
-      secondaryTabKey: null,
-      tabs,
-      treeItems: [],
-      canGoBack: false,
-      canGoForward: false,
-      navigateToFile: async () => {},
-    })
-
-    actions.toggleSplit()
-
-    expect(useTabsStore.getState().secondaryTabKey).toBe("other")
   })
 
   it("restores the correct view type while going back and forward through mixed history", async () => {
@@ -239,7 +214,7 @@ describe("workshop pages in the tab history", () => {
   const treeItems: TreeItem[] = [{ id: "note", path: "/vault/Note.md", name: "Note", type: "file" }]
   beforeEach(async () => {
     await i18n.changeLanguage("ru")
-    useTabsStore.setState({ tabs: [], activeTabKey: "", secondaryTabKey: null })
+    useTabsStore.setState({ tabs: [], activeTabKey: "" })
     useProjectStore.getState().setCatalog(
       catalog([
         workshopSummary("w1", {

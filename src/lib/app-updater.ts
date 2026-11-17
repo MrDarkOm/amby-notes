@@ -6,10 +6,22 @@ import type { UpdateChannelPref } from "@/components/workspace/app-config"
 import { errorType, logger } from "@/lib/logger"
 import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
 import { isTauri } from "@/lib/storage"
+import { flushEditingWindows } from "@/lib/flush-all-windows"
 
 const CHECK_TIMEOUT_MS = 30_000
 const STARTUP_CHECK_TIMEOUT_MS = 5_000
 const DOWNLOAD_TIMEOUT_MS = 10 * 60_000
+
+/**
+ * The pending edits of the windows could not be flushed, so the update was not installed (SAVE-04).
+ * Carries no text of its own: the interface shows its own words.
+ */
+export class UpdateFlushError extends Error {
+  constructor() {
+    super("UpdateFlushFailed")
+    this.name = "UpdateFlushError"
+  }
+}
 
 export type StartupUpdateResult = "ready" | "restarting"
 
@@ -65,6 +77,7 @@ export function updateFailureCode(error: unknown): string {
     return "PermissionDenied"
   if (
     message.includes("sending request") ||
+    message.includes("download request failed") ||
     message.includes("timed out") ||
     message.includes("network") ||
     message.includes("connect")
@@ -103,10 +116,25 @@ function wrapUpdate(update: Update): AvailableAppUpdate {
       }
 
       try {
-        await update.downloadAndInstall(report, {
-          timeout: DOWNLOAD_TIMEOUT_MS,
-          restartAfterInstall: true,
-        })
+        await update.download(report, { timeout: DOWNLOAD_TIMEOUT_MS })
+      } catch (error) {
+        logger.warn("updater.install_failed", { failureCode: updateFailureCode(error) })
+        throw error
+      }
+      // SAVE-04: installing replaces the program and restarts it, so every window saves first. A window
+      // that cannot keep its edits stops the update; the downloaded update stays for a retry.
+      let flushed = false
+      try {
+        flushed = await flushEditingWindows()
+      } catch (error) {
+        logger.warn("updater.flush_failed", { errorType: errorType(error) })
+      }
+      if (!flushed) {
+        logger.warn("updater.install_skipped", { failureCode: "FlushFailed" })
+        throw new UpdateFlushError()
+      }
+      try {
+        await update.install({ restartAfterInstall: true })
       } catch (error) {
         // The journal keeps why it failed as a code (docs/notices.md), for the setting and for the start.
         logger.warn("updater.install_failed", { failureCode: updateFailureCode(error) })

@@ -6,6 +6,7 @@ import { sharedInUniverse } from "./pages/scope-model"
 import { useCreateInScope } from "./workshop/use-create-in-scope"
 import type { ScopeData } from "./workshop/use-scope-data"
 import { storyLabels, type PanelFilter } from "./workshop/workshop-model"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface ScopedSectionProps {
   workshop: WorkshopSummary
@@ -66,11 +67,7 @@ export function ScopedSection({
   const chips = scope.kind === "story" ? undefined : storyLabelsOf
   return (
     <div className="mb-8 flex w-full min-w-0 flex-col gap-6">
-      {data.failed && (
-        <p role="alert" className="text-xs text-destructive">
-          {t("creative.workshop.loadFailed")}
-        </p>
-      )}
+      {data.failed && <NoticeLine role="alert" text={t("creative.workshop.loadFailed")} />}
       <SectionGallery
         section={section}
         rows={split ? split.shared : shownRows}

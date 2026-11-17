@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::model::{FsMutationResult, PathChange};
@@ -51,10 +50,7 @@ pub(crate) fn rename_item_impl(
     path: &Path,
     new_name: &str,
 ) -> Result<FsMutationResult, String> {
-    let trimmed = new_name.trim();
-    if trimmed.is_empty() || trimmed.contains('/') || trimmed.contains('\\') {
-        return Err("Invalid item name".to_string());
-    }
+    let trimmed = super::path_ops::validate_item_name("item", new_name)?;
     if is_vault_root(vault, path) {
         return Err("The vault itself cannot be renamed".to_string());
     }
@@ -69,6 +65,7 @@ pub(crate) fn rename_item_impl(
         let old_stem = file_stem(path)?;
         let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("md");
         let new_dir = parent.join(trimmed);
+        crate::paths::confine(vault, &new_dir)?;
         let new_main = new_dir.join(format!("{trimmed}.{ext}"));
 
         ensure_rename_target_available(bundle_dir, &new_dir)?;
@@ -153,6 +150,7 @@ pub(crate) fn rename_item_impl(
             .map(|e| format!(".{}", e.to_string_lossy()))
             .unwrap_or_default();
         let new_path = parent.join(format!("{trimmed}{ext}"));
+        crate::paths::confine(vault, &new_path)?;
         ensure_rename_target_available(path, &new_path)?;
         rename_path_case_safe(path, &new_path)?;
         Ok(FsMutationResult {
@@ -172,6 +170,7 @@ pub(crate) fn rename_item_impl(
             .parent()
             .ok_or_else(|| "Folder has no parent".to_string())?;
         let new_path = parent.join(trimmed);
+        crate::paths::confine(vault, &new_path)?;
         ensure_rename_target_available(path, &new_path)?;
         let old_markdown_paths = collect_refactor_paths(path)?;
         let path_changes = path_changes_for_prefix(&old_markdown_paths, path, &new_path);
@@ -282,7 +281,7 @@ fn move_item_to_dir(
 
     let markdown_paths = collect_refactor_paths(&source_root)?;
     let path_changes = path_changes_for_prefix(&markdown_paths, &source_root, &destination);
-    fs::rename(&source_root, &destination).map_err(|e| e.to_string())?;
+    crate::atomic_fs::rename_no_replace(&source_root, &destination).map_err(|e| e.to_string())?;
 
     let primary_path = if is_bundle_main_note_in(vault, source_path) {
         let stem = file_stem(source_path)?;

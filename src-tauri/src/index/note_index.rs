@@ -392,13 +392,26 @@ pub fn prepare_note_write_from_path(
         frontmatter::replace_body_preserving_id(&current, content, note_id)
     }
     .map_err(WriteNoteError::failed)?;
-    let body = frontmatter::parse_markdown(&next).body;
-    let parsed_next = frontmatter::parse_markdown(&next);
     let persisted_bytes = if opaque {
         next.as_bytes().to_vec()
+    } else if let Some((envelope, old_body)) = frontmatter::split_frontmatter_envelope(&next)
+        .and_then(|_| frontmatter::split_frontmatter_envelope(&current))
+    {
+        // A note that already has valid frontmatter keeps that envelope byte for
+        // byte and the body takes the line-ending convention of the old body
+        // alone, as in the opaque path. Normalising the whole file would
+        // rewrite the frontmatter lines of a note with mixed line endings (CORE-11).
+        let mut bytes = envelope.as_bytes().to_vec();
+        bytes.extend(
+            frontmatter::text_bytes_from_template(old_body, content)
+                .map_err(WriteNoteError::failed)?,
+        );
+        bytes
     } else {
         frontmatter::text_bytes_for_write(&path, &next).map_err(WriteNoteError::failed)?
     };
+    let body = frontmatter::parse_markdown(&next).body;
+    let parsed_next = frontmatter::parse_markdown(&next);
     Ok(PreparedNoteWrite {
         path,
         next,

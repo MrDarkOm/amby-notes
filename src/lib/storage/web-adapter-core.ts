@@ -113,6 +113,7 @@ import type {
   DatabaseUndoRedoResult,
   DatabaseHistoryStatus,
 } from "./database-types"
+import { isValidItemName } from "./item-name"
 import { DatabaseOperationError } from "./database-types"
 import { ProjectOperationError } from "./project-types"
 import type {
@@ -901,8 +902,12 @@ export class WebAdapterCore implements StoragePort {
   async createNote(
     _vaultPath: string,
     parentPath: string,
-    name: string,
+    rawName: string,
   ): Promise<FsMutationResult> {
+    const name = rawName.trim()
+    if (!isValidItemName(name)) {
+      throw new StorageOperationError("invalidPath", i18n.t("errors.pathNotFound", { path: name }))
+    }
     let tree = webGetTree()
     let targetParentId: string | null = null
     let targetDir: string
@@ -951,13 +956,7 @@ export class WebAdapterCore implements StoragePort {
   async createFolder(vaultPath: string, name: string): Promise<string> {
     const path = joinPath(vaultPath, name)
     const tree = webGetTree()
-    if (
-      !name.trim() ||
-      name.includes("/") ||
-      name.includes("\\") ||
-      name === "." ||
-      name === ".."
-    ) {
+    if (!isValidItemName(name)) {
       throw new StorageOperationError("invalidPath", i18n.t("errors.pathNotFound", { path }))
     }
     if (webFindItem(tree, path)) {
@@ -1110,8 +1109,13 @@ export class WebAdapterCore implements StoragePort {
     }
   }
 
-  async renameItem(_vaultPath: string, path: string, newName: string): Promise<FsMutationResult> {
-    if (!newName.trim() || /[/\\]/u.test(newName) || newName === "." || newName === "..") {
+  async renameItem(
+    _vaultPath: string,
+    path: string,
+    rawNewName: string,
+  ): Promise<FsMutationResult> {
+    const newName = rawNewName.trim()
+    if (!isValidItemName(newName)) {
       throw new StorageOperationError("invalidPath", i18n.t("errors.pathNotFound", { path }))
     }
     const tree = webGetTree()
@@ -1191,6 +1195,12 @@ export class WebAdapterCore implements StoragePort {
     const primaryPath = isBundleMainPath(sourcePath)
       ? joinPath(newRoot, pathBase(sourcePath))
       : joinPath(targetDir, pathBase(sourcePath))
+    if (webFindItem(tree, primaryPath) || webFindItem(tree, newRoot)) {
+      throw new StorageOperationError(
+        "alreadyExists",
+        i18n.t("errors.noteExists", { path: primaryPath }),
+      )
+    }
     const sourceIds = webCollectFileIds(removed.item)
     const sourceChanges = sourceIds.map((oldPath) => ({
       oldPath,
@@ -1233,8 +1243,9 @@ export class WebAdapterCore implements StoragePort {
     }
   }
 
-  async archiveItem(vaultPath: string, path: string): Promise<FsMutationResult> {
-    return this.deleteItem(vaultPath, path)
+  /** The browser has no restorable archive; deleting here would be permanent, so it refuses. */
+  async archiveItem(_vaultPath: string, _path: string): Promise<FsMutationResult> {
+    throw new StorageOperationError("operationFailed", i18n.t("errors.archiveDesktopOnly"))
   }
 
   async noteLayers(notePath: string): Promise<NoteLayers> {
@@ -1537,6 +1548,15 @@ export class WebAdapterCore implements StoragePort {
   }
 
   async openInExplorer(_path: string): Promise<void> {}
+
+  async revealVaultFolder(_id: string): Promise<void> {
+    // Browser development has no folders on disk to show.
+    throw new Error("AttachmentOpenUnavailable")
+  }
+
+  async revealAppDataFolder(): Promise<void> {
+    throw new Error("AttachmentOpenUnavailable")
+  }
 
   async saveAttachmentCopy(_notePath: string, _attachmentPath: string): Promise<string | null> {
     return null

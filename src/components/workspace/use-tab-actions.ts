@@ -21,7 +21,6 @@ const historyRequests = new Map<string, number>()
 interface UseTabActionsParams {
   activeTab: Tab | null
   activeTabKey: string
-  secondaryTabKey: string | null
   tabs: Tab[]
   treeItems: TreeItem[]
   canGoBack: boolean
@@ -41,7 +40,6 @@ interface UseTabActionsParams {
 export function useTabActions({
   activeTab,
   activeTabKey,
-  secondaryTabKey,
   tabs,
   treeItems,
   canGoBack,
@@ -49,7 +47,7 @@ export function useTabActions({
   navigateToFile,
   onTabUsageChanged,
 }: UseTabActionsParams) {
-  const { setTabs, setActiveTabKey, setSecondaryTabKey, splitPane } = useTabsStore.getState()
+  const { setTabs, setActiveTabKey, splitPane } = useTabsStore.getState()
 
   /** A history entry is a file of the tree, a page without a file (the graph, a workshop page). */
   function historyTarget(fileId: string): TabTarget | null {
@@ -72,9 +70,6 @@ export function useTabActions({
           t.key !== targetTab.key ? t : { ...t, ...target, historyIndex: newIndex },
         ),
       )
-      if (target.kind !== "document" && secondaryTabKey === targetTab.key) {
-        setSecondaryTabKey(null)
-      }
       onTabUsageChanged?.()
     }
     // A page without a file, or a note still in memory, is shown at once. Any other file is read
@@ -129,21 +124,6 @@ export function useTabActions({
     setActiveTabKey(key)
   }
 
-  // Legacy 2-pane toggle + split helper
-  function toggleSplit() {
-    logger.info("tab.toggle_split", { activeTabKey })
-    setSecondaryTabKey((previous) => {
-      if (previous) return null
-      if (activeTab?.kind !== "document") return null
-      return (
-        tabs.find(
-          (tab) =>
-            tab.kind === "document" && tab.key !== activeTabKey && tab.fileId !== activeTab.fileId,
-        )?.key ?? null
-      )
-    })
-  }
-
   function handleSplitRight(options?: SplitPaneOptions) {
     flushEditorSerializations()
     logger.info("tab.split_right", { activeTabKey, ...options })
@@ -170,7 +150,6 @@ export function useTabActions({
     // Keep a pending autosave alive when a tab closes. The open document buffer
     // remains available until the queued write finishes, and cancelling here
     // could discard the last edit made just before closing the tab.
-    if (secondaryTabKey === key) setSecondaryTabKey(null)
     const remaining = state.tabs.filter((t) => t.key !== key)
     setTabs(remaining)
     if (state.activeTabKey === key) {
@@ -189,7 +168,6 @@ export function useTabActions({
     logger.info("tab.close_all", { count: tabs.length })
     setTabs([])
     setActiveTabKey("")
-    setSecondaryTabKey(null)
     onTabUsageChanged?.()
   }
 
@@ -197,7 +175,6 @@ export function useTabActions({
     handleBack,
     handleForward,
     handleTabChange,
-    toggleSplit,
     handleSplitRight,
     handleSplitDown,
     handleTabClose,

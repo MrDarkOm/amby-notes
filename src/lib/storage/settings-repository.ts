@@ -24,12 +24,12 @@ export class SettingsRepository {
     return this.port().readVaultRaw(rel)
   }
 
-  async writeVaultRaw(rel: string, contents: string): Promise<void> {
-    return this.port().writeVaultRaw(rel, contents)
-  }
-
-  async deleteVaultMeta(rel: string): Promise<void> {
-    return this.port().deleteVaultMeta(rel)
+  async writeVaultRaw(
+    rel: string,
+    contents: string,
+    expectedGeneration?: number | null,
+  ): Promise<void> {
+    return this.port().writeVaultRaw(rel, contents, expectedGeneration)
   }
 
   async readGlobalSettingsResult<T>(file: string): Promise<SettingsReadResult<T>> {
@@ -104,8 +104,17 @@ export class SettingsRepository {
     throw new Error(`Failed to load vault settings file ${rel}: ${res.error}`)
   }
 
-  async saveVaultJSON(rel: string, data: unknown): Promise<void> {
-    await this.writeVaultRaw(rel, JSON.stringify(data, null, 2))
+  /**
+   * `expectedGeneration` is the backend generation of the vault the caller decided to write for;
+   * the backend refuses the write when another vault is active by then. `null`/omitted: no check
+   * (a window that does not know the generation).
+   */
+  async saveVaultJSON(
+    rel: string,
+    data: unknown,
+    expectedGeneration?: number | null,
+  ): Promise<void> {
+    await this.writeVaultRaw(rel, JSON.stringify(data, null, 2), expectedGeneration)
   }
 
   async globalFileMissing(file: string): Promise<boolean> {

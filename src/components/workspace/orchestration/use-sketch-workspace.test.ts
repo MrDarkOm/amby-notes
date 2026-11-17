@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
 
 import { act, renderHook } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { defaultSketchJson } from "@/lib/sketch-format"
 import * as storage from "@/lib/storage"
+import { StorageOperationError } from "@/lib/storage/operation-error"
+import { useDocStore } from "../use-doc-store"
+import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { useSketchWorkspace } from "./use-sketch-workspace"
 
 describe("useSketchWorkspace", () => {
@@ -119,5 +122,63 @@ describe("useSketchWorkspace: an unreadable sketch", () => {
       false,
     )
     vi.restoreAllMocks()
+  })
+})
+
+// SAVE-12: the sketch hook shares its body with the canvas hook; these pin the paths the canvas tests
+// cover so a shared implementation cannot drift for sketches.
+describe("useSketchWorkspace: missing files and failed saves", () => {
+  const t = ((k: string) => k) as never
+  const recoveryScope = { vault: "/vault-missing", generation: 1 }
+  let caseNumber = 0
+  let path = ""
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    useDocStore.setState({ openDocs: {}, unsavedFileIds: new Set(), externalConflicts: {} })
+    useNoteNoticesStore.setState(useNoteNoticesStore.getInitialState())
+  })
+
+  function setup() {
+    caseNumber += 1
+    path = `/vault-missing/Sketch-${caseNumber}.excalidraw`
+    const hook = renderHook(() => useSketchWorkspace(1, t, recoveryScope))
+    vi.spyOn(hook.result.current.fileRevisions, "baseline").mockResolvedValue()
+    return hook
+  }
+
+  it("opens a missing sketch as an empty drawing that can be saved", async () => {
+    vi.spyOn(storage, "readFile").mockRejectedValue(
+      new StorageOperationError("notFound", "No such file or directory (os error 2)"),
+    )
+    const { result } = setup()
+    await expect(result.current.loadSketchBuffer(path)).resolves.toBe(defaultSketchJson())
+    act(() => result.current.handleSketchSave(path, sampleJson(1)))
+    expect(result.current.autosave.inspect(result.current.autosaveKey(path))?.dirty).toBe(true)
+  })
+
+  it("marks the note unsaved while its sketch waits, and shows a failed save on the note", async () => {
+    vi.spyOn(storage, "writeFile").mockRejectedValue(new Error("disk full"))
+    const { result } = setup()
+    useDocStore.getState().setDoc("board", {
+      id: "board",
+      title: "Board",
+      path,
+      content: "",
+      source: "",
+      revision: "",
+      created: "",
+      modified: "",
+      wordCount: 0,
+    })
+    act(() => result.current.handleSketchSave(path, sampleJson(1)))
+    expect(useDocStore.getState().unsavedFileIds.has("board")).toBe(true)
+    await act(async () => {
+      await result.current.autosave.flushAll().catch(() => {
+        // The failure itself is what is checked below.
+      })
+    })
+    expect(useNoteNoticesStore.getState().saveFailed.board).toBe(true)
+    expect(useDocStore.getState().unsavedFileIds.has("board")).toBe(true)
   })
 })

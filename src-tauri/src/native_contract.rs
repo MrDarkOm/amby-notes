@@ -1,5 +1,6 @@
 //! Opt-in real WebView/IPC harness. It uses the production command registry,
 //! not a mock runtime or replacement storage implementation.
+use crate::lock_util::LockExt;
 use std::{
     fs,
     sync::{
@@ -104,6 +105,7 @@ fn run_native_ui(root: std::path::PathBuf) {
         .manage(NativeAppDataRoot(root.join(".app-data")))
         .manage(crate::vault_context::VaultContext::new())
         .manage(crate::watcher::WatcherState::new())
+        .manage(crate::path_grants::PathGrants::trust_everything())
         .manage(crate::database::runtime_state::DatabaseRuntimeState::default())
         .manage(crate::database::mutation_state::DatabaseMutationState::default())
         .manage(crate::database::history::DatabaseHistoryState::default())
@@ -165,6 +167,7 @@ pub fn run_native_contract() {
         .manage(NativeAppDataRoot(root.join(".app-data")))
         .manage(crate::vault_context::VaultContext::new())
         .manage(crate::watcher::WatcherState::new())
+        .manage(crate::path_grants::PathGrants::trust_everything())
         .manage(crate::database::runtime_state::DatabaseRuntimeState::default())
         .manage(crate::database::mutation_state::DatabaseMutationState::default())
         .manage(crate::database::history::DatabaseHistoryState::default())
@@ -237,8 +240,7 @@ pub fn run_native_contract() {
             handle
                 .state::<crate::vault_context::VaultContext>()
                 .conn
-                .lock()
-                .unwrap()
+                .lock_or_recover()
                 .take();
         }
     });

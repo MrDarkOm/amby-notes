@@ -16,7 +16,7 @@ import {
   rebuildDatabaseProjection,
   readNote,
   restoreDeletedNote,
-  openInExplorer,
+  revealVaultFolder,
   exportTextFile,
   importTextFile,
   type DatabaseRow,
@@ -27,7 +27,6 @@ import { registerDatabaseNavigation } from "./database/database-navigation"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { useRefreshSync } from "./sync/use-refresh-sync"
-import { createFallbackDocument } from "./orchestration/fallback-document"
 import {
   EMPTY_CONTENT_WIDTHS,
   EMPTY_DATABASE_TITLE_LABELS,
@@ -35,6 +34,7 @@ import {
 import { buttonsForSide } from "./panel-definitions"
 import { usePresets } from "./use-presets"
 import { useDocStore } from "./use-doc-store"
+import { reloadOpenNotes } from "./reload-open-notes"
 import { useVaultStore } from "./use-vault-store"
 import type { DocumentViewMode } from "./document-editor"
 import { type WindowPreferences, setPendingWorkspaceProfile } from "./app-config"
@@ -48,6 +48,7 @@ import { useOpenNoteRequests } from "./notices/note-open-request"
 import { relativeToVault } from "./editor/document-breadcrumbs-utils"
 import { OPEN_SETTINGS_REQUEST_EVENT, type SettingsNavigationTarget } from "./settings-navigation"
 import { useSettingsStore } from "./use-settings-store"
+import { useOverlaysStore } from "./use-overlays-store"
 import { useLinkSuggestionSources } from "./orchestration/use-link-suggestion-sources"
 import { useRefreshTreeOnArchiveChange } from "./use-archive-tree-refresh"
 import { applyTreePatch, filterDeletedTabs, planMutation } from "./workspace-mutations"
@@ -74,6 +75,7 @@ import { projectTargetIcon } from "./creative/section-icons"
 import { useDatabaseStore } from "./database/database-store"
 import type { DatabaseRowActions } from "./database/use-row-menu"
 import { remapRecoveryDraft } from "@/lib/recovery-drafts"
+import { useActiveDocument } from "./orchestration/use-active-document"
 import { useCanvasWorkspace } from "./orchestration/use-canvas-workspace"
 import { useSketchWorkspace } from "./orchestration/use-sketch-workspace"
 import { usePropertyActions } from "./orchestration/use-property-actions"
@@ -188,7 +190,6 @@ export function WorkspaceOrchestration() {
     treeItems,
     setTreeItems,
     displayTreeItems,
-    linkGraph,
     refreshLinkGraph,
     loadVault,
     refreshTree,
@@ -204,35 +205,14 @@ export function WorkspaceOrchestration() {
   const { applyMutation, patchDoc, markSaved, clearExternalConflict } = useDocStore.getState()
   const tabs = useTabsStore((s) => s.tabs)
   const activeTabKey = useTabsStore((s) => s.activeTabKey)
-  const secondaryTabKey = useTabsStore((s) => s.secondaryTabKey)
   const rootPane = useTabsStore((s) => s.rootPane)
   const activePaneId = useTabsStore((s) => s.activePaneId)
   const splitLayout = React.useMemo(() => computeSplitLayout(rootPane), [rootPane])
   const isMultiPane = splitLayout.leaves.length > 1
   const mainStageRef = React.useRef<HTMLElement | null>(null)
   const activeTab = tabs.find((tab) => tab.key === activeTabKey) ?? null
-  // Subscribe only to whether the active document has been loaded. The editor
-  // owns content updates; this small subscription fixes the startup race
-  // without rerendering the whole workspace on every keystroke.
-  const activeDocumentLoaded = useDocStore((state) => {
-    if (!activeTab) return false
-    if (
-      activeTab.kind === "canvas" ||
-      activeTab.kind === "sketch" ||
-      activeTab.kind === "database" ||
-      activeTab.fileId.endsWith(".canvas") ||
-      activeTab.fileId.endsWith(".excalidraw")
-    ) {
-      return true
-    }
-    return Boolean(state.openDocs[activeTab.fileId])
-  })
-  // Document buffers are read imperatively here. Visible editors subscribe to
-  // their own document below, so patchDoc cannot rerender the whole workspace.
-  const openDocs = useDocStore.getState().openDocs
   // Stable setters (value-or-updater, like setState); see use-tabs-store.
   const { setTabs, setActiveTabKey } = useTabsStore.getState()
-  const unsavedFileIds = useDocStore((s) => s.unsavedFileIds)
   // Keep editor scroll offsets outside the keyed editor components so a tab can
   // be temporarily hidden or remounted without losing the user's position.
   const scrollPositionsRef = React.useRef<Record<string, number>>({})
@@ -283,15 +263,12 @@ export function WorkspaceOrchestration() {
     [toggleFavorite],
   )
 
-  const [quickOpenMode, setQuickOpenMode] = React.useState<"current" | "new" | null>(null)
-  const [searchOpen, setSearchOpen] = React.useState(false)
-  const [isHelpOpen, setIsHelpOpen] = React.useState(false)
-  const [settingsOpen, setSettingsOpen] = React.useState(false)
-  const [vaultManagerOpen, setVaultManagerOpen] = React.useState(false)
+  // Which dialogs are open lives in useOverlaysStore: the root only calls its actions, never
+  // subscribes, so opening a dialog does not render the root (SHELL-04).
   React.useEffect(() => {
-    if (!vault) setVaultManagerOpen(false)
+    if (!vault) useOverlaysStore.getState().setVaultManagerOpen(false)
   }, [vault])
-  const [settingsTarget, setSettingsTarget] = React.useState<SettingsNavigationTarget | null>(null)
+  React.useEffect(() => () => useOverlaysStore.getState().reset(), [])
   const defaultViewMode = useSettingsStore((s) => s.prefs.editor.defaultViewMode)
   const defaultContentWidth = useSettingsStore((s) => s.prefs.editor.contentWidth)
   const dockPrefs = useSettingsStore((s) => s.prefs.docks)
@@ -300,10 +277,8 @@ export function WorkspaceOrchestration() {
   const experimental = useSettingsStore((s) => s.experimental)
   const setPrefs = useSettingsStore((s) => s.setPrefs)
 
-  const updateDockPrefs = React.useCallback(
-    (patch: Partial<typeof dockPrefs>) => setPrefs({ docks: { ...dockPrefs, ...patch } }),
-    [dockPrefs, setPrefs],
-  )
+  // Merged from the settings as they are now, not from this render's snapshot.
+  const updateDockPrefs = useSettingsStore((s) => s.setDockPrefs)
 
   const updateWindowPrefs = React.useCallback(
     (patch: Partial<WindowPreferences>) => {
@@ -317,8 +292,7 @@ export function WorkspaceOrchestration() {
 
   const openSettings = React.useCallback((target: SettingsNavigationTarget | null = null) => {
     if (IS_SITE_DEMO) return
-    setSettingsTarget(target)
-    setSettingsOpen(true)
+    useOverlaysStore.getState().openSettings(target)
   }, [])
   // The notices of the sync (a card with "Show the list") ask for the sync section this way.
   React.useEffect(() => {
@@ -400,7 +374,6 @@ export function WorkspaceOrchestration() {
       }),
     [presets, t],
   )
-  const [presetNameOpen, setPresetNameOpen] = React.useState(false)
 
   async function handleExportPreset() {
     const json = exportPreset(activePresetId)
@@ -467,24 +440,7 @@ export function WorkspaceOrchestration() {
     try {
       await reloadVaultData()
 
-      const currentDocs = useDocStore.getState().openDocs
-      const unsavedIds = useDocStore.getState().unsavedFileIds
-      for (const [id, doc] of Object.entries(currentDocs)) {
-        if (!unsavedIds.has(id)) {
-          try {
-            if (vault && !doc.path.endsWith(".canvas") && !doc.path.endsWith(".excalidraw")) {
-              const note = await readNote(vault, id)
-              useDocStore.getState().patchDoc(id, {
-                content: note.content,
-                revision: note.revision,
-                source: note.source,
-              })
-            }
-          } catch {
-            /* ignore */
-          }
-        }
-      }
+      if (vault) await reloadOpenNotes(vault)
 
       for (const path of Object.keys(openCanvases)) {
         await reloadExternalCanvas(path)
@@ -516,9 +472,9 @@ export function WorkspaceOrchestration() {
   const actionContext: ActionContext = {
     openGraphTab,
     refreshVault: refreshSync.refresh,
-    openSearch: () => setSearchOpen(true),
+    openSearch: () => useOverlaysStore.getState().setSearchOpen(true),
     openSettings,
-    openHelp: () => setIsHelpOpen(true),
+    openHelp: () => useOverlaysStore.getState().setHelpOpen(true),
   }
 
   const {
@@ -545,11 +501,9 @@ export function WorkspaceOrchestration() {
     isCompactLayout,
     leftWidth,
     rightWidth,
-    isLeftSidebarOpen,
     resizingSide,
     setSidebarHover,
     startResize,
-    isRightSidebarOpen,
   } = useWorkspaceDock({
     refreshSync,
     presetOptions,
@@ -561,7 +515,6 @@ export function WorkspaceOrchestration() {
     presetModified,
     canSaveActivePreset,
     saveActivePreset,
-    setPresetNameOpen,
     resetActivePreset,
     panelScope,
     setPanelScope,
@@ -599,6 +552,12 @@ export function WorkspaceOrchestration() {
     return result
   }, [displayTreeItems])
 
+  // The document of the active tab: the root takes its identity, not its text (SHELL-04).
+  const { currentDoc, currentDocId, currentDocPath, currentDocDefaultLayer } = useActiveDocument(
+    activeTab,
+    treeItemById,
+  )
+
   // Canvas and sketch tabs hold the file path while their tree rows are `canvas:`/`sketch:`
   // prefixed, so resolve the tab to its row to highlight it.
   const selectedId =
@@ -608,10 +567,8 @@ export function WorkspaceOrchestration() {
       activeTab.kind === "database" ||
       activeTab.kind === "canvas" ||
       activeTab.kind === "sketch")
-      ? ((
-          treeItemById.get(activeTab.fileId) ??
-          treeItemById.get(openDocs[activeTab.fileId]?.noteId ?? "")
-        )?.id ?? activeTab.fileId)
+      ? ((treeItemById.get(activeTab.fileId) ?? treeItemById.get(currentDoc?.noteId ?? ""))?.id ??
+        activeTab.fileId)
       : ""
 
   // Current file icon (from iconOverrides or tree)
@@ -665,6 +622,7 @@ export function WorkspaceOrchestration() {
     applyMutation(deletedIds, remapFn) // doc store: remaps content paths + drops deleted
     applyViewMutation(deletedIds, remapFn)
 
+    const openDocs = useDocStore.getState().openDocs
     for (const [id, doc] of Object.entries(openDocs)) {
       if (!deleted.has(id)) {
         const nextPath = remapFn(doc.path)
@@ -724,82 +682,6 @@ export function WorkspaceOrchestration() {
     })
     return patched
   }
-
-  const currentDoc = React.useMemo(() => {
-    if (!activeTab) return null
-    const existing = openDocs[activeTab.fileId] ?? null
-    if (existing) return existing
-    const isSpecialDoc =
-      activeTab.kind === "canvas" ||
-      activeTab.kind === "sketch" ||
-      activeTab.kind === "database" ||
-      activeTab.fileId.endsWith(".canvas") ||
-      activeTab.fileId.endsWith(".excalidraw")
-    if (isSpecialDoc) {
-      const treeItem = treeItemById.get(activeTab.fileId)
-      return createFallbackDocument(
-        activeTab.fileId,
-        activeTab.title,
-        treeItem?.path ?? activeTab.fileId,
-        treeItem?.created,
-        treeItem?.modified,
-      )
-    }
-    return activeDocumentLoaded ? (openDocs[activeTab.fileId] ?? null) : null
-  }, [activeDocumentLoaded, activeTab, openDocs, treeItemById])
-  const currentDocId = currentDoc?.id ?? null
-  const currentDocPath = currentDoc?.path ?? null
-  const currentDocDefaultLayer: EditorLayer =
-    (currentDocId ? useViewStateStore.getState().primaryLayers[currentDocId] : undefined) ??
-    (currentDocPath ? useViewStateStore.getState().primaryLayers[currentDocPath] : undefined) ??
-    (activeTab?.kind === "canvas" || currentDocPath?.endsWith(".canvas")
-      ? "canvas"
-      : activeTab?.kind === "sketch" || currentDocPath?.endsWith(".excalidraw")
-        ? "sketch"
-        : activeTab?.kind === "database"
-          ? "database"
-          : "editor")
-
-  React.useEffect(() => {
-    if (!activeTab) return
-    const isSpecialDoc =
-      activeTab.kind === "canvas" ||
-      activeTab.kind === "sketch" ||
-      activeTab.kind === "database" ||
-      activeTab.fileId.endsWith(".canvas") ||
-      activeTab.fileId.endsWith(".excalidraw")
-    if (!isSpecialDoc) return
-    const docId = activeTab.fileId
-    const existing = useDocStore.getState().openDocs[docId]
-    if (!existing) {
-      const treeItem = treeItemById.get(docId)
-      const path = treeItem?.path ?? docId
-      const docObj = createFallbackDocument(
-        docId,
-        activeTab.title,
-        path,
-        treeItem?.created,
-        treeItem?.modified,
-      )
-      useDocStore.getState().setDoc(docId, docObj)
-      if (path && path !== docId) {
-        useDocStore.getState().setDoc(path, docObj)
-      }
-      const defaultLayer: EditorLayer =
-        useViewStateStore.getState().primaryLayers[docId] ??
-        (path ? useViewStateStore.getState().primaryLayers[path] : undefined) ??
-        (activeTab.kind === "canvas" || path.endsWith(".canvas")
-          ? "canvas"
-          : activeTab.kind === "sketch" || path.endsWith(".excalidraw")
-            ? "sketch"
-            : activeTab.kind === "database"
-              ? "database"
-              : "editor")
-      if (!useViewStateStore.getState().activeLayers[docId]) {
-        useViewStateStore.getState().setActiveLayer(docId, defaultLayer)
-      }
-    }
-  }, [activeTab, treeItemById])
 
   const handleRestoreDeleted = React.useCallback(
     async (fileId: string) => {
@@ -1013,7 +895,6 @@ export function WorkspaceOrchestration() {
   } = useTabActions({
     activeTab,
     activeTabKey,
-    secondaryTabKey,
     tabs,
     treeItems,
     canGoBack,
@@ -1057,10 +938,10 @@ export function WorkspaceOrchestration() {
 
       if (matchesShortcut(event, shortcuts.quickOpen)) {
         event.preventDefault()
-        setQuickOpenMode("current")
+        useOverlaysStore.getState().setQuickOpenMode("current")
       } else if (matchesShortcut(event, shortcuts.search)) {
         event.preventDefault()
-        setSearchOpen(true)
+        useOverlaysStore.getState().setSearchOpen(true)
       } else if (matchesShortcut(event, shortcuts.newNote)) {
         event.preventDefault()
         handleNewFileIn(null)
@@ -1113,7 +994,7 @@ export function WorkspaceOrchestration() {
       vault,
       vaults,
       onRequestProfileSelection: (path) => setPendingVaultPath(path),
-      onOpenRestored: () => setSettingsOpen(false),
+      onOpenRestored: () => useOverlaysStore.getState().setSettingsOpen(false),
     })
 
   const handleViewModeChange = (mode: DocumentViewMode) => {
@@ -1227,7 +1108,6 @@ export function WorkspaceOrchestration() {
     activeTab,
     currentDoc,
     treeItemById,
-    linkGraph,
     t,
     vault,
     includeAttachmentImages:
@@ -1384,7 +1264,6 @@ export function WorkspaceOrchestration() {
     selectedDatabase,
     activeTab,
     currentFileIcon,
-    linkGraph,
     currentDoc,
     handleSelect,
     handleUpsertCustomProperty,
@@ -1400,7 +1279,6 @@ export function WorkspaceOrchestration() {
     handleHistoryRestored,
     vaults,
     loadVault,
-    setVaultManagerOpen,
     vaultName,
   })
 
@@ -1411,7 +1289,6 @@ export function WorkspaceOrchestration() {
   const rightDockPinned = isDockPinned("right")
   const { renderCreativeProject, activeFolder, renderCachedTabSurfaces, renderPaneLeaf } =
     usePaneRenderers({
-      openDocs,
       treeItemById,
       activeTabKey,
       canGoBack,
@@ -1439,7 +1316,6 @@ export function WorkspaceOrchestration() {
       activatePanelAnywhere,
       handleNewDatabase,
       displayTreeItems,
-      setQuickOpenMode,
       handleOpenVault,
       showTagInPanel,
       handleWikiLinkClick,
@@ -1492,7 +1368,6 @@ export function WorkspaceOrchestration() {
       refreshTreePaths,
       loadDoc,
       activeTab,
-      secondaryTabKey,
       tabs,
       handleExitFocusMode,
       handleEnterFocusMode,
@@ -1506,7 +1381,6 @@ export function WorkspaceOrchestration() {
       isFocusMode,
       graphEnabled,
       activePaneId,
-      unsavedFileIds,
       isLeftSidebarVisible,
       leftDockPinned,
       isRightSidebarVisible,
@@ -1515,7 +1389,6 @@ export function WorkspaceOrchestration() {
       navigateToFile,
       handleTabUsageChanged,
       handleCloseAllTabs,
-      linkGraph,
       refreshLinkGraph,
     })
 
@@ -1553,7 +1426,7 @@ export function WorkspaceOrchestration() {
             onRename={handleRenameVault}
             onDelete={handleDeleteVault}
             onMove={handleMoveVault}
-            onOpenInExplorer={openInExplorer}
+            onRevealVault={revealVaultFolder}
           />
         }
         normalContent={null}
@@ -1571,11 +1444,8 @@ export function WorkspaceOrchestration() {
       <WorkspaceFocusLayout
         setFocusShowLeft={setFocusShowLeft}
         setFocusShowRight={setFocusShowRight}
-        activeTab={activeTab}
         graphEnabled={graphEnabled}
-        linkGraph={linkGraph}
         handleSelect={handleSelect}
-        vault={vault}
         treeItems={treeItems}
         handleBack={handleBack}
         handleOpenInNewTab={handleOpenInNewTab}
@@ -1608,29 +1478,15 @@ export function WorkspaceOrchestration() {
         panelRenderProps={panelRenderProps}
         focusShowRight={focusShowRight}
         rightButtons={rightButtons}
-        quickOpenMode={quickOpenMode}
-        setQuickOpenMode={setQuickOpenMode}
         displayTreeItems={displayTreeItems}
-        activeFileId={activeFileId}
         quickOpenCreateActions={quickOpenCreateActions}
-        searchOpen={searchOpen}
-        setSearchOpen={setSearchOpen}
-        vaultManagerOpen={vaultManagerOpen}
-        setVaultManagerOpen={setVaultManagerOpen}
-        vaults={vaults}
         loadVault={loadVault}
         handleOpenVault={handleOpenVault}
         handleRenameVault={handleRenameVault}
         handleDeleteVault={handleDeleteVault}
         handleMoveVault={handleMoveVault}
-        settingsOpen={settingsOpen}
-        setSettingsOpen={setSettingsOpen}
-        setSettingsTarget={setSettingsTarget}
-        settingsTarget={settingsTarget}
         activeModules={activeModules}
         adoptPreset={adoptPreset}
-        isHelpOpen={isHelpOpen}
-        setIsHelpOpen={setIsHelpOpen}
         workspaceProfileDialog={workspaceProfileDialog}
         deleteConfirmationDialog={deleteConfirmationDialog}
         propertyMigrationDialog={propertyMigrationDialog}
@@ -1644,8 +1500,6 @@ export function WorkspaceOrchestration() {
   return (
     <WorkspaceNormalLayout
       headerTabs={headerTabs}
-      activeTabKey={activeTabKey}
-      unsavedFileIds={unsavedFileIds}
       handleTabChange={handleTabChange}
       handleTabClose={handleTabClose}
       toggleSidebar={toggleSidebar}
@@ -1654,20 +1508,13 @@ export function WorkspaceOrchestration() {
       leftDockPinned={leftDockPinned}
       rightDockPinned={rightDockPinned}
       setDockPinned={setDockPinned}
-      setQuickOpenMode={setQuickOpenMode}
-      vaultName={vaultName}
-      vaults={vaults}
-      vault={vault}
       loadVault={loadVault}
       handleOpenVault={handleOpenVault}
-      setVaultManagerOpen={setVaultManagerOpen}
       handleCloseAllTabs={handleCloseAllTabs}
       isCompactLayout={isCompactLayout}
       leftWidth={leftWidth}
       rightPanelEnabled={rightPanelEnabled}
       rightWidth={rightWidth}
-      activeTab={activeTab}
-      favorites={favorites}
       handleToggleFavorite={handleToggleFavorite}
       singlePaneId={singlePaneId}
       isMultiPane={isMultiPane}
@@ -1684,7 +1531,6 @@ export function WorkspaceOrchestration() {
       activityBarPresetProps={activityBarPresetProps}
       activityDockProps={activityDockProps}
       currentHelpContext={currentHelpContext}
-      isLeftSidebarOpen={isLeftSidebarOpen}
       resizingSide={resizingSide}
       setSidebarHover={setSidebarHover}
       panelRenderProps={panelRenderProps}
@@ -1693,33 +1539,19 @@ export function WorkspaceOrchestration() {
       splitLayout={splitLayout}
       renderPaneLeaf={renderPaneLeaf}
       paneDnd={paneDnd}
-      isRightSidebarOpen={isRightSidebarOpen}
       rightButtons={rightButtons}
-      quickOpenMode={quickOpenMode}
       displayTreeItems={displayTreeItems}
       handleOpenInNewTab={handleOpenInNewTab}
       handleSelect={handleSelect}
       handleNewFileIn={handleNewFileIn}
-      activeFileId={activeFileId}
       quickOpenCreateActions={quickOpenCreateActions}
-      searchOpen={searchOpen}
-      setSearchOpen={setSearchOpen}
-      vaultManagerOpen={vaultManagerOpen}
       handleRenameVault={handleRenameVault}
       handleDeleteVault={handleDeleteVault}
       handleMoveVault={handleMoveVault}
-      settingsOpen={settingsOpen}
-      setSettingsOpen={setSettingsOpen}
-      setSettingsTarget={setSettingsTarget}
-      settingsTarget={settingsTarget}
       activeModules={activeModules}
       setModuleEnabled={setModuleEnabled}
       adoptPreset={adoptPreset}
-      isHelpOpen={isHelpOpen}
-      setIsHelpOpen={setIsHelpOpen}
       workspaceProfileDialog={workspaceProfileDialog}
-      presetNameOpen={presetNameOpen}
-      setPresetNameOpen={setPresetNameOpen}
       savePresetAs={savePresetAs}
     />
   )

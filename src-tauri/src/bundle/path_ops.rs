@@ -4,6 +4,63 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static CASE_RENAME_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// The name a person typed for a new or renamed item, trimmed, or an
+/// `Invalid <label> name: ...` error (classified as `invalidPath`).
+///
+/// A vault is shared with other systems, so the rules are the strictest of
+/// Windows, macOS and Linux: no path separators, control or bidirectional
+/// override characters, none of `: < > " | ? *`, no trailing dot, no
+/// Windows device names (`CON`, `NUL.txt`, `COM1`...), no names made only of
+/// dots, none of the service directories Amby and its neighbours own
+/// (`.git`, `.amby`, `.obsidian`, `.trash`), and at most [`MAX_ITEM_NAME_BYTES`]
+/// bytes so the extension and sidecar suffixes still fit in 255.
+pub(crate) fn validate_item_name<'a>(label: &str, name: &'a str) -> Result<&'a str, String> {
+    let trimmed = name.trim();
+    let reason = item_name_problem(trimmed);
+    match reason {
+        Some(reason) => Err(format!("Invalid {label} name: {reason}")),
+        None => Ok(trimmed),
+    }
+}
+
+/// Longest accepted item name, in bytes.
+const MAX_ITEM_NAME_BYTES: usize = 200;
+
+fn item_name_problem(name: &str) -> Option<&'static str> {
+    if name.is_empty() {
+        return Some("empty");
+    }
+    if name.len() > MAX_ITEM_NAME_BYTES {
+        return Some("too long");
+    }
+    if name.chars().any(|c| {
+        c.is_control()
+            || matches!(c, '/' | '\\' | ':' | '<' | '>' | '"' | '|' | '?' | '*')
+            || matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+    }) {
+        return Some("forbidden character");
+    }
+    if name.chars().all(|c| c == '.') || name.ends_with('.') {
+        return Some("dots");
+    }
+    let lower = name.to_lowercase();
+    if matches!(
+        lower.as_str(),
+        ".git" | ".amby" | ".obsidian" | ".trash" | ".ds_store"
+    ) {
+        return Some("reserved name");
+    }
+    let stem = lower.split('.').next().unwrap_or("");
+    let device = matches!(stem, "con" | "prn" | "aux" | "nul")
+        || (stem.len() == 4
+            && (stem.starts_with("com") || stem.starts_with("lpt"))
+            && matches!(stem.as_bytes()[3], b'1'..=b'9'));
+    if device {
+        return Some("reserved name");
+    }
+    None
+}
+
 pub(crate) fn path_string(path: &Path) -> String {
     path.to_string_lossy().to_string()
 }
@@ -90,19 +147,43 @@ pub(super) fn ensure_rename_target_available(source: &Path, target: &Path) -> Re
 /// a unique sibling so macOS and Windows do not collapse the operation into a
 /// no-op. A failed second rename restores the original spelling.
 pub(super) fn rename_path_case_safe(source: &Path, target: &Path) -> Result<(), String> {
+    rename_path_case_safe_after_check(source, target, || {})
+}
+
+/// Plain rename that the kernel refuses when `target` exists, so a file that
+/// appears after the availability check is never replaced (CORE-12).
+fn rename_refusing_to_replace(source: &Path, target: &Path) -> Result<(), String> {
+    crate::atomic_fs::rename_no_replace(source, target).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            format!("Target already exists: {}", path_string(target))
+        } else {
+            error.to_string()
+        }
+    })
+}
+
+/// [`rename_path_case_safe`] with a seam: `between_check_and_rename` runs after
+/// the "is the target free" check and before the rename, which is the window a
+/// concurrent writer can use.
+pub(super) fn rename_path_case_safe_after_check(
+    source: &Path,
+    target: &Path,
+    between_check_and_rename: impl FnOnce(),
+) -> Result<(), String> {
     let same_entry = ensure_rename_target_available(source, target)?;
     if source == target {
         return Ok(());
     }
+    between_check_and_rename();
     if !same_entry {
-        return fs::rename(source, target).map_err(|error| error.to_string());
+        return rename_refusing_to_replace(source, target);
     }
 
     let temporary = rename_temp_sibling(source)?;
     fs::rename(source, &temporary).map_err(|error| error.to_string())?;
-    if let Err(error) = fs::rename(&temporary, target) {
+    if let Err(error) = rename_refusing_to_replace(&temporary, target) {
         return match fs::rename(&temporary, source) {
-            Ok(()) => Err(error.to_string()),
+            Ok(()) => Err(error),
             Err(rollback_error) => Err(format!(
                 "Case-only rename failed: {error}; rollback failed: {rollback_error}"
             )),

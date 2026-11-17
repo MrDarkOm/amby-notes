@@ -9,6 +9,7 @@ import {
   readFile,
   readNote,
   writeNote,
+  type NoteProperties,
 } from "@/lib/storage"
 import {
   formatModified,
@@ -17,7 +18,7 @@ import {
   canvasLayerPath,
   sketchLayerPath,
 } from "../workspace-tree-utils"
-import { splitWebFrontmatter, webRevision } from "@/lib/storage/web-frontmatter"
+import { splitWebFrontmatter } from "@/lib/storage/web-frontmatter"
 import { findTabTreeItem, treeItemTabTarget } from "../tab-target"
 import {
   InFlightDocumentLoads,
@@ -36,6 +37,15 @@ import { logger } from "@/lib/logger"
 import { operationErrorCode } from "@/lib/operation-errors"
 import { LayerUnreadableError } from "../orchestration/layer-draft"
 import { useTreeMessageStore } from "../tree/use-tree-message-store"
+import { reportTreeActionFailure } from "./action-failure"
+
+/** The layer has no ID or revision from the backend: the text is shown, nothing is written. */
+const LAYER_UNRESOLVED_PROPERTIES: NoteProperties = {
+  hasFrontmatter: false,
+  bodyReadOnly: true,
+  properties: [],
+  customProperties: [],
+}
 
 type Params = Pick<
   UseFileActionsParams,
@@ -125,30 +135,35 @@ export function useDocumentLoading({
           let noteSource = ""
           let noteId: string | undefined
           let revision = ""
+          let noteProperties: NoteProperties | undefined
           const mdPath = noteLayerPath(path)
-          try {
-            const source = await readFile(mdPath)
-            noteSource = source
-            const idMatch = source.match(/^(?:amby-id|id):\s*([^\s]+)/m)
-            if (idMatch) noteId = idMatch[1]
-            if (noteId && vault) {
-              try {
-                const note = await readNote(vault, noteId)
-                noteContent = note.content
-                noteSource = note.source
-                revision = note.revision
-              } catch {
-                // The note layer can exist briefly before the index sees it.
-                // Keep it read-only until a stable revision is available.
-              }
+          // The ID and the revision of the note layer come from the backend only: the ID is the one
+          // its tree gives to that file, the revision the one `read_note` returns. A pattern over the
+          // text finds ordinary `id:` properties and body lines, and a revision of our own is not one
+          // the backend accepts. Until the backend has answered, the layer is read only.
+          const layerItem = vault ? findTreeItem(treeItems, mdPath) : null
+          if (vault && layerItem?.path === mdPath && layerItem.type === "file") {
+            try {
+              const note = await readNote(vault, layerItem.id)
+              noteId = layerItem.id
+              noteContent = note.content
+              noteSource = note.source
+              revision = note.revision
+            } catch {
+              // The layer can exist briefly before the index sees it; it stays read only.
             }
-            if (!revision) {
-              const split = splitWebFrontmatter(source)
-              noteContent = split ? split.body : source
-              revision = webRevision(noteContent)
+          }
+          if (!revision) {
+            try {
+              const source = await readFile(mdPath)
+              noteSource = source
+              noteContent = splitWebFrontmatter(source)?.body ?? source
+            } catch {
+              // No markdown layer yet
             }
-          } catch {
-            // No markdown layer yet
+            // Saving needs the backend's revision; without it nothing is written. The browser
+            // adapter has no vault and writes the file itself.
+            if (vault) noteProperties = LAYER_UNRESOLVED_PROPERTIES
           }
           const document: Document = {
             id: fileId,
@@ -161,6 +176,7 @@ export function useDocumentLoading({
             revision,
             source: noteSource,
             noteId,
+            ...(noteProperties ? { noteProperties } : {}),
           }
           setDoc(fileId, document)
           if (path && path !== fileId) {
@@ -458,7 +474,8 @@ export function useDocumentLoading({
         setPendingRenameId(id)
         setTimeout(() => setPendingRenameId((current) => (current === id ? null : current)), 500)
       } catch (error) {
-        console.error("Failed to clone file:", error)
+        logger.warn("file.clone_failed", { failureCode: operationErrorCode(error) })
+        reportTreeActionFailure("cloneNote")
       }
     },
     [

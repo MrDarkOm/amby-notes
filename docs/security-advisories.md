@@ -6,10 +6,11 @@ warning suppression is prohibited. This record is the review authority for
 those temporary exceptions.
 
 Direct dependency review on 2026-08-24: `tauri` 2.11.5 is the current compatible
-release. `rfd` 0.17.2 was evaluated but requires resolving `tauri-plugin-dialog`
-back to 2.4.2 and introduces duplicate dialog crates, so the shared compatible
-0.16.0 release remains in use. No direct update reduces the listed advisories
-without a Tauri/Specta compatibility migration.
+release. The direct `rfd` dependency now follows the 0.17 line used by
+`tauri-plugin-dialog`, so the lock file holds a single `rfd` (the earlier
+0.16 pin, needed while the plugin still resolved 0.16, is gone). No direct
+update reduces the listed advisories without a Tauri/Specta compatibility
+migration.
 
 | Advisory IDs                                                                                  | Affected crates                                                                                | Owner and target                                                             | Decision                                                                                                                                        | Review by  |
 | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
@@ -23,6 +24,15 @@ without a Tauri/Specta compatibility migration.
 2. Prefer a compatible direct dependency update and remove exceptions that it resolves.
 3. Reconfirm target reachability, owner and review date before retaining any exception.
 4. Never ignore a vulnerability without a separately approved mitigation plan.
+
+## npm `overrides` in package.json
+
+Each override exists for a security reason recorded below; remove it when upstream resolves the
+patched version itself, then run `npm run verify`.
+
+- `lodash-es` 4.18.1: Excalidraw's chain pins older versions ([remediation 2026-09-29](#dependency-remediation--2026-09-29)).
+- `@excalidraw/excalidraw` → `nanoid` 3.3.18 and `@excalidraw/mermaid-to-excalidraw` → `nanoid` 5.1.16: same section.
+- `@excalidraw/excalidraw` → `sass` 1.105.2 (its `chokidar` no longer pulls `braces`) and `mermaid` → `katex` `$katex` (one patched KaTeX for the direct and Mermaid copies): [remediation 2026-10-16](#dependency-remediation--2026-10-16).
 
 ## Dependency remediation — 2026-09-29
 
@@ -59,36 +69,47 @@ Found by the nightly audit after the 0.1.8 release:
 For items the Recycle Bin cannot hold (too large, network drives) Windows may delete
 permanently without a warning. Not reproduced or fixed here (no Windows run).
 
-## Open finding — official package signing key in source — 2026-10-02
+## Official package signing key leaked — revoked in code, new key pending — 2026-10-02 / 2026-11-17
 
-**Severity: high. Needs the project owner; not fixed by code alone.**
+**Severity: high. Code side done (MOD-01); the owner still has to create the new key.**
 
-**Status (2026-10-02): deferred by the owner.** Third-party modules are not used yet. The key rotation below is a hard prerequisite for enabling installed-module execution (`INSTALLED_MODULE_EXECUTION_ENABLED`), publishing any package, or announcing a module ecosystem; do not enable those before it is done.
-
-The private half of the official Ed25519 key `amby-official-2026` is committed in
+The private half of the former official Ed25519 key `amby-official-2026` was committed in
 `scripts/build-modules.mjs` and, as a "test" key, in
-`src/lib/modules/package-manager/validator.ts` (`TEST_OFFICIAL_PRIVATE_KEY_HEX`).
-The build script verifies its own signatures against the same public key that
-`src-tauri/src/package_manager.rs` (`OFFICIAL_ED25519_PUBLIC_KEY_HEX`) trusts, so
-the committed secret corresponds to the trusted official key. It has been in git
-history since commit `14ed478`; removing it from the tree does not un-leak it.
+`src/lib/modules/package-manager/validator.ts`. It has been in git history since
+commit `14ed478`; removing it from the tree does not un-leak it, so the key is **revoked**:
+it is trusted nowhere and must be treated as compromised. Anyone with repository read
+access could sign a package that the old build accepted as official. At no point were
+installed modules executed (`INSTALLED_MODULE_EXECUTION_ENABLED = false`,
+`THIRD_PARTY_PACKAGES_ENABLED = false`), and `dist-modules/` is not committed or shipped, so no
+released build contains a package signed by the old key.
 
-Anyone with repository read access can therefore sign a package that the backend
-accepts as official. Current mitigation: installed modules are not executed
-(`INSTALLED_MODULE_EXECUTION_ENABLED = false`), and only bundled official modules
-run. That limits impact but does not remove the trust-anchor problem.
+Done in code (2026-11-17):
 
-Required remediation (owner actions marked):
+- New key id `amby-official-2026-11`, created by the owner on 2026-11-17; its public half is
+  `OFFICIAL_ED25519_PUBLIC_KEY_HEX` in `src-tauri/src/package_manager.rs` and `validator.ts`, and
+  the private half exists only in the owner's macOS Keychain. Both verifiers reject an all-zero
+  key explicitly. `amby-official-2026` is not accepted.
+- No private key in the repository. Tests sign with an ephemeral key generated at test
+  time (`package-manager/test-signing.ts`, Rust `TestSigner`) that is not in the production trust
+  list. Guard tests fail if the old public key or the test key is trusted, if the Rust and
+  TypeScript anchors differ, or if third-party packages / installed-module execution are enabled
+  while the official key is the placeholder.
+- `scripts/build-modules.mjs` reads the private key from the macOS Keychain or from the CI
+  secret `AMBY_MODULE_SIGNING_KEY` (never from the repo), refuses to build if it is missing or does
+  not match the trusted public key.
 
-1. **Owner:** generate a new Ed25519 key pair outside the repository and keep the
-   private key only in a secrets store (CI secret or local environment).
-2. Replace the public key and key ID in `package_manager.rs`, `validator.ts` and
-   `scripts/build-modules.mjs`; stop accepting `amby-official-2026`.
-3. Make `build-modules.mjs` read the private key from the environment and fail
-   loudly when absent; tests must use an ephemeral key pair injected as the trust
-   anchor, never a committed secret.
-4. Treat packages signed with the old key as untrusted and reissue any that were
-   distributed. Do not enable installed-module execution before this is done.
+Owner steps:
+
+1. On the owner's Mac run `npm run modules:new-key`. It generates the pair, stores the private key
+   (PKCS8 DER as hex) in the Keychain (service `amby-module-signing`, account
+   `amby-official-2026-11`) via `security -i`, so the secret is never in argv, and prints only the key
+   id and the public key. It refuses to overwrite an existing entry unless `--replace` is passed.
+2. Give the printed public key (not secret) to the developer, who puts it into both
+   `OFFICIAL_ED25519_PUBLIC_KEY_HEX` constants (done 2026-11-17). For CI put the same private key in the secret `AMBY_MODULE_SIGNING_KEY`; take it
+   from the Keychain by hand, never through chat or a file in the repository.
+3. Run `npm run build:modules` to re-sign packages. Reissue anything that was distributed under the
+   old key. Do not enable installed-module execution or third-party packages before that and the
+   isolation work described in `execution-policy.ts`.
 
 ## npm audit — 2026-10-02
 

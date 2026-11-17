@@ -19,9 +19,11 @@ use std::sync::{Arc, Mutex};
 use std::time::UNIX_EPOCH;
 use unicode_normalization::UnicodeNormalization;
 
+use amby_sync_core::crypto::primitives::blake3_hash;
+use amby_sync_core::engine::rules::AMBY_SYNCED_FOLDERS;
 use amby_sync_core::engine::{
-    FsError, Listing, LocalEntry, LocalFs, LocalKind, NameRules, RenameHint, RootState,
-    SnapshotReason, StagedWrite, TrashReason,
+    ExpectedLocal, FsError, Listing, LocalEntry, LocalFs, LocalKind, NameRules, RenameHint,
+    RootState, SnapshotReason, StagedWrite, TrashReason,
 };
 
 use crate::sync::hints::RenameHints;
@@ -57,16 +59,6 @@ pub struct VaultFs {
 }
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// Folders of `.amby/` whose files are synchronised (Р4, З14); the rest of `.amby/` is listed by
-/// name only. Must agree with `amby_sync_core::engine::rules::is_excluded_path` (a test holds it).
-const AMBY_SYNCED_FOLDERS: [&str; 5] = [
-    "blocks",
-    "property-backups",
-    "conflicts",
-    "properties",
-    "archive",
-];
 
 /// The system trash a `VaultFs` asks by default: the real one, and in the tests of the application
 /// one that refuses (К11 (и)), so the older tests see the fall-back `.amby/trash/`.
@@ -356,8 +348,12 @@ impl StagedWrite for VaultStaged {
             .map_err(|error| map_io(&self.rel, &error))
     }
 
-    fn publish(mut self: Box<Self>, snapshot: Option<SnapshotReason>) -> Result<(), FsError> {
-        let result = self.publish_inner(snapshot);
+    fn publish(
+        mut self: Box<Self>,
+        snapshot: Option<SnapshotReason>,
+        expected: ExpectedLocal,
+    ) -> Result<(), FsError> {
+        let result = self.publish_inner(snapshot, expected);
         if result.is_err() {
             self.remove_temp();
         } else if self.rel.starts_with(".amby/") {
@@ -379,7 +375,11 @@ impl StagedWrite for VaultStaged {
 }
 
 impl VaultStaged {
-    fn publish_inner(&mut self, snapshot: Option<SnapshotReason>) -> Result<(), FsError> {
+    fn publish_inner(
+        &mut self,
+        snapshot: Option<SnapshotReason>,
+        expected: ExpectedLocal,
+    ) -> Result<(), FsError> {
         let rel = self.rel.clone();
         let io = |error: std::io::Error| map_io(&rel, &error);
         let mut file = self
@@ -397,6 +397,12 @@ impl VaultStaged {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
             Err(error) => return Err(map_io(&rel, &error)),
         };
+        // The decision looked at the file before the body was fetched; the person may have saved
+        // or made it since (С9, SYNC-01). The check is repeated here, after the temporary file is
+        // durable and before the snapshot and the rename, so the window is only these two steps.
+        if !self.target_matches(&expected, existing) {
+            return Err(FsError::Changed(rel));
+        }
         if existing && snapshot.is_some() {
             // The old content is the only copy of what this write replaces (Р8): without its
             // snapshot nothing is replaced. The history is written even when it is switched off.
@@ -412,11 +418,31 @@ impl VaultStaged {
         if let Some(parent) = self.target.parent() {
             fs::create_dir_all(parent).map_err(io)?;
         }
+        // Last look right before the replace: the snapshot above may have taken a while.
+        if !self.target_matches(&expected, existing) {
+            return Err(FsError::Changed(rel));
+        }
         frontmatter::atomic_rename_with_retry(&self.temp, &self.target).map_err(io)?;
         if let Some(parent) = self.target.parent() {
             let _ = frontmatter::sync_parent_directory(parent);
         }
         Ok(())
+    }
+
+    /// Is the target what the decision looked at? A target that cannot be read does not match.
+    fn target_matches(&self, expected: &ExpectedLocal, existing: bool) -> bool {
+        match expected {
+            ExpectedLocal::Any => true,
+            ExpectedLocal::Absent => {
+                matches!(
+                    fs::symlink_metadata(&self.target),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound
+                ) && !existing
+            }
+            ExpectedLocal::Hash(hash) => {
+                fs::read(&self.target).is_ok_and(|bytes| blake3_hash(&bytes) == *hash)
+            }
+        }
     }
 }
 

@@ -18,6 +18,7 @@ import { confirm } from "@/lib/confirm"
 import { confirmations } from "@/lib/confirmations"
 import { useAppNoticesStore } from "./notices/use-app-notices-store"
 import { adoptAsyncDisposer } from "@/lib/async-disposable"
+import { answerFlushRequests } from "@/lib/flush-all-windows"
 import { applySessionRemap, reconcileTreeBackedTabTitles } from "./workspace-mutations"
 import {
   flattenFileItems,
@@ -28,6 +29,7 @@ import {
 } from "./workspace-tree-utils"
 import { rereadOpenNoteProperties } from "./orchestration/reread-note-properties"
 import { buildLinkGraph } from "./wiki-links"
+import { useLinkGraphStore } from "./use-link-graph-store"
 import { applyTreePatchOps, patchedItems, removePaths } from "./tree-patch"
 import type { TreeItem } from "./sidebar-tree"
 import {
@@ -44,7 +46,6 @@ import {
   getLinkGraph,
   startVaultWatcher,
   stopVaultWatcher,
-  type LinkGraph,
   type TreePatch,
 } from "@/lib/storage"
 
@@ -68,6 +69,7 @@ import {
   planVaultStartup,
   type VaultActivatedPayload,
 } from "./windows/vault-window-lifecycle"
+import { VAULT_ACTIVATED_EVENT } from "./windows/settings-window-vault"
 import { findArchivedCopy, isArchivePath } from "./sync/restore-archived-note"
 import {
   filterLocalTreeWatcherChanges,
@@ -78,7 +80,6 @@ import {
 } from "./watcher-tree-reconciliation"
 
 const EMPTY_SESSION_MAP: Record<string, string> = {}
-const VAULT_ACTIVATED_EVENT = "amby:vault-activated"
 
 /**
  * Owns the vault tree, link graph, session persistence, and the Rust-side
@@ -148,7 +149,9 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     },
     [],
   )
-  const [linkGraph, setLinkGraph] = React.useState<LinkGraph>({ nodes: [], edges: [] })
+  // The graph itself lives in `useLinkGraphStore`: the root never holds it, so a new graph does not
+  // re-render the workspace. It is read only while a view needs it (SHELL-02).
+  const linkGraphNeeded = useLinkGraphStore((state) => state.consumers > 0)
   // Bumped by the graph's Refresh button to read the links again without a tree change.
   const [linkGraphRequest, setLinkGraphRequest] = React.useState(0)
   const refreshLinkGraph = React.useCallback(() => setLinkGraphRequest((n) => n + 1), [])
@@ -164,72 +167,81 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
 
   // ── Tree helpers ────────────────────────────────────────────────────────────
 
-  function addVaultToList(path: string) {
-    setVaults((prev) => reconcileVaultRecord(prev, path))
-  }
+  const addVaultToList = React.useCallback(
+    (path: string) => {
+      setVaults((prev) => reconcileVaultRecord(prev, path))
+    },
+    [setVaults],
+  )
 
-  async function refreshTree(path: string | null = vault): Promise<TreeItem[]> {
-    if (!path) return []
-    const requestId = switchRef.current.requestId
-    const loaded = await loadActiveVaultData()
-    if (
-      requestId !== switchRef.current.requestId ||
-      useVaultStore.getState().vault !== path ||
-      loaded.vaultPath !== path
-    ) {
-      return []
-    }
-    setBackendGeneration(loaded.generation)
-    setTreeItems(loaded.tree)
-    setTabs((previous) => reconcileTreeBackedTabTitles(previous, loaded.tree))
-    return loaded.tree
-  }
+  const refreshTree = React.useCallback(
+    async (path: string | null = vault): Promise<TreeItem[]> => {
+      if (!path) return []
+      const requestId = switchRef.current.requestId
+      const loaded = await loadActiveVaultData()
+      if (
+        requestId !== switchRef.current.requestId ||
+        useVaultStore.getState().vault !== path ||
+        loaded.vaultPath !== path
+      ) {
+        return []
+      }
+      setBackendGeneration(loaded.generation)
+      setTreeItems(loaded.tree)
+      setTabs((previous) => reconcileTreeBackedTabTitles(previous, loaded.tree))
+      return loaded.tree
+    },
+    [vault, setBackendGeneration, setTreeItems, setTabs],
+  )
 
   /**
    * Apply a tree patch the backend built (from a mutation result or a refresh by path), after
    * dropping `vanishedPaths` (entries the mutation moved away or deleted). `false` when it does
    * not fit the tree, which is then left as it was: the caller reloads it.
    */
-  function patchTree(patch: TreePatch, vanishedPaths: string[] = []): boolean {
-    const root = useVaultStore.getState().vault
-    if (!root) return false
-    // Paths that are gone from the disk may still stand where an optimistic move left them.
-    const base = removePaths(treeRef.current, new Set(vanishedPaths))
-    const next = applyTreePatchOps(base, patch, root)
-    if (next === null) return false
-    if (next !== treeRef.current) {
-      setTreeItems(next)
-      const touched = patchedItems(patch)
-      if (touched.length) setTabs((previous) => reconcileTreeBackedTabTitles(previous, touched))
-    }
-    return true
-  }
+  const patchTree = React.useCallback(
+    (patch: TreePatch, vanishedPaths: string[] = []): boolean => {
+      const root = useVaultStore.getState().vault
+      if (!root) return false
+      // Paths that are gone from the disk may still stand where an optimistic move left them.
+      const base = removePaths(treeRef.current, new Set(vanishedPaths))
+      const next = applyTreePatchOps(base, patch, root)
+      if (next === null) return false
+      if (next !== treeRef.current) {
+        setTreeItems(next)
+        const touched = patchedItems(patch)
+        if (touched.length) setTabs((previous) => reconcileTreeBackedTabTitles(previous, touched))
+      }
+      return true
+    },
+    [setTreeItems, setTabs],
+  )
 
   /**
    * Bring the tree up to date for the given paths (the files a mutation changed or the watcher
    * reported) without reading the rest of the vault. Falls back to the full refresh when the
    * backend cannot cover the paths or its patch does not fit.
    */
-  async function refreshTreePaths(
-    paths: string[],
-    path: string | null = vault,
-  ): Promise<TreeItem[]> {
-    if (!path) return []
-    if (!paths.length) return treeRef.current
-    const requestId = switchRef.current.requestId
-    const refreshed = await refreshVaultPaths(paths)
-    if (requestId !== switchRef.current.requestId || useVaultStore.getState().vault !== path) {
-      return []
-    }
-    if (
-      refreshed &&
-      refreshed.generation === useVaultStore.getState().backendGeneration &&
-      patchTree(refreshed.patch)
-    ) {
-      return treeRef.current
-    }
-    return refreshTree(path)
-  }
+  const refreshTreePaths = React.useCallback(
+    async (paths: string[], path: string | null = vault): Promise<TreeItem[]> => {
+      if (!path) return []
+      if (!paths.length) return treeRef.current
+      const requestId = switchRef.current.requestId
+      const refreshed = await refreshVaultPaths(paths)
+      if (requestId !== switchRef.current.requestId || useVaultStore.getState().vault !== path) {
+        return []
+      }
+      if (
+        refreshed &&
+        refreshed.generation === useVaultStore.getState().backendGeneration &&
+        patchTree(refreshed.patch)
+      ) {
+        return treeRef.current
+      }
+      return refreshTree(path)
+    },
+    [vault, patchTree, refreshTree],
+  )
 
   async function reindexTree(path: string | null = vault): Promise<TreeItem[]> {
     if (!path) return []
@@ -251,7 +263,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
   /** Re-scan the vault and clear the rendered link graph while its index rebuilds. */
   async function reloadVaultData(): Promise<void> {
     if (!vault) return
-    setLinkGraph({ nodes: [], edges: [] })
+    useLinkGraphStore.getState().reset()
     await reindexTree(vault)
   }
 
@@ -317,7 +329,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         setTabs([])
         setActiveTabKey("")
         setTreeItems([])
-        setLinkGraph({ nodes: [], edges: [] })
+        useLinkGraphStore.getState().reset()
         setBackendGeneration(null)
         setVault(null)
         return
@@ -381,7 +393,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         })
       }
       setTreeItems(tree)
-      setLinkGraph({ nodes: [], edges: [] })
+      useLinkGraphStore.getState().reset()
       addVaultToList(activePath)
 
       // Suppress session persistence while restoring state so we don't
@@ -506,6 +518,19 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     return () => document.removeEventListener("visibilitychange", onVisibilityChange)
   }, [])
 
+  // Another window (the update in the settings window) asks every editing window to save before the
+  // program is replaced (SAVE-04): the same flush as the close handler below.
+  React.useEffect(() => {
+    if (!desktop) return
+    return adoptAsyncDisposer(
+      answerFlushRequests(
+        getCurrentWindow().label,
+        async () => (await flushBeforeLeaving(useVaultStore.getState().generation)).safe,
+      ),
+      (error) => logger.warn("flush_request.listen_failed", { errorType: errorType(error) }),
+    )
+  }, [desktop])
+
   // A close request must wait for all queues in this renderer. A failed save keeps its recovery draft,
   // so the window may close after it. When the draft could not be written either (a full disk), the
   // window stays open unless the person chooses to lose the text (SAVE-02).
@@ -551,18 +576,24 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     )
   }, [desktop])
 
-  // Link graph: recompute whenever the tree or vault changes.
+  // Link graph: a tree or vault change only marks it stale; it is read again while a view shows it.
+  React.useEffect(() => {
+    useLinkGraphStore.getState().markStale()
+  }, [treeItems, vault, linkGraphRequest])
+
   React.useEffect(() => {
     if (!vault) {
-      setLinkGraph({ nodes: [], edges: [] })
+      useLinkGraphStore.getState().reset()
       return
     }
+    if (!linkGraphNeeded) return
     let cancelled = false
     const timer = setTimeout(async () => {
+      if (!useLinkGraphStore.getState().stale) return
       if (isTauri()) {
         try {
           const graph = await getLinkGraph(vault)
-          if (!cancelled) setLinkGraph(graph)
+          if (!cancelled) useLinkGraphStore.getState().setGraph(graph)
         } catch {
           /* index may be rebuilding */
         }
@@ -576,7 +607,8 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
             useDocStore.getState().openDocs[file.id]?.content ?? (await readFile(file.id))
         }),
       )
-      if (!cancelled) setLinkGraph(buildLinkGraph(treeItems, contents, vault))
+      if (!cancelled)
+        useLinkGraphStore.getState().setGraph(buildLinkGraph(treeItems, contents, vault))
     }, 150)
     return () => {
       cancelled = true
@@ -585,7 +617,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     // openDocs intentionally excluded: web-mode already reads via openDocsRef; Tauri-mode
     // fetches from SQLite and doesn't need openDocs at all. Removing it prevents this effect
     // from re-running on every keystroke.
-  }, [treeItems, vault, linkGraphRequest])
+  }, [treeItems, vault, linkGraphRequest, linkGraphNeeded])
 
   // Debounced session persistence (tabs + favorites + view-modes + content widths + database labels + locked + icons).
   // Gated on sessionHydratedRef so loadVault's hydration doesn't echo back.
@@ -1032,9 +1064,17 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
       cleanupDatabase()
       cleanupRemoteDeleted()
     }
-    // refreshTree is recreated every render but only reads `vault`, which is in the deps.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [desktop, vault])
+  }, [
+    desktop,
+    vault,
+    windowLabel,
+    refreshTree,
+    refreshTreePaths,
+    patchDoc,
+    markSaved,
+    setExternalConflict,
+    clearExternalConflict,
+  ])
 
   // Amby-originated saves use an explicit IPC event rather than the filesystem
   // watcher. That makes two renderer windows converge even when watcher own-write
@@ -1157,7 +1197,6 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     treeItems,
     setTreeItems,
     displayTreeItems,
-    linkGraph,
     refreshLinkGraph,
     loadVault,
     refreshTree,

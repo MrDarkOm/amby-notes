@@ -14,8 +14,6 @@ use serde_json::{json, Value};
 
 use super::discovery::discover_projects;
 use super::format::{document_bytes, with_section_appended, workshop_section_entry, SectionLinks};
-#[cfg(test)]
-use super::journal::OP_CREATE_WORKSHOP;
 use super::journal::{
     create_journal, read_journal, remove_journal, replace_journal, Journal, Plan,
     PlannedManifestWrite, PlannedSection, PlannedStory, JOURNAL_FORMAT, JOURNAL_VERSION,
@@ -454,46 +452,31 @@ fn workshop_plan_from_journal(journal: &Journal) -> Option<WorkshopPlan> {
     })
 }
 
-/// Which workshop a creation makes. `Whole` is what the interface offers: all seven bases and
-/// every link between them. `Partial` is the three bases of the earlier stages, kept so tests can
-/// build a workshop as it was made then and check what `complete_workshop` adds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum WorkshopKind {
-    #[cfg(test)]
-    Partial,
-    Whole,
+/// Which workshop a creation makes: the journaled operation and the bases in the order they are
+/// made, with the names used when no label is sent. `WHOLE` is what the interface offers: all seven
+/// bases and every link between them. Tests build the three-base workshop of the earlier stages
+/// with their own shape (`create_test_support.rs`) and check what `complete_workshop` adds.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct WorkshopShape {
+    pub(super) operation: &'static str,
+    pub(super) roles: &'static [(&'static str, &'static str)],
+    /// Whether an empty folder that is already there may be taken.
+    pub(super) takes_empty_folder: bool,
 }
 
-impl WorkshopKind {
-    fn operation(self) -> &'static str {
-        match self {
-            #[cfg(test)]
-            Self::Partial => OP_CREATE_WORKSHOP,
-            Self::Whole => OP_INIT_WORKSHOP,
-        }
-    }
-
-    /// The bases in the order they are made, with the names used when no label is sent.
-    fn roles(self) -> &'static [(&'static str, &'static str)] {
-        match self {
-            #[cfg(test)]
-            Self::Partial => &[
-                (ROLE_STORIES, "Истории"),
-                (ROLE_CHARACTERS, "Персонажи"),
-                (ROLE_LOCATIONS, "Локации"),
-            ],
-            Self::Whole => &[
-                (ROLE_STORIES, "Истории"),
-                (ROLE_CHARACTERS, "Персонажи"),
-                (ROLE_LOCATIONS, "Локации"),
-                (ROLE_UNIVERSES, "Вселенные"),
-                (ROLE_ARCS, "Арки"),
-                (ROLE_ANCHORS, "Якоря"),
-                (ROLE_NOTES, "Заметки"),
-            ],
-        }
-    }
-}
+const WHOLE: WorkshopShape = WorkshopShape {
+    operation: OP_INIT_WORKSHOP,
+    roles: &[
+        (ROLE_STORIES, "Истории"),
+        (ROLE_CHARACTERS, "Персонажи"),
+        (ROLE_LOCATIONS, "Локации"),
+        (ROLE_UNIVERSES, "Вселенные"),
+        (ROLE_ARCS, "Арки"),
+        (ROLE_ANCHORS, "Якоря"),
+        (ROLE_NOTES, "Заметки"),
+    ],
+    takes_empty_folder: true,
+};
 
 /// Files an operating system leaves in a folder nobody put anything in.
 const IGNORABLE_FILES: [&str; 3] = [".DS_Store", "Thumbs.db", "desktop.ini"];
@@ -556,7 +539,7 @@ pub fn init_workshop(
             tags: Vec::new(),
             labels: request.labels.clone(),
         },
-        WorkshopKind::Whole,
+        WHOLE,
     )?;
     Ok(created)
 }
@@ -597,24 +580,17 @@ pub fn workshop_folder_of(vault: &Path, picked: &str) -> Result<String, ProjectE
     Ok(names.join("/"))
 }
 
-/// The three-base workshop of stages 2 to 7, for tests of what `complete_workshop` adds to it.
-#[cfg(test)]
-pub fn create_workshop(
+pub(super) fn create_workshop_of(
     env: &Env,
     request: &CreateWorkshopRequest,
-) -> Result<CreatedWorkshop, ProjectError> {
-    create_workshop_of(env, request, WorkshopKind::Partial)
-}
-
-fn create_workshop_of(
-    env: &Env,
-    request: &CreateWorkshopRequest,
-    kind: WorkshopKind,
+    kind: WorkshopShape,
 ) -> Result<CreatedWorkshop, ProjectError> {
     validate_operation_id(&request.operation_id)?;
-    let request_rev = request_revision(&serde_json::to_value(request).unwrap())?;
+    let request_rev = request_revision(
+        &serde_json::to_value(request).map_err(|error| io_failure("serialize", error))?,
+    )?;
 
-    let resumed = match replay(env, &request.operation_id, kind.operation(), &request_rev)? {
+    let resumed = match replay(env, &request.operation_id, kind.operation, &request_rev)? {
         Replay::Fresh => None,
         Replay::Resume(j) => Some(j),
         Replay::Done(value) => {
@@ -669,7 +645,7 @@ fn create_workshop_of(
         let candidate = parent_dir.join(&name);
         let plain_folder = fs::symlink_metadata(&candidate)
             .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink());
-        if kind == WorkshopKind::Whole && plain_folder {
+        if kind.takes_empty_folder && plain_folder {
             if folder_has_content(&candidate)? {
                 return Err(ProjectError::failed(
                     "folderNotEmpty",
@@ -698,7 +674,7 @@ fn create_workshop_of(
             // Every database is named before any is planned: a base may point at one made later.
             let mut target_databases = BTreeMap::new();
             let mut all_ids = Vec::new();
-            for (role, _) in kind.roles() {
+            for (role, _) in kind.roles {
                 let ids = PlannedDatabaseIds {
                     database_id: ulid::Ulid::generate().to_string(),
                     view_id: ulid::Ulid::generate().to_string(),
@@ -709,7 +685,7 @@ fn create_workshop_of(
             let mut planned_sections = Vec::new();
             let mut section_docs = Vec::new();
             let mut created_sections = Vec::new();
-            for ((role, default_name), ids) in kind.roles().iter().zip(&all_ids) {
+            for ((role, default_name), ids) in kind.roles.iter().zip(&all_ids) {
                 let base = plan_base_section(
                     env,
                     &request.labels,
@@ -775,7 +751,7 @@ fn create_workshop_of(
         format: JOURNAL_FORMAT.to_owned(),
         format_version: JOURNAL_VERSION,
         operation_id: request.operation_id.clone(),
-        operation: kind.operation().to_owned(),
+        operation: kind.operation.to_owned(),
         request_revision: request_rev,
         status: STATUS_IN_PROGRESS.to_owned(),
         plan: Plan {
@@ -791,7 +767,8 @@ fn create_workshop_of(
             workshop_file_text: Some(file_text.clone()),
             manifest_write: None,
         },
-        expected_result: serde_json::to_value(&created).unwrap(),
+        expected_result: serde_json::to_value(&created)
+            .map_err(|error| io_failure("serialize", error))?,
         extra: BTreeMap::new(),
     };
 
@@ -910,7 +887,9 @@ fn plot_targets(
 
 pub fn create_story(env: &Env, request: &CreateStoryRequest) -> Result<CreatedStory, ProjectError> {
     validate_operation_id(&request.operation_id)?;
-    let request_rev = request_revision(&serde_json::to_value(request).unwrap())?;
+    let request_rev = request_revision(
+        &serde_json::to_value(request).map_err(|error| io_failure("serialize", error))?,
+    )?;
 
     let resumed = match replay(env, &request.operation_id, OP_CREATE_STORY, &request_rev)? {
         Replay::Fresh => None,
@@ -1123,7 +1102,8 @@ pub fn create_story(env: &Env, request: &CreateStoryRequest) -> Result<CreatedSt
             workshop_file_text: None,
             manifest_write: None,
         },
-        expected_result: serde_json::to_value(&created).unwrap(),
+        expected_result: serde_json::to_value(&created)
+            .map_err(|error| io_failure("serialize", error))?,
         extra: BTreeMap::new(),
     };
 
@@ -1262,7 +1242,9 @@ pub fn create_workshop_section(
     request: &CreateWorkshopSectionRequest,
 ) -> Result<CreatedWorkshopSectionResult, ProjectError> {
     validate_operation_id(&request.operation_id)?;
-    let request_rev = request_revision(&serde_json::to_value(request).unwrap())?;
+    let request_rev = request_revision(
+        &serde_json::to_value(request).map_err(|error| io_failure("serialize", error))?,
+    )?;
 
     let resumed = match replay(env, &request.operation_id, OP_CREATE_SECTION, &request_rev)? {
         Replay::Fresh => None,
@@ -1349,7 +1331,8 @@ pub fn create_workshop_section(
             workshop_file_text: Some(file_text.clone()),
             manifest_write: manifest_write.clone(),
         },
-        expected_result: serde_json::to_value(&result).unwrap(),
+        expected_result: serde_json::to_value(&result)
+            .map_err(|error| io_failure("serialize", error))?,
         extra: BTreeMap::new(),
     };
 

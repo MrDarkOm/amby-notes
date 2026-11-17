@@ -1,6 +1,5 @@
 //! Identity of a note, deletion of a note and the inspection (docs/sync-plan.md, appendix З: З10,
 //! З11, З12, З34, З35). Red until written.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::testkit::*;
 use super::*;

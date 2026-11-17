@@ -28,6 +28,7 @@ import { useNoticesCentre } from "./use-notices-centre"
 import { useBellAnchor } from "./use-bell-anchor"
 import { useNoticesCentreStore } from "./use-notices-centre-store"
 import { useNoticesStackStore } from "./use-notices-stack-store"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 function openSyncSettings(): void {
   window.dispatchEvent(
@@ -368,11 +369,7 @@ function StackBody({ port }: { port: SyncPort }) {
       {centre.decision.length > 0 && (
         <section data-testid="notices-section-decision" className="space-y-2">
           <Heading>{t("notices.centre.decision")}</Heading>
-          {error && (
-            <p role="alert" className="px-1 text-[12px] text-destructive">
-              {error}
-            </p>
-          )}
+          {error && <NoticeLine role="alert" text={error} className="px-1" />}
           {centre.decision.map((entry) => (
             <EntryCard key={entry.id} entry={entry} context={context} />
           ))}

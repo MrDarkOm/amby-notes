@@ -1,6 +1,5 @@
 //! The look is changed field by field: a field that is `None` is not touched (appendix З: З60).
 //! Written with the code; the frozen tests keep calling `set_appearance` with both fields.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use serde_json::json;
 

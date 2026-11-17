@@ -13,7 +13,8 @@ import {
 } from "@/components/ui/select"
 import { confirm } from "@/lib/confirm"
 import { confirmations } from "@/lib/confirmations"
-import { isTauri, openInExplorer } from "@/lib/storage"
+import { errorType, logger } from "@/lib/logger"
+import { isTauri, revealAppDataFolder } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import {
   DEFAULT_PREFS,
@@ -26,6 +27,7 @@ import {
 } from "../app-config"
 import { useSettingsStore } from "../use-settings-store"
 import { useVaultStore } from "../use-vault-store"
+import { NoticeLine } from "../notices/notice-line"
 import { Row, selectTrigger } from "./settings-common"
 
 export function DataTab({ vault }: { vault: string | null }) {
@@ -33,6 +35,18 @@ export function DataTab({ vault }: { vault: string | null }) {
   const setPrefs = useSettingsStore((s) => s.setPrefs)
   const setVaults = useVaultStore((s) => s.setVaults)
   const [dir, setDir] = React.useState<string>("")
+  /** The answer to "Open folder" when the folder could not be shown stands under the button (docs/notices.md, section 8). */
+  const [openFailed, setOpenFailed] = React.useState(false)
+
+  async function openDataFolder() {
+    setOpenFailed(false)
+    try {
+      await revealAppDataFolder()
+    } catch (error) {
+      logger.warn("vault.reveal_failed", { errorType: errorType(error) })
+      setOpenFailed(true)
+    }
+  }
 
   React.useEffect(() => {
     if (!isTauri()) return
@@ -58,7 +72,7 @@ export function DataTab({ vault }: { vault: string | null }) {
             <button
               type="button"
               className={btn}
-              onClick={() => void openInExplorer(dir)}
+              onClick={() => void openDataFolder()}
               disabled={!dir}
             >
               <FolderOpen className="size-4" />
@@ -66,6 +80,7 @@ export function DataTab({ vault }: { vault: string | null }) {
             </button>
           )}
         </div>
+        {openFailed && <NoticeLine text={t("settings.data.openFolderFailed")} className="mt-1" />}
       </div>
 
       <div className="flex flex-col gap-2">

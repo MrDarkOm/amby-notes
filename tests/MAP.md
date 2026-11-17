@@ -4,6 +4,9 @@
 `tests/**/*.test.{ts,tsx}`. Default environment is Node; component files opt into
 `happy-dom`. Check an existing nearby test before choosing a harness.
 
+`tests/` has its own [tsconfig.json](tsconfig.json) (same strictness as `src/`); `npm run typecheck`
+checks it after `src/`. `scripts/*.mjs` are plain JavaScript and are not type-checked.
+
 | Change                               | Verification owner                                                                                                                                                                                            |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Pure logic, stores, parsers, queues  | Colocated tests beside the implementation in `src/`                                                                                                                                                           |
@@ -45,6 +48,19 @@ macOS as the "Editor in WebKit" job of [verify.yml](../.github/workflows/verify.
 one retry and the traces of failed cases kept as an artifact. `asset-csp.spec.ts` separately applies the production CSP to Windows-style
 asset URLs and checks that unrelated image hosts remain blocked. The browser
 suite does not cover the native window, the Rust side or the system webview's own painting.
+
+Native contract in CI (TOOL-08): the "Native contract (macOS, experimental)" job of
+[verify.yml](../.github/workflows/verify.yml) runs `npm run test:storage:live` on `macos-latest`,
+only for pushes to `dev` and manual runs (not pull requests), with `continue-on-error: true` and
+read-only permissions; it uploads `.release-evidence/native-contract.log` as an artifact. The
+runner type-checks and builds the frozen page in `tests/native/`, then `cargo run --features
+native-contract,tauri/custom-protocol` opens a real WebView window and the process must print a
+passing `AMBY_NATIVE_RESULT`. A hosted macOS runner has no guaranteed window server or WebView
+session, so a red job there is a known limitation, not a product failure: read the log artifact
+before trusting either result. The job has not been confirmed green on a hosted runner; once it is
+stable for a while, drop `continue-on-error`. Locally run the same command on an unlocked desktop
+(first Rust build is slow); never start `src-tauri/target/debug/amby-notes` by hand (it rewrites
+`src/lib/bindings.ts`).
 
 Preserve fixture BOM/CRLF bytes. Add meaningful acceptance and rejection/failure
 cases for format and persistence changes; avoid tests that just mirror code.

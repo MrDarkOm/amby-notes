@@ -23,6 +23,7 @@ import {
   type StoryLabels,
   type WorkshopTab,
 } from "./workshop-model"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 /** What a row of the world can do as an arc bound to the shown story's text. */
 export interface PlotRow {
@@ -129,11 +130,7 @@ export function WorldSection({
           onClick={onLinkUniverses}
         />
       )}
-      {linkError && (
-        <p role="alert" className="px-2 py-1 text-[11px] text-destructive">
-          {linkError}
-        </p>
-      )}
+      {linkError && <NoticeLine role="alert" text={linkError} className="px-2 py-1" />}
       {categories.length === 0 && (
         <p className="px-2 py-1.5 text-[11px] text-muted-foreground">
           {t("creative.workshop.world.noCategories", "Нет разделов мира")}

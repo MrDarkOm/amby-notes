@@ -466,8 +466,10 @@ impl Engine {
             conflict_ids: state.conflicts.iter().map(|c| c.id.clone()).collect(),
         };
         self.ports.fs.batch_begin();
-        let applied = self.apply_plan(&mut plan, &mut ctx, report);
-        self.ports.fs.batch_end();
+        let work = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.apply_plan(&mut plan, &mut ctx, report)
+        }));
+        let applied = super::ports::end_batch_after(work, || self.ports.fs.batch_end());
         applied?;
         for error in std::mem::take(&mut plan.errors) {
             if !report.errors.iter().any(|e| e.item_id == error.item_id) {

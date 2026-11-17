@@ -40,11 +40,19 @@ pub struct ImportSkipped {
 #[specta::specta]
 pub fn import_files(
     context: tauri::State<'_, VaultContext>,
+    grants: tauri::State<'_, crate::path_grants::PathGrants>,
     target_dir: Option<String>,
     sources: Vec<String>,
 ) -> Result<ImportFilesResult, String> {
     let _mutation_guard = context.mutation_gate.lock_or_recover();
     let vault = context.root()?;
+    // IPC-03: the webview names the sources, but only what the person dropped is copied.
+    if sources
+        .iter()
+        .any(|source| !grants.source_granted(Path::new(source)))
+    {
+        return Err(crate::path_grants::ERR_PATH_NOT_GRANTED.to_string());
+    }
     let dir = match target_dir {
         Some(path) => paths::guard(&context, &path)?,
         None => vault.clone(),

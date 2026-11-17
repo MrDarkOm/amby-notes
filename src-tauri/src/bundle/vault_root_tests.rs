@@ -2,8 +2,6 @@
 //! vault folder has the same name (`~/Notes/Notes.md`). Its "bundle" would be the whole vault, so
 //! delete, archive, rename and move would act on every note, attachment and history snapshot.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
 use super::*;
 use std::fs;
 use std::path::{Path, PathBuf};

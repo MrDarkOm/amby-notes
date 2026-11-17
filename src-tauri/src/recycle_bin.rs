@@ -290,7 +290,21 @@ pub fn preview_restore(vault: &Path, id: &str) -> Result<TrashRestorePreview, St
             destination.display()
         ));
     }
-    let payload = trash_root.join(id).join(&entry.name);
+    // The manifest is plain JSON in the vault: its `name` must be one plain file name inside this
+    // entry of the trash, never an absolute path or `..`, and nothing on the way may be a link
+    // (CORE-07, the same rule as the preview).
+    let name_is_plain = !entry.name.is_empty()
+        && !entry.name.contains(['/', '\\'])
+        && matches!(
+            Path::new(&entry.name).components().next(),
+            Some(std::path::Component::Normal(_))
+        )
+        && Path::new(&entry.name).components().count() == 1;
+    if !name_is_plain {
+        return Err("Invalid trash manifest".to_string());
+    }
+    let payload =
+        crate::paths::confine_rel_no_symlinks(vault, &format!(".amby/trash/{id}/{}", entry.name))?;
     Ok(TrashRestorePreview {
         manifest,
         destination,
@@ -531,6 +545,46 @@ mod tests {
         // The unrelated orphan is still untouched.
         assert!(orphan_dir.join("Lost.md").is_file());
         fs::remove_dir_all(&vault).ok();
+    }
+
+    // CORE-07: `.amby/trash/<id>.json` is plain JSON in the vault (a shared folder, a backup from
+    // someone else). A crafted `name` must never make "Restore" move a file from outside the trash.
+    #[test]
+    fn restore_refuses_a_manifest_name_that_leaves_the_trash() {
+        let base = std::env::temp_dir().join(format!("amby-trash-name-{}", Ulid::generate()));
+        let vault = base.join("vault");
+        let outside = base.join("secret.txt");
+        fs::create_dir_all(&vault).unwrap();
+        fs::write(&outside, "secret").unwrap();
+        fs::write(vault.join("Inside.md"), "inside").unwrap();
+        let trash_root = root(&vault);
+        fs::create_dir_all(&trash_root).unwrap();
+        for name in [
+            outside.to_string_lossy().into_owned(),
+            "../../Inside.md".to_string(),
+            "a/b.md".to_string(),
+            "..".to_string(),
+        ] {
+            let id = Ulid::generate().to_string();
+            fs::create_dir_all(trash_root.join(&id)).unwrap();
+            let entry = TrashEntry {
+                id: id.clone(),
+                original_path: "Restored.md".to_string(),
+                deleted_at_ms: 0,
+                name,
+            };
+            fs::write(
+                manifest_path(&trash_root, &id),
+                serde_json::to_vec(&entry).unwrap(),
+            )
+            .unwrap();
+            assert!(preview_restore(&vault, &id).is_err(), "{}", entry.name);
+            assert!(restore(&vault, &id).is_err(), "{}", entry.name);
+        }
+        assert_eq!(fs::read(&outside).unwrap(), b"secret");
+        assert_eq!(fs::read(vault.join("Inside.md")).unwrap(), b"inside");
+        assert!(!vault.join("Restored.md").exists());
+        fs::remove_dir_all(&base).ok();
     }
 
     #[test]

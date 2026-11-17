@@ -8,8 +8,10 @@ import {
   flushRecoveryDraft,
   saveRecoveryDraft,
   inspectRecoveryQueue,
+  subscribeRecoveryProblems,
 } from "./recovery-drafts"
 import { commands, type RecoveryEntry } from "@/lib/bindings"
+import { logger } from "@/lib/logger"
 
 describe("recovery drafts", () => {
   const path = "/vault/Note.md"
@@ -279,6 +281,54 @@ describe("recovery drafts", () => {
       expect(count).toBe(0)
       expect(saveSpy).not.toHaveBeenCalled()
       expect(localStorage.getItem(corruptKey)).toBeNull()
+    })
+
+    it("logs a failed draft write with a code and reports it once until a write succeeds", async () => {
+      const warn = vi.spyOn(logger, "warn").mockImplementation(() => null)
+      const listener = vi.fn()
+      const unsubscribe = subscribeRecoveryProblems(listener)
+      const save = vi.spyOn(commands, "saveRecovery").mockRejectedValue(new Error("disk full"))
+      const scope = { vault: "/vault", generation: 7 }
+
+      scheduleRecoveryDraft("note-w", "one", "markdown", "/vault/W.md", scope)
+      await expect(flushRecoveryDraft("note-w", "markdown", scope)).rejects.toThrow()
+      await expect(flushRecoveryDraft("note-w", "markdown", scope)).rejects.toThrow()
+
+      expect(warn).toHaveBeenCalledWith("recovery.write_failed", expect.any(Object))
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("disk full")
+      expect(listener).toHaveBeenCalledTimes(1)
+      expect(listener).toHaveBeenCalledWith({ id: "note-w", kind: "write", failed: true })
+
+      save.mockResolvedValue({
+        status: "ok",
+        data: {
+          version: 1,
+          vaultGeneration: 7,
+          documentKind: "markdown",
+          id: "note-w",
+          pathHint: "/vault/W.md",
+          savedAtMs: 1,
+          content: "one",
+          contentHash: "h",
+        },
+      })
+      await flushRecoveryDraft("note-w", "markdown", scope)
+      expect(listener).toHaveBeenLastCalledWith({ id: "note-w", kind: "write", failed: false })
+      expect(listener).toHaveBeenCalledTimes(2)
+      unsubscribe()
+    })
+
+    it("does not hide a failed draft read as a missing draft", async () => {
+      const warn = vi.spyOn(logger, "warn").mockImplementation(() => null)
+      const listener = vi.fn()
+      const unsubscribe = subscribeRecoveryProblems(listener)
+      vi.spyOn(commands, "readRecovery").mockRejectedValue(new Error("io error"))
+
+      await expect(readRecoveryDraft("note-r")).resolves.toBeNull()
+
+      expect(warn).toHaveBeenCalledWith("recovery.read_failed", expect.any(Object))
+      expect(listener).toHaveBeenCalledWith({ id: "note-r", kind: "read", failed: true })
+      unsubscribe()
     })
 
     it("preserves legacy localStorage entries if backend journal write fails", async () => {

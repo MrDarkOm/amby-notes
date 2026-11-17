@@ -1,3 +1,4 @@
+use crate::lock_util::LockExt;
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use std::cell::Cell;
@@ -189,7 +190,7 @@ pub fn unfinished_id_migrations(vault: &Path) -> Result<Vec<IdMigrationRecovery>
             .ok()
             .and_then(|meta| Some((meta.len(), meta.modified().ok()?)));
         if let Some(stamp) = stamp {
-            let finished = FINISHED_JOURNALS.lock().unwrap();
+            let finished = FINISHED_JOURNALS.lock_or_recover();
             if finished.get(&path) == Some(&stamp) {
                 continue;
             }
@@ -210,8 +211,7 @@ pub fn unfinished_id_migrations(vault: &Path) -> Result<Vec<IdMigrationRecovery>
             (Some(recovery), _) => recoveries.push(recovery),
             (None, Some(stamp)) => {
                 FINISHED_JOURNALS
-                    .lock()
-                    .unwrap()
+                    .lock_or_recover()
                     .insert(entry.path(), stamp);
             }
             (None, None) => {}
@@ -452,7 +452,7 @@ fn migration_outputs(original: &[u8], id: &str, version: u8) -> Result<Vec<Vec<u
     }
     let content = std::str::from_utf8(original).map_err(|e| e.to_string())?;
     let parsed = frontmatter::parse_markdown(content);
-    if parsed.migration_id().is_some_and(|existing| existing != id) {
+    if parsed.note_id().is_some_and(|existing| existing != id) {
         return Err("Migration would change an existing identity".into());
     }
     let mut outputs = Vec::new();
@@ -526,7 +526,6 @@ pub fn preflight_vault(vault: &Path) -> Result<VaultPreflight, String> {
         unreadable_notes: Vec::new(),
     };
     let mut ids = HashMap::<String, String>::new();
-    let mut duplicates = HashSet::new();
     let mut planned = Vec::new();
 
     for entry in WalkDir::new(vault)
@@ -560,31 +559,22 @@ pub fn preflight_vault(vault: &Path) -> Result<VaultPreflight, String> {
             report.user_managed_ids.push(rel_path);
             continue;
         }
-        if let Some(id) = parsed.migration_id() {
+        if let Some(id) = parsed.note_id() {
             if let Some(first_path) = ids.insert(id.to_string(), rel_path.clone()) {
-                duplicates.insert(id.to_string());
                 report
                     .duplicate_ids
                     .push(format!("{id}: {first_path}, {rel_path}"));
             }
         }
         if parsed.id.is_none() {
-            let id = parsed
-                .legacy_id
-                .clone()
-                .unwrap_or_else(|| Ulid::generate().to_string());
-            if frontmatter::body_with_id(&content, &id).is_ok() {
-                planned.push((rel_path, id));
+            if frontmatter::body_with_id(&content, &Ulid::generate().to_string()).is_ok() {
+                planned.push(rel_path);
             } else {
                 report.malformed_frontmatter.push(rel_path);
             }
         }
     }
-    report.planned_id_writes = planned
-        .into_iter()
-        .filter(|(_, id)| !duplicates.contains(id))
-        .map(|(path, _)| path)
-        .collect();
+    report.planned_id_writes = planned;
     report.planned_id_writes.sort();
     Ok(report)
 }
@@ -611,6 +601,38 @@ pub fn recover_id_migration(
     Ok(recovery_from_journal(&journal_path, &journal))
 }
 
+/// Opening one note: the same identity migration, limited to that note (CORE-04).
+///
+/// Files that appear after the vault was activated get their `amby-id` from the watcher and the
+/// index, so the full pass that used to run here on every open is not needed to find them. A note
+/// with nothing to migrate (it has an `amby-id`, or its header cannot take one) costs one read. A
+/// note without an `amby-id` gets a generated one, with the same journal and backup as the full
+/// pass. A generic `id`, a ULID included, belongs to the user or another app: it is neither read
+/// nor copied (CORE-05), so such a note needs no walk of the vault.
+pub fn apply_note_id_migration(vault: &Path, rel_path: &str) -> Result<(), String> {
+    if let Some(recovery) = unfinished_id_migrations(vault)?.first() {
+        return Err(format!(
+            "An unfinished ID migration must be recovered first: {}",
+            recovery.journal_path
+        ));
+    }
+    let Ok(content) = fs::read_to_string(abs_from_rel(vault, rel_path)) else {
+        return Ok(());
+    };
+    let parsed = frontmatter::parse_markdown(&content);
+    if (parsed.has_frontmatter && !parsed.yaml_is_map)
+        || parsed.identity_error.is_some()
+        || parsed.id.is_some()
+    {
+        return Ok(());
+    }
+    if frontmatter::body_with_id(&content, &Ulid::generate().to_string()).is_err() {
+        return Ok(());
+    }
+    apply_planned_id_writes(vault, &[rel_path.to_string()])?;
+    Ok(())
+}
+
 pub fn apply_id_migration(vault: &Path) -> Result<IdMigrationResult, String> {
     // The preflight lists unfinished migrations as well; the journals are scanned once.
     let preflight = preflight_vault(vault)?;
@@ -630,6 +652,11 @@ pub fn apply_id_migration(vault: &Path) -> Result<IdMigrationResult, String> {
             status: IdMigrationStatus::Completed,
         });
     }
+    apply_planned_id_writes(vault, &preflight.planned_id_writes)
+}
+
+/// Journal, back up and write the planned `amby-id` assignments (vault-relative paths).
+fn apply_planned_id_writes(vault: &Path, planned: &[String]) -> Result<IdMigrationResult, String> {
     let stamp = std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|error| error.to_string())?
@@ -648,16 +675,13 @@ pub fn apply_id_migration(vault: &Path) -> Result<IdMigrationResult, String> {
         created_at_ms: stamp,
         backup_path: backup_relative.clone(),
         status: IdMigrationStatus::Planned,
-        files: preflight
-            .planned_id_writes
+        files: planned
             .iter()
             .map(|path| {
                 Ok(IdMigrationFile {
                     path: path.clone(),
                     backup_path: path.clone(),
-                    id: frontmatter::read_markdown(&abs_from_rel(vault, path))?
-                        .legacy_id
-                        .unwrap_or_else(|| Ulid::generate().to_string()),
+                    id: Ulid::generate().to_string(),
                     status: IdMigrationFileStatus::Pending,
                 })
             })
@@ -881,5 +905,87 @@ mod tests {
             .expect("rollback migration");
         assert_eq!(fs::read(&note).unwrap(), original);
         fs::remove_dir_all(vault).expect("remove test vault");
+    }
+
+    #[test]
+    fn opening_a_note_gives_only_that_note_an_id_and_leaves_the_rest_unread() {
+        let vault = temp_vault("single-note");
+        for index in 0..5 {
+            fs::write(vault.join(format!("Other{index}.md")), "# other\n").unwrap();
+        }
+        fs::write(vault.join("Opened.md"), "# opened\n").unwrap();
+
+        apply_note_id_migration(&vault, "Opened.md").unwrap();
+
+        let opened = fs::read_to_string(vault.join("Opened.md")).unwrap();
+        assert!(opened.starts_with("---\namby-id: "), "{opened}");
+        for index in 0..5 {
+            assert_eq!(
+                fs::read_to_string(vault.join(format!("Other{index}.md"))).unwrap(),
+                "# other\n"
+            );
+        }
+        // One journal and one backup, for one file.
+        let journal = fs::read_dir(migration_directory(&vault))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let journal: IdMigrationJournal =
+            serde_json::from_slice(&fs::read(journal).unwrap()).unwrap();
+        assert_eq!(journal.files.len(), 1);
+        assert_eq!(journal.files[0].path, "Opened.md");
+        assert!(matches!(journal.status, IdMigrationStatus::Completed));
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn opening_a_note_with_an_id_or_an_unusable_header_writes_nothing() {
+        let vault = temp_vault("single-note-noop");
+        let id = Ulid::generate().to_string();
+        let with_id = format!("---\namby-id: {id}\n---\nBody\n");
+        fs::write(vault.join("WithId.md"), &with_id).unwrap();
+        fs::write(vault.join("Managed.md"), "---\namby-id: nope\n---\nBody\n").unwrap();
+        fs::write(vault.join("Plain.md"), "# plain\n").unwrap();
+
+        apply_note_id_migration(&vault, "WithId.md").unwrap();
+        apply_note_id_migration(&vault, "Managed.md").unwrap();
+        apply_note_id_migration(&vault, "Missing.md").unwrap();
+
+        assert_eq!(
+            fs::read_to_string(vault.join("WithId.md")).unwrap(),
+            with_id
+        );
+        assert_eq!(
+            fs::read_to_string(vault.join("Managed.md")).unwrap(),
+            "---\namby-id: nope\n---\nBody\n"
+        );
+        assert_eq!(
+            fs::read_to_string(vault.join("Plain.md")).unwrap(),
+            "# plain\n"
+        );
+        assert!(!vault.join(".amby/backups").exists());
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn opening_a_note_with_a_foreign_id_gives_it_a_new_amby_id_and_keeps_the_id_line() {
+        let vault = temp_vault("single-note-foreign-id");
+        let foreign = Ulid::generate().to_string();
+        let note = format!("---\nid: {foreign}\n---\nBody\n");
+        fs::write(vault.join("A.md"), &note).unwrap();
+        // The same value in a second note is no duplicate: neither note owns it.
+        fs::write(vault.join("B.md"), &note).unwrap();
+        apply_note_id_migration(&vault, "A.md").unwrap();
+        let migrated = fs::read_to_string(vault.join("A.md")).unwrap();
+        let assigned = frontmatter::parse_markdown(&migrated).id.unwrap();
+        assert_ne!(assigned, foreign);
+        assert_eq!(
+            migrated,
+            format!("---\namby-id: {assigned}\nid: {foreign}\n---\nBody\n")
+        );
+        assert_eq!(fs::read_to_string(vault.join("B.md")).unwrap(), note);
+        fs::remove_dir_all(vault).unwrap();
     }
 }

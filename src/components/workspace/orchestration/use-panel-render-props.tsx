@@ -1,8 +1,9 @@
 import type { RenameOutcome } from "../file-actions/rename-outcome"
 import { isTauri } from "@/lib/storage"
-import type { AttachmentItem, LinkGraph, PanelRenderProps } from "../panel-registry"
+import type { AttachmentItem, PanelRenderProps } from "../panel-registry"
 import type { CustomProperty, NoteLayers, NoteProperties } from "@/lib/storage/types"
-import { type DatabaseSummary, readFile, readNote, openInExplorer } from "@/lib/storage"
+import { type DatabaseSummary, readFile, readNote } from "@/lib/storage"
+import { showInFileManager } from "../show-in-file-manager"
 import type { MoveOutcome } from "../file-actions/use-document-mutations"
 import type { Tab } from "../use-tabs-store"
 import { type VaultRecord, WorkspacePicker } from "../workspace-picker"
@@ -14,6 +15,7 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import type { SettingsNavigationTarget } from "../settings-navigation"
 import type { TreeItem } from "../sidebar-tree"
+import { useOverlaysStore } from "../use-overlays-store"
 
 interface UsePanelRenderPropsParams {
   displayTreeItems: TreeItem[]
@@ -91,7 +93,6 @@ interface UsePanelRenderPropsParams {
   selectedDatabase: DatabaseSummary | null
   activeTab: Tab | null
   currentFileIcon: string | undefined
-  linkGraph: LinkGraph
   currentDoc: Document | null
   handleSelect: (fileId: string, displayTitle?: string) => Promise<void>
   handleUpsertCustomProperty: (property: CustomProperty) => Promise<CustomProperty>
@@ -107,7 +108,6 @@ interface UsePanelRenderPropsParams {
   handleHistoryRestored: (path?: string) => Promise<void>
   vaults: VaultRecord[]
   loadVault: (path: string | null, activateBackend?: boolean) => Promise<void>
-  setVaultManagerOpen: React.Dispatch<React.SetStateAction<boolean>>
   vaultName: string | undefined
 }
 
@@ -155,7 +155,6 @@ export function usePanelRenderProps({
   selectedDatabase,
   activeTab,
   currentFileIcon,
-  linkGraph,
   currentDoc,
   handleSelect,
   handleUpsertCustomProperty,
@@ -171,7 +170,6 @@ export function usePanelRenderProps({
   handleHistoryRestored,
   vaults,
   loadVault,
-  setVaultManagerOpen,
   vaultName,
 }: UsePanelRenderPropsParams) {
   const { t } = useTranslation()
@@ -199,7 +197,7 @@ export function usePanelRenderProps({
       onOpenSplitDown: handleOpenSplitDown,
       onOpenInNewWindow: handleOpenInNewWindow,
       onCloneFile: handleCloneFile,
-      onOpenInExplorer: openInExplorer,
+      onOpenInExplorer: (path: string) => void showInFileManager(path),
       onMoveItem: handleMoveItem,
       onSetIcon: handleSetIcon,
       triggerRenameId: pendingRenameId,
@@ -237,7 +235,6 @@ export function usePanelRenderProps({
             locked: selectedDatabase.locked,
           }
         : null,
-      linkGraph,
       currentDocId: currentDoc?.id ?? null,
       currentDocPath: currentDoc?.path ?? null,
       onSelectLink: handleSelect,
@@ -263,7 +260,7 @@ export function usePanelRenderProps({
           currentPath={vault}
           onSelect={loadVault}
           onAdd={handleOpenVault}
-          onManage={() => setVaultManagerOpen(true)}
+          onManage={() => useOverlaysStore.getState().setVaultManagerOpen(true)}
         >
           <button className="flex w-full items-center gap-2 rounded-lg border border-border bg-background/70 px-3 py-2.5 text-left outline-none hover:bg-accent">
             <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
@@ -337,7 +334,6 @@ export function usePanelRenderProps({
       handleChangePropertyType,
       handleSetPropertyValue,
       handleSetPropertyList,
-      linkGraph,
       currentDoc?.id,
       currentDoc?.path,
       handleHistoryRestored,
@@ -345,7 +341,6 @@ export function usePanelRenderProps({
       vaultName,
       loadVault,
       t,
-      setVaultManagerOpen,
     ],
   )
   return { panelRenderProps }

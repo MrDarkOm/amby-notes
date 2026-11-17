@@ -31,7 +31,12 @@ import { useVaultStore } from "./use-vault-store"
 import type { PanelRenderProps } from "./panel-registry"
 import { PanelHeader } from "./panels/panel-header"
 import { toRelativeVaultPath } from "./workspace-tree-utils"
-import { allContextItems, buildAttachedContext, currentContext } from "./ai/context"
+import {
+  allContextItems,
+  buildAttachedContext,
+  currentContext,
+  MAX_ATTACHED_CHARS,
+} from "./ai/context"
 import { Composer } from "./ai/composer"
 import { EmptyChat } from "./ai/empty-chat"
 import { AssistantAnswer, LiveAnswer, UserMessage } from "./ai/message-view"
@@ -75,8 +80,6 @@ export function AiPanel({
   const { t, i18n } = useTranslation()
   const backendGeneration = useVaultStore((state) => state.backendGeneration)
   const switching = useVaultStore((state) => state.switching)
-  const openDocs = useDocStore((state) => state.openDocs)
-  const currentDoc = currentDocId ? (openDocs[currentDocId] ?? null) : null
   const chat = useAiChatStore((state) => state.chat)
   const readOnly = useAiChatStore((state) => state.readOnly)
   const revision = useAiChatStore((state) => state.revision)
@@ -104,6 +107,39 @@ export function AiPanel({
     : (ai.models.find((item) => item.id === newChatModelId(ai)) ?? null)
   const tools = model ? modelSupportsTools(model) : false
   const context = chat?.context
+  // What the panel reads of the open notes: titles, and the lengths only while the attached notes come near
+  // the limit. Typing far from it republishes `content` without changing this string, so it does not render.
+  const attachedKey = useDocStore((state) => {
+    const ids = new Set<string>(currentDocId ? [currentDocId] : [])
+    for (const entry of context ?? []) if (entry.kind !== "folder") ids.add(entry.id)
+    let total = 0
+    for (const id of ids) total += state.openDocs[id]?.content.length ?? 0
+    const near = total > MAX_ATTACHED_CHARS
+    return JSON.stringify(
+      [...ids].map((id) => {
+        const doc = state.openDocs[id]
+        if (!doc) return [id]
+        const clipped =
+          doc.content.length > MAX_ATTACHED_CHARS &&
+          Array.from(doc.content).length > MAX_ATTACHED_CHARS
+        return [id, doc.title, clipped, near ? doc.content.length : 0]
+      }),
+    )
+  })
+  const { openDocs, currentDoc, currentClipped } = React.useMemo(() => {
+    const docs: Record<string, { title?: string }> = {}
+    let clipped = false
+    for (const [id, title, over] of JSON.parse(attachedKey) as [string, string?, boolean?][]) {
+      if (title === undefined) continue
+      docs[id] = { title }
+      if (id === currentDocId) clipped = over === true
+    }
+    return {
+      openDocs: docs,
+      currentDoc: currentDocId ? (docs[currentDocId] ?? null) : null,
+      currentClipped: clipped,
+    }
+  }, [attachedKey, currentDocId])
 
   const finalize = React.useCallback(
     (run: RunningTurn, result?: { content: string; steps: ChatStep[]; sources: ChatSource[] }) => {
@@ -215,7 +251,7 @@ export function AiPanel({
       void buildAttachedContext({
         context,
         items: treeItems,
-        openDocs,
+        openDocs: useDocStore.getState().openDocs,
         vault,
         generation: backendGeneration,
         language: i18n.language === "ru" ? "Russian" : "English",
@@ -231,7 +267,7 @@ export function AiPanel({
       active = false
       window.clearTimeout(timer)
     }
-  }, [backendGeneration, context, i18n.language, loading, openDocs, switching, treeItems, vault])
+  }, [backendGeneration, context, i18n.language, loading, attachedKey, switching, treeItems, vault])
 
   React.useEffect(() => {
     scrollEndRef.current?.scrollIntoView?.({ block: "end" })
@@ -684,6 +720,7 @@ export function AiPanel({
             truncated={truncated}
             vault={vault}
             currentDoc={currentDoc}
+            currentClipped={currentClipped}
             input={input}
             loading={loading}
             switching={switching}

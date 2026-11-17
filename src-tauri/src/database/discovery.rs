@@ -193,6 +193,8 @@ struct NoteCandidate {
 /// Scan a vault for database manifests, notes and diagnostics without writing
 /// either source files or rebuildable indexes.
 pub fn discover_vault(vault: &Path) -> Result<DiscoveryResult, String> {
+    #[cfg(test)]
+    test_seam::DISCOVER_VAULT_CALLS.with(|calls| calls.set(calls.get() + 1));
     let vault = vault
         .canonicalize()
         .map_err(|error| format!("Vault not accessible: {error}"))?;
@@ -976,10 +978,10 @@ fn inspect_container_links(vault: &Path, root: &Path, diagnostics: &mut Vec<Disc
         ".ambd/assets",
     ] {
         let path = root.join(relative);
-        if (path.exists() || fs::symlink_metadata(&path).is_ok())
-            && paths::confine(vault, &path).is_err()
-        {
-            let error = paths::confine(vault, &path).unwrap_err();
+        if !(path.exists() || fs::symlink_metadata(&path).is_ok()) {
+            continue;
+        }
+        if let Err(error) = paths::confine(vault, &path) {
             push_diagnostic(
                 diagnostics,
                 DiagnosticCode::SymlinkEscape,
@@ -1039,6 +1041,16 @@ fn push_diagnostic(
         path: relative_path(vault, path),
         message: message.into(),
     });
+}
+
+/// Test-only counters: how often the whole vault was scanned. Lets tests prove that a hot
+/// path (a cell edit) does not rescan the vault.
+#[cfg(test)]
+pub(crate) mod test_seam {
+    use std::cell::Cell;
+    thread_local! {
+        pub(crate) static DISCOVER_VAULT_CALLS: Cell<usize> = const { Cell::new(0) };
+    }
 }
 
 #[cfg(test)]

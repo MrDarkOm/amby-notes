@@ -29,7 +29,6 @@ function open() {
       vault,
       activeTab: null,
       treeItemById: new Map(),
-      linkGraph: { edges: [] },
       t: i18n.t,
     })
   })

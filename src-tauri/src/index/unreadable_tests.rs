@@ -2,8 +2,6 @@
 //! in cp1251 by an old export) must not stop the vault from opening, nor every other note from being
 //! read. It is left out and reported; a version already in the index is kept, never dropped.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
 use crate::vault::{apply_id_migration, preflight_vault};
 use std::{fs, path::PathBuf};
 use ulid::Ulid;

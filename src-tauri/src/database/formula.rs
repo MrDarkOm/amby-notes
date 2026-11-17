@@ -403,20 +403,17 @@ fn tokenize(expression: &str) -> Result<Vec<Token>, FormulaError> {
             }
             character if character.is_ascii_digit() || character == '.' => {
                 let mut value = character.to_string();
-                while chars
-                    .peek()
-                    .is_some_and(|next| next.is_ascii_digit() || *next == '.')
-                {
-                    value.push(chars.next().unwrap());
+                while let Some(next) = chars.next_if(|next| next.is_ascii_digit() || *next == '.') {
+                    value.push(next);
                 }
                 Token::Number(value)
             }
             character if character.is_ascii_alphabetic() || character == '_' => {
                 let mut value = character.to_string();
-                while chars.peek().is_some_and(|next| {
-                    next.is_ascii_alphanumeric() || *next == '_' || *next == '-'
-                }) {
-                    value.push(chars.next().unwrap());
+                while let Some(next) = chars
+                    .next_if(|next| next.is_ascii_alphanumeric() || *next == '_' || *next == '-')
+                {
+                    value.push(next);
                 }
                 match value.to_ascii_lowercase().as_str() {
                     "and" => Token::And,
@@ -624,13 +621,28 @@ pub fn extract_dependencies(expression: &str) -> Result<Vec<String>, FormulaErro
     Ok(out)
 }
 
+/// Splits a left-leaning chain of binary operations into its leftmost operand and
+/// the `(operator, right operand)` pairs, last operation first.
+fn left_spine(expr: &Expr) -> (&Expr, Vec<(&Token, &Expr)>) {
+    let mut rights = Vec::new();
+    let mut node = expr;
+    while let Expr::Binary(left, operator, right) = node {
+        rights.push((operator, right.as_ref()));
+        node = left;
+    }
+    (node, rights)
+}
+
 fn extract_ast_references(expr: &Expr, out: &mut Vec<String>) {
     match expr {
         Expr::Reference(name) => out.push(name.clone()),
         Expr::Unary(_, inner) => extract_ast_references(inner, out),
-        Expr::Binary(left, _, right) => {
-            extract_ast_references(left, out);
-            extract_ast_references(right, out);
+        Expr::Binary(..) => {
+            let (leftmost, rights) = left_spine(expr);
+            extract_ast_references(leftmost, out);
+            for right in rights.into_iter().rev() {
+                extract_ast_references(right.1, out);
+            }
         }
         Expr::Call(_, args) => {
             for arg in args {
@@ -670,16 +682,23 @@ fn evaluate_expr(
                 )),
             }
         }
-        Expr::Binary(left, operator, right) => {
-            let left = evaluate_expr(left, properties, depth + 1)?;
-            if matches!(operator, Token::And) && left == FormulaValue::Boolean(false) {
-                return Ok(FormulaValue::Boolean(false));
+        Expr::Binary(..) => {
+            // A chain such as `a + b + c + ...` is a left-leaning tree. Walking it
+            // in a loop keeps the length of a chain apart from the depth of
+            // nesting, which is what `MAX_DEPTH` limits.
+            let (leftmost, rights) = left_spine(expr);
+            let mut accumulated = evaluate_expr(leftmost, properties, depth + 1)?;
+            for (operator, right) in rights.into_iter().rev() {
+                if matches!(operator, Token::And) && accumulated == FormulaValue::Boolean(false) {
+                    continue;
+                }
+                if matches!(operator, Token::Or) && accumulated == FormulaValue::Boolean(true) {
+                    continue;
+                }
+                let right = evaluate_expr(right, properties, depth + 1)?;
+                accumulated = evaluate_binary(accumulated, operator, right)?;
             }
-            if matches!(operator, Token::Or) && left == FormulaValue::Boolean(true) {
-                return Ok(FormulaValue::Boolean(true));
-            }
-            let right = evaluate_expr(right, properties, depth + 1)?;
-            evaluate_binary(left, operator, right)
+            Ok(accumulated)
         }
         Expr::Call(name, args) => evaluate_call(name, args, properties, depth + 1),
     }

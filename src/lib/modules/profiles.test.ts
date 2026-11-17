@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { OFFICIAL_ED25519_KEY_ID } from "./package-manager/validator"
 import {
   applyProfileWithOfflineFallback,
   createProfileSnapshot,
@@ -40,7 +41,7 @@ describe("MOD-03: Profiles", () => {
     expect(snapshot.modules).toEqual(STANDARD_MODULES)
     expect(snapshot.appliedAt).toBeDefined()
     expect(new Date(snapshot.appliedAt).getTime()).not.toBeNaN()
-    expect(snapshot.signature?.keyId).toBe("amby-official-2026")
+    expect(snapshot.signature?.keyId).toBe(OFFICIAL_ED25519_KEY_ID)
   })
 
   it("handles online profile application without fallback", () => {

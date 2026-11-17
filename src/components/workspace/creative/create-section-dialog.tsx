@@ -19,6 +19,7 @@ import {
 import { projectLabels } from "./project-labels"
 import { useOperationId } from "./use-operation-id"
 import { projectErrorText } from "@/lib/operation-errors"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 const NO_VALUE = "none"
 
@@ -159,11 +160,7 @@ function CreateSectionForm({
             />
           </div>
 
-          {error && (
-            <p role="alert" className="text-xs text-destructive">
-              {error}
-            </p>
-          )}
+          {error && <NoticeLine role="alert" text={error} />}
 
           <DialogFooter>
             <Button type="button" variant="ghost" disabled={pending} onClick={onClose}>

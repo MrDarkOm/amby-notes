@@ -24,10 +24,19 @@ pub use tags::*;
 mod compatibility_fixtures_test;
 
 #[cfg(test)]
+mod history_follow_tests;
+
+#[cfg(test)]
 mod identity_tests;
 
 #[cfg(test)]
 mod incremental_tests;
+
+#[cfg(test)]
+mod refactor_scope_tests;
+
+#[cfg(test)]
+mod line_ending_tests;
 
 #[cfg(test)]
 mod malformed_tests;

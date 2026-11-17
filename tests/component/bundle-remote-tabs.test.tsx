@@ -2,10 +2,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react"
 import { useVaultData } from "@/components/workspace/use-vault-data"
-import {
-  beginLocalTreeMutation,
-  recordLocalTreePaths,
-} from "@/components/workspace/watcher-tree-reconciliation"
 import { useVaultStore } from "@/components/workspace/use-vault-store"
 import { useDocStore } from "@/components/workspace/use-doc-store"
 import { useTabsStore } from "@/components/workspace/use-tabs-store"
@@ -95,7 +91,7 @@ beforeEach(() => {
   vi.mocked(isTauri).mockReturnValue(false)
   useVaultStore.setState(useVaultStore.getInitialState())
   useDocStore.getState().clearDocs()
-  useTabsStore.setState({ tabs: [], activeTabKey: "", secondaryTabKey: null })
+  useTabsStore.setState({ tabs: [], activeTabKey: "" })
   useViewStateStore
     .getState()
     .hydrateFromSession({ icons: {}, favorites: [], viewModes: {}, lockedFileIds: [] })
@@ -178,6 +174,7 @@ describe("a whole super note deleted on another computer while its note is open 
             patch: {
               ops: [{ kind: "remove", parentPath: "/vault", paths: ["/vault/Note/Note.md"] }],
             },
+            sync: { inserted: 0, updated: 0, deleted: 0, warnings: [], pathToId: {} },
           }
         : null,
     )

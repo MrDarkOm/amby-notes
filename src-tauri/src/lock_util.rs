@@ -15,6 +15,11 @@
 //! - the watcher's self-write table and the index change queue are advisory:
 //!   a lost entry costs at most a spurious reindex or conflict prompt.
 //!
+//! - the database runtime snapshot (enabled flag, generation, projection version)
+//!   is process-local and rebuilt from the vault; the prepared move refactor and
+//!   the cache of finished migration journals are caches that are recomputed
+//!   when missing.
+//!
 //! Recovery drafts and history snapshots are files, never kept in these
 //! mutexes, so they are unaffected.
 

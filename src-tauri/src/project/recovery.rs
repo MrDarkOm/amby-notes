@@ -7,6 +7,7 @@
 
 use std::fs;
 use std::path::Path;
+use std::time::{Duration, SystemTime};
 
 use super::journal::{
     self, read_journal_file, remove_journal, replace_journal, Journal, STATUS_COMPLETED,
@@ -65,6 +66,20 @@ pub fn has_committed(vault: &Path, journal: &Journal) -> Result<bool, ProjectErr
     }
 
     Ok(false)
+}
+
+/// Whether `bytes` are exactly the workshop file the journal planned to write: the recorded text,
+/// or, for a journal without the text, the recorded revision. A journal with neither cannot vouch
+/// for any file, so none is ours.
+fn is_planned_marker(journal: &Journal, bytes: &[u8]) -> bool {
+    if let Some(text) = &journal.plan.workshop_file_text {
+        return text.as_bytes() == bytes;
+    }
+    journal
+        .plan
+        .workshop_file_revision
+        .as_deref()
+        .is_some_and(|revision| raw_revision(bytes) == revision)
 }
 
 pub fn rollback(vault: &Path, journal: &Journal) -> Result<Rollback, ProjectError> {
@@ -235,8 +250,22 @@ pub fn rollback(vault: &Path, journal: &Journal) -> Result<Rollback, ProjectErro
         // 4. Remove workshop marker file if created by this operation
         if journal.plan.creates_workshop_folder {
             let marker = workshop_dir.join(WORKSHOP_FILE_NAME);
-            if marker.is_file() {
-                let _ = fs::remove_file(marker);
+            // Only the bytes the journal planned are ours; anything else is kept and reported.
+            match fs::read(&marker) {
+                Ok(bytes) if is_planned_marker(journal, &bytes) => {
+                    if let Err(error) = fs::remove_file(&marker) {
+                        leftovers.push(format!("{WORKSHOP_FILE_NAME}: {error}"));
+                    }
+                }
+                Ok(_) => {
+                    leftovers.push(format!(
+                        "{WORKSHOP_FILE_NAME}: the workshop file was changed"
+                    ));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    leftovers.push(format!("{WORKSHOP_FILE_NAME}: {error}"));
+                }
             }
         }
 
@@ -274,7 +303,49 @@ fn quarantine(path: &Path) -> Result<(), String> {
     let name = path
         .file_name()
         .ok_or_else(|| "journal has no name".to_owned())?;
-    fs::rename(path, directory.join(name)).map_err(|error| error.to_string())
+    // Quarantined files are recovery data: a taken name gets the next free one, never replaced.
+    let name = Path::new(name);
+    let stem = name
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let extension = name
+        .extension()
+        .map(|extension| format!(".{}", extension.to_string_lossy()))
+        .unwrap_or_default();
+    let mut target = directory.join(name);
+    let mut counter = 1_u32;
+    loop {
+        match crate::atomic_fs::rename_no_replace(path, &target) {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                counter += 1;
+                if counter > 10_000 {
+                    return Err("no free name in the quarantine".to_owned());
+                }
+                target = directory.join(format!("{stem}-{counter}{extension}"));
+            }
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+}
+
+/// A completed journal only answers a repeat of its own operation ID, which a client sends
+/// within one session. After this long it has no job left, so activation removes it. Only
+/// completed journals are pruned; unfinished and unreadable ones are recovery data and stay.
+const COMPLETED_JOURNAL_RETENTION: Duration = Duration::from_secs(30 * 86_400);
+
+fn prune_completed(path: &Path) {
+    let age = fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|modified| SystemTime::now().duration_since(modified).ok());
+    if !age.is_some_and(|age| age > COMPLETED_JOURNAL_RETENTION) {
+        return;
+    }
+    if let Err(error) = fs::remove_file(path) {
+        tracing::warn!(event = "project_journal_prune_failed", error = %error);
+    }
 }
 
 pub fn recover_pending_projects(vault: &Path) -> Result<ProjectRecoveryReport, String> {
@@ -305,7 +376,10 @@ pub fn recover_pending_projects(vault: &Path) -> Result<ProjectRecoveryReport, S
             let failure = match read_journal_file(&path) {
                 Err(error) => Some(error.to_string()),
                 Ok(None) => None,
-                Ok(Some(journal)) if journal.status == STATUS_COMPLETED => None,
+                Ok(Some(journal)) if journal.status == STATUS_COMPLETED => {
+                    prune_completed(&path);
+                    None
+                }
                 Ok(Some(mut journal)) => {
                     debug_assert_eq!(journal.status, STATUS_IN_PROGRESS);
                     match rollback(vault, &journal) {
