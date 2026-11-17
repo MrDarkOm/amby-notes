@@ -62,7 +62,7 @@ The repository has been normalized to consistent Prettier and Rustfmt standards 
 
 ## Browser engines
 
-Amby is not a browser app: it runs in the system web engine of each platform. macOS uses WKWebView, whose WebKit is the Safari version of the user's macOS (Tauri's default minimum is macOS 10.13 because `tauri.conf.json` sets no `minimumSystemVersion`). Windows uses WebView2 (evergreen Chromium). Linux uses WebKitGTK (`webkit2gtk-4.1`, building on Ubuntu 22.04). The oldest WebKit is the real constraint.
+Amby is not a browser app: it runs in the system web engine of each platform. macOS uses WKWebView, whose WebKit is the Safari version of the user's macOS (the minimum is macOS 13, `minimumSystemVersion` in `tauri.macos.conf.json`, because older Safari lacks `color-mix()`, UI-06). Windows uses WebView2 (evergreen Chromium). Linux uses WebKitGTK (`webkit2gtk-4.1`, building on Ubuntu 22.04). The oldest WebKit is the real constraint.
 
 - Baseline "widely available" web features are fine to use.
 - Newer features need feature detection (`@supports`, `CSS.supports`, `'x' in obj`) and an equivalent fallback that keeps behavior on all three engines.
