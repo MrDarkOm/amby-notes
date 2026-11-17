@@ -1,21 +1,21 @@
-# Frontend и UX runtime баз данных Amby
+# Frontend and UX runtime of Amby databases
 
-Статус: proposed contract
-Версия документа: 1
-Дата: 2026-09-04
+Status: proposed contract
+Document version: 1
+Date: 2026-09-04
 
-Документ продолжает
-[архитектуру](database-system.md),
-[пользовательские сценарии](database-user-flows.md),
-[durable-формат](database-format.md) и
-[runtime-контракт](database-runtime.md). Он фиксирует state ownership,
-component boundaries и поведение Table, Board, List, Gallery, side peek и linked
+This document continues the
+[architecture](database-system.md),
+[user flows](database-user-flows.md),
+[durable format](database-format.md) and
+[runtime contract](database-runtime.md). It fixes state ownership,
+component boundaries and the behavior of Table, Board, List, Gallery, side peek and linked
 views.
 
-## 1. Главный принцип интерфейса
+## 1. The main interface principle
 
-Table, Board, List и Gallery — четыре представления одной query-модели, а не
-четыре самостоятельных редактора данных.
+Table, Board, List and Gallery are four representations of one query model, not
+four independent data editors.
 
 ```text
 DatabasePort
@@ -30,31 +30,31 @@ database controller ──► useDatabaseStore
                └──────── shared typed value controls ───────┘
 ```
 
-Компоненты:
+Components:
 
-- не вызывают Tauri commands напрямую;
-- не хранят собственную копию server rows;
-- идентифицируют строки по `noteId`, поля по `FieldRef`, views по `viewId`;
-- получают I/O только через `DatabasePort` и controller actions;
-- используют существующие theme tokens, `IconValue` и localization registry;
-- переиспользуют обычный document buffer/autosave для текста страницы.
+- do not call Tauri commands directly;
+- do not keep their own copy of server rows;
+- identify rows by `noteId`, fields by `FieldRef`, views by `viewId`;
+- get I/O only through `DatabasePort` and controller actions;
+- use the existing theme tokens, `IconValue` and the localization registry;
+- reuse the regular document buffer/autosave for the page text.
 
-## 2. Интеграция с текущим workspace
+## 2. Integration with the current workspace
 
-### 2.1 Вкладки
+### 2.1 Tabs
 
-В `TabKind` добавляется `database`. Для совместимости с текущей моделью:
+`database` is added to `TabKind`. For compatibility with the current model:
 
-- `tab.fileId` хранит `databaseId`;
-- выбранный `viewId` хранится в session state по `tab.key`;
-- переход между views одной базы не добавляется в Back/Forward history;
-- переход в другую базу использует обычную tab history;
-- `Открыть в новой вкладке` может открыть ту же базу с другим view;
-- заголовок вкладки берется из database header, а не из имени каталога.
+- `tab.fileId` holds `databaseId`;
+- the selected `viewId` is kept in session state by `tab.key`;
+- switching between views of one database is not added to the Back/Forward history;
+- switching to another database uses the regular tab history;
+- "Open in new tab" (`Открыть в новой вкладке`) can open the same database with a different view;
+- the tab title is taken from the database header, not from the directory name.
 
-Standalone database открывается как database tab. Attached database может
-рендериться тем же `DatabaseWorkspace` внутри существующего layer места
-документа. Оба варианта используют один store/controller и отличаются только
+A standalone database opens as a database tab. An attached database can
+be rendered by the same `DatabaseWorkspace` inside the existing layer of the document's
+place. Both variants use one store/controller and differ only in
 `host`.
 
 ```ts
@@ -64,39 +64,39 @@ type DatabaseHost =
   | { kind: "linkedBlock"; noteId: string; blockId: string }
 ```
 
-`workspace-orchestration.tsx` выбирает только host component. Загрузка,
-редактирование и dialogs не переносятся в `workspace.tsx`.
+`workspace-orchestration.tsx` selects only the host component. Loading,
+editing and dialogs are not moved into `workspace.tsx`.
 
-### 2.2 Split и focus mode
+### 2.2 Split and focus mode
 
-В первой версии database tab занимает primary pane и использует side peek для
-строк. Открытие database tab при активном document split применяет существующую
-политику закрытия secondary pane. Две полноценные database panes в split —
-отдельное расширение после измерения памяти и scroll performance.
+In the first version a database tab occupies the primary pane and uses side peek for
+rows. Opening a database tab while a document split is active applies the existing
+policy of closing the secondary pane. Two full database panes in a split are a
+separate extension after measuring memory and scroll performance.
 
-В focus mode database view остается доступным. Activity panels становятся
-overlay как сейчас; side peek тоже становится overlay и не уменьшает view до
-непригодной ширины.
+In focus mode the database view stays available. Activity panels become
+overlays as they do now; side peek also becomes an overlay and does not shrink the view to
+an unusable width.
 
 ### 2.3 Databases panel
 
-`ComingSoonPanel` заменяется на `DatabasesPanel`, который показывает:
+`ComingSoonPanel` is replaced with `DatabasesPanel`, which shows:
 
-- attached и standalone databases;
-- favorite databases и views;
-- saved views внутри каждой базы;
-- состояние broken/read-only/recovery;
-- команды создать, подключить, открыть и показать в Files.
+- attached and standalone databases;
+- favorite databases and views;
+- saved views inside each database;
+- the broken/read-only/recovery state;
+- commands to create, attach, open and show in Files.
 
-Panel получает данные через selectors `useDatabaseStore`, а не через расширение
-универсального `PanelRenderProps` десятками callback. `PanelRenderProps` передает
-только навигационный adapter там, где он действительно нужен.
+The panel gets its data through `useDatabaseStore` selectors, not by extending the
+generic `PanelRenderProps` with dozens of callbacks. `PanelRenderProps` passes
+only a navigation adapter where it is actually needed.
 
-Перетаскивание view в редактор использует внутренний MIME type
-`application/x-amby-database-view` с `databaseId` и `viewId`. Path и raw JSON в
-drag payload не передаются.
+Dragging a view into the editor uses the internal MIME type
+`application/x-amby-database-view` with `databaseId` and `viewId`. No path or raw JSON is
+passed in the drag payload.
 
-## 3. Предлагаемая структура файлов
+## 3. Proposed file structure
 
 ```text
 src/components/workspace/database/
@@ -156,15 +156,15 @@ src/components/workspace/panels/databases-panel.tsx
 src/components/workspace/tiptap/database-block-view.tsx
 ```
 
-Pure state/query/clipboard code не импортирует React и покрывается Node Vitest.
-Reusable visual primitives остаются в `components/ui`; database semantics не
-переносятся в UI primitives.
+Pure state/query/clipboard code does not import React and is covered by Node Vitest.
+Reusable visual primitives stay in `components/ui`; database semantics are not
+moved into UI primitives.
 
 ## 4. State ownership
 
-### 4.1 Server и cache state
+### 4.1 Server and cache state
 
-Один `useDatabaseStore` содержит:
+A single `useDatabaseStore` contains:
 
 ```ts
 interface DatabaseState {
@@ -185,15 +185,15 @@ interface DatabaseState {
 }
 ```
 
-Store не сохраняется целиком в app settings. Durable views находятся в database
-files, а runtime cache очищается при смене vault. Из session state сохраняются
-только безопасные локальные предпочтения: последний view для host, quick-search
-при необходимости и размеры временных панелей.
+The store is not persisted as a whole in app settings. Durable views live in database
+files, and the runtime cache is cleared when the vault changes. Only safe local
+preferences are persisted from session state: the last view for a host, quick search
+if needed, and the sizes of temporary panels.
 
-`databasesById` и resource maps обновляются только controller. Layout components
-получают узкие selectors, чтобы ввод в одной ячейке не перерисовывал всю таблицу.
+`databasesById` and the resource maps are updated only by the controller. Layout components
+get narrow selectors so that typing in one cell does not redraw the whole table.
 
-### 4.2 Session state одного host
+### 4.2 Session state of one host
 
 ```ts
 interface DatabaseViewSession {
@@ -211,19 +211,19 @@ interface DatabaseViewSession {
 }
 ```
 
-Linked block получает независимый session: его filter/layout overrides не
-меняют source view. Два tabs одной базы также имеют разные selection, scroll и
-peek state, но используют общий query cache при совпадающем query key.
+A linked block gets an independent session: its filter/layout overrides do not
+change the source view. Two tabs of the same database also have separate selection, scroll and
+peek state, but share the query cache when the query key matches.
 
 ### 4.3 Document state
 
-Markdown body строки не хранится в database store. Side peek вызывает обычный
-`readNote`, помещает результат в `useDocStore` и использует общий autosave
-coordinator. Поэтому редактирование страницы из базы и из Files имеет одинаковые
-conflict, recovery и byte-preservation гарантии.
+The Markdown body of a row is not stored in the database store. Side peek calls the regular
+`readNote`, puts the result into `useDocStore` and uses the shared autosave
+coordinator. Therefore editing a page from a database and from Files has the same
+conflict, recovery and byte-preservation guarantees.
 
-Database properties не добавляются в `Document.noteProperties` как строковые
-`CustomProperty`. Inspector объединяет два типизированных источника на уровне
+Database properties are not added to `Document.noteProperties` as string
+`CustomProperty` values. The inspector merges the two typed sources at the level of the
 presentation model.
 
 ## 5. Lifecycle state machine
@@ -244,19 +244,19 @@ ready/degraded ── unfinished journal ──► recoveryRequired
 ready/degraded ── disable + flush ─────► disabled
 ```
 
-Семантика:
+Semantics:
 
-- `enabling`: database entry points видимы disabled со progress;
-- `ready`: чтение и разрешенные mutations доступны;
-- `degraded`: последняя целая projection читается, часть данных read-only;
-- `rebuildRequired`: подтвержденные optimistic values видны, новые query
-  блокируются либо явно помечены stale до rebuild;
-- `recoveryRequired`: чтение последней безопасной projection разрешено, новые
-  конфликтующие mutations заблокированы;
-- `failed`: обычные заметки продолжают работать.
+- `enabling`: database entry points are visible but disabled, with progress;
+- `ready`: reading and permitted mutations are available;
+- `degraded`: the last whole projection is readable, part of the data is read-only;
+- `rebuildRequired`: confirmed optimistic values are visible, new queries are
+  blocked or explicitly marked stale until the rebuild;
+- `recoveryRequired`: reading the last safe projection is allowed, new
+  conflicting mutations are blocked;
+- `failed`: regular notes keep working.
 
-`onDeactivate` сначала вызывает `flushAll`. Если flush не удался, переключатель
-остается включенным и показывает ошибку; данные не бросаются ради изменения UI.
+`onDeactivate` calls `flushAll` first. If the flush fails, the toggle
+stays on and shows an error; data is not abandoned for the sake of a UI change.
 
 ## 6. Query entry state machine
 
@@ -264,28 +264,28 @@ ready/degraded ── disable + flush ─────► disabled
 type QueryStatus = "idle" | "loading" | "ready" | "refreshing" | "loadingMore" | "stale" | "error"
 ```
 
-Правила:
+Rules:
 
-- первая загрузка показывает skeleton текущего layout;
-- `refreshing` сохраняет предыдущие rows и не сбрасывает scroll;
-- новое изменение filter/sort отменяет старый in-flight request;
-- `staleCursor` очищает только страницы query и перезапрашивает первую;
-- событие с новым `{ epoch, seq }` отмечает затронутые entries `stale`;
-- невидимый host не обновляется немедленно, но invalidation сохраняется;
-- infinite loading начинается до достижения последней видимой строки;
-- error следующей страницы не скрывает уже загруженные данные.
+- the first load shows a skeleton of the current layout;
+- `refreshing` keeps the previous rows and does not reset scroll;
+- a new filter/sort change cancels the old in-flight request;
+- `staleCursor` clears only the query pages and re-requests the first one;
+- an event with a new `{ epoch, seq }` marks the affected entries `stale`;
+- an invisible host is not updated immediately, but the invalidation is kept;
+- infinite loading starts before the last visible row is reached;
+- an error on the next page does not hide the data already loaded.
 
-Query key вычисляется из:
+The query key is computed from:
 
 ```text
 vaultGeneration + databaseId + base view revision + normalized overrides + field set
 ```
 
-Scroll position, selection и open popovers в query key не входят.
+Scroll position, selection and open popovers are not part of the query key.
 
 ## 7. View chrome
 
-Общая оболочка всех layouts:
+The common shell of all layouts:
 
 ```text
 DatabaseWorkspace
@@ -306,22 +306,22 @@ DatabaseWorkspace
 └── DatabaseSidePeek
 ```
 
-View tabs переключаются без полной перезагрузки database header/schema. Создание,
-rename, duplicate и delete view идут через view mutation CAS.
+View tabs switch without fully reloading the database header/schema. Creating,
+renaming, duplicating and deleting a view go through view mutation CAS.
 
-Quick search временный. Filter, sort, group, visible fields, density и layout
-options изменяют saved view с debounce и обязательным flush при закрытии host.
-Если view revision изменилась извне, UI предлагает:
+Quick search is temporary. Filter, sort, group, visible fields, density and layout
+options change the saved view with a debounce and a mandatory flush when the host closes.
+If the view revision changed externally, the UI offers to:
 
-- загрузить внешнюю версию;
-- сохранить локальную конфигурацию как новый view;
-- сравнить изменения, если оба изменяли разные fields.
+- load the external version;
+- save the local configuration as a new view;
+- compare the changes if both changed different fields.
 
-Автоматического last-write-wins нет.
+There is no automatic last-write-wins.
 
-## 8. Общая row model
+## 8. Common row model
 
-Все layouts получают:
+All layouts receive:
 
 ```ts
 interface DatabaseRowModel {
@@ -341,28 +341,28 @@ interface DatabaseRowModel {
 }
 ```
 
-Layout может запросить сокращенный field set. Добавление новой видимой колонки
-дозагружает query с расширенным field set; оно не выполняет N запросов по строкам.
+A layout can request a reduced field set. Adding a new visible column
+reloads the query with an extended field set; it does not perform N per-row queries.
 
-System Title всегда первая/frozen в Table и основной интерактивный элемент в
-остальных layouts. Клик по Title открывает страницу; клик по значению редактирует
-свойство.
+System Title is always the first/frozen column in Table and the main interactive element in
+the other layouts. Clicking Title opens the page; clicking a value edits the
+property.
 
 ## 9. Table
 
-### 9.1 Рендеринг
+### 9.1 Rendering
 
-Table реализуется как ARIA grid на `div`, а не как огромный DOM `<table>`:
+Table is implemented as an ARIA grid on `div`, not as a huge DOM `<table>`:
 
-- вертикальная виртуализация строк через `@tanstack/react-virtual`;
-- горизонтальная виртуализация незакрепленных колонок;
-- отдельный sticky слой frozen columns;
-- фиксированная оценка высоты по density;
-- group headers и aggregate footer имеют собственный virtual item kind;
-- overscan небольшой и настраивается только по benchmark.
+- vertical row virtualization via `@tanstack/react-virtual`;
+- horizontal virtualization of unpinned columns;
+- a separate sticky layer for frozen columns;
+- a fixed height estimate per density;
+- group headers and the aggregate footer have their own virtual item kind;
+- overscan is small and is tuned only by benchmark.
 
-DOM cell получает стабильный key `{noteId}:{fieldKey}`, но draft редактора живет
-в store/editor layer и не теряется при размонтировании виртуальной строки.
+A DOM cell gets a stable key `{noteId}:{fieldKey}`, but the editor draft lives
+in the store/editor layer and is not lost when the virtual row unmounts.
 
 ### 9.2 Selection
 
@@ -379,71 +379,71 @@ interface CellAddress {
 }
 ```
 
-В selection хранятся IDs, а не только индексы. Текущий query result строит
-временную карту ID → position. После filter/sort/invalidation:
+Selection stores IDs, not just indexes. The current query result builds a
+temporary ID → position map. After filter/sort/invalidation:
 
-- если обе границы существуют, range пересчитывается;
-- если осталась одна, selection схлопывается к ней;
-- если строки исчезли, selection очищается;
-- pending edit никогда не применяется к новой строке по старому индексу.
+- if both boundaries exist, the range is recomputed;
+- if only one remains, the selection collapses to it;
+- if the rows disappeared, the selection is cleared;
+- a pending edit is never applied to a new row by the old index.
 
 ### 9.3 Keyboard contract
 
-| Клавиша                     | Действие                                        |
-| --------------------------- | ----------------------------------------------- |
-| Arrow keys                  | переместить active cell                         |
-| Shift + Arrow               | расширить range                                 |
-| Enter                       | открыть editor / подтвердить и идти вниз        |
-| Shift + Enter               | подтвердить и идти вверх                        |
-| Tab / Shift + Tab           | подтвердить и идти вправо/влево                 |
-| Escape                      | отменить draft либо очистить range              |
-| Space на Checkbox           | переключить значение                            |
-| Cmd/Ctrl + C                | копировать TSV                                  |
-| Cmd/Ctrl + V                | preflight multi-cell paste                      |
-| Delete/Backspace вне editor | preview очистки выбранных значений              |
-| Cmd/Ctrl + Z                | database undo, если cell editor не владеет undo |
+| Key                             | Action                                              |
+| ------------------------------- | --------------------------------------------------- |
+| Arrow keys                      | move the active cell                                |
+| Shift + Arrow                   | extend the range                                    |
+| Enter                           | open the editor / commit and go down                |
+| Shift + Enter                   | commit and go up                                    |
+| Tab / Shift + Tab               | commit and go right/left                            |
+| Escape                          | cancel the draft or clear the range                 |
+| Space on Checkbox               | toggle the value                                    |
+| Cmd/Ctrl + C                    | copy TSV                                            |
+| Cmd/Ctrl + V                    | preflight multi-cell paste                          |
+| Delete/Backspace outside editor | preview clearing the selected values                |
+| Cmd/Ctrl + Z                    | database undo, if the cell editor does not own undo |
 
-Browser/native clipboard errors показываются ненавязчиво и не меняют selection.
+Browser/native clipboard errors are shown unobtrusively and do not change the selection.
 
 ### 9.4 Resize, reorder, freeze
 
-- Во время resize ширина локальна и обновляется через pointer capture.
-- В durable view она записывается один раз на pointer up.
-- Reorder работает по stable field refs.
-- Title нельзя скрыть, переместить с первой позиции или разморозить.
-- Дополнительные frozen columns образуют непрерывный prefix; разрывы запрещены.
-- Включенная сортировка блокирует ручной drag rows, но не стирает manual order.
+- During resize the width is local and is updated through pointer capture.
+- It is written to the durable view once, on pointer up.
+- Reorder works by stable field refs.
+- Title cannot be hidden, moved from the first position or unfrozen.
+- Additional frozen columns form a contiguous prefix; gaps are forbidden.
+- An enabled sort blocks manual row drag, but does not erase the manual order.
 
-### 9.5 Row grip и ручной порядок
+### 9.5 Row grip and manual order
 
-- У строки Table и List слева стоит grip (кнопка, видна при hover/focus); карточки Gallery
-  перетаскиваются целиком (кроме интерактивных элементов внутри).
-- Table и List при drag «поднимают» строку: она едет за курсором по вертикали (`database-row-lifted`),
-  остальные сдвигаются на её высоту (`row-drag-layout.ts`, motion); цель определяется по геометрии
-  (Table) или по слотам, снятым при захвате (List, Gallery), а не по движущимся строкам. При
-  активной сортировке drag не стартует, а `onBlockedDrag` предлагает сбросить сортировку.
-- Drag — pointer-события: порог 5px, marker на стороне строки под курсором, автопрокрутка у
-  краев, Escape отменяет. Нажатие на grip без движения открывает меню строки; стрелки
-  вверх/вниз на grip сдвигают строку на одно место.
-- Drop пишет `manualOrder` вида (`row-order.ts`): видимые, но ещё не расставленные строки
-  входят в список после расставленных, записи не загруженных строк сохраняются. Запрос
-  получает `manualOrder` только пока у вида нет sorts; backend ставит перечисленные ID первыми
-  в порядке списка, остальные — по названию. Порядок входит в хеш курсора.
-- Grip (Table, List) и флажок выбора (только Table) висят в левом поле за поверхностью таблицы:
-  в Table это колонка вне scroll-области, синхронная с её прокруткой; в List scroll-область
-  выдвинута влево. Левый padding колонки базы оставляет для них место. Блок `amby-db` в заметке
-  grip не показывает (поле занято ручками блоков редактора). Галерея в drag
-  рисуется обычной сеткой: dragged-карточка заменена drop-зоной, остальные сдвигаются (`layout`);
-  курсор сверяется со слотами, снятыми в момент захвата, поэтому сдвиг не раскачивает цель.
-- Меню строки (grip или правый клик): иконка и название на месте, избранное, свойства (те же редакторы, что в peek),
-  «Открыть» (как в представлении, новая вкладка, новое окно), копировать ссылку (`[[имя]]`),
-  дублировать (`duplicate_database_row`: новая страница рядом, свои `amby-id`/`amby-title`),
-  «Переместить в…» (перенос файла в папку другой базы через дерево) и удалить (как в дереве).
-  Заблокированная база не предлагает изменяющих действий и не даёт перетаскивать.
+- A Table and List row has a grip on the left (a button, visible on hover/focus); Gallery cards
+  are dragged as a whole (except for interactive elements inside).
+- In Table and List, drag "lifts" the row: it follows the cursor vertically (`database-row-lifted`),
+  the others shift by its height (`row-drag-layout.ts`, motion); the target is determined by geometry
+  (Table) or by the slots captured at pickup (List, Gallery), not by the moving rows. When
+  a sort is active, drag does not start, and `onBlockedDrag` offers to reset the sort.
+- Drag uses pointer events: a 5px threshold, a marker on the side of the row under the cursor, auto-scroll at
+  the edges, Escape cancels. Pressing the grip without movement opens the row menu; the up/down
+  arrows on the grip move the row by one place.
+- Drop writes `manualOrder` of the form (`row-order.ts`): visible rows that are not yet placed
+  enter the list after the placed ones, entries for rows that are not loaded are kept. The query
+  receives `manualOrder` only while the view has no sorts; the backend puts the listed IDs first
+  in list order, the rest by title. The order is part of the cursor hash.
+- The grip (Table, List) and the selection checkbox (Table only) hang in the left margin beyond the table surface:
+  in Table this is a column outside the scroll area, synchronized with its scrolling; in List the scroll area
+  is shifted to the left. The left padding of the database column leaves room for them. The `amby-db` block in a note
+  does not show the grip (the margin is taken by the editor's block handles). In a drag the Gallery
+  is drawn as a regular grid: the dragged card is replaced by a drop zone, the others shift (`layout`);
+  the cursor is checked against the slots captured at pickup, so the shift does not make the target oscillate.
+- The row menu (grip or right click): icon and title in place, favorite, properties (the same editors as in peek),
+  "Open" (as in the view, new tab, new window), copy link (`[[name]]`),
+  duplicate (`duplicate_database_row`: a new page next to it, with its own `amby-id`/`amby-title`),
+  "Move to…" (moving the file into the folder of another database through the tree) and delete (as in the tree).
+  A locked database offers no changing actions and does not allow dragging.
 
 ## 10. Cell editing
 
-### 10.1 Общий контракт control
+### 10.1 The common control contract
 
 ```ts
 interface PropertyValueControlProps<T extends PropertyValue> {
@@ -458,11 +458,11 @@ interface PropertyValueControlProps<T extends PropertyValue> {
 }
 ```
 
-Control ничего не знает о note path, SQLite, IPC или optimistic cache.
-`CellEditorLayer` позиционирует popover через portal, поэтому virtualizer и
-`overflow: hidden` не обрезают Date/Select/Relation/Files editors.
+A control knows nothing about the note path, SQLite, IPC or the optimistic cache.
+`CellEditorLayer` positions the popover through a portal, so the virtualizer and
+`overflow: hidden` do not clip the Date/Select/Relation/Files editors.
 
-### 10.2 Состояние ячейки
+### 10.2 Cell state
 
 ```text
 idle ── edit ──► editing ── commit ──► validating
@@ -476,118 +476,118 @@ idle ── edit ──► editing ── commit ──► validating
              error              conflict
 ```
 
-- Text commit: blur, Enter или debounce с flush.
-- Number хранит строковый draft и парсится только при commit.
-- Checkbox обычно выполняет immediate commit.
-- Select/Status commit-ится выбором option.
-- Multi-select держит popover открытым и commit-ит batch при закрытии.
-- Date сохраняет date-only или date-time строго по definition.
-- URL не открывается тем же click, которым редактируется; open — отдельная
-  безопасная команда.
-- Relation picker ищет целевую базу через paginated backend search.
-- Files сначала импортируются в row bundle, затем value mutation ссылается на
-  подтвержденный asset.
+- Text commit: blur, Enter or a debounce with a flush.
+- Number keeps a string draft and is parsed only on commit.
+- Checkbox usually performs an immediate commit.
+- Select/Status commits by choosing an option.
+- Multi-select keeps the popover open and commits a batch on close.
+- Date saves date-only or date-time strictly according to the definition.
+- URL is not opened by the same click that edits it; open is a separate
+  safe command.
+- The Relation picker searches the target database through paginated backend search.
+- Files are first imported into the row bundle, then the value mutation references the
+  confirmed asset.
 
-### 10.3 Очередь
+### 10.3 The queue
 
-`DatabaseEditQueue` сериализует mutations одного resource:
+`DatabaseEditQueue` serializes the mutations of one resource:
 
-- ключ ячейки `{databaseId}:{noteId}:{propertyId}`;
-- Title использует отдельный filesystem-operation key;
-- новое значение может coalesce-ить еще не отправленный Text draft;
-- in-flight mutation не отменяется после durable write;
-- batch имеет один operation ID и не раскладывается frontend на несвязанные
-  одиночные writes;
-- flush запускается при смене view/tab/vault, закрытии peek, выключении модуля и
+- the cell key is `{databaseId}:{noteId}:{propertyId}`;
+- Title uses a separate filesystem-operation key;
+- a new value can coalesce a Text draft that has not been sent yet;
+- an in-flight mutation is not cancelled after a durable write;
+- a batch has one operation ID and is not split by the frontend into unrelated
+  single writes;
+- flush is triggered on view/tab/vault change, peek close, module disable and the
   `beforeunload` desktop window lifecycle.
 
-## 11. Paste и массовое редактирование
+## 11. Paste and bulk editing
 
-Clipboard parser является pure-функцией:
+The clipboard parser is a pure function:
 
-1. Читает TSV с сохранением пустых cells и строк.
-2. Проецирует rectangle на visible editable fields.
-3. Конвертирует каждую строку по property type.
-4. Собирает все ошибки без записи.
-5. Показывает preview для destructive/large batch.
-6. Отправляет один `apply_database_value_batch`.
+1. Reads TSV preserving empty cells and rows.
+2. Projects the rectangle onto visible editable fields.
+3. Converts each row by property type.
+4. Collects all errors without writing.
+5. Shows a preview for a destructive/large batch.
+6. Sends a single `apply_database_value_batch`.
 
-Значения Relation, Files и неизвестные Select options не создаются неявно при
-paste. UI предлагает явный mapping/создание options только через отдельный
-preview. Частичный success запрещен.
+Relation and Files values and unknown Select options are not created implicitly on
+paste. The UI offers an explicit mapping/creation of options only through a separate
+preview. Partial success is forbidden.
 
-Row selection существует отдельно от cell range и используется для move,
-relation, delete-to-Trash и batch property action.
+Row selection exists separately from the cell range and is used for move,
+relation, delete-to-Trash and a batch property action.
 
 ## 12. Board
 
-Board получает те же filtered rows, сгруппированные только по Status или
-single Select.
+Board gets the same filtered rows, grouped only by Status or
+a single Select.
 
-- колонка имеет option ID, включая отдельную `empty` lane;
-- drag card между lanes отправляет одну value mutation;
-- optimistic card перемещается сразу и помечается pending;
-- ошибка возвращает карточку в исходную lane без потери scroll;
-- card order внутри lane следует active sorts либо manual view order;
-- Relation/Multi-select не используются как group field в v1;
-- footer lane показывает count;
-- свойства карточки выбираются из view fields;
-- Title открывает side peek, drag handle не открывает страницу.
+- a column has an option ID, including a separate `empty` lane;
+- dragging a card between lanes sends a single value mutation;
+- the optimistic card moves immediately and is marked pending;
+- an error returns the card to its original lane without losing scroll;
+- card order inside a lane follows the active sorts or the manual view order;
+- Relation/Multi-select are not used as the group field in v1;
+- the lane footer shows a count;
+- card properties are chosen from the view fields;
+- Title opens side peek, the drag handle does not open the page.
 
-Горизонтально виртуализируются lanes, вертикально — cards внутри длинной lane.
-Одновременно монтируются только видимые lanes с небольшим overscan.
+Lanes are virtualized horizontally, cards inside a long lane vertically.
+Only the visible lanes with a small overscan are mounted at a time.
 
 ## 13. List
 
-List — самый компактный read/edit layout:
+List is the most compact read/edit layout:
 
-- Title, icon, breadcrumb и выбранные secondary fields;
-- nested mode показывает disclosure control и indentation;
-- flat mode показывает breadcrumb вместо indentation;
-- inline edit разрешен для простых secondary fields;
-- сложные Relation/Files открывают общий editor popover;
-- вся строка открывает side peek, кроме интерактивных controls;
-- виртуализация вертикальная с одной фиксированной высотой на density.
+- Title, icon, breadcrumb and the selected secondary fields;
+- nested mode shows a disclosure control and indentation;
+- flat mode shows a breadcrumb instead of indentation;
+- inline edit is allowed for simple secondary fields;
+- complex Relation/Files open the shared editor popover;
+- the whole row opens side peek, except for interactive controls;
+- virtualization is vertical with a single fixed height per density.
 
 ## 14. Gallery
 
-Gallery использует responsive CSS grid и вертикальную виртуализацию рядов, а не
-отдельную виртуализацию каждой карточки.
+Gallery uses a responsive CSS grid and vertical virtualization of rows, not a
+separate virtualization of each card.
 
-Порядок preview:
+Preview order:
 
-1. явно выбранное Files & media property;
-2. первая картинка заметки;
+1. the explicitly chosen Files & media property;
+2. the first image of the note;
 3. `IconValue`;
-4. нейтральный placeholder.
+4. a neutral placeholder.
 
-Только видимые изображения получают asset URL. Preview использует lazy loading,
-ограниченный decode size и не загружает remote resources. Карточка показывает
-настраиваемый список fields; Title открывает side peek. Empty/broken media дает
-diagnostic placeholder, но не ломает всю сетку.
+Only visible images get an asset URL. Preview uses lazy loading,
+a limited decode size and does not load remote resources. A card shows a
+configurable list of fields; Title opens side peek. Empty/broken media gives a
+diagnostic placeholder but does not break the whole grid.
 
 ## 15. Sub-items
 
-Nested и flat layouts используют один projection:
+Nested and flat layouts use one projection:
 
-- collapsed IDs принадлежат session, а не durable view;
-- filter match child без parent показывает child и breadcrumb;
-- раскрытие parent не загружает все дерево заранее;
-- drag row/card на другую row вызывает membership operation preview;
-- cycle, перенос в собственный descendant и пересечение с nested database
-  отклоняются backend;
-- удаление parent всегда открывает выбор `вместе с дочерними` или `поднять
-дочерние`, если sub-items существуют.
+- collapsed IDs belong to the session, not to the durable view;
+- a filter match of a child without its parent shows the child and a breadcrumb;
+- expanding a parent does not load the whole tree in advance;
+- dragging a row/card onto another row calls a membership operation preview;
+- a cycle, a move into its own descendant and an intersection with a nested database
+  are rejected by the backend;
+- deleting a parent always opens a choice of `with children` or `promote
+children` if sub-items exist.
 
-Manual order хранится по note IDs и применяется среди siblings в nested mode.
+Manual order is stored by note IDs and applied among siblings in nested mode.
 
-## 16. Side peek и страница строки
+## 16. Side peek and the row page
 
-### 16.1 Геометрия
+### 16.1 Geometry
 
-На широком окне side peek занимает правую часть main content с resize в
-ограничениях примерно 420–760 px. Ниже адаптивного порога он становится overlay
-почти на весь content. Глобальные activity bar и sidebar не дублируются внутри.
+On a wide window side peek takes the right part of the main content with resize within
+roughly 420–760 px. Below the adaptive threshold it becomes an overlay
+over almost the whole content. The global activity bar and sidebar are not duplicated inside.
 
 ```text
 ┌──────── database view ────────┬──────── side peek ────────┐
@@ -599,18 +599,18 @@ Manual order хранится по note IDs и применяется среди
                                              inspects peek row
 ```
 
-Side peek использует существующий `DocumentEditor` в compact chrome mode, а не
-новый Markdown editor. Его header добавляет:
+Side peek uses the existing `DocumentEditor` in compact chrome mode, not a
+new Markdown editor. Its header adds:
 
 - close;
-- previous/next row текущего query;
-- открыть полной страницей;
-- показать в Files;
-- move/delete через preview.
+- previous/next row of the current query;
+- open as a full page;
+- show in Files;
+- move/delete via preview.
 
 ### 16.2 Inspector target
 
-Right Info panel получает discriminated target:
+The right Info panel gets a discriminated target:
 
 ```ts
 type InspectorTarget =
@@ -618,277 +618,277 @@ type InspectorTarget =
   | { kind: "databaseRow"; hostKey: string; databaseId: string; noteId: string }
 ```
 
-При открытом peek приоритет имеет database row. После закрытия target возвращается
-к active tab. В property list два явно разделенных блока:
+While a peek is open the database row takes priority. After it closes the target returns
+to the active tab. The property list has two clearly separated blocks:
 
-1. свойства базы в порядке schema и с `pageVisibility`;
-2. локальные свойства заметки.
+1. database properties in schema order and with `pageVisibility`;
+2. local note properties.
 
-Оба используют общий `PropertyValueControl`, но только database property меняет
-`.ambd/records`; local property продолжает существующий property-store path.
+Both use the shared `PropertyValueControl`, but only a database property changes
+`.ambd/records`; a local property continues through the existing property-store path.
 
-### 16.3 Общий document buffer
+### 16.3 Shared document buffer
 
-Открытие peek:
+Opening a peek:
 
-1. выбирает row, не меняя активную workspace tab;
-2. переиспользует загруженный `useDocStore` buffer либо читает note;
-3. открывает обычный autosave lifecycle;
-4. меняет inspector target после успешной загрузки;
-5. восстанавливает focus в исходную cell после закрытия.
+1. selects the row without changing the active workspace tab;
+2. reuses the loaded `useDocStore` buffer or reads the note;
+3. opens the regular autosave lifecycle;
+4. changes the inspector target after a successful load;
+5. restores focus to the original cell after closing.
 
-Если та же note уже редактируется в другом surface одного окна,
-`EditorSurfaceLease` гарантирует одного writable owner. Перед передачей lease
-текущий surface flush-ится; остальные показывают живое содержимое read-only.
-Это не дает двум Tiptap instances независимо сохранять один buffer.
+If the same note is already being edited in another surface of the same window,
+`EditorSurfaceLease` guarantees a single writable owner. Before the lease is handed over
+the current surface is flushed; the others show the live content read-only.
+This keeps two Tiptap instances from independently saving one buffer.
 
-Escape закрывает peek только после завершения активного cell/editor popover.
-При ошибке flush он остается открыт и показывает recovery choice.
+Escape closes the peek only after the active cell/editor popover finishes.
+If the flush fails it stays open and shows a recovery choice.
 
-`Открыть полной страницей` открывает обычный document tab, сохраняет origin
-`{databaseId, viewId, noteId}` для команды возврата и закрывает peek после
-успешной передачи editor lease.
+"Open as a full page" (`Открыть полной страницей`) opens a regular document tab, keeps the origin
+`{databaseId, viewId, noteId}` for the return command and closes the peek after
+the editor lease is successfully handed over.
 
-## 17. Linked views в Markdown
+## 17. Linked views in Markdown
 
-Новый reference block хранит JSON из format contract прямо в `amby-db` fence:
+A new reference block stores the JSON from the format contract directly in the `amby-db` fence:
 
 ```amby-db
 {"version":2,"views":[{"id":"v1","databaseId":"01...","title":"","layout":"table","config":{}}]}
 ```
 
-Блок версии 2 это «ярлык» базы: несколько вкладок, у каждой своя база, своё имя и иконка,
-раскладка и приватная копия настроек вида (`config` в формате view-документа: filter, sorts,
-fields, layoutConfig, group). Имя и иконка принадлежат ярлыку, не базе; подсказка вкладки
-называет базу. Сохранённые виды базы блок не пишет; выбор сохранённого вида копирует его
-настройки. Первый формат (`databaseId` + `viewId`) открывается как ярлык с одной вкладкой и
-переписывается в версию 2 только при правке блока.
+A version 2 block is a "shortcut" to a database: several tabs, each with its own database, its own name and icon,
+layout and a private copy of the view settings (`config` in the view-document format: filter, sorts,
+fields, layoutConfig, group). The name and icon belong to the shortcut, not to the database; the tab tooltip
+names the database. The block does not write the database's saved views; choosing a saved view copies its
+settings. The first format (`databaseId` + `viewId`) opens as a shortcut with one tab and is
+rewritten to version 2 only when the block is edited.
 
 `DatabaseBlockView`:
 
-- парсит reference через typed parser;
-- использует host `{ kind: "linkedBlock" }`;
-- показывает source data и локальные overrides;
-- ограничивает высоту, но позволяет открыть view в database tab;
-- не хранит или не сохраняет собственные rows;
-- при missing source показывает диагностический placeholder;
-- при выключенном модуле оставляет переносимый fence неизменным;
-- неизвестную версию показывает read-only и сериализует byte-exact.
+- parses the reference through a typed parser;
+- uses the host `{ kind: "linkedBlock" }`;
+- shows source data and local overrides;
+- limits the height, but allows opening the view in a database tab;
+- does not store or save its own rows;
+- on a missing source shows a diagnostic placeholder;
+- when the module is disabled leaves the portable fence unchanged;
+- shows an unknown version read-only and serializes it byte-exact.
 
-Текущий prototype `.amby/blocks/<block-id>.json` автоматически не превращается в
-новый reference. Он открывается как legacy read-only block с явной командой
-миграции: создать настоящую database, materialize rows как Markdown notes,
-показать preview и только после success заменить fence.
+The current prototype `.amby/blocks/<block-id>.json` is not automatically turned into a
+new reference. It opens as a legacy read-only block with an explicit migration
+command: create a real database, materialize rows as Markdown notes,
+show a preview and replace the fence only after success.
 
-Изменение linked-block overrides проходит изменение Markdown node attributes и
-обычный lossless editor serialization. Оно не пишет source view shard.
+Changing linked-block overrides goes through a change of Markdown node attributes and
+the regular lossless editor serialization. It does not write the source view shard.
 
-## 18. Schema и property dialogs
+## 18. Schema and property dialogs
 
-Текущий `PropertyEditor` нельзя расширять строковыми `value/settings`. Он
-разделяется на:
+The current `PropertyEditor` cannot be extended with string `value/settings`. It is
+split into:
 
-- `PropertyValueControl` — редактирует одно typed значение;
+- `PropertyValueControl` — edits one typed value;
 - `DatabasePropertyDefinitionDialog` — type/config/options/YAML binding;
-- `LocalPropertyDefinitionDialog` — текущая локальная schema;
-- общий `PropertyIconPicker` на `IconValue`/`EmojiPickerPanel`.
+- `LocalPropertyDefinitionDialog` — the current local schema;
+- a shared `PropertyIconPicker` on `IconValue`/`EmojiPickerPanel`.
 
-Изменение property type всегда показывает preflight:
+Changing a property type always shows a preflight:
 
-- число затронутых непустых values;
-- допустимые/недопустимые conversions;
+- the number of affected non-empty values;
+- valid/invalid conversions;
 - relations/options/YAML effects;
 - backup/recovery behavior.
 
-Rename property не меняет property ID или YAML key. Удаление используемого
-property/option не выполняется из popover одним click: нужен preview и Trash.
+Renaming a property does not change the property ID or the YAML key. Deleting a property/option
+that is in use is not performed from a popover with one click: a preview and Trash are required.
 
 ## 19. Relation picker
 
-Relation editor состоит из paginated search, выбранных chips и команды открыть
+The Relation editor consists of paginated search, selected chips and a command to open the
 target.
 
-- target database определяется definition, не пользовательским текстом;
-- поиск идет по Title и выбранным display fields;
-- уже выбранные IDs не дублируются;
-- single relation закрывает picker после выбора;
-- inverse relation показывается как вычисляемая и не отправляет отдельный write;
-- missing/outsideDatabase target сохраняется chip с diagnostic state;
-- создание новой target row из picker использует template целевой базы;
-- circular relations разрешены как данные, но UI не раскрывает их рекурсивно.
+- the target database is determined by the definition, not by user text;
+- search runs over Title and the selected display fields;
+- already selected IDs are not duplicated;
+- a single relation closes the picker after selection;
+- an inverse relation is shown as computed and does not send a separate write;
+- a missing/outsideDatabase target is kept as a chip with a diagnostic state;
+- creating a new target row from the picker uses the target database's template;
+- circular relations are allowed as data, but the UI does not expand them recursively.
 
 ## 20. View autosave
 
-View settings имеют отдельную очередь от cell values:
+View settings have a queue separate from cell values:
 
-- быстрые pointer/typing updates меняют локальный draft;
-- debounce сохраняет semantic patch с expected view revision;
-- закрытие popover/host выполняет flush;
-- новое внешнее revision не перезаписывается;
-- layout query перезапускается только если patch влияет на data set/order;
-- resize/card field visibility может обновить layout без query;
-- один view autosave failure не блокирует редактирование row values.
+- fast pointer/typing updates change the local draft;
+- a debounce saves a semantic patch with the expected view revision;
+- closing a popover/host performs a flush;
+- a new external revision is not overwritten;
+- the layout query is restarted only if the patch affects the data set/order;
+- resize/card field visibility can update the layout without a query;
+- a failure of one view autosave does not block editing of row values.
 
-Создание временного filter пока popover открыт можно отменить Escape. После
-подтверждения он становится частью saved view автоматически.
+Creating a temporary filter while the popover is open can be cancelled with Escape. After
+confirmation it becomes part of the saved view automatically.
 
-## 21. Ошибки, stale state и recovery
+## 21. Errors, stale state and recovery
 
-Уровни отображения:
+Display levels:
 
-| Событие                | UI                                                   |
+| Event                  | UI                                                   |
 | ---------------------- | ---------------------------------------------------- |
-| Cell validation        | inline у ячейки, draft сохраняется                   |
-| Revision/YAML conflict | marker ячейки + conflict dialog                      |
-| Query page error       | inline retry после последних rows                    |
-| View revision conflict | banner/popover, данные продолжают читаться           |
+| Cell validation        | inline at the cell, the draft is kept                |
+| Revision/YAML conflict | cell marker + conflict dialog                        |
+| Query page error       | inline retry after the last rows                     |
+| View revision conflict | banner/popover, data keeps being readable            |
 | Broken shard           | row/property diagnostic, read-only scope             |
-| Rebuild required       | общий database banner с rebuild action               |
-| Recovery required      | modal до конфликтующих mutations                     |
-| Module failure         | Databases panel; обычный workspace продолжает работу |
+| Rebuild required       | common database banner with a rebuild action         |
+| Recovery required      | modal before conflicting mutations                   |
+| Module failure         | Databases panel; the regular workspace keeps working |
 
-Toast не используется как единственное место ошибки: исчезающий toast не должен
-быть единственным способом понять, что value не сохранилось.
+A toast is not used as the only place for an error: a disappearing toast must not
+be the only way to learn that a value was not saved.
 
-Optimistic value с подтвержденным durable write и сломанным index остается
-визуально успешным с warning. UI не предлагает повторить эту mutation.
+An optimistic value with a confirmed durable write and a broken index stays
+visually successful with a warning. The UI does not offer to retry this mutation.
 
 ## 22. Accessibility
 
-- Table имеет `role="grid"`, row/column counts и active descendant.
-- В обычном состоянии tab stop один на grid; стрелки перемещают active cell.
-- Editor popover переводит focus внутрь и возвращает его в cell при закрытии.
-- Board drag имеет keyboard alternative через menu `Переместить в статус`.
-- Цвет Select/Status никогда не является единственным носителем смысла.
-- Pending, error, conflict и read-only имеют icon/text state.
-- Gallery/List cards имеют различимые accessible names.
-- Resize handles доступны с keyboard и объявляют текущую ширину.
-- Reduced motion отключает animated card moves и peek transition.
+- Table has `role="grid"`, row/column counts and an active descendant.
+- In the normal state there is one tab stop per grid; arrows move the active cell.
+- The editor popover moves focus inside and returns it to the cell on close.
+- Board drag has a keyboard alternative through the menu `Переместить в статус` (Move to status).
+- The color of Select/Status is never the only carrier of meaning.
+- Pending, error, conflict and read-only have an icon/text state.
+- Gallery/List cards have distinguishable accessible names.
+- Resize handles are available from the keyboard and announce the current width.
+- Reduced motion disables animated card moves and the peek transition.
 
-Все строки интерфейса добавляются одним dotted key во все языки
-`src/locales/resources.ts`; динамические property names не переводятся.
+All interface strings are added as one dotted key to all languages of
+`src/locales/resources.ts`; dynamic property names are not translated.
 
-## 23. Themes и визуальный стиль Amby
+## 23. Themes and the Amby visual style
 
-Механика берет основу Notion, но визуально остается Amby:
+The mechanics take their basis from Notion, but visually it stays Amby:
 
-- используются существующие `background`, `card`, `border`, `accent`, `muted`,
-  `ring` tokens;
-- density наследует глобальную настройку, view может ее переопределить;
-- layout CSS живет в theme-owned static definitions, когда это visual token;
-- database component не встраивает theme palettes;
-- encoded icons рендерятся только через `IconValue`;
-- side peek и popovers используют существующие Radix primitives и z-index
+- the existing `background`, `card`, `border`, `accent`, `muted`,
+  `ring` tokens are used;
+- density inherits the global setting, a view can override it;
+- layout CSS lives in theme-owned static definitions when it is a visual token;
+- a database component does not embed theme palettes;
+- encoded icons are rendered only through `IconValue`;
+- side peek and popovers use the existing Radix primitives and z-index
   conventions.
 
-Нельзя копировать пиксель-в-пиксель интерфейс Notion или вводить второй набор
-серых цветов. Перенимаются interaction patterns и информационная плотность.
+The Notion interface must not be copied pixel for pixel, nor a second set of
+grays introduced. Interaction patterns and information density are adopted.
 
 ## 24. Module boundary
 
-`ModulePermission` расширяется узкими capability:
+`ModulePermission` is extended with narrow capabilities:
 
 ```ts
 type DatabaseModulePermission = "read-databases" | "write-databases"
 ```
 
-Databases module объявляет UI panel, read/write notes для row pages и
-read/write database capabilities. Backend все равно проверяет активность модуля;
-frontend manifest сам по себе не является security boundary.
+The Databases module declares a UI panel, read/write notes for row pages and
+read/write database capabilities. The backend still checks that the module is active;
+the frontend manifest by itself is not a security boundary.
 
-При выключении:
+On disable:
 
-- panel, database tabs/layer controls и insert commands скрываются;
-- открытый database host сначала flush-ится, затем превращается в обычный
-  folder/note context либо закрывается по существующей tab policy;
-- linked blocks становятся inert placeholders, fence сохраняется;
-- `useDatabaseStore` очищает caches и editor drafts;
-- чистые peek document buffers могут быть evicted обычным doc lifecycle;
-- local note properties продолжают работать.
+- the panel, database tabs/layer controls and insert commands are hidden;
+- an open database host is flushed first, then turns into a regular
+  folder/note context or is closed by the existing tab policy;
+- linked blocks become inert placeholders, the fence is kept;
+- `useDatabaseStore` clears caches and editor drafts;
+- clean peek document buffers can be evicted by the regular doc lifecycle;
+- local note properties keep working.
 
-## 25. Тестовая стратегия
+## 25. Test strategy
 
 ### Pure Vitest
 
 - query key normalization;
-- event invalidation по epoch/seq;
-- cell/row selection после sort/filter/delete;
-- TSV parse и typed conversion;
-- optimistic queue coalescing, ordering, retry и flush;
+- event invalidation by epoch/seq;
+- cell/row selection after sort/filter/delete;
+- TSV parse and typed conversion;
+- optimistic queue coalescing, ordering, retry and flush;
 - view autosave revision conflict;
 - module/query/cell state transitions;
-- linked block version parser и byte preservation;
+- linked block version parser and byte preservation;
 - gallery preview choice;
 - inspector target priority;
 - editor surface lease.
 
 ### Component tests
 
-Happy DOM используется только для компактных controls/dialog contracts:
+Happy DOM is used only for compact control/dialog contracts:
 
 - keyboard grid navigation;
-- focus return из editor popover;
+- focus return from the editor popover;
 - relation picker selection;
 - read-only/conflict markers;
 - view toolbar draft/commit;
-- legacy block не вызывает write автоматически.
+- a legacy block does not call a write automatically.
 
-Virtualization geometry и pointer drag не полагаются только на jsdom-подобную
-среду; они проходят native UI scenarios.
+Virtualization geometry and pointer drag do not rely only on a jsdom-like
+environment; they go through native UI scenarios.
 
 ### Manual/native scenarios
 
-- 10 000 rows во всех четырех layouts;
-- быстрый ввод с немедленным закрытием tab/peek;
-- одновременное редактирование в двух окнах;
-- внешний edit record/YAML/view;
-- resize/freeze/scroll Table;
-- keyboard-only Table и Board;
-- drag Board, sub-item и linked view;
-- module off/on с открытыми hosts;
+- 10,000 rows in all four layouts;
+- fast typing with an immediate tab/peek close;
+- simultaneous editing in two windows;
+- external edit of a record/YAML/view;
+- Table resize/freeze/scroll;
+- keyboard-only Table and Board;
+- drag in Board, sub-item and linked view;
+- module off/on with open hosts;
 - side peek → full page → back to originating row;
-- compact window, focus mode и обе sidebars;
-- asset previews с missing/corrupt media.
+- compact window, focus mode and both sidebars;
+- asset previews with missing/corrupt media.
 
-## 26. Порядок frontend-реализации
+## 26. Frontend implementation order
 
-1. Добавить generated database types/port и pure `useDatabaseStore` без UI.
-2. Ввести `database` tab kind, lifecycle controller и read-only workspace shell.
-3. Реализовать Table read-only с virtualization и query pagination.
-4. Добавить shared typed cells, selection и single-value edit queue.
-5. Подключить side peek к существующим doc store/autosave и Info inspector.
-6. Добавить view tabs/toolbar/autosave и schema dialogs.
-7. Реализовать List и Gallery поверх общей row model.
-8. Реализовать Board и atomic drag mutation.
-9. Заменить prototype `AmbyBlockView` новым linked view с legacy migration path.
-10. Добавить batch/paste, Relation/Files, sub-items и operation previews.
-11. Добавить module disable/recovery UX и native multi-window scenarios.
-12. Провести benchmark и оптимизировать только измеренные bottlenecks.
+1. Add generated database types/port and a pure `useDatabaseStore` without UI.
+2. Introduce the `database` tab kind, the lifecycle controller and a read-only workspace shell.
+3. Implement a read-only Table with virtualization and query pagination.
+4. Add shared typed cells, selection and a single-value edit queue.
+5. Connect side peek to the existing doc store/autosave and the Info inspector.
+6. Add view tabs/toolbar/autosave and schema dialogs.
+7. Implement List and Gallery on top of the common row model.
+8. Implement Board and an atomic drag mutation.
+9. Replace the prototype `AmbyBlockView` with the new linked view with a legacy migration path.
+10. Add batch/paste, Relation/Files, sub-items and operation previews.
+11. Add module disable/recovery UX and native multi-window scenarios.
+12. Run a benchmark and optimize only the measured bottlenecks.
 
-Каждый slice включает localization keys, selectors, pure tests и ручной сценарий.
-Ни один layout не получает собственный storage path или отдельное значение row.
+Each slice includes localization keys, selectors, pure tests and a manual scenario.
+No layout gets its own storage path or a separate row value.
 
-## 27. Закрытые решения
+## 27. Closed decisions
 
-1. Один database store обслуживает все layouts и hosts.
-2. Markdown body остается в существующем document store/autosave.
-3. Side peek использует настоящий `DocumentEditor`, не сокращенный текстовый
-   редактор.
-4. Right Info panel инспектирует peek row и показывает два раздела свойств.
-5. Table виртуализирует строки и незакрепленные колонки.
-6. Draft editor переживает размонтирование virtual cell.
-7. Selection хранится по stable IDs.
-8. Saved view autosave использует CAS; quick search остается временным.
-9. Linked view не копирует rows и имеет независимые local overrides.
-10. Legacy block мигрирует только явно через preview.
-11. Один note имеет одного writable editor owner на окно.
-12. Database tab не добавляется во вторую split pane в первой версии.
-13. Ошибка сохранения остается рядом с объектом, а не только в toast.
-14. Layouts используют дизайн-систему Amby, перенимая у Notion только механику.
+1. One database store serves all layouts and hosts.
+2. The Markdown body stays in the existing document store/autosave.
+3. Side peek uses the real `DocumentEditor`, not a reduced text
+   editor.
+4. The right Info panel inspects the peek row and shows two property sections.
+5. Table virtualizes rows and unpinned columns.
+6. The editor draft survives the unmounting of a virtual cell.
+7. Selection is stored by stable IDs.
+8. Saved view autosave uses CAS; quick search stays temporary.
+9. A linked view does not copy rows and has independent local overrides.
+10. A legacy block migrates only explicitly, via a preview.
+11. One note has one writable editor owner per window.
+12. A database tab is not added to the second split pane in the first version.
+13. A save error stays next to the object, not only in a toast.
+14. Layouts use the Amby design system, adopting only the mechanics from Notion.
 
-## 28. Следующий шаг
+## 28. Next step
 
-Архитектурных продуктовых вопросов, блокирующих первый slice, не осталось.
-DB Roadmap превращает контракты в конкретный backlog
-PR: изменяемые файлы, зависимости, acceptance criteria, tests и безопасный
-порядок включения feature flag.
+No architectural product questions blocking the first slice remain.
+The DB Roadmap turns the contracts into a concrete PR backlog:
+files to change, dependencies, acceptance criteria, tests and a safe
+order for enabling the feature flag.
