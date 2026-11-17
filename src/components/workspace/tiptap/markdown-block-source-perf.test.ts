@@ -2,7 +2,7 @@ import { Fragment, Slice, type Node as PMNode } from "@tiptap/pm/model"
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import "@/lib/i18n"
 import { docToMarkdown, editorSchema, markdownToDoc, restoreSourceFormatting } from "./markdown"
-import { sameDocument } from "./markdown-block-source"
+import { composeMarkdown, sameDocument } from "./markdown-block-source"
 import { getMarkdownParser } from "./markdown-parser"
 
 // EDIT-06: what one 200 ms pause in Live Preview costs on a large note. A "full" parse or
@@ -114,6 +114,102 @@ describe("EDIT-06 live save on a large note", () => {
     expect(markdown).toBe(note)
     expect(fullParses).toBe(0)
     expect(serialized).toBe(0)
+  })
+})
+
+// An edit that changes how other blocks read must give the bytes the full read-back gives.
+describe("EDIT-06 edits that reach beyond their neighbours", () => {
+  const filler = (from: number) => largeNote(30).replace(/(\d+)/g, (m) => String(Number(m) + from))
+  const MIDDLE = [
+    "Anchor one",
+    "Anchor two",
+    "- L item a\n- L item b",
+    "Anchor three",
+    "> Q anchor",
+    "Anchor four",
+    "```js\ncode line\n```",
+    "Anchor five",
+    "Anchor six",
+  ].join("\n\n")
+  const note = `${filler(0)}\n\n${MIDDLE}\n\n${filler(1000)}`
+  const doc = open(note)
+  const indexOf = (text: string) => indexOfText(doc, text)
+  const offset = (index: number) => {
+    let at = 0
+    for (let i = 0; i < index; i++) at += doc.child(i).nodeSize
+    return at
+  }
+  const insertAtStart = (text: string, typed: string) =>
+    doc.replace(
+      offset(indexOf(text)) + 1,
+      offset(indexOf(text)) + 1,
+      new Slice(Fragment.from(editorSchema.text(typed)), 0, 0),
+    )
+  const replaceText = (text: string, typed: string) => {
+    const at = offset(indexOf(text))
+    const block = doc.child(indexOf(text))
+    return doc.replace(
+      at + 1,
+      at + 1 + block.content.size,
+      new Slice(Fragment.from(editorSchema.text(typed)), 0, 0),
+    )
+  }
+
+  const cases: Array<[string, () => PMNode]> = [
+    ["an unclosed ``` fence opener", () => insertAtStart("Anchor two", "```")],
+    ["an unclosed ~~~ fence opener", () => insertAtStart("Anchor two", "~~~")],
+    ["an <div> HTML block opener", () => insertAtStart("Anchor two", "<div>")],
+    ["an unclosed <!-- comment", () => insertAtStart("Anchor two", "<!--")],
+    ["a === setext underline", () => replaceText("Anchor two", "===")],
+    ["a --- setext underline", () => replaceText("Anchor two", "---")],
+    [
+      "a paragraph indented by four spaces after a list",
+      () => insertAtStart("Anchor three", "    "),
+    ],
+    [
+      "a paragraph turned into a quote line after a quote",
+      () => insertAtStart("Anchor four", "> "),
+    ],
+    ["a $$ math opener", () => insertAtStart("Anchor two", "$$")],
+    ["a link reference definition", () => insertAtStart("Anchor two", "[x]: http://a.b ")],
+    ["a footnote definition", () => insertAtStart("Anchor two", "[^1]: note ")],
+    [
+      "a closing fence typed into code",
+      () => {
+        const at = offset(indexOf("code line"))
+        return doc.replace(
+          at + 1,
+          at + 1,
+          new Slice(Fragment.from(editorSchema.text("```\n")), 0, 0),
+        )
+      },
+    ],
+    [
+      "a deleted code block",
+      () => {
+        const index = indexOf("code line")
+        return doc.replace(offset(index), offset(index + 1), Slice.empty)
+      },
+    ],
+    [
+      "a deleted paragraph before a list",
+      () => {
+        const index = indexOf("Anchor two")
+        return doc.replace(offset(index), offset(index + 1), Slice.empty)
+      },
+    ],
+  ]
+
+  it.each(cases)("gives the full read-back's bytes for %s", (name, edit) => {
+    const edited = edit()
+    const parse = vi.spyOn(getMarkdownParser(), "parse")
+    const markdown = docToMarkdown(edited)
+    const fellBack = parse.mock.calls.some(([text]) => String(text).length > note.length * 0.8)
+    parse.mockRestore()
+    const full = composeMarkdown(edited, { forceFullReadBack: true }).markdown
+    process.stderr.write(`EDIT-06 ${fellBack ? "full " : "local"}  ${name}\n`)
+    expect(markdown).toBe(full)
+    expect(sameDocument(open(markdown), edited)).toBe(true)
   })
 })
 

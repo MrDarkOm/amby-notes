@@ -388,7 +388,10 @@ function readsBackLocally(
 }
 
 /** The document as Markdown: kept source for unchanged blocks, the editor's form otherwise. */
-export function composeMarkdown(doc: PMNode): ComposedMarkdown {
+export function composeMarkdown(
+  doc: PMNode,
+  options: { forceFullReadBack?: boolean } = {},
+): ComposedMarkdown {
   const prepared = prepareForSerialization(doc)
   const kept: Array<string | null> = []
   const byItems: Array<string | null> = []
@@ -413,7 +416,9 @@ export function composeMarkdown(doc: PMNode): ComposedMarkdown {
   if (!anyKept) return { markdown: serializeFragment(prepared), mayRewriteSource }
 
   const { markdown: composed, layout } = writeWithKeptSource(prepared, kept, byItems)
-  if (readsBackLocally(doc, kept, composed, layout)) return { markdown: composed, mayRewriteSource }
+  if (!options.forceFullReadBack && readsBackLocally(doc, kept, composed, layout)) {
+    return { markdown: composed, mayRewriteSource }
+  }
   const normalized = serializeFragment(prepared)
   if (composed === normalized) return { markdown: normalized, mayRewriteSource }
   // Kept text in a new place can read differently (an indented paragraph moved under a
