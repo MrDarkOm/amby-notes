@@ -49,7 +49,7 @@ Not fixed: **114 findings** — 48 Medium and 66 Low, plus the tails of three al
   `tauri.macos.conf.json`), a fallback `vh` before `dvh`. Done (`2d5d70c`).
 - ~~**IPC-03**~~ (per-window restriction) — decided 2026-11-17: do not restrict. A note window remains a
   full window; the main window shows the same notes with full rights, so the restriction gives almost
-  nothing. The work is parked in the branch `fix/ipc-03-window-commands` and is not merged into `dev`. The first part of
+  nothing. The unmerged work branch `fix/ipc-03-window-commands` was deleted on the owner's request. The first part of
   IPC-03 (Rust accepts only paths it has issued) is done.
 
 ## Order
