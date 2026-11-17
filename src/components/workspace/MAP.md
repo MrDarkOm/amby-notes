@@ -55,7 +55,7 @@ A tab's history is a list of ids: notes, `__graph__` (`GRAPH_TAB_FILE_ID`) and w
 `creative:<projectId>`). A step within a page, such as a workshop section, goes through `openItem(target, false, { inPlace: true })`
 so it never jumps to another tab; Back and Forward need no file for the graph or a workshop page.
 Link graph: [lazy store](use-link-graph-store.ts).
-Dialogs: [store](use-overlays-store.ts), shown by [workspace-overlays.tsx](orchestration/workspace-overlays.tsx). Tab strips read the unsaved mark themselves ([connected-tab-bars.tsx](orchestration/connected-tab-bars.tsx)).
+Dialogs: [store](use-overlays-store.ts), shown by [workspace-overlays.tsx](orchestration/workspace-overlays.tsx). Tab strips read the unsaved mark themselves ([connected-tab-bars.tsx](orchestration/connected-tab-bars.tsx)). The root takes the active document through [use-active-document.ts](orchestration/use-active-document.ts) (identity, path, default layer; never the text), and the pane renderers read buffers from the doc store when they run, not from a prop.
 
 Folder selection opens a `folder` tab; derive content from the `TreeItem` tree. Icons share `EmojiPickerPanel`, `IconValue` and view-state overrides.
 The root `sidebar-tree.tsx`, `document-editor.tsx`, `canvas-editor.tsx` and
