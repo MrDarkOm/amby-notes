@@ -261,12 +261,34 @@ export async function validateChecksums(
   return { valid: true }
 }
 
-export const OFFICIAL_ED25519_KEY_ID = "amby-official-2026"
+/**
+ * Official package-signing key. The previous key `amby-official-2026` leaked
+ * (its private half was committed) and is revoked: it is trusted nowhere.
+ * See docs/security-advisories.md (MOD-01). Keep both values in sync with
+ * `OFFICIAL_ED25519_KEY_ID` / `OFFICIAL_ED25519_PUBLIC_KEY_HEX` in
+ * `src-tauri/src/package_manager.rs` (a test enforces it).
+ */
+export const OFFICIAL_ED25519_KEY_ID = "amby-official-2026-11"
+// TODO(MOD-01): replace the all-zero placeholder with the public key printed by
+// `npm run modules:new-key` (and the same value in package_manager.rs). The
+// all-zero key never verifies anything, so no official package is trusted until then.
 export const OFFICIAL_ED25519_PUBLIC_KEY_HEX =
-  "540caa0bdc9a519b774ad2ee4fb3e2278d149ee0ecfaa0d54ba75e6ad66c9dda"
+  "0000000000000000000000000000000000000000000000000000000000000000"
 
-export const TEST_OFFICIAL_PRIVATE_KEY_HEX =
-  "302e020100300506032b65700422042044ba75c905cdfce57e79cc502b48efe22d07e78da850a7eb6e99f02769ca10e4"
+export interface OfficialTrustAnchor {
+  keyId: string
+  publicKeyHex: string
+}
+
+export const OFFICIAL_TRUST_ANCHOR: OfficialTrustAnchor = {
+  keyId: OFFICIAL_ED25519_KEY_ID,
+  publicKeyHex: OFFICIAL_ED25519_PUBLIC_KEY_HEX,
+}
+
+/** True for a 32-byte key that is not the all-zero placeholder. */
+export function isProvisionedPublicKey(publicKeyHex: string): boolean {
+  return /^[0-9a-fA-F]{64}$/.test(publicKeyHex) && !/^0+$/.test(publicKeyHex)
+}
 
 /**
  * Returns canonical serialized UTF-8 bytes of the manifest for cryptographic signing/verification.
@@ -297,28 +319,6 @@ export function canonicalManifestBytes(manifest: PackageManifest): Uint8Array {
 }
 
 /**
- * Cryptographically signs a manifest with the test official private key.
- */
-export async function signOfficialManifest(
-  manifest: Omit<PackageManifest, "signature">,
-): Promise<PackageManifest> {
-  const bytes = canonicalManifestBytes(manifest as PackageManifest)
-  const privBytes = Uint8Array.from(Buffer.from(TEST_OFFICIAL_PRIVATE_KEY_HEX, "hex"))
-  const key = await crypto.subtle.importKey("pkcs8", privBytes, { name: "Ed25519" }, false, [
-    "sign",
-  ])
-  const sigBuffer = await crypto.subtle.sign("Ed25519", key, new Uint8Array(bytes))
-  const sigHex = Buffer.from(sigBuffer).toString("hex")
-  return {
-    ...manifest,
-    signature: {
-      keyId: OFFICIAL_ED25519_KEY_ID,
-      sig: `ed25519:${sigHex}`,
-    },
-  }
-}
-
-/**
  * Cryptographically verifies an Ed25519 signature over a byte message.
  */
 export async function verifyEd25519Signature(
@@ -327,6 +327,10 @@ export async function verifyEd25519Signature(
   signatureStr: string,
 ): Promise<boolean> {
   try {
+    // The all-zero placeholder (or any malformed key) never verifies.
+    if (!isProvisionedPublicKey(publicKeyHex)) {
+      return false
+    }
     const cleanSig = signatureStr.startsWith("ed25519:")
       ? signatureStr.slice("ed25519:".length)
       : signatureStr
@@ -350,20 +354,23 @@ export async function verifyEd25519Signature(
 /**
  * Validates official signature with real Ed25519 cryptography.
  */
-export async function validateSignature(manifest: PackageManifest): Promise<boolean> {
+export async function validateSignature(
+  manifest: PackageManifest,
+  trust: OfficialTrustAnchor = OFFICIAL_TRUST_ANCHOR,
+): Promise<boolean> {
   if (manifest.kind !== "official") {
     // Community plugins can have community signatures or be unsigned
     return true
   }
   const { keyId, sig } = manifest.signature
-  if (keyId !== OFFICIAL_ED25519_KEY_ID) {
+  if (keyId !== trust.keyId) {
     return false
   }
   if (typeof sig !== "string" || !sig.startsWith("ed25519:")) {
     return false
   }
   const message = canonicalManifestBytes(manifest)
-  return verifyEd25519Signature(OFFICIAL_ED25519_PUBLIC_KEY_HEX, message, sig)
+  return verifyEd25519Signature(trust.publicKeyHex, message, sig)
 }
 
 /**

@@ -1,5 +1,6 @@
 import { globalFileMissing, loadGlobalJSON, saveGlobalJSON } from "@/lib/storage"
 import { toCanonicalModuleId } from "../types"
+import { OFFICIAL_ED25519_KEY_ID } from "./validator"
 import type { CatalogModuleEntry, ModuleCatalog } from "./types"
 
 export const MODULE_CATALOG_FILE = "module-catalog.json"
@@ -72,7 +73,7 @@ function createOfficialEntry(
         [entry]: "sha256:entry-checksum-placeholder",
       },
       signature: {
-        keyId: "amby-official-2026",
+        keyId: OFFICIAL_ED25519_KEY_ID,
         sig: `ed25519:${id}-sig`,
       },
     },

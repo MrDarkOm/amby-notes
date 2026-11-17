@@ -14,12 +14,25 @@ import {
   validateManifest,
   validatePathConfinement,
   validateSignature,
-  signOfficialManifest,
   type PackageManifest,
 } from "../index"
+import { TEST_TRUST_ANCHOR, signWithTestKey } from "./test-signing"
+import * as validator from "./validator"
 
 // The package controls are on in these tests: they exercise uninstalling a module.
 vi.mock("./controls", () => ({ MODULE_PACKAGE_CONTROLS_ENABLED: true }))
+
+// Official packages in these tests are signed with an ephemeral test key, which the
+// production trust list rejects; the installer is pointed at that key here only.
+vi.mock("./validator", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./validator")>()
+  const { TEST_TRUST_ANCHOR: anchor } = await import("./test-signing")
+  return {
+    ...actual,
+    validateSignature: (manifest: PackageManifest, trust = anchor) =>
+      actual.validateSignature(manifest, trust),
+  }
+})
 
 describe("MOD-04: Package Manager", () => {
   const store = new Map<string, string>()
@@ -59,7 +72,7 @@ describe("MOD-04: Package Manager", () => {
       },
       ...overrides,
     }
-    return signOfficialManifest(base)
+    return signWithTestKey(base)
   }
 
   it("validates manifest structure correctly", async () => {
@@ -94,11 +107,14 @@ describe("MOD-04: Package Manager", () => {
   it("validates official signatures and strictly rejects fake signatures", async () => {
     const manifest = await createValidManifest()
     expect(await validateSignature(manifest)).toBe(true)
+    // The production trust list does not contain the test key.
+    expect(await validator.validateSignature(manifest, validator.OFFICIAL_TRUST_ANCHOR)).toBe(false)
+    expect(TEST_TRUST_ANCHOR.publicKeyHex).not.toBe(validator.OFFICIAL_ED25519_PUBLIC_KEY_HEX)
 
     // Strictly rejects fake "ed25519:anything" strings
     const fakeSigManifest = {
       ...manifest,
-      signature: { keyId: "amby-official-2026", sig: "ed25519:anything" },
+      signature: { keyId: TEST_TRUST_ANCHOR.keyId, sig: "ed25519:anything" },
     }
     expect(await validateSignature(fakeSigManifest)).toBe(false)
 
@@ -106,7 +122,7 @@ describe("MOD-04: Package Manager", () => {
     const forgedSigManifest = {
       ...manifest,
       signature: {
-        keyId: "amby-official-2026",
+        keyId: TEST_TRUST_ANCHOR.keyId,
         sig: `ed25519:${"0".repeat(128)}`,
       },
     }
@@ -275,8 +291,15 @@ describe("MOD-04: Package Manager", () => {
       const validC = await validateChecksums(raw.files, raw.manifest.checksums)
       expect(validC.valid).toBe(true)
 
-      const validS = await validateSignature(raw.manifest)
-      expect(validS).toBe(true)
+      // Built packages are signed with the official key, which is checked only once its
+      // public half is provisioned (MOD-01).
+      if (validator.isProvisionedPublicKey(validator.OFFICIAL_ED25519_PUBLIC_KEY_HEX)) {
+        const validS = await validator.validateSignature(
+          raw.manifest,
+          validator.OFFICIAL_TRUST_ANCHOR,
+        )
+        expect(validS).toBe(true)
+      }
     }
   })
 })

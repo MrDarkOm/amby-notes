@@ -15,6 +15,7 @@
     "docs:check": "node scripts/check-project-map.mjs",
     "promote": "node scripts/promote.mjs",
     "build:modules": "node scripts/build-modules.mjs",
+    "modules:new-key": "node scripts/rotate-module-key.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "dev:sign-check": "sh scripts/dev-sign-run.sh --check",
@@ -64,7 +65,7 @@
     "audit": "npm run audit:npm && npm run audit:rust",
     "knip": "knip",
     "prepare": "lefthook install",
-    "test:update-channels": "node --test scripts/update-channels.test.mjs",
+    "test:update-channels": "node --test scripts/update-channels.test.mjs scripts/module-signing-key.test.mjs",
     "build:site": "node scripts/build-site.mjs"
   },
   "dependencies": {

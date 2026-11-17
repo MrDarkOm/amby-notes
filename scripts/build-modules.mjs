@@ -1,20 +1,53 @@
 import { Buffer } from "node:buffer"
 import console from "node:console"
 import crypto from "node:crypto"
-import { mkdirSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
+
+import {
+  OFFICIAL_KEY_ID,
+  loadSigningKeyHex,
+  publicKeyHexFromPrivate,
+} from "./module-signing-key.mjs"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const ROOT_DIR = join(__dirname, "..")
 const DIST_DIR = join(ROOT_DIR, "dist-modules")
 
-const OFFICIAL_KEY_ID = "amby-official-2026"
-const OFFICIAL_PUBLIC_KEY_HEX = "540caa0bdc9a519b774ad2ee4fb3e2278d149ee0ecfaa0d54ba75e6ad66c9dda"
-const OFFICIAL_PRIVATE_KEY_HEX =
-  "302e020100300506032b65700422042044ba75c905cdfce57e79cc502b48efe22d07e78da850a7eb6e99f02769ca10e4"
+const TRUSTED_PUBLIC_KEY_PLACEHOLDER = "0".repeat(64)
+
+// The private key is never in the repository: it comes from AMBY_MODULE_SIGNING_KEY (CI)
+// or the macOS Keychain (see scripts/module-signing-key.mjs, MOD-01).
+let signingKeyHex = null
+
+function rustTrustedPublicKeyHex() {
+  const source = readFileSync(join(ROOT_DIR, "src-tauri", "src", "package_manager.rs"), "utf8")
+  const match = /pub const OFFICIAL_ED25519_PUBLIC_KEY_HEX: &str =\s*"([0-9a-f]{64})"/.exec(source)
+  if (!match) throw new Error("Cannot read the trusted public key from package_manager.rs")
+  return match[1]
+}
+
+function prepareSigningKey() {
+  signingKeyHex = loadSigningKeyHex()
+  const publicKeyHex = publicKeyHexFromPrivate(signingKeyHex)
+  const trusted = rustTrustedPublicKeyHex()
+  if (trusted === TRUSTED_PUBLIC_KEY_PLACEHOLDER) {
+    throw new Error(
+      "The trusted official public key is still the placeholder (TODO(MOD-01) in package_manager.rs " +
+        `and validator.ts). Set OFFICIAL_ED25519_PUBLIC_KEY_HEX to ${publicKeyHex} first.`,
+    )
+  }
+  if (trusted !== publicKeyHex) {
+    throw new Error(
+      "The signing key does not match the trusted official public key in package_manager.rs; " +
+        "refusing to build packages the app would reject.",
+    )
+  }
+  return publicKeyHex
+}
 
 function sha256Hex(content) {
   return crypto.createHash("sha256").update(content, "utf8").digest("hex")
@@ -47,7 +80,7 @@ function canonicalManifestBytes(manifest) {
 
 async function signManifest(unsignedManifest) {
   const bytes = canonicalManifestBytes(unsignedManifest)
-  const privBytes = Uint8Array.from(Buffer.from(OFFICIAL_PRIVATE_KEY_HEX, "hex"))
+  const privBytes = Uint8Array.from(Buffer.from(signingKeyHex, "hex"))
   const key = await crypto.subtle.importKey("pkcs8", privBytes, { name: "Ed25519" }, false, [
     "sign",
   ])
@@ -66,7 +99,7 @@ async function signManifest(unsignedManifest) {
 async function verifySignature(signedManifest) {
   const bytes = canonicalManifestBytes(signedManifest)
   const sigHex = signedManifest.signature.sig.replace(/^ed25519:/, "")
-  const pubBytes = Uint8Array.from(Buffer.from(OFFICIAL_PUBLIC_KEY_HEX, "hex"))
+  const pubBytes = Uint8Array.from(Buffer.from(publicKeyHexFromPrivate(signingKeyHex), "hex"))
   const sigBytes = Uint8Array.from(Buffer.from(sigHex, "hex"))
 
   const key = await crypto.subtle.importKey("raw", pubBytes, { name: "Ed25519" }, false, ["verify"])
@@ -312,6 +345,7 @@ export function deactivate() {
 ]
 
 async function main() {
+  prepareSigningKey()
   mkdirSync(DIST_DIR, { recursive: true })
 
   console.log("🔨 Building autonomous .amby-pkg module packages...")
