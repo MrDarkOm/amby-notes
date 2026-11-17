@@ -10,6 +10,7 @@ import {
   Database,
   FilePlus,
   FileText,
+  FolderOpen,
   FolderPlus,
   History,
   LayoutGrid,
@@ -32,8 +33,15 @@ import {
 import { Input } from "@/components/ui/input"
 import {
   ContextMenu,
+  ContextMenuCheckboxItem,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import {
@@ -540,7 +548,7 @@ export function FilesPanel(props: PanelRenderProps) {
             </div>
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-52 border-border bg-popover text-foreground">
+        <ContextMenuContent className="w-72 border-border bg-popover text-foreground">
           <ContextMenuItem
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
             onSelect={() => {
@@ -593,6 +601,110 @@ export function FilesPanel(props: PanelRenderProps) {
             <Database className="size-3.5" />
             {t("filesPanel.database")}
           </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuSub>
+            <ContextMenuSubTrigger className="gap-2 text-[13px]">
+              <ArrowDownUp className="size-3.5 text-muted-foreground" />
+              {t("filesPanel.sortOrder")}
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-80 border-border bg-popover text-foreground">
+              <ContextMenuRadioGroup
+                value={`${sortKey}:${sortDirection}`}
+                onValueChange={(value) => {
+                  const option = TREE_SORT_OPTIONS.find(
+                    ({ key, direction }) => `${key}:${direction}` === value,
+                  )
+                  if (option) setSortSelection({ key: option.key, direction: option.direction })
+                }}
+              >
+                {TREE_SORT_OPTIONS.map(({ key, direction, labelKey, icon: Icon }, index) => (
+                  <React.Fragment key={`${key}:${direction}`}>
+                    {index > 0 && index % 2 === 0 && <ContextMenuSeparator />}
+                    <ContextMenuRadioItem
+                      value={`${key}:${direction}`}
+                      className="items-start text-[13px] whitespace-normal break-words"
+                    >
+                      <Icon className="size-3.5 text-muted-foreground" />
+                      {t(labelKey)}
+                    </ContextMenuRadioItem>
+                  </React.Fragment>
+                ))}
+              </ContextMenuRadioGroup>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger className="gap-2 text-[13px]">
+              <ListFilter className="size-3.5 text-muted-foreground" />
+              {t("filesPanel.filter")}
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-56 border-border bg-popover text-foreground">
+              {availableKinds.map((kind) => {
+                const { key, icon: Icon } = TYPE_FILTER_LABELS[kind]
+                return (
+                  <ContextMenuCheckboxItem
+                    key={kind}
+                    checked={activeKinds.has(kind)}
+                    indicatorPosition="right"
+                    className="text-[13px]"
+                    onSelect={(event) => event.preventDefault()}
+                    onCheckedChange={(checked) => {
+                      setTypeFilter((current) =>
+                        checked
+                          ? [...current.filter((entry) => entry !== kind), kind]
+                          : current.filter((entry) => entry !== kind),
+                      )
+                    }}
+                  >
+                    <Icon className="size-3.5 text-muted-foreground" />
+                    {t(key)}
+                  </ContextMenuCheckboxItem>
+                )
+              })}
+              {activeKinds.size > 0 && (
+                <>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem className="text-[13px]" onSelect={() => setTypeFilter([])}>
+                    {t("filesPanel.filterReset")}
+                  </ContextMenuItem>
+                </>
+              )}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuCheckboxItem
+            checked={autoReveal}
+            indicatorPosition="right"
+            className="text-[13px]"
+            onCheckedChange={handleToggleAutoReveal}
+          >
+            <LocateFixed className="size-3.5 text-muted-foreground" />
+            {t("filesPanel.autoReveal")}
+          </ContextMenuCheckboxItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            disabled={!vault || treeItems.length === 0}
+            className="text-[13px]"
+            onSelect={() => setTreeExpanded(treeItems, true)}
+          >
+            <ChevronsUpDown className="size-3.5 text-muted-foreground" />
+            {t("filesPanel.expandAll")}
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!vault || treeItems.length === 0}
+            className="text-[13px]"
+            onSelect={() => setTreeExpanded(treeItems, false)}
+          >
+            <ChevronsDownUp className="size-3.5 text-muted-foreground" />
+            {t("filesPanel.collapseAll")}
+          </ContextMenuItem>
+          {vault && onOpenInExplorer && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem className="text-[13px]" onSelect={() => onOpenInExplorer(vault)}>
+                <FolderOpen className="size-3.5 text-muted-foreground" />
+                {t("tree.showInExplorer")}
+              </ContextMenuItem>
+            </>
+          )}
         </ContextMenuContent>
       </ContextMenu>
 
