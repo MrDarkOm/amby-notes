@@ -7,25 +7,25 @@ index, and the journaled creation of workshops, sections, and stories. The contr
 [project-port.ts](../../../src/lib/storage/project-port.ts). The interface is
 [the creative map](../../../src/components/workspace/creative/MAP.md).
 
-| Concern                                                      | Owner                                                  |
-| ------------------------------------------------------------ | ------------------------------------------------------ |
-| IPC types, typed `ProjectError`, catalog shapes              | [model.rs](model.rs)                                   |
-| Workshop and story file parse/rewrite (unknown fields kept)  | [format.rs](format.rs)                                 |
-| Read-only discovery, diagnostics                             | [discovery.rs](discovery.rs)                           |
-| SQLite projection and catalog read                           | [index.rs](index.rs); tables in `index/schema.rs`      |
-| Initialize workshop / create story / section, preflight, apply | [create.rs](create.rs)                               |
-| Make a workshop of earlier stages whole (`complete_workshop`) | [complete.rs](complete.rs)                            |
-| Story, universe and plot links, pages born linked            | [links.rs](links.rs)                                   |
-| Workshop settings, section order/remove, levels, text status | [settings.rs](settings.rs)                             |
-| Operation journal (`.amby/recovery/creative/`)               | [journal.rs](journal.rs)                               |
-| Conditional cleanup and activation recovery                  | [recovery.rs](recovery.rs)                             |
-| Section presets (properties, gallery view, dossier template) | [presets.rs](presets.rs), [props.rs](props.rs)         |
-| Relations of one note, both ways (dossier)                   | [references.rs](references.rs)                         |
-| Text schema (5 properties + plot links, `text` block)        | [text_schema.rs](text_schema.rs)                       |
-| Text pages: create, move, loop check                         | [text.rs](text.rs)                                     |
-| Words, modified and created times of a database's pages      | [text_stats.rs](text_stats.rs)                         |
-| Folder-name, tag and icon validation                         | [names.rs](names.rs)                                   |
-| Watcher path classification (`project:changed`)              | [events.rs](events.rs)                                 |
+| Concern                                                        | Owner                                             |
+| -------------------------------------------------------------- | ------------------------------------------------- |
+| IPC types, typed `ProjectError`, catalog shapes                | [model.rs](model.rs)                              |
+| Workshop and story file parse/rewrite (unknown fields kept)    | [format.rs](format.rs)                            |
+| Read-only discovery, diagnostics                               | [discovery.rs](discovery.rs)                      |
+| SQLite projection and catalog read                             | [index.rs](index.rs); tables in `index/schema.rs` |
+| Initialize workshop / create story / section, preflight, apply | [create.rs](create.rs)                            |
+| Make a workshop of earlier stages whole (`complete_workshop`)  | [complete.rs](complete.rs)                        |
+| Story, universe and plot links, pages born linked              | [links.rs](links.rs)                              |
+| Workshop settings, section order/remove, levels, text status   | [settings.rs](settings.rs)                        |
+| Operation journal (`.amby/recovery/creative/`)                 | [journal.rs](journal.rs)                          |
+| Conditional cleanup and activation recovery                    | [recovery.rs](recovery.rs)                        |
+| Section presets (properties, gallery view, dossier template)   | [presets.rs](presets.rs), [props.rs](props.rs)    |
+| Relations of one note, both ways (dossier)                     | [references.rs](references.rs)                    |
+| Text schema (5 properties + plot links, `text` block)          | [text_schema.rs](text_schema.rs)                  |
+| Text pages: create, move, loop check                           | [text.rs](text.rs)                                |
+| Words, modified and created times of a database's pages        | [text_stats.rs](text_stats.rs)                    |
+| Folder-name, tag and icon validation                           | [names.rs](names.rs)                              |
+| Watcher path classification (`project:changed`)                | [events.rs](events.rs)                            |
 
 **Discovery.** Any `amby-workshop.json` outside hidden/service folders is a workshop. Peer
 databases (`stories`, `characters`, `locations`, `universes`, `arcs`, `anchors`, `notes`) live

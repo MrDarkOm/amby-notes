@@ -4,28 +4,28 @@ Owns database durable files, queries and rebuildable projections. Entry commands
 are in [commands/database.rs](../commands/database.rs); frontend contracts are in
 [storage/database-port.ts](../../../src/lib/storage/database-port.ts).
 
-| Concern | Owner |
-| --- | --- |
-| Domain/IPC types | [model.rs](model.rs) |
-| Failure reasons (stable codes for the UI) | [failure.rs](failure.rs): `FailureReason`, `classify`; see docs/database-runtime.md §12 |
-| Durable parse/validation/discovery | [format.rs](format.rs), [validation.rs](validation.rs), [discovery.rs](discovery.rs) |
-| Schema/value mutations and write coordination | [mutations/](mutations/) (one module per kind, see below), [mutation_state.rs](mutation_state.rs) |
-| Rows (create, duplicate) and attachments | [rows.rs](rows.rs), [assets.rs](assets.rs) |
-| Saved view operations | [views.rs](views.rs) |
-| SQLite projection / incremental publication | [projection.rs](projection.rs) |
-| Query compilation / aggregation | [query.rs](query.rs) |
-| Filter operator registry | [filter_operators.rs](filter_operators.rs) |
-| Formula evaluation | [formula.rs](formula.rs) |
-| Rollup aggregation registry / config | [rollup.rs](rollup.rs), [rollup_config.rs](rollup_config.rs) |
-| YAML synchronization | [yaml_sync.rs](yaml_sync.rs) |
-| Layout v2 / explicit backed-up upgrade | [layout.rs](layout.rs), [layout/tests.rs](layout/tests.rs) |
-| Mutation history | [history.rs](history.rs) |
-| Value-batch journal / startup rollback | [value_batch_recovery.rs](value_batch_recovery.rs) |
-| Relation journals / activation recovery | [relation_recovery.rs](relation_recovery.rs), [relation_schema_recovery.rs](relation_schema_recovery.rs) |
-| Relation picker search / reference lookup | [relation_lookup.rs](relation_lookup.rs) |
-| Runtime/module state and events | [runtime_state.rs](runtime_state.rs), [events.rs](events.rs) |
+| Concern                                                                                    | Owner                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Domain/IPC types                                                                           | [model.rs](model.rs)                                                                                                                                                             |
+| Failure reasons (stable codes for the UI)                                                  | [failure.rs](failure.rs): `FailureReason`, `classify`; see docs/database-runtime.md §12                                                                                          |
+| Durable parse/validation/discovery                                                         | [format.rs](format.rs), [validation.rs](validation.rs), [discovery.rs](discovery.rs)                                                                                             |
+| Schema/value mutations and write coordination                                              | [mutations/](mutations/) (one module per kind, see below), [mutation_state.rs](mutation_state.rs)                                                                                |
+| Rows (create, duplicate) and attachments                                                   | [rows.rs](rows.rs), [assets.rs](assets.rs)                                                                                                                                       |
+| Saved view operations                                                                      | [views.rs](views.rs)                                                                                                                                                             |
+| SQLite projection / incremental publication                                                | [projection.rs](projection.rs)                                                                                                                                                   |
+| Query compilation / aggregation                                                            | [query.rs](query.rs)                                                                                                                                                             |
+| Filter operator registry                                                                   | [filter_operators.rs](filter_operators.rs)                                                                                                                                       |
+| Formula evaluation                                                                         | [formula.rs](formula.rs)                                                                                                                                                         |
+| Rollup aggregation registry / config                                                       | [rollup.rs](rollup.rs), [rollup_config.rs](rollup_config.rs)                                                                                                                     |
+| YAML synchronization                                                                       | [yaml_sync.rs](yaml_sync.rs)                                                                                                                                                     |
+| Layout v2 / explicit backed-up upgrade                                                     | [layout.rs](layout.rs), [layout/tests.rs](layout/tests.rs)                                                                                                                       |
+| Mutation history                                                                           | [history.rs](history.rs)                                                                                                                                                         |
+| Value-batch journal / startup rollback                                                     | [value_batch_recovery.rs](value_batch_recovery.rs)                                                                                                                               |
+| Relation journals / activation recovery                                                    | [relation_recovery.rs](relation_recovery.rs), [relation_schema_recovery.rs](relation_schema_recovery.rs)                                                                         |
+| Relation picker search / reference lookup                                                  | [relation_lookup.rs](relation_lookup.rs)                                                                                                                                         |
+| Runtime/module state and events                                                            | [runtime_state.rs](runtime_state.rs), [events.rs](events.rs)                                                                                                                     |
 | Command sequence (gate, generation, module switch, lock, projection refresh, notification) | [mutation_run.rs](mutation_run.rs): `run_database_mutation` / `run_database_exclusive` / `run_database_read`, `DatabaseScope`, typed `ProjectionOutcome` and `ProjectionWarning` |
-| Lists the UI reads from the projection (database list, note context, properties, options) | [summary.rs](summary.rs) |
+| Lists the UI reads from the projection (database list, note context, properties, options)  | [summary.rs](summary.rs)                                                                                                                                                         |
 
 `mutations/` keeps a flat public surface (`database::mutations::*`, re-exported from `mod.rs`):
 `types.rs` request/result types; `create.rs` create/rename database; `property_create.rs`,
