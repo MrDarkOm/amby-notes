@@ -2,7 +2,7 @@
 
 Owns database surfaces and view state, not the durable database format. Cross-layer
 work continues through [storage](../../../lib/storage/MAP.md) to
-[the database backend](../../../../src-tauri/src/database/MAP.md).
+[the database backend](../../../../crates/amby-core/src/database/MAP.md).
 
 | Concern                        | Owner                                                                                                                                                                                                                      |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

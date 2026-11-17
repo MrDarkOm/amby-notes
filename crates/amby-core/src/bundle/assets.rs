@@ -9,9 +9,9 @@ pub const MAX_ATTACHMENT_FILE_SIZE: u64 = 100 * 1024 * 1024; // 100 MB
 pub const MAX_PASTED_BYTES: usize = 25 * 1024 * 1024; // 25 MB
 pub const MAX_EXT_LEN: usize = 16;
 
-pub(crate) const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "avif"];
+pub const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "avif"];
 
-pub(crate) fn sanitize_ext(ext: &str) -> String {
+pub fn sanitize_ext(ext: &str) -> String {
     let trimmed = ext.trim_start_matches('.').trim().to_ascii_lowercase();
     if trimmed.is_empty() || trimmed.len() > MAX_EXT_LEN {
         return "bin".to_string();
@@ -22,7 +22,7 @@ pub(crate) fn sanitize_ext(ext: &str) -> String {
     trimmed
 }
 
-pub(crate) fn sniff_image_format(bytes: &[u8]) -> Option<&'static str> {
+pub fn sniff_image_format(bytes: &[u8]) -> Option<&'static str> {
     if bytes.len() >= 8 && bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         Some("png")
     } else if bytes.len() >= 3 && bytes.starts_with(b"\xFF\xD8\xFF") {
@@ -47,7 +47,7 @@ pub(crate) fn classify_ext(ext: &str) -> &'static str {
     }
 }
 
-pub(crate) fn assets_dir_for(vault: &Path, note: &Path) -> PathBuf {
+pub fn assets_dir_for(vault: &Path, note: &Path) -> PathBuf {
     if is_bundle_main_note(note) {
         if let Some(parent) = note.parent() {
             return parent.join("assets");
@@ -56,7 +56,7 @@ pub(crate) fn assets_dir_for(vault: &Path, note: &Path) -> PathBuf {
     vault.join("assets")
 }
 
-pub(crate) fn random_asset_name(ext: &str) -> String {
+pub fn random_asset_name(ext: &str) -> String {
     let ext = sanitize_ext(ext);
     let prefix = match ext.as_str() {
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "avif" | "bmp" => "img",
@@ -81,7 +81,7 @@ fn relative_for_markdown(vault: &Path, note: &Path, asset_abs: &Path) -> String 
     path_string(asset_abs)
 }
 
-pub(crate) fn build_imported_asset(
+pub fn build_imported_asset(
     vault: &Path,
     note: &Path,
     abs_path: PathBuf,

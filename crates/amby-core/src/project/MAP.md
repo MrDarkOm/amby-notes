@@ -2,10 +2,10 @@
 
 Owns discovery of creative workshops (`amby-workshop.json`), their rebuildable SQLite
 index, and the journaled creation of workshops, sections, and stories. The contract is
-[creative format](../../../docs/creative-format.md); IPC is
-[commands/project.rs](../commands/project.rs) (commands: format §10); the renderer port is
-[project-port.ts](../../../src/lib/storage/project-port.ts). The interface is
-[the creative map](../../../src/components/workspace/creative/MAP.md).
+[creative format](../../../../docs/creative-format.md); IPC is
+[commands/project.rs](../../../../src-tauri/src/commands/project.rs) (commands: format §10); the renderer port is
+[project-port.ts](../../../../src/lib/storage/project-port.ts). The interface is
+[the creative map](../../../../src/components/workspace/creative/MAP.md).
 
 | Concern                                                        | Owner                                             |
 | -------------------------------------------------------------- | ------------------------------------------------- |
@@ -31,7 +31,7 @@ index, and the journaled creation of workshops, sections, and stories. The contr
 databases (`stories`, `characters`, `locations`, `universes`, `arcs`, `anchors`, `notes`) live
 under the workshop folder; a story is a folder `<Workshop>/Истории/<Name>/` holding `<Name>.md` (card),
 `<Name>.json` (text manifest) and `amby-story.json`. The former v2 `amby-project.json` is no longer
-recognised (ignored, never changed). Every diagnostic code and its effect: [format §9](../../../docs/creative-format.md).
+recognised (ignored, never changed). Every diagnostic code and its effect: [format §9](../../../../docs/creative-format.md).
 Section `path` is a hint: the catalog matches a section to its database by `databaseId` through
 `db_databases`, so a moved database works (`moved`) and a missing one is shown `missing`.
 
@@ -50,7 +50,7 @@ the interface sends one shared set (`project-labels.ts`) written to `interface-l
 `project-labels.test.ts` keeps equal to what is sent and `create_test::the_labels_the_interface_sends_...`
 feeds to every creation.
 
-**One workshop per vault ([format §2.1](../../../docs/creative-format.md)).** `init_workshop` makes the folder named by
+**One workshop per vault ([format §2.1](../../../../docs/creative-format.md)).** `init_workshop` makes the folder named by
 `path`, its marker and all seven bases with every link in one journaled operation: every database ID is chosen before any
 base is planned, so a base can point at one made after it (`presets::plan` gets the whole `target_databases` and `pending`).
 A folder already there is taken only when empty and is never removed by a rollback; anything else is `folderNotEmpty`
@@ -85,7 +85,7 @@ with its "Stories" value in the same write as the note; a repeated title gets `T
 the interface is checked on a real workshop: `contract_test.rs` compares its output with `real-workshop.fixture.json`,
 which Vitest feeds to the interface's model.
 
-**Plot links (`links.rs`, [format §6](../../../docs/creative-format.md)).** A story's text may hold "Anchors" and
+**Plot links (`links.rs`, [format §6](../../../../docs/creative-format.md)).** A story's text may hold "Anchors" and
 "Arcs" relations (`text.properties.anchors`/`arcs` in `amby-story.json`) and the anchors database "Arcs" and "Universe"
 (`arcsPropertyId`, `universePropertyId`), the arcs "Characters" (`charactersPropertyId`). `create_story` and the
 presets add them when the target database already exists; otherwise `ensure_plot_links` (journaled, `plan_links` adopts
@@ -93,7 +93,7 @@ a matching relation) makes what is missing in one database and one structure fil
 writes nothing when nothing is missing. `create_entity` also takes a `universe_id` (an anchor born as an event of a universe, in the same
 write as the note; refused before any write unless the property and the universe note exist). Tests: `plot_links_test.rs`.
 
-**Notebooks (`notebooks.rs`).** A notebook is a plain subfolder of the notes base ([format §8](../../../docs/creative-format.md));
+**Notebooks (`notebooks.rs`).** A notebook is a plain subfolder of the notes base ([format §8](../../../../docs/creative-format.md));
 this module only reads: `list_notebooks_of` (bounded, no links followed) and `resolve_notebook_dir`, which checks the
 `notebook` of `create_entity` before any write.
 

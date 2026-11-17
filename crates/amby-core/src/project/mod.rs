@@ -8,18 +8,18 @@ pub mod discovery;
 pub mod events;
 pub mod format;
 pub mod index;
-pub mod journal;
+mod journal;
 pub mod links;
 pub mod model;
 pub mod names;
 pub mod notebooks;
-pub mod presets;
-pub mod props;
+mod presets;
+mod props;
 pub mod recovery;
 pub mod references;
 pub mod settings;
 pub mod text;
-pub mod text_schema;
+mod text_schema;
 pub mod text_stats;
 
 #[cfg(test)]

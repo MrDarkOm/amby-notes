@@ -10,7 +10,7 @@ use std::path::{Component, Path, PathBuf};
 use rusqlite::Connection;
 use serde_json::{json, Value};
 
-pub(super) fn resolve_note_path(root: &Path, relative: &str) -> Result<PathBuf, &'static str> {
+fn resolve_note_path(root: &Path, relative: &str) -> Result<PathBuf, &'static str> {
     let path = Path::new(relative);
     if relative.is_empty() || path.is_absolute() {
         return Err("accessDenied");
@@ -33,14 +33,14 @@ pub(super) fn resolve_note_path(root: &Path, relative: &str) -> Result<PathBuf, 
 
 /// The model never chooses its own authority: this scope comes from the user's
 /// context chips and per-conversation search setting.
-pub(super) struct ToolScope {
+pub struct ToolScope {
     pub search_enabled: bool,
     pub note_ids: HashSet<String>,
     pub folders: Vec<String>,
 }
 
 #[derive(Default)]
-pub(super) struct ToolBudget {
+pub struct ToolBudget {
     calls: usize,
     result_chars: usize,
 }

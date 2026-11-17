@@ -4,8 +4,6 @@
 //! `sync_mutation_result`), applies the tree patch it returns to the tree loaded before, and
 //! compares it, and the whole index, with a from-scratch load of the vault on a second database.
 
-use super::tree::TreeItem;
-use super::tree_patch::{TreePatch, TreePatchOp};
 use crate::commands::database::database_note_context_inner;
 use crate::commands::mutations::{
     archive_item_inner, create_note_inner, delete_item_inner, move_item_inner, rename_item_inner,
@@ -15,6 +13,8 @@ use crate::database::runtime_state::DatabaseRuntimeState;
 use crate::index;
 use crate::model::{FsMutationResult, MutationOutcome};
 use crate::recycle_bin::DeleteMode;
+use crate::vault::tree::TreeItem;
+use crate::vault::tree_patch::{TreePatch, TreePatchOp};
 use crate::vault_context::VaultContext;
 use crate::watcher::WatcherState;
 use rusqlite::Connection;

@@ -11,7 +11,7 @@ use super::scan::{is_bundle_main_note, is_supported_document};
 /// The move `ensure_bundle_path` would make, without making it: `Name.md` into `Name/Name.md`.
 /// Empty when the note already is a bundle's main note or is not a plain document. Synchronisation
 /// is told about it before the file moves (Д70а), so a super note is a move and not a deletion.
-pub(crate) fn preview_ensure_bundle_path(note_path: &Path) -> Vec<PathChange> {
+pub fn preview_ensure_bundle_path(note_path: &Path) -> Vec<PathChange> {
     if !note_path.is_file() || !is_supported_document(note_path) || is_bundle_main_note(note_path) {
         return Vec::new();
     }
@@ -29,7 +29,7 @@ pub(crate) fn preview_ensure_bundle_path(note_path: &Path) -> Vec<PathChange> {
     }]
 }
 
-pub(crate) fn ensure_bundle_path(note_path: &Path) -> Result<(PathBuf, Vec<PathChange>), String> {
+pub fn ensure_bundle_path(note_path: &Path) -> Result<(PathBuf, Vec<PathChange>), String> {
     if note_path.is_dir() {
         if let Some(manifest) = crate::database::discovery::find_manifest_path(note_path) {
             return Ok((manifest, Vec::new()));
@@ -112,7 +112,7 @@ pub(crate) fn rollback_bundle_promotion(
 
 /// The item a delete, archive or move acts on: the bundle folder for a bundle's main note, the path
 /// itself otherwise. Never the vault root (CORE-01).
-pub(crate) fn resolve_item_root(vault: &Path, path: &Path) -> PathBuf {
+pub fn resolve_item_root(vault: &Path, path: &Path) -> PathBuf {
     if super::scan::is_bundle_main_note_in(vault, path) {
         path.parent().unwrap_or(path).to_path_buf()
     } else {
@@ -120,7 +120,7 @@ pub(crate) fn resolve_item_root(vault: &Path, path: &Path) -> PathBuf {
     }
 }
 
-pub(crate) struct CreateNotePlan {
+pub struct CreateNotePlan {
     parent_path: PathBuf,
     prospective_container: PathBuf,
     should_promote: bool,
@@ -129,15 +129,15 @@ pub(crate) struct CreateNotePlan {
 }
 
 impl CreateNotePlan {
-    pub(crate) fn planned_note(&self) -> &Path {
+    pub fn planned_note(&self) -> &Path {
         &self.planned_note
     }
 
-    pub(crate) fn initial_source(&self) -> &str {
+    pub fn initial_source(&self) -> &str {
         &self.initial_source
     }
 
-    pub(crate) fn promotion_paths(&self) -> Option<(&Path, &Path, PathBuf)> {
+    pub fn promotion_paths(&self) -> Option<(&Path, &Path, PathBuf)> {
         self.should_promote.then(|| {
             let parent_stem = file_stem(&self.parent_path).unwrap_or_default();
             let ext = self
@@ -154,7 +154,7 @@ impl CreateNotePlan {
         })
     }
 
-    pub(crate) fn commit(self) -> Result<FsMutationResult, String> {
+    pub fn commit(self) -> Result<FsMutationResult, String> {
         let Self {
             parent_path,
             prospective_container,
@@ -212,10 +212,7 @@ impl CreateNotePlan {
     }
 }
 
-pub(crate) fn prepare_create_note_impl(
-    parent_path: &Path,
-    name: &str,
-) -> Result<CreateNotePlan, String> {
+pub fn prepare_create_note_impl(parent_path: &Path, name: &str) -> Result<CreateNotePlan, String> {
     let trimmed = super::path_ops::validate_item_name("note", name)?;
 
     let (prospective_container, should_promote) = if parent_path.is_file() {
@@ -293,7 +290,7 @@ pub(crate) fn prepare_create_note_impl(
     })
 }
 
-#[cfg(test)]
-pub(crate) fn create_note_impl(parent_path: &Path, name: &str) -> Result<FsMutationResult, String> {
+#[cfg(any(test, feature = "test-support"))]
+pub fn create_note_impl(parent_path: &Path, name: &str) -> Result<FsMutationResult, String> {
     prepare_create_note_impl(parent_path, name)?.commit()
 }

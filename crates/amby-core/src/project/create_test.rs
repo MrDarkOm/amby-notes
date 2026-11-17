@@ -21,11 +21,11 @@ use super::model::{
 use super::recovery::recover_pending_projects;
 use crate::database::discovery::discover_vault;
 use crate::database::format::{parse_manifest, raw_revision};
-use crate::watcher::WatcherState;
+use crate::self_write::SelfWriteTracker;
 
 pub(super) struct Fixture {
     pub(super) vault: PathBuf,
-    pub(super) watcher: WatcherState,
+    pub(super) watcher: SelfWriteTracker,
 }
 
 impl Fixture {
@@ -34,7 +34,7 @@ impl Fixture {
         fs::create_dir_all(&path).unwrap();
         Self {
             vault: path.canonicalize().unwrap(),
-            watcher: WatcherState::new(),
+            watcher: SelfWriteTracker::new(),
         }
     }
 
@@ -1362,7 +1362,7 @@ fn a_workshop_of_an_unknown_format_version_is_listed_read_only_and_never_rewritt
 /// to what the interface really sends, so the real backend must accept the whole set.
 fn interface_labels() -> BTreeMap<String, String> {
     let keys: Vec<String> = serde_json::from_str(include_str!(
-        "../../../src/components/workspace/creative/interface-label-keys.json"
+        "../../../../src/components/workspace/creative/interface-label-keys.json"
     ))
     .expect("the list of the interface's label keys");
     assert!(keys.len() > 40, "the list is read");

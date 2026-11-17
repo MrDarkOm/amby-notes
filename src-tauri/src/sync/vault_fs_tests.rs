@@ -498,8 +498,13 @@ fn the_write_of_the_engine_is_seen_by_the_watcher_as_an_external_change() {
         let Ok(event) = receiver.recv_timeout(Duration::from_millis(200)) else {
             continue;
         };
-        let payloads =
-            queue_external_changes(event, &vault.root, &state.own_writes, 1, &index_changes);
+        let payloads = queue_external_changes(
+            event,
+            &vault.root,
+            &state.self_writes.own_writes,
+            1,
+            &index_changes,
+        );
         heard = payloads
             .iter()
             .any(|payload| Path::new(&payload.path) == target);

@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn property_type_change_updates_an_unused_definition() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,
@@ -61,7 +61,7 @@ fn property_type_change_updates_an_unused_definition() {
 #[test]
 fn property_type_change_refuses_to_discard_existing_values() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,

@@ -32,5 +32,3 @@ pub mod yaml_sync;
 
 #[cfg(test)]
 mod mutation_run_test;
-#[cfg(test)]
-mod property_migration_flow_test;

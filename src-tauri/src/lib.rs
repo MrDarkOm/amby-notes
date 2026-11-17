@@ -1,41 +1,18 @@
 mod ai;
 mod app_data;
-mod archive;
-mod archive_migration;
-mod atomic_fs;
-mod bundle;
 mod commands;
 mod credentials;
-mod database;
-mod durable;
-mod frontmatter;
-mod history;
-pub mod index;
 mod keychain_access;
-mod lock_util;
 pub mod logging;
-mod model;
 pub mod package_manager;
 mod page_info;
 mod path_grants;
-mod paths;
-mod project;
-mod property_groups;
-mod property_store;
-mod property_template;
-mod recovery;
-mod recycle_bin;
 mod shadow_check;
 mod state;
-mod storage_error;
 pub mod sync;
 mod system_open;
-mod system_recycle_bin;
 mod terminate_gate;
 mod updater;
-pub mod vault;
-mod vault_context;
-pub mod vault_index;
 mod watcher;
 
 #[cfg(feature = "native-contract")]
@@ -48,6 +25,25 @@ mod security_integration_test;
 
 #[cfg(test)]
 mod desktop_e2e_tests;
+
+#[cfg(test)]
+mod archive_command_tests;
+
+#[cfg(test)]
+mod index_incremental_tests;
+
+#[cfg(test)]
+mod property_migration_flow_test;
+
+#[cfg(test)]
+mod tree_patch_tests;
+
+use amby_core::{
+    archive, archive_migration, bundle, database, durable, frontmatter, history, lock_util, model,
+    paths, project, property_groups, property_template, recovery, recycle_bin, storage_error,
+    system_recycle_bin, vault_context,
+};
+pub use amby_core::{index, vault, vault_index};
 
 use logging::DebugState;
 use state::*;

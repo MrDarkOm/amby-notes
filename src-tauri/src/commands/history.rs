@@ -94,17 +94,21 @@ pub fn restore_snapshot(
     let vault = scope.get()?;
     let generation = db.generation()?;
     let prepared_restore = history::prepare_snapshot_restore(&vault, &snapshot_id)?;
-    let prepared_write = watcher_state.prepare_write([(
+    let prepared_write = watcher_state.self_writes.prepare_write([(
         &prepared_restore.path,
         watcher::fingerprint_for_bytes(&prepared_restore.bytes),
     )]);
     let path = match history::commit_snapshot_restore(&vault, prepared_restore) {
         Ok(path) => {
-            watcher_state.confirm_prepared_write(&prepared_write);
+            watcher_state
+                .self_writes
+                .confirm_prepared_write(&prepared_write);
             path
         }
         Err(error) => {
-            watcher_state.cancel_prepared_write(&prepared_write);
+            watcher_state
+                .self_writes
+                .cancel_prepared_write(&prepared_write);
             return Err(error);
         }
     };
@@ -250,14 +254,14 @@ pub fn restore_trash(
         ))
     }));
     let mut restored_paths: Vec<_> = writes.iter().map(|(path, _)| path.clone()).collect();
-    let prepared = watcher_state.prepare_write(writes);
+    let prepared = watcher_state.self_writes.prepare_write(writes);
     let result = match recycle_bin::restore(&vault, &trash_id) {
         Ok(result) => {
-            watcher_state.confirm_prepared_write(&prepared);
+            watcher_state.self_writes.confirm_prepared_write(&prepared);
             result
         }
         Err(error) => {
-            watcher_state.cancel_prepared_write(&prepared);
+            watcher_state.self_writes.cancel_prepared_write(&prepared);
             return Err(error);
         }
     };
@@ -318,14 +322,14 @@ pub fn restore_archive(
     let (source, target) = crate::archive::restore_places(&vault, &archive_id)?;
     let writes = vec![(target.clone(), watcher::path_fingerprint_for_move(&source))];
     let mut restored_paths = vec![target];
-    let prepared = watcher_state.prepare_write(writes);
+    let prepared = watcher_state.self_writes.prepare_write(writes);
     let result = match crate::archive::restore(&vault, &archive_id) {
         Ok(result) => {
-            watcher_state.confirm_prepared_write(&prepared);
+            watcher_state.self_writes.confirm_prepared_write(&prepared);
             result
         }
         Err(error) => {
-            watcher_state.cancel_prepared_write(&prepared);
+            watcher_state.self_writes.cancel_prepared_write(&prepared);
             return Err(error);
         }
     };

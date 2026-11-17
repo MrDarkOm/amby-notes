@@ -136,7 +136,7 @@ pub fn init_workshop(
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut created = create::init_workshop(&env, &request)?;
     if !created.replayed {
@@ -161,7 +161,7 @@ pub fn complete_workshop(
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     // Every step is written to the files; the index is read again once, at the end, and also
     // after a step that failed halfway, so the panel shows what is there.
@@ -201,7 +201,7 @@ pub fn create_story(
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut created = create::create_story(&env, &request)?;
     if !created.replayed {
@@ -235,7 +235,7 @@ pub fn create_workshop_section(
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut created = create::create_workshop_section(&env, &request)?;
     if !created.replayed {
@@ -259,7 +259,7 @@ pub fn create_text_page(
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut created = text::create_page(&env, &active.connection, &request)?;
     let note_path = std::path::Path::new(&created.note_path);
@@ -319,7 +319,7 @@ pub fn move_text_page(
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut moved = text::move_page(&env, &active.connection, Some(&history), &request)?;
     match crate::database::projection::update_database_values_incremental(
@@ -425,7 +425,7 @@ pub fn update_workshop(
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut updated = settings::update_workshop(&env, &request)?;
     if !updated.replayed {
@@ -454,7 +454,7 @@ pub fn remove_workshop_section(
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut removed = settings::remove_workshop_section(&env, &request)?;
     if !removed.replayed {
@@ -483,7 +483,7 @@ pub fn reorder_workshop_sections(
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut reordered = settings::reorder_workshop_sections(&env, &request)?;
     if !reordered.replayed {
@@ -512,7 +512,7 @@ pub fn update_text_levels(
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut updated = settings::update_text_levels(&env, Some(&active.connection), &request)?;
     if !updated.replayed {
@@ -536,7 +536,7 @@ pub fn add_text_status(
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut added = settings::add_text_status(&env, &request)?;
     if !added.replayed {
@@ -560,7 +560,7 @@ pub fn add_story_links(
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut added = links::add_story_links(&env, &request)?;
     if !added.replayed {
@@ -584,7 +584,7 @@ pub fn ensure_plot_links(
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut ensured = links::ensure_plot_links(&env, &request)?;
     if !ensured.replayed && ensured.changed {
@@ -609,7 +609,7 @@ pub fn create_workshop_entity(
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut created = links::create_entity(&env, &request)?;
     let note_path = std::path::Path::new(&created.note_path);

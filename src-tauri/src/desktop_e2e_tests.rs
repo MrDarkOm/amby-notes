@@ -90,7 +90,7 @@ fn queue_change(context: &VaultContext, root: &Path, path: PathBuf) {
             watcher::queue_external_changes(
                 Ok(notify::Event::new(notify::EventKind::Any).add_path(path)),
                 root,
-                &state.own_writes,
+                &state.self_writes.own_writes,
                 active.generation,
                 &active.index_changes,
             );

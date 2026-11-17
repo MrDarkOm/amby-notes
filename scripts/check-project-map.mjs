@@ -25,7 +25,7 @@ function discover(directory) {
   }
 }
 
-for (const directory of ["src", "src-tauri", "docs", "scripts", "tests", "site"]) {
+for (const directory of ["src", "src-tauri", "crates", "docs", "scripts", "tests", "site"]) {
   discover(directory)
 }
 

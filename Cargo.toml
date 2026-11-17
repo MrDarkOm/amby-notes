@@ -1,0 +1,27 @@
+[workspace]
+members = ["crates/amby-core", "src-tauri"]
+exclude = ["sync"]
+resolver = "2"
+
+# The shipped build: whole-program optimisation and no symbol table (smaller, slightly faster
+# binary; slower release builds). Panics must keep unwinding: `lock_util` recovers a mutex left
+# poisoned by a panicking command, which `panic = "abort"` would turn into a crash.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+
+# Argon2id uses 64 MiB per derivation: optimised even in debug and test builds, otherwise every
+# test that signs in would take seconds (the same rule as in sync/Cargo.toml).
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.test.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
+[profile.test.package.blake2]
+opt-level = 3
+[profile.dev.package.chacha20poly1305]
+opt-level = 3
+[profile.test.package.chacha20poly1305]
+opt-level = 3

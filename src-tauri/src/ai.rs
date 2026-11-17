@@ -32,7 +32,7 @@ pub(crate) mod consent;
 mod index_snapshot;
 pub mod local_apps;
 mod provider_stream;
-mod tools;
+pub(crate) use amby_core::ai_tools as tools;
 pub mod turn;
 
 pub const MAX_MESSAGES_COUNT: usize = 100;

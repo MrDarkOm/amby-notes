@@ -136,7 +136,7 @@ fn compatibility_follows_the_registry() {
 #[test]
 fn the_shared_json_registry_matches_the_rust_registry() {
     let json: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../src/components/workspace/database/rollup-aggregations.json"
+        "../../../../src/components/workspace/database/rollup-aggregations.json"
     ))
     .unwrap();
     let object = json.as_object().unwrap();

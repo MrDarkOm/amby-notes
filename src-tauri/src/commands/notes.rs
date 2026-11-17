@@ -180,14 +180,14 @@ fn write_file_blocking(
     let bytes =
         frontmatter::text_bytes_for_write(&path, &content).map_err(WriteFileError::failed)?;
     let expected = watcher::fingerprint_for_bytes(&bytes);
-    let prepared = watcher_state.prepare_write([(&path, expected)]);
+    let prepared = watcher_state.self_writes.prepare_write([(&path, expected)]);
     let result = (|| {
         history::snapshot_before_write(&vault, &path, content.as_bytes(), "file-save")?;
         frontmatter::atomic_write(&path, &content)
     })();
     match result {
         Ok(()) => {
-            watcher_state.confirm_prepared_write(&prepared);
+            watcher_state.self_writes.confirm_prepared_write(&prepared);
             watcher::notify_published_files(
                 window.app_handle(),
                 &vault,
@@ -198,7 +198,7 @@ fn write_file_blocking(
             Ok(crate::database::format::raw_revision(&bytes))
         }
         Err(error) => {
-            watcher_state.cancel_prepared_write(&prepared);
+            watcher_state.self_writes.cancel_prepared_write(&prepared);
             Err(WriteFileError::failed(error))
         }
     }
@@ -233,13 +233,13 @@ pub fn save_conflict_copy(
     for _ in 0..1_000 {
         let conflict_id = ulid::Ulid::generate();
         let candidate = parent.join(format!("{stem}.{conflict_id}-conflict{extension}"));
-        let prepared = watcher_state.prepare_write([(
+        let prepared = watcher_state.self_writes.prepare_write([(
             &candidate,
             watcher::fingerprint_for_bytes(content.as_bytes()),
         )]);
         match frontmatter::atomic_write_new(&candidate, &content) {
             Ok(()) => {
-                watcher_state.confirm_prepared_write(&prepared);
+                watcher_state.self_writes.confirm_prepared_write(&prepared);
                 watcher::notify_published_files(
                     &app,
                     &vault,
@@ -250,11 +250,11 @@ pub fn save_conflict_copy(
                 return Ok(candidate.to_string_lossy().to_string());
             }
             Err(frontmatter::AtomicCreateError::AlreadyExists) => {
-                watcher_state.cancel_prepared_write(&prepared);
+                watcher_state.self_writes.cancel_prepared_write(&prepared);
                 continue;
             }
             Err(frontmatter::AtomicCreateError::Other(error)) => {
-                watcher_state.cancel_prepared_write(&prepared);
+                watcher_state.self_writes.cancel_prepared_write(&prepared);
                 return Err(error);
             }
         }
@@ -374,18 +374,24 @@ fn commit_note_write_locked(
         &request.expected_revision,
     )?;
     let expected = watcher::fingerprint_for_bytes(&prepared_note.persisted_bytes);
-    let prepared_write = watcher_state.prepare_write([(&prepared_note.path, expected)]);
+    let prepared_write = watcher_state
+        .self_writes
+        .prepare_write([(&prepared_note.path, expected)]);
     let index_data = (
         prepared_note.frontmatter_tags.clone(),
         prepared_note.links.clone(),
     );
     match vault_index::commit_prepared_note_write(vault_root, prepared_note, history_reason) {
         Ok((path, body, revision)) => {
-            watcher_state.confirm_prepared_write(&prepared_write);
+            watcher_state
+                .self_writes
+                .confirm_prepared_write(&prepared_write);
             Ok((path, body, revision, index_data))
         }
         Err(error) => {
-            watcher_state.cancel_prepared_write(&prepared_write);
+            watcher_state
+                .self_writes
+                .cancel_prepared_write(&prepared_write);
             Err(error)
         }
     }
@@ -552,18 +558,25 @@ pub fn restore_deleted_note(
         frontmatter::text_bytes_from_template(&request.source_template, &next)
             .map_err(WriteNoteError::failed)?
     };
-    let prepared_write =
-        watcher_state.prepare_write([(&path, watcher::fingerprint_for_bytes(&bytes))]);
+    let prepared_write = watcher_state
+        .self_writes
+        .prepare_write([(&path, watcher::fingerprint_for_bytes(&bytes))]);
     match frontmatter::atomic_write_bytes_new(&path, &bytes) {
-        Ok(()) => watcher_state.confirm_prepared_write(&prepared_write),
+        Ok(()) => watcher_state
+            .self_writes
+            .confirm_prepared_write(&prepared_write),
         Err(frontmatter::AtomicCreateError::AlreadyExists) => {
-            watcher_state.cancel_prepared_write(&prepared_write);
+            watcher_state
+                .self_writes
+                .cancel_prepared_write(&prepared_write);
             return Err(WriteNoteError::failed(
                 "The deleted note path reappeared; refusing to overwrite it",
             ));
         }
         Err(frontmatter::AtomicCreateError::Other(error)) => {
-            watcher_state.cancel_prepared_write(&prepared_write);
+            watcher_state
+                .self_writes
+                .cancel_prepared_write(&prepared_write);
             return Err(WriteNoteError::failed(error));
         }
     }

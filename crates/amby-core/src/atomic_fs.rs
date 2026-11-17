@@ -23,14 +23,14 @@ thread_local! {
 /// as files through the standard library, so the renamed file's own sync is
 /// still the strongest portable guarantee there.
 #[cfg(unix)]
-pub(crate) fn sync_parent_directory(parent: &Path) -> Result<(), String> {
+pub fn sync_parent_directory(parent: &Path) -> Result<(), String> {
     fs::File::open(parent)
         .and_then(|dir| dir.sync_all())
         .map_err(|error| error.to_string())
 }
 
 #[cfg(not(unix))]
-pub(crate) fn sync_parent_directory(_parent: &Path) -> Result<(), String> {
+pub fn sync_parent_directory(_parent: &Path) -> Result<(), String> {
     Ok(())
 }
 
@@ -45,15 +45,15 @@ thread_local! {
 // Test-only operation-level fault: fail the n-th `atomic_write_bytes` call on
 // this thread, either before the rename (target untouched) or right after it
 // (target published, caller sees an error as after a crash).
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 thread_local! {
     static FAIL_NTH_ATOMIC_WRITE: std::cell::Cell<(u64, bool)> = const { std::cell::Cell::new((0, false)) };
     static ATOMIC_WRITE_CALLS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     static ABORT_AT_FAULT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-#[cfg(test)]
-pub(crate) fn inject_nth_atomic_write_failure(nth: u64, after_publish: bool) {
+#[cfg(any(test, feature = "test-support"))]
+pub fn inject_nth_atomic_write_failure(nth: u64, after_publish: bool) {
     ATOMIC_WRITE_CALLS.with(|calls| calls.set(0));
     FAIL_NTH_ATOMIC_WRITE.with(|fault| fault.set((nth, after_publish)));
 }
@@ -66,14 +66,14 @@ pub(crate) fn inject_nth_atomic_write_abort(nth: u64, after_publish: bool) {
     inject_nth_atomic_write_failure(nth, after_publish);
 }
 
-#[cfg(test)]
-pub(crate) fn clear_atomic_write_failure() -> u64 {
+#[cfg(any(test, feature = "test-support"))]
+pub fn clear_atomic_write_failure() -> u64 {
     FAIL_NTH_ATOMIC_WRITE.with(|fault| fault.set((0, false)));
     ATOMIC_WRITE_CALLS.with(|calls| calls.get())
 }
 
 /// Returns `Some(after_publish)` when this call is the one to fail.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn nth_write_fault() -> Option<bool> {
     let call = ATOMIC_WRITE_CALLS.with(|calls| {
         calls.set(calls.get() + 1);
@@ -88,7 +88,7 @@ fn nth_write_fault() -> Option<bool> {
     hit.then_some(after)
 }
 
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "test-support")))]
 fn nth_write_fault() -> Option<bool> {
     None
 }
@@ -201,10 +201,7 @@ fn fallback_copy_temp_new(source: &Path, target: &Path) -> Result<(), AtomicCrea
 /// Hard links give an all-or-nothing publish where supported. Filesystems that
 /// reject them use a create_new reservation plus streamed, synced copy; the
 /// reservation preserves the no-overwrite guarantee even under a collision.
-pub(crate) fn publish_prepared_no_replace(
-    temp: &Path,
-    target: &Path,
-) -> Result<(), AtomicCreateError> {
+pub fn publish_prepared_no_replace(temp: &Path, target: &Path) -> Result<(), AtomicCreateError> {
     #[cfg(test)]
     if let Some(content) = CREATE_TARGET_AT_PUBLISH.with(|pending| pending.borrow_mut().take()) {
         fs::write(target, content).map_err(atomic_create_error)?;
@@ -358,7 +355,7 @@ where
     }
 }
 
-pub(crate) fn atomic_rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
+pub fn atomic_rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
     rename_with_retry(|| fs::rename(from, to))
 }
 
@@ -393,7 +390,7 @@ pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> Result<(), String> {
         fail_if_requested(4)?;
         atomic_rename_with_retry(&tmp, path).map_err(|e| e.to_string())?;
         if nth_fault == Some(true) {
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             if ABORT_AT_FAULT.with(|abort| abort.get()) {
                 std::process::abort();
             }

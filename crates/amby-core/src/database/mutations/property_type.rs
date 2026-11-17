@@ -4,13 +4,13 @@ use std::path::{Path, PathBuf};
 use crate::database::format::{parse_manifest, prepare_json, PropertyDefinition};
 use crate::database::validation::validate_manifest;
 use crate::frontmatter::{self};
-use crate::watcher::{self, WatcherState};
+use crate::self_write::{self, SelfWriteTracker};
 
 use super::*;
 
 pub fn change_database_property_type(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &ChangeDatabasePropertyTypeRequest,
 ) -> Result<ChangedDatabasePropertyType, String> {
     let operation_may_be_relation =
@@ -443,7 +443,7 @@ pub fn change_database_property_type(
         )?;
         let prepared_write = watcher.prepare_write([(
             writes[0].path.clone(),
-            watcher::fingerprint_for_bytes(&writes[0].post_bytes),
+            self_write::fingerprint_for_bytes(&writes[0].post_bytes),
         )]);
         if let Err(error) = frontmatter::atomic_write_bytes(&writes[0].path, &writes[0].post_bytes)
         {

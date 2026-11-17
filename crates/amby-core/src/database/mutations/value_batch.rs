@@ -5,7 +5,7 @@ use crate::database::format::{parse_manifest, raw_revision, PropertyDefinition, 
 use crate::database::value_batch_recovery::BatchRecovery;
 use crate::durable::valid_operation_id;
 use crate::frontmatter::{self};
-use crate::watcher::{self, WatcherState};
+use crate::self_write::{self, SelfWriteTracker};
 
 use super::*;
 
@@ -54,7 +54,7 @@ pub(super) fn relation_targets_from_content(
 /// note's frontmatter using raw-byte CAS.
 pub fn apply_value_batch(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &DatabaseValueBatchRequest,
     history: Option<&crate::database::history::DatabaseHistoryState>,
 ) -> Result<DatabaseValueBatchResult, String> {
@@ -94,7 +94,7 @@ impl std::fmt::Display for ValueBatchError {
 /// [`apply_value_batch`] with a typed error.
 pub fn apply_value_batch_typed(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &DatabaseValueBatchRequest,
     history: Option<&crate::database::history::DatabaseHistoryState>,
 ) -> Result<DatabaseValueBatchResult, ValueBatchError> {
@@ -276,7 +276,7 @@ pub fn apply_value_batch_typed(
     let prepared_writes = watcher.prepare_write(
         planned_writes
             .iter()
-            .map(|(path, bytes, _, _)| (path.as_path(), watcher::fingerprint_for_bytes(bytes))),
+            .map(|(path, bytes, _, _)| (path.as_path(), self_write::fingerprint_for_bytes(bytes))),
     );
 
     let mut write_error = None;

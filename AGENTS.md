@@ -52,7 +52,7 @@ and attachments. SQLite is rebuildable; durable sidecars and recovery data are n
 - Errors, warnings, conflicts and confirmations follow [notice rules](docs/notices.md):
   one level, one place, at most one announcement; no raw error text, no new native dialogs.
 - Keep Tauri permissions narrow and vault paths canonicalized. Never commit
-  secrets, vault contents, recovery data, `dist/` or `src-tauri/target/`.
+  secrets, vault contents, recovery data, `dist/` or Cargo targets.
 - Preserve unrelated working changes. Start feature/fix work from `dev`.
 - Branches: `dev` (work, plus the development files in `scripts/dev-only-paths.txt`:
   agent instructions, maps, plans) → `beta` (to try out) → `main` (the product).

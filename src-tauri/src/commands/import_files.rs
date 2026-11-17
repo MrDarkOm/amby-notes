@@ -4,6 +4,7 @@
 //! extension. The copies are not registered as the application's own writes, so the watcher
 //! reports them like files that arrived from a file manager and the index picks them up.
 
+use crate::paths::free_path;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -18,7 +19,6 @@ use crate::vault_context::VaultContext;
 /// One drop may bring a whole folder; this bounds the work of a single call.
 const MAX_IMPORTED_FILES: usize = 5_000;
 const MAX_FOLDER_DEPTH: usize = 32;
-const MAX_NAME_TRIES: u32 = 1_000;
 
 #[derive(Debug, Default, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -125,32 +125,6 @@ fn skipped(name: &str, reason: &str) -> ImportSkipped {
         name: name.to_string(),
         reason: reason.to_string(),
     }
-}
-
-/// `name`, or `stem 2.ext`, `stem 3.ext`... for the first one that is free in `dir`.
-pub(crate) fn free_path(dir: &Path, name: &str) -> PathBuf {
-    let first = dir.join(name);
-    if fs::symlink_metadata(&first).is_err() {
-        return first;
-    }
-    let (stem, ext) = match name.rfind('.') {
-        Some(index) if index > 0 => (&name[..index], &name[index..]),
-        _ => (name, ""),
-    };
-    for number in 2..MAX_NAME_TRIES {
-        let candidate = dir.join(format!("{stem} {number}{ext}"));
-        if fs::symlink_metadata(&candidate).is_err() {
-            return candidate;
-        }
-    }
-    dir.join(format!("{stem} {}{ext}", paths_unique_suffix()))
-}
-
-fn paths_unique_suffix() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_nanos())
-        .unwrap_or_default()
 }
 
 #[allow(clippy::too_many_arguments)]

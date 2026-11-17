@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::database::format::{parse_manifest, prepare_json, raw_revision, PropertyDefinition};
 use crate::database::validation::validate_manifest;
 use crate::frontmatter::{self};
-use crate::watcher::{self, WatcherState};
+use crate::self_write::{self, SelfWriteTracker};
 
 use super::*;
 
@@ -104,7 +104,7 @@ pub(super) fn normalize_option_inputs(
 /// so deleting an option can never lose data.
 pub fn update_database_property_options(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &UpdateDatabasePropertyOptionsRequest,
 ) -> Result<UpdatedDatabasePropertyOptions, String> {
     let inputs = normalize_option_inputs(&request.options)?;
@@ -247,7 +247,7 @@ pub fn update_database_property_options(
     )?;
     let write = watcher.prepare_write([(
         &manifest_path,
-        watcher::fingerprint_for_bytes(&prepared.bytes),
+        self_write::fingerprint_for_bytes(&prepared.bytes),
     )]);
     if let Err(error) = frontmatter::atomic_write_bytes(&manifest_path, &prepared.bytes) {
         watcher.cancel_prepared_write(&write);

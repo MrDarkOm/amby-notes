@@ -4,8 +4,8 @@ use super::super::mutations::{
     DatabaseCreateMode, DatabaseManifestRevision,
 };
 use super::*;
+use crate::self_write::SelfWriteTracker;
 use crate::vault_context::VaultContext;
-use crate::watcher::WatcherState;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
@@ -35,7 +35,7 @@ fn temp_vault() -> PathBuf {
 
 fn schema_recovery_fixture() -> SchemaRecoveryFixture {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let source = create_database(
         &vault,
         &watcher,
@@ -154,7 +154,7 @@ fn backup_path(fixture: &SchemaRecoveryFixture, index: usize) -> PathBuf {
 }
 
 fn publish_fixture(fixture: &SchemaRecoveryFixture) {
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     publish(
         &fixture.vault,
         &watcher,
@@ -204,7 +204,7 @@ struct TypeChangeRecoveryFixture {
 fn type_change_recovery_fixture(step_count: usize) -> TypeChangeRecoveryFixture {
     assert!(matches!(step_count, 1 | 3));
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let mut databases = Vec::new();
     for name in (0..step_count).map(|index| match index {
         0 => "Source".to_owned(),
@@ -328,7 +328,7 @@ fn v2_property_type_recovery_restores_source_only_manifest_after_crash() {
 #[test]
 fn v2_readonly_related_edit_before_completion_rolls_back_source_and_preserves_external_bytes() {
     let mut fixture = type_change_recovery_fixture(1);
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let target = create_database(
         &fixture.vault,
         &watcher,
@@ -521,7 +521,7 @@ fn schema_recovery_journal_metadata_cas_blocks_progress_after_external_edit() {
 #[test]
 fn schema_publish_error_rolls_back_written_source_and_records_rolled_back_outcome() {
     let fixture = schema_recovery_fixture();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let journal = prepare_journal(
         &fixture.vault,
         &fixture.request,
@@ -532,7 +532,7 @@ fn schema_publish_error_rolls_back_written_source_and_records_rolled_back_outcom
     let prepared = watcher.prepare_write(fixture.writes.iter().map(|write| {
         (
             write.path.clone(),
-            crate::watcher::fingerprint_for_bytes(&write.post_bytes),
+            crate::self_write::fingerprint_for_bytes(&write.post_bytes),
         )
     }));
     fs::write(&fixture.source_path, &fixture.source_post).unwrap();
@@ -558,7 +558,7 @@ fn schema_publish_error_rolls_back_written_source_and_records_rolled_back_outcom
 #[test]
 fn schema_publish_error_preserves_external_source_and_rolls_back_target() {
     let fixture = schema_recovery_fixture();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let journal = prepare_journal(
         &fixture.vault,
         &fixture.request,
@@ -569,7 +569,7 @@ fn schema_publish_error_preserves_external_source_and_rolls_back_target() {
     let prepared = watcher.prepare_write(fixture.writes.iter().map(|write| {
         (
             write.path.clone(),
-            crate::watcher::fingerprint_for_bytes(&write.post_bytes),
+            crate::self_write::fingerprint_for_bytes(&write.post_bytes),
         )
     }));
     let source_external = b"external source manifest".to_vec();
@@ -600,7 +600,7 @@ fn schema_publish_error_preserves_external_source_and_rolls_back_target() {
 #[test]
 fn schema_publish_error_refuses_all_rollback_after_journal_metadata_edit() {
     let fixture = schema_recovery_fixture();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let journal = prepare_journal(
         &fixture.vault,
         &fixture.request,
@@ -611,7 +611,7 @@ fn schema_publish_error_refuses_all_rollback_after_journal_metadata_edit() {
     let prepared = watcher.prepare_write(fixture.writes.iter().map(|write| {
         (
             write.path.clone(),
-            crate::watcher::fingerprint_for_bytes(&write.post_bytes),
+            crate::self_write::fingerprint_for_bytes(&write.post_bytes),
         )
     }));
     rewrite_journal(&fixture, |value| {

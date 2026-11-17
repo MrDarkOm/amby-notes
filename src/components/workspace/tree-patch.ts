@@ -1,7 +1,7 @@
 import type { TreeItem, TreePatch, TreePatchOp } from "@/lib/storage"
 
 // Applies the sidebar-tree patch the backend builds from the disk after a mutation or a watcher
-// event (`src-tauri/src/vault/tree_patch.rs`). The backend rebuilds every touched entry with the
+// event (`crates/amby-core/src/vault/tree_patch.rs`). The backend rebuilds every touched entry with the
 // same code that builds the whole tree, so applying its patch gives the tree a full reload would.
 // What stays here is the place of an item among its siblings: folders, bundles and databases
 // first, then files, each by lower-case name in code point order (what `build_tree` does).

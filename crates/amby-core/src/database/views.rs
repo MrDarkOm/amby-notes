@@ -21,7 +21,7 @@ use super::model::{
 };
 use super::validation::validate_view;
 use crate::frontmatter::{self, AtomicCreateError};
-use crate::watcher::{self, WatcherState};
+use crate::self_write::{self, SelfWriteTracker};
 
 fn database_container(vault: &Path, database_id: &str) -> Result<PathBuf, String> {
     discover_vault(vault)?
@@ -62,8 +62,8 @@ fn json_bytes(value: &Value) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-fn publish_existing(watcher: &WatcherState, path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let prepared = watcher.prepare_write([(path, watcher::fingerprint_for_bytes(bytes))]);
+fn publish_existing(watcher: &SelfWriteTracker, path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let prepared = watcher.prepare_write([(path, self_write::fingerprint_for_bytes(bytes))]);
     if let Err(error) = frontmatter::atomic_write_bytes(path, bytes) {
         watcher.cancel_prepared_write(&prepared);
         return Err(error);
@@ -157,7 +157,7 @@ pub fn get_view(
 
 pub fn create_view(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &CreateDatabaseViewRequest,
 ) -> Result<DatabaseViewDocument, String> {
     let name = request.name.trim();
@@ -215,7 +215,7 @@ pub fn create_view(
 
 pub fn rename_view(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &RenameDatabaseViewRequest,
 ) -> Result<DatabaseViewMutationResult, String> {
     let name = request.name.trim();
@@ -277,7 +277,7 @@ pub fn rename_view(
 
 pub fn update_view_config(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &UpdateDatabaseViewConfigRequest,
 ) -> Result<DatabaseViewMutationResult, String> {
     let (container, _, parsed_manifest) = read_manifest(vault, &request.database_id)?;
@@ -342,7 +342,7 @@ pub fn update_view_config(
 
 pub fn duplicate_view(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &DatabaseViewRequest,
 ) -> Result<DatabaseViewDocument, String> {
     let (container, _original_manifest, manifest) = read_manifest(vault, &request.database_id)?;
@@ -397,10 +397,10 @@ pub fn duplicate_view(
         json_bytes(&serde_json::to_value(&next_manifest).map_err(|error| error.to_string())?)?;
     let path = view_path(&container, &new_id);
     let prepared = watcher.prepare_write([
-        (&path, watcher::fingerprint_for_bytes(&next_view)),
+        (&path, self_write::fingerprint_for_bytes(&next_view)),
         (
             &manifest_path,
-            watcher::fingerprint_for_bytes(&next_manifest),
+            self_write::fingerprint_for_bytes(&next_manifest),
         ),
     ]);
     if let Err(error) = publish_new(&path, &next_view) {
@@ -418,7 +418,7 @@ pub fn duplicate_view(
 
 pub fn delete_view(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &DeleteDatabaseViewRequest,
 ) -> Result<DatabaseViewMutationResult, String> {
     let (container, original_manifest, manifest) = read_manifest(vault, &request.database_id)?;
@@ -507,7 +507,7 @@ pub fn delete_view(
 
 pub fn reorder_views(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &ReorderDatabaseViewsRequest,
 ) -> Result<DatabaseViewMutationResult, String> {
     let (container, _, manifest) = read_manifest(vault, &request.database_id)?;
@@ -550,7 +550,7 @@ pub fn reorder_views(
 
 pub fn set_default_view(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &DatabaseViewRequest,
 ) -> Result<DatabaseViewMutationResult, String> {
     let (container, _, manifest) = read_manifest(vault, &request.database_id)?;
@@ -621,7 +621,7 @@ mod tests {
     #[test]
     fn view_crud_preserves_portable_files_and_cas_revisions() {
         let vault = temp_vault("crud");
-        let watcher = WatcherState::new();
+        let watcher = SelfWriteTracker::new();
         let created = create_database(
             &vault,
             &watcher,
@@ -710,7 +710,7 @@ mod tests {
     #[test]
     fn delete_view_accepts_sqlite_projection_revision_without_newline() {
         let vault = temp_vault("del-rev");
-        let watcher = WatcherState::new();
+        let watcher = SelfWriteTracker::new();
         let created = create_database(
             &vault,
             &watcher,

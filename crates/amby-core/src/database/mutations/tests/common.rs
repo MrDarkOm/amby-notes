@@ -7,9 +7,9 @@ pub(super) fn temp_vault() -> PathBuf {
 }
 
 pub(super) fn relation_schema_database_pair(
-) -> (PathBuf, WatcherState, CreatedDatabase, CreatedDatabase) {
+) -> (PathBuf, SelfWriteTracker, CreatedDatabase, CreatedDatabase) {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let source = create_database(
         &vault,
         &watcher,
@@ -43,7 +43,7 @@ pub(super) fn current_manifest_revision(database: &CreatedDatabase) -> String {
 
 pub(super) struct RelationFixture {
     pub(super) vault: PathBuf,
-    pub(super) watcher: WatcherState,
+    pub(super) watcher: SelfWriteTracker,
     pub(super) source_database_id: String,
     pub(super) source_note_id: String,
     pub(super) source_property_id: String,
@@ -60,7 +60,7 @@ pub(super) struct RelationFixture {
 
 pub(super) fn relation_fixture() -> RelationFixture {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let source = create_database(
         &vault,
         &watcher,
@@ -185,12 +185,12 @@ pub(super) fn option_fixture(
     names: &[&str],
 ) -> (
     PathBuf,
-    WatcherState,
+    SelfWriteTracker,
     CreatedDatabase,
     CreatedDatabaseProperty,
 ) {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,

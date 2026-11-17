@@ -1,7 +1,7 @@
 //! A published receipt must never point at a copy removed during error cleanup.
 
 use super::backup;
-use crate::frontmatter::{clear_atomic_write_failure, inject_nth_atomic_write_failure};
+use amby_core::atomic_fs::{clear_atomic_write_failure, inject_nth_atomic_write_failure};
 
 #[test]
 fn an_error_after_receipt_publication_keeps_the_complete_copy_for_retry() {

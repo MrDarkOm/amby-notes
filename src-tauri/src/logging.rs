@@ -1776,4 +1776,21 @@ mod tests {
             .as_ref()
             .is_some_and(|m| m.get("error").is_none())));
     }
+
+    #[test]
+    fn the_reason_codes_pass_the_privacy_filter_as_they_are() {
+        for code in [
+            "NoteNotIndexed",
+            "FileNotFound",
+            "InvalidData",
+            "PermissionDenied",
+            "IoError",
+        ] {
+            assert_eq!(
+                crate::logging::sanitized_error_code(code).as_deref(),
+                Some(code),
+                "{code} must reach the journal"
+            );
+        }
+    }
 }

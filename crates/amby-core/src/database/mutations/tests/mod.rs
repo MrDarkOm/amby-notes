@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::database::format::{parse_manifest, raw_revision, PropertyValue};
 use crate::database::validation::validate_manifest;
 use crate::frontmatter::{self};
-use crate::watcher::WatcherState;
+use crate::self_write::SelfWriteTracker;
 
 use super::*;
 use crate::database::history::DatabaseHistoryState;

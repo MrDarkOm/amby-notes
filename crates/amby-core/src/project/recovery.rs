@@ -19,7 +19,7 @@ use crate::database::discovery::manifest_path_for_container;
 use crate::database::format::raw_revision;
 use crate::database::mutations::{new_database_manifest_bytes, PlannedDatabaseIds};
 use crate::durable;
-use crate::watcher::is_amby_temporary_file;
+use crate::self_write::is_amby_temporary_file;
 
 const LABEL: &str = "Creative recovery";
 

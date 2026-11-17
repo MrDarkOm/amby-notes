@@ -302,9 +302,12 @@ pub fn start_vault_watcher(
             Arc::clone(&active.index_changes),
         )
     };
-    state.active_generation.store(generation, Ordering::Release);
-    let own_writes = Arc::clone(&state.own_writes);
-    let active_generation = Arc::clone(&state.active_generation);
+    state
+        .self_writes
+        .active_generation
+        .store(generation, Ordering::Release);
+    let own_writes = Arc::clone(&state.self_writes.own_writes);
+    let active_generation = Arc::clone(&state.self_writes.active_generation);
     let batch = Arc::clone(&state.batch);
     let app_handle = app.clone();
     let watched_vault = vault.clone();
@@ -336,7 +339,10 @@ pub fn start_vault_watcher(
     watcher
         .watch(&vault, notify::RecursiveMode::Recursive)
         .map_err(|error| {
-            state.active_generation.store(0, Ordering::Release);
+            state
+                .self_writes
+                .active_generation
+                .store(0, Ordering::Release);
             error.to_string()
         })?;
 
@@ -355,7 +361,10 @@ pub fn stop_vault_watcher(
 ) -> Result<(), String> {
     crate::sync::deactivate_for_closed_vault(&app);
     *state.watcher.lock_or_recover() = None;
-    state.active_generation.store(0, Ordering::Release);
+    state
+        .self_writes
+        .active_generation
+        .store(0, Ordering::Release);
     context.set_watcher_identity(None)?;
     Ok(())
 }

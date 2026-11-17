@@ -9,7 +9,7 @@ use std::path::{Component, Path, PathBuf};
 use crate::frontmatter::{self, AtomicCreateError};
 
 /// Operation IDs become file names, so they are restricted to a portable subset.
-pub(crate) fn valid_operation_id(value: &str) -> bool {
+pub fn valid_operation_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 160
         && value
@@ -53,7 +53,7 @@ pub(crate) fn relative_components<'a>(
 /// Joins `relative` under `vault`, rejecting symlinks anywhere on the way
 /// (including aliases that stay inside the vault) and paths that canonicalize
 /// elsewhere.
-pub(crate) fn guarded_path(vault: &Path, relative: &str, label: &str) -> Result<PathBuf, String> {
+pub fn guarded_path(vault: &Path, relative: &str, label: &str) -> Result<PathBuf, String> {
     let mut path = vault.to_path_buf();
     for component in relative_components(relative, label)? {
         path.push(component);
@@ -73,7 +73,7 @@ pub(crate) fn guarded_path(vault: &Path, relative: &str, label: &str) -> Result<
 }
 
 /// Inverse of [`guarded_path`]: a vault-relative `/`-joined string.
-pub(crate) fn relative_string(vault: &Path, path: &Path, label: &str) -> Result<String, String> {
+pub fn relative_string(vault: &Path, path: &Path, label: &str) -> Result<String, String> {
     let relative = path
         .strip_prefix(vault)
         .map_err(|_| format!("{label} path is outside the vault"))?;

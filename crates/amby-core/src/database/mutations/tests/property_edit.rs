@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn property_rename_updates_manifest_and_preserves_property_id() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,
@@ -75,7 +75,7 @@ fn property_rename_updates_manifest_and_preserves_property_id() {
 #[test]
 fn property_rename_preserves_notes_and_explicit_binding_across_nested_database() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,
@@ -195,7 +195,7 @@ fn property_rename_preserves_notes_and_explicit_binding_across_nested_database()
 #[test]
 fn legacy_property_rename_pins_storage_key_for_repeated_renames_and_edits() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,
@@ -319,7 +319,7 @@ fn legacy_property_rename_pins_storage_key_for_repeated_renames_and_edits() {
 #[test]
 fn computed_property_rename_does_not_create_yaml_bindings() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,
@@ -425,7 +425,7 @@ fn computed_property_rename_does_not_create_yaml_bindings() {
 #[test]
 fn explicit_binding_rename_rejects_legacy_display_value_without_writing() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,
@@ -495,7 +495,7 @@ fn explicit_binding_rename_rejects_legacy_display_value_without_writing() {
 #[test]
 fn legacy_binding_pin_rejects_case_insensitive_yaml_binding_collision() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,
@@ -581,7 +581,7 @@ fn legacy_binding_pin_rejects_case_insensitive_yaml_binding_collision() {
 #[test]
 fn legacy_binding_pin_rejects_collision_with_foreign_property_id() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,
@@ -671,7 +671,7 @@ fn legacy_binding_pin_rejects_collision_with_foreign_property_id() {
 #[test]
 fn property_rename_rejects_name_based_formula_dependency_without_writing() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,
@@ -759,7 +759,7 @@ fn property_rename_rejects_name_based_formula_dependency_without_writing() {
 #[test]
 fn property_insert_and_delete_update_schema_order() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,

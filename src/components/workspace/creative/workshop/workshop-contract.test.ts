@@ -25,7 +25,7 @@ import {
 
 /**
  * The workshop in `real-workshop.fixture.json` was built by the real Rust write path and read back
- * through the real index and query (`src-tauri/src/project/contract_test.rs` keeps the file equal
+ * through the real index and query (`crates/amby-core/src/project/contract_test.rs` keeps the file equal
  * to that output). Nothing here is a mock: these are the keys and shapes the backend really sends,
  * so a rename on either side fails one of the two tests.
  */

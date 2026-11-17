@@ -45,10 +45,10 @@ impl SystemTrash for OsTrash {
 
 /// A system trash that refuses everything: what `VaultFs` asks in the tests of the application
 /// (К11 (и)), so no test touches the real trash.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub struct RefusingTrash;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl SystemTrash for RefusingTrash {
     fn trash(&self, _path: &Path) -> Result<(), String> {
         Err("the system trash is not used in tests".to_string())

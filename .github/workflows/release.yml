@@ -83,7 +83,7 @@ jobs:
           components: rustfmt, clippy
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: . -> target
       - run: npm ci
       - run: npm run rust:fmt
       - run: npm run rust:clippy
@@ -142,7 +142,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: . -> target
       - run: npm ci
       - run: npm run rust:test
       - if: matrix.browser
@@ -207,7 +207,7 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: . -> target
           # The two Windows builds share a runner image; their caches must not overwrite each other.
           key: ${{ matrix.rust-targets }}
 

@@ -5,7 +5,7 @@ fn standalone_creation_writes_manifest_and_default_view_without_markdown() {
     let vault = temp_vault();
     let result = create_database(
         &vault,
-        &WatcherState::new(),
+        &SelfWriteTracker::new(),
         &CreateDatabaseRequest {
             expected_generation: 1,
             mode: DatabaseCreateMode::Standalone,
@@ -39,7 +39,7 @@ fn attached_creation_preserves_note_bytes() {
     fs::write(&note, original).unwrap();
     let result = create_database(
         &vault,
-        &WatcherState::new(),
+        &SelfWriteTracker::new(),
         &CreateDatabaseRequest {
             expected_generation: 1,
             mode: DatabaseCreateMode::Attached,
@@ -58,7 +58,7 @@ fn attached_creation_preserves_note_bytes() {
 #[test]
 fn database_rename_updates_manifest_with_raw_revision_cas() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,
@@ -102,7 +102,7 @@ fn database_rename_updates_manifest_with_raw_revision_cas() {
 #[test]
 fn creates_standalone_database_with_named_json_file() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
 
     let created = create_database(
         &vault,

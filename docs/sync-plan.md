@@ -397,7 +397,7 @@ First-version API (JSON over HTTPS):
 ### Р12. Where the code lives
 
 - A separate Cargo workspace `sync/`: `sync/proto` (types and formats), `sync/core` (cryptography and the sync
-  engine), `sync/server` (the server and `Dockerfile`). Separate, so as not to touch `src-tauri/target`,
+  engine), `sync/server` (the server and `Dockerfile`). Separate, so as not to touch the desktop workspace’s `target/`,
   the app's scripts and CI and so that the server builds in Docker without Tauri dependencies.
 - `sync/core` works with files, network, time and randomness only through interfaces. That way it can be
   run in the simulation (section 7) and later hooked up to the phone and the web.

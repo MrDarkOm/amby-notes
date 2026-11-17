@@ -374,8 +374,9 @@ pub fn create_database(
                 .transpose()
                 .map_err(failed("invalidNotePath"))?
                 .map(|path| path.to_string_lossy().to_string());
-            let mut created = crate::database::mutations::create_database(root, &watcher, &request)
-                .map_err(failed("databaseCreateFailed"))?;
+            let mut created =
+                crate::database::mutations::create_database(root, &watcher.self_writes, &request)
+                    .map_err(failed("databaseCreateFailed"))?;
             scope.rebuild_or_warn(&mut created.warnings);
             Ok(created)
         },
@@ -399,7 +400,7 @@ pub fn create_database_property(
         |scope| {
             let mut created = crate::database::mutations::create_database_property(
                 &scope.active.root,
-                &watcher,
+                &watcher.self_writes,
                 &request,
             )
             .map_err(failed("databasePropertyCreateFailed"))?;
@@ -432,7 +433,7 @@ pub fn change_database_property_type(
         |scope| {
             let mut changed = crate::database::mutations::change_database_property_type(
                 &scope.active.root,
-                &watcher,
+                &watcher.self_writes,
                 &request,
             )
             .map_err(failed("databasePropertyTypeChangeFailed"))?;
@@ -465,7 +466,7 @@ pub fn delete_database_property(
         |scope| {
             let mut deleted = crate::database::mutations::delete_database_property(
                 &scope.active.root,
-                &watcher,
+                &watcher.self_writes,
                 &request,
             )
             .map_err(failed("databasePropertyDeleteFailed"))?;
@@ -497,7 +498,7 @@ pub fn reorder_database_properties(
         |scope| {
             let mut reordered = crate::database::mutations::reorder_database_properties(
                 &scope.active.root,
-                &watcher,
+                &watcher.self_writes,
                 &request,
             )
             .map_err(failed("databasePropertiesReorderFailed"))?;
@@ -525,9 +526,12 @@ pub fn rename_database(
         Some(request.expected_generation),
         &|generation, result| notify_database_written(&app, generation, result),
         |scope| {
-            let mut renamed =
-                crate::database::mutations::rename_database(&scope.active.root, &watcher, &request)
-                    .map_err(failed("databaseRenameFailed"))?;
+            let mut renamed = crate::database::mutations::rename_database(
+                &scope.active.root,
+                &watcher.self_writes,
+                &request,
+            )
+            .map_err(failed("databaseRenameFailed"))?;
             scope.rebuild_or_warn(&mut renamed.warnings);
             Ok(renamed)
         },
@@ -551,7 +555,7 @@ pub fn rename_database_property(
         |scope| {
             let mut renamed = crate::database::mutations::rename_database_property(
                 &scope.active.root,
-                &watcher,
+                &watcher.self_writes,
                 &request,
             )
             .map_err(failed("databasePropertyRenameFailed"))?;
@@ -584,7 +588,7 @@ pub fn update_database_property_config(
         |scope| {
             let mut updated = crate::database::mutations::update_database_property_config(
                 &scope.active.root,
-                &watcher,
+                &watcher.self_writes,
                 &request,
             )
             .map_err(failed("databasePropertyConfigFailed"))?;
@@ -616,7 +620,7 @@ pub fn update_database_property_options(
         |scope| {
             let mut updated = crate::database::mutations::update_database_property_options(
                 &scope.active.root,
-                &watcher,
+                &watcher.self_writes,
                 &request,
             )
             .map_err(failed("databasePropertyOptionsFailed"))?;
@@ -649,7 +653,7 @@ pub fn configure_database_rollup(
         |scope| {
             let mut configured = crate::database::rollup_config::configure_database_rollup(
                 &scope.active.root,
-                &watcher,
+                &watcher.self_writes,
                 &request,
             )
             .map_err(failed("databaseRollupConfigureFailed"))?;
@@ -687,7 +691,7 @@ pub fn apply_database_value_batch(
                 Some(result) => result,
                 None => crate::database::mutations::apply_value_batch(
                     &scope.active.root,
-                    &watcher,
+                    &watcher.self_writes,
                     &request,
                     Some(&history),
                 )
@@ -739,7 +743,7 @@ pub fn update_database_relation_value(
         |scope| {
             let mut result = crate::database::mutations::update_database_relation_value(
                 &scope.active.root,
-                &watcher,
+                &watcher.self_writes,
                 &request,
                 Some(&history),
             )
@@ -775,7 +779,7 @@ pub fn undo_database_mutation(
         &|generation, result| notify_database_written(&app, generation, result),
         |scope| {
             let result = history
-                .undo(&scope.active.root, &watcher, &database_id)
+                .undo(&scope.active.root, &watcher.self_writes, &database_id)
                 .map_err(failed("undoDatabaseMutationFailed"))?;
             scope.refresh_after_history(&database_id, &result);
             Ok(result)
@@ -800,7 +804,7 @@ pub fn redo_database_mutation(
         &|generation, result| notify_database_written(&app, generation, result),
         |scope| {
             let result = history
-                .redo(&scope.active.root, &watcher, &database_id)
+                .redo(&scope.active.root, &watcher.self_writes, &database_id)
                 .map_err(failed("redoDatabaseMutationFailed"))?;
             scope.refresh_after_history(&database_id, &result);
             Ok(result)
@@ -832,9 +836,12 @@ pub fn create_database_row(
         Some(request.expected_generation),
         &|generation, result| notify_database_written(&app, generation, result),
         |scope| {
-            let mut created =
-                crate::database::rows::create_database_row(&scope.active.root, &watcher, &request)
-                    .map_err(failed("databaseRowCreateFailed"))?;
+            let mut created = crate::database::rows::create_database_row(
+                &scope.active.root,
+                &watcher.self_writes,
+                &request,
+            )
+            .map_err(failed("databaseRowCreateFailed"))?;
             scope.index_created_row(&mut created);
             scope.rebuild_databases_or_warn(&[request.database_id.as_str()], &mut created.warnings);
             tracing::info!(
@@ -865,7 +872,7 @@ pub fn duplicate_database_row(
         |scope| {
             let mut created = crate::database::rows::duplicate_database_row(
                 &scope.active.root,
-                &watcher,
+                &watcher.self_writes,
                 &request,
             )
             .map_err(failed("databaseRowDuplicateFailed"))?;
@@ -897,8 +904,12 @@ pub fn import_database_asset(
         Some(request.expected_generation),
         &|generation, result| notify_database_written(&app, generation, result),
         |scope| {
-            crate::database::assets::import_database_asset(&scope.active.root, &watcher, &request)
-                .map_err(failed("databaseAssetImportFailed"))
+            crate::database::assets::import_database_asset(
+                &scope.active.root,
+                &watcher.self_writes,
+                &request,
+            )
+            .map_err(failed("databaseAssetImportFailed"))
         },
     )
 }
@@ -978,9 +989,12 @@ pub fn sync_database_yaml(
         Some(request.expected_generation),
         &|generation, result| notify_database_written(&app, generation, result),
         |scope| {
-            let result =
-                crate::database::yaml_sync::sync_note(&scope.active.root, &watcher, &request)
-                    .map_err(failed("databaseYamlSyncFailed"))?;
+            let result = crate::database::yaml_sync::sync_note(
+                &scope.active.root,
+                &watcher.self_writes,
+                &request,
+            )
+            .map_err(failed("databaseYamlSyncFailed"))?;
             if result.changed {
                 scope.rebuild();
             }
@@ -1006,7 +1020,7 @@ pub fn resolve_database_yaml_conflict(
         |scope| {
             let result = crate::database::yaml_sync::resolve_yaml_conflict(
                 &scope.active.root,
-                &watcher,
+                &watcher.self_writes,
                 &request,
             )
             .map_err(failed("databaseYamlConflictResolutionFailed"))?;
@@ -1051,9 +1065,12 @@ pub fn create_database_view(
         Some(request.expected_generation),
         &|generation, result| notify_database_written(&app, generation, result),
         |scope| {
-            let result =
-                crate::database::views::create_view(&scope.active.root, &watcher, &request)
-                    .map_err(failed("databaseViewCreateFailed"))?;
+            let result = crate::database::views::create_view(
+                &scope.active.root,
+                &watcher.self_writes,
+                &request,
+            )
+            .map_err(failed("databaseViewCreateFailed"))?;
             scope.refresh_views(&request.database_id);
             Ok(result)
         },
@@ -1075,9 +1092,12 @@ pub fn rename_database_view(
         Some(request.expected_generation),
         &|generation, result| notify_database_written(&app, generation, result),
         |scope| {
-            let result =
-                crate::database::views::rename_view(&scope.active.root, &watcher, &request)
-                    .map_err(failed("databaseViewRenameFailed"))?;
+            let result = crate::database::views::rename_view(
+                &scope.active.root,
+                &watcher.self_writes,
+                &request,
+            )
+            .map_err(failed("databaseViewRenameFailed"))?;
             scope.refresh_views(&request.database_id);
             Ok(result)
         },
@@ -1099,9 +1119,12 @@ pub fn update_database_view_config(
         Some(request.expected_generation),
         &|generation, result| notify_database_written(&app, generation, result),
         |scope| {
-            let result =
-                crate::database::views::update_view_config(&scope.active.root, &watcher, &request)
-                    .map_err(failed("databaseViewUpdateFailed"))?;
+            let result = crate::database::views::update_view_config(
+                &scope.active.root,
+                &watcher.self_writes,
+                &request,
+            )
+            .map_err(failed("databaseViewUpdateFailed"))?;
             scope.refresh_views(&request.database_id);
             Ok(result)
         },
@@ -1123,9 +1146,12 @@ pub fn duplicate_database_view(
         Some(request.expected_generation),
         &|generation, result| notify_database_written(&app, generation, result),
         |scope| {
-            let result =
-                crate::database::views::duplicate_view(&scope.active.root, &watcher, &request)
-                    .map_err(failed("databaseViewDuplicateFailed"))?;
+            let result = crate::database::views::duplicate_view(
+                &scope.active.root,
+                &watcher.self_writes,
+                &request,
+            )
+            .map_err(failed("databaseViewDuplicateFailed"))?;
             scope.refresh_views(&request.database_id);
             Ok(result)
         },
@@ -1147,9 +1173,12 @@ pub fn delete_database_view(
         Some(request.expected_generation),
         &|generation, result| notify_database_written(&app, generation, result),
         |scope| {
-            let result =
-                crate::database::views::delete_view(&scope.active.root, &watcher, &request)
-                    .map_err(failed("databaseViewDeleteFailed"))?;
+            let result = crate::database::views::delete_view(
+                &scope.active.root,
+                &watcher.self_writes,
+                &request,
+            )
+            .map_err(failed("databaseViewDeleteFailed"))?;
             scope.refresh_views(&request.database_id);
             Ok(result)
         },
@@ -1171,9 +1200,12 @@ pub fn reorder_database_views(
         Some(request.expected_generation),
         &|generation, result| notify_database_written(&app, generation, result),
         |scope| {
-            let result =
-                crate::database::views::reorder_views(&scope.active.root, &watcher, &request)
-                    .map_err(failed("databaseViewReorderFailed"))?;
+            let result = crate::database::views::reorder_views(
+                &scope.active.root,
+                &watcher.self_writes,
+                &request,
+            )
+            .map_err(failed("databaseViewReorderFailed"))?;
             scope.refresh_views(&request.database_id);
             Ok(result)
         },
@@ -1195,9 +1227,12 @@ pub fn set_default_database_view(
         Some(request.expected_generation),
         &|generation, result| notify_database_written(&app, generation, result),
         |scope| {
-            let result =
-                crate::database::views::set_default_view(&scope.active.root, &watcher, &request)
-                    .map_err(failed("databaseViewDefaultFailed"))?;
+            let result = crate::database::views::set_default_view(
+                &scope.active.root,
+                &watcher.self_writes,
+                &request,
+            )
+            .map_err(failed("databaseViewDefaultFailed"))?;
             scope.refresh_views(&request.database_id);
             Ok(result)
         },

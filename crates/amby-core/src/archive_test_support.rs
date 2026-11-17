@@ -16,6 +16,7 @@ pub struct Vault {
 }
 
 impl Vault {
+    #[allow(clippy::new_without_default)] // A fixture explicitly creates a disposable vault.
     pub fn new() -> Self {
         let root = std::env::temp_dir().join(format!("amby-archive-{}", Ulid::generate()));
         fs::create_dir_all(&root).unwrap();

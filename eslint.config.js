@@ -14,6 +14,7 @@ export default tseslint.config(
       ".release-evidence",
       ".claude",
       "src-tauri",
+      "target",
       "sync/reference/.venv",
       "node_modules",
       "src/lib/bindings.ts",

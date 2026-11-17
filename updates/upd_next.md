@@ -1,5 +1,6 @@
 # Amby — Next version
 
+- For developers: moved vault services and read-only AI tools into the Tauri-free `amby-core` crate, with independent Rust tests.
 - Fixed note windows opened separately using a system title bar instead of Amby's header. They now use the same macOS overlay and window-button placement as the main window, and no system decorations on Windows and Linux.
 
 - Fixed "Show in file manager" for workspace and note folders: it now opens the folder itself instead of showing its parent with the folder selected. Files are still selected in their containing folder.

@@ -160,7 +160,7 @@ impl VaultContext {
         Ok(active.root.clone())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn with_active<T>(
         &self,
         operation: impl FnOnce(&ActiveVault) -> Result<T, String>,

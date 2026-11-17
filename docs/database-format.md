@@ -245,7 +245,7 @@ type PropertyDefinition =
           | "unique"
           | "percentChecked"
       }
-      // A single registry: src-tauri/src/database/rollup.rs (`rollup-aggregations.json`
+      // A single registry: crates/amby-core/src/database/rollup.rs (`rollup-aggregations.json`
       // in the UI is checked by a test). What is allowed depends on the field type of the related database;
       // `avg` and `countUnique` are read as `average` and `unique`.
     })
@@ -649,7 +649,7 @@ type FilterNode =
 ```
 
 Operators are validated against the field type through a single registry
-(`src-tauri/src/database/filter_operators.rs`; the UI reads the same list from
+(`crates/amby-core/src/database/filter_operators.rs`; the UI reads the same list from
 `filter-operators.json`, and a test checks that they match). Canonical names: `contains`,
 `startsWith`, `equals`, `notEquals`, `greaterThan`, `greaterOrEqual`, `lessThan`,
 `lessOrEqual`, `isEmpty`, `isNotEmpty`; the early spellings `is`, `isNot`, `gt`, `gte`,

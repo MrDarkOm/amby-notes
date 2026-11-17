@@ -14,7 +14,7 @@ static CASE_RENAME_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// dots, none of the service directories Amby and its neighbours own
 /// (`.git`, `.amby`, `.obsidian`, `.trash`), and at most [`MAX_ITEM_NAME_BYTES`]
 /// bytes so the extension and sidecar suffixes still fit in 255.
-pub(crate) fn validate_item_name<'a>(label: &str, name: &'a str) -> Result<&'a str, String> {
+pub fn validate_item_name<'a>(label: &str, name: &'a str) -> Result<&'a str, String> {
     let trimmed = name.trim();
     let reason = item_name_problem(trimmed);
     match reason {
@@ -61,11 +61,11 @@ fn item_name_problem(name: &str) -> Option<&'static str> {
     None
 }
 
-pub(crate) fn path_string(path: &Path) -> String {
+pub fn path_string(path: &Path) -> String {
     path.to_string_lossy().to_string()
 }
 
-pub(crate) fn file_stem(path: &Path) -> Result<String, String> {
+pub fn file_stem(path: &Path) -> Result<String, String> {
     path.file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .filter(|s| !s.is_empty())

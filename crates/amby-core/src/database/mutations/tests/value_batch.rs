@@ -5,7 +5,7 @@ fn value_batch_validates_every_cell_before_publishing_any_record() {
     let vault = temp_vault();
     let created = create_database(
         &vault,
-        &WatcherState::new(),
+        &SelfWriteTracker::new(),
         &CreateDatabaseRequest {
             expected_generation: 1,
             mode: DatabaseCreateMode::Standalone,
@@ -44,7 +44,7 @@ fn value_batch_validates_every_cell_before_publishing_any_record() {
     fs::write(&record_path, &original).unwrap();
     let result = apply_value_batch(
         &vault,
-        &WatcherState::new(),
+        &SelfWriteTracker::new(),
         &DatabaseValueBatchRequest {
             expected_generation: 1,
             database_id: created.database_id,
@@ -74,7 +74,7 @@ fn value_batch_validates_every_cell_before_publishing_any_record() {
 #[test]
 fn value_batch_writes_a_durable_completed_journal_and_replays_idempotently() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,
@@ -453,7 +453,7 @@ fn st04_batch_write_failure_rolls_back_first_file() {
     use std::os::windows::fs::OpenOptionsExt;
 
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
 
     let db = create_database(
         &vault,
@@ -564,7 +564,7 @@ fn st04_batch_write_failure_rolls_back_first_file() {
 #[test]
 fn review_future_manifest_prevents_batch_write() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,
@@ -642,7 +642,7 @@ fn review_future_manifest_prevents_batch_write() {
 #[test]
 fn migrating_header_values_into_fields_named_like_their_keys_changes_no_byte() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,
@@ -729,7 +729,7 @@ fn migrating_header_values_into_fields_named_like_their_keys_changes_no_byte() {
 #[test]
 fn value_batch_requires_an_expected_revision_for_every_cell() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let db = create_database(
         &vault,
         &watcher,

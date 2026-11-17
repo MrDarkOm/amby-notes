@@ -132,7 +132,7 @@ save, conflict, and restoration rules.
   frontmatter is kept by the Rust write boundary.
 - `src/components/workspace/tiptap/fixtures/malformed-frontmatter.md` verifies
   that malformed YAML is never passed through visual serialization.
-- `src-tauri/src/index/malformed_tests.rs` covers malformed lists/indentation,
+- `crates/amby-core/src/index/malformed_tests.rs` covers malformed lists/indentation,
   scalar/sequence roots, missing fences, searchable bodies, opaque saves, external
   conflicts, restore/move behavior, and envelope-preserving link refactors.
 - `tests/fixtures/markdown-compatibility.json` is the shared cross-platform

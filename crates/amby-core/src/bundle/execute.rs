@@ -45,7 +45,7 @@ fn rollback_partial_bundle_rename(
     rename_path_case_safe(new_dir, old_dir)
 }
 
-pub(crate) fn rename_item_impl(
+pub fn rename_item_impl(
     vault: &Path,
     path: &Path,
     new_name: &str,
@@ -212,7 +212,7 @@ pub(crate) fn rename_item_impl(
     }
 }
 
-pub(crate) fn move_item_impl(
+pub fn move_item_impl(
     vault: &Path,
     source_path: &Path,
     target_path: &Path,

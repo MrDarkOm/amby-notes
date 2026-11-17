@@ -47,7 +47,7 @@ pub struct PlannedSection {
     pub database_id: String,
     pub view_id: String,
     #[serde(default)]
-    pub extras: NewDatabaseExtras,
+    pub(crate) extras: NewDatabaseExtras,
     #[serde(default)]
     pub template: Option<PlannedTemplate>,
     /// The "Stories" relation the section starts with, recorded in the structure file.

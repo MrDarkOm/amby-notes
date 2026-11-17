@@ -49,7 +49,7 @@ use crate::database::rows::{
     create_database_row_in_directory, CreateDatabaseRowRequest, DatabaseRowTemplate,
 };
 use crate::frontmatter;
-use crate::watcher;
+use crate::self_write;
 
 /// The links a workshop keeps.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -307,7 +307,7 @@ pub(super) fn write_planned_manifest(
         .map_err(Interrupt::Error)?;
     let prepared = env
         .watcher
-        .prepare_write([(&path, watcher::fingerprint_for_bytes(bytes))]);
+        .prepare_write([(&path, self_write::fingerprint_for_bytes(bytes))]);
     if let Err(error) = frontmatter::atomic_write_bytes(&path, bytes) {
         env.watcher.cancel_prepared_write(&prepared);
         if fs::read(&path).is_ok_and(|now| now == bytes) {

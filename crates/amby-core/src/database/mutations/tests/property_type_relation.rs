@@ -98,7 +98,7 @@ fn property_type_change_empty_text_to_two_way_cross_creates_inverse_and_replays(
 #[test]
 fn property_type_change_empty_text_to_two_way_self_uses_one_manifest_and_reciprocal_ids() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let database = create_database(
         &vault,
         &watcher,
@@ -294,7 +294,7 @@ fn property_type_change_disables_cross_inverse_but_preserves_property_and_unknow
 #[test]
 fn property_type_change_retargets_empty_pair_and_disconnects_old_inverse() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let source = create_database(
         &vault,
         &watcher,

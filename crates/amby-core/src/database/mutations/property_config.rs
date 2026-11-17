@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::database::format::{parse_manifest, prepare_json, raw_revision, PropertyDefinition};
 use crate::database::validation::validate_manifest;
 use crate::frontmatter::{self};
-use crate::watcher::{self, WatcherState};
+use crate::self_write::{self, SelfWriteTracker};
 
 use super::*;
 
@@ -70,7 +70,7 @@ pub(super) fn reject_inapplicable(
 /// rest only change how values are shown or computed, and never touch records.
 pub fn update_database_property_config(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &UpdateDatabasePropertyConfigRequest,
 ) -> Result<UpdatedDatabasePropertyConfig, String> {
     let container = find_database_container(vault, &request.database_id)?;
@@ -200,7 +200,7 @@ pub fn update_database_property_config(
     )?;
     let write = watcher.prepare_write([(
         &manifest_path,
-        watcher::fingerprint_for_bytes(&prepared.bytes),
+        self_write::fingerprint_for_bytes(&prepared.bytes),
     )]);
     if let Err(error) = frontmatter::atomic_write_bytes(&manifest_path, &prepared.bytes) {
         watcher.cancel_prepared_write(&write);

@@ -6,13 +6,13 @@ use crate::database::format::{
 };
 use crate::database::validation::validate_manifest;
 use crate::frontmatter::{self};
-use crate::watcher::{self, WatcherState};
+use crate::self_write::{self, SelfWriteTracker};
 
 use super::*;
 
 pub fn delete_database_property(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &DeleteDatabasePropertyRequest,
 ) -> Result<DeletedDatabaseProperty, String> {
     let container = find_database_container(vault, &request.database_id)?;
@@ -51,7 +51,7 @@ pub fn delete_database_property(
     )?;
     let write = watcher.prepare_write([(
         &manifest_path,
-        watcher::fingerprint_for_bytes(&prepared.bytes),
+        self_write::fingerprint_for_bytes(&prepared.bytes),
     )]);
     if let Err(error) = frontmatter::atomic_write_bytes(&manifest_path, &prepared.bytes) {
         watcher.cancel_prepared_write(&write);
@@ -68,7 +68,7 @@ pub fn delete_database_property(
 
 pub fn reorder_database_properties(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &ReorderDatabasePropertiesRequest,
 ) -> Result<ReorderedDatabaseProperties, String> {
     let container = find_database_container(vault, &request.database_id)?;
@@ -142,7 +142,7 @@ pub fn reorder_database_properties(
     )?;
     let write = watcher.prepare_write([(
         &manifest_path,
-        watcher::fingerprint_for_bytes(&prepared.bytes),
+        self_write::fingerprint_for_bytes(&prepared.bytes),
     )]);
     if let Err(error) = frontmatter::atomic_write_bytes(&manifest_path, &prepared.bytes) {
         watcher.cancel_prepared_write(&write);
@@ -200,7 +200,7 @@ pub(super) fn preflight_renamed_property_values(
 
 pub fn rename_database_property(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &RenameDatabasePropertyRequest,
 ) -> Result<RenamedDatabaseProperty, String> {
     let name = request.name.trim();
@@ -324,7 +324,7 @@ pub fn rename_database_property(
     )?;
     let write = watcher.prepare_write([(
         &manifest_path,
-        watcher::fingerprint_for_bytes(&prepared.bytes),
+        self_write::fingerprint_for_bytes(&prepared.bytes),
     )]);
     if let Err(error) = frontmatter::atomic_write_bytes(&manifest_path, &prepared.bytes) {
         watcher.cancel_prepared_write(&write);

@@ -203,7 +203,7 @@ fn date_display_formats_are_free_but_time_and_range_wait_for_the_values_to_go() 
 #[test]
 fn formula_expression_is_validated_and_stale_edits_are_refused() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,

@@ -38,6 +38,11 @@ and [update-system.md](../docs/update-system.md). Every change updates
 [upd_next.md](../updates/upd_next.md), but ordinary changes do not bump a version.
 Build outputs and machine-specific benchmark evidence must not be committed.
 
+The [root Cargo workspace](../Cargo.toml) shares `target/` across `amby-core` and the desktop app.
+Run `cargo test --locked -p amby-core` for core tests or `npm run rust:test` for both crates.
+The [Rust CI gate](../.github/workflows/verify.yml) checks the standalone core on each platform
+and checks its dependency tree for Tauri. Sync keeps its own workspace and target directory.
+
 Branches move only through [promote.mjs](promote.mjs) (`npm run promote -- beta|main`): it
 merges `dev` → `beta` or `beta` → `main` and removes the development files listed in
 [dev-only-paths.txt](dev-only-paths.txt), which exist only on `dev`.

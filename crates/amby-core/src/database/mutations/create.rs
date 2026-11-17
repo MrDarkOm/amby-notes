@@ -8,7 +8,7 @@ use crate::bundle::ensure_bundle_path;
 use crate::database::format::{parse_manifest, prepare_json, raw_revision};
 use crate::database::validation::validate_manifest;
 use crate::frontmatter::{self};
-use crate::watcher::{self, WatcherState};
+use crate::self_write::{self, SelfWriteTracker};
 
 use super::*;
 
@@ -31,7 +31,7 @@ impl PlannedDatabaseIds {
 
 pub fn create_database(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &CreateDatabaseRequest,
 ) -> Result<CreatedDatabase, String> {
     create_database_with_ids(vault, watcher, request, None, &NewDatabaseExtras::default())
@@ -140,7 +140,7 @@ pub(crate) fn new_database_manifest_bytes(
 
 pub(crate) fn create_database_with_ids(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &CreateDatabaseRequest,
     planned: Option<&PlannedDatabaseIds>,
     extras: &NewDatabaseExtras,
@@ -214,7 +214,7 @@ pub(crate) fn create_database_with_ids(
     let manifest_bytes = new_database_manifest_bytes(name, container_kind, &ids, extras)?;
     let prepared = watcher.prepare_write([(
         &manifest_path,
-        watcher::fingerprint_for_bytes(&manifest_bytes),
+        self_write::fingerprint_for_bytes(&manifest_bytes),
     )]);
     if let Err(error) = write_new(&manifest_path, &manifest_bytes) {
         watcher.cancel_prepared_write(&prepared);
@@ -238,7 +238,7 @@ pub(crate) fn create_database_with_ids(
 
 pub fn rename_database(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &RenameDatabaseRequest,
 ) -> Result<RenamedDatabase, String> {
     let name = request.name.trim();
@@ -282,7 +282,7 @@ pub fn rename_database(
     )?;
     let write = watcher.prepare_write([(
         &manifest_path,
-        watcher::fingerprint_for_bytes(&prepared.bytes),
+        self_write::fingerprint_for_bytes(&prepared.bytes),
     )]);
     if let Err(error) = frontmatter::atomic_write_bytes(&manifest_path, &prepared.bytes) {
         watcher.cancel_prepared_write(&write);

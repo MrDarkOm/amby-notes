@@ -86,10 +86,10 @@ pub fn import_asset(
         let dest = dir.join(&name);
         let dest = paths::confine(&vault, &dest)?;
         let expected = watcher::path_fingerprint(source);
-        let prepared = watcher_state.prepare_write([(&dest, expected)]);
+        let prepared = watcher_state.self_writes.prepare_write([(&dest, expected)]);
         match frontmatter::atomic_copy_file_new(source, &dest, MAX_ATTACHMENT_FILE_SIZE) {
             Ok(_) => {
-                watcher_state.confirm_prepared_write(&prepared);
+                watcher_state.self_writes.confirm_prepared_write(&prepared);
                 return Ok(build_imported_asset(
                     &vault,
                     &note,
@@ -98,11 +98,11 @@ pub fn import_asset(
                 ));
             }
             Err(frontmatter::AtomicCreateError::AlreadyExists) => {
-                watcher_state.cancel_prepared_write(&prepared);
+                watcher_state.self_writes.cancel_prepared_write(&prepared);
                 continue;
             }
             Err(frontmatter::AtomicCreateError::Other(error)) => {
-                watcher_state.cancel_prepared_write(&prepared);
+                watcher_state.self_writes.cancel_prepared_write(&prepared);
                 return Err(error);
             }
         }
@@ -144,19 +144,20 @@ pub fn import_asset_bytes(
         let name = random_asset_name(&ext);
         let dest = dir.join(&name);
         let dest = paths::confine(&vault, &dest)?;
-        let prepared =
-            watcher_state.prepare_write([(&dest, watcher::fingerprint_for_bytes(&bytes))]);
+        let prepared = watcher_state
+            .self_writes
+            .prepare_write([(&dest, watcher::fingerprint_for_bytes(&bytes))]);
         match frontmatter::atomic_write_bytes_new(&dest, &bytes) {
             Ok(()) => {
-                watcher_state.confirm_prepared_write(&prepared);
+                watcher_state.self_writes.confirm_prepared_write(&prepared);
                 return Ok(build_imported_asset(&vault, &note, dest, name));
             }
             Err(frontmatter::AtomicCreateError::AlreadyExists) => {
-                watcher_state.cancel_prepared_write(&prepared);
+                watcher_state.self_writes.cancel_prepared_write(&prepared);
                 continue;
             }
             Err(frontmatter::AtomicCreateError::Other(error)) => {
-                watcher_state.cancel_prepared_write(&prepared);
+                watcher_state.self_writes.cancel_prepared_write(&prepared);
                 return Err(error);
             }
         }

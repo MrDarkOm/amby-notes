@@ -4,7 +4,7 @@
 use super::*;
 use crate::database::failure::{classify, FailureReason};
 
-fn standalone(vault: &Path, watcher: &WatcherState, name: &str) -> CreatedDatabase {
+fn standalone(vault: &Path, watcher: &SelfWriteTracker, name: &str) -> CreatedDatabase {
     create_database(
         vault,
         watcher,
@@ -38,7 +38,7 @@ fn new_property(
 #[test]
 fn a_stale_manifest_revision_is_a_revision_conflict() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = standalone(&vault, &watcher, "Projects");
     create_database_property(
         &vault,
@@ -59,7 +59,7 @@ fn a_stale_manifest_revision_is_a_revision_conflict() {
 #[test]
 fn a_repeated_property_name_is_name_taken_and_an_empty_one_is_invalid() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = standalone(&vault, &watcher, "Projects");
     let first = create_database_property(
         &vault,
@@ -87,7 +87,7 @@ fn a_repeated_property_name_is_name_taken_and_an_empty_one_is_invalid() {
 #[test]
 fn a_broken_formula_is_formula_invalid() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = standalone(&vault, &watcher, "Calc");
     let formula = create_database_property(
         &vault,

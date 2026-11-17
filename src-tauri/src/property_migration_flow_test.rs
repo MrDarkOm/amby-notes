@@ -33,7 +33,7 @@ fn a_moved_note_with_properties_is_carried_over_and_listed_by_the_database() {
     fs::create_dir_all(root.join(".amby/properties")).unwrap();
     fs::write(
         root.join(".amby/properties/layout.json"),
-        crate::property_groups::testkit::LAYOUT_V1,
+        crate::property_groups::TEST_LAYOUT_V1,
     )
     .unwrap();
 
@@ -49,7 +49,7 @@ fn a_moved_note_with_properties_is_carried_over_and_listed_by_the_database() {
     // "New database" from the start screen.
     let created = create_database(
         &root,
-        &watcher,
+        &watcher.self_writes,
         &CreateDatabaseRequest {
             expected_generation: generation,
             mode: DatabaseCreateMode::Standalone,
@@ -93,7 +93,7 @@ fn a_moved_note_with_properties_is_carried_over_and_listed_by_the_database() {
     ] {
         let property = create_database_property(
             &root,
-            &watcher,
+            &watcher.self_writes,
             &CreateDatabasePropertyRequest {
                 expected_generation: generation,
                 database_id: before.database_id.clone(),
@@ -147,7 +147,8 @@ fn a_moved_note_with_properties_is_carried_over_and_listed_by_the_database() {
             },
         ],
     };
-    apply_value_batch(&root, &watcher, &batch, None).expect("the value batch is accepted");
+    apply_value_batch(&root, &watcher.self_writes, &batch, None)
+        .expect("the value batch is accepted");
     context
         .with_active(|active| {
             update_database_values_incremental(
@@ -212,7 +213,7 @@ fn database_rebuild_indexes_new_watcher_note_before_projecting_rows() {
     let generation = context.generation().unwrap();
     let created = create_database(
         &root,
-        &WatcherState::new(),
+        &WatcherState::new().self_writes,
         &CreateDatabaseRequest {
             expected_generation: generation,
             mode: DatabaseCreateMode::Standalone,

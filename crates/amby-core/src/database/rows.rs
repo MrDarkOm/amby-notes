@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::discovery::discover_vault;
 use super::format::{parse_manifest, parse_template, PropertyDefinition, PropertyValue};
 use crate::frontmatter::{self, AtomicCreateError};
-use crate::watcher::{self, WatcherState};
+use crate::self_write::{self, SelfWriteTracker};
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -96,7 +96,7 @@ fn default_value_of(property: &PropertyDefinition) -> Option<PropertyValue> {
 
 pub fn create_database_row(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &CreateDatabaseRowRequest,
 ) -> Result<CreatedDatabaseRow, String> {
     create_database_row_with_values(vault, watcher, request, &Default::default())
@@ -106,7 +106,7 @@ pub fn create_database_row(
 /// with the note, so the page never exists half-set. They win over the template's values.
 pub(crate) fn create_database_row_with_values(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &CreateDatabaseRowRequest,
     initial: &std::collections::BTreeMap<String, PropertyValue>,
 ) -> Result<CreatedDatabaseRow, String> {
@@ -118,7 +118,7 @@ pub(crate) fn create_database_row_with_values(
 /// caller has validated the folder; this refuses one that is not inside the container.
 pub(crate) fn create_database_row_in_directory(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &CreateDatabaseRowRequest,
     initial: &std::collections::BTreeMap<String, PropertyValue>,
     directory: Option<&Path>,
@@ -217,7 +217,7 @@ pub(crate) fn create_database_row_in_directory(
     }
     let note_bytes = note_content.into_bytes();
     let prepared =
-        watcher.prepare_write([(&note_path, watcher::fingerprint_for_bytes(&note_bytes))]);
+        watcher.prepare_write([(&note_path, self_write::fingerprint_for_bytes(&note_bytes))]);
     if let Err(error) = write_new(&note_path, &note_bytes) {
         watcher.cancel_prepared_write(&prepared);
         return Err(error);
@@ -249,7 +249,7 @@ pub struct DuplicateDatabaseRowRequest {
 /// two-way Relation's other side does not list the copy until it is linked there.
 pub fn duplicate_database_row(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &DuplicateDatabaseRowRequest,
 ) -> Result<CreatedDatabaseRow, String> {
     let title = request.title.trim();
@@ -298,7 +298,7 @@ pub fn duplicate_database_row(
     let note_path = unique_row_path(directory, &safe_row_stem(title))?;
     let note_bytes = note_content.into_bytes();
     let prepared =
-        watcher.prepare_write([(&note_path, watcher::fingerprint_for_bytes(&note_bytes))]);
+        watcher.prepare_write([(&note_path, self_write::fingerprint_for_bytes(&note_bytes))]);
     if let Err(error) = write_new(&note_path, &note_bytes) {
         watcher.cancel_prepared_write(&prepared);
         return Err(error);
@@ -497,7 +497,7 @@ mod tests {
         let vault = temp_vault();
         let database = create_database(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &CreateDatabaseRequest {
                 expected_generation: 1,
                 mode: DatabaseCreateMode::Standalone,
@@ -509,7 +509,7 @@ mod tests {
         .unwrap();
         let row = create_database_row(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &CreateDatabaseRowRequest {
                 expected_generation: 1,
                 database_id: database.database_id,
@@ -536,7 +536,7 @@ mod tests {
         let vault = temp_vault();
         let database = create_database(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &CreateDatabaseRequest {
                 expected_generation: 1,
                 mode: DatabaseCreateMode::Standalone,
@@ -548,7 +548,7 @@ mod tests {
         .unwrap();
         let row = create_database_row(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &CreateDatabaseRowRequest {
                 expected_generation: 1,
                 database_id: database.database_id.clone(),
@@ -564,7 +564,7 @@ mod tests {
 
         let copy = duplicate_database_row(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &DuplicateDatabaseRowRequest {
                 expected_generation: 1,
                 database_id: database.database_id.clone(),
@@ -591,7 +591,7 @@ mod tests {
         // A second copy with the same title gets its own file.
         let second = duplicate_database_row(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &DuplicateDatabaseRowRequest {
                 expected_generation: 1,
                 database_id: database.database_id,
@@ -613,7 +613,7 @@ mod tests {
             note_id: ulid::Ulid::generate().to_string(),
             title: "Copy".to_owned(),
         };
-        assert!(duplicate_database_row(&vault, &WatcherState::new(), &request).is_err());
+        assert!(duplicate_database_row(&vault, &SelfWriteTracker::new(), &request).is_err());
         let _ = fs::remove_dir_all(vault);
     }
 
@@ -622,7 +622,7 @@ mod tests {
         let vault = temp_vault();
         let database = create_database(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &CreateDatabaseRequest {
                 expected_generation: 1,
                 mode: DatabaseCreateMode::Standalone,
@@ -659,7 +659,7 @@ mod tests {
         fs::write(&manifest_path, json_bytes(&manifest).unwrap()).unwrap();
         let row = create_database_row(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &CreateDatabaseRowRequest {
                 expected_generation: 1,
                 database_id: database.database_id,
@@ -680,7 +680,7 @@ mod tests {
         let vault = temp_vault();
         let database = create_database(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &CreateDatabaseRequest {
                 expected_generation: 1,
                 mode: DatabaseCreateMode::Standalone,
@@ -692,7 +692,7 @@ mod tests {
         .unwrap();
         let row = create_database_row(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &CreateDatabaseRowRequest {
                 expected_generation: 1,
                 database_id: database.database_id,
@@ -722,7 +722,7 @@ mod tests {
         let vault = temp_vault();
         let database = create_database(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &CreateDatabaseRequest {
                 expected_generation: 1,
                 mode: DatabaseCreateMode::Standalone,
@@ -734,7 +734,7 @@ mod tests {
         .unwrap();
         let first = create_database_row(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &CreateDatabaseRowRequest {
                 expected_generation: 1,
                 database_id: database.database_id.clone(),
@@ -745,7 +745,7 @@ mod tests {
         .unwrap();
         let second = create_database_row(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &CreateDatabaseRowRequest {
                 expected_generation: 1,
                 database_id: database.database_id,
@@ -776,7 +776,7 @@ mod tests {
         crate::index::sync_vault(&connection, &vault).unwrap();
         let database = create_database(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &CreateDatabaseRequest {
                 expected_generation: 1,
                 mode: DatabaseCreateMode::Attached,
@@ -788,7 +788,7 @@ mod tests {
         .unwrap();
         let row = create_database_row(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &CreateDatabaseRowRequest {
                 expected_generation: 1,
                 database_id: database.database_id.clone(),
@@ -821,7 +821,7 @@ mod tests {
         // 1. Outer database: "Истории"
         let _stories_db = create_database(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &CreateDatabaseRequest {
                 expected_generation: 1,
                 mode: DatabaseCreateMode::Standalone,
@@ -837,7 +837,7 @@ mod tests {
         fs::write(&story_card_path, "# Моя история\n").unwrap();
         let my_story_db = create_database(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &CreateDatabaseRequest {
                 expected_generation: 1,
                 mode: DatabaseCreateMode::Attached,
@@ -851,7 +851,7 @@ mod tests {
         // 3. Standalone "Заметки" database
         let notes_db = create_database(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &CreateDatabaseRequest {
                 expected_generation: 1,
                 mode: DatabaseCreateMode::Standalone,
@@ -865,7 +865,7 @@ mod tests {
         // Test create_database_row in inner database: "Моя история"
         let chapter = create_database_row(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &CreateDatabaseRowRequest {
                 expected_generation: 1,
                 database_id: my_story_db.database_id.clone(),
@@ -881,7 +881,7 @@ mod tests {
         // Test create_database_row in "Заметки" database
         let note = create_database_row(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &CreateDatabaseRowRequest {
                 expected_generation: 1,
                 database_id: notes_db.database_id.clone(),

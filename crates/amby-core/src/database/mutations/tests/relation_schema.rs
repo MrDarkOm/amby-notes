@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn two_way_relation_creates_property_in_target_database_and_links_reciprocals() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let tasks_db = create_database(
         &vault,
         &watcher,
@@ -201,7 +201,7 @@ fn two_way_relation_creates_property_in_target_database_and_links_reciprocals() 
 #[test]
 fn two_way_relation_rejects_inverse_yaml_binding_alias_without_writing() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let source = create_database(
         &vault,
         &watcher,
@@ -287,7 +287,7 @@ fn two_way_relation_rejects_inverse_yaml_binding_alias_without_writing() {
 #[test]
 fn two_way_relation_rejects_bom_target_manifest_without_writing() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let source = create_database(
         &vault,
         &watcher,
@@ -348,7 +348,7 @@ fn two_way_relation_rejects_bom_target_manifest_without_writing() {
 #[test]
 fn two_way_relation_invalid_source_insert_does_not_write_inverse_manifest() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let source = create_database(
         &vault,
         &watcher,
@@ -410,7 +410,7 @@ fn two_way_relation_invalid_source_insert_does_not_write_inverse_manifest() {
 #[test]
 fn two_way_relation_source_property_limit_does_not_write_inverse_manifest() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let source = create_database(
         &vault,
         &watcher,
@@ -486,7 +486,7 @@ fn two_way_relation_source_property_limit_does_not_write_inverse_manifest() {
 fn two_way_relation_stale_or_missing_target_revision_does_not_write() {
     for expected_target_manifest_revision in [Some("0".repeat(64)), None] {
         let vault = temp_vault();
-        let watcher = WatcherState::new();
+        let watcher = SelfWriteTracker::new();
         let source = create_database(
             &vault,
             &watcher,
@@ -549,7 +549,7 @@ fn self_two_way_relation_rejects_forward_and_existing_inverse_names() {
         [("Parent", "Parent", false), ("Forward", "Existing", true)]
     {
         let vault = temp_vault();
-        let watcher = WatcherState::new();
+        let watcher = SelfWriteTracker::new();
         let database = create_database(
             &vault,
             &watcher,
@@ -608,7 +608,7 @@ fn self_two_way_relation_rejects_forward_and_existing_inverse_names() {
 #[test]
 fn self_two_way_relation_persists_one_step_and_replays_completed_result() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let database = create_database(
         &vault,
         &watcher,

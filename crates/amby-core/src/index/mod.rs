@@ -30,9 +30,6 @@ mod history_follow_tests;
 mod identity_tests;
 
 #[cfg(test)]
-mod incremental_tests;
-
-#[cfg(test)]
 mod refactor_scope_tests;
 
 #[cfg(test)]

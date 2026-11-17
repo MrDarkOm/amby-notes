@@ -40,7 +40,7 @@ use crate::index::schema::init_schema;
 
 fn fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../src/components/workspace/creative/workshop/real-workshop.fixture.json")
+        .join("../../src/components/workspace/creative/workshop/real-workshop.fixture.json")
 }
 
 fn is_ulid_char(byte: u8) -> bool {

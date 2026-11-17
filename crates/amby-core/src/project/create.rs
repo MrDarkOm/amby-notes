@@ -37,13 +37,13 @@ use crate::database::mutations::{
 };
 use crate::durable::{self, valid_operation_id};
 use crate::frontmatter;
-use crate::watcher::{self, WatcherState};
+use crate::self_write::{self, SelfWriteTracker};
 
 const LABEL: &str = "Creative creation";
 
 pub struct Env<'a> {
     pub vault: &'a Path,
-    pub watcher: &'a WatcherState,
+    pub watcher: &'a SelfWriteTracker,
 }
 
 // ---------------------------------------------------------------------------
@@ -224,7 +224,7 @@ fn write_template(
         .join(format!("{}.json", template.template_id));
     let prepared = env
         .watcher
-        .prepare_write([(&path, watcher::fingerprint_for_bytes(&bytes))]);
+        .prepare_write([(&path, self_write::fingerprint_for_bytes(&bytes))]);
     match durable::create_new(&path, &bytes, LABEL) {
         Ok(()) => {
             env.watcher.confirm_prepared_write(&prepared);
@@ -258,7 +258,7 @@ pub(super) fn write_file_safe(
         FileWrite::New { bytes } => {
             let prepared = env
                 .watcher
-                .prepare_write([(&path, watcher::fingerprint_for_bytes(bytes))]);
+                .prepare_write([(&path, self_write::fingerprint_for_bytes(bytes))]);
             match durable::create_new(path, bytes, LABEL) {
                 Ok(()) => {
                     env.watcher.confirm_prepared_write(&prepared);
@@ -287,7 +287,7 @@ pub(super) fn write_file_safe(
                 .map_err(Interrupt::Error)?;
             let prepared = env
                 .watcher
-                .prepare_write([(&path, watcher::fingerprint_for_bytes(bytes))]);
+                .prepare_write([(&path, self_write::fingerprint_for_bytes(bytes))]);
             match frontmatter::atomic_write_bytes(path, bytes) {
                 Ok(()) => {
                     env.watcher.confirm_prepared_write(&prepared);
@@ -1123,7 +1123,7 @@ pub fn create_story(env: &Env, request: &CreateStoryRequest) -> Result<CreatedSt
         let card_path = story_dir.join(format!("{title}.md"));
         let prepared_card = env
             .watcher
-            .prepare_write([(&card_path, watcher::fingerprint_for_bytes(&card_bytes))]);
+            .prepare_write([(&card_path, self_write::fingerprint_for_bytes(&card_bytes))]);
         durable::create_new(&card_path, &card_bytes, LABEL).map_err(|e| {
             env.watcher.cancel_prepared_write(&prepared_card);
             Interrupt::Error(e)

@@ -6,13 +6,13 @@ use serde_json::json;
 use crate::database::format::{parse_manifest, prepare_json, raw_revision, PropertyDefinition};
 use crate::database::validation::validate_manifest;
 use crate::frontmatter::{self};
-use crate::watcher::{self, WatcherState};
+use crate::self_write::{self, SelfWriteTracker};
 
 use super::*;
 
 pub fn create_database_property(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &CreateDatabasePropertyRequest,
 ) -> Result<CreatedDatabaseProperty, String> {
     let two_way = request.property_type == "relation" && request.relation_two_way == Some(true);
@@ -222,7 +222,7 @@ pub fn create_database_property(
     )?;
     let write = watcher.prepare_write([(
         &manifest_path,
-        watcher::fingerprint_for_bytes(&prepared.bytes),
+        self_write::fingerprint_for_bytes(&prepared.bytes),
     )]);
     if let Err(error) = frontmatter::atomic_write_bytes(&manifest_path, &prepared.bytes) {
         watcher.cancel_prepared_write(&write);

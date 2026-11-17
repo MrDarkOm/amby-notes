@@ -1,11 +1,11 @@
 # CLI and a core without Tauri: plan
 
-Status as of 2026-11-17: **proposal, no code.** Discussed with the owner on 2026-11-17. Open decisions are in
+Status as of 2026-11-17: **step 0 implemented, steps 1–4 proposed.** Open decisions are in
 section 8. Data work follows the "tests first" rule (section 6 of the [sync plan](../sync-plan.md)).
 
 | Step | What                                                      | Status      |
 | ---- | --------------------------------------------------------- | ----------- |
-| 0    | Cargo workspace, `amby-core` moved out without Tauri      | not started |
+| 0    | Cargo workspace, `amby-core` moved out without Tauri      | implemented |
 | 1    | `amby` for reading, `--json`, read-only `amby mcp`        | not started |
 | 2    | Simple writes (create, append, replace) with snapshots    | not started |
 | 3    | Complex operations while the app is closed, vault lock    | not started |
@@ -47,7 +47,8 @@ section 8. Data work follows the "tests first" rule (section 6 of the [sync plan
 - `src-tauri`: only the app (commands, windows, events, logging, AI providers, updates, credentials, starting
   sync); depends on `amby-core`.
 - `crates/amby-cli`: the `amby` binary; depends only on `amby-core` (step 1).
-- Moving the sync engine into the core is later, as a separate decision.
+- The sync workspace stays separate. The core uses its existing property-group and vault-path rules.
+  Moving the sync engine into the core is a separate decision.
 
 ### 2.3. Rules for the move
 

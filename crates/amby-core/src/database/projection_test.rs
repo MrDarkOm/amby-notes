@@ -787,7 +787,7 @@ fn projection_diagnostic_count(conn: &Connection, database_id: &str, note_id: &s
 fn relation_projection_refreshes_inverse_and_rollup_after_replacement_and_unlink() {
     use crate::database::mutations::{self, UpdateDatabaseRelationValueRequest};
     use crate::database::projection::update_relation_values_incremental;
-    use crate::watcher::WatcherState;
+    use crate::self_write::SelfWriteTracker;
 
     let vault = temp_vault("relation-incremental-replacement");
     let tasks_db = "01J00000000000000000000050";
@@ -880,7 +880,7 @@ fn relation_projection_refreshes_inverse_and_rollup_after_replacement_and_unlink
     init_schema(&conn).unwrap();
     sync_vault(&conn, &vault).unwrap();
     rebuild_database_projection(&conn, &vault).unwrap();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
 
     let initial = mutations::update_database_relation_value(
         &vault,
@@ -1059,7 +1059,7 @@ fn relation_projection_refreshes_inverse_and_rollup_after_replacement_and_unlink
 fn relation_projection_refreshes_self_inverse_in_one_database() {
     use crate::database::mutations::{self, UpdateDatabaseRelationValueRequest};
     use crate::database::projection::update_relation_values_incremental;
-    use crate::watcher::WatcherState;
+    use crate::self_write::SelfWriteTracker;
 
     let vault = temp_vault("relation-incremental-self");
     let database_id = "01J00000000000000000000070";
@@ -1119,7 +1119,7 @@ fn relation_projection_refreshes_self_inverse_in_one_database() {
     init_schema(&conn).unwrap();
     sync_vault(&conn, &vault).unwrap();
     rebuild_database_projection(&conn, &vault).unwrap();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let linked = mutations::update_database_relation_value(
         &vault,
         &watcher,

@@ -1,7 +1,7 @@
 use crate::database::format::raw_revision;
 use crate::frontmatter;
 use crate::lock_util::LockExt;
-use crate::watcher::{self, WatcherState};
+use crate::self_write::{self, SelfWriteTracker};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashMap;
@@ -102,7 +102,7 @@ impl DatabaseHistoryState {
     pub fn undo(
         &self,
         vault_root: &std::path::Path,
-        watcher: &WatcherState,
+        watcher: &SelfWriteTracker,
         database_id: &str,
     ) -> Result<DatabaseUndoRedoResult, String> {
         let entry = {
@@ -142,7 +142,7 @@ impl DatabaseHistoryState {
         let prepared_writes = watcher.prepare_write(entry.files.iter().map(|f| {
             (
                 f.path.as_path(),
-                watcher::fingerprint_for_bytes(&f.pre_bytes),
+                self_write::fingerprint_for_bytes(&f.pre_bytes),
             )
         }));
 
@@ -191,7 +191,7 @@ impl DatabaseHistoryState {
     pub fn redo(
         &self,
         vault_root: &std::path::Path,
-        watcher: &WatcherState,
+        watcher: &SelfWriteTracker,
         database_id: &str,
     ) -> Result<DatabaseUndoRedoResult, String> {
         let entry = {
@@ -231,7 +231,7 @@ impl DatabaseHistoryState {
         let prepared_writes = watcher.prepare_write(entry.files.iter().map(|f| {
             (
                 f.path.as_path(),
-                watcher::fingerprint_for_bytes(&f.post_bytes),
+                self_write::fingerprint_for_bytes(&f.post_bytes),
             )
         }));
 
@@ -302,7 +302,7 @@ mod tests {
         std::fs::write(&file_path, &post_bytes).unwrap();
 
         let history = DatabaseHistoryState::default();
-        let watcher = WatcherState::default();
+        let watcher = SelfWriteTracker::default();
         let db_id = "01J00000000000000000000000";
 
         history.push(DatabaseHistoryEntry {
@@ -349,7 +349,7 @@ mod tests {
         std::fs::write(&f2, &post2).unwrap();
 
         let history = DatabaseHistoryState::default();
-        let watcher = WatcherState::default();
+        let watcher = SelfWriteTracker::default();
         let db_id = "01J00000000000000000000000";
 
         history.push(DatabaseHistoryEntry {
@@ -396,7 +396,7 @@ mod tests {
         std::fs::write(&target_path, &post_target).unwrap();
 
         let history = DatabaseHistoryState::default();
-        let watcher = WatcherState::default();
+        let watcher = SelfWriteTracker::default();
         let db_id = "01J00000000000000000000000";
 
         history.push(DatabaseHistoryEntry {
@@ -440,7 +440,7 @@ mod tests {
         std::fs::write(&file_path, &external_bytes).unwrap();
 
         let history = DatabaseHistoryState::default();
-        let watcher = WatcherState::default();
+        let watcher = SelfWriteTracker::default();
         let db_id = "01J00000000000000000000000";
 
         history.push(DatabaseHistoryEntry {

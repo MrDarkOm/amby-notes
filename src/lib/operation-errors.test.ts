@@ -14,7 +14,7 @@ import { operationErrorCode, operationErrorText, warningNotices } from "./operat
 
 const t = i18n.t.bind(i18n)
 
-/** Mirrors `FailureReason` in src-tauri/src/database/failure.rs. */
+/** Mirrors `FailureReason` in crates/amby-core/src/database/failure.rs. */
 const REASONS: FailureReason[] = [
   "revision_conflict",
   "locked",

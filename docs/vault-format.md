@@ -632,7 +632,7 @@ text and is left alone. The trash (`.trash/`), backups, history, recovery and
 every other part of `.amby/`, `.obsidian/`, `.git/`, other hidden or reserved
 folders and symlinks are never entered or changed. The preview counts exactly
 the files that will be written. The rule lives in `refactor_may_enter`
-(`src-tauri/src/index/refactor.rs`) and reuses `RESERVED_DIRECTORIES`.
+(`crates/amby-core/src/index/refactor.rs`) and reuses `RESERVED_DIRECTORIES`.
 
 A rename that changes only letter case is a real filesystem mutation. Amby
 first verifies that the requested spelling resolves to the same filesystem

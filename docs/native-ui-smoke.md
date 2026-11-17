@@ -40,7 +40,7 @@ of the plan.
 
 **Preparation.** An empty folder as a new vault (not a working vault or a copy of one). The «Творческая мастерская» (Creative workshop)
 module is enabled. The application is the unpackaged debug build made at stage 7
-(`src-tauri/target/debug/amby-notes`; it carries the interface as of the time of the build), or `npm run tauri dev`.
+(`target/debug/amby-notes`; it carries the interface as of the time of the build), or `npm run tauri dev`.
 Keep the vault folder open in the file manager: some steps look at the disk.
 
 1. **Initialization and story.** Open the «Мастерская» (Workshop) panel. _Expected:_ the screen «Мастерской здесь ещё нет» (There is no workshop here yet),

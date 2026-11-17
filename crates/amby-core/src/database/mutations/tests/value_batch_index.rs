@@ -10,7 +10,7 @@ use crate::index::{open_connection, sync_vault};
 
 struct Fixture {
     vault: PathBuf,
-    watcher: WatcherState,
+    watcher: SelfWriteTracker,
     database_id: String,
     property_id: String,
     rows: Vec<CreatedDatabaseRow>,
@@ -18,7 +18,7 @@ struct Fixture {
 
 fn fixture(row_count: usize, loose_notes: usize) -> Fixture {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,

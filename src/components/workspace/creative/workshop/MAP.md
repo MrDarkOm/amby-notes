@@ -2,7 +2,7 @@
 
 The body of the "Workshop" panel: one column with the story header, the text tree, anchors, notes
 and the world. The owner of the whole creative interface is the [creative map](../MAP.md); the
-backend of notebooks is [notebooks.rs](../../../../../src-tauri/src/project/notebooks.rs) and the contract is
+backend of notebooks is [notebooks.rs](../../../../../crates/amby-core/src/project/notebooks.rs) and the contract is
 [format §8](../../../../../docs/creative-format.md).
 
 | Concern                                                    | Owner                                                                                                                   |

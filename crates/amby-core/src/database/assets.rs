@@ -7,7 +7,7 @@ use super::discovery::discover_vault;
 use crate::bundle::{random_asset_name, sanitize_ext, MAX_ATTACHMENT_FILE_SIZE};
 use crate::frontmatter::{self, AtomicCreateError};
 use crate::paths;
-use crate::watcher::{self, WatcherState};
+use crate::self_write::{self, SelfWriteTracker};
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -32,7 +32,7 @@ pub struct ImportedDatabaseAsset {
 
 pub fn import_database_asset(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &ImportDatabaseAssetRequest,
 ) -> Result<ImportedDatabaseAsset, String> {
     if ulid::Ulid::from_string(&request.database_id).is_err()
@@ -94,7 +94,8 @@ pub fn import_database_asset(
     for _ in 0..1_000 {
         let name = random_asset_name(&extension);
         let destination = paths::confine(vault, &assets_dir.join(&name))?;
-        let prepared = watcher.prepare_write([(&destination, watcher::path_fingerprint(source))]);
+        let prepared =
+            watcher.prepare_write([(&destination, self_write::path_fingerprint(source))]);
         match frontmatter::atomic_copy_file_new(source, &destination, MAX_ATTACHMENT_FILE_SIZE) {
             Ok(_) => {
                 watcher.confirm_prepared_write(&prepared);
@@ -250,7 +251,7 @@ mod tests {
         std::fs::create_dir_all(&vault).unwrap();
         let database = create_database(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &CreateDatabaseRequest {
                 expected_generation: 1,
                 mode: DatabaseCreateMode::Standalone,
@@ -262,7 +263,7 @@ mod tests {
         .unwrap();
         let row = create_database_row(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &CreateDatabaseRowRequest {
                 expected_generation: 1,
                 database_id: database.database_id.clone(),
@@ -275,7 +276,7 @@ mod tests {
         std::fs::write(&source, b"png").unwrap();
         let asset = import_database_asset(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &ImportDatabaseAssetRequest {
                 expected_generation: 1,
                 database_id: database.database_id,
@@ -294,7 +295,7 @@ mod tests {
         let vault =
             std::env::temp_dir().join(format!("amby-asset-resolve-{}", ulid::Ulid::generate()));
         std::fs::create_dir_all(&vault).unwrap();
-        let watcher = WatcherState::new();
+        let watcher = SelfWriteTracker::new();
         let created = create_database(
             &vault,
             &watcher,

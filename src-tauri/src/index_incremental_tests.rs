@@ -1,4 +1,4 @@
-use super::*;
+use crate::index::*;
 use crate::{
     vault_context::VaultContext,
     watcher::{self, WatcherState},
@@ -115,8 +115,13 @@ fn incremental_watcher_refreshes_search_tags_and_links_with_identical_metadata()
     // detects this deliberately same-size, same-mtime external edit.
     let mut watcher = notify::PollWatcher::new(
         move |event| {
-            let changes =
-                watcher::queue_external_changes(event, &root, &state.own_writes, 1, &pending);
+            let changes = watcher::queue_external_changes(
+                event,
+                &root,
+                &state.self_writes.own_writes,
+                1,
+                &pending,
+            );
             if changes
                 .iter()
                 .any(|change| change.path.ends_with("Note.md"))
@@ -171,7 +176,7 @@ fn incremental_failed_refresh_keeps_watcher_invalidation_for_retry() {
     write_at(&path, &source(&id, "dog"), 0);
     context.with_active(|active| {
         let state = WatcherState::new();
-        watcher::queue_external_changes(Ok(notify::Event::new(notify::EventKind::Modify(notify::event::ModifyKind::Any)).add_path(path.clone())), &vault.0, &state.own_writes, 1, &active.index_changes);
+        watcher::queue_external_changes(Ok(notify::Event::new(notify::EventKind::Modify(notify::event::ModifyKind::Any)).add_path(path.clone())), &vault.0, &state.self_writes.own_writes, 1, &active.index_changes);
         active.execute_batch("CREATE TEMP TRIGGER fail_refresh BEFORE UPDATE ON notes BEGIN SELECT RAISE(FAIL, 'injected index failure'); END;").unwrap();
         assert!(active.refresh().is_err());
         assert_eq!(search_count(active, "cat"), 1);
@@ -254,7 +259,7 @@ fn incremental_folder_and_rescan_events_override_identical_stamps() {
             watcher::queue_external_changes(
                 Ok(folder_event),
                 &vault.0,
-                &state.own_writes,
+                &state.self_writes.own_writes,
                 1,
                 &active.index_changes,
             );
@@ -271,7 +276,7 @@ fn incremental_folder_and_rescan_events_override_identical_stamps() {
                 let changes = watcher::queue_external_changes(
                     event,
                     &vault.0,
-                    &state.own_writes,
+                    &state.self_writes.own_writes,
                     1,
                     &active.index_changes,
                 );
@@ -297,9 +302,10 @@ fn incremental_stale_self_write_record_does_not_hide_same_stamp_external_edit() 
         .unwrap();
     let state = WatcherState::new();
     state
+        .self_writes
         .active_generation
         .store(1, std::sync::atomic::Ordering::Release);
-    state.mark_write([&path]);
+    state.self_writes.mark_write([&path]);
     let event = notify::Event::new(notify::EventKind::Modify(notify::event::ModifyKind::Any))
         .add_path(path.clone());
     context
@@ -307,7 +313,7 @@ fn incremental_stale_self_write_record_does_not_hide_same_stamp_external_edit() 
             assert!(watcher::queue_external_changes(
                 Ok(event.clone()),
                 &vault.0,
-                &state.own_writes,
+                &state.self_writes.own_writes,
                 1,
                 &active.index_changes
             )
@@ -318,7 +324,7 @@ fn incremental_stale_self_write_record_does_not_hide_same_stamp_external_edit() 
                 watcher::queue_external_changes(
                     Ok(event),
                     &vault.0,
-                    &state.own_writes,
+                    &state.self_writes.own_writes,
                     1,
                     &active.index_changes
                 )

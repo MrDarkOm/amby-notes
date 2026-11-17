@@ -12,7 +12,7 @@ checks it after `src/`. `scripts/*.mjs` are plain JavaScript and are not type-ch
 | Pure logic, stores, parsers, queues  | Colocated tests beside the implementation in `src/`                                                                                                                                                           |
 | React interactions and lifecycle     | [component/](component/), plus colocated `*.test.tsx`                                                                                                                                                         |
 | Markdown syntax                      | [markdown.test.ts](../src/components/workspace/tiptap/markdown.test.ts), [rich-editor fixtures](../src/components/workspace/tiptap/fixtures/), [shared indexing corpus](fixtures/markdown-compatibility.json) |
-| Vault identity / source preservation | [compatibility-vault/](fixtures/compatibility-vault/), [Rust compatibility tests](../src-tauri/src/index/compatibility_fixtures_test.rs)                                                                      |
+| Vault identity / source preservation | [compatibility-vault/](fixtures/compatibility-vault/), [Rust compatibility tests](../crates/amby-core/src/index/compatibility_fixtures_test.rs)                                                               |
 | Package version agreement            | [package-versions.json](fixtures/package-versions.json), frontend validator and Rust package-manager tests                                                                                                    |
 | Native persistence contract          | [native/storage-contract.ts](native/storage-contract.ts), [native/note-contract.ts](native/note-contract.ts), [native_contract.rs](../src-tauri/src/native_contract.rs)                                       |
 | Native debug contract                | [native/debug-contract.ts](native/debug-contract.ts)                                                                                                                                                          |
@@ -59,7 +59,7 @@ passing `AMBY_NATIVE_RESULT`. A hosted macOS runner has no guaranteed window ser
 session, so a red job there is a known limitation, not a product failure: read the log artifact
 before trusting either result. The job has not been confirmed green on a hosted runner; once it is
 stable for a while, drop `continue-on-error`. Locally run the same command on an unlocked desktop
-(first Rust build is slow); never start `src-tauri/target/debug/amby-notes` by hand (it rewrites
+(first Rust build is slow); never start `target/debug/amby-notes` by hand (it rewrites
 `src/lib/bindings.ts`).
 
 Preserve fixture BOM/CRLF bytes. Add meaningful acceptance and rejection/failure
@@ -69,7 +69,7 @@ Do not add tests solely for a reversible copy or layout adjustment.
 Relation command/projection acceptance also runs through
 [native/database-contract.ts](native/database-contract.ts): link, unlink and
 replacement across two databases must update inverse queries before rebuild.
-[projection_test.rs](../src-tauri/src/database/projection_test.rs) covers inverse Rollup, self-relation deduplication,
+[projection_test.rs](../crates/amby-core/src/database/projection_test.rs) covers inverse Rollup, self-relation deduplication,
 projection failure warnings and source-byte preservation without a watcher.
 
 Backup catalog and stale activation checks cross real IPC in

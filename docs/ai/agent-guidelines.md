@@ -21,10 +21,10 @@ Amby Notes is a local-first Tauri 2 desktop knowledge workspace with a React 19,
 - `src/lib/` contains IPC/storage boundaries, generated bindings, i18n bootstrap, diagnostics, queues, recovery drafts, AI helpers, and shared utilities.
 - `src/locales/resources.ts` is the single registry for all visible interface strings.
 - `src/themes/` owns application CSS, built-in themes, palettes, portable theme validation, and appearance preferences.
-- `src-tauri/src/` is split by backend responsibility: `lib.rs` registers Tauri commands; `commands/` holds IPC boundaries; `bundle/`, `vault/`, `index/`, `database/`, and focused Rust files implement domain behavior. `vault_index.rs` is a compatibility facade. See [the backend map](../../src-tauri/src/MAP.md).
+- `src-tauri/src/` owns desktop integration and IPC commands. Vault, index, bundles and database services live in [amby-core](../../crates/amby-core/src/MAP.md).
 - `docs/` records executable product contracts, especially `vault-format.md`, `markdown-compatibility.md`, `themes-and-localization.md`, and `engineering.md`.
 - `updates/` is the public, cumulative change log directory containing per-version release notes (e.g. `updates/upd_<version>.md`) and unreleased changes (`updates/upd_next.md`). Keep release-engineering instructions in `docs/update-system.md`; do not mix operational secrets or internal release steps into the public change log.
-- `public/` stores static web assets. `dist/` and `src-tauri/target/` are generated output and must not be committed.
+- `public/` stores static web assets. `dist/` and `target/` and `sync/target/` are generated output and must not be committed.
 
 ## Development and Verification Commands
 

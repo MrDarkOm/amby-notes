@@ -5,11 +5,11 @@ use crate::database::mutations::{
 };
 use crate::database::rows::{create_database_row, CreateDatabaseRowRequest, DatabaseRowTemplate};
 use crate::frontmatter::{clear_atomic_write_failure, inject_nth_atomic_write_failure};
-use crate::watcher::WatcherState;
+use crate::self_write::SelfWriteTracker;
 
 struct Fixture {
     vault: PathBuf,
-    watcher: WatcherState,
+    watcher: SelfWriteTracker,
     database_id: String,
     property_id: String,
     note_id: String,
@@ -23,7 +23,7 @@ impl Fixture {
         let vault =
             std::env::temp_dir().join(format!("amby-batch-recovery-{}", ulid::Ulid::generate()));
         fs::create_dir_all(&vault).unwrap();
-        let watcher = WatcherState::new();
+        let watcher = SelfWriteTracker::new();
         let created = create_database(
             &vault,
             &watcher,

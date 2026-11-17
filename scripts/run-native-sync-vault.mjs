@@ -108,7 +108,7 @@ async function startServer() {
 
 function startApp(role, extra) {
   const output = { text: "" }
-  const child = spawn(path.resolve("src-tauri/target/debug/amby-notes"), [], {
+  const child = spawn(path.resolve("target/debug/amby-notes"), [], {
     env: {
       ...process.env,
       AMBY_NATIVE_PAGE: "sync-vault",

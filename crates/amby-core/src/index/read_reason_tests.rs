@@ -55,20 +55,3 @@ fn a_file_that_is_not_utf8_is_invalid_data() {
     };
     assert_eq!(code, "InvalidData");
 }
-
-#[test]
-fn the_reason_codes_pass_the_privacy_filter_as_they_are() {
-    for code in [
-        "NoteNotIndexed",
-        "FileNotFound",
-        "InvalidData",
-        "PermissionDenied",
-        "IoError",
-    ] {
-        assert_eq!(
-            crate::logging::sanitized_error_code(code).as_deref(),
-            Some(code),
-            "{code} must reach the journal"
-        );
-    }
-}

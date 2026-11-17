@@ -60,9 +60,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "amby-core"
+version = "0.0.0"
+dependencies = [
+ "amby-sync-core",
+ "libc",
+ "objc2-foundation",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "sha2",
+ "specta",
+ "tracing",
+ "ulid",
+ "unicode-normalization",
+ "walkdir",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "amby-notes"
 version = "0.1.9"
 dependencies = [
+ "amby-core",
  "amby-sync-client",
  "amby-sync-conformance",
  "amby-sync-core",
@@ -70,7 +91,6 @@ dependencies = [
  "futures-util",
  "hex",
  "keyring",
- "libc",
  "notify",
  "objc2",
  "objc2-app-kit",
@@ -101,7 +121,6 @@ dependencies = [
  "unicode-normalization",
  "url",
  "walkdir",
- "windows-sys 0.61.2",
  "zeroize",
  "zxcvbn",
 ]

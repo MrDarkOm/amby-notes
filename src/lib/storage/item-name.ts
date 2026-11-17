@@ -1,6 +1,6 @@
 /**
  * Whether a person-typed name for a new or renamed item is safe in a vault that other
- * systems share. Mirrors `validate_item_name` in `src-tauri/src/bundle/path_ops.rs` so the
+ * systems share. Mirrors `validate_item_name` in `crates/amby-core/src/bundle/path_ops.rs` so the
  * browser fallback refuses the same names as the desktop backend (CORE-14).
  */
 const MAX_ITEM_NAME_BYTES = 200

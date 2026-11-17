@@ -95,7 +95,7 @@ step. Do not add new advisory exceptions. A Linux CI audit does not replace runt
 
 - [x] **WIN-BUILD.1** All available commands completed successfully; logs saved.
 - [x] **WIN-BUILD.2** The chosen `.msi`/NSIS `.exe` from
-      `src-tauri/target/release/bundle/` installs and launches in the test
+      `target/release/bundle/` installs and launches in the test
       profile. Record separately which installer type was tested.
 - [ ] **WIN-BUILD.3** The first window is not blank; you can select the test vault,
       create a note, save it, and read it back after a full restart.

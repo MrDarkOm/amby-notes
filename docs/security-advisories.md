@@ -1,6 +1,6 @@
 # Rust dependency advisory policy
 
-`npm run audit:rust` runs `cargo audit` against `src-tauri/Cargo.lock`. It
+`npm run audit:rust` runs `cargo audit` against `Cargo.lock`. It
 fails for every advisory except the exact IDs in `scripts/audit-rust.sh`; broad
 warning suppression is prohibited. This record is the review authority for
 those temporary exceptions.

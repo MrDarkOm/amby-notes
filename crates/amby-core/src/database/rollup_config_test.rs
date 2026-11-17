@@ -6,14 +6,14 @@ use crate::database::mutations::{
 
 struct Fixture {
     vault: std::path::PathBuf,
-    watcher: WatcherState,
+    watcher: SelfWriteTracker,
     projects: String,
     tasks: String,
     projects_revision: String,
     tasks_revision: String,
 }
 
-fn database(vault: &Path, watcher: &WatcherState, name: &str) -> (String, String) {
+fn database(vault: &Path, watcher: &SelfWriteTracker, name: &str) -> (String, String) {
     let created = create_database(
         vault,
         watcher,
@@ -31,7 +31,7 @@ fn database(vault: &Path, watcher: &WatcherState, name: &str) -> (String, String
 
 fn property(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     database_id: &str,
     revision: &str,
     request: CreateDatabasePropertyRequest,
@@ -52,7 +52,7 @@ fn property(
 fn fixture() -> (Fixture, String, String, String) {
     let vault = std::env::temp_dir().join(format!("amby-rollup-{}", ulid::Ulid::generate()));
     std::fs::create_dir_all(&vault).unwrap();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let (projects, projects_revision) = database(&vault, &watcher, "Projects");
     let (tasks, tasks_revision) = database(&vault, &watcher, "Tasks");
     // Tasks: Hours (number), Done (checkbox), Title-like Notes (text).

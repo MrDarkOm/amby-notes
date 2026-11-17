@@ -7,7 +7,7 @@ use super::path_ops::{file_name, file_stem, rename_path_case_safe};
 use super::path_string;
 use super::scan::{is_bundle_main_note, is_bundle_main_path_in, is_markdown, is_vault_root};
 
-pub(crate) fn rollback_rename_item(
+pub fn rollback_rename_item(
     vault: &Path,
     original_path: &Path,
     result: &FsMutationResult,
@@ -48,7 +48,7 @@ pub(crate) fn rollback_rename_item(
 }
 
 /// Undo a completed move after a later transaction stage fails.
-pub(crate) fn rollback_move_item(
+pub fn rollback_move_item(
     vault: &Path,
     original_source: &Path,
     original_target: &Path,

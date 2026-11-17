@@ -98,7 +98,7 @@ pub(crate) fn now_ms() -> u64 {
 
 /// A plain relative path of `/`-separated normal components: nothing that leads out of the
 /// archive or the vault (К1, К6).
-pub(crate) fn is_plain_relative(path: &str) -> bool {
+pub fn is_plain_relative(path: &str) -> bool {
     !path.is_empty()
         && !path.contains('\\')
         && Path::new(path)
@@ -231,7 +231,7 @@ pub fn move_to_archive(vault: &Path, path: &Path) -> Result<FsMutationResult, St
         .into_owned();
     // `free_path` takes the place itself when it is free and never a taken one: nothing in the
     // archive is replaced.
-    let target = crate::commands::import_files::free_path(&parent, &name);
+    let target = crate::paths::free_path(&parent, &name);
     crate::atomic_fs::rename_no_replace(&preview.original_path, &target)
         .map_err(|error| error.to_string())?;
     let archived_at = now_ms();
@@ -328,10 +328,7 @@ pub fn restore_places(vault: &Path, id: &str) -> Result<(PathBuf, PathBuf), Stri
         .ok_or("Restore target has no name")?
         .to_string_lossy()
         .into_owned();
-    Ok((
-        source,
-        crate::commands::import_files::free_path(parent, &name),
-    ))
+    Ok((source, crate::paths::free_path(parent, &name)))
 }
 
 /// «Вернуть» (К6): renames the file to its path in the vault **without replacing** anything; a
@@ -401,6 +398,7 @@ pub fn read_preview(vault: &Path, id: &str, relative_path: &str) -> Result<Trash
 #[path = "archive_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[path = "archive_test_support.rs"]
-pub(crate) mod test_support;
+#[allow(clippy::unwrap_used)]
+pub mod test_support;

@@ -1,5 +1,6 @@
 use crate::vault_context::VaultContext;
 use std::ffi::OsString;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Compatibility name for commands that use only the active vault root. It is
@@ -124,6 +125,34 @@ pub fn confine_rel_no_symlinks(root: &Path, rel: &str) -> Result<PathBuf, String
         }
     }
     confine(&root, &candidate)
+}
+
+const MAX_NAME_TRIES: u32 = 1_000;
+
+/// `name`, or `stem 2.ext`, `stem 3.ext`... for the first one that is free in `dir`.
+pub fn free_path(dir: &Path, name: &str) -> PathBuf {
+    let first = dir.join(name);
+    if fs::symlink_metadata(&first).is_err() {
+        return first;
+    }
+    let (stem, ext) = match name.rfind('.') {
+        Some(index) if index > 0 => (&name[..index], &name[index..]),
+        _ => (name, ""),
+    };
+    for number in 2..MAX_NAME_TRIES {
+        let candidate = dir.join(format!("{stem} {number}{ext}"));
+        if fs::symlink_metadata(&candidate).is_err() {
+            return candidate;
+        }
+    }
+    dir.join(format!("{stem} {}{ext}", paths_unique_suffix()))
+}
+
+fn paths_unique_suffix() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

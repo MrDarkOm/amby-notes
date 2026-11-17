@@ -51,7 +51,7 @@ Workshop writes (`initWorkshop`, `completeWorkshop`, `createStory`, `createWorks
 never a second set, and the same ID with another payload is `operationIdReused`. Changes to a structure file
 carry the `expectedWorkshopRevision` (or story revision) the caller last read. Paths in results are
 vault-relative. The browser fallback lists nothing and refuses creation. All commands: format §10.
-See [project backend map](../../../src-tauri/src/project/MAP.md).
+See [project backend map](../../../crates/amby-core/src/project/MAP.md).
 
 Verification: [storage.test.ts](storage.test.ts), focused repository/port tests,
 [ipc-vault-scope.test.ts](../ipc-vault-scope.test.ts), and relevant live/native

@@ -48,7 +48,7 @@ mod tests {
 
     #[test]
     fn test_shared_markdown_compatibility_fixtures() {
-        let json_str = include_str!("../../../tests/fixtures/markdown-compatibility.json");
+        let json_str = include_str!("../../../../tests/fixtures/markdown-compatibility.json");
         let fixtures: Vec<CompatibilityFixture> = serde_json::from_str(json_str)
             .expect("failed to parse shared markdown compatibility fixtures");
 
@@ -94,8 +94,8 @@ mod tests {
 
     #[test]
     fn compatibility_byte_fixtures_have_real_crlf_and_bom() {
-        let source =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/compatibility-vault");
+        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/compatibility-vault");
         let crlf = fs::read(source.join("CRLF.md")).unwrap();
         assert!(crlf.windows(2).any(|pair| pair == b"\r\n"));
         assert!(!String::from_utf8(crlf)
@@ -109,8 +109,8 @@ mod tests {
 
     #[test]
     fn compatibility_vault_rebuild_does_not_mutate_sources_and_safe_body_save_preserves_envelope() {
-        let source =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/compatibility-vault");
+        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/compatibility-vault");
         let vault = std::env::temp_dir().join(format!("amby-compatibility-{}", Ulid::generate()));
         copy_tree(&source, &vault);
         let snapshots = fs::read_dir(&vault)

@@ -6,7 +6,7 @@ Format version: 3.
 Status: **the current data contract of the flat workshop, implemented**. It replaces the nested
 model of revision 2 of 6 October 2026: of that model, only §9 remains in this document
 (how the code encounters it — with a diagnostic, without reading or writing).
-The fields and keys below are checked against `src-tauri/src/project/` (`format.rs`, `create.rs`, `links.rs`,
+The fields and keys below are checked against `crates/amby-core/src/project/` (`format.rs`, `create.rs`, `links.rs`,
 `discovery.rs`).
 
 ---

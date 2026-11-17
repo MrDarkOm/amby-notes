@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn property_creation_updates_manifest_with_raw_revision_cas() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,
@@ -63,7 +63,7 @@ fn property_creation_updates_manifest_with_raw_revision_cas() {
 #[test]
 fn select_property_creation_preserves_unique_non_empty_options() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,
@@ -105,7 +105,7 @@ fn select_property_creation_preserves_unique_non_empty_options() {
 #[test]
 fn formula_property_creation_stores_the_validated_expression() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,
@@ -145,7 +145,7 @@ fn formula_property_creation_stores_the_validated_expression() {
 #[test]
 fn relation_property_creation_defaults_to_the_current_database() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,
@@ -187,7 +187,7 @@ fn relation_property_creation_defaults_to_the_current_database() {
 #[test]
 fn relation_property_creation_can_target_another_database() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let source = create_database(
         &vault,
         &watcher,
@@ -238,7 +238,7 @@ fn relation_property_creation_can_target_another_database() {
 #[test]
 fn a_new_status_property_gets_valid_option_groups_and_the_manifest_stays_readable() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,
@@ -297,7 +297,7 @@ fn a_manifest_written_by_older_builds_without_status_groups_still_parses() {
 #[test]
 fn a_new_property_named_like_a_kept_key_gets_a_key_of_its_own() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let created = create_database(
         &vault,
         &watcher,

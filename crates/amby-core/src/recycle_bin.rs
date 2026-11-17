@@ -218,7 +218,7 @@ pub fn move_exact_to_trash(vault: &Path, path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn move_to_trash(vault: &Path, path: &Path) -> Result<FsMutationResult, String> {
     let preview = preview_move_to_trash(vault, path)?;
     let original_path = preview.original_path;

@@ -18,7 +18,7 @@ use super::mutations::{
     CreatedDatabaseProperty,
 };
 use crate::frontmatter;
-use crate::watcher::WatcherState;
+use crate::self_write::SelfWriteTracker;
 
 const RECOVERY_ROOT: &str = ".amby/recovery/database_relation_schemas";
 
@@ -1036,8 +1036,8 @@ fn publish_error(
     mut journal: SchemaJournal,
     writes: &[SchemaPlannedWrite],
     written: &[usize],
-    watcher: &WatcherState,
-    prepared: &crate::watcher::PreparedSelfWrite,
+    watcher: &SelfWriteTracker,
+    prepared: &crate::self_write::PreparedSelfWrite,
     error: String,
 ) -> Result<(), String> {
     watcher.cancel_prepared_write(prepared);
@@ -1062,7 +1062,7 @@ fn publish_error(
 /// rollback journal.  The completed outcome is committed before watcher
 /// confirmation; callers may record history only after this returns success.
 fn publish_prepared(
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     operation_id: &str,
     mut journal: SchemaJournal,
     writes: &[SchemaPlannedWrite],
@@ -1071,7 +1071,7 @@ fn publish_prepared(
     let prepared = watcher.prepare_write(writes.iter().map(|write| {
         (
             write.path.clone(),
-            crate::watcher::fingerprint_for_bytes(&write.post_bytes),
+            crate::self_write::fingerprint_for_bytes(&write.post_bytes),
         )
     }));
     let mut written = Vec::new();
@@ -1115,7 +1115,7 @@ fn publish_prepared(
 
 pub(super) fn publish(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &CreateDatabasePropertyRequest,
     writes: &[SchemaPlannedWrite],
     result: &CreatedDatabaseProperty,
@@ -1210,7 +1210,7 @@ pub(super) fn replay_type_change(
 
 pub(super) fn publish_type_change(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &ChangeDatabasePropertyTypeRequest,
     writes: &[SchemaPlannedWrite],
     result: &ChangedDatabasePropertyType,

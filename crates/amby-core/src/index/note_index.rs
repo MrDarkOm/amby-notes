@@ -1,7 +1,7 @@
 use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use std::cell::Cell;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -61,17 +61,17 @@ pub struct PreparedNoteWrite {
     pub preserve_opaque_bytes: bool,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 thread_local! {
     static INDEX_FAILURE_STAGE: Cell<Option<u8>> = const { Cell::new(None) };
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn fail_next_index_stage(stage: u8) {
     INDEX_FAILURE_STAGE.with(|configured| configured.set(Some(stage)));
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn check_index_failure(stage: u8) -> Result<(), String> {
     INDEX_FAILURE_STAGE.with(|configured| {
         if configured.get() == Some(stage) {
@@ -83,7 +83,7 @@ pub fn check_index_failure(stage: u8) -> Result<(), String> {
     })
 }
 
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "test-support")))]
 pub fn check_index_failure(_stage: u8) -> Result<(), String> {
     Ok(())
 }

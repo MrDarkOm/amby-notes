@@ -34,7 +34,7 @@ fn every_registered_pair_is_allowed_and_nothing_else() {
 #[test]
 fn the_shared_json_registry_matches_the_rust_registry() {
     let json: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../src/components/workspace/database/filter-operators.json"
+        "../../../../src/components/workspace/database/filter-operators.json"
     ))
     .unwrap();
     let object = json.as_object().unwrap();

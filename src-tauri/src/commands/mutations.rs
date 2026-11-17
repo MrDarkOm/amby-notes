@@ -110,7 +110,7 @@ fn prepare_path_changes(
             watcher::path_fingerprint_for_move(&old_path),
         ));
     }
-    watcher_state.prepare_write(writes)
+    watcher_state.self_writes.prepare_write(writes)
 }
 
 /// Register every exact result of note creation before the first directory or
@@ -132,7 +132,7 @@ fn prepare_note_creation(
         writes.push((original_note.to_path_buf(), PathFingerprint::Missing));
         writes.push((bundle_dir.to_path_buf(), PathFingerprint::Directory));
     }
-    watcher_state.prepare_write(writes)
+    watcher_state.self_writes.prepare_write(writes)
 }
 
 /// A directory move produces notify events for the moved root and for the
@@ -198,7 +198,7 @@ fn prepare_move_paths(
         add(parent.to_path_buf(), PathFingerprint::Directory);
     }
 
-    Ok(watcher_state.prepare_write(writes))
+    Ok(watcher_state.self_writes.prepare_write(writes))
 }
 
 pub fn sync_mutation_result(
@@ -451,28 +451,28 @@ mod failure_tests {
         let prepared = prepare_note_creation(&watcher_state, &plan);
 
         plan.commit().unwrap();
-        watcher_state.confirm_prepared_write(&prepared);
+        watcher_state.self_writes.confirm_prepared_write(&prepared);
 
         assert!(watcher::reconcile_self_write(
-            &watcher_state.own_writes,
+            &watcher_state.self_writes.own_writes,
             &child,
             "create",
             0
         ));
         assert!(watcher::reconcile_self_write(
-            &watcher_state.own_writes,
+            &watcher_state.self_writes.own_writes,
             &parent,
             "remove",
             0
         ));
         assert!(watcher::reconcile_self_write(
-            &watcher_state.own_writes,
+            &watcher_state.self_writes.own_writes,
             &promoted_main,
             "create",
             0
         ));
         assert!(watcher::reconcile_self_write(
-            &watcher_state.own_writes,
+            &watcher_state.self_writes.own_writes,
             &bundle_dir,
             "create",
             0
@@ -626,7 +626,9 @@ pub(crate) fn ensure_bundle_inner(
         deleted_paths: Vec::new(),
         deleted_ids: Vec::new(),
     };
-    watcher_state.mark_write(mutation_paths(&result));
+    watcher_state
+        .self_writes
+        .mark_write(mutation_paths(&result));
     let vault = db.root()?;
     let mut outcome = sync_mutation_result(db, &vault, result);
     outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
@@ -693,11 +695,11 @@ pub(crate) fn create_note_inner(
     let prepared = prepare_note_creation(watcher_state, &plan);
     let result = match plan.commit() {
         Ok(result) => {
-            watcher_state.confirm_prepared_write(&prepared);
+            watcher_state.self_writes.confirm_prepared_write(&prepared);
             result
         }
         Err(error) => {
-            watcher_state.cancel_prepared_write(&prepared);
+            watcher_state.self_writes.cancel_prepared_write(&prepared);
             return Err(error);
         }
     };
@@ -735,7 +737,7 @@ pub fn create_layer(
             paths.push(PathBuf::from(&change.new_path));
         }
     }
-    watcher_state.mark_write(&paths);
+    watcher_state.self_writes.mark_write(&paths);
     let vault = scope.get()?;
     let mut changes = result.path_changes.clone();
     if crate::vault::scan::is_markdown(Path::new(&result.layer_path)) {
@@ -761,7 +763,7 @@ pub fn create_canvas(
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let parent_path = paths::guard(&db, &parent_path)?;
     let path = create_canvas_impl(&parent_path, &name)?;
-    watcher_state.mark_write([path.as_path()]);
+    watcher_state.self_writes.mark_write([path.as_path()]);
     watcher::notify_published_files(
         &app,
         &db.root()?,
@@ -783,7 +785,9 @@ pub fn attach_canvas_to_note(
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let canvas_path = paths::guard(&db, &canvas_path)?;
     let result = attach_canvas_impl(&canvas_path)?;
-    watcher_state.mark_write(mutation_paths(&result));
+    watcher_state
+        .self_writes
+        .mark_write(mutation_paths(&result));
     let vault = db.root()?;
     let mut outcome = sync_mutation_result(&db, &vault, result);
     outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
@@ -803,7 +807,7 @@ pub fn create_sketch(
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let parent_path = paths::guard(&db, &parent_path)?;
     let path = create_sketch_impl(&parent_path, &name)?;
-    watcher_state.mark_write([path.as_path()]);
+    watcher_state.self_writes.mark_write([path.as_path()]);
     watcher::notify_published_files(
         &app,
         &db.root()?,
@@ -825,7 +829,9 @@ pub fn attach_sketch_to_note(
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let sketch_path = paths::guard(&db, &sketch_path)?;
     let result = attach_sketch_impl(&sketch_path)?;
-    watcher_state.mark_write(mutation_paths(&result));
+    watcher_state
+        .self_writes
+        .mark_write(mutation_paths(&result));
     let vault = db.root()?;
     let mut outcome = sync_mutation_result(&db, &vault, result);
     outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
@@ -845,7 +851,9 @@ pub fn unlink_layer(
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let note_path = paths::guard(&db, &note_path)?;
     let result = unlink_layer_impl(&note_path, &kind)?;
-    watcher_state.mark_write(mutation_paths(&result));
+    watcher_state
+        .self_writes
+        .mark_write(mutation_paths(&result));
     let vault = db.root()?;
     let mut outcome = sync_mutation_result(&db, &vault, result);
     outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
@@ -866,7 +874,9 @@ pub fn delete_layer(
     let note_path = paths::guard(&db, &note_path)?;
     let vault = db.root()?;
     let result = delete_layer_impl(&vault, &note_path, &kind)?;
-    watcher_state.mark_write(mutation_paths(&result));
+    watcher_state
+        .self_writes
+        .mark_write(mutation_paths(&result));
     let vault = db.root()?;
     let mut outcome = sync_mutation_result(&db, &vault, result);
     outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
@@ -1056,11 +1066,15 @@ pub(crate) fn move_item_inner(
     )?;
     let result = match move_item_impl(&vault, &source_path, &target_path) {
         Ok(result) => {
-            watcher_state.confirm_prepared_write(&prepared_move);
+            watcher_state
+                .self_writes
+                .confirm_prepared_write(&prepared_move);
             result
         }
         Err(error) => {
-            watcher_state.cancel_prepared_write(&prepared_move);
+            watcher_state
+                .self_writes
+                .cancel_prepared_write(&prepared_move);
             return Err(error);
         }
     };
@@ -1102,7 +1116,7 @@ fn finish_path_mutation(
     rewritten: Vec<PathBuf>,
     what: &str,
 ) -> Result<MutationOutcome, String> {
-    watcher_state.mark_write(rewritten.iter());
+    watcher_state.self_writes.mark_write(rewritten.iter());
     let rewritten_paths = rewritten.clone();
     let rewritten_changes = rewritten
         .into_iter()
@@ -1167,7 +1181,7 @@ fn apply_rewrites_or_roll_back(
     match vault_index::apply_planned_wiki_rewrites(vault_root, plan) {
         Ok(rewritten) => Ok(rewritten),
         Err(error) => {
-            watcher_state.cancel_prepared_write(prepared);
+            watcher_state.self_writes.cancel_prepared_write(prepared);
             if let Err(rollback_error) = rollback() {
                 return Err(format!(
                     "Reference update failed: {error}; filesystem rollback also failed: {rollback_error}"
@@ -1236,18 +1250,20 @@ pub fn create_file(
             format!("File already exists: {}", path.display()),
         ));
     }
-    let prepared = watcher_state.prepare_write([(&path, watcher::fingerprint_for_bytes(b""))]);
+    let prepared = watcher_state
+        .self_writes
+        .prepare_write([(&path, watcher::fingerprint_for_bytes(b""))]);
     match frontmatter::atomic_write_new(&path, "") {
-        Ok(()) => watcher_state.confirm_prepared_write(&prepared),
+        Ok(()) => watcher_state.self_writes.confirm_prepared_write(&prepared),
         Err(frontmatter::AtomicCreateError::AlreadyExists) => {
-            watcher_state.cancel_prepared_write(&prepared);
+            watcher_state.self_writes.cancel_prepared_write(&prepared);
             return Err(StorageError::new(
                 StorageErrorCode::AlreadyExists,
                 format!("File already exists: {}", path.display()),
             ));
         }
         Err(frontmatter::AtomicCreateError::Other(error)) => {
-            watcher_state.cancel_prepared_write(&prepared);
+            watcher_state.self_writes.cancel_prepared_write(&prepared);
             return Err(error.into());
         }
     }
@@ -1281,10 +1297,12 @@ pub fn create_folder(
             format!("Folder already exists: {}", path.display()),
         ));
     }
-    let prepared = watcher_state.prepare_write([(&path, PathFingerprint::Directory)]);
+    let prepared = watcher_state
+        .self_writes
+        .prepare_write([(&path, PathFingerprint::Directory)]);
     match fs::create_dir_all(&path) {
         Ok(()) => {
-            watcher_state.confirm_prepared_write(&prepared);
+            watcher_state.self_writes.confirm_prepared_write(&prepared);
             tracing::info!(event = "create_folder", path = %path.display());
             watcher::notify_published_files(
                 &app,
@@ -1296,7 +1314,7 @@ pub fn create_folder(
             Ok(())
         }
         Err(error) => {
-            watcher_state.cancel_prepared_write(&prepared);
+            watcher_state.self_writes.cancel_prepared_write(&prepared);
             Err(StorageError::from_io(&error))
         }
     }
@@ -1400,11 +1418,15 @@ pub(crate) fn rename_item_inner(
     let prepared_rename = prepare_path_changes(watcher_state, &preview.path_changes);
     let result = match rename_item_impl(&vault, &path, &new_name) {
         Ok(result) => {
-            watcher_state.confirm_prepared_write(&prepared_rename);
+            watcher_state
+                .self_writes
+                .confirm_prepared_write(&prepared_rename);
             result
         }
         Err(error) => {
-            watcher_state.cancel_prepared_write(&prepared_rename);
+            watcher_state
+                .self_writes
+                .cancel_prepared_write(&prepared_rename);
             return Err(error);
         }
     };
@@ -1532,7 +1554,7 @@ pub(crate) fn delete_item_inner(
             .cloned()
             .map(|path| (path, PathFingerprint::Missing)),
     );
-    let prepared = watcher_state.prepare_write(writes);
+    let prepared = watcher_state.self_writes.prepare_write(writes);
     let removal = match mode {
         recycle_bin::DeleteMode::System => system_recycle_bin::move_to_system_trash(&vault, &path),
         // К4: the setting «Переносить в архив» does what «В архив» does.
@@ -1541,11 +1563,11 @@ pub(crate) fn delete_item_inner(
     };
     let result = match removal {
         Ok(result) => {
-            watcher_state.confirm_prepared_write(&prepared);
+            watcher_state.self_writes.confirm_prepared_write(&prepared);
             result
         }
         Err(error) => {
-            watcher_state.cancel_prepared_write(&prepared);
+            watcher_state.self_writes.cancel_prepared_write(&prepared);
             return Err(error);
         }
     };
@@ -1589,14 +1611,14 @@ pub(crate) fn archive_item_inner(
             .cloned()
             .map(|path| (path, PathFingerprint::Missing)),
     );
-    let prepared = watcher_state.prepare_write(writes);
+    let prepared = watcher_state.self_writes.prepare_write(writes);
     let result = match crate::archive::move_to_archive(&vault, &path) {
         Ok(result) => {
-            watcher_state.confirm_prepared_write(&prepared);
+            watcher_state.self_writes.confirm_prepared_write(&prepared);
             result
         }
         Err(error) => {
-            watcher_state.cancel_prepared_write(&prepared);
+            watcher_state.self_writes.cancel_prepared_write(&prepared);
             return Err(error);
         }
     };
@@ -1637,16 +1659,17 @@ mod watcher_fingerprint_tests {
         }
         let state = WatcherState::new();
         state
+            .self_writes
             .active_generation
             .store(1, std::sync::atomic::Ordering::Release);
         let before = watcher::content_reads_for_test();
         let prepared = prepare_path_changes(&state, &changes);
         fs::rename(&old_dir, root.join("New")).unwrap();
-        state.confirm_prepared_write(&prepared);
+        state.self_writes.confirm_prepared_write(&prepared);
         let new_paths: Vec<_> = changes.iter().map(|c| PathBuf::from(&c.new_path)).collect();
         for path in &new_paths {
             assert!(watcher::reconcile_self_write(
-                &state.own_writes,
+                &state.self_writes.own_writes,
                 path,
                 "rename",
                 1
@@ -1678,14 +1701,14 @@ mod watcher_fingerprint_tests {
         std::thread::sleep(std::time::Duration::from_millis(20));
         fs::write(edited, "PAYLOAD NUMBER 3").unwrap();
         assert!(!watcher::reconcile_self_write(
-            &moved.state.own_writes,
+            &moved.state.self_writes.own_writes,
             edited,
             "modify",
             1
         ));
         // Untouched siblings stay recognised as Amby's own.
         assert!(watcher::reconcile_self_write(
-            &moved.state.own_writes,
+            &moved.state.self_writes.own_writes,
             &moved.new_paths[4],
             "rename",
             1
@@ -1699,10 +1722,10 @@ mod watcher_fingerprint_tests {
         let note = &moved.new_paths[0];
         fs::write(note, "links rewritten by Amby").unwrap();
         let before = watcher::content_reads_for_test();
-        moved.state.mark_write([note]);
+        moved.state.self_writes.mark_write([note]);
         assert!(watcher::content_reads_for_test() > before);
         assert!(watcher::reconcile_self_write(
-            &moved.state.own_writes,
+            &moved.state.self_writes.own_writes,
             note,
             "modify",
             1
@@ -1710,7 +1733,7 @@ mod watcher_fingerprint_tests {
         std::thread::sleep(std::time::Duration::from_millis(20));
         fs::write(note, "LINKS REWRITTEN BY AMBY").unwrap();
         assert!(!watcher::reconcile_self_write(
-            &moved.state.own_writes,
+            &moved.state.self_writes.own_writes,
             note,
             "modify",
             1

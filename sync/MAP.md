@@ -5,7 +5,7 @@ failures С1–С14) are in [sync-plan.md](../docs/sync-plan.md); read it before
 **Tests come before code** (plan, section 6): do not edit a test to make it pass. A test that looks
 wrong stops the work and is fixed in its own commit after review.
 
-A separate Cargo workspace (decision Р12): it does not touch `src-tauri/target` or the app gates.
+A separate Cargo workspace (decision Р12): it does not touch the desktop workspace’s `target/` or the app gates.
 License AGPL-3.0-only. The application uses `client`, `core` and `proto` by path from
 [src-tauri/src/sync/](../src-tauri/src/sync/mod.rs) (stage Э4: the connect screen, and the real ports, the
 session and the screen of the sync of a vault around the engine of Э3).

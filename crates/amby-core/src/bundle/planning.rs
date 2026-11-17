@@ -80,7 +80,7 @@ pub(super) fn bundle_rename_path_changes(
         .collect()
 }
 
-pub(crate) fn preview_rename_item(
+pub fn preview_rename_item(
     vault: &Path,
     path: &Path,
     new_name: &str,
@@ -156,7 +156,7 @@ pub(crate) fn preview_rename_item(
     }
 }
 
-pub(crate) fn preview_move_item(
+pub fn preview_move_item(
     vault: &Path,
     source_path: &Path,
     target_path: &Path,

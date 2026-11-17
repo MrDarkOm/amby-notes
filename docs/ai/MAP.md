@@ -11,16 +11,16 @@ This is an ownership index of the working code, not a feature-completion claim.
 | Markdown parser, serializer, blocks, columns, wiki links       | [Tiptap](../../src/components/workspace/tiptap/MAP.md)           |
 | Autosave, dirty state, recovery, external-edit conflicts       | [Save lifecycle](../../src/components/workspace/autosave/MAP.md) |
 | Database views, cells, query state, note peek                  | [Database UI](../../src/components/workspace/database/MAP.md)    |
-| Database files, formula, projection, mutations                 | [Database backend](../../src-tauri/src/database/MAP.md)          |
+| Database files, formula, projection, mutations                 | [Database backend](../../crates/amby-core/src/database/MAP.md)   |
 | Creative workshop panel, pages, dossier, plot                  | [Creative](../../src/components/workspace/creative/MAP.md)       |
-| Creative workshop files, creation, recovery (`amby-workshop`)  | [Workshop backend](../../src-tauri/src/project/MAP.md)           |
+| Creative workshop files, creation, recovery (`amby-workshop`)  | [Workshop backend](../../crates/amby-core/src/project/MAP.md)    |
 | Canvas nodes, edges, layout, undo                              | [Canvas](../../src/components/workspace/canvas/MAP.md)           |
 | Excalidraw scenes, embedded notes                              | [Sketch](../../src/components/workspace/sketch/MAP.md)           |
 | IPC, storage contracts, web fallback                           | [Storage](../../src/lib/storage/MAP.md)                          |
 | Module lifecycle, capabilities, profiles, package installation | [Modules](../../src/lib/modules/MAP.md)                          |
 | AI client, updater, diagnostics, recovery helpers              | [Shared services](../../src/lib/MAP.md)                          |
 | Themes, CSS, icons, localization                               | [Appearance](../../src/themes/MAP.md)                            |
-| Vault I/O, IDs, indexing, links, bundles, history, trash       | [Rust services](../../src-tauri/src/MAP.md)                      |
+| Vault I/O, IDs, indexing, links, bundles, history, trash       | [Rust core](../../crates/amby-core/src/MAP.md)                   |
 | Desktop bootstrap, permissions, packaging                      | [Tauri](../../src-tauri/MAP.md)                                  |
 | Commands, CI, benchmarks, release automation                   | [Tooling](../../scripts/MAP.md)                                  |
 | Encrypted sync: crypto, server, conformance, client (`sync/`)  | [Sync](../../sync/MAP.md)                                        |

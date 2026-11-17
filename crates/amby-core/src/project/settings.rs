@@ -40,7 +40,7 @@ use crate::database::format::{
 };
 use crate::durable;
 use crate::frontmatter;
-use crate::watcher;
+use crate::self_write;
 
 const LABEL: &str = "Creative settings";
 
@@ -194,7 +194,7 @@ pub fn update_workshop(
         .map_err(|e| io_failure("snapshot", e))?;
     let prepared = env
         .watcher
-        .prepare_write([(&file_path, watcher::fingerprint_for_bytes(&bytes))]);
+        .prepare_write([(&file_path, self_write::fingerprint_for_bytes(&bytes))]);
     if let Err(e) = frontmatter::atomic_write_bytes(&file_path, &bytes) {
         env.watcher.cancel_prepared_write(&prepared);
         return Err(io_failure("write", e));
@@ -305,7 +305,7 @@ pub fn remove_workshop_section(
         .map_err(|e| io_failure("snapshot", e))?;
     let prepared = env
         .watcher
-        .prepare_write([(&file_path, watcher::fingerprint_for_bytes(&bytes))]);
+        .prepare_write([(&file_path, self_write::fingerprint_for_bytes(&bytes))]);
     if let Err(e) = frontmatter::atomic_write_bytes(&file_path, &bytes) {
         env.watcher.cancel_prepared_write(&prepared);
         return Err(io_failure("write", e));
@@ -403,7 +403,7 @@ pub fn reorder_workshop_sections(
         .map_err(|e| io_failure("snapshot", e))?;
     let prepared = env
         .watcher
-        .prepare_write([(&file_path, watcher::fingerprint_for_bytes(&bytes))]);
+        .prepare_write([(&file_path, self_write::fingerprint_for_bytes(&bytes))]);
     if let Err(e) = frontmatter::atomic_write_bytes(&file_path, &bytes) {
         env.watcher.cancel_prepared_write(&prepared);
         return Err(io_failure("write", e));
@@ -716,7 +716,7 @@ pub fn update_text_levels(
     .map_err(|e| io_failure("snapshot", e))?;
     let prep_m = env.watcher.prepare_write([(
         &found.manifest_file_path,
-        watcher::fingerprint_for_bytes(&manifest_bytes),
+        self_write::fingerprint_for_bytes(&manifest_bytes),
     )]);
     if let Err(e) = frontmatter::atomic_write_bytes(&found.manifest_file_path, &manifest_bytes) {
         env.watcher.cancel_prepared_write(&prep_m);
@@ -734,7 +734,7 @@ pub fn update_text_levels(
     .map_err(|e| io_failure("snapshot", e))?;
     let prep_s = env.watcher.prepare_write([(
         &found.story_file_path,
-        watcher::fingerprint_for_bytes(&story_bytes),
+        self_write::fingerprint_for_bytes(&story_bytes),
     )]);
     if let Err(e) = frontmatter::atomic_write_bytes(&found.story_file_path, &story_bytes) {
         env.watcher.cancel_prepared_write(&prep_s);
@@ -870,7 +870,7 @@ pub fn add_text_status(
     .map_err(|e| io_failure("snapshot", e))?;
     let prep_m = env.watcher.prepare_write([(
         &found.manifest_file_path,
-        watcher::fingerprint_for_bytes(&manifest_bytes),
+        self_write::fingerprint_for_bytes(&manifest_bytes),
     )]);
     if let Err(e) = frontmatter::atomic_write_bytes(&found.manifest_file_path, &manifest_bytes) {
         env.watcher.cancel_prepared_write(&prep_m);
@@ -888,7 +888,7 @@ pub fn add_text_status(
     .map_err(|e| io_failure("snapshot", e))?;
     let prep_s = env.watcher.prepare_write([(
         &found.story_file_path,
-        watcher::fingerprint_for_bytes(&story_bytes),
+        self_write::fingerprint_for_bytes(&story_bytes),
     )]);
     if let Err(e) = frontmatter::atomic_write_bytes(&found.story_file_path, &story_bytes) {
         env.watcher.cancel_prepared_write(&prep_s);

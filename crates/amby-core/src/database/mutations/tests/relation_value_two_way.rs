@@ -4,7 +4,7 @@ use super::*;
 /// `Task -> Project` value update.
 struct TwoWayRelationFixture {
     vault: PathBuf,
-    watcher: WatcherState,
+    watcher: SelfWriteTracker,
     task_path: PathBuf,
     project_path: PathBuf,
     task_id: String,
@@ -16,7 +16,7 @@ struct TwoWayRelationFixture {
 
 fn two_way_relation_fixture() -> TwoWayRelationFixture {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let mut databases = Vec::new();
     for name in ["Tasks", "Projects"] {
         databases.push(
@@ -194,7 +194,7 @@ fn relation_crash_child() {
     let request: UpdateDatabaseRelationValueRequest =
         serde_json::from_slice(&fs::read(request_path).unwrap()).unwrap();
     frontmatter::inject_nth_atomic_write_abort(nth, after);
-    let _ = update_database_relation_value(&vault, &WatcherState::new(), &request, None);
+    let _ = update_database_relation_value(&vault, &SelfWriteTracker::new(), &request, None);
 }
 
 /// Real process kill: the child aborts mid-operation (no destructors, no
@@ -240,7 +240,7 @@ fn relation_value_update_survives_real_process_abort_at_each_write() {
 #[test]
 fn st04_two_way_relation_target_locked_or_missing_fails_cleanly() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
 
     let db_a = create_database(
         &vault,
@@ -356,7 +356,7 @@ fn st04_two_way_relation_target_locked_or_missing_fails_cleanly() {
 #[test]
 fn st04_self_relation_updates_single_file_without_conflict() {
     let vault = temp_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
 
     let db = create_database(
         &vault,

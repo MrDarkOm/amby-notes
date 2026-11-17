@@ -195,7 +195,7 @@ impl Decimal {
         Ok(Self::new(quotient, MAX_SCALE))
     }
 
-    pub fn cmp(&self, other: &Self) -> Result<std::cmp::Ordering, FormulaError> {
+    pub(crate) fn cmp(&self, other: &Self) -> Result<std::cmp::Ordering, FormulaError> {
         let (left, right, _) = self.align(other)?;
         Ok(left.cmp(&right))
     }

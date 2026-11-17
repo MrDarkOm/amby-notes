@@ -3,13 +3,13 @@ use std::path::Path;
 
 use crate::database::format::{parse_manifest, raw_revision, PropertyDefinition, PropertyValue};
 use crate::frontmatter::{self};
-use crate::watcher::{self, WatcherState};
+use crate::self_write::{self, SelfWriteTracker};
 
 use super::*;
 
 pub fn update_database_relation_value(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &UpdateDatabaseRelationValueRequest,
     history: Option<&crate::database::history::DatabaseHistoryState>,
 ) -> Result<UpdateDatabaseRelationValueResult, String> {
@@ -354,7 +354,7 @@ pub fn update_database_relation_value(
     let write = watcher.prepare_write(planned_writes.iter().map(|planned| {
         (
             planned.path.as_path(),
-            watcher::fingerprint_for_bytes(&planned.post_bytes),
+            self_write::fingerprint_for_bytes(&planned.post_bytes),
         )
     }));
 

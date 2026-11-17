@@ -165,7 +165,7 @@ jobs:
         run: rustup toolchain install
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: . -> target
       - name: Install Linux dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -173,7 +173,17 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
       - run: npm ci
       - run: npm run rust:fmt
+      - run: cargo check --locked -p amby-core --all-targets
       - run: npm run rust:clippy
+      - name: Verify amby-core has no Tauri dependency
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          tree=$(cargo tree --locked -p amby-core --target all --prefix none)
+          if grep -E '^tauri([_-][^ ]*)? v' <<<"$tree"; then
+            echo "amby-core must build independently of Tauri"
+            exit 1
+          fi
 
   rust-test:
     name: Rust test and bindings (${{ matrix.os }})
@@ -195,7 +205,7 @@ jobs:
         run: rustup toolchain install
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: . -> target
       - name: Install Linux dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -231,7 +241,7 @@ jobs:
         run: rustup toolchain install
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: . -> target
       - run: npm ci
       - run: npm run test:storage:live
       - name: Keep the native contract log

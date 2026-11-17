@@ -6,7 +6,7 @@ Use this map for app bootstrap, permissions and packaging; use
 | Concern                                            | Owner                                                                                                                                    |
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | Native executable / app builder / command registry | [src/main.rs](src/main.rs), [src/lib.rs](src/lib.rs)                                                                                     |
-| Dependencies, features, crate version              | [Cargo.toml](Cargo.toml), [Cargo.lock](Cargo.lock)                                                                                       |
+| Desktop manifest and workspace lockfile              | [Cargo.toml](Cargo.toml), [Cargo.lock](../Cargo.lock)                                                                                       |
 | App/window/security/bundle/updater configuration   | [tauri.conf.json](tauri.conf.json)                                                                                                       |
 | Platform bundle overrides                          | [tauri.macos.conf.json](tauri.macos.conf.json)                                                                                           |
 | Narrow capability declarations                     | [capabilities/default.json](capabilities/default.json)                                                                                   |
@@ -15,7 +15,7 @@ Use this map for app bootstrap, permissions and packaging; use
 | Frontend integration guards                        | [tauri-capabilities.test.ts](../src/lib/tauri-capabilities.test.ts), [tauri-build-config.test.ts](../src/lib/tauri-build-config.test.ts) |
 
 `lib.rs` composes state/plugins/windows and the Specta command builder. Put new
-commands in `src/commands/` and domain behavior in the owning service. Per-keystroke
+commands in `src/commands/` and domain behavior in [amby-core](../crates/amby-core/src/MAP.md). Per-keystroke
 write commands (`write_note`, `write_file` in `commands/notes.rs`) are `async` and run on
 `spawn_blocking`, never on the main thread; `WriteSequencer` there keeps writes to one note or path in
 IPC arrival order. The main

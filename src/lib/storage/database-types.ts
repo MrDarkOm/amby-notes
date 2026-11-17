@@ -630,7 +630,7 @@ export type DatabaseError =
 
 /**
  * A refused database operation. `code` names the command, `reason` says why in terms a person can
- * act on (src-tauri/src/database/failure.rs). `message` is the developer's sentence: it goes to
+ * act on (crates/amby-core/src/database/failure.rs). `message` is the developer's sentence: it goes to
  * the logs and never to the screen (docs/notices.md §10).
  */
 export class DatabaseOperationError extends Error {

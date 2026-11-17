@@ -18,7 +18,7 @@ use super::format::{
 };
 use super::validation::{canonical_decimal, validate_record};
 use crate::frontmatter::{self, AtomicCreateError};
-use crate::watcher::{self, WatcherState};
+use crate::self_write::{self, SelfWriteTracker};
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -242,7 +242,7 @@ pub fn property_value_to_yaml(
 /// before publishing, and a failed second write rolls the first one back.
 pub fn sync_note(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &DatabaseYamlSyncRequest,
 ) -> Result<DatabaseYamlSyncResult, String> {
     sync_note_with_resolution(vault, watcher, request, None, None)
@@ -250,7 +250,7 @@ pub fn sync_note(
 
 pub fn resolve_yaml_conflict(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &DatabaseYamlResolveRequest,
 ) -> Result<DatabaseYamlSyncResult, String> {
     let sync_request = DatabaseYamlSyncRequest {
@@ -281,7 +281,7 @@ struct ForcedResolution<'a> {
 
 fn sync_note_with_resolution(
     vault: &Path,
-    watcher: &WatcherState,
+    watcher: &SelfWriteTracker,
     request: &DatabaseYamlSyncRequest,
     forced_resolution: Option<ForcedResolution<'_>>,
     expected_note_revision: Option<&str>,
@@ -601,10 +601,13 @@ fn sync_note_with_resolution(
     }
     let prepared = watcher.prepare_write(
         [
-            record_changed.then_some((&record_path, watcher::fingerprint_for_bytes(&record_bytes))),
+            record_changed.then_some((
+                &record_path,
+                self_write::fingerprint_for_bytes(&record_bytes),
+            )),
             note_changed.then_some((
                 note_path,
-                watcher::fingerprint_for_bytes(next_note.as_bytes()),
+                self_write::fingerprint_for_bytes(next_note.as_bytes()),
             )),
         ]
         .into_iter()
@@ -830,7 +833,7 @@ mod tests {
         let note_id = "01J00000000000000000000001";
         let result = sync_note(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &DatabaseYamlSyncRequest {
                 expected_generation: 1,
                 database_id,
@@ -863,7 +866,7 @@ mod tests {
         let note_id = "01J00000000000000000000001";
         let result = sync_note(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &DatabaseYamlSyncRequest {
                 expected_generation: 1,
                 database_id,
@@ -881,7 +884,7 @@ mod tests {
         let (vault, database_id, revision) = sync_fixture("2", "1", "3");
         let result = sync_note(
             &vault,
-            &WatcherState::new(),
+            &SelfWriteTracker::new(),
             &DatabaseYamlSyncRequest {
                 expected_generation: 1,
                 database_id,
@@ -906,7 +909,7 @@ mod tests {
             let note_revision = crate::index::note_index::body_revision(&note);
             let result = resolve_yaml_conflict(
                 &vault,
-                &WatcherState::new(),
+                &SelfWriteTracker::new(),
                 &DatabaseYamlResolveRequest {
                     expected_generation: 1,
                     database_id,

@@ -12,7 +12,7 @@ use super::scan::is_markdown;
 pub(crate) const DEFAULT_CANVAS_JSON: &str = "{\n  \"nodes\": [],\n  \"edges\": []\n}\n";
 pub(crate) const DEFAULT_SKETCH_JSON: &str = "{\n  \"type\": \"excalidraw\",\n  \"version\": 2,\n  \"source\": \"amby-notes\",\n  \"elements\": [],\n  \"appState\": {\n    \"viewBackgroundColor\": \"#ffffff\",\n    \"gridSize\": null\n  },\n  \"files\": {}\n}\n";
 
-pub(crate) fn create_layer_impl(note_path: &Path, kind: &str) -> Result<LayerResult, String> {
+pub fn create_layer_impl(note_path: &Path, kind: &str) -> Result<LayerResult, String> {
     if !matches!(kind, "canvas" | "database" | "sketch" | "note" | "editor") {
         return Err(format!("Unknown layer kind: {kind}"));
     }
@@ -200,7 +200,7 @@ fn unique_canvas_path(base_dir: &Path, stem: &str) -> PathBuf {
 }
 
 /// Create a standalone `.canvas` file inside the given container (or next to a note).
-pub(crate) fn create_canvas_impl(parent_path: &Path, name: &str) -> Result<PathBuf, String> {
+pub fn create_canvas_impl(parent_path: &Path, name: &str) -> Result<PathBuf, String> {
     let trimmed = super::path_ops::validate_item_name("canvas", name)?;
     let container = if parent_path.is_dir() {
         parent_path.to_path_buf()
@@ -227,7 +227,7 @@ pub(crate) fn create_canvas_impl(parent_path: &Path, name: &str) -> Result<PathB
 }
 
 /// Promote a standalone `.canvas` into a freshly-created note's bundle as its canvas layer.
-pub(crate) fn attach_canvas_impl(canvas_path: &Path) -> Result<FsMutationResult, String> {
+pub fn attach_canvas_impl(canvas_path: &Path) -> Result<FsMutationResult, String> {
     if !canvas_path.is_file() || !is_canvas_file(canvas_path) {
         return Err(format!("Not a canvas file: {}", path_string(canvas_path)));
     }
@@ -310,7 +310,7 @@ fn unique_sketch_path(base_dir: &Path, stem: &str) -> PathBuf {
 }
 
 /// Create a standalone `.excalidraw` file inside the given container (or next to a note).
-pub(crate) fn create_sketch_impl(parent_path: &Path, name: &str) -> Result<PathBuf, String> {
+pub fn create_sketch_impl(parent_path: &Path, name: &str) -> Result<PathBuf, String> {
     let trimmed = super::path_ops::validate_item_name("sketch", name)?;
     let container = if parent_path.is_dir() {
         parent_path.to_path_buf()
@@ -337,7 +337,7 @@ pub(crate) fn create_sketch_impl(parent_path: &Path, name: &str) -> Result<PathB
 }
 
 /// Promote a standalone `.excalidraw` into a freshly-created note's bundle as its sketch layer.
-pub(crate) fn attach_sketch_impl(sketch_path: &Path) -> Result<FsMutationResult, String> {
+pub fn attach_sketch_impl(sketch_path: &Path) -> Result<FsMutationResult, String> {
     if !sketch_path.is_file() || !is_sketch_file(sketch_path) {
         return Err(format!("Not a sketch file: {}", path_string(sketch_path)));
     }
@@ -416,7 +416,7 @@ fn unique_path(base_dir: &Path, stem: &str, ext: &str) -> PathBuf {
     }
 }
 
-pub(crate) fn unlink_layer_impl(note_path: &Path, kind: &str) -> Result<FsMutationResult, String> {
+pub fn unlink_layer_impl(note_path: &Path, kind: &str) -> Result<FsMutationResult, String> {
     if kind == "database" {
         return Err("Legacy database layers are read-only until DB-10".to_string());
     }
@@ -464,7 +464,7 @@ pub(crate) fn unlink_layer_impl(note_path: &Path, kind: &str) -> Result<FsMutati
 }
 
 /// Move a layer to the system recycle bin along with other deleted files.
-pub(crate) fn delete_layer_impl(
+pub fn delete_layer_impl(
     vault: &Path,
     note_path: &Path,
     kind: &str,

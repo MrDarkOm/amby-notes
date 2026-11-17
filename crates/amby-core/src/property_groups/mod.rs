@@ -308,3 +308,7 @@ pub use header::match_key;
 pub use identity::*;
 pub use lifecycle::*;
 pub use panel::*;
+
+#[cfg(any(test, feature = "test-support"))]
+pub const TEST_LAYOUT_V1: &str =
+    "{\"groups\":16,\"hash\":\"blake3-first-hex\",\"template\":1,\"version\":1}\n";

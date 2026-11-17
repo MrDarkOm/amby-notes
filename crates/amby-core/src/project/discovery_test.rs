@@ -17,11 +17,11 @@ use super::model::{
 };
 use crate::database::projection::rebuild_database_projection;
 use crate::index::schema::init_schema;
-use crate::watcher::WatcherState;
+use crate::self_write::SelfWriteTracker;
 
 struct Vault {
     root: PathBuf,
-    watcher: WatcherState,
+    watcher: SelfWriteTracker,
     connection: Connection,
 }
 
@@ -34,7 +34,7 @@ impl Vault {
         init_schema(&connection).unwrap();
         Self {
             root: path.canonicalize().unwrap(),
-            watcher: WatcherState::new(),
+            watcher: SelfWriteTracker::new(),
             connection,
         }
     }

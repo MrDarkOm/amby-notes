@@ -10,8 +10,8 @@ use crate::database::mutation_run::{
 use crate::database::mutations::{create_database, CreateDatabaseRequest, DatabaseCreateMode};
 use crate::database::runtime_state::DatabaseRuntimeState;
 use crate::database::summary;
+use crate::self_write::SelfWriteTracker;
 use crate::vault_context::VaultContext;
-use crate::watcher::WatcherState;
 use std::cell::{Cell, RefCell};
 use std::fs;
 
@@ -198,7 +198,7 @@ fn a_published_refresh_sets_the_runtime_version_and_a_failed_one_leaves_it_and_w
 #[test]
 fn a_command_body_writes_then_refreshes_through_the_scope() {
     let (context, runtime, generation, root) = open_vault();
-    let watcher = WatcherState::new();
+    let watcher = SelfWriteTracker::new();
     let announced = RefCell::new(Vec::new());
     let created = run_database_mutation(
         &context,

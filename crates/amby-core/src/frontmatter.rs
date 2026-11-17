@@ -9,7 +9,7 @@ pub use crate::atomic_fs::{
     atomic_copy_file_new, atomic_write_bytes, atomic_write_bytes_new, atomic_write_new,
     AtomicCreateError,
 };
-pub(crate) use crate::atomic_fs::{
+pub use crate::atomic_fs::{
     atomic_rename_with_retry, publish_prepared_no_replace, sync_parent_directory,
 };
 #[cfg(test)]
@@ -167,7 +167,7 @@ enum YamlValueKind {
 /// column zero; nested mappings and block scalar contents therefore remain
 /// opaque bytes. The parsed mapping comparison below is the final guard
 /// against a splice that changes anything besides the requested key.
-pub(crate) fn replace_yaml_binding_lossless(
+pub fn replace_yaml_binding_lossless(
     content: &str,
     key: &str,
     value: &Value,
