@@ -81,6 +81,22 @@ function normalizedBlock(block: PMNode): string {
   return text
 }
 
+// The editor's form of each top-level block is prepared once per block, not once per save.
+const preparedBlocks = new WeakMap<PMNode, PMNode>()
+
+function prepareForSerialization(doc: PMNode): PMNode {
+  const children: PMNode[] = []
+  doc.forEach((child) => {
+    let prepared = preparedBlocks.get(child)
+    if (prepared === undefined) {
+      prepared = transformForSerialization(child)
+      preparedBlocks.set(child, prepared)
+    }
+    children.push(prepared)
+  })
+  return doc.copy(Fragment.fromArray(children))
+}
+
 const isEmptyParagraph = (node: PMNode) => node.type.name === "paragraph" && node.childCount === 0
 const isList = (node: PMNode) => node.type.name.endsWith("List")
 const BLANK_LINES = /^[ \t\n]*$/u
@@ -193,18 +209,41 @@ function composeListByItems(prepared: PMNode, list: PMNode): string | null {
   return result
 }
 
+/** Where each top-level block landed in the written text, and how it got there. */
+interface WrittenLayout {
+  starts: number[]
+  ends: number[]
+  /** The block is written right after the previous block, both as they were read. */
+  joined: boolean[]
+  /** An empty block that is part of the text between two such blocks. */
+  inGap: boolean[]
+}
+
 function writeWithKeptSource(
   doc: PMNode,
   kept: Array<string | null>,
   byItems: Array<string | null>,
-): string {
+): { markdown: string; layout: WrittenLayout } {
   const state = createSerializerState()
+  const layout: WrittenLayout = {
+    starts: new Array<number>(doc.childCount).fill(0),
+    ends: new Array<number>(doc.childCount).fill(0),
+    joined: new Array<boolean>(doc.childCount).fill(false),
+    inGap: new Array<boolean>(doc.childCount).fill(false),
+  }
   let last: { index: number; end: number; kept: string | null } | null = null
+  // A block starts where its text does, after the newlines the previous block left pending.
+  const startOf = (before: number) => {
+    let at = before
+    while (state.out.charCodeAt(at) === 10) at++
+    return at
+  }
   doc.forEach((child, _offset, index) => {
     if (isEmptyParagraph(child)) {
       state.render(child, doc, index)
       return
     }
+    const before = state.out.length
     const source = kept[index]
     const gap = child.attrs.markdownBlockGap
     if (
@@ -219,8 +258,12 @@ function writeWithKeptSource(
     ) {
       // The same two blocks, both unchanged, with the same blank blocks between them:
       // the text between them is written exactly as it was.
-      state.out = `${state.out.slice(0, last.end)}\n${gap}${source}`
+      const head = state.out.length === last.end ? state.out : state.out.slice(0, last.end)
+      state.out = `${head}\n${gap}${source}`
       state.closed = null
+      layout.joined[index] = true
+      layout.starts[index] = state.out.length - source.length
+      for (let empty = last.index + 1; empty < index; empty++) layout.inGap[empty] = true
     } else if (
       BULLET_LISTS.has(child.type.name) &&
       state.closed &&
@@ -230,6 +273,8 @@ function writeWithKeptSource(
       // Right after a list with the same bullet its own lines would join that list: the
       // serializer writes it with another bullet instead.
       state.render(child, doc, index)
+      layout.starts[index] = startOf(before)
+      layout.ends[index] = state.out.length
       last = { index, end: state.out.length, kept: null }
       return
     } else if (source !== null) {
@@ -239,6 +284,7 @@ function writeWithKeptSource(
         bulletAfterList(state, sourceBullet(source) ?? "-")
       state.write(source)
       if (BULLET_LISTS.has(child.type.name)) state.lastBullet = sourceBullet(source) ?? undefined
+      layout.starts[index] = state.out.length - source.length
     } else if (byItems[index] !== null) {
       // An edited list whose untouched items keep their own lines.
       if (state.closed && state.closed.type === child.type) state.flushClose(3)
@@ -246,18 +292,23 @@ function writeWithKeptSource(
       if (BULLET_LISTS.has(child.type.name)) {
         state.lastBullet = sourceBullet(byItems[index]!) ?? undefined
       }
+      layout.starts[index] = startOf(before)
+      layout.ends[index] = state.out.length
       state.closeBlock(child)
       last = { index, end: state.out.length, kept: null }
       return
     } else {
       state.render(child, doc, index)
+      layout.starts[index] = startOf(before)
+      layout.ends[index] = state.out.length
       last = { index, end: state.out.length, kept: null }
       return
     }
+    layout.ends[index] = state.out.length
     state.closeBlock(child)
     last = { index, end: state.out.length, kept: source }
   })
-  return state.out
+  return { markdown: state.out, layout }
 }
 
 export interface ComposedMarkdown {
@@ -269,10 +320,76 @@ export interface ComposedMarkdown {
   mayRewriteSource: boolean
 }
 
+// What a save may rely on instead of reading the whole text back. A block that is written
+// right after its original neighbour, with the text between them as it was read, and whose
+// neighbours on each side are in the same state, is read again exactly as it was when the
+// note was opened: the note was admitted as a whole, and nothing around the block moved.
+// Only the blocks around an edit are read back, with one such block of context on each
+// side. Whatever cannot be shown this way is read back whole, as before.
+const CONTEXT_BLOCKS = 2
+
+/**
+ * Whether the written text reads as the document, judged from the blocks around the edits
+ * only. `false` means "not shown", never "different": the caller then reads the whole text.
+ */
+function readsBackLocally(
+  doc: PMNode,
+  kept: Array<string | null>,
+  text: string,
+  layout: WrittenLayout,
+): boolean {
+  const count = doc.childCount
+  if (count === 0 || isEmptyParagraph(doc.child(0)) || isEmptyParagraph(doc.child(count - 1))) {
+    return false
+  }
+  // A footnote can be defined far from where it is used.
+  if (text.includes("[^")) return false
+  const blocks: number[] = []
+  doc.forEach((child, _offset, index) => {
+    if (!isEmptyParagraph(child)) blocks.push(index)
+  })
+  const linked = (position: number) =>
+    position === 0
+      ? doc.child(blocks[0]).attrs.markdownBlockPrev === null
+      : layout.joined[blocks[position]]
+  const clean = (position: number) => {
+    if (kept[blocks[position]] === null) return false
+    for (let near = -CONTEXT_BLOCKS + 1; near <= CONTEXT_BLOCKS; near++) {
+      const at = position + near
+      if (at >= 0 && at < blocks.length && !linked(at)) return false
+    }
+    return true
+  }
+  const dirty = blocks.map((_block, position) => !clean(position))
+  const parser = getMarkdownParser()
+  let position = 0
+  while (position < blocks.length) {
+    if (!dirty[position]) {
+      position++
+      continue
+    }
+    let end = position
+    while (end + 1 < blocks.length && dirty[end + 1]) end++
+    const first = Math.max(0, position - 1)
+    const last = Math.min(blocks.length - 1, end + 1)
+    position = end + 1
+    if (first === 0 && last === blocks.length - 1) return false
+    const from = blocks[first]
+    const to = blocks[last]
+    const env: { references?: Record<string, unknown> } = {}
+    const readBack = parser.parse(text.slice(layout.starts[from], layout.ends[to]), env)
+    if (Object.keys(env.references ?? {}).length > 0) return false
+    if (readBack.childCount !== to - from + 1) return false
+    for (let index = 0; index < readBack.childCount; index++) {
+      if (!sameDocument(readBack.child(index), doc.child(from + index))) return false
+    }
+  }
+  return true
+}
+
 /** The document as Markdown: kept source for unchanged blocks, the editor's form otherwise. */
 export function composeMarkdown(doc: PMNode): ComposedMarkdown {
-  const prepared = transformForSerialization(doc)
-  const normalized = serializeFragment(prepared)
+  const prepared = prepareForSerialization(doc)
   const kept: Array<string | null> = []
   const byItems: Array<string | null> = []
   let anyKept = false
@@ -293,9 +410,11 @@ export function composeMarkdown(doc: PMNode): ComposedMarkdown {
       }
     }
   })
-  if (!anyKept) return { markdown: normalized, mayRewriteSource }
+  if (!anyKept) return { markdown: serializeFragment(prepared), mayRewriteSource }
 
-  const composed = writeWithKeptSource(prepared, kept, byItems)
+  const { markdown: composed, layout } = writeWithKeptSource(prepared, kept, byItems)
+  if (readsBackLocally(doc, kept, composed, layout)) return { markdown: composed, mayRewriteSource }
+  const normalized = serializeFragment(prepared)
   if (composed === normalized) return { markdown: normalized, mayRewriteSource }
   // Kept text in a new place can read differently (an indented paragraph moved under a
   // list, an unclosed fence before a new block). Read the result back before using it.
