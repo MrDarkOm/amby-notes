@@ -21,6 +21,9 @@ Keep crash recovery available independently of optional history UI. Validate
 packages at both boundaries; a valid version is not an execution permission.
 Read the package-version contract in [engineering.md](../../../docs/engineering.md)
 and current implementation before changing installation or activation semantics.
+The official signing trust anchor (`OFFICIAL_ED25519_*` in `validator.ts` and `package_manager.rs`) is a
+placeholder until the owner creates the key (MOD-01); tests sign only with ephemeral keys from
+[package-manager/test-signing.ts](package-manager/test-signing.ts), and [signing-trust.test.ts](package-manager/signing-trust.test.ts) guards the trust anchors.
 
 Tests: host lifecycle/capability/workspace tests, community tests, package-manager
 tests, [modular-acceptance.test.ts](modular-acceptance.test.ts) and native package

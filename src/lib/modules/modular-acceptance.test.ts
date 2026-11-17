@@ -9,7 +9,11 @@ import {
   rollbackModule,
   uninstallModule,
 } from "./package-manager/installer"
-import { validatePathConfinement, validateSignature } from "./package-manager/validator"
+import {
+  OFFICIAL_ED25519_KEY_ID,
+  validatePathConfinement,
+  validateSignature,
+} from "./package-manager/validator"
 import { CommunityPluginSandbox } from "./community/sandbox"
 import { revocationRegistry } from "./community/revocation"
 import { quarantineManager } from "./host/safe-mode"
@@ -62,7 +66,7 @@ describe("MOD-10: Modular Architecture Mandatory Scenarios (1-18)", () => {
     })
     expect(result.config.profile.id).toBe("standard")
     expect(result.config.profile.snapshot?.version).toBe(PROFILES.standard.metadata.version)
-    expect(result.config.profile.snapshot?.signature?.keyId).toBe("amby-official-2026")
+    expect(result.config.profile.snapshot?.signature?.keyId).toBe(OFFICIAL_ED25519_KEY_ID)
     expect(result.config.enabledModules.length).toBeGreaterThan(0)
   })
 
@@ -266,7 +270,7 @@ describe("MOD-10: Modular Architecture Mandatory Scenarios (1-18)", () => {
       permissions: ["vault.read"],
       checksums: { "index.js": "deadbeef" },
       signature: {
-        keyId: "amby-official-2026",
+        keyId: OFFICIAL_ED25519_KEY_ID,
         sig: "INVALID_SIGNATURE",
       },
     }
@@ -407,7 +411,7 @@ describe("MOD-10: Modular Architecture Mandatory Scenarios (1-18)", () => {
       permissions: ["vault.read"],
       checksums: { "index.js": "0000" },
       signature: {
-        keyId: "amby-official-2026",
+        keyId: OFFICIAL_ED25519_KEY_ID,
         sig: "ed25519:test",
       },
     }
