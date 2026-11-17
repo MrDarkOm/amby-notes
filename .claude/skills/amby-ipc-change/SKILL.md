@@ -57,4 +57,4 @@ those files, they win.
   backend-heavy changes.
 - IPC changes need targeted testing in `npm run dev` and `npm run tauri dev`.
 - If the contract changed, update the nearest `MAP.md`, then run `npm run docs:check`, and
-  add an entry to `updates/upd_next.md` (Russian).
+  add an entry to `updates/upd_next.md` (English).

@@ -1,6 +1,6 @@
 # ИИ: планы
 
-Статус на 2026-11-03 (сверено с кодом). Контракты ИИ-агента: [ai-harness](../ai-harness.md), [состояние и журнал](../ai-state-format.md), [каталог действий](../ai-action-catalog.md), [Codex](../ai-codex-provider.md). Отложенное: [target/ai.md](target/ai.md).
+Статус на 2026-11-03 (сверено с кодом). Контракты ИИ-агента: [ai-harness](../ai-harness.md), [состояние и журнал](../ai-state-format.md), [каталог действий](../ai-action-catalog.md), [Codex](../ai-codex-provider.md). Отложенное: [target/ai.md](target/ai.md). External AI agents and the vault through `amby mcp`: [cli.md](cli.md).
 
 | Часть                      | Что                                                             | Статус                                                        |
 | -------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------- |

@@ -1,14 +1,14 @@
 ---
 
-### Установка
+### Installation
 
-| Система               | Что скачать                                                      |
-| --------------------- | ---------------------------------------------------------------- |
-| macOS (Apple Silicon) | `.dmg` с `aarch64` в названии                                    |
-| macOS (Intel)         | `.dmg` с `x64` в названии                                        |
-| Windows (x64)         | установщик `x64-setup.exe` или `.msi`                            |
-| Windows (ARM)         | установщик `arm64-setup.exe`                                     |
-| Linux (x64)           | `.AppImage` с `amd64` в названии (обновляется сам, без пароля)   |
-| Linux (ARM)           | `.AppImage` с `aarch64` в названии (обновляется сам, без пароля) |
+| System                | What to download                                                         |
+| --------------------- | ------------------------------------------------------------------------ |
+| macOS (Apple Silicon) | the `.dmg` with `aarch64` in its name                                    |
+| macOS (Intel)         | the `.dmg` with `x64` in its name                                        |
+| Windows (x64)         | the `x64-setup.exe` installer or the `.msi`                              |
+| Windows (ARM)         | the `arm64-setup.exe` installer                                          |
+| Linux (x64)           | the `.AppImage` with `amd64` in its name (updates itself, no password)   |
+| Linux (ARM)           | the `.AppImage` with `aarch64` in its name (updates itself, no password) |
 
-Если Amby уже установлена и автообновление включено, новая версия поставится сама при следующем запуске. Обновления подписаны: подделку приложение не установит.
+If Amby is already installed and automatic updates are on, the new version installs itself on the next launch. Updates are signed: the app will not install a forged one.

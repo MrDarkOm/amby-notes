@@ -4,6 +4,16 @@ Amby is a local-first desktop knowledge workspace: Tauri 2 / Rust, React 19 /
 TypeScript / Vite, Zustand, Tiptap 3 and CodeMirror 6. Users own their Markdown
 and attachments. SQLite is rebuildable; durable sidecars and recovery data are not.
 
+## Language and token efficiency
+
+- **User input:** the owner writes in Russian. Understand it directly; do not
+  translate it back.
+- **Work:** reasoning, plans, tool calls, code, code comments, commit messages,
+  docs, maps, instructions and `updates/` notes are strictly English. Russian is
+  only an app interface language (`src/locales/resources.ts`, quoted UI strings).
+- **Replies to the owner:** only clarifying questions and the final summary or
+  report are in Russian. Keep them brief and structured to save Cyrillic tokens.
+
 ## Read progressively
 
 1. Read this file, then choose the relevant route in [MAP.md](docs/ai/MAP.md).
@@ -52,7 +62,7 @@ and attachments. SQLite is rebuildable; durable sidecars and recovery data are n
 
 ## Finish each batch
 
-- Update `updates/upd_next.md` in Russian for every meaningful change, including
+- Update `updates/upd_next.md` (in English) for every meaningful change, including
   docs and tooling. Preserve accumulated entries. Do not bump versions routinely.
 - Format touched files with Prettier / Rustfmt. Run `npm run docs:check` when
   changing maps, entry points or mapped paths. Run `npm run build` after every

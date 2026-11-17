@@ -246,7 +246,7 @@ jobs:
           {
             echo "body<<AMBY_RELEASE_NOTES"
             if [[ "$GITHUB_REF_NAME" == *-beta.* ]]; then
-              echo "> **Пробная версия для обкатки.**"
+              echo "> **Beta version for testing.**"
               echo
             fi
             tail -n +2 "updates/upd_${version%%-beta.*}.md"

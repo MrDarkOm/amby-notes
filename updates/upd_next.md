@@ -1,5 +1,8 @@
 # Amby — Следующая версия
 
+- For developers: the repository now uses English for all docs, plans, maps, agent instructions and release notes (`updates/`); Russian stays only as an app interface language. `AGENTS.md` (also read by Claude Code and Gemini CLI) has a language policy for agents: they take requests in Russian, work and write in English, and answer the owner briefly in Russian. The release notes template, the GitHub installation footer and the beta banner of a release are in English; older Russian documents are translated over time. App behavior did not change.
+- For developers: a plan for the `amby` command line (for people, scripts and AI agents through `amby mcp`) and for moving the vault core into its own crate without Tauri — `docs/road/cli.md`. This is a task description; app behavior did not change.
+
 - Пикер эмодзи подготавливается в фоне после запуска и повторно использует одну готовую сетку вместо пересоздания при каждом открытии. При закрытии очищается поиск, обновляются «Недавние» и освобождаются обработчики текущей заметки; смена языка или темы обновляет кэш.
 
 - Обновлена иконка синхронизации: у стрелок оставлены внешние треугольные наконечники, центральная точка убрана. Стрелки нейтральные, состояние показано яркой круглой заливкой внутри дуг с небольшим просветом до стрелок; вращение при обмене сохранено.
