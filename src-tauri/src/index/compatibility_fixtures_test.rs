@@ -135,7 +135,19 @@ mod tests {
         let second = load_vault(&rebuilt, &vault).unwrap();
         assert_eq!(second.notes.len(), snapshots.len());
         for (path, original) in snapshots {
-            assert_eq!(fs::read(path).unwrap(), original);
+            let current = fs::read(&path).unwrap();
+            if path.ends_with("External canonical ULID.md") {
+                // A generic `id` is foreign data: kept byte for byte, while the note gets its own
+                // fresh `amby-id` as the first line (CORE-05).
+                let text = String::from_utf8(current).unwrap();
+                let rest = text.strip_prefix("---\namby-id: ").unwrap();
+                let (assigned, rest) = rest.split_once('\n').unwrap();
+                assert!(crate::frontmatter::is_amby_id(assigned));
+                assert_ne!(assigned, "01ARZ3NDEKTSV4RRFFQ69G5FAV");
+                assert_eq!(format!("---\n{rest}").into_bytes(), original);
+            } else {
+                assert_eq!(current, original);
+            }
         }
 
         let safe = second

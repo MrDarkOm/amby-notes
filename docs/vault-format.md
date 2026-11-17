@@ -163,16 +163,15 @@ require a filesystem rename.
 New notes are published with their `amby-id` in the first atomic no-replace
 write, so there is no temporary on-disk state that requires a second ID write.
 
-For compatibility, a canonical ULID in `id` with no `amby-id` is a legacy
-identity candidate, never a trusted identity. Normal indexing leaves its bytes
-unchanged and uses a disposable path-scoped conflict key: the note is visible,
-openable and searchable, but body/property writes require explicit migration.
-A ULID alone cannot prove Amby ownership: migration is
-separately confirmed with a read-only file preview, raw backups, journal, and
-rollback. It adds `amby-id` with the same value and leaves the entire generic
-`id` property untouched. Duplicate candidates are reported, not migrated.
-Existing durable sidecar keys remain unchanged in this migration; candidate cache
-keys are replaced by the confirmed namespaced identity after refreshing the vault.
+A generic `id`, whatever it holds (a canonical ULID included), belongs to the
+user or to another app. Amby never reads it as identity, never copies it into
+`amby-id`, and never changes or removes it: its bytes stay exact. A note with such
+an `id` and no `amby-id` is treated like any note without `amby-id`: it gets a
+freshly generated one by the same path (index or the ID migration, with journal,
+backup and atomic writes). It is not a conflict, saves are not refused, and notes
+sharing the same foreign `id` are not duplicates. Version-1 migration journals
+written by older builds, which may carry a ULID taken from `id`, are still
+validated, resumed and rolled back.
 
 Both notes with a duplicate ID remain visible in the tree and searchable.
 The existing primary path (or first deterministic path on a rebuild) retains
@@ -198,7 +197,7 @@ key. Once "keep both" gives the copy an `amby-id` of its own, it is an ordinary 
 
 The index's `identity_version = 3` marker invalidates the metadata skip path
 once so older cached interpretations are re-read. SQLite is still disposable;
-rebuilding it neither migrates legacy IDs nor deletes durable property data.
+rebuilding it neither migrates IDs nor deletes durable property data.
 
 Version 3 invalidates the disposable metadata cache only; it never migrates
 Markdown or sidecars. Reverting to version 2 would trust ambiguous generic IDs

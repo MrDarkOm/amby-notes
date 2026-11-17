@@ -34,7 +34,6 @@ pub struct ParsedMarkdown {
     pub frontmatter_status: FrontmatterStatus,
     pub id: Option<String>,
     pub display_title: Option<String>,
-    pub legacy_id: Option<String>,
     pub identity_error: Option<String>,
     pub body: String,
     pub frontmatter_tags: Vec<String>,
@@ -46,7 +45,6 @@ pub struct ParsedMarkdown {
 #[derive(Debug, PartialEq, Eq)]
 pub enum ParsedNoteIdentity<'a> {
     TrustedAmby(&'a str),
-    LegacyCandidate(&'a str),
     Missing,
     InvalidAmbyId(&'a str),
 }
@@ -57,14 +55,13 @@ impl ParsedMarkdown {
             ParsedNoteIdentity::InvalidAmbyId(error)
         } else if let Some(id) = self.id.as_deref() {
             ParsedNoteIdentity::TrustedAmby(id)
-        } else if let Some(id) = self.legacy_id.as_deref() {
-            ParsedNoteIdentity::LegacyCandidate(id)
         } else {
             ParsedNoteIdentity::Missing
         }
     }
 
-    /// Only the namespaced service field establishes authoritative identity.
+    /// Only the namespaced service field establishes authoritative identity. A generic `id`
+    /// (a ULID included) belongs to the user or another app and is never read as one.
     pub fn note_id(&self) -> Option<&str> {
         match self.identity() {
             ParsedNoteIdentity::TrustedAmby(id) => Some(id),
@@ -72,19 +69,8 @@ impl ParsedMarkdown {
         }
     }
 
-    /// This candidate is usable only by the explicitly confirmed migration.
-    pub fn migration_id(&self) -> Option<&str> {
-        match self.identity() {
-            ParsedNoteIdentity::TrustedAmby(id) | ParsedNoteIdentity::LegacyCandidate(id) => {
-                Some(id)
-            }
-            _ => None,
-        }
-    }
-
     pub fn indexing_identity_error(&self) -> Option<String> {
         match self.identity() {
-            ParsedNoteIdentity::LegacyCandidate(_) => Some("Legacy identity candidate requires explicit migration; generic id remains user-owned".into()),
             ParsedNoteIdentity::InvalidAmbyId(error) => Some(error.into()),
             _ => None,
         }
@@ -1081,7 +1067,6 @@ pub fn parse_markdown(content: &str) -> ParsedMarkdown {
             },
             id: None,
             display_title: None,
-            legacy_id: None,
             identity_error: None,
             body: content.to_string(),
             frontmatter_tags: Vec::new(),
@@ -1106,14 +1091,6 @@ pub fn parse_markdown(content: &str) -> ParsedMarkdown {
                 .map(str::trim)
                 .filter(|title| !title.is_empty())
                 .map(str::to_string),
-            legacy_id: if map.contains_key(Value::String(AMBY_ID_FIELD.to_string())) {
-                None
-            } else {
-                map.get(Value::String(LEGACY_ID_FIELD.to_string()))
-                    .and_then(Value::as_str)
-                    .filter(|id| is_amby_id(id))
-                    .map(str::to_string)
-            },
             identity_error: map
                 .get(Value::String(AMBY_ID_FIELD.to_string()))
                 .filter(|value| !value.as_str().is_some_and(is_amby_id))
@@ -1137,7 +1114,6 @@ pub fn parse_markdown(content: &str) -> ParsedMarkdown {
             frontmatter_status: FrontmatterStatus::Invalid,
             id: None,
             display_title: None,
-            legacy_id: None,
             identity_error: None,
             body: body.to_string(),
             frontmatter_tags: Vec::new(),
@@ -1149,7 +1125,6 @@ pub fn parse_markdown(content: &str) -> ParsedMarkdown {
             frontmatter_status: FrontmatterStatus::Invalid,
             id: None,
             display_title: None,
-            legacy_id: None,
             identity_error: None,
             body: body.to_string(),
             frontmatter_tags: Vec::new(),
