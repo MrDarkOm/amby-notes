@@ -9,8 +9,8 @@ import { errorType, logger } from "@/lib/logger"
  * the same path as its close handler (`flushBeforeLeaving`) and answers whether its edits are safe
  * (in their file or in a written recovery draft).
  */
-export const FLUSH_REQUEST_EVENT = "amby:flush-request"
-export const FLUSH_DONE_EVENT = "amby:flush-done"
+const FLUSH_REQUEST_EVENT = "amby:flush-request"
+const FLUSH_DONE_EVENT = "amby:flush-done"
 
 /** Windows that never hold edits; the settings window only edits preferences. */
 const NON_EDITING_LABELS = new Set(["settings"])
