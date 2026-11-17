@@ -84,10 +84,20 @@ pub fn note_exiting() {
 /// the editing windows through their save handlers, as the Cmd+Q item does.
 pub fn install<R: tauri::Runtime>(handle: &tauri::AppHandle<R>) {
     #[cfg(target_os = "macos")]
-    macos::install(handle);
+    if HOOK_ENABLED {
+        macos::install(handle);
+    }
     #[cfg(not(target_os = "macos"))]
     let _ = handle;
 }
+
+/// Off until the hook is fixed (checked natively 2026-11-17): after `NSTerminateLater` AppKit runs
+/// its loop in a mode where tao's main-thread work is not processed, so neither the windows' save
+/// handlers nor the timeout reply ran and the app never quit (a quit Apple Event timed out after
+/// two minutes; a logout would be blocked). With the hook off, Dock Quit and logout behave as
+/// before SAVE-04; recovery drafts still keep unsaved typing.
+#[cfg(target_os = "macos")]
+const HOOK_ENABLED: bool = false;
 
 #[cfg(target_os = "macos")]
 mod macos {

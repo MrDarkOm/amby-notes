@@ -27,11 +27,10 @@ Amby's own Quit item (`QUIT_MENU_ID`, Cmd+Q). `request_quit` asks every editing 
 each saves its edits in its own close handler; the predefined Quit item would end the process without a
 close request. Dock → Quit and logout also send `terminate:` without a close request, and tao implements no
 `applicationShouldTerminate:` (so no public Tauri API sees them: `RunEvent::ExitRequested` does not fire,
-`RunEvent::Exit` cannot be prevented). [terminate_gate.rs](src/terminate_gate.rs) adds that method to tao's
-delegate class at `RunEvent::Ready`: the first request answers `NSTerminateLater`, runs `request_quit`
-(the same close handlers as Cmd+Q) and starts a 5 s timer; the process ends when the last window is gone,
-or the timer answers `replyToApplicationShouldTerminate:` (logout must not hang; recovery drafts, written
-within about a second of typing, keep the text). `TerminateGate` is the tested state machine. The update
+`RunEvent::Exit` cannot be prevented). [terminate_gate.rs](src/terminate_gate.rs) can add that method to tao's
+delegate (`NSTerminateLater`, `request_quit`, 5 s timer), but it is OFF (`HOOK_ENABLED`): checked natively,
+AppKit's terminate-later loop did not run tao's main-thread work, so the app never quit. Dock Quit and logout
+behave as before; recovery drafts keep recent typing. `TerminateGate` is the tested state machine. The update
 install in the renderer has its own path, see [src/lib map](../src/lib/MAP.md).
 Vault access is granted dynamically to the selected canonical vault; do not
 add broad static filesystem scopes or relax CSP to silence tests.
