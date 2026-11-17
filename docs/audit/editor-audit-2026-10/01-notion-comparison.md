@@ -1,73 +1,73 @@
-# Редактор Amby и Notion: сравнение
+# Amby editor vs. Notion: comparison
 
-Дата: 7 октября 2026 года.
-Статус: аудит, не контракт. Код не менялся. Описывает состояние на эту дату;
-перед работой сверяйтесь с кодом и тестами.
+Date: October 7, 2026.
+Status: audit, not a contract. The code was not changed. Describes the state as of this date;
+check against the code and tests before working.
 
-Объединённый вывод и план — в [сводном анализе](03-combined-analysis.md).
+The combined conclusion and plan are in the [combined analysis](03-combined-analysis.md).
 
-## Как проверялось
+## How it was checked
 
-Веб-версия приложения (`npm run dev`, данные в localStorage, vault не затронут) и
-редактор через `editor` ProseMirror. Посимвольный ввод эмулировался так, как это
-делает ProseMirror (`handleTextInput`), потому что действие «вставить строку целиком»
-не запускает правила ввода. Горячие клавиши — синтетические `keydown`, вставка —
-`view.pasteText` / `view.pasteHTML`. Скорость — замеры `dispatch` на документах из
-300–3000 абзацев. Интерфейс — скриншоты.
+The web version of the app (`npm run dev`, data in localStorage, the vault is untouched) and
+the editor via the ProseMirror `editor`. Character-by-character typing was emulated the way
+ProseMirror does it (`handleTextInput`), because the "insert the whole string" action
+does not trigger the input rules. Hotkeys were synthetic `keydown` events, paste was
+`view.pasteText` / `view.pasteHTML`. Speed was measured as `dispatch` timings on documents of
+300–3000 paragraphs. The interface was checked with screenshots.
 
-Не проверялось: перетаскивание блоков, нативные функции Tauri (drop файлов),
-Cmd+F в нативном окне.
+Not checked: block drag and drop, native Tauri features (file drop),
+Cmd+F in the native window.
 
-## Что сломано или ведёт себя не так
+## What is broken or behaves differently
 
-| #   | Проблема                                                      | Как проявляется                                                                                                                                                                                                                                                                                                                           |
-| --- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **Лаг на длинных заметках со ссылками**                       | Плагин тегов и `[[ссылок]]` (`src/components/workspace/tiptap/tags-wikilinks.ts`) пересчитывает декорации по всему документу на каждую транзакцию. На 3000 абзацев без ссылок — 1,7 мс на символ, со ссылками и тегами — 69 мс; на 1000 абзацев без ссылок — 0,5 мс. Лечится инкрементальным обновлением декораций (`DecorationSet.map`). |
-| 2   | **Вставка Markdown-текста не создаёт блоки**                  | `# Заголовок`, `- a`, таблица и код вставляются строками сырого текста. Notion превращает их в блоки. Парсер (`markdownToDoc`) уже есть, его нужно подключить к вставке. HTML со страниц вставляется нормально.                                                                                                                           |
-| 3   | **Backspace в начале заголовка склеивает его с абзацем выше** | В Notion заголовок сначала становится абзацем. Здесь `верх` + `## Заг` стали `верхЗаг`. Для списка, цитаты и кода Backspace превращает блок в абзац (это верно).                                                                                                                                                                          |
-| 4   | **`- [ ] ` не создаёт задачу**                                | Получается маркированный список с текстом `[ ] a`. `[] ` работает. Не срабатывают также `1)`, `***`, `$$`, `:smile:`, `->`.                                                                                                                                                                                                               |
-| 5   | **Нет базовых горячих клавиш Notion**                         | Cmd+K (ссылка), Cmd+Shift+↑/↓ (двигать блок), Cmd+D (дублировать блок), выделение маркером / Cmd+Shift+H, Cmd+Shift+X. Работают: B, I, U, E, Cmd+Shift+S, Cmd+Alt+1/2, Cmd+Shift+7/8/9, Cmd+Alt+C, Cmd+Shift+B.                                                                                                                           |
-| 6   | **Меню `/`**                                                  | Отдельное поле «Поиск блока…» вместо фильтрации по мере набора, видно 5 строк из 23, нет групп и описаний.                                                                                                                                                                                                                                |
-| 7   | **Код**                                                       | Нет подсветки синтаксиса, подписи языка и кнопки «Копировать» на самом блоке. Язык меняется только в панели блока.                                                                                                                                                                                                                        |
-| 8   | **Таблицы**                                                   | Нет «+» на краях для строк и столбцов, нет меню строки/столбца (вставить слева/справа, удалить, заголовок), нет цвета ячеек. Строка добавляется только клавишей Tab в последней ячейке.                                                                                                                                                   |
-| 9   | **Прочее**                                                    | H1 с подчёркиванием (в Notion нет). Панель форматирования без полного «Превратить в…». Нет комментариев и выделения маркером.                                                                                                                                                                                                             |
+| #   | Problem                                                                    | How it shows up                                                                                                                                                                                                                                                                                                                                              |
+| --- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | **Lag on long notes with links**                                           | The tags and `[[links]]` plugin (`src/components/workspace/tiptap/tags-wikilinks.ts`) recomputes decorations across the whole document on every transaction. On 3000 paragraphs without links — 1.7 ms per character, with links and tags — 69 ms; on 1000 paragraphs without links — 0.5 ms. Fixed by incremental decoration updates (`DecorationSet.map`). |
+| 2   | **Pasting Markdown text does not create blocks**                           | `# Heading`, `- a`, a table, and code are pasted as raw text lines. Notion turns them into blocks. The parser (`markdownToDoc`) already exists and needs to be wired into paste. HTML from web pages pastes fine.                                                                                                                                            |
+| 3   | **Backspace at the start of a heading merges it with the paragraph above** | In Notion the heading first becomes a paragraph. Here `верх` + `## Заг` became `верхЗаг`. For a list, quote, and code, Backspace turns the block into a paragraph (this is correct).                                                                                                                                                                         |
+| 4   | **`- [ ] ` does not create a task**                                        | It produces a bulleted list with the text `[ ] a`. `[] ` works. `1)`, `***`, `$$`, `:smile:`, `->` do not trigger either.                                                                                                                                                                                                                                    |
+| 5   | **No basic Notion hotkeys**                                                | Cmd+K (link), Cmd+Shift+↑/↓ (move a block), Cmd+D (duplicate a block), highlighter selection / Cmd+Shift+H, Cmd+Shift+X. These work: B, I, U, E, Cmd+Shift+S, Cmd+Alt+1/2, Cmd+Shift+7/8/9, Cmd+Alt+C, Cmd+Shift+B.                                                                                                                                          |
+| 6   | **The `/` menu**                                                           | A separate "Поиск блока…" (Search block…) field instead of filtering as you type, 5 rows of 23 visible, no groups and no descriptions.                                                                                                                                                                                                                       |
+| 7   | **Code**                                                                   | No syntax highlighting, no language label, and no "Копировать" (Copy) button on the block itself. The language can only be changed in the block panel.                                                                                                                                                                                                       |
+| 8   | **Tables**                                                                 | No "+" on the edges for rows and columns, no row/column menu (insert left/right, delete, header), no cell color. A row can only be added with the Tab key in the last cell.                                                                                                                                                                                  |
+| 9   | **Other**                                                                  | H1 with an underline (not in Notion). The formatting bar has no full "Turn into…". No comments and no highlighter selection.                                                                                                                                                                                                                                 |
 
-## Блоки Notion, которых нет
+## Notion blocks that are missing
 
-В меню `/` 23 блока: абзац, заголовки 1–6, маркированный и нумерованный списки,
-задачи, код, callout, простая таблица, представление базы данных, цитата,
-разделитель, три способа вставки картинки, файл, тег, ссылка на заметку, эмодзи.
+The `/` menu has 23 blocks: paragraph, headings 1–6, bulleted and numbered lists,
+tasks, code, callout, simple table, database view, quote,
+divider, three ways to insert an image, file, tag, note link, emoji.
 
-Нет:
+Missing:
 
-- переключатель (toggle) и переключаемые заголовки;
-- колонки из меню (создаются иначе);
-- формулы и диаграммы с рендером (математика и Mermaid показываются как исходный текст);
-- видео, аудио, PDF и встраивание по URL;
-- закладка с превью ссылки;
-- оглавление;
-- дата, напоминание, `@`-упоминание;
-- синхронизированные блоки, комментарии.
+- toggle and toggle headings;
+- columns from the menu (they are created another way);
+- formulas and diagrams with rendering (math and Mermaid are shown as source text);
+- video, audio, PDF, and embedding by URL;
+- bookmark with a link preview;
+- table of contents;
+- date, reminder, `@` mention;
+- synced blocks, comments.
 
-## Что уже хорошо
+## What is already good
 
-- Markdown-шорткаты `#`, `-`, `*`, `+`, `1.`, `[]`, `>`, `---`, ` ``` `, `**`, `*`, `_`, `` ` ``, `~~` работают.
-- Вставка HTML (заголовки, списки, таблицы, код, цитаты, картинки) и «URL поверх выделения» (становится ссылкой на выделенный текст) сделаны как в Notion.
-- Ручки блоков, панель форматирования (заголовок, B, I, U, S, код, список, цитата, callout, тег, wiki-ссылка, URL, цвет, AI), панель действий блока (превратить, цвет, дублировать, удалить, вставить выше/ниже, выравнивание, размер картинки, сворачивание callout).
-- Колонки, базы данных и AI внутри заметки.
-- Скорость заметок до ~1000 абзацев.
+- Markdown shortcuts `#`, `-`, `*`, `+`, `1.`, `[]`, `>`, `---`, ` ``` `, `**`, `*`, `_`, `` ` ``, `~~` work.
+- HTML paste (headings, lists, tables, code, quotes, images) and "URL over a selection" (becomes a link on the selected text) work as in Notion.
+- Block handles, the formatting bar (heading, B, I, U, S, code, list, quote, callout, tag, wiki link, URL, color, AI), the block action panel (turn into, color, duplicate, delete, insert above/below, alignment, image size, callout collapse).
+- Columns, databases, and AI inside a note.
+- Note speed up to ~1000 paragraphs.
 
-## Что бы я делал
+## What I would do
 
-1. Лаг (п. 1).
-2. Вставка Markdown, `- [ ] `, Backspace-превращение, Cmd+K / Cmd+D / Cmd+Shift+↑↓ (п. 2–5).
-3. Меню `/`: набор прямо в тексте, группы, описания, больше пунктов (п. 6).
-4. Таблицы и подсветка кода (п. 7–8).
-5. Новые блоки: переключатель, математика и Mermaid, закладки.
+1. The lag (item 1).
+2. Markdown paste, `- [ ] `, Backspace conversion, Cmd+K / Cmd+D / Cmd+Shift+↑↓ (items 2–5).
+3. The `/` menu: typing directly in the text, groups, descriptions, more entries (item 6).
+4. Tables and code highlighting (items 7–8).
+5. New blocks: toggle, math and Mermaid, bookmarks.
 
-## Важное ограничение
+## An important limitation
 
-Цель «как в Notion» упирается в правило «файл — обычный Markdown». Блоки Notion без
-Markdown-аналога нужно сначала решить, как хранить без потерь. Например, переключатель
-можно хранить как `<details>` или как складной callout `> [!note]-`; цвета блоков в
-файл не положить.
+The goal "like Notion" runs into the rule "a file is plain Markdown". Notion blocks with no
+Markdown equivalent first need a decision on how to store them losslessly. For example, a toggle
+can be stored as `<details>` or as a collapsible callout `> [!note]-`; block colors cannot
+be put into the file.

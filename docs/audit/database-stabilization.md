@@ -1,128 +1,128 @@
-# Независимый аудит результатов стабилизации баз данных Amby Notes
+# Independent audit of the Amby Notes database stabilization results
 
-> **Статус на 2026-11-02:** частично устарел. R1 и R7 (rollback миграции, legacy `ambd.json`) сняты: модуль миграции удалён коммитом `3efd792`. R2, R4, R6, R8 не перепроверялись по текущему коду.
+> **Status as of 2026-11-02:** partially outdated. R1 and R7 (migration rollback, legacy `ambd.json`) are resolved: the migration module was removed in commit `3efd792`. R2, R4, R6, R8 have not been re-checked against the current code.
 
-## Повторная проверка исправлений R1–R8
+## Re-check of fixes R1–R8
 
-Дата повторной проверки: 2026-09-20. Проверена новая рабочая версия после исправлений Gemini и применения первого диагностического патча. **Есть реальные исправления, но все замечания аудита не закрыты. Приёмка безопасности миграций и всего плана пока не пройдена.**
+Re-check date: 2026-09-20. The new working version was checked after the Gemini fixes and after the first diagnostic patch was applied. **There are real fixes, but not all audit findings are closed. Acceptance of migration safety and of the whole plan has not yet been passed.**
 
-Первоначальные восемь регрессионных тестов теперь проходят. Проверки соседних сценариев выявили восемь сбоев: семь в Rust и один в React hook. Они выполнены в отдельной копии исходников; производственный код текущей рабочей копии при аудите не изменялся.
+The original eight regression tests now pass. Checks of neighbouring scenarios revealed eight failures: seven in Rust and one in a React hook. They were run in a separate copy of the sources; the production code of the current working copy was not changed during the audit.
 
-### Что исправлено и подтверждено
+### What was fixed and confirmed
 
-- Исправлены три ранее воспроизведённых запроса фильтра: `multiSelect`, Checkbox и Select. Их исходные тесты проходят.
-- Чтение числового результата Formula как входа следующей Formula теперь работает в исходном сценарии. Добавлена обработка других типов вычисленного результата.
-- В Undo/Redo используется `db_members`, добавлена проверка принадлежности путей активному vault; `load_vault` очищает историю. Эти изменения подтверждены кодом и проходящими штатными тестами; отдельная native-приёмка переключения vault в этом аудите не проводилась.
-- Rollback теперь отвергает изменённую после миграции заметку, **если сама миграция её переписала**. В исходном сценарии проверка проходит.
-- Фактический лимит hosts теперь 16, а ответ сохраняет номер инвалидизации, зафиксированный при запуске запроса. Этого недостаточно для гарантированной повторной загрузки — см. R8 ниже.
+- The three previously reproduced filter queries are fixed: `multiSelect`, Checkbox and Select. Their original tests pass.
+- Reading the numeric result of a Formula as the input of the next Formula now works in the original scenario. Handling of other computed result types was added.
+- Undo/Redo uses `db_members`, a check that paths belong to the active vault was added; `load_vault` clears the history. These changes are confirmed by the code and by the passing standard tests; a separate native acceptance of vault switching was not performed in this audit.
+- Rollback now rejects a note changed after the migration **if the migration itself rewrote it**. In the original scenario the check passes.
+- The actual hosts limit is now 16, and the response keeps the invalidation number recorded when the query was started. This is not enough to guarantee a repeated load — see R8 below.
 
-### Актуальные статусы замечаний
+### Current status of the findings
 
-| Пункт | Статус после исправлений                | Причина                                                                                                                                        |
-| ----- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| R1    | Не закрыт, P1                           | Rollback всё ещё стирает новые правки в заметках, которые попали в backup, но не были изменены миграцией.                                      |
-| R2    | Не исправлен, P1                        | Durable-протокол batch/relations/undo и восстановление после прерывания процесса по-прежнему не подключены.                                    |
-| R3    | Основные указанные дефекты исправлены   | Проверка пути, очистка истории и имя таблицы исправлены; expected generation в Undo/Redo IPC и native-сценарии остаются частью полной приёмки. |
-| R4    | Не закрыт, P1                           | История названий Select существует только в памяти, конфликтует между свойствами; стабильные ключи обычных свойств также не завершены.         |
-| R5    | Три воспроизведённых дефекта исправлены | Это подтверждает конкретные запросы, но не весь ST-09: saved views, группировки, layouts и native-пути требуют отдельной приёмки.              |
-| R6    | Частично, P2                            | Результат зависит от порядка свойств; цикл с обращением по именам не диагностируется.                                                          |
-| R7    | Частично, P1/P2                         | Legacy `ambd.json` остаётся требующим миграции; новая очистка каталогов может удалить файлы без backup. Resume не реализован.                  |
-| R8    | Не закрыт, P2                           | Изменение во время выполняющегося запроса не запускает повторный запрос после старого ответа.                                                  |
+| Item | Status after fixes             | Reason                                                                                                                                                   |
+| ---- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1   | Not closed, P1                 | Rollback still erases new edits in notes that were put into the backup but were not changed by the migration.                                            |
+| R2   | Not fixed, P1                  | The durable batch/relations/undo protocol and recovery after a process interruption are still not wired in.                                              |
+| R3   | Main stated defects fixed      | Path check, history clearing and table name are fixed; expected generation in the Undo/Redo IPC and native scenarios remain part of the full acceptance. |
+| R4   | Not closed, P1                 | The Select name history exists only in memory and conflicts between properties; stable keys of ordinary properties are also not finished.                |
+| R5   | Three reproduced defects fixed | This confirms specific queries, but not the whole ST-09: saved views, groupings, layouts and native paths require separate acceptance.                   |
+| R6   | Partial, P2                    | The result depends on property order; a cycle with references by names is not diagnosed.                                                                 |
+| R7   | Partial, P1/P2                 | Legacy `ambd.json` still requires migration; the new directory cleanup may delete files without a backup. Resume is not implemented.                     |
+| R8   | Not closed, P2                 | A change during a running query does not trigger a repeated query after the old response.                                                                |
 
-### R1: CAS проверяет не все восстанавливаемые файлы
+### R1: CAS does not check all restorable files
 
-**Воспроизведение:** заметка уже содержит `Status: In Progress`, поэтому переносить в неё значение из shard не нужно. Миграция всё равно копирует заметку в backup. После миграции пользователь дописывает текст. Rollback возвращает успех и стирает дописанный текст.
+**Reproduction:** a note already contains `Status: In Progress`, so there is no need to carry the value over into it from the shard. The migration still copies the note into the backup. After the migration the user appends text. Rollback returns success and erases the appended text.
 
-Причина: preflight включает все заметки базы в backup, `post_migration_hashes` формируется только для `planned_writes`, а rollback восстанавливает все файлы из backup. Отсутствие хэша трактуется как разрешение перезаписи. Также хэши записываются в journal на диске только после выполнения изменений, что не обеспечивает проверяемое восстановление при падении процесса между шагами.
+Cause: preflight includes all notes of the database in the backup, `post_migration_hashes` is formed only for `planned_writes`, and rollback restores all files from the backup. A missing hash is treated as permission to overwrite. Also, hashes are written to the on-disk journal only after the changes are made, which does not provide verifiable recovery if the process crashes between steps.
 
-Источники: [migration.rs:287](../../src-tauri/src/database/migration.rs#L287), [migration.rs:555](../../src-tauri/src/database/migration.rs#L555), [migration.rs:706](../../src-tauri/src/database/migration.rs#L706).
+Sources: [migration.rs:287](../../src-tauri/src/database/migration.rs#L287), [migration.rs:555](../../src-tauri/src/database/migration.rs#L555), [migration.rs:706](../../src-tauri/src/database/migration.rs#L706).
 
-**Нужно:** планировать полный набор восстанавливаемых/удаляемых ресурсов с ожидаемыми состояниями; файлы, не изменённые миграцией, не восстанавливать без необходимости. Отсутствующие сведения в journal должны блокировать небезопасную перезапись. Durable-журнал и ожидаемые ревизии должны сохраняться до изменения файлов. Проверить также удаление заметки после миграции, неполный journal и частичный rollback.
+**Needed:** plan the full set of restorable/deletable resources with expected states; do not restore files that the migration did not change unless necessary. Missing information in the journal must block an unsafe overwrite. The durable journal and expected revisions must be saved before files are changed. Also check deletion of a note after the migration, an incomplete journal and a partial rollback.
 
-### R2: пункт отчёта подменён другой проверкой
+### R2: the report item was replaced by a different check
 
-В независимом аудите R2 означает восстановление многофайловых операций после сбоя. В новом отчёте Gemini под этим номером описана защита будущей версии manifest. Проверка будущего формата проходила ещё до этих исправлений и прямо была отмечена в исходном аудите как успешная, а не как дефект.
+In the independent audit, R2 means recovery of multi-file operations after a failure. In the new Gemini report, the protection of a future manifest version is described under this number. The check of the future format passed even before these fixes and was explicitly marked in the original audit as successful, not as a defect.
 
-`apply_value_batch` по-прежнему держит исходные байты в памяти, пишет файлы по очереди и игнорирует ошибки компенсирующего отката. Функции journal/recovery остаются отключёнными `#[allow(dead_code)]`. Успешный тест future-format не подтверждает ни crash recovery, ни идемпотентное повторение операции после перезапуска.
+`apply_value_batch` still keeps the original bytes in memory, writes files one by one and ignores errors of the compensating rollback. The journal/recovery functions remain disabled with `#[allow(dead_code)]`. A successful future-format test confirms neither crash recovery nor idempotent repetition of the operation after a restart.
 
-Источник: [mutations.rs:1625](../../src-tauri/src/database/mutations.rs#L1625), [mutations.rs:1693](../../src-tauri/src/database/mutations.rs#L1693).
+Source: [mutations.rs:1625](../../src-tauri/src/database/mutations.rs#L1625), [mutations.rs:1693](../../src-tauri/src/database/mutations.rs#L1693).
 
-**Нужно:** закрыть исходный ST-04, используя durable-журнал до записи и проверяемое восстановление. Тестировать принудительное прерывание между каждым шагом, ошибки отката и повтор operationId после нового запуска. Такие прерывания процесса в текущем аудите не выполнялись; отсутствие подключённого протокола установлено по коду.
+**Needed:** close the original ST-04, using a durable journal before writing and verifiable recovery. Test forced interruption between every step, rollback errors and repetition of an operationId after a fresh start. Such process interruptions were not performed in the current audit; the absence of a wired-in protocol was established from the code.
 
-### R4: глобальная история названий не обеспечивает устойчивое хранение
+### R4: the global name history does not provide durable storage
 
-Добавлен `OPTION_NAME_HISTORY: HashMap<String, String>` с ключом только по названию опции. Он заполняется побочным эффектом YAML-сериализации, не сохраняется на диске и не имеет области действия database/property/vault.
+`OPTION_NAME_HISTORY: HashMap<String, String>` was added, keyed only by the option name. It is filled as a side effect of YAML serialization, is not saved to disk and has no database/property/vault scope.
 
-**Воспроизведены два случая:**
+**Two cases were reproduced:**
 
-1. Сериализация `In Progress` → rename в `Doing` → очистка карты памяти, моделирующая новый процесс → чтение сохранённого YAML. Вместо прежнего ULID получается строка `In Progress`.
-2. После сериализации значения другого свойства с таким же названием, но другим ID, чтение первого переименованного значения также теряет связь с прежним ID.
+1. Serialize `In Progress` → rename to `Doing` → clear the in-memory map, simulating a new process → read the saved YAML. Instead of the previous ULID, the string `In Progress` is obtained.
+2. After serializing a value of another property with the same name but a different ID, reading the first renamed value also loses the link to the previous ID.
 
-Источник: [format.rs:10](../../src-tauri/src/database/format.rs#L10), [format.rs:467](../../src-tauri/src/database/format.rs#L467), [format.rs:919](../../src-tauri/src/database/format.rs#L919).
+Source: [format.rs:10](../../src-tauri/src/database/format.rs#L10), [format.rs:467](../../src-tauri/src/database/format.rs#L467), [format.rs:919](../../src-tauri/src/database/format.rs#L919).
 
-**Нужно:** хранить устойчивый option ID в durable-представлении либо использовать версионированные постоянные aliases в схеме конкретного свойства с разрешением конфликтов. Глобальная карта процесса не должна определять интерпретацию пользовательских данных. Отдельно завершить стабильный ключ свойства: сейчас rename обычного поля всё ещё массово переписывает YAML.
+**Needed:** store a stable option ID in the durable representation, or use versioned persistent aliases in the schema of the specific property with conflict resolution. A global process map must not determine the interpretation of user data. Separately, finish the stable property key: at the moment renaming an ordinary field still rewrites YAML en masse.
 
-Проверка перезапуска выполнена сбросом глобальной карты в тесте, без реального перезапуска Tauri. Это точно моделирует потерю единственного добавленного механизма хранения aliases.
+The restart check was performed by resetting the global map in a test, without a real Tauri restart. This accurately models the loss of the only added alias storage mechanism.
 
-### R6: формулы зависят от порядка колонок, а циклы по именам скрываются
+### R6: formulas depend on column order, and cycles by names are hidden
 
-**Воспроизведение:** `Price=100`, `Tax=20`, `Total=Price+Tax`, `Doubled=Total*2`. В прежнем порядке тест проходит. После перестановки определений свойств так, чтобы Doubled был раньше Total, значение 240 не появляется. Для цикла `Total=Doubled+1`, `Doubled=Total*2` функция возвращает `Ok(())` вместо ошибки цикла.
+**Reproduction:** `Price=100`, `Tax=20`, `Total=Price+Tax`, `Doubled=Total*2`. In the original order the test passes. After reordering the property definitions so that Doubled comes before Total, the value 240 does not appear. For the cycle `Total=Doubled+1`, `Doubled=Total*2` the function returns `Ok(())` instead of a cycle error.
 
-Граф строится по ID, но зависимости из выражений возвращают имена. Поле `config.dependencies` не используется этим графом. Поэтому порядок получается из списка свойств, а ошибки вычисления продолжают поглощаться. Предварительно сохранённые результаты могут дополнительно скрывать рассогласование до полного rebuild.
+The graph is built by ID, but dependencies from expressions return names. The `config.dependencies` field is not used by this graph. As a result the order comes from the property list, and evaluation errors continue to be swallowed. Previously saved results may additionally hide the inconsistency until a full rebuild.
 
-Источник: [formula.rs:775](../../src-tauri/src/database/formula.rs#L775), [formula.rs:837](../../src-tauri/src/database/formula.rs#L837).
+Source: [formula.rs:775](../../src-tauri/src/database/formula.rs#L775), [formula.rs:837](../../src-tauri/src/database/formula.rs#L837).
 
-**Нужно:** единое разрешение ссылок на стабильные ID до построения графа, общий порядок Formula/Rollup, явная диагностика циклов и ошибок. Проверить произвольный порядок свойств, rename, rebuild с пустой SQLite и инкрементальное обновление.
+**Needed:** a single resolution of references to stable IDs before building the graph, a common order for Formula/Rollup, explicit diagnostics of cycles and errors. Check arbitrary property order, rename, rebuild with an empty SQLite and incremental update.
 
-### R7: удаление каталогов не заменяет завершение миграции
+### R7: deleting directories does not replace completing the migration
 
-**Воспроизведены два случая:**
+**Two cases were reproduced:**
 
-- Если исходный manifest называется `ambd.json`, после успешной операции `needs_migration` остаётся `true`. «Канонический» путь выбирается функцией, возвращающей существующий legacy-файл; условие удаления старого manifest его сохраняет.
-- Файл `future-metadata.bin` в `.ambd/records` удаляется вместе с каталогом и отсутствует в backup: preflight перечисляет только JSON верхнего уровня, а `remove_dir_all` удаляет всё содержимое. Исчезновение файла подтверждено проверкой как исходного пути, так и соответствующего backup-пути.
+- If the original manifest is named `ambd.json`, after a successful operation `needs_migration` remains `true`. The "canonical" path is chosen by a function that returns the existing legacy file; the condition for deleting the old manifest preserves it.
+- The file `future-metadata.bin` in `.ambd/records` is deleted together with the directory and is absent from the backup: preflight lists only top-level JSON, and `remove_dir_all` deletes all the contents. The disappearance of the file was confirmed by checking both the original path and the corresponding backup path.
 
-Источник: [migration.rs:545](../../src-tauri/src/database/migration.rs#L545), [migration.rs:615](../../src-tauri/src/database/migration.rs#L615).
+Source: [migration.rs:545](../../src-tauri/src/database/migration.rs#L545), [migration.rs:615](../../src-tauri/src/database/migration.rs#L615).
 
-**Нужно:** заранее перечислять и проверять все ресурсы, затронутые удалением; сохранять неизвестные файлы либо блокировать преобразование с диагностикой. Удалять только явно включённые в успешный план ресурсы после проверки их backup и переноса. Завершение/resume определять версионированным протоколом, учитывающим legacy-manifest, а не фактом отсутствия двух папок. Не игнорировать ошибки cleanup.
+**Needed:** enumerate and verify in advance all resources affected by the deletion; preserve unknown files or block the conversion with a diagnostic. Delete only resources explicitly included in the successful plan, after checking their backup and transfer. Determine completion/resume by a versioned protocol that accounts for the legacy manifest, not by the fact that two folders are absent. Do not ignore cleanup errors.
 
-### R8: потеря повторного запроса после инвалидизации
+### R8: loss of the repeated query after invalidation
 
-**Воспроизведено React hook-тестом:** начать запрос → вызвать `invalidateHosts()` до его завершения → вернуть старый ответ. `queryDatabase` вызван один раз вместо двух. Обновлённый номер инвалидизации честно остаётся отличным от номера ответа, но новый запрос не стартует.
+**Reproduced with a React hook test:** start a query → call `invalidateHosts()` before it completes → return the old response. `queryDatabase` is called once instead of twice. The updated invalidation number honestly remains different from the response number, but a new query does not start.
 
-Причина: effect во время инвалидизации видит in-flight запрос и выходит. Завершение этого запроса меняет host, но host/status не входят в зависимости effect, и отдельного планирования повторного запроса нет.
+Cause: during invalidation the effect sees an in-flight query and exits. Completion of this query changes the host, but host/status are not among the effect's dependencies, and there is no separate scheduling of a repeated query.
 
-Источник: [use-database-query.ts:258](../../src/components/workspace/database/use-database-query.ts#L258).
+Source: [use-database-query.ts:258](../../src/components/workspace/database/use-database-query.ts#L258).
 
-**Нужно:** явно планировать повторный запрос при обнаружении более новой инвалидизации после завершения текущего или строить effect/state machine, гарантирующий его запуск. Добавить проверку, что публикация старого ответа не делает данные окончательно актуальными. Канонизация ключей и очистка вспомогательных карт также остаются частью ST-08.
+**Needed:** explicitly schedule a repeated query when a newer invalidation is detected after the current one completes, or build an effect/state machine that guarantees its start. Add a check that publishing an old response does not make the data definitively current. Canonicalization of keys and cleanup of auxiliary maps also remain part of ST-08.
 
-### Проверки повторного аудита
+### Checks of the repeated audit
 
-| Проверка                                                | Результат                                                                                            |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Исходные восемь `review_` Rust-тестов                   | 8 PASS, входят в полный Rust-прогон                                                                  |
-| `npm run rust:test`                                     | 335 PASS, 2 ignored                                                                                  |
-| Frontend в составе `npm run verify`                     | 654 PASS, 106 файлов                                                                                 |
-| TypeScript / ESLint / Prettier                          | PASS до следующего этапа verify                                                                      |
-| `npm run rust:clippy` отдельно                          | PASS                                                                                                 |
-| `npm run build`                                         | PASS                                                                                                 |
-| `npm run verify`                                        | FAIL на Knip: неиспользуемые экспортированные типы `DatabaseUndoRedoResult`, `DatabaseHistoryStatus` |
-| `npm run rust:fmt` отдельно                             | FAIL; форматирование ещё не полностью проходит, в репозитории есть прежний drift                     |
-| Генерация bindings при rust:test                        | Содержимое совпало с состоянием перед проверкой                                                      |
-| Новые Rust-сценарии `review2_` в отдельной копии        | 7 FAIL                                                                                               |
-| Новый React hook-сценарий `review2:` в отдельной копии  | 1 FAIL                                                                                               |
-| Native UI, 50k/100k, принудительное завершение процесса | Не выполнялись в этом аудите; исходная полная приёмка не подтверждена                                |
+| Check                                                 | Result                                                                                |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Original eight `review_` Rust tests                   | 8 PASS, included in the full Rust run                                                 |
+| `npm run rust:test`                                   | 335 PASS, 2 ignored                                                                   |
+| Frontend as part of `npm run verify`                  | 654 PASS, 106 files                                                                   |
+| TypeScript / ESLint / Prettier                        | PASS before the next verify stage                                                     |
+| `npm run rust:clippy` separately                      | PASS                                                                                  |
+| `npm run build`                                       | PASS                                                                                  |
+| `npm run verify`                                      | FAIL on Knip: unused exported types `DatabaseUndoRedoResult`, `DatabaseHistoryStatus` |
+| `npm run rust:fmt` separately                         | FAIL; formatting does not fully pass yet, the repository has pre-existing drift       |
+| Bindings generation during rust:test                  | Contents matched the state before the check                                           |
+| New Rust `review2_` scenarios in a separate copy      | 7 FAIL                                                                                |
+| New React hook `review2:` scenario in a separate copy | 1 FAIL                                                                                |
+| Native UI, 50k/100k, forced process termination       | Not performed in this audit; the original full acceptance is not confirmed            |
 
-Новые проверки расширяют прежние конкретными сценариями из исходных критериев. Восемь зелёных тестов первого набора не означали, что ими исчерпывается весь контракт.
+The new checks extend the earlier ones with specific scenarios from the original criteria. The eight green tests of the first set did not mean that they exhaust the whole contract.
 
-### Версия релиза
+### Release version
 
-Пользователь подтвердил, что переход с `0.1.3` на `0.1.4` и подготовка релиза были явно авторизованы. Предыдущее замечание о преждевременном изменении версии снято.
+The user confirmed that the move from `0.1.3` to `0.1.4` and the release preparation were explicitly authorized. The earlier remark about a premature version change is withdrawn.
 
-Оставшиеся замечания этого аудита относятся к следующему циклу `0.1.5`. Это граница релизного объёма, а не изменение фактических результатов тестов и найденных рисков.
+The remaining findings of this audit belong to the next `0.1.5` cycle. This is a boundary of the release scope, not a change in the actual test results and identified risks.
 
-### Материалы и порядок следующей доработки
+### Materials and order of the next rework
 
-Первый файл `database-stabilization-regressions.patch` уже применён Gemini к исходникам; повторно применять его не нужно. Новый [database-stabilization-followup-regressions.patch](../road/database-stabilization-followup-regressions.patch) содержит только дополнительные тесты. Для воспроизведения использовать отдельную копию текущей рабочей версии с установленными зависимостями:
+The first file `database-stabilization-regressions.patch` has already been applied by Gemini to the sources; it does not need to be applied again. The new [database-stabilization-followup-regressions.patch](../road/database-stabilization-followup-regressions.patch) contains only additional tests. To reproduce, use a separate copy of the current working version with dependencies installed:
 
 ```sh
 git apply docs/road/database-stabilization-followup-regressions.patch
@@ -130,197 +130,197 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib ::tests::review2_ -- --noc
 npx vitest run src/components/workspace/database/use-database-query.test.ts -t 'review2:'
 ```
 
-Последовательный запуск Rust-тестов нужен из-за проверки глобального состояния процесса. Это диагностический патч; при переносе тестов в постоянный набор следует изолировать состояния/процессы и убрать зависимости между тестами. Производственные файлы патчем не исправляются.
+Sequential execution of the Rust tests is needed because of the check of global process state. This is a diagnostic patch; when moving the tests into the permanent suite, the states/processes should be isolated and dependencies between tests removed. The patch does not fix the production files.
 
-1. Закрыть потерю правок в rollback и необеспеченное backup удаление; затем реализовать **исходный R2** с fault injection и restart.
-2. Заменить глобальную историю Select устойчивым форматом и завершить стабильные ключи свойств.
-3. Исправить граф вычислений, завершение legacy-миграции и повтор запроса после инвалидизации.
-4. Провести полную матрицу ST-00…ST-12, включая native и новый формат на 10k/50k/100k. Результаты отрицательных сценариев и ограничения включать в отчёт.
-5. Запустить полный `npm run verify` и `npm run build`. Не заменять полный gate командой `verify:fast`; не закрывать пункт аудита проверкой другой функции с похожим названием.
+1. Close the loss of edits in rollback and the deletion not backed by a backup; then implement the **original R2** with fault injection and restart.
+2. Replace the global Select history with a durable format and finish the stable property keys.
+3. Fix the computation graph, the completion of the legacy migration and the repeated query after invalidation.
+4. Run the full matrix ST-00…ST-12, including native and the new format at 10k/50k/100k. Include the results of negative scenarios and the limitations in the report.
+5. Run the full `npm run verify` and `npm run build`. Do not replace the full gate with the `verify:fast` command; do not close an audit item by checking a different function with a similar name.
 
-## История предыдущей проверки
+## History of the previous check
 
-Ниже сохранён исходный аудит для прослеживаемости. Его описания отражают состояние **до последних исправлений**; актуальные статусы и результаты находятся выше. В частности, старые ошибки таблицы Undo и трёх фильтров уже исправлены.
+The original audit is preserved below for traceability. Its descriptions reflect the state **before the latest fixes**; the current statuses and results are above. In particular, the old errors of the Undo table and of the three filters have already been fixed.
 
-Дата: 2026-09-20. Проверена рабочая копия проекта, ветка `dev`, HEAD `f43b9cf`. Оценка относится к текущему незакоммиченному состоянию, включая новые `migration.rs` и `database/history.rs`.
+Date: 2026-09-20. The project working copy was checked, branch `dev`, HEAD `f43b9cf`. The assessment applies to the current uncommitted state, including the new `migration.rs` and `database/history.rs`.
 
-## Вывод
+## Conclusion
 
-Работа содержит полезные исправления, но завершение всех ST-00…ST-12 не подтверждается. Принимать её как законченную стабилизацию или готовую безопасную миграцию пока нельзя. Есть воспроизведённая потеря новых правок при rollback, незавершённое восстановление многофайловых операций, ошибки фильтров и вычислений. Отметки DONE и галочки приёмки в исходном плане нужно пересмотреть по фактическим сценариям.
+The work contains useful fixes, but the completion of all ST-00…ST-12 is not confirmed. It cannot yet be accepted as a finished stabilization or as a ready, safe migration. There is a reproduced loss of new edits during rollback, unfinished recovery of multi-file operations, and errors in filters and computations. The DONE marks and acceptance checkmarks in the original plan must be reviewed against the actual scenarios.
 
-Проверка была без исправления рабочих файлов проекта. Дополнительные тесты запускались только в отдельной временной копии исходников. Патч тестов приложен рядом с этим документом. Личные хранилища не использовались. Сгенерированные bindings после штатных Rust-тестов совпадают с состоянием до проверки.
+The check was performed without fixing the project's working files. Additional tests were run only in a separate temporary copy of the sources. The test patch is attached next to this document. Personal vaults were not used. The generated bindings after the standard Rust tests match the state before the check.
 
-## Что действительно улучшено
+## What has actually been improved
 
-- Из открытия vault и переиндексации убраны вызовы опасной автоматической миграции и массовой синхронизации свойств в Markdown. Добавлен тест неизменности исходных файлов и recovery.
-- Числа сериализуются без промежуточного `f64`; сохранение Date и Files стало полнее: поддержаны структура даты, диапазон, часовой пояс и метаданные вложений.
-- Добавлены preflight/backup/journal для миграции, компенсирующий откат batch и relations, вычисление Formula/Rollup в проекции, базовые стеки Undo/Redo с проверкой ревизий.
-- Есть изменения InfoPanel/PropertyEditor и ограничение числа записей кэша.
+- Calls to the dangerous automatic migration and to the bulk synchronization of properties into Markdown were removed from vault opening and reindexing. A test of source file immutability and recovery was added.
+- Numbers are serialized without an intermediate `f64`; saving of Date and Files became more complete: the date structure, range, time zone and attachment metadata are supported.
+- Preflight/backup/journal for migration, compensating rollback of batch and relations, Formula/Rollup computation in the projection, and basic Undo/Redo stacks with revision checks were added.
+- There are changes to InfoPanel/PropertyEditor and a limit on the number of cache entries.
 
-Эти улучшения значимы, но наличие модулей и успешные unit-тесты ещё не подтверждают завершение соответствующих контрактов.
+These improvements are significant, but the existence of modules and passing unit tests do not yet confirm the completion of the corresponding contracts.
 
-## Находки по приоритету
+## Findings by priority
 
-### R1 — P1. Rollback миграции стирает изменения, сделанные после миграции
+### R1 — P1. Migration rollback erases changes made after the migration
 
-**Воспроизведено.** Сценарий: мигрировать базу → дописать текст заметки → выполнить rollback. Операция возвращает `Ok(())`, а новый текст исчезает. В `rollback_migration` восстановление выполняется без проверки текущей ревизии и без сохранения новых байтов перед заменой.
+**Reproduced.** Scenario: migrate a database → append text to a note → run rollback. The operation returns `Ok(())`, and the new text disappears. In `rollback_migration` the restore is performed without checking the current revision and without saving the new bytes before the replacement.
 
-Источник: [migration.rs:667](../../src-tauri/src/database/migration.rs#L667).
+Source: [migration.rs:667](../../src-tauri/src/database/migration.rs#L667).
 
-Кроме того, `migration_id` напрямую добавляется к пути recovery, журнал необязателен, его принадлежность базе не проверяется. Это требует отдельной проверки путей и содержимого журнала.
+In addition, `migration_id` is appended directly to the recovery path, the journal is optional, and its belonging to the database is not checked. This requires a separate check of the paths and of the journal contents.
 
-**Исправить:** перед первой записью проверить ожидаемые post-migration ревизии всех файлов, валидировать ID/путь/журнал, при изменениях вернуть понятный конфликт. Обеспечить recovery при частичном rollback. Добавить тесты на новые правки, повреждённый journal и выход пути за recovery.
+**Fix:** before the first write, check the expected post-migration revisions of all files, validate the ID/path/journal, and return a clear conflict on changes. Ensure recovery on a partial rollback. Add tests for new edits, a corrupted journal and a path escaping the recovery directory.
 
-### R2 — P1. Многофайловые операции не имеют работающего восстановления после прерывания процесса
+### R2 — P1. Multi-file operations have no working recovery after a process interruption
 
-**Установлено по коду.** Batch пишет файлы последовательно, а исходные байты хранит в памяти. При обычной ошибке выполняется попытка обратной записи, ошибки которой игнорируются. При завершении процесса между двумя записями эта ветка не выполняется. Функции durable batch journal/recovery остаются `#[allow(dead_code)]` и не подключены к действующему пути записи. Аналогичный компенсирующий откат используется для relations.
+**Established from the code.** Batch writes files sequentially and keeps the original bytes in memory. On an ordinary error an attempt at reverse writing is made, and its errors are ignored. If the process terminates between two writes, this branch is not executed. The durable batch journal/recovery functions remain `#[allow(dead_code)]` and are not connected to the active write path. A similar compensating rollback is used for relations.
 
-Источник: [mutations.rs:1625](../../src-tauri/src/database/mutations.rs#L1625), [mutations.rs:1693](../../src-tauri/src/database/mutations.rs#L1693).
+Source: [mutations.rs:1625](../../src-tauri/src/database/mutations.rs#L1625), [mutations.rs:1693](../../src-tauri/src/database/mutations.rs#L1693).
 
-Наличие отдельных history snapshots не заменяет журнал состава, ревизий и результата общей операции. Реальное убийство процесса в этой проверке не выполнялось; отсутствие действующего протокола видно в коде.
+The existence of separate history snapshots does not replace a journal of the composition, revisions and result of the overall operation. A real process kill was not performed in this check; the absence of an active protocol is visible in the code.
 
-**Исправить:** подключить единый durable-протокол для batch/relations/undo: план, резервные данные, ожидаемые ревизии, прогресс и outcome. Проверять результат отката. Добавить fault injection между каждым шагом и повтор после перезапуска.
+**Fix:** connect a single durable protocol for batch/relations/undo: plan, backup data, expected revisions, progress and outcome. Check the result of the rollback. Add fault injection between every step and repetition after a restart.
 
-### R3 — P1. Undo/Redo не изолированы между vault; обновление проекции содержит неверное имя таблицы
+### R3 — P1. Undo/Redo are not isolated between vaults; the projection update contains a wrong table name
 
-**Установлено по коду.** История зарегистрирована на уровне приложения, индексируется только `database_id` и сохраняет абсолютные пути. Метод `clear` не вызывается при переключении vault. Сценарий риска: изменить базу в vault A, открыть её копию в vault B с тем же ID, нажать Undo — история может восстановить файл в A. Проверка ревизии не предотвращает это, если файл A с момента операции не менялся. В undo/redo IPC нет ожидаемого поколения vault и проверки принадлежности сохранённых путей активному vault.
+**Established from the code.** The history is registered at the application level, is indexed only by `database_id` and stores absolute paths. The `clear` method is not called when switching vaults. Risk scenario: change a database in vault A, open its copy with the same ID in vault B, press Undo — the history may restore the file in A. The revision check does not prevent this if the file in A has not changed since the operation. The undo/redo IPC has no expected vault generation and no check that the stored paths belong to the active vault.
 
-Источник: [history.rs:47](../../src-tauri/src/database/history.rs#L47), [history.rs:103](../../src-tauri/src/database/history.rs#L103), [commands/database.rs:738](../../src-tauri/src/commands/database.rs#L738).
+Source: [history.rs:47](../../src-tauri/src/database/history.rs#L47), [history.rs:103](../../src-tauri/src/database/history.rs#L103), [commands/database.rs:738](../../src-tauri/src/commands/database.rs#L738).
 
-При обновлении проекции после undo/redo выполняется `SELECT ... FROM db_notes`, хотя таблица членства называется `db_members`. Ошибка поглощается; затронутые заметки другой базы у двусторонней связи попадают в обновление исходной базы.
+When updating the projection after undo/redo, `SELECT ... FROM db_notes` is executed, although the membership table is called `db_members`. The error is swallowed; for a two-way relation, the affected notes of the other database end up in the update of the source database.
 
-Источник: [commands/database.rs:764](../../src-tauri/src/commands/database.rs#L764).
+Source: [commands/database.rs:764](../../src-tauri/src/commands/database.rs#L764).
 
-**Исправить:** история должна быть связана с vault identity/generation; сбрасывать её при смене vault, проверять пути и generation на IPC-границе, корректно обновлять обе базы. Проверить два vault с одинаковыми ID и relation undo между двумя базами.
+**Fix:** the history must be bound to the vault identity/generation; reset it on vault change, check paths and generation at the IPC boundary, and update both databases correctly. Check two vaults with identical IDs and a relation undo between two databases.
 
-### R4 — P1. Стабильные ключи и переименование вариантов не завершены
+### R4 — P1. Stable keys and renaming of options are not finished
 
-**Воспроизведено для Select.** Значение сериализуется названием варианта, например `In Progress`. После переименования варианта в `Doing` прочитанное значение получает `option_id = "In Progress"` вместо прежнего ID. Тест с названием `st03_select_status_multiselect_rename_resilience` в рабочем проекте фактически не переименовывает вариант, поэтому эту ошибку не ловит.
+**Reproduced for Select.** The value is serialized by the option name, for example `In Progress`. After the option is renamed to `Doing`, the value that is read gets `option_id = "In Progress"` instead of the previous ID. The test named `st03_select_status_multiselect_rename_resilience` in the working project does not actually rename the option, so it does not catch this error.
 
-Источник: [format.rs:882](../../src-tauri/src/database/format.rs#L882), [format.rs:2221](../../src-tauri/src/database/format.rs#L2221).
+Source: [format.rs:882](../../src-tauri/src/database/format.rs#L882), [format.rs:2221](../../src-tauri/src/database/format.rs#L2221).
 
-Также `storage_key()` только возвращает существующий `yamlBinding.key`; создание обычного свойства оставляет `yamlBinding: null`, а `frontmatter_key()` использует изменяемое имя. Переименование поля по-прежнему обходит Markdown-файлы и переписывает ключи, игнорируя ошибки записи, без общей операции и фильтрации вложенных баз/служебных каталогов.
+Also, `storage_key()` only returns the existing `yamlBinding.key`; creating an ordinary property leaves `yamlBinding: null`, and `frontmatter_key()` uses the mutable name. Renaming a field still walks through the Markdown files and rewrites keys, ignoring write errors, without a common operation and without filtering nested databases/service directories.
 
-Источник: [format.rs:408](../../src-tauri/src/database/format.rs#L408), [mutations.rs:489](../../src-tauri/src/database/mutations.rs#L489), [mutations.rs:1258](../../src-tauri/src/database/mutations.rs#L1258).
+Source: [format.rs:408](../../src-tauri/src/database/format.rs#L408), [mutations.rs:489](../../src-tauri/src/database/mutations.rs#L489), [mutations.rs:1258](../../src-tauri/src/database/mutations.rs#L1258).
 
-**Исправить:** закрепить неизменяемый ключ при создании и миграции свойства; обычный rename должен менять отображаемое имя. Обеспечить устойчивое хранение option IDs и явную совместимость с legacy-названиями. Проверять именно save → rename → reload/rebuild.
+**Fix:** fix an immutable key when a property is created and migrated; an ordinary rename must change the display name. Ensure durable storage of option IDs and explicit compatibility with legacy names. Check specifically save → rename → reload/rebuild.
 
-### R5 — P2. Интерфейс формирует неподдерживаемые фильтры
+### R5 — P2. The interface produces unsupported filters
 
-**Воспроизведены три случая на компиляторе запросов с аргументами действующего UI:**
+**Three cases were reproduced on the query compiler with the arguments of the active UI:**
 
-- `multiSelect` отклоняется: backend-ветка ожидает `multiselect` с другим регистром. Новый штатный тест вручную записывает в SQLite неверный вариант типа и скрывает расхождение.
-- Checkbox отправляется JSON-строкой `"true"`, тогда как backend ожидает boolean `true`.
-- Select и Status остаются с оператором `contains`, не поддержанным backend для этих типов; воспроизведение выполнено для Select.
+- `multiSelect` is rejected: the backend branch expects `multiselect` with different casing. The new standard test manually writes the wrong type variant into SQLite and hides the discrepancy.
+- Checkbox is sent as the JSON string `"true"`, whereas the backend expects the boolean `true`.
+- Select and Status keep the `contains` operator, which the backend does not support for these types; the reproduction was done for Select.
 
-Источник: [use-database-query.ts:115](../../src/components/workspace/database/use-database-query.ts#L115), [query.rs:964](../../src-tauri/src/database/query.rs#L964).
+Source: [use-database-query.ts:115](../../src/components/workspace/database/use-database-query.ts#L115), [query.rs:964](../../src-tauri/src/database/query.rs#L964).
 
-**Исправить:** единый контракт типов и операторов, корректная сериализация boolean/option IDs, тест реального frontend request против backend. Отдельно завершить saved filter AST, несколько сортировок и переносимые настройки представлений: текущие изменения фильтров не закрывают весь ST-09.
+**Fix:** a single contract of types and operators, correct serialization of boolean/option IDs, a test of a real frontend request against the backend. Separately, finish the saved filter AST, multiple sorts and portable view settings: the current filter changes do not close the whole ST-09.
 
-### R6 — P2. Цепочка числовых формул не вычисляется; ошибки скрываются
+### R6 — P2. A chain of numeric formulas is not computed; errors are hidden
 
-**Воспроизведено с корректными ULID свойств и ссылками по именам:** `Price=100`, `Tax=20`, `Total=Price+Tax`, `Doubled=Total*2`. Total получает 120, для Doubled значение 240 не появляется. При чтении входов распознаётся `value_type=number`, а вычисленный Total записан с `value_type=formula` и при следующем вычислении превращается в Null.
+**Reproduced with correct property ULIDs and references by names:** `Price=100`, `Tax=20`, `Total=Price+Tax`, `Doubled=Total*2`. Total gets 120, and for Doubled the value 240 does not appear. When reading inputs, `value_type=number` is recognized, while the computed Total is written with `value_type=formula` and turns into Null at the next computation.
 
-Источник: [formula.rs:901](../../src-tauri/src/database/formula.rs#L901), [formula.rs:1003](../../src-tauri/src/database/formula.rs#L1003).
+Source: [formula.rs:901](../../src-tauri/src/database/formula.rs#L901), [formula.rs:1003](../../src-tauri/src/database/formula.rs#L1003).
 
-Граф сопоставляет зависимости с ID, хотя выражения могут ссылаться на имена. Ошибки вычисления и вызовов пересчёта поглощаются, после чего проекция помечается healthy. Формулы вычисляются перед rollups; полноценного общего графа зависимостей и пользовательской настройки Rollup не подтверждено.
+The graph matches dependencies to IDs, although expressions may reference names. Errors of evaluation and of recalculation calls are swallowed, after which the projection is marked healthy. Formulas are computed before rollups; a full common dependency graph and user configuration of Rollup are not confirmed.
 
-Источник: [formula.rs:775](../../src-tauri/src/database/formula.rs#L775), [projection.rs:321](../../src-tauri/src/database/projection.rs#L321), [mutations.rs:482](../../src-tauri/src/database/mutations.rs#L482).
+Source: [formula.rs:775](../../src-tauri/src/database/formula.rs#L775), [projection.rs:321](../../src-tauri/src/database/projection.rs#L321), [mutations.rs:482](../../src-tauri/src/database/mutations.rs#L482).
 
-**Исправить:** типизированные результаты computed-полей, зависимости по устойчивым ID, единый порядок Formula/Rollup, явные ошибки в проекции/UI. Проверить цепочки, циклы по реальным именам, rename, внешнюю правку и обе стратегии перестроения.
+**Fix:** typed results of computed fields, dependencies by stable IDs, a common Formula/Rollup order, explicit errors in the projection/UI. Check chains, cycles by real names, rename, external edit and both rebuild strategies.
 
-### R7 — P2. После успешной миграции база снова считается требующей миграции
+### R7 — P2. After a successful migration the database is again considered to require migration
 
-**Воспроизведено.** После `execute_migration` повторный `detect_migrations` возвращает `needs_migration=true`: старые shards остаются, а детектор ориентируется на их наличие и не учитывает успешный outcome. Возобновление незавершённой операции также не подключено. Наличие JSON-журнала само по себе не подтверждает idempotence/resume.
+**Reproduced.** After `execute_migration`, a repeated `detect_migrations` returns `needs_migration=true`: the old shards remain, and the detector relies on their presence and does not take a successful outcome into account. Resuming an unfinished operation is also not wired in. The existence of a JSON journal does not by itself confirm idempotence/resume.
 
-Источник: [migration.rs:145](../../src-tauri/src/database/migration.rs#L145), [migration.rs:594](../../src-tauri/src/database/migration.rs#L594).
+Source: [migration.rs:145](../../src-tauri/src/database/migration.rs#L145), [migration.rs:594](../../src-tauri/src/database/migration.rs#L594).
 
-В frontend найдены сгенерированные IPC-функции миграции, но не пользовательский поток detect/preflight/execute/rollback через storage. Приёмку «контролируемая миграция» через UI провести пока нельзя.
+In the frontend, generated IPC migration functions were found, but not a user flow detect/preflight/execute/rollback through storage. The "controlled migration" acceptance through the UI cannot be performed yet.
 
-**Исправить:** версионированное состояние перехода, обнаружение завершения и незавершённых журналов, безопасное resume; определить дальнейшее чтение legacy shards без конкурирующих источников истины. Старые файлы не удалять до завершения проверяемого протокола.
+**Fix:** a versioned transition state, detection of completion and of unfinished journals, a safe resume; define further reading of legacy shards without competing sources of truth. Do not delete old files until the verifiable protocol completes.
 
-### R8 — P2. Защита кэша от устаревших ответов не завершена
+### R8 — P2. Protection of the cache from stale responses is not finished
 
-**Установлено по коду.** Ответ помечается `loadedInvalidationSeq: state.invalidationSeq`, то есть текущим номером на момент ответа, а не номером, для которого запрос был начат. Если во время запроса произошло изменение, старый ответ может оказаться помечен актуальным. Сохранились необнуляемые в production `querySequences`, зависимость JSON-ключа от порядка вставки полей и монолитный workspace более 3000 строк.
+**Established from the code.** The response is marked `loadedInvalidationSeq: state.invalidationSeq`, that is, with the current number at the time of the response, not with the number for which the query was started. If a change occurred during the query, the old response may end up marked as current. The `querySequences` that are never reset in production remain, as do the dependence of the JSON key on the order in which fields are inserted and a monolithic workspace of more than 3000 lines.
 
-Источник: [use-database-query.ts:201](../../src/components/workspace/database/use-database-query.ts#L201).
+Source: [use-database-query.ts:201](../../src/components/workspace/database/use-database-query.ts#L201).
 
-**Исправить:** принимать результат только для зафиксированных generation/query/invalidation; после новой инвалидизации гарантировать новый запрос. Добавить управляемый тест с отложенным ответом, очистку служебных карт и канонический ключ. Ограничение числа hosts само по себе не закрывает ST-08.
+**Fix:** accept a result only for the recorded generation/query/invalidation; after a new invalidation, guarantee a new query. Add a controlled test with a deferred response, cleanup of auxiliary maps and a canonical key. Limiting the number of hosts does not by itself close ST-08.
 
-## Фактическая оценка этапов
+## Actual assessment of the stages
 
-| Этап  | Оценка                        | Что требуется для приёмки                                                                                      |
-| ----- | ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| ST-00 | Частично                      | Дополнить baseline сценариями, воспроизводящими реальные пользовательские пути и границы сбоев.                |
-| ST-01 | Основной критерий подтверждён | Автоматическая разрушительная миграция убрана; тест неизменности открытия/reindex проходит.                    |
-| ST-02 | Частично                      | Реальные стабильные ключи, безопасный rename и переход формата.                                                |
-| ST-03 | Частично                      | Исправлен ряд кодеков; устойчивость option IDs при rename не выполнена.                                        |
-| ST-04 | Не принимать                  | Нет действующего durable recovery общего протокола.                                                            |
-| ST-05 | Не принимать                  | Небезопасный rollback; повторное обнаружение миграции; нет доказанного resume и законченного UI.               |
-| ST-06 | Частично                      | UI улучшен; заявленного adapter-файла нет, сценарий dirty editor плюс изменение свойства не подтверждён.       |
-| ST-07 | Частично                      | Есть тест эквивалентности, но ошибки computed-проекции скрываются; полная матрица watcher/rebuild не доказана. |
-| ST-08 | Частично                      | Ограничение hosts есть, гонка invalidation остаётся; разделение workspace не выполнено.                        |
-| ST-09 | Не принимать как завершённый  | Воспроизведены ошибки фильтров; saved views и все layouts не прошли указанную приёмку.                         |
-| ST-10 | Не принимать                  | Числовые цепочки не работают, общий граф Formula/Rollup и диагностика не завершены.                            |
-| ST-11 | Не принимать                  | Нет изоляции истории между vault, неверная таблица при обновлении проекции.                                    |
-| ST-12 | Не подтверждён                | Полный verify падает; нет доказательств native и 50k/100k нового формата.                                      |
+| Stage | Assessment                | What is required for acceptance                                                                                                |
+| ----- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| ST-00 | Partial                   | Extend the baseline with scenarios that reproduce real user paths and failure boundaries.                                      |
+| ST-01 | Main criterion confirmed  | The automatic destructive migration was removed; the open/reindex immutability test passes.                                    |
+| ST-02 | Partial                   | Real stable keys, safe rename and format transition.                                                                           |
+| ST-03 | Partial                   | A number of codecs were fixed; stability of option IDs under rename is not met.                                                |
+| ST-04 | Do not accept             | There is no active durable recovery of the common protocol.                                                                    |
+| ST-05 | Do not accept             | Unsafe rollback; repeated detection of the migration; no proven resume and no finished UI.                                     |
+| ST-06 | Partial                   | The UI was improved; the claimed adapter file does not exist, the scenario dirty editor plus property change is not confirmed. |
+| ST-07 | Partial                   | There is an equivalence test, but errors of the computed projection are hidden; the full watcher/rebuild matrix is not proven. |
+| ST-08 | Partial                   | The hosts limit exists, the invalidation race remains; the workspace split was not done.                                       |
+| ST-09 | Do not accept as complete | Filter errors were reproduced; saved views and all layouts did not pass the stated acceptance.                                 |
+| ST-10 | Do not accept             | Numeric chains do not work, the common Formula/Rollup graph and diagnostics are not finished.                                  |
+| ST-11 | Do not accept             | No history isolation between vaults, wrong table when updating the projection.                                                 |
+| ST-12 | Not confirmed             | The full verify fails; there is no evidence for native and for 50k/100k of the new format.                                     |
 
-## Расхождения журнала с реализацией
+## Discrepancies between the log and the implementation
 
-- Строка 479 плана ST (`docs/archive/Road/database-stabilization-gemini-plan.md` в git, коммит 7b838c8) объявляет реализацию `use-note-properties-adapter.ts`; такого файла нет. Это не отменяет реальные изменения InfoPanel, но описание результата неверно.
-- Строки 496–498 называют лимит 16, `querySeqRef` и каноническую сортировку JSON. Фактически лимит 50 находится в `database-store.ts`; используется карта `querySequences`, а ключ не сортирует поля.
-- Указанный backup-путь `.amby/migrations/<id>/backup` не совпадает с реализацией `.ambd/recovery/migration-<millis>`.
-- Все галочки приёмки отмечены, хотя запись ST-12 содержит только метрики 10k и отдельные команды. Результатов 50k/100k и настоящего native UI smoke в журнале нет.
-- Бенчмарк, названный проверкой нового формата, использует генератор с `ambd.json` и `.ambd/records`; пользовательские значения не записываются этим генератором в YAML заметок. Он не доказывает масштабируемость заявленного нового формата. Источник: [generate-database-fixture.mjs:125](../../scripts/generate-database-fixture.mjs#L125), [строка 228](../../scripts/generate-database-fixture.mjs#L228).
+- Line 479 of the ST plan (`docs/archive/Road/database-stabilization-gemini-plan.md` in git, commit 7b838c8) declares the implementation of `use-note-properties-adapter.ts`; there is no such file. This does not cancel the real InfoPanel changes, but the description of the result is wrong.
+- Lines 496–498 name the limit 16, `querySeqRef` and canonical JSON sorting. In fact the limit 50 is in `database-store.ts`; the `querySequences` map is used, and the key does not sort fields.
+- The stated backup path `.amby/migrations/<id>/backup` does not match the implementation `.ambd/recovery/migration-<millis>`.
+- All acceptance checkmarks are ticked, although the ST-12 entry contains only 10k metrics and individual commands. There are no 50k/100k results and no real native UI smoke in the log.
+- The benchmark called a check of the new format uses a generator with `ambd.json` and `.ambd/records`; user values are not written by this generator into note YAML. It does not prove the scalability of the claimed new format. Source: [generate-database-fixture.mjs:125](../../scripts/generate-database-fixture.mjs#L125), [line 228](../../scripts/generate-database-fixture.mjs#L228).
 
-## Проверки этой оценки
+## Checks of this assessment
 
-| Проверка                                                    | Результат                                                                                                                                            |
-| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run build`                                             | PASS                                                                                                                                                 |
-| TypeScript, ESLint, version check в составе verify          | PASS                                                                                                                                                 |
-| Frontend-тесты                                              | 654 PASS, 106 файлов                                                                                                                                 |
-| `npm run rust:test`                                         | 327 PASS, 2 ignored                                                                                                                                  |
-| `npm run rust:clippy`                                       | PASS                                                                                                                                                 |
-| `npm run verify`                                            | FAIL на Prettier для `database-stabilization-gemini-plan.md`; последующие шаги общего gate не выполнялись                                            |
-| `npm run knip` отдельно                                     | FAIL: два неиспользуемых экспортированных типа Undo/Redo в storage/index.ts                                                                          |
-| `npm run rust:fmt` отдельно                                 | FAIL; есть замечания и в новом migration.rs. В репозитории также известен прежний formatting drift, не все замечания следует приписывать этой работе |
-| Повторная генерация bindings штатным rust:test              | Байты совпали с состоянием до проверки                                                                                                               |
-| Дополнительные проверки в копии исходников                  | 8 тестов: 7 FAIL, 1 PASS                                                                                                                             |
-| Native UI, упаковка, 50k/100k, реальное прерывание процесса | В этой оценке не запускались                                                                                                                         |
+| Check                                                     | Result                                                                                                                                                              |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run build`                                           | PASS                                                                                                                                                                |
+| TypeScript, ESLint, version check as part of verify       | PASS                                                                                                                                                                |
+| Frontend tests                                            | 654 PASS, 106 files                                                                                                                                                 |
+| `npm run rust:test`                                       | 327 PASS, 2 ignored                                                                                                                                                 |
+| `npm run rust:clippy`                                     | PASS                                                                                                                                                                |
+| `npm run verify`                                          | FAIL on Prettier for `database-stabilization-gemini-plan.md`; the subsequent steps of the common gate were not run                                                  |
+| `npm run knip` separately                                 | FAIL: two unused exported Undo/Redo types in storage/index.ts                                                                                                       |
+| `npm run rust:fmt` separately                             | FAIL; there are remarks in the new migration.rs too. The repository also has known pre-existing formatting drift, not all remarks should be attributed to this work |
+| Repeated bindings generation by the standard rust:test    | Bytes matched the state before the check                                                                                                                            |
+| Additional checks in the sources copy                     | 8 tests: 7 FAIL, 1 PASS                                                                                                                                             |
+| Native UI, packaging, 50k/100k, real process interruption | Not run in this assessment                                                                                                                                          |
 
-Прошедшая дополнительная проверка: изменение batch для manifest будущей версии отвергается без изменения заметки. Этот сценарий не включён в список дефектов.
+The additional check that passed: a batch change for a manifest of a future version is rejected without changing the note. This scenario is not included in the list of defects.
 
-Провалившиеся дополнительные проверки: rollback после новых правок; повторное обнаружение успешной миграции; Select после rename; числовая цепочка Formula; multiSelect, Checkbox и Select фильтры.
+The additional checks that failed: rollback after new edits; repeated detection of a successful migration; Select after rename; numeric Formula chain; multiSelect, Checkbox and Select filters.
 
-[Патч с воспроизводящими проверками](../road/database-stabilization-regressions.patch) добавляет восемь тестов к проверенному состоянию. Это диагностический материал, а не исправление продукта. Семь тестов должны оставаться красными до исправления найденных дефектов; проверка будущей версии manifest уже проходит.
+[The patch with reproducing checks](../road/database-stabilization-regressions.patch) adds eight tests to the checked state. This is diagnostic material, not a product fix. Seven tests must remain red until the found defects are fixed; the check of the future manifest version already passes.
 
-Для воспроизведения применить патч **в отдельной копии текущей рабочей версии** и выполнить из корня этой копии:
+To reproduce, apply the patch **in a separate copy of the current working version** and run from the root of that copy:
 
 ```sh
 git apply docs/road/database-stabilization-regressions.patch
 cargo test --manifest-path src-tauri/Cargo.toml --lib ::tests::review_ -- --nocapture
 ```
 
-Патч добавляет тесты, использующие временные vault; он не изменяет производственный код. После последующих изменений контекст патча может потребовать адаптации.
+The patch adds tests that use temporary vaults; it does not change production code. After subsequent changes the patch context may need adaptation.
 
-## Порядок доработки для Gemini
+## Order of rework for Gemini
 
-1. Исправить статусы и журнал по фактам. Сохранить существующие пользовательские изменения; не переписывать ожидания тестов ради зелёного результата.
-2. Сначала закрыть R1–R3: безопасный rollback, работающий durable recovery, изоляция Undo/Redo и корректная проекция связанных баз. Добавить тесты границ сбоев и restart.
-3. Завершить ST-02/ST-03/ST-05: стабильные ключи и option IDs, однозначное завершение/возобновление миграции, пользовательский preflight, согласованное чтение legacy и нового формата.
-4. Исправить R5/R6/R8 и завершить ST-06…ST-10 сквозными тестами интерфейс → IPC → файлы → SQLite → reload. Проверить грязный редактор, saved views, оба vault, все заявленные layouts.
-5. Обновить генератор нового формата; выполнить 10k/50k/100k и native smoke на одноразовом vault. Сохранить результаты, условия и ограничения.
-6. После исправлений выполнить полный verify и build, согласовать docs/changelog с наблюдаемым поведением. Отмечать DONE только при выполнении исходных критериев этапа.
+1. Fix the statuses and the log according to the facts. Preserve existing user changes; do not rewrite test expectations to get a green result.
+2. First close R1–R3: safe rollback, working durable recovery, isolation of Undo/Redo and a correct projection of related databases. Add tests of failure boundaries and restart.
+3. Finish ST-02/ST-03/ST-05: stable keys and option IDs, unambiguous completion/resume of the migration, a user preflight, consistent reading of legacy and the new format.
+4. Fix R5/R6/R8 and finish ST-06…ST-10 with end-to-end tests interface → IPC → files → SQLite → reload. Check a dirty editor, saved views, both vaults, all claimed layouts.
+5. Update the generator of the new format; run 10k/50k/100k and native smoke on a disposable vault. Save the results, conditions and limitations.
+6. After the fixes, run the full verify and build, and reconcile docs/changelog with the observed behavior. Mark DONE only when the original stage criteria are met.
 
-Исходный план, отчёт Gemini и производственный код при добавлении этого аудита не изменялись. В репозиторий добавлены данный документ и диагностический патч; в updates.md добавлена запись об аудите.
+The original plan, the Gemini report, and the production code were not changed when this audit was added. This document and the diagnostic patch were added to the repository; an entry about the audit was added to updates.md.
 
-## Повторная сверка после нового отчёта Gemini
+## Re-check after the new Gemini report
 
-Новый `database-stabilization-review.md` заявляет полное завершение, но не опровергает перечисленные дефекты. Повторная сверка Rust-кода с копией предыдущего аудита не выявила изменений производственных частей исходников. Проверены также оставшиеся неверное имя таблицы `db_notes`, ветка фильтра `multiselect` и лимит hosts 50 вместо заявленных 16.
+The new `database-stabilization-review.md` claims full completion but does not refute the listed defects. Re-checking the Rust code against the copy of the previous audit revealed no changes to the production parts of the sources. The remaining wrong table name `db_notes`, the `multiselect` filter branch, and the hosts limit of 50 instead of the claimed 16 were also checked.
 
-Новый отчёт содержит дополнительные неподтверждённые утверждения: оператора `doesNotContain` в query.rs нет; описанный путь резервных копий не совпадает с кодом. Успех `npm run build` подтверждает сборку, но не безопасность миграций, полноту runtime-функций или успешный полный verify.
+The new report contains additional unconfirmed claims: there is no `doesNotContain` operator in query.rs; the described backup path does not match the code. A successful `npm run build` confirms that the project builds, but not migration safety, completeness of the runtime functions, or a successful full verify.
 
-Предыдущий независимый аудит первоначально находился во временном каталоге и не был доступен поиском только внутри репозитория. Этот документ делает результаты аудита доступными в проекте. Передать Gemini следует именно этот аудит и диагностический патч, а не только отчёт о завершении.
+The previous independent audit was originally in a temporary directory and could not be found by searching only inside the repository. This document makes the audit results available in the project. What should be passed to Gemini is this audit and the diagnostic patch, not just the completion report.
 
-Проверки при добавлении аудита: `npm run build` — PASS; `git apply --check docs/road/database-stabilization-regressions.patch` — PASS; форматирование этого аудита — PASS. Повторный `npm run verify` снова прошёл 654 frontend-теста и остановился на Prettier: замечания теперь есть и в исходном плане, и в новом отчёте Gemini. Производственный код не менялся; Rust-тесты, Clippy и диагностические сценарии повторно не запускались, их результаты выше относятся к первоначальному аудиту.
+Checks when adding the audit: `npm run build` — PASS; `git apply --check docs/road/database-stabilization-regressions.patch` — PASS; formatting of this audit — PASS. A repeated `npm run verify` again passed 654 frontend tests and stopped at Prettier: there are now warnings in both the original plan and the new Gemini report. The production code was not changed; Rust tests, Clippy, and the diagnostic scenarios were not re-run, so their results above refer to the original audit.

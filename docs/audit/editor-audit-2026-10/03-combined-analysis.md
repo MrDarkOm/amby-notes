@@ -1,78 +1,78 @@
-# Редактор Amby: сводный анализ (Notion + Obsidian)
+# Amby editor: combined analysis (Notion + Obsidian)
 
-Дата: 7 октября 2026 года.
-Статус: аудит, не контракт. Код в рамках анализа не менялся.
+Date: October 7, 2026.
+Status: audit, not a contract. The code was not changed as part of the analysis.
 
-Детали и методика: [сравнение с Notion](01-notion-comparison.md),
-[сравнение с Obsidian](02-obsidian-comparison.md).
+Details and methodology: [comparison with Notion](01-notion-comparison.md),
+[comparison with Obsidian](02-obsidian-comparison.md).
 
-## Вердикт
+## Verdict
 
-Как редактор блоков (интерфейс, ручки, меню, колонки, базы) редактор Amby уже близок к
-Notion. Как редактор Markdown-файлов он слабее Obsidian: половина реальных заметок
-открывается в Source, а в Source нет инструментов, привычных по Obsidian. В Notion и
-Obsidian удобство начинается с того, что текст никогда не «разваливается». Поэтому
-главная задача одна: Live должен открывать любой файл без потерь.
+As a block editor (interface, handles, menus, columns, databases), the Amby editor is already close to
+Notion. As a Markdown file editor it is weaker than Obsidian: half of real notes
+open in Source, and Source lacks the tools familiar from Obsidian. In Notion and
+Obsidian, convenience starts with the text never "falling apart". So
+there is one main task: Live must open any file without loss.
 
-## Критично (подтверждено измерениями)
+## Critical (confirmed by measurements)
 
-| #   | Проблема                                      | Данные                                                                                                                                                                                                                                                    | Откуда   |
-| --- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| 1   | **Половина заметок открывается в Source**     | 53 из 106 в vault. Причины: пробел перед мягким переносом (18), `\`-экранирование из веб-клиппера (17), пустые строки (11), отступ списка (6), прочее (1). Также строчные `[!tip]`, вложенность табами, `* * *`, setext, перенос двумя пробелами, сноски. | Obsidian |
-| 2   | **Лаг на длинных заметках со ссылками**       | 69 мс на символ против 1,7 мс без ссылок (3000 абзацев): плагин `tags-wikilinks` пересчитывает декорации по всему документу при каждой правке.                                                                                                            | оба      |
-| 3   | **Вставка Markdown-текста не создаёт блоков** | `# Заголовок`, `- a`, таблица вставляются строками сырого текста. Парсер уже есть. HTML вставляется нормально.                                                                                                                                            | оба      |
+| #   | Problem                                          | Data                                                                                                                                                                                                                                                    | Source   |
+| --- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| 1   | **Half of notes open in Source**                 | 53 of 106 in the vault. Causes: a space before a soft break (18), `\` escaping from the web clipper (17), blank lines (11), list indentation (6), other (1). Also lowercase `[!tip]`, tab nesting, `* * *`, setext, a break with two spaces, footnotes. | Obsidian |
+| 2   | **Lag on long notes with links**                 | 69 ms per character vs. 1.7 ms without links (3000 paragraphs): the `tags-wikilinks` plugin recomputes decorations across the whole document on every edit.                                                                                             | both     |
+| 3   | **Pasting Markdown text does not create blocks** | `# Heading`, `- a`, a table are pasted as raw text lines. The parser already exists. HTML pastes fine.                                                                                                                                                  | both     |
 
-## Баги и неудобства поведения
+## Bugs and behavior annoyances
 
-- **Backspace в начале заголовка** склеивает его с абзацем выше; в Notion он сначала превращается в абзац.
-- **`- [ ] ` не создаёт задачу** (получается список с текстом `[ ]`), также не работают `1)` и `***`.
-- **Не хватает клавиш:** Cmd+K (ссылка), Cmd+Shift+↑/↓ (двигать блок), Cmd+D (дублировать), выделение маркером.
-- **Меню `/`:** отдельное поле поиска вместо фильтра по мере набора, видно 5 строк из 23, нет групп и описаний.
-- **Код:** нет подсветки, подписи языка и кнопки «Копировать» на блоке.
-- **Таблицы:** нет «+» на краях и меню строк/столбцов, нет цвета ячеек.
-- **Прочее:** подчёркивание под H1 (в Notion его нет), панель форматирования без полного «Превратить в…».
+- **Backspace at the start of a heading** merges it with the paragraph above; in Notion it first turns into a paragraph.
+- **`- [ ] ` does not create a task** (it produces a list with the text `[ ]`), and `1)` and `***` do not work either.
+- **Missing keys:** Cmd+K (link), Cmd+Shift+↑/↓ (move a block), Cmd+D (duplicate), highlighter selection.
+- **The `/` menu:** a separate search field instead of filtering as you type, 5 rows of 23 visible, no groups and no descriptions.
+- **Code:** no highlighting, no language label, and no "Копировать" (Copy) button on the block.
+- **Tables:** no "+" on the edges and no row/column menu, no cell color.
+- **Other:** an underline under H1 (not in Notion), a formatting bar without a full "Turn into…".
 
-## Недостающие возможности (сводно)
+## Missing capabilities (summary)
 
-| Возможность                                                                | Notion             | Obsidian          | Amby                                                   |
-| -------------------------------------------------------------------------- | ------------------ | ----------------- | ------------------------------------------------------ |
-| Подсказки при вводе `[[` и `#`                                             | да                 | да                | нет                                                    |
-| Поиск по заметке (Cmd+F)                                                   | да                 | да                | нет                                                    |
-| Source: поиск, парные скобки, сворачивание, номера строк                   | —                  | да                | нет                                                    |
-| Переключатель (toggle), складные заголовки                                 | да                 | да (сворачивание) | нет                                                    |
-| Формулы и Mermaid с рендером                                               | да                 | да                | нет (текст / обычный код)                              |
-| Вложения и встраивание (картинка, PDF, аудио, видео, закладка, `![[img]]`) | да                 | да                | нет (`![[x.png]]` разбирается как встраивание заметки) |
-| Сноски `[^1]`                                                              | нет                | да                | Source-only                                            |
-| Выделение `==текст==`, комментарии `%%`                                    | цвет / комментарии | да                | простой текст                                          |
-| Дата, `@`-упоминание, оглавление                                           | да                 | частично          | нет                                                    |
-| Настраиваемые клавиши редактора                                            | нет                | да                | нет (глобальные настраиваются)                         |
+| Capability                                                                 | Notion           | Obsidian      | Amby                                        |
+| -------------------------------------------------------------------------- | ---------------- | ------------- | ------------------------------------------- |
+| Suggestions when typing `[[` and `#`                                       | yes              | yes           | no                                          |
+| Search within a note (Cmd+F)                                               | yes              | yes           | no                                          |
+| Source: search, bracket pairing, folding, line numbers                     | —                | yes           | no                                          |
+| Toggle, collapsible headings                                               | yes              | yes (folding) | no                                          |
+| Formulas and Mermaid with rendering                                        | yes              | yes           | no (text / plain code)                      |
+| Attachments and embedding (image, PDF, audio, video, bookmark, `![[img]]`) | yes              | yes           | no (`![[x.png]]` is parsed as a note embed) |
+| Footnotes `[^1]`                                                           | no               | yes           | Source-only                                 |
+| Highlight `==text==`, comments `%%`                                        | color / comments | yes           | plain text                                  |
+| Date, `@` mention, table of contents                                       | yes              | partly        | no                                          |
+| Customizable editor keys                                                   | no               | yes           | no (global ones are customizable)           |
 
-## Что уже хорошо
+## What is already good
 
-- Markdown-шорткаты `#`, `-`, `1.`, `[]`, `>`, ` ``` `, `---`, `**`, `*`, `` ` ``, `~~`.
-- Вставка HTML и «URL поверх выделения» работают как в Notion.
-- Ручки блоков, панель форматирования, callout с меню.
-- Колонки, базы данных и AI в заметке, картинки с размером.
-- Wiki-ссылка отображается кнопкой, теги подсвечиваются.
-- Скорость для заметок до ~1000 абзацев.
-- Исправлено в сессии 7 октября: Tab и пробелы (отступ, пробелы в начале и конце абзаца), Live больше не уходит в Source из-за ввода, заметки с «сырыми» пробельными строками открываются в Live, удаление в системную корзину на macOS без Finder.
+- Markdown shortcuts `#`, `-`, `1.`, `[]`, `>`, ` ``` `, `---`, `**`, `*`, `` ` ``, `~~`.
+- HTML paste and "URL over a selection" work as in Notion.
+- Block handles, the formatting bar, a callout with a menu.
+- Columns, databases, and AI in a note, images with a size.
+- A wiki link is displayed as a button, tags are highlighted.
+- Speed for notes up to ~1000 paragraphs.
+- Fixed in the October 7 session: Tab and spaces (indentation, spaces at the start and end of a paragraph), Live no longer drops to Source because of typing, notes with "raw" whitespace-only lines open in Live, deletion to the system trash on macOS without Finder.
 
-## Единый план по приоритету
+## Single plan by priority
 
-1. **Live для любой заметки.** Хранить исходный текст блоков и записывать его как есть, пока блок не правили (самая большая задача). Быстрые подготовки: пробел перед мягким переносом (18 заметок), сохранение `\`-экранирования (17), табуляция и отступы списков, строчные callout, разреженные списки. Результат: Source только по выбору пользователя.
-2. **Скорость:** инкрементальные декорации ссылок и тегов.
-3. **Быстрые победы:** вставка Markdown, `- [ ] `, Backspace, Cmd+K / Cmd+D / Cmd+Shift+↑↓.
-4. **Навигация:** подсказки `[[` и `#`, Cmd+F в заметке, инструменты в Source (поиск, скобки, сворачивание).
-5. **Меню `/` и таблицы:** набор прямо в тексте, группы, описания, интерфейс строк и столбцов.
-6. **Новые блоки:** переключатель, формулы и Mermaid с рендером, вложения (PDF, аудио, видео), сноски, подсветка кода.
+1. **Live for any note.** Store the source text of blocks and write it as is until the block is edited (the biggest task). Quick preparatory fixes: a space before a soft break (18 notes), preserving `\` escaping (17), tabs and list indentation, lowercase callouts, loose lists. Result: Source only by the user's choice.
+2. **Speed:** incremental decorations for links and tags.
+3. **Quick wins:** Markdown paste, `- [ ] `, Backspace, Cmd+K / Cmd+D / Cmd+Shift+↑↓.
+4. **Navigation:** `[[` and `#` suggestions, Cmd+F in a note, tools in Source (search, brackets, folding).
+5. **The `/` menu and tables:** typing directly in the text, groups, descriptions, a row and column interface.
+6. **New blocks:** toggle, formulas and Mermaid with rendering, attachments (PDF, audio, video), footnotes, code highlighting.
 
-## Решения владельца
+## Owner decisions
 
-- **Хранение блоков без потерь в Markdown** (переключатель как `<details>` или складной callout, формулы, вложения). Цвета блоков в файл не положить.
-- **Нормализация при правке:** блок, изменённый после п. 1, записывается в нормализованном виде (`\.` → `.`): по смыслу то же, по байтам нет.
+- **Lossless storage of blocks in Markdown** (toggle as `<details>` or a collapsible callout, formulas, attachments). Block colors cannot be put into the file.
+- **Normalization on edit:** a block changed after item 1 is written in normalized form (`\.` → `.`): the same in meaning, but not byte for byte.
 
-## Что не проверялось
+## What was not checked
 
-Перетаскивание блоков, нативные функции Tauri (drop файлов), режим чтения, Cmd+F в
-нативном окне, визуальный рендер `![[img]]`. Доли и причины по vault считались
-эвристикой по первой расходящейся строке.
+Block drag and drop, native Tauri features (file drop), reading mode, Cmd+F in the
+native window, the visual rendering of `![[img]]`. The shares and causes across the vault were counted
+by a heuristic on the first diverging line.

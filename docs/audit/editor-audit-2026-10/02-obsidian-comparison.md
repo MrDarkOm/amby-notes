@@ -1,82 +1,82 @@
-# Редактор Amby и Obsidian: сравнение
+# Amby editor vs. Obsidian: comparison
 
-Дата: 7 октября 2026 года.
-Статус: аудит, не контракт. Код не менялся.
+Date: October 7, 2026.
+Status: audit, not a contract. The code was not changed.
 
-Объединённый вывод и план — в [сводном анализе](03-combined-analysis.md).
-Сравнение с Notion — в [отдельном файле](01-notion-comparison.md).
+The combined conclusion and plan are in the [combined analysis](03-combined-analysis.md).
+The comparison with Notion is in a [separate file](01-notion-comparison.md).
 
-## Главное: половина реальных заметок открывается в Source
+## The main point: half of real notes open in Source
 
-Obsidian редактирует сам текст файла (CodeMirror), поэтому не может «сломать» разметку.
-У Amby в Live документ собирается из блоков и заново сериализуется. Если результат не
-совпал с файлом побайтно, заметка открывается в Source. Это защита данных (см.
-[совместимость Markdown](../../markdown-compatibility.md)), но на практике она срабатывает
-слишком часто.
+Obsidian edits the file's text itself (CodeMirror), so it cannot "break" the markup.
+In Amby's Live mode the document is assembled from blocks and serialized again. If the result
+does not match the file byte for byte, the note opens in Source. This is data protection (see
+[Markdown compatibility](../../markdown-compatibility.md)), but in practice it triggers
+too often.
 
-### Измерение на реальном vault
+### Measurement on a real vault
 
-Все `.md` в `~/Documents/Amby` (106 заметок; скрытые папки и `assets` исключены;
-frontmatter отброшен, как делает приложение), та же проверка `roundTripCheck`,
-что решает допуск в Live. Только чтение.
+All `.md` files in `~/Documents/Amby` (106 notes; hidden folders and `assets` excluded;
+frontmatter stripped, as the app does), the same `roundTripCheck` check
+that decides admission to Live. Read only.
 
-**53 из 106 (50%) открываются только в Source.** Данные при этом не теряются.
+**53 of 106 (50%) open only in Source.** No data is lost as a result.
 
-| Причина (по первой расходящейся строке, эвристика)                                          | Заметок | Пример                          |
-| ------------------------------------------------------------------------------------------- | ------- | ------------------------------- |
-| Пробел в конце строки перед мягким переносом внутри абзаца                                  | 18      | «Tässä on minun sohva. »        |
-| Обратные слэши и экранирование (`1\.`, `\-`, `$\rightarrow$`, `\*`), в основном веб-клиппер | 17      | `## 1\. What are rections?`     |
-| Пустые строки и «разреженные» списки                                                        | 11      |                                 |
-| Отступ списка                                                                               | 6       | ` 1. tammikuu`                  |
-| Прочее                                                                                      | 1       | ссылка с заголовком `"http:/…"` |
+| Cause (by the first diverging line, heuristic)                                             | Notes | Example                         |
+| ------------------------------------------------------------------------------------------ | ----- | ------------------------------- |
+| Trailing space before a soft break inside a paragraph                                      | 18    | «Tässä on minun sohva. »        |
+| Backslashes and escaping (`1\.`, `\-`, `$\rightarrow$`, `\*`), mostly from the web clipper | 17    | `## 1\. What are rections?`     |
+| Blank lines and "loose" lists                                                              | 11    |                                 |
+| List indentation                                                                           | 6     | ` 1. tammikuu`                  |
+| Other                                                                                      | 1     | a link with a title `"http:/…"` |
 
-Отдельными пробами установлено, что в Source уходят и:
+Separate probes established that these also go to Source:
 
-- строчные типы callout `> [!tip]`, `> [!note]-` (Obsidian регистр не различает; Amby переписывает в верхний);
-- вложенность табуляцией `- a⏎\t- b` (так по умолчанию делает Obsidian) и четырьмя пробелами;
-- «разреженные» списки `- a⏎⏎- b`, пробелы в конце строки в списках;
-- `* * *`, setext-заголовки (`Title⏎=====`), перенос строки двумя пробелами, отступный код;
-- `[^1]`-сноски, встроенные сноски `^[...]`, ссылки-определения;
+- lowercase callout types `> [!tip]`, `> [!note]-` (Obsidian is case-insensitive; Amby rewrites them to uppercase);
+- tab nesting `- a⏎\t- b` (Obsidian's default) and four-space nesting;
+- "loose" lists `- a⏎⏎- b`, trailing spaces in lists;
+- `* * *`, setext headings (`Title⏎=====`), a line break with two spaces, indented code;
+- `[^1]` footnotes, inline footnotes `^[...]`, reference definitions;
 - `H~2~O`, `x^2^`.
 
-### Что с этим делать
+### What to do about it
 
-Самое надёжное решение: хранить исходный текст каждого блока (markdown-it даёт диапазон
-строк `token.map`) и записывать блок как есть, пока его не правили. Тогда Live открывает
-любой файл без потерь, как Obsidian. Цена: блок, который правили, записывается в
-нормализованном виде (`\.` → `.`), по смыслу то же, по байтам нет. Решение за владельцем.
+The most reliable solution: store the source text of each block (markdown-it provides a line
+range via `token.map`) and write the block as is until it is edited. Then Live opens
+any file without loss, like Obsidian. The price: a block that was edited is written in
+normalized form (`\.` → `.`), the same in meaning, but not byte for byte. The decision is the owner's.
 
-Быстрые подготовки, закрывающие самые частые причины: пробел перед мягким переносом
-(18 заметок) и сохранение `\`-экранирования (17).
+Quick preparatory fixes that close the most frequent causes: the space before a soft break
+(18 notes) and preserving `\` escaping (17).
 
-## Сравнение по возможностям
+## Comparison by capability
 
-| Что                                                                      | Obsidian   | Amby (проверено)                                                                                                    |
-| ------------------------------------------------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------- |
-| Любая заметка открывается в Live                                         | да         | нет, 50% в Source                                                                                                   |
-| Подсказка при вводе `[[` и `#`                                           | да         | нет (проверено: после `[[` и `#` никакого списка)                                                                   |
-| Поиск по заметке (Cmd+F)                                                 | да         | нет (в Live нет; в Source не подключён `searchKeymap`)                                                              |
-| Source: поиск, парные скобки, сворачивание, номера строк, автодополнение | да         | нет: в `source-editor.tsx` только `defaultKeymap`, `history`, Markdown и подсветка                                  |
-| Сноски `[^1]`                                                            | рендерятся | Source-only                                                                                                         |
-| Формулы `$x$` / `$$`                                                     | MathJax    | простой текст; `$$` — сырой блок без рендера                                                                        |
-| Mermaid                                                                  | рендерится | обычный блок кода (рендер Mermaid есть только в холсте)                                                             |
-| Выделение `==текст==` и комментарии `%%…%%`                              | да         | простой текст                                                                                                       |
-| Вложения `![[img.png]]`, PDF, аудио, видео                               | рендерятся | `![[x.png]]` разбирается как встраивание заметки; встраивание в тексте строки остаётся текстом; PDF/аудио/видео нет |
-| Сворачивание заголовков и списков                                        | да         | не нашёл                                                                                                            |
-| Callout, включая складные                                                | да         | есть, но строчные типы уходят в Source                                                                              |
-| Настраиваемые горячие клавиши                                            | да         | глобальные настраиваются (`keyboard-shortcuts.ts`), клавиши редактора нет, Cmd+K нет                                |
-| Палитра команд                                                           | да         | не нашёл (есть быстрое открытие Cmd+P)                                                                              |
-| Вложенность табуляцией                                                   | да         | Source                                                                                                              |
-| Режим чтения                                                             | да         | не проверялось                                                                                                      |
+| What                                                                 | Obsidian | Amby (checked)                                                                                        |
+| -------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------- |
+| Any note opens in Live                                               | yes      | no, 50% in Source                                                                                     |
+| Suggestions when typing `[[` and `#`                                 | yes      | no (checked: no list after `[[` and `#`)                                                              |
+| Search within a note (Cmd+F)                                         | yes      | no (not in Live; `searchKeymap` is not wired in Source)                                               |
+| Source: search, bracket pairing, folding, line numbers, autocomplete | yes      | no: `source-editor.tsx` has only `defaultKeymap`, `history`, Markdown, and highlighting               |
+| Footnotes `[^1]`                                                     | rendered | Source-only                                                                                           |
+| Formulas `$x$` / `$$`                                                | MathJax  | plain text; `$$` is a raw block with no rendering                                                     |
+| Mermaid                                                              | rendered | a plain code block (Mermaid rendering exists only in the canvas)                                      |
+| Highlight `==text==` and comments `%%…%%`                            | yes      | plain text                                                                                            |
+| Attachments `![[img.png]]`, PDF, audio, video                        | rendered | `![[x.png]]` is parsed as a note embed; an embed inside a line of text stays text; no PDF/audio/video |
+| Folding headings and lists                                           | yes      | did not find it                                                                                       |
+| Callout, including collapsible                                       | yes      | present, but lowercase types go to Source                                                             |
+| Customizable hotkeys                                                 | yes      | global ones are customizable (`keyboard-shortcuts.ts`), editor keys are not, no Cmd+K                 |
+| Command palette                                                      | yes      | did not find it (there is quick open on Cmd+P)                                                        |
+| Tab nesting                                                          | yes      | Source                                                                                                |
+| Reading mode                                                         | yes      | not checked                                                                                           |
 
-## Где Amby впереди Obsidian
+## Where Amby is ahead of Obsidian
 
-- Блочный интерфейс как у Notion: ручки блоков, меню `/`, панель форматирования.
-- Колонки, базы данных и AI в заметке.
-- Callout с меню, wiki-ссылка кнопкой, картинки с размером.
+- A block interface like Notion's: block handles, the `/` menu, the formatting bar.
+- Columns, databases, and AI in a note.
+- A callout with a menu, a wiki link as a button, images with a size.
 
-## Что бы я делал
+## What I would do
 
-1. «Live для любой заметки» (хранение исходного текста блоков).
-2. Подсказки `[[` и `#`, Cmd+F в заметке, поиск и скобки в Source.
-3. Рендер формул и Mermaid, вложения PDF/аудио/видео, сноски в Live.
+1. "Live for any note" (storing the source text of blocks).
+2. `[[` and `#` suggestions, Cmd+F in a note, search and brackets in Source.
+3. Rendering of formulas and Mermaid, PDF/audio/video attachments, footnotes in Live.

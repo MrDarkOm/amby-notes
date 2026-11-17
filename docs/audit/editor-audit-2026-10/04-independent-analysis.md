@@ -1,167 +1,167 @@
-# Редактор Amby: независимый единый анализ
+# Amby editor: independent combined analysis
 
-Дата: 7 октября 2026 года.
-Статус: аудит, не контракт. Код приложения не менялся.
+Date: October 7, 2026.
+Status: audit, not a contract. The application code was not changed.
 
-Разбор трёх предыдущих документов: [Notion](01-notion-comparison.md),
-[Obsidian](02-obsidian-comparison.md), [сводный анализ](03-combined-analysis.md).
-Их утверждения перепроверены по коду, главные цифры перемерены заново.
+A review of the three previous documents: [Notion](01-notion-comparison.md),
+[Obsidian](02-obsidian-comparison.md), [combined analysis](03-combined-analysis.md).
+Their claims were re-checked against the code, and the main figures were re-measured.
 
-## Вывод
+## Conclusion
 
-Главный диагноз аудитов верен: редактор уже хорош как блочный интерфейс, а его
-слабое место — половина заметок, которые открываются только в Source. Задача
-«Live для любой заметки» действительно первая.
+The audits' main diagnosis is correct: the editor is already good as a block interface, and its
+weak spot is the half of notes that open only in Source. The task
+"Live for any note" really is first.
 
-В трёх местах я с аудитами расхожусь:
+I disagree with the audits in three places:
 
-1. **«Быстрые подготовки» почти ничего не дадут.** Аудит обещает 18 + 17 заметок от
-   двух мелких правок. По моему замеру правка пробелов в конце строки возвращает в
-   Live 5 заметок, а все четыре простые правки вместе — те же 5. У заметки обычно
-   несколько причин сразу, а аудит считал только первую.
-2. **Лаг — не критичная проблема.** Он воспроизводится только на искусственной
-   заметке с тысячами ссылок. В реальном vault плагин тратит не больше 0,41 мс.
-3. **«По смыслу то же» — не всегда.** При пересборке блока редактор молча теряет
-   заголовки ссылок (`[текст](url "заголовок")`). Сейчас от этого защищает уход в
-   Source. Если просто открыть такие заметки в Live, защита исчезнет.
+1. **The "quick preparatory fixes" will give almost nothing.** The audit promises 18 + 17 notes from
+   two small fixes. By my measurement, fixing trailing line spaces returns 5 notes to
+   Live, and all four simple fixes together return the same 5. A note usually has
+   several causes at once, while the audit counted only the first.
+2. **The lag is not a critical problem.** It reproduces only on an artificial
+   note with thousands of links. In the real vault the plugin spends no more than 0.41 ms.
+3. **"The same in meaning" is not always true.** When a block is rebuilt, the editor silently loses
+   link titles (`[text](url "title")`). Right now falling back to
+   Source protects against this. If such notes are simply opened in Live, the protection disappears.
 
-## Что перемерено
+## What was re-measured
 
-Те же 106 заметок из `~/Documents/Amby`, та же проверка `roundTripCheck`, только
-чтение. Временный тестовый файл после замера удалён.
+The same 106 notes from `~/Documents/Amby`, the same `roundTripCheck` check, read
+only. The temporary test file was deleted after the measurement.
 
-| Показатель                                             | Значение                          |
-| ------------------------------------------------------ | --------------------------------- |
-| Заметок только в Source                                | 53 из 106 (совпало с аудитом)     |
-| Доля текста vault в этих заметках                      | 92% (376 из 407 тыс. символов)    |
-| Блоков верхнего уровня в этих заметках                 | 1189                              |
-| Из них не воспроизводятся побайтно                     | 327 (27%; медиана по заметке 31%) |
-| Заметок, где пересборка даёт тот же документ редактора | 42 из 53                          |
-| Заметок, где повторная пересборка уже ничего не меняет | 51 из 53                          |
+| Metric                                                 | Value                                |
+| ------------------------------------------------------ | ------------------------------------ |
+| Notes only in Source                                   | 53 of 106 (matches the audit)        |
+| Share of the vault's text in these notes               | 92% (376 of 407 thousand characters) |
+| Top-level blocks in these notes                        | 1189                                 |
+| Of them, not reproduced byte for byte                  | 327 (27%; median per note 31%)       |
+| Notes where the rebuild gives the same editor document | 42 of 53                             |
+| Notes where a second rebuild changes nothing more      | 51 of 53                             |
 
-Что из этого следует:
+What follows from this:
 
-- **Проблема больше, чем «половина».** В Source уходят длинные и содержательные
-  заметки. В Live открываются в основном короткие.
-- **Три четверти блоков в «плохих» заметках уже в порядке.** Заметку целиком
-  отправляет в Source меньшинство блоков. Это прямой довод за хранение исходного
-  текста по блокам.
-- **Нормализация почти всегда безвредна.** Из 11 заметок с отличиями в документе у
-  10 отличаются только служебные атрибуты таблиц (в них лежит исходный текст), у
-  одной — оформление текста. Оговорка: проверка не видит того, что парсер отбросил
-  ещё при чтении (заголовки ссылок).
+- **The problem is bigger than "half".** Long and substantial notes go to Source.
+  Mostly short ones open in Live.
+- **Three quarters of the blocks in the "bad" notes are already fine.** A minority of blocks
+  sends the whole note to Source. This is a direct argument for storing the source
+  text per block.
+- **Normalization is almost always harmless.** Of 11 notes with differences in the document,
+  10 differ only in the tables' service attributes (they hold the source text), and one
+  in text formatting. A caveat: the check does not see what the parser discarded
+  already during reading (link titles).
 
-### Почему блоки не сходятся
+### Why blocks do not match
 
-| Причина                                              | Блоков | Где                                            |
-| ---------------------------------------------------- | ------ | ---------------------------------------------- |
-| Обратные слэши (`1\.`, `\-`), в основном веб-клиппер | 165    | абзацы 75, заголовки 60, списки 17, таблицы 13 |
-| Пустые строки и переносы внутри списков              | 62     | маркированные 50, нумерованные 12              |
-| Слэши вместе с пробелами и отступами                 | 44     | списки, абзацы, таблицы                        |
-| Выбор маркера (`*` / `-` / `_`)                      | 28     | абзацы, таблицы                                |
-| Пробелы в конце строки                               | 11     | абзацы                                         |
-| Прочее                                               | 17     | см. ниже                                       |
+| Cause                                                  | Blocks | Where                                           |
+| ------------------------------------------------------ | ------ | ----------------------------------------------- |
+| Backslashes (`1\.`, `\-`), mostly from the web clipper | 165    | paragraphs 75, headings 60, lists 17, tables 13 |
+| Blank lines and breaks inside lists                    | 62     | bulleted 50, numbered 12                        |
+| Slashes together with spaces and indentation           | 44     | lists, paragraphs, tables                       |
+| Marker choice (`*` / `-` / `_`)                        | 28     | paragraphs, tables                              |
+| Trailing spaces                                        | 11     | paragraphs                                      |
+| Other                                                  | 17     | see below                                       |
 
-Классификация грубая: сравнение текста блока до и после с отбрасыванием одного
-класса символов.
+The classification is rough: it compares the block text before and after, discarding one
+class of characters.
 
-### Что аудиты не заметили
+### What the audits did not notice
 
-- **Нумерованный список от 10 пунктов всегда уходит в Source.** Сериализатор
-  выравнивает номера пробелами (` 1.` … `10.`,
-  `markdown-serializer.ts`, `orderedList`). Аудит записал это как «отступ списка в
-  файле» с примером ` 1. tammikuu`, но пробел добавляет сам редактор. Такие списки
-  есть в 11 заметках.
-- **Заголовки ссылок теряются** (5 заметок): парсер берёт у ссылки только `href`.
-- **Таблицы не сходятся чаще, чем обещает контракт:** 32 из 107. Причины — слэши
-  в ячейках и выравнивание ширины ячеек к одному пробелу. Контракт говорит о
-  сохранении таблицы до изменения её структуры.
-- **Одна заметка с девятью блоками frontmatter подряд**, у каждого свой `id` (файл
-  с CRLF, изменён 1 сентября). Это не про редактор, а про присвоение ID; вынесено
-  в отдельную задачу. Файл не трогался.
+- **A numbered list of 10 or more items always goes to Source.** The serializer
+  aligns the numbers with spaces (` 1.` … `10.`,
+  `markdown-serializer.ts`, `orderedList`). The audit recorded this as "list indentation in the
+  file" with the example ` 1. tammikuu`, but the space is added by the editor itself. Such lists
+  exist in 11 notes.
+- **Link titles are lost** (5 notes): the parser takes only `href` from a link.
+- **Tables fail to match more often than the contract promises:** 32 of 107. The causes are slashes
+  in cells and aligning cell widths to a single space. The contract speaks of
+  preserving a table until its structure is changed.
+- **One note with nine frontmatter blocks in a row**, each with its own `id` (a file
+  with CRLF, modified on September 1). This is not about the editor but about ID assignment; moved
+  to a separate task. The file was not touched.
 
-## Проверка утверждений по коду
+## Checking the claims against the code
 
-| Утверждение аудита                           | Итог                | Основание                                                                                      |
-| -------------------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------- |
-| 53 из 106 в Source                           | подтверждено        | повторный замер                                                                                |
-| Плагин ссылок пересчитывает весь документ    | подтверждено        | `tags-wikilinks.ts`: `decorations(state)` обходит документ; срабатывает и при движении курсора |
-| 69 мс на символ на 3000 абзацев              | порядок подтверждён | только расчёт, без отрисовки: 53 мс; 1000 абзацев — 6 мс; 300 — 0,9 мс; без ссылок — 0,2 мс    |
-| Вставка Markdown не создаёт блоки            | подтверждено        | единственный `handlePaste` — в `media-drop.ts`, для файлов                                     |
-| Нет Cmd+K, Cmd+D, перемещения блока          | подтверждено        | свои клавиши: Tab, Backspace, `[`, `#`, Cmd+U                                                  |
-| `- [ ] ` не создаёт задачу                   | правдоподобно       | своих правил ввода нет, работают стандартные; в интерфейсе не проверял                         |
-| Нет подсказок `[[` и `#`                     | подтверждено        | `Suggestion` один, для `/`                                                                     |
-| Нет поиска, скобок, сворачивания в Source    | подтверждено        | `source-editor.tsx`; пакета `@codemirror/search` нет в зависимостях                            |
-| Нет подсветки кода и рендера формул          | подтверждено        | нет `lowlight`, `katex`; Mermaid только в холсте                                               |
-| Backspace в заголовке, вид меню `/`, таблицы | не проверял         | нужен запуск интерфейса                                                                        |
+| Audit claim                                              | Result                       | Basis                                                                                                    |
+| -------------------------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------- |
+| 53 of 106 in Source                                      | confirmed                    | repeated measurement                                                                                     |
+| The link plugin recomputes the whole document            | confirmed                    | `tags-wikilinks.ts`: `decorations(state)` walks the document; it also fires on cursor movement           |
+| 69 ms per character on 3000 paragraphs                   | order of magnitude confirmed | computation only, without rendering: 53 ms; 1000 paragraphs — 6 ms; 300 — 0.9 ms; without links — 0.2 ms |
+| Markdown paste does not create blocks                    | confirmed                    | the only `handlePaste` is in `media-drop.ts`, for files                                                  |
+| No Cmd+K, Cmd+D, block moving                            | confirmed                    | own keys: Tab, Backspace, `[`, `#`, Cmd+U                                                                |
+| `- [ ] ` does not create a task                          | plausible                    | there are no custom input rules, the standard ones apply; not checked in the UI                          |
+| No `[[` and `#` suggestions                              | confirmed                    | there is one `Suggestion`, for `/`                                                                       |
+| No search, brackets, folding in Source                   | confirmed                    | `source-editor.tsx`; the `@codemirror/search` package is not in the dependencies                         |
+| No code highlighting and formula rendering               | confirmed                    | no `lowlight`, `katex`; Mermaid only in the canvas                                                       |
+| Backspace in a heading, the look of the `/` menu, tables | not checked                  | requires running the UI                                                                                  |
 
-Рост времени плагина быстрее линейного: втрое больше абзацев — в 8,5 раза дольше.
+The plugin's time grows faster than linearly: three times as many paragraphs — 8.5 times longer.
 
-## Замечания к решению «хранить исходный текст блоков»
+## Remarks on the decision to "store the source text of blocks"
 
-Направление верное. Что нужно учесть до начала:
+The direction is right. What to take into account before starting:
 
-1. **Сначала убрать потери смысла.** Заголовок ссылки должен стать атрибутом.
-   Сноски и ссылки-определения должны остаться непрозрачными блоками, которые
-   Live показывает, но не пересобирает. Без этого открытие «любой заметки» в Live
-   меняет защиту данных на удобство.
-2. **Единица — блок верхнего уровня, и это грубо для списков.** Правка одного
-   пункта нормализует весь список, а списки не сходятся чаще всего (76 из 110
-   маркированных). Вторым шагом стоит хранить текст по пунктам.
-3. **Промежутки между блоками тоже нужно хранить** (число пустых строк), иначе
-   заметка не сойдётся даже без правок.
-4. **Новый проверяемый инвариант.** «Открыл и сохранил без правок — файл тот же
-   побайтно» для любого файла, включая весь набор совместимости. Плюс:
-   нормализованный блок при повторном чтении даёт тот же документ.
-5. **Контракт меняется.** Сейчас: «Live только при побайтном совпадении всего
-   файла». Станет: «нетронутое — побайтно, правленый блок — нормализован».
-   [Совместимость Markdown](../../markdown-compatibility.md) нужно переписать в том же
-   пакете.
-6. **Страховка.** Снимок в историю перед первым сохранением, которое нормализует
-   блок заметки.
+1. **First remove the losses of meaning.** A link title must become an attribute.
+   Footnotes and reference definitions must remain opaque blocks that
+   Live shows but does not rebuild. Without this, opening "any note" in Live
+   trades data protection for convenience.
+2. **The unit is a top-level block, and that is coarse for lists.** Editing a single
+   item normalizes the whole list, and lists fail to match most often (76 of 110
+   bulleted ones). As a second step, text should be stored per item.
+3. **The gaps between blocks also need to be stored** (the number of blank lines), otherwise a
+   note will not match even without edits.
+4. **A new verifiable invariant.** "Opened and saved without edits — the file is the same
+   byte for byte" for any file, including the whole compatibility set. Plus:
+   a normalized block, when read again, gives the same document.
+5. **The contract changes.** Now: "Live only on a byte-for-byte match of the whole
+   file". It will become: "untouched — byte for byte, an edited block — normalized".
+   [Markdown compatibility](../../markdown-compatibility.md) must be rewritten in the same
+   package.
+6. **Insurance.** A snapshot into history before the first save that normalizes
+   a note's block.
 
-Правка выравнивания нумерованных списков и ширины ячеек таблиц нужна в любом
-случае: она уменьшает число блоков, которые изменятся при правке.
+Fixing the alignment of numbered lists and table cell widths is needed in any
+case: it reduces the number of blocks that change on an edit.
 
-## Порядок работ
+## Order of work
 
-1. **Live для любой заметки** — в порядке из раздела выше: потери смысла, затем
-   хранение текста блоков, затем списки по пунктам.
-2. **Мелкие правки ввода:** вставка Markdown, `- [ ] `, Backspace в заголовке,
-   Cmd+K, Cmd+D, перемещение блока. Дёшево и заметно каждый день.
-3. **Подсказки `[[` и `#`, Cmd+F.** Ставлю выше меню `/` и таблиц: для приложения
-   со связанными заметками подсказка ссылки — базовая вещь. Инструменты Source
-   (поиск, парные скобки) — несколько строк и один пакет; после п. 1 Source нужен
-   реже, поэтому сворачивание и номера строк можно не делать.
-4. **Инкрементальные декорации ссылок.** Небольшая правка, делать заодно с п. 3 в
-   том же файле. Отдельным приоритетом не считаю.
-5. **Меню `/`, таблицы, подсветка кода.**
-6. **Новые блоки.** Сначала те, что не меняют формат файла: рендер формул и
-   Mermaid. Переключатель — это уже существующий складной callout (`> [!note]-`),
-   новый формат не нужен. Вложения PDF, аудио и видео, закладки — после решения о
-   хранении.
+1. **Live for any note** — in the order from the section above: losses of meaning, then
+   storing block text, then lists per item.
+2. **Small input fixes:** Markdown paste, `- [ ] `, Backspace in a heading,
+   Cmd+K, Cmd+D, block moving. Cheap and noticeable every day.
+3. **`[[` and `#` suggestions, Cmd+F.** I put them above the `/` menu and tables: for an app
+   with linked notes, a link suggestion is a basic thing. Source tools
+   (search, bracket pairing) are a few lines and one package; after item 1 Source is needed
+   less often, so folding and line numbers can be skipped.
+4. **Incremental link decorations.** A small fix, to be done together with item 3 in
+   the same file. I do not count it as a separate priority.
+5. **The `/` menu, tables, code highlighting.**
+6. **New blocks.** First those that do not change the file format: rendering of formulas and
+   Mermaid. A toggle is the existing collapsible callout (`> [!note]-`),
+   no new format is needed. PDF, audio, and video attachments, bookmarks — after the decision on
+   storage.
 
-## Решение владельца
+## Owner decision
 
-Принято 7 октября 2026 года: блок, который правили, записывается в
-нормализованном виде; нетронутые блоки записываются побайтно как были. Условия
-обязательны и выполняются до включения: 1 (потери смысла убраны), 4 (тест «открыл
-и сохранил без правок — файл тот же») и 6 (снимок в историю) из раздела выше.
-Контракт в [совместимости Markdown](../../markdown-compatibility.md) меняется в том
-же пакете, что и код.
+Accepted on October 7, 2026: a block that was edited is written in
+normalized form; untouched blocks are written byte for byte as they were. The conditions
+are mandatory and are met before enabling: 1 (losses of meaning removed), 4 (the test "opened
+and saved without edits — the file is the same") and 6 (a snapshot into history) from the section above.
+The contract in [Markdown compatibility](../../markdown-compatibility.md) changes in the same
+package as the code.
 
-## Что выполнено после аудита
+## What was done after the audit
 
-Шаг 1 (заголовки ссылок, выравнивание нумерованных списков) и хранение исходного
-текста блоков верхнего уровня сделаны 7 октября 2026 года; действующий контракт —
-в [совместимости Markdown](../../markdown-compatibility.md). Замер на том же vault:
-в Source 3 заметки из 106 (было 53, после шага 1 — 50), сохранение без правок
-даёт те же байты для всех 106. Три оставшиеся заметки — вложенное выделение,
-которое редактор записывает иначе. Хранение текста по пунктам списка не начато.
+Step 1 (link titles, alignment of numbered lists) and storing the source
+text of top-level blocks were done on October 7, 2026; the current contract is
+in [Markdown compatibility](../../markdown-compatibility.md). A measurement on the same vault:
+3 notes of 106 in Source (was 53, after step 1 — 50), saving without edits
+gives the same bytes for all 106. The three remaining notes are nested emphasis,
+which the editor writes differently. Storing text per list item is not started.
 
-## Что не проверялось
+## What was not checked
 
-Поведение в интерфейсе (Backspace, меню `/`, горячие клавиши вживую), скорость в
-браузере с отрисовкой, нативное окно Tauri. Имитация «быстрых подготовок» —
-правка исходного текста, а не сериализатора: реальная правка может вернуть на
-несколько заметок больше, порядок величины не изменится.
+Behavior in the UI (Backspace, the `/` menu, hotkeys live), speed in the
+browser with rendering, the native Tauri window. The simulation of the "quick preparatory fixes" is
+an edit of the source text, not of the serializer: a real fix may return a
+few more notes, but the order of magnitude will not change.
