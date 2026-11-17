@@ -1,6 +1,13 @@
 import { Extension } from "@tiptap/core"
 import { Fragment, Slice, type Node as PMNode } from "@tiptap/pm/model"
-import { Plugin, PluginKey, type EditorState, type Transaction } from "@tiptap/pm/state"
+import {
+  Plugin,
+  PluginKey,
+  TextSelection,
+  type EditorState,
+  type Transaction,
+} from "@tiptap/pm/state"
+import type { Schema } from "@tiptap/pm/model"
 import { imagesOnly, insertImageBlock } from "./image-placement"
 import { sameDocument } from "./markdown-block-source"
 import { getMarkdownParser } from "./markdown-parser"
@@ -101,6 +108,58 @@ export function markdownPasteContent(text: string): Fragment | null {
   return doc.childCount > 0 ? doc.content : null
 }
 
+const CELL_TYPES = ["tableCell", "tableHeader"]
+const ROW_TYPES = ["table", "tableRow"]
+
+/** Whether the caret (or a text selection) is in a table cell. */
+function inTableCell(state: EditorState): boolean {
+  if (!(state.selection instanceof TextSelection)) return false
+  const { $from } = state.selection
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    if (CELL_TYPES.includes($from.node(depth).type.name)) return true
+  }
+  return false
+}
+
+/**
+ * A GFM table cell is one line of inline text (EDIT-01), so pasted blocks become the
+ * inline content of one paragraph: paragraphs, list items, headings and the lines of a
+ * code block are joined with a space (a cell has no `<br>` in this editor's Markdown, and
+ * a line break would not survive a cell), inline marks are kept, a code block becomes
+ * inline code. Pipes are escaped when the cell is written.
+ */
+export function flattenToInline(content: Fragment, schema: Schema): Fragment {
+  const out: PMNode[] = []
+  const pushSpace = () => {
+    const last = out[out.length - 1]
+    if (out.length > 0 && !(last.isText && /\s$/u.test(last.text ?? ""))) {
+      out.push(schema.text(" "))
+    }
+  }
+  const walk = (node: PMNode, inCode: boolean) => {
+    if (node.isText) {
+      const text = (node.text ?? "").replace(/\s*\n\s*/gu, " ")
+      if (!text) return
+      const code = inCode && schema.marks.code ? schema.marks.code.create() : null
+      out.push(schema.text(text, code ? code.addToSet(node.marks) : node.marks))
+    } else if (node.type.name === "hardBreak") {
+      pushSpace()
+    } else if (node.isInline) {
+      out.push(node)
+    } else if (node.isTextblock) {
+      pushSpace()
+      node.forEach((child) => walk(child, inCode || Boolean(node.type.spec.code)))
+    } else {
+      node.forEach((child) => walk(child, inCode))
+    }
+  }
+  content.forEach((child) => walk(child, false))
+  const blank = (node: PMNode) => node.isText && !(node.text ?? "").trim()
+  while (out.length > 0 && blank(out[0])) out.shift()
+  while (out.length > 0 && blank(out[out.length - 1])) out.pop()
+  return Fragment.fromArray(out)
+}
+
 /** Replaces the selection with pasted Markdown; null when the text is pasted as it is. */
 export function pasteMarkdown(state: EditorState, text: string): Transaction | null {
   const { $from } = state.selection
@@ -109,7 +168,18 @@ export function pasteMarkdown(state: EditorState, text: string): Transaction | n
   const parsed = markdownPasteContent(text)
   if (!parsed) return null
   // The parser has a schema of its own; an editor only takes nodes of its own schema.
-  const content = Fragment.fromJSON(state.schema, parsed.toJSON())
+  const pasted = Fragment.fromJSON(state.schema, parsed.toJSON())
+  // A table cell holds one paragraph: what is pasted there becomes the text of it.
+  if (inTableCell(state)) {
+    const inline = flattenToInline(pasted, state.schema)
+    if (inline.childCount === 0) return null
+    return state.tr
+      .replaceSelection(new Slice(inline, 0, 0))
+      .scrollIntoView()
+      .setMeta("paste", true)
+      .setMeta("uiEvent", "paste")
+  }
+  const content = pasted
   const only = content.childCount === 1 ? content.firstChild : null
   const tr = state.tr
   const images = imagesOnly(content)
@@ -140,6 +210,15 @@ export const MarkdownPaste = Extension.create({
       new Plugin({
         key: new PluginKey("ambyMarkdownPaste"),
         props: {
+          // Rich text and plain text with lines: in a cell they become one paragraph.
+          transformPasted(slice, view) {
+            if (!inTableCell(view.state)) return slice
+            const first = slice.content.firstChild
+            // Rows copied from a table are placed as cells by the table's own paste. Bare
+            // cells are not that: the parser wraps text pasted in a cell in cells.
+            if (first && ROW_TYPES.includes(first.type.name)) return slice
+            return new Slice(flattenToInline(slice.content, view.state.schema), 0, 0)
+          },
           handlePaste(view, event) {
             const data = event.clipboardData
             if (!data) return false
