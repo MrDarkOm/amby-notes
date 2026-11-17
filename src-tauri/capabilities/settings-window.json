@@ -17,6 +17,7 @@
     "core:window:allow-destroy",
     "core:window:allow-start-dragging",
     "core:window:allow-is-maximized",
+    "core:window:allow-get-all-windows",
     "core:webview:default",
     "core:webview:allow-print",
     "dialog:allow-open",

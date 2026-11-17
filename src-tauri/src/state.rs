@@ -163,6 +163,13 @@ pub fn handle_run_event<R: tauri::Runtime>(handle: &tauri::AppHandle<R>, event: 
                 tracing::warn!(event = "restore_window_failed", error = %error);
             }
         }
+        // SAVE-04: Dock → Quit and logout end the process through `terminate:`, which no window
+        // hears. Hook it once the application delegate exists.
+        tauri::RunEvent::Ready => crate::terminate_gate::install(handle),
+        // The process is ending by itself (the windows saved and closed): nothing is left to release.
+        tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
+            crate::terminate_gate::note_exiting()
+        }
         tauri::RunEvent::WindowEvent {
             label,
             event: tauri::WindowEvent::Destroyed,

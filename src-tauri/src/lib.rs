@@ -31,6 +31,7 @@ mod storage_error;
 pub mod sync;
 mod system_open;
 mod system_recycle_bin;
+mod terminate_gate;
 mod updater;
 pub mod vault;
 mod vault_context;
