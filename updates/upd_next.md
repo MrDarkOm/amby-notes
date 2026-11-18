@@ -19,6 +19,7 @@
 - For developers: the repository now uses English for all docs, plans, maps, agent instructions and release notes (`updates/`); Russian stays only as an app interface language. `AGENTS.md` (also read by Claude Code and Gemini CLI) has a language policy for agents: they take requests in Russian, work and write in English, and answer the owner briefly in Russian. The release notes template, the GitHub installation footer and the beta banner of a release are in English; older Russian documents are translated over time. App behavior did not change.
 - For developers: a plan for the `amby` command line (for people, scripts and AI agents through `amby mcp`) and for moving the vault core into its own crate without Tauri — `docs/road/cli.md`. This is a task description; app behavior did not change.
 - For developers: the remaining Russian documents (plans, audits, contracts, the sync plan) are translated to English; app behavior did not change.
+- For developers: a UI/UX polish audit of the current interface with screenshots, measurements and a prioritised fix plan — `docs/audit/ui-ux-audit-2026-11/`. App behavior did not change.
 
 - The emoji picker is prepared in the background after startup and reuses a single ready-made grid instead of rebuilding it on every open. Closing it clears the search, refreshes "Recents", and releases handlers for the current note; switching language or theme refreshes the cache.
 
