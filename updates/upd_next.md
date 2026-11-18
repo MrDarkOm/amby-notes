@@ -1,5 +1,7 @@
 # Amby — Next version
 
+- Для разработчиков: сохранены результаты проверки CLI и MCP на Windows для продолжения диагностики.
+
 - MCP can create reciprocal database relations and edit relation values. Previews include inverse record changes, and folder grants cover every added or removed link.
 - Added installer checks for the bundled CLI on Windows and Linux. They verify MCP folder grants and structural requests to a running desktop.
 - Desktop bundles include the standalone Amby CLI for terminal and MCP use. Linux AppImages expose it through the `--amby-cli` argument.
