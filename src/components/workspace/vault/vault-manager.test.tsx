@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
 import { isKnownDebugEvent } from "@/lib/debug/event-codes"
 import { VaultManager } from "./vault-manager"
+import { fileManagerPlace } from "../show-in-file-manager"
 
 const warn = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/logger", async (importOriginal) => {
@@ -38,7 +39,7 @@ async function chooseShowInFinder(vaultName: string) {
   const row = screen.getByText(vaultName).closest("li") as HTMLElement
   const trigger = row.querySelector("button[aria-haspopup='menu']") as HTMLElement
   fireEvent.keyDown(trigger, { key: "Enter" })
-  fireEvent.click(await screen.findByText("Открыть в проводнике"))
+  fireEvent.click(await screen.findByText(`Показать в ${fileManagerPlace()}`))
 }
 
 beforeEach(async () => {

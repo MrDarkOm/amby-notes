@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { fileManagerPlace } from "../show-in-file-manager"
 import { useTranslation } from "react-i18next"
 import { Check, FolderOpen, FolderTree, MoreHorizontal, PenLine, Unlink } from "lucide-react"
 
@@ -182,13 +183,13 @@ export function VaultManager({
                         onSelect={() => void revealVault(vault.id)}
                       >
                         <FolderOpen className="size-3.5 text-muted-foreground" />
-                        {t("vaultPicker.showInExplorer")}
+                        {t("vaultPicker.showInExplorer", { place: fileManagerPlace() })}
                       </DropdownMenuItem>
                       {!vault.detached && (
                         <>
                           <DropdownMenuSeparator className="bg-accent" />
                           <DropdownMenuItem
-                            className="flex items-center gap-2 text-[13px] text-red-400 focus:bg-accent focus:text-red-300"
+                            className="flex items-center gap-2 text-[13px] text-destructive focus:bg-destructive/10 focus:text-destructive"
                             onSelect={() => onDelete(vault.id)}
                           >
                             <Unlink className="size-3.5" />

@@ -9,10 +9,18 @@ export function Row({
   hint?: React.ReactNode
   children: React.ReactNode
 }) {
+  // The row title names its control (select, switch) for screen readers.
+  const labelId = React.useId()
   return (
-    <div className="settings-row flex items-center justify-between gap-4 px-4">
+    <div
+      role="group"
+      aria-labelledby={labelId}
+      className="settings-row flex items-center justify-between gap-4 px-4"
+    >
       <div className="min-w-0">
-        <div className="text-[13px] text-foreground">{label}</div>
+        <div id={labelId} className="text-[13px] text-foreground">
+          {label}
+        </div>
         {hint && <div className="mt-0.5 text-[11px] text-muted-foreground">{hint}</div>}
       </div>
       <div className="shrink-0">{children}</div>
@@ -20,7 +28,10 @@ export function Row({
   )
 }
 
-export const selectTrigger = "h-8 w-44 bg-card border-border text-[13px] text-foreground"
+// `data-[size=default]:h-8` beats the trigger's own 36px default, so settings selects match
+// AmbySelect (32px, 14px chevron); a long value truncates instead of pushing the chevron out.
+export const selectTrigger =
+  "h-8 data-[size=default]:h-8 w-44 bg-card border-border text-[13px] text-foreground [&>svg]:size-3.5 *:data-[slot=select-value]:block *:data-[slot=select-value]:min-w-0 *:data-[slot=select-value]:truncate"
 
 export function SettingsIntro({ title, description }: { title: string; description: string }) {
   return (

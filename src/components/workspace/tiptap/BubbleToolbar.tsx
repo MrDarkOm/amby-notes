@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { formatShortcut } from "../keyboard-shortcuts"
 import type { Editor } from "@tiptap/react"
 import { useTranslation } from "react-i18next"
 import { MotionSpinner } from "@/lib/motion"
@@ -437,7 +438,7 @@ export function BubbleToolbar({
         <span className="text-[10px] font-semibold">[[</span>
       </ToolbarButton>
       <ToolbarButton
-        title={t("editorToolbar.urlLink")}
+        title={t("editorToolbar.urlLink", { shortcut: formatShortcut("Mod+K") })}
         active={panel === "link"}
         onClick={openLinkPanel}
       >
@@ -611,7 +612,7 @@ export function BubbleToolbar({
                   {t("ai.generating")}
                 </div>
               )}
-              {aiError && <div className="px-2 py-1.5 text-[11px] text-red-400">{aiError}</div>}
+              {aiError && <div className="px-2 py-1.5 text-[11px] text-destructive">{aiError}</div>}
             </div>
           )}
 

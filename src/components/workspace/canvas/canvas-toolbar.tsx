@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { formatShortcut } from "../keyboard-shortcuts"
 import { useTranslation } from "react-i18next"
 import {
   AlignCenter,
@@ -247,10 +248,18 @@ export function CanvasAreaControls({
         {!isLocked && (
           <>
             <div className="mx-0.5 h-3.5 w-px bg-border/80" />
-            <ToolbarButton title={`${t("canvas.undo")} (⌘Z)`} disabled={!canUndo} onClick={onUndo}>
+            <ToolbarButton
+              title={`${t("canvas.undo")} (${formatShortcut("Mod+Z")})`}
+              disabled={!canUndo}
+              onClick={onUndo}
+            >
               <Undo2 className="size-3.5" />
             </ToolbarButton>
-            <ToolbarButton title={`${t("canvas.redo")} (⇧⌘Z)`} disabled={!canRedo} onClick={onRedo}>
+            <ToolbarButton
+              title={`${t("canvas.redo")} (${formatShortcut("Mod+Shift+Z")})`}
+              disabled={!canRedo}
+              onClick={onRedo}
+            >
               <Redo2 className="size-3.5" />
             </ToolbarButton>
           </>

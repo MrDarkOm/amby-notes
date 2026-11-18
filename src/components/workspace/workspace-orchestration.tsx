@@ -1158,7 +1158,7 @@ export function WorkspaceOrchestration() {
           title: tab.title,
           icon:
             tab.kind === "folder"
-              ? (item?.icon ?? "📁")
+              ? (item?.icon ?? "folder") // a known icon: drawn like note tabs, not as the 📁 emoji
               : tab.kind === "creative"
                 ? creativeTarget?.kind === "workshop"
                   ? (creativeTarget.workshop.icon ?? undefined)

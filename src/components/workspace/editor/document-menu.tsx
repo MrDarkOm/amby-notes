@@ -1,4 +1,5 @@
 import * as React from "react"
+import { fileManagerPlace } from "../show-in-file-manager"
 import { useTranslation } from "react-i18next"
 import {
   Archive,
@@ -358,7 +359,7 @@ export function useDocumentMenuGroups({
             {
               id: `delete-${layer.kind}`,
               label: <span>{layer.deleteLabel}</span>,
-              icon: <LayerIcon className="size-3.5 text-red-400" />,
+              icon: <LayerIcon className="size-3.5 text-destructive" />,
               destructive: true,
               onSelect: () => onDeleteLayer?.(layer.kind),
             },
@@ -494,7 +495,7 @@ export function useDocumentMenuGroups({
   const removeGroup: PageMenuItem[] = [
     {
       id: "show-in-explorer",
-      label: t("tree.showInExplorer"),
+      label: t("tree.showInExplorer", { place: fileManagerPlace() }),
       icon: icon(FolderOpen),
       disabled: off || !onShowInExplorer,
       onSelect: onShowInExplorer,

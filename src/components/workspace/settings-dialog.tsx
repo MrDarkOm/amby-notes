@@ -19,6 +19,7 @@ import {
   Monitor,
   Keyboard,
   Palette,
+  SwatchBook,
   PencilLine,
   RefreshCw,
   Search,
@@ -298,6 +299,15 @@ function SettingsWindowFrame({
         onOpenAutoFocus={(event) => {
           event.preventDefault()
           searchInputRef.current?.focus()
+        }}
+        onCloseAutoFocus={(event) => {
+          // Return keyboard focus to the dock's Settings button instead of the page body.
+          const settingsButton = document.querySelector<HTMLElement>(
+            '[data-activity-button="settings"]',
+          )
+          if (!settingsButton) return
+          event.preventDefault()
+          settingsButton.focus()
         }}
         className="flex max-w-none flex-col gap-0 overflow-hidden rounded-xl border-border bg-background p-0 shadow-2xl sm:max-w-none"
         style={{
@@ -660,7 +670,7 @@ export function SettingsDialog({
                     onThemesChange={setThemes}
                   />
                 </SettingsGroup>
-                <SettingsGroup title={t("settings.groups.colorsEffects")} icon={Palette}>
+                <SettingsGroup title={t("settings.groups.colorsEffects")} icon={SwatchBook}>
                   <Row label={t("settings.appearance.accent")}>
                     <div className="flex items-center gap-1.5">
                       {ACCENTS.map((a) => (

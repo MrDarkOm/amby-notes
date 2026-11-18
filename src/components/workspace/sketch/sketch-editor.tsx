@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { formatShortcut } from "../keyboard-shortcuts"
 import {
   Excalidraw,
   MainMenu,
@@ -955,14 +956,14 @@ export function SketchEditor({
             <>
               <div className="mx-0.5 h-3.5 w-px bg-border/80" />
               <ToolbarButton
-                title={`${t("canvas.undo")} (⌘Z)`}
+                title={`${t("canvas.undo")} (${formatShortcut("Mod+Z")})`}
                 disabled={!canUndo}
                 onClick={handleUndo}
               >
                 <Undo2 className="size-3.5" />
               </ToolbarButton>
               <ToolbarButton
-                title={`${t("canvas.redo")} (⇧⌘Z)`}
+                title={`${t("canvas.redo")} (${formatShortcut("Mod+Shift+Z")})`}
                 disabled={!canRedo}
                 onClick={handleRedo}
               >

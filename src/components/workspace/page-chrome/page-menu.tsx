@@ -17,7 +17,7 @@ import type { PageMenuGroup, PageMenuItem } from "./page-chrome-types"
 
 const ROW = "flex items-center gap-2 text-[13px]"
 const ROW_NORMAL = `${ROW} focus:bg-accent focus:text-white`
-const ROW_DESTRUCTIVE = `${ROW} text-red-400 focus:bg-accent focus:text-red-300`
+const ROW_DESTRUCTIVE = `${ROW} text-destructive focus:bg-destructive/10 focus:text-destructive`
 
 /** The groups that have rows, so no separator stands at an end or twice in a row. */
 function shownGroups(groups: PageMenuGroup[]): PageMenuGroup[] {

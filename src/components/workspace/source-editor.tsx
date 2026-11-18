@@ -57,7 +57,7 @@ const theme = EditorView.theme(
       fontSize: "0.875rem",
     },
     ".cm-content": {
-      fontFamily: "'JetBrains Mono', 'Fira Code', ui-monospace, monospace",
+      fontFamily: "var(--font-mono)",
       lineHeight: "1.7",
       padding: "0.5rem 0 5rem",
       caretColor: "var(--editor-caret-color, var(--caret-color))",
@@ -353,6 +353,9 @@ export function SourceEditor({
           tokenDecorations,
           clickHandler,
           EditorView.lineWrapping,
+          // Not a Tab stop: Tab moves between the app's buttons and never lands in the text,
+          // where it would type a tab. The text is entered by a click or from the title (Enter).
+          EditorView.contentAttributes.of({ tabindex: "-1" }),
           cmPlaceholder(placeholder ?? ""),
           EditorView.updateListener.of((update) => {
             if (update.selectionSet) {

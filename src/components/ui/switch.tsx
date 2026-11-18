@@ -21,7 +21,7 @@ function Switch({
     <SwitchPrimitive.Root
       data-slot="switch"
       className={cn(
-        "peer data-[state=checked]:bg-primary data-[state=unchecked]:bg-input focus-visible:border-ring focus-visible:ring-ring/50 dark:data-[state=unchecked]:bg-input/80 inline-flex h-[1.15rem] w-8 shrink-0 items-center rounded-full border border-transparent shadow-xs outline-none focus-visible:ring-1 disabled:cursor-not-allowed disabled:opacity-50",
+        "peer data-[state=checked]:bg-primary data-[state=unchecked]:bg-muted-foreground/50 focus-visible:border-ring focus-visible:ring-ring/50 dark:data-[state=unchecked]:bg-input/80 inline-flex h-[1.15rem] w-8 shrink-0 items-center rounded-full border border-transparent shadow-xs outline-none focus-visible:ring-1 disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
       checked={checked}
@@ -35,7 +35,7 @@ function Switch({
       <SwitchPrimitive.Thumb asChild>
         <motion.span
           data-slot="switch-thumb"
-          className="pointer-events-none block size-4 rounded-full bg-background ring-0 dark:data-[state=checked]:bg-primary-foreground dark:data-[state=unchecked]:bg-foreground"
+          className="pointer-events-none block size-4 rounded-full bg-background shadow-sm ring-0 dark:shadow-none dark:data-[state=checked]:bg-primary-foreground dark:data-[state=unchecked]:bg-foreground"
           animate={{ x: visualChecked ? 14 : 0 }}
           transition={motionTransitions.default}
         />

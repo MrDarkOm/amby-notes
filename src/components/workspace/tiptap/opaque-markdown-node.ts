@@ -1,4 +1,5 @@
 import { Node, mergeAttributes } from "@tiptap/core"
+import { formatShortcut } from "../keyboard-shortcuts"
 
 import i18n from "@/lib/i18n"
 import {
@@ -205,7 +206,7 @@ export const OpaqueMarkdownBlock = Node.create({
         error.hidden = true
         const hint = document.createElement("p")
         hint.className = "amby-math-hint"
-        hint.textContent = i18n.t("editor.math.hint")
+        hint.textContent = i18n.t("editor.math.hint", { shortcut: formatShortcut("Mod+Enter") })
         panel.append(area, error, hint)
         dom.append(panel)
         dom.classList.add("is-writing")

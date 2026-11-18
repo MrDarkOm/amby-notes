@@ -40,6 +40,7 @@ database.change_property_type_failed
 database.commit_cell
 database.commit_cell_failed
 database.copy_view_failed
+database.create_failed
 database.create_property
 database.create_property_failed
 database.create_relation_row

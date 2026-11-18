@@ -90,7 +90,7 @@ export function DatabaseViewTabs({
                   type="button"
                   className={cn(
                     "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium",
-                    "bg-slate-100 text-slate-900 hover:bg-slate-200/80 dark:bg-accent dark:text-foreground dark:hover:bg-accent/80",
+                    "bg-accent text-foreground hover:bg-accent/80",
                     activeViewDisplayMode === "icon" && "px-2.5",
                   )}
                   title={activeViewDisplayMode === "icon" ? activeView.title : undefined}
@@ -302,7 +302,7 @@ export function DatabaseViewTabs({
                         type="button"
                         className={cn(
                           "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium",
-                          "bg-slate-100 text-slate-900 hover:bg-slate-200/80 dark:bg-accent dark:text-foreground dark:hover:bg-accent/80",
+                          "bg-accent text-foreground hover:bg-accent/80",
                           viewDisplayMode === "icon" && "px-2.5",
                         )}
                         title={viewDisplayMode === "icon" ? view.title : undefined}
@@ -342,7 +342,7 @@ export function DatabaseViewTabs({
                   type="button"
                   className={cn(
                     "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs",
-                    "text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-muted-foreground dark:hover:bg-accent/50 dark:hover:text-foreground",
+                    "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                     viewDisplayMode === "icon" && "px-2.5",
                   )}
                   title={viewDisplayMode === "icon" ? view.title : undefined}
@@ -383,7 +383,7 @@ export function DatabaseViewTabs({
         </Reorder.Group>
         <button
           type="button"
-          className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-slate-500 opacity-0 group-hover/views:opacity-100 focus-visible:opacity-100 hover:bg-slate-100 dark:text-muted-foreground dark:hover:bg-accent/50"
+          className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-0 group-hover/views:opacity-100 focus-visible:opacity-100 hover:bg-accent/50"
           aria-label={t("databaseWorkspace.addView")}
           title={t("databaseWorkspace.addView")}
           disabled={isDatabaseLocked || vaultGeneration === null}

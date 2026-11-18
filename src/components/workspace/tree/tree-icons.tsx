@@ -157,7 +157,9 @@ export function TreeItemStatusIcon({
         item.type === "folder" ? "folder" : isFavoriteItem ? "favorite" : item.type
       }
       role={isInteractive ? "button" : undefined}
-      tabIndex={isInteractive ? 0 : undefined}
+      // Not a Tab stop: the row is the tree's single stop, and the context menu offers the
+      // same favourite action from the keyboard.
+      tabIndex={isInteractive ? -1 : undefined}
       aria-label={isInteractive ? label : undefined}
       aria-pressed={isInteractive ? isFavoriteItem : undefined}
       title={isInteractive ? label : undefined}

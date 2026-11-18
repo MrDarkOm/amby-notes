@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import "@/lib/i18n"
 import { DocumentHeader, type DocumentHeaderProps } from "./document-header"
 import type { TreeItem } from "../sidebar-tree"
+import { fileManagerPlace } from "../show-in-file-manager"
 
 const tree: TreeItem[] = [
   {
@@ -103,7 +104,7 @@ describe("the note's header, drawn by the shared bar", () => {
       "Объединить с…",
       "Копировать путь",
       "Экспорт заметки в PDF",
-      "Показать в проводнике",
+      `Показать в ${fileManagerPlace()}`,
       "Переименовать",
       "В архив",
       "Удалить файл",

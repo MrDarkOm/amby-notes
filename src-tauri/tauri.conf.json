@@ -17,7 +17,9 @@
         "width": 1280,
         "height": 800,
         "decorations": false,
-        "dataDirectory": "WebView"
+        "dataDirectory": "WebView",
+        "minWidth": 720,
+        "minHeight": 480
       }
     ],
     "security": {

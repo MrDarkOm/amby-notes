@@ -1,5 +1,17 @@
 # Amby — Next version
 
+- Interface polish (no layout or style changes): keyboard focus is now visible on the dock, tabs and toolbars; the "Delete" items in menus are readable in the light theme; an "off" switch is clearly visible in the light theme; the emoji picker uses the app accent and font instead of blue; the note title lines up with the text below it; a hovered row in the file tree no longer looks selected; settings drop-downs have one size and long values no longer push the arrow out.
+- The file tree is one Tab stop again: the type icon of a row (it adds the note to favourites) is no longer a separate stop; favourites stay available from the context menu. Tab no longer enters the note text, where it typed a tab: it moves between the buttons; the text is entered with a click or with Enter from the title.
+- Shortcut hints match the system: ⌘ on macOS, Ctrl on Windows and Linux (undo, redo, link, formula). "Show in Finder" / "Show in File Explorer" / "Show in the file manager" now names the file manager of the current system.
+- After the window is narrowed and widened again, the side panels come back as they were. Closing Settings returns focus to the Settings button.
+- If a database cannot be created, the dialog now says so instead of silently staying open; its default name is selected so typing replaces it.
+- The main window cannot be shrunk below 720×480, as note windows already could not, so the dock, tabs and editor never overlap.
+- In windows 960–1100 px wide the right panel steps aside so the note keeps a readable width; it comes back when the window grows.
+- The page-icon picker is no longer cut off by a narrow editor, and Esc closes it.
+- Code uses one monospace font stack everywhere, with system fonts for macOS, Windows and Linux, so it never falls back to Courier.
+- Nested-note chips and folder tabs use the same type icons as the file tree instead of emoji; the "Colors & effects" settings group has its own icon.
+- Screen readers hear the names of settings controls, which dock section is open, and the selected search result. Russian texts consistently address the user formally.
+
 - Fixed note windows opened separately using a system title bar instead of Amby's header. They now use the same macOS overlay and window-button placement as the main window, and no system decorations on Windows and Linux.
 
 - Fixed "Show in file manager" for workspace and note folders: it now opens the folder itself instead of showing its parent with the folder selected. Files are still selected in their containing folder.

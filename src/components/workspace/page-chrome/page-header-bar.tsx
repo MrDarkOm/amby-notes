@@ -259,7 +259,7 @@ export function PageHeaderBar({
       <motion.div
         data-help-target="breadcrumbs"
         data-path-expanded={pathHovered || undefined}
-        className={`flex min-w-0 flex-1 items-center justify-center gap-1 px-2 text-xs [&[data-path-expanded=true]_[data-breadcrumb-segment]]:max-w-none ${pathHovered ? "absolute inset-x-4 top-2 z-20 min-h-10 justify-start overflow-visible rounded-lg bg-white px-5 text-sm text-slate-900 shadow-lg ring-1 ring-slate-200" : size.isNarrow ? "hidden" : "overflow-hidden"}`}
+        className={`flex min-w-0 flex-1 items-center justify-center gap-1 px-2 text-xs [&[data-path-expanded=true]_[data-breadcrumb-segment]]:max-w-none ${pathHovered ? "absolute inset-x-4 top-2 z-20 min-h-10 justify-start overflow-visible rounded-lg bg-popover px-5 text-sm text-popover-foreground shadow-lg ring-1 ring-border" : size.isNarrow ? "hidden" : "overflow-hidden"}`}
         layout
         initial={false}
         animate={{ scale: pathHovered ? 1.01 : 1 }}

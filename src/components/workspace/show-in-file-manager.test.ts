@@ -17,7 +17,7 @@ vi.mock("@/lib/logger", async (importOriginal) => {
   return { ...original, logger: { ...original.logger, warn } }
 })
 
-import { showInFileManager } from "./show-in-file-manager"
+import { fileManagerPlace, showInFileManager } from "./show-in-file-manager"
 
 beforeEach(async () => {
   await i18n.changeLanguage("ru")
@@ -41,8 +41,8 @@ describe("showInFileManager", () => {
     await showInFileManager("/vault/Note.md")
     const [notice] = useAppNoticesStore.getState().notices
     expect(notice.level).toBe("warning")
-    const text = i18n.t(notice.titleKey)
-    expect(text).toBe("Не удалось показать файл или папку в проводнике.")
+    const text = i18n.t(notice.titleKey, notice.params)
+    expect(text).toBe(`Не удалось показать файл или папку в ${fileManagerPlace()}.`)
     expect(text).not.toContain("OpenFailed")
     expect(warn).toHaveBeenCalledWith("file.reveal_failed", { errorType: "Error" })
     expect(isKnownDebugEvent("file.reveal_failed")).toBe(true)
@@ -51,5 +51,13 @@ describe("showInFileManager", () => {
   it("does not leave a rejected promise behind", async () => {
     open.mockRejectedValue(new Error("OpenFailed"))
     await expect(showInFileManager("/vault/Note.md")).resolves.toBeUndefined()
+  })
+})
+
+describe("fileManagerPlace", () => {
+  it("names the file manager of the system the app runs on", () => {
+    expect(fileManagerPlace("MacIntel")).toBe("Finder")
+    expect(fileManagerPlace("Win32")).toBe("Проводнике")
+    expect(fileManagerPlace("Linux x86_64")).toBe("файловом менеджере")
   })
 })

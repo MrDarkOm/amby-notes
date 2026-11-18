@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { fileManagerPlace } from "../show-in-file-manager"
 import {
   ArrowDownUp,
   Check,
@@ -31,6 +32,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { errorType, logger } from "@/lib/logger"
+import { NoticeLine } from "../notices/notice-line"
 import {
   ContextMenu,
   ContextMenuCheckboxItem,
@@ -213,6 +216,7 @@ export function FilesPanel(props: PanelRenderProps) {
   const [databaseDialogOpen, setDatabaseDialogOpen] = React.useState(false)
   const [databaseName, setDatabaseName] = React.useState("")
   const [databaseNameError, setDatabaseNameError] = React.useState(false)
+  const [databaseCreateFailed, setDatabaseCreateFailed] = React.useState(false)
   const closedTreeIds = useViewStateStore((s) => s.closedTreeIds)
   const setTreeExpanded = useViewStateStore((s) => s.setTreeExpanded)
   const allOpen = closedTreeIds.size === 0
@@ -300,6 +304,7 @@ export function FilesPanel(props: PanelRenderProps) {
     }
     setDatabaseName(t("defaults.untitled"))
     setDatabaseNameError(false)
+    setDatabaseCreateFailed(false)
     setDatabaseDialogOpen(true)
   }
 
@@ -310,7 +315,15 @@ export function FilesPanel(props: PanelRenderProps) {
       setDatabaseNameError(true)
       return
     }
-    await onNewDatabase?.(null, name)
+    setDatabaseCreateFailed(false)
+    try {
+      await onNewDatabase?.(null, name)
+    } catch (error) {
+      // The dialog stays open with an inline error next to the action (notice rules).
+      logger.warn("database.create_failed", { errorType: errorType(error) })
+      setDatabaseCreateFailed(true)
+      return
+    }
     setDatabaseDialogOpen(false)
   }
 
@@ -701,7 +714,7 @@ export function FilesPanel(props: PanelRenderProps) {
               <ContextMenuSeparator />
               <ContextMenuItem className="text-[13px]" onSelect={() => onOpenInExplorer(vault)}>
                 <FolderOpen className="size-3.5 text-muted-foreground" />
-                {t("tree.showInExplorer")}
+                {t("tree.showInExplorer", { place: fileManagerPlace() })}
               </ContextMenuItem>
             </>
           )}
@@ -735,16 +748,22 @@ export function FilesPanel(props: PanelRenderProps) {
               <Input
                 id="new-database-name"
                 autoFocus
+                // The default name is selected, so typing replaces it.
+                onFocus={(event) => event.currentTarget.select()}
                 value={databaseName}
                 onChange={(event) => {
                   setDatabaseName(event.target.value)
                   setDatabaseNameError(false)
+                  setDatabaseCreateFailed(false)
                 }}
                 placeholder={t("newItem.databaseNamePlaceholder")}
                 aria-invalid={databaseNameError}
               />
               {databaseNameError && (
                 <p className="text-xs text-destructive">{t("newItem.databaseNameRequired")}</p>
+              )}
+              {databaseCreateFailed && (
+                <NoticeLine role="alert" text={t("newItem.databaseCreateFailed")} />
               )}
             </div>
             <DialogFooter>

@@ -1,6 +1,7 @@
 "use client"
 
 import { treeRowInset } from "./tree-metrics"
+import { fileManagerPlace } from "../show-in-file-manager"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { motion } from "motion/react"
@@ -429,7 +430,7 @@ export const TreeNode = React.memo(
             onSelect={() => onOpenInExplorer(item.path ?? item.id)}
           >
             <FolderOpen className="size-3.5 text-muted-foreground" />
-            {t("tree.showInExplorer")}
+            {t("tree.showInExplorer", { place: fileManagerPlace() })}
           </ContextMenuItem>
         )}
         {!isMultiSelection && (
@@ -443,7 +444,7 @@ export const TreeNode = React.memo(
         )}
         {isMultiSelection ? (
           <ContextMenuItem
-            className="flex items-center gap-2 text-[13px] text-red-400 focus:bg-accent focus:text-red-300"
+            className="flex items-center gap-2 text-[13px] text-destructive focus:bg-destructive/10 focus:text-destructive"
             onSelect={() => {
               if (onDeleteMany) onDeleteMany(contextSelectionIds)
               else onDelete?.(item.id)
@@ -462,7 +463,7 @@ export const TreeNode = React.memo(
               {t("tree.archive")}
             </ContextMenuItem>
             <ContextMenuItem
-              className="flex items-center gap-2 text-[13px] text-red-400 focus:bg-accent focus:text-red-300"
+              className="flex items-center gap-2 text-[13px] text-destructive focus:bg-destructive/10 focus:text-destructive"
               onSelect={() => onDelete?.(item.id)}
             >
               <Trash2 className="size-3.5" />
@@ -529,8 +530,9 @@ export const TreeNode = React.memo(
     )
 
     const buttonCls = cn(
-      "amby-density-inline-padding-left amby-tree-row flex w-full items-center gap-1.5 rounded pl-0 py-1 pr-[23px] text-left text-[13px] hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-      isSelected && "bg-accent",
+      "amby-density-inline-padding-left amby-tree-row flex w-full items-center gap-1.5 rounded pl-0 py-1 pr-[23px] text-left text-[13px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+      // Hover stays a step lighter than selection, so a hovered row never reads as selected.
+      isSelected ? "bg-accent" : "hover:bg-accent/60",
       isEditing &&
         "relative bg-background outline outline-1 -outline-offset-1 outline-primary/60 hover:bg-background",
       isDragSource && "opacity-40",
