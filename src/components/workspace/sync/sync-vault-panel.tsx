@@ -152,19 +152,20 @@ export function SyncVaultPanel({
   }
 
   const backupPath = status?.backupPath ?? null
-  const backupInfo = backupPath ? (
-    <details className="sync-backup-details">
-      <summary>
-        <ShieldCheck className="size-4" aria-hidden="true" />
-        <span>{t("backups.title")}</span>
+  const backupInfo =
+    backupPath || status?.backupMissing ? (
+      <details className="sync-backup-details">
+        <summary>
+          <ShieldCheck className="size-4" aria-hidden="true" />
+          <span>{t("backups.title")}</span>
 
-        <ChevronRight className="size-3.5" aria-hidden="true" />
-      </summary>
-      <div className="sync-backup-content">
-        <BackupPanel vault={vault} />
-      </div>
-    </details>
-  ) : null
+          <ChevronRight className="size-3.5" aria-hidden="true" />
+        </summary>
+        <div className="sync-backup-content">
+          <BackupPanel vault={vault} missing={status?.backupMissing ?? false} />
+        </div>
+      </details>
+    ) : null
   const target = mode === "new" ? ({ kind: "new", name: name.trim() } as const) : null
   const canEnable = !busy && (mode === "new" || spaceId !== null)
 

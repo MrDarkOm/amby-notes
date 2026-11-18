@@ -549,6 +549,12 @@ const ru = {
       description: "Настройки вернутся к значениям по умолчанию, заметки не затрагиваются.",
       confirm: "Сбросить",
     },
+    deleteBackup: {
+      title: "Удалить копию перед синхронизацией?",
+      description:
+        "Копия исчезнет с этого компьютера и не вернётся. Заметки в хранилище и на сервере не изменятся.",
+      confirm: "Удалить копию",
+    },
     deleteDebugHistory: {
       title: "Удалить сохранённый журнал событий?",
       description: "Журнал и его архивы пропадут с диска, текущая запись продолжится.",
@@ -3717,6 +3723,14 @@ const ru = {
     refresh: "Обновить список копий",
     empty: "Копий пока нет. Первая полная копия создаётся перед включением синхронизации.",
     beforeSync: "Перед первой синхронизацией",
+    copyBeforeSync: "Копия перед синхронизацией: создана {{date}}",
+    expires: "Amby удалит её сам {{date}}.",
+    lostHint:
+      "Копии перед синхронизацией не нашлось: возможно, её удалили. Ничего не потеряно: при следующем включении синхронизации Amby сделает новую.",
+    show: "Показать",
+    delete: "Удалить",
+    deleteOld: "Удалить старую копию",
+    deleting: "Удаление…",
     sizeUnknown: "Размер неизвестен",
     verifying: "Проверка…",
     restoring: "Восстановление…",
@@ -4042,7 +4056,7 @@ const ru = {
     vault: {
       cancel: "Отмена",
       backupBeforeEnable:
-        "Перед первым включением Amby создаст полную копию хранилища рядом с папкой хранилища. Синхронизация не начнётся, если при создании копии возникнет ошибка. Копия будет на том же диске и не защитит от его поломки.",
+        "Перед первым включением Amby создаст полную копию хранилища в своей папке данных, не рядом с вашими файлами, и сам удалит её через 14 дней после первой успешной синхронизации. Синхронизация не начнётся, если при создании копии возникнет ошибка. Копия будет на системном диске и не защитит от его поломки.",
       spaceLegend: "Пространство на сервере",
       createNew: "Создать новое",
       nameLabel: "Название",
@@ -4832,6 +4846,12 @@ const en: LocaleShape<typeof ru> = {
       title: "Reset all settings?",
       description: "Settings go back to their defaults; your notes are not touched.",
       confirm: "Reset",
+    },
+    deleteBackup: {
+      title: "Delete the copy made before sync?",
+      description:
+        "The copy leaves this computer and cannot be brought back. The notes in the vault and on the server are not changed.",
+      confirm: "Delete copy",
     },
     deleteDebugHistory: {
       title: "Delete the saved event journal?",
@@ -7965,6 +7985,14 @@ const en: LocaleShape<typeof ru> = {
     refresh: "Refresh backups",
     empty: "No backups yet. The first full copy is created before sync is enabled.",
     beforeSync: "Before the first sync",
+    copyBeforeSync: "Copy before sync: created {{date}}",
+    expires: "Amby will delete it by itself on {{date}}.",
+    lostHint:
+      "The copy made before sync was not found; it may have been deleted. Nothing is lost: the next time you switch sync on, Amby makes a new one.",
+    show: "Show",
+    delete: "Delete",
+    deleteOld: "Delete old copy",
+    deleting: "Deleting…",
     sizeUnknown: "Size unknown",
     verifying: "Verifying…",
     restoring: "Restoring…",
@@ -8285,7 +8313,7 @@ const en: LocaleShape<typeof ru> = {
     vault: {
       cancel: "Cancel",
       backupBeforeEnable:
-        "Before sync is first switched on, Amby will make a complete copy of the vault beside its folder. If the copy cannot be made, synchronisation will not start. The copy is on the same disk and cannot protect against disk failure.",
+        "Before sync is first switched on, Amby will make a complete copy of the vault in its own data folder, not beside your files, and will delete it by itself 14 days after the first successful sync. If the copy cannot be made, synchronisation will not start. The copy is on the system disk and cannot protect against its failure.",
       spaceLegend: "Space on the server",
       createNew: "Create a new one",
       nameLabel: "Name",

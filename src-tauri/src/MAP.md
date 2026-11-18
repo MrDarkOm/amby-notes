@@ -47,12 +47,11 @@ durable too; activation preflights both before conditional rollback through
 index loading, and propagates errors instead of silently skipping recovery. Keep excluded
 metadata directories out of indexing. Never replace or migrate an ID silently.
 
-Before the first sync pass, [sync/backup.rs](sync/backup.rs) creates a full external
-copy beside the vault (`<vault>.amby-backups/<operation>/vault`), verifies files and
-SQLite online snapshots, then publishes a version-1 manifest and local receipt.
-`runtime.rs` enforces this before enablement and legacy automatic resumption;
-`VaultSyncStatus.backup_path` exposes the completed location. This is separate
-from per-file history and the migration backups inside a vault.
+Before the first sync pass, [sync/backup.rs](sync/backup.rs) makes a verified copy in app data
+(`backups/<vault key>/<ULID>/`, `receipt.json` beside it, set by `set_home`), never beside the vault.
+`runtime.rs` enforces it before enablement and automatic resumption; `VaultSyncStatus.backup_path`
+and `backup_missing` expose it. The first completed pass records `first_sync_ms`; `activate_vault`
+deletes the copy 14 days later. Old in-vault receipts stay readable.
 
 Tests live beside services (`*_test.rs`, `*_tests.rs`, bundle tests) and in
 [desktop_e2e_tests.rs](desktop_e2e_tests.rs). Include collisions, failed writes,

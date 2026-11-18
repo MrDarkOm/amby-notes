@@ -19,6 +19,8 @@ export interface BackupPort {
   list(vault: string): Promise<BackupCatalog>
   verify(generation: number, id: string): Promise<BackupInfo>
   restore(generation: number, id: string, operationId: string): Promise<RestoredBackup | null>
+  remove(generation: number, id: string): Promise<void>
+  reveal(generation: number, id: string): Promise<void>
 }
 async function call<T>(request: Promise<Result<T, SyncError>>): Promise<T> {
   let result: Result<T, SyncError>
@@ -38,6 +40,8 @@ const unavailableBackupPort: BackupPort = {
   list: unavailable,
   verify: unavailable,
   restore: unavailable,
+  remove: unavailable,
+  reveal: unavailable,
 }
 export function createBackupPort(native: boolean): BackupPort {
   if (!native) return unavailableBackupPort
@@ -47,5 +51,11 @@ export function createBackupPort(native: boolean): BackupPort {
     verify: (generation, id) => call(commands.verifyVaultBackup(generation, id)),
     restore: (generation, id, operationId) =>
       call(commands.restoreVaultBackup(generation, id, operationId)),
+    remove: async (generation, id) => {
+      await call(commands.deleteVaultBackup(generation, id))
+    },
+    reveal: async (generation, id) => {
+      await call(commands.revealVaultBackup(generation, id))
+    },
   }
 }

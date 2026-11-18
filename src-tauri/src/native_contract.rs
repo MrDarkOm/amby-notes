@@ -148,6 +148,7 @@ pub fn run_native_contract() {
         fs::write(fixture.join("note.md"), b"\xef\xbb\xbfNative backup\r\n")
             .expect("backup fixture note");
         fs::write(fixture.join(".amby/keep.bin"), [0, 255, 42]).expect("backup fixture sidecar");
+        crate::sync::backup::set_home(root.join(".app-data").join("backups"));
         crate::sync::backup::ensure(&fixture).expect("verified native backup fixture");
     }
     let setup_root = root.clone();

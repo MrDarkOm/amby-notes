@@ -204,7 +204,7 @@ fn refuses_manifests_from_another_vault_or_with_traversal_paths() {
     let (t, vault, key) = setup();
     let root = root_for(&vault, &key).unwrap();
     // Remove only the test receipt to exercise manifest validation independently of its hash.
-    fs::remove_file(vault.join(super::super::RECEIPT)).unwrap();
+    fs::remove_file(key_dir(&vault, false).unwrap().join("receipt.json")).unwrap();
     let manifest_path = root.join("manifest.json");
     let original = fs::read(&manifest_path).unwrap();
     let mut manifest: serde_json::Value = serde_json::from_slice(&original).unwrap();

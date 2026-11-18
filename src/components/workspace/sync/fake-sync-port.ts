@@ -86,6 +86,7 @@ export function vaultStatus(overrides: Partial<VaultSyncStatus> = {}): VaultSync
     enabled: true,
     linked: true,
     resumable: false,
+    backupMissing: false,
     spaceId: "00112233445566778899aabbccddeeff",
     spaceName: "Рабочее хранилище",
     phase: "idle",

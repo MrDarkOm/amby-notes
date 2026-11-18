@@ -1683,6 +1683,29 @@ async restoreVaultBackup(expectedGeneration: number, backupId: string, operation
 }
 },
 /**
+ * Deletes one copy the person chose in the list. The path is derived from the id in Rust; only a
+ * copy in Amby's app data or the older copy named by the vault's receipt can be deleted.
+ */
+async deleteVaultBackup(expectedGeneration: number, backupId: string) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_vault_backup", { expectedGeneration, backupId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Shows a copy in the system's file manager.
+ */
+async revealVaultBackup(expectedGeneration: number, backupId: string) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reveal_vault_backup", { expectedGeneration, backupId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Asks a server for `/v1/info` and checks the address (П9, П41).
  */
 async syncCheckServer(url: string, allowHttp: boolean) : Promise<Result<ServerCheck, SyncError>> {
@@ -2323,7 +2346,21 @@ archivedAtMs: number;
 name: string }
 export type BackupCatalog = { vault: string; generation: number; backups: BackupInfo[] }
 export type BackupCondition = "unchecked" | "verified" | "damaged" | "incomplete" | "missing"
-export type BackupInfo = { id: string; createdMs: number; bytes: number; files: number; status: BackupCondition }
+export type BackupInfo = { id: string; createdMs: number; bytes: number; files: number; status: BackupCondition; 
+/**
+ * Where the copy lives: Amby's app data, or beside the vault (made by an older version).
+ */
+origin: BackupOrigin; 
+/**
+ * The person may delete it here: every app-data copy, and the older copy that the vault's
+ * receipt names. Other folders beside the vault are never offered.
+ */
+deletable: boolean; 
+/**
+ * When the copy is deleted automatically (Unix ms); known after the first successful sync.
+ */
+expiresMs: number | null }
+export type BackupOrigin = "appData" | "legacy"
 /**
  * A line of a group that cannot be used (З51).
  */
@@ -4040,6 +4077,11 @@ resumable: boolean;
  * Complete external pre-sync copy, containing `vault/`, a manifest and restore instructions.
  */
 backupPath?: string | null; 
+/**
+ * A copy was made before, but it is missing or damaged now. Switching sync on again makes a
+ * new one.
+ */
+backupMissing?: boolean; 
 /**
  * The space on the server (hex), if linked.
  */
