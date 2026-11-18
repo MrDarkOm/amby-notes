@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 use ulid::Ulid;
 
@@ -13,8 +12,6 @@ const SNAPSHOT_JOURNAL_FILE: &str = "snapshot-journal.json";
 const CLEANUP_JOURNAL_FILE: &str = "cleanup-journal.json";
 const HISTORY_FORMAT_VERSION: u8 = 1;
 const AUTOSAVE_SNAPSHOT_INTERVAL_MS: u64 = 10 * 60 * 1_000;
-
-static HISTORY_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct SnapshotMetadata {
@@ -176,10 +173,27 @@ fn read_legacy_metadata(root: &Path) -> Vec<SnapshotMetadata> {
         .collect()
 }
 
-fn history_lock() -> MutexGuard<'static, ()> {
-    HISTORY_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+fn history_lock(vault: &Path) -> Result<fs::File, String> {
+    crate::paths::confine_rel_no_symlinks(vault, ".amby/history")?;
+    crate::paths::lock_vault_file(vault, ".amby/history/.lock")
+}
+
+// A history read on a vault with no history must not create metadata. Use
+// an empty view in that case, even if another process creates the directory
+// after this check.
+fn open_history(vault: &Path) -> Result<(Option<fs::File>, HistoryManifest), String> {
+    let root = history_root(vault);
+    match fs::symlink_metadata(&root) {
+        Ok(metadata) if metadata.is_dir() => {
+            let lock = history_lock(vault)?;
+            Ok((Some(lock), load_manifest(&root)?))
+        }
+        Ok(_) => Err("History path is not a directory".into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok((None, HistoryManifest::default()))
+        }
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 fn now_ms() -> Result<u64, String> {
@@ -409,6 +423,16 @@ pub fn snapshot_before_write(
     snapshot_before_write_at(vault, source, replacement, reason, now_ms()?)
 }
 
+/// The structural journal retains the snapshot ID across retries.
+pub(crate) fn snapshot_before_structural_write(
+    vault: &Path,
+    source: &Path,
+    replacement: &[u8],
+    id: Ulid,
+) -> Result<Option<String>, String> {
+    snapshot_before_write_with_id(vault, source, replacement, CLI_EDIT_REASON, now_ms()?, id)
+}
+
 /// The save that may write a block of a note in the editor's own form for the first
 /// time since the note was loaded (see `docs/markdown-compatibility.md`). The file it
 /// replaces is the last one that holds the author's own spelling of those blocks, so
@@ -425,6 +449,9 @@ pub const SYNC_OVERWRITE_REASON: &str = "sync-overwrite";
 /// off: restoring is not asked about because nothing is lost by it, and that holds only if the current
 /// text becomes a version first.
 pub const RESTORE_REASON: &str = "restore";
+
+pub const CLI_EDIT_REASON: &str = "cli-edit";
+pub const AI_EDIT_REASON: &str = "ai-edit";
 
 fn is_autosave_snapshot(reason: &str) -> bool {
     matches!(reason, "note-save" | "file-save")
@@ -513,14 +540,33 @@ fn snapshot_before_write_at(
     reason: &str,
     created_at_ms: u64,
 ) -> Result<Option<String>, String> {
+    snapshot_before_write_with_id(
+        vault,
+        source,
+        replacement,
+        reason,
+        created_at_ms,
+        Ulid::generate(),
+    )
+}
+
+fn snapshot_before_write_with_id(
+    vault: &Path,
+    source: &Path,
+    replacement: &[u8],
+    reason: &str,
+    created_at_ms: u64,
+    id: Ulid,
+) -> Result<Option<String>, String> {
     if reason != SOURCE_REWRITE_REASON
         && reason != SYNC_OVERWRITE_REASON
         && reason != RESTORE_REASON
+        && reason != CLI_EDIT_REASON
+        && reason != AI_EDIT_REASON
         && !is_history_enabled(vault)
     {
         return Ok(None);
     }
-    let _lock = history_lock();
     let current = match fs::read(source) {
         Ok(current) => current,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -530,8 +576,8 @@ fn snapshot_before_write_at(
         return Ok(None);
     }
     let source_path = source_relative(vault, source)?;
+    let _lock = history_lock(vault)?;
     let root = history_root(vault);
-    fs::create_dir_all(&root).map_err(|error| error.to_string())?;
     let mut manifest = load_manifest(&root)?;
 
     // The source file and recovery draft remain frequent and durable. Only
@@ -551,7 +597,18 @@ fn snapshot_before_write_at(
         return Ok(None);
     }
 
-    let id = Ulid::generate().to_string();
+    let id = id.to_string();
+    if let Some(snapshot) = manifest.snapshots.iter().find(|snapshot| snapshot.id == id) {
+        if snapshot.source_path != source_path || snapshot.reason != reason {
+            return Err("History snapshot ID already belongs to another operation".into());
+        }
+        let saved = fs::read(snapshot_data_path(&root, &id)).map_err(|error| error.to_string())?;
+        validate_snapshot_bytes(snapshot, &saved)?;
+        if saved != current {
+            return Err("History snapshot bytes differ from the pending rewrite".into());
+        }
+        return Ok(Some(id));
+    }
     let metadata = SnapshotMetadata {
         version: 2,
         id: id.clone(),
@@ -616,6 +673,9 @@ fn snapshot_before_write_at(
         // before a Live Preview rewrite, what a sync or a restore replaced) is never cleaned up
         // automatically, nor counted against the limit (CORE-08).
         let mut protected = HashSet::new();
+        if matches!(reason, CLI_EDIT_REASON | AI_EDIT_REASON) {
+            protected.insert(id.clone());
+        }
         for reason in [SOURCE_REWRITE_REASON, SYNC_OVERWRITE_REASON, RESTORE_REASON] {
             if let Some(newest) = manifest
                 .snapshots
@@ -651,9 +711,9 @@ fn snapshot_before_write_at(
 }
 
 pub fn list_snapshots(vault: &Path, source: &Path) -> Result<Vec<SnapshotEntry>, String> {
-    let _lock = history_lock();
     let relative = source_relative(vault, source)?;
-    let mut snapshots = load_manifest(&history_root(vault))?
+    let (_lock, manifest) = open_history(vault)?;
+    let mut snapshots = manifest
         .snapshots
         .into_iter()
         .filter(|snapshot| snapshot.source_path == relative)
@@ -672,11 +732,11 @@ pub fn move_snapshot_sources(
     vault: &Path,
     changes: &[crate::model::PathChange],
 ) -> Result<usize, String> {
-    let _lock = history_lock();
     let root = history_root(vault);
     if !manifest_path(&root).exists() {
         return Ok(0);
     }
+    let _lock = history_lock(vault)?;
     let vault_real = vault.canonicalize().map_err(|error| error.to_string())?;
     let relative = |path: &str| {
         Path::new(path)
@@ -712,11 +772,11 @@ pub fn move_snapshot_sources(
 /// skipped, never merged, when the old path has no versions or the new path already has some (they
 /// belong to another note). Returns the number of versions that moved; one atomic manifest write.
 pub fn relink_moved_sources(vault: &Path, moves: &[(String, String)]) -> Result<usize, String> {
-    let _lock = history_lock();
     let root = history_root(vault);
     if moves.is_empty() || !manifest_path(&root).exists() {
         return Ok(0);
     }
+    let _lock = history_lock(vault)?;
     let mut manifest = load_manifest(&root)?;
     let occupied = manifest
         .snapshots
@@ -754,8 +814,8 @@ pub fn relink_moved_sources(vault: &Path, moves: &[(String, String)]) -> Result<
 }
 
 pub fn get_history_stats(vault: &Path) -> Result<HistoryStats, String> {
-    let _lock = history_lock();
-    Ok(history_stats(&load_manifest(&history_root(vault))?))
+    let (_lock, manifest) = open_history(vault)?;
+    Ok(history_stats(&manifest))
 }
 
 fn should_remove_snapshot(
@@ -891,8 +951,7 @@ pub fn preview_history_cleanup_for_source(
     retention: HistoryRetention,
     source_path: Option<&Path>,
 ) -> Result<HistoryCleanupPreview, String> {
-    let _lock = history_lock();
-    let manifest = load_manifest(&history_root(vault))?;
+    let (_lock, manifest) = open_history(vault)?;
     let source_key = source_path
         .map(|path| source_relative(vault, path))
         .transpose()?;
@@ -920,9 +979,8 @@ pub fn cleanup_history_for_source(
     retention: HistoryRetention,
     source_path: Option<&Path>,
 ) -> Result<HistoryCleanupResult, String> {
-    let _lock = history_lock();
     let root = history_root(vault);
-    let mut manifest = load_manifest(&root)?;
+    let (_lock, mut manifest) = open_history(vault)?;
     let source_key = source_path
         .map(|path| source_relative(vault, path))
         .transpose()?;
@@ -948,9 +1006,8 @@ pub fn cleanup_history_for_source(
 }
 
 pub fn delete_snapshot(vault: &Path, id: &str) -> Result<(), String> {
-    let _lock = history_lock();
     let root = history_root(vault);
-    let mut manifest = load_manifest(&root)?;
+    let (_lock, mut manifest) = open_history(vault)?;
     let snapshot = manifest
         .snapshots
         .iter()
@@ -963,11 +1020,11 @@ pub fn delete_snapshot(vault: &Path, id: &str) -> Result<(), String> {
 /// Restore a snapshot as a new file operation. The current version is first
 /// snapshotted too, so users can undo a restore by restoring that newer entry.
 pub fn prepare_snapshot_restore(vault: &Path, id: &str) -> Result<PreparedSnapshotRestore, String> {
-    let _lock = history_lock();
     id.parse::<Ulid>()
         .map_err(|_| "Invalid snapshot identifier".to_string())?;
     let root = history_root(vault);
-    let metadata = load_manifest(&root)?
+    let (_lock, manifest) = open_history(vault)?;
+    let metadata = manifest
         .snapshots
         .into_iter()
         .find(|snapshot| snapshot.id == id)
@@ -988,6 +1045,7 @@ pub fn commit_snapshot_restore(
     vault: &Path,
     prepared: PreparedSnapshotRestore,
 ) -> Result<PathBuf, String> {
+    let _text_write = crate::paths::lock_text_write(vault)?;
     snapshot_before_write(vault, &prepared.path, &prepared.bytes, RESTORE_REASON)?;
     frontmatter::atomic_write_bytes(&prepared.path, &prepared.bytes)?;
     Ok(prepared.path)
@@ -1002,11 +1060,11 @@ pub fn restore_snapshot(vault: &Path, id: &str) -> Result<PathBuf, String> {
 /// Load a UTF-8 snapshot for the history comparison UI. Binary snapshots stay
 /// preserved byte-for-byte on disk, but are intentionally not rendered as text.
 pub fn read_snapshot_text(vault: &Path, id: &str) -> Result<SnapshotText, String> {
-    let _lock = history_lock();
     id.parse::<Ulid>()
         .map_err(|_| "Invalid snapshot identifier".to_string())?;
     let root = history_root(vault);
-    let metadata = load_manifest(&root)?
+    let (_lock, manifest) = open_history(vault)?;
+    let metadata = manifest
         .snapshots
         .into_iter()
         .find(|snapshot| snapshot.id == id)

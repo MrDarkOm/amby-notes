@@ -318,18 +318,29 @@ pub(super) fn rewrite_manifest_name(manifest_path: &Path, name: &str) -> Result<
     let Ok(bytes) = std::fs::read(manifest_path) else {
         return Ok(());
     };
-    let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+    let Some(pretty) = render_manifest_name(&bytes, name)? else {
         return Ok(());
+    };
+    crate::frontmatter::atomic_write_bytes(manifest_path, pretty.as_bytes()).map_err(|error| {
+        format!("Renamed, but could not update the database manifest name: {error}")
+    })
+}
+
+pub(crate) fn render_manifest_name(bytes: &[u8], name: &str) -> Result<Option<String>, String> {
+    let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+        return Ok(None);
     };
     let Some(object) = value.as_object_mut() else {
-        return Ok(());
+        return Ok(None);
     };
+    if object.get("name").and_then(serde_json::Value::as_str) == Some(name) {
+        return Ok(None);
+    }
     object.insert(
         "name".to_string(),
         serde_json::Value::String(name.to_string()),
     );
-    let pretty = serde_json::to_vec_pretty(&value).map_err(|error| error.to_string())?;
-    crate::frontmatter::atomic_write_bytes(manifest_path, &pretty).map_err(|error| {
-        format!("Renamed, but could not update the database manifest name: {error}")
-    })
+    serde_json::to_string_pretty(&value)
+        .map(Some)
+        .map_err(|error| error.to_string())
 }

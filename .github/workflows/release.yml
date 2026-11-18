@@ -268,7 +268,7 @@ jobs:
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-beta.') }}
-          args: ${{ matrix.args }} --config "${{ steps.release_config.outputs.path }}"
+          args: --config src-tauri/tauri.cli.conf.json ${{ matrix.args }} --config "${{ steps.release_config.outputs.path }}"
 
   validate-release-manifest:
     name: Validate signed release manifest

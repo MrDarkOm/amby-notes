@@ -135,8 +135,24 @@ pub fn scan_disk(
     unreadable: &mut Vec<String>,
     warnings: &mut Vec<String>,
 ) -> Result<Vec<ScannedNote>, String> {
+    scan_disk_entries(
+        vault,
+        prev,
+        unreadable,
+        warnings,
+        WalkDir::new(vault).into_iter().filter_entry(should_descend),
+    )
+}
+
+pub(super) fn scan_disk_entries(
+    vault: &Path,
+    prev: &HashMap<String, (String, i64, i64)>,
+    unreadable: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+    entries: impl Iterator<Item = walkdir::Result<walkdir::DirEntry>>,
+) -> Result<Vec<ScannedNote>, String> {
     let mut notes = Vec::new();
-    for entry in WalkDir::new(vault).into_iter().filter_entry(should_descend) {
+    for entry in entries {
         let entry = entry.map_err(|error| format!("Cannot scan vault: {error}"))?;
         let path = entry.path();
         if !path.is_file() || !is_markdown(path) || file_name(path) == "Metadata.md" {
@@ -194,6 +210,12 @@ pub(super) fn assign_missing_identities(
     vault: &Path,
     notes: &mut [ScannedNote],
 ) -> Result<(), String> {
+    if !notes.iter().any(needs_identity) {
+        return Ok(());
+    }
+    // An incomplete structural change may name these exact bytes for recovery.
+    let _text_write = crate::paths::lock_text_write(vault)?;
+    crate::structural::ensure_clean_for_text_edit(vault).map_err(str::to_owned)?;
     for note in notes.iter_mut() {
         if !needs_identity(note) {
             continue;
@@ -565,7 +587,16 @@ pub fn load_vault_with_changes(
     vault: &Path,
     changed_paths: &HashSet<PathBuf>,
 ) -> Result<LoadVaultResult, String> {
-    let sync = sync_vault_with_changes(conn, vault, changed_paths)?;
+    load_vault_with_policy(conn, vault, changed_paths, true)
+}
+
+pub(crate) fn load_vault_with_policy(
+    conn: &Connection,
+    vault: &Path,
+    changed_paths: &HashSet<PathBuf>,
+    assign_ids: bool,
+) -> Result<LoadVaultResult, String> {
+    let sync = sync_vault_inner(conn, vault, changed_paths, assign_ids)?;
     let notes = list_notes(conn, vault)?;
     let tree = build_tree(vault, &notes)?;
     Ok(LoadVaultResult {

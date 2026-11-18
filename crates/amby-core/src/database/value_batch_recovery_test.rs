@@ -258,6 +258,7 @@ fn an_unfinished_journal_for_the_same_operation_is_never_overwritten() {
         &fixture.database_id,
         "rev".to_owned(),
         &planned,
+        true,
     )
     .unwrap();
     drop(recovery);

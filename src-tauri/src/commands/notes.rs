@@ -169,6 +169,8 @@ fn write_file_blocking(
     let path = paths::guard(&scope, &path).map_err(WriteFileError::failed)?;
     let vault = scope.get().map_err(WriteFileError::failed)?;
     let generation = db.generation().map_err(WriteFileError::failed)?;
+    let _text_write = paths::lock_text_write(&vault).map_err(WriteFileError::failed)?;
+    amby_core::structural::ensure_clean_for_text_edit(&vault).map_err(WriteFileError::failed)?;
     if let Some(expected) = &expected_revision {
         let actual = file_revision(&path).map_err(WriteFileError::failed)?;
         if &actual != expected {
@@ -305,14 +307,13 @@ type CommittedNoteWrite = (
 /// Resolves the note's current path and commits the write. The resolution (generation
 /// check, index lookup, identity check) happens while holding `mutation_gate`, so a
 /// rename, move or delete cannot complete between finding the path and writing it.
+/// The caller keeps the gate through the index update.
 fn resolve_and_commit_note_write(
     db: &VaultContext,
     watcher_state: &WatcherState,
     request: &WriteNoteRequest,
     history_reason: &str,
 ) -> Result<(u64, String, CommittedNoteWrite), WriteNoteError> {
-    // Lock order: mutation_gate, then conn.
-    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let (vault_root, generation, destination) = {
         let conn_guard = db.conn.lock_or_recover();
         let conn = conn_guard
@@ -366,6 +367,9 @@ fn commit_note_write_locked(
     request: &WriteNoteRequest,
     history_reason: &str,
 ) -> Result<CommittedNoteWrite, WriteNoteError> {
+    let _text_write = paths::lock_text_write(vault_root).map_err(WriteNoteError::failed)?;
+    amby_core::structural::ensure_clean_for_text_edit(vault_root)
+        .map_err(WriteNoteError::failed)?;
     let prepared_note = vault_index::prepare_note_write_from_path(
         vault_root,
         note_path,
@@ -439,6 +443,9 @@ fn write_note_blocking(
     } else {
         "note-save"
     };
+    // A structural mutation may change the path and refresh the index as
+    // soon as this gate opens. Publish the saved index row before that.
+    let mutation_guard = db.mutation_gate.lock_or_recover();
     let (generation, destination_path, (path, body, revision, prepared_index_data)) =
         resolve_and_commit_note_write(&db, &watcher_state, &request, history_reason)?;
     let index_result = {
@@ -459,6 +466,7 @@ fn write_note_blocking(
         )
         .and_then(|prepared| vault_index::upsert_prepared_note_index(conn, &prepared))
     };
+    drop(mutation_guard);
     let outcome = match index_result {
         Ok(()) => WriteNoteOutcome {
             path: destination_path,
@@ -890,6 +898,7 @@ mod tests {
                     origin_window: "main".to_string(),
                     rewrites_source: false,
                 };
+                let _mutation_guard = context.mutation_gate.lock().expect("gate");
                 super::resolve_and_commit_note_write(
                     &context,
                     &watcher_state,

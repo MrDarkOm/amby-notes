@@ -1,3 +1,5 @@
+import { dispatchArchiveChanged } from "./use-archive-tree-refresh"
+import { StorageOperationError } from "@/lib/storage/operation-error"
 import * as React from "react"
 import { useVaultStore } from "./use-vault-store"
 import { deduplicateVaultRecords, reconcileVaultRecord } from "./vault-records"
@@ -460,20 +462,21 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     } catch (err) {
       if (switchRef.current.requestId === requestId) {
         logger.error("vault_switch.activation_failed", { errorType: errorType(err) })
-        // The vault did not open (or close). Nothing was lost and the person has to try again or choose another
-        // vault: a decision in the centre, announced by a toast. The cause is in the log, not in the words.
+        const closing = activateBackend && !path
+        const code = err instanceof StorageOperationError ? err.code : null
+        const failure = closing
+          ? "vaultCloseFailed"
+          : code === "vaultBusy"
+            ? "vaultBusy"
+            : code === "vaultRecoveryRequired"
+              ? "vaultRecoveryFailed"
+              : "vaultOpenFailed"
         useAppNoticesStore.getState().post({
-          id: activateBackend && !path ? "vault-close-failed" : "vault-open-failed",
+          id: closing ? "vault-close-failed" : "vault-open-failed",
           level: "decision",
-          titleKey:
-            activateBackend && !path
-              ? "notices.app.vaultCloseFailed.title"
-              : "notices.app.vaultOpenFailed.title",
+          titleKey: `notices.app.${failure}.title`,
           params: { name: path?.split(/[\\/]/u).filter(Boolean).pop() ?? "" },
-          lineKey:
-            activateBackend && !path
-              ? "notices.app.vaultCloseFailed.line"
-              : "notices.app.vaultOpenFailed.line",
+          lineKey: `notices.app.${failure}.line`,
         })
       }
     } finally {
@@ -1019,6 +1022,15 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
       (error) => logger.warn("watcher.database_listen_failed", { errorType: errorType(error) }),
     )
 
+    const cleanupArchive = adoptAsyncDisposer(
+      listen<number>("amby:archive-changed", (event) => {
+        if (event.payload === useVaultStore.getState().backendGeneration) {
+          dispatchArchiveChanged({ treeUpdated: true })
+        }
+      }),
+      (error) => logger.warn("watcher.listen_failed", { errorType: errorType(error) }),
+    )
+
     const cleanupListener = adoptAsyncDisposer(
       listen<{ kind: string; path: string }>("vault-file-changed", (event) => {
         const change = {
@@ -1058,6 +1070,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
       if (refreshTimer) clearTimeout(refreshTimer)
       pending.clear()
       cleanupListener()
+      cleanupArchive()
       cleanupRewritten()
       cleanupMoved()
       cleanupProperties()

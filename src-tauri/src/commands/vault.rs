@@ -81,9 +81,9 @@ pub fn load_vault(
     grants: tauri::State<'_, PathGrants>,
     vault_path: String,
 ) -> Result<vault_index::LoadVaultResult, String> {
-    trusted_vault_folder(&app, &context, &grants, &vault_path)?;
+    let canonical = trusted_vault_folder(&app, &context, &grants, &vault_path)?;
     let loaded = context.activate(
-        &vault_path,
+        canonical.to_str().ok_or("Invalid vault path encoding")?,
         |root| grant_vault_scopes(&app, root),
         |mut loaded, generation| {
             loaded.generation = generation;
@@ -221,6 +221,8 @@ pub fn apply_id_migration(
     if !canonical.is_dir() {
         return Err(format!("Vault is not a directory: {}", canonical.display()));
     }
+    context.reserve_desktop(&canonical)?;
+    amby_core::structural::recover_desktop(&canonical)?;
     vault_index::apply_id_migration(&canonical)
 }
 
@@ -231,6 +233,7 @@ pub fn apply_note_id_migration(
     context: tauri::State<'_, vault_context::VaultContext>,
     note_id: String,
 ) -> Result<(), String> {
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let (root, rel_path) = {
         let conn_guard = context.conn.lock_or_recover();
         let conn = conn_guard.as_ref().ok_or("No vault open")?;
@@ -241,8 +244,8 @@ pub fn apply_note_id_migration(
             .map_err(|error| error.to_string())?;
         (conn.root.clone(), rel)
     };
-    // Order: mutation_gate, then conn, as in write_file; the conn lock is released above.
-    let _mutation_guard = context.mutation_gate.lock_or_recover();
+    let _text_write = crate::paths::lock_text_write(&root)?;
+    amby_core::structural::ensure_clean_for_text_edit(&root).map_err(str::to_owned)?;
     vault_index::apply_note_id_migration(&root, &rel_path)
 }
 
@@ -269,6 +272,8 @@ pub fn recover_id_migration(
 ) -> Result<vault_index::IdMigrationRecovery, String> {
     let _mutation_guard = context.mutation_gate.lock_or_recover();
     let canonical = trusted_vault_folder(&app, &context, &grants, &vault_path)?;
+    context.reserve_desktop(&canonical)?;
+    amby_core::structural::recover_desktop(&canonical)?;
     vault_index::recover_id_migration(&canonical, &journal_path, action)
 }
 

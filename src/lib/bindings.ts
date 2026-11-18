@@ -28,6 +28,9 @@ async checkAppUpdate(channel: UpdateChannel, timeoutMs: number) : Promise<Result
     else return { status: "error", error: e  as any };
 }
 },
+async takeCliOpen() : Promise<CliOpenNote | null> {
+    return await TAURI_INVOKE("take_cli_open");
+},
 async loadVault(vaultPath: string) : Promise<Result<LoadVaultResult, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("load_vault", { vaultPath }) };
@@ -2341,6 +2344,7 @@ export type ChatStep = { tool: string; query: string; noteIds: string[]; error: 
  * What the settings screen shows about the user's Claude Code.
  */
 export type ClaudeStatus = { installed: boolean; supported: boolean; signedIn: boolean }
+export type CliOpenNote = { vault: string; path: string }
 /**
  * What the settings screen shows about the user's Codex.
  */

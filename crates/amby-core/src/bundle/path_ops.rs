@@ -135,7 +135,7 @@ fn rename_temp_sibling(source: &Path) -> Result<PathBuf, String> {
     ))
 }
 
-pub(super) fn ensure_rename_target_available(source: &Path, target: &Path) -> Result<bool, String> {
+pub(crate) fn ensure_rename_target_available(source: &Path, target: &Path) -> Result<bool, String> {
     let same_entry = same_filesystem_entry(source, target)?;
     if target.exists() && !same_entry {
         return Err(format!("Target already exists: {}", path_string(target)));

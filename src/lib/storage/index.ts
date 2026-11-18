@@ -864,3 +864,6 @@ export {
 export const resolveBackupPort = () => createBackupPort(isTauri())
 export const resolveDatabaseLayoutPort = () => createDatabaseLayoutPort(isTauri())
 export const resolveAiChatRepository = () => createAiChatRepository(isTauri())
+
+/** Consume a native command-line request in the desktop main window. */
+export const takeCliOpen = () => commands.takeCliOpen()

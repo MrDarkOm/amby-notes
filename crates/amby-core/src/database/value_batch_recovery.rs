@@ -281,6 +281,37 @@ pub(super) fn completed_result(
     }
 }
 
+/// The tool checks its own request before replay; other journals are left for activation.
+pub(super) fn scoped_completed_result(
+    vault: &Path,
+    operation_id: &str,
+    request_revision: &str,
+) -> Result<Option<DatabaseValueBatchResult>, String> {
+    let relative = format!(".amby/recovery/database_batches/{operation_id}.json");
+    let path = crate::durable::guarded_path(vault, &relative, "MCP value batch")?;
+    if !path.exists() {
+        let backup_rel = format!(".amby/recovery/database_batches/{operation_id}");
+        let backup = crate::durable::guarded_path(vault, &backup_rel, "MCP batch backup")?;
+        if backup.exists() {
+            return Err("A database value batch requires recovery".into());
+        }
+        return Ok(None);
+    }
+    let journal = read_batch_journal(&path)
+        .map_err(|_| "A database value batch requires recovery".to_owned())?;
+    if journal.request_revision != request_revision {
+        return Err("MCP operation ID reused".into());
+    }
+    if journal.status != "completed" {
+        return Err("A database value batch requires recovery".into());
+    }
+    Ok(Some(
+        journal
+            .result
+            .ok_or("A database value batch requires recovery")?,
+    ))
+}
+
 /// A published recovery point for one batch: journal plus raw backups.
 pub(super) struct BatchRecovery {
     vault: PathBuf,
@@ -300,6 +331,7 @@ impl BatchRecovery {
         database_id: &str,
         request_revision: String,
         planned: &[PlannedValueWrite],
+        recover_other: bool,
     ) -> Result<Self, String> {
         let root = recovery_root(vault);
         fs::create_dir_all(&root)
@@ -317,7 +349,9 @@ impl BatchRecovery {
         // Journals of other interrupted batches are rolled back best-effort. A
         // stuck or unreadable one is quarantined by vault activation and must
         // not block ordinary edits.
-        let _ = recover_other_value_batches(vault, &root, operation_id);
+        if recover_other {
+            let _ = recover_other_value_batches(vault, &root, operation_id);
+        }
 
         let backup_dir = root.join(operation_id);
         let discard_partial = |backup_dir: &Path| {

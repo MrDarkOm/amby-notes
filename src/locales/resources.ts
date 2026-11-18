@@ -1620,6 +1620,8 @@ const ru = {
     beforeRestore: "Перед восстановлением",
     linksUpdated: "Обновление ссылок",
     beforeBlockRewrite: "Перед изменением записи блока",
+    beforeCliEdit: "Перед правкой через командную строку",
+    beforeAiEdit: "Перед правкой ИИ",
     beforeSyncOverwrite: "Перед заменой версией с сервера",
     metadataUpdated: "Обновление метаданных",
     savedVersion: "Сохранённая версия",
@@ -1719,6 +1721,14 @@ const ru = {
       vaultOpenFailed: {
         title: "Не удалось открыть хранилище «{{name}}»",
         line: "Заметки не тронуты. Попробуйте ещё раз или выберите другое хранилище.",
+      },
+      vaultBusy: {
+        title: "Хранилище «{{name}}» занято",
+        line: "Дождитесь завершения операции в Amby CLI или закройте другой экземпляр Amby, затем попробуйте снова.",
+      },
+      vaultRecoveryFailed: {
+        title: "Не удалось завершить операцию в хранилище «{{name}}»",
+        line: "Текущие файлы и журнал операции сохранены. Проверьте их, прежде чем повторить открытие.",
       },
       vaultCloseFailed: {
         title: "Не удалось закрыть хранилище",
@@ -5888,6 +5898,8 @@ const en: LocaleShape<typeof ru> = {
     beforeRestore: "Before restoration",
     linksUpdated: "Links updated",
     beforeBlockRewrite: "Before a block was rewritten",
+    beforeCliEdit: "Before a command-line edit",
+    beforeAiEdit: "Before an AI edit",
     beforeSyncOverwrite: "Before it was replaced by the version from the server",
     metadataUpdated: "Metadata updated",
     savedVersion: "Saved version",
@@ -5980,6 +5992,14 @@ const en: LocaleShape<typeof ru> = {
       vaultOpenFailed: {
         title: "Could not open the vault “{{name}}”",
         line: "Your notes are untouched. Try again or choose another vault.",
+      },
+      vaultBusy: {
+        title: "The vault “{{name}}” is busy",
+        line: "Wait for the Amby CLI operation to finish or close the other Amby instance, then try again.",
+      },
+      vaultRecoveryFailed: {
+        title: "Could not finish an operation in the vault “{{name}}”",
+        line: "The current files and operation journal are kept. Check them before reopening the vault.",
       },
       vaultCloseFailed: {
         title: "Could not close the vault",

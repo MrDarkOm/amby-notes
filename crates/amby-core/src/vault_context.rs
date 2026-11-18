@@ -1,6 +1,6 @@
 use crate::lock_util::LockExt;
 use std::cell::Cell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -44,10 +44,17 @@ pub struct ActiveVault {
 
 impl ActiveVault {
     pub fn refresh(&self) -> Result<vault_index::LoadVaultResult, String> {
+        self.refresh_with_policy(true)
+    }
+
+    fn refresh_with_policy(
+        &self,
+        assign_ids: bool,
+    ) -> Result<vault_index::LoadVaultResult, String> {
         // Do not hold the event queue lock during I/O. New events remain queued
         // for the next refresh, even when they refer to a path in this batch.
         let changed = std::mem::take(&mut *self.index_changes.lock_or_recover());
-        let result = vault_index::load_vault_with_changes(self, &self.root, &changed);
+        let result = vault_index::load_vault_with_policy(self, &self.root, &changed, assign_ids);
         if result.is_err() {
             self.index_changes.lock_or_recover().extend(changed);
         }
@@ -61,6 +68,15 @@ impl ActiveVault {
     pub fn refresh_pending_index(&self) -> Result<(), String> {
         if !self.index_changes.lock_or_recover().is_empty() {
             self.refresh()?;
+        }
+        Ok(())
+    }
+
+    /// A capability-scoped publish may rebuild cache rows but must never
+    /// assign identities to other files as part of its refresh.
+    pub fn refresh_pending_index_without_assigning_ids(&self) -> Result<(), String> {
+        if !self.index_changes.lock_or_recover().is_empty() {
+            self.refresh_with_policy(false)?;
         }
         Ok(())
     }
@@ -133,6 +149,9 @@ pub struct VaultContext {
     /// Serializes filesystem mutations and vault activation without keeping
     /// the SQLite connection mutex across the disk-heavy phase.
     pub mutation_gate: Mutex<()>,
+    // Retain the leases of activated vaults until the desktop process exits,
+    // including a previous vault whose background sync is still winding down.
+    desktop_leases: Mutex<HashMap<PathBuf, std::fs::File>>,
 }
 
 impl VaultContext {
@@ -169,7 +188,16 @@ impl VaultContext {
         operation(active.as_ref().ok_or("No vault is open")?)
     }
 
-    pub fn prepare_activation(candidate: &str) -> Result<PreparedVault, String> {
+    pub fn reserve_desktop(&self, root: &Path) -> Result<(), String> {
+        let mut leases = self.desktop_leases.lock_or_recover();
+        if !leases.contains_key(root) {
+            let lease = crate::structural::try_lease(root).map_err(str::to_owned)?;
+            leases.insert(root.to_owned(), lease);
+        }
+        Ok(())
+    }
+
+    fn canonical_vault(candidate: &str) -> Result<PathBuf, String> {
         let root = Path::new(candidate)
             .canonicalize()
             .map_err(|error| format!("Vault not accessible: {error}"))?;
@@ -177,85 +205,18 @@ impl VaultContext {
             return Err(format!("Vault is not a directory: {}", root.display()));
         }
 
-        // К11 (ж): the old trash moves into the archive when the vault is opened, before the index,
-        // the watcher and the synchronisation look at it. A failure leaves everything in place (the
-        // journal resumes it at the next opening) and does not stop the vault from opening.
-        crate::archive_migration::run_when_opening(&root);
+        Ok(root)
+    }
 
-        // Preflight is read-only and must complete before the active state can
-        // change. Opening the connection verifies schema initialization too.
-        let preflight = vault_index::preflight_vault(&root)?;
-        if let Some(recovery) = preflight.unfinished_migrations.first() {
-            return Err(format!(
-                "An unfinished ID migration must be recovered before opening this vault: {}",
-                recovery.journal_path
-            ));
-        }
-        // Read and validate every pending value and reciprocal-schema journal
-        // before restoring either namespace. The two plans touch disjoint
-        // user-owned paths, but a corrupt journal in either namespace must
-        // still block activation before any recovery write occurs.
-        let pending_relations =
-            crate::database::relation_recovery::prepare_pending_relations(&root)
-                .map_err(|error| format!("Relation recovery blocked vault activation: {error}"))?;
-        let pending_relation_schemas =
-            crate::database::relation_schema_recovery::prepare_pending_relation_schemas(&root)
-                .map_err(|error| {
-                    format!("Relation schema recovery blocked vault activation: {error}")
-                })?;
-        crate::database::relation_recovery::restore_prepared_relations(pending_relations)
-            .map_err(|error| format!("Relation recovery blocked vault activation: {error}"))?;
-        crate::database::relation_schema_recovery::restore_prepared_relation_schemas(
-            pending_relation_schemas,
-        )
-        .map_err(|error| format!("Relation schema recovery blocked vault activation: {error}"))?;
-        let connection = vault_index::open_connection(&root)?;
-        // What this device began before it stopped is finished first (З29); then the mirror.
-        if property_groups::in_groups(&root) {
-            let _ = property_groups::recover_operations(&connection, &root);
-            property_groups::check_old_version_on_open(&connection, &root);
-        }
-        property_groups::restore_cache_any(&connection, &root)?;
-        let _ = crate::recovery::sweep_expired_recovery(&root);
-        // Notices for the user, prefixed `recovery:` so the renderer shows only
-        // these from the sync warnings. Evidence is always preserved.
-        let mut recovery_notices: Vec<String> = Vec::new();
-        for anomaly in crate::recycle_bin::detect_anomalies(&root) {
-            tracing::warn!(
-                event = "trash_anomaly",
-                id = %anomaly.id,
-                kind = ?anomaly.kind
-            );
-            recovery_notices.push(format!("recovery:trash:{}:{:?}", anomaly.id, anomaly.kind));
-        }
-        // Unreadable or unrecoverable batch journals are quarantined, never
-        // dropped, and must not lock the user out of the vault.
-        match crate::database::mutations::recover_pending_batches(&root) {
-            Ok(report) => {
-                for entry in &report.quarantined {
-                    tracing::error!(event = "database_batch_journal_quarantined", detail = %entry);
-                    recovery_notices.push(format!("recovery:batch:{entry}"));
-                }
-            }
-            Err(error) => {
-                tracing::error!(event = "database_batch_recovery_failed", error = %error);
-                recovery_notices.push(format!("recovery:batch:{error}"));
-            }
-        }
-        // A project creation interrupted before its structure file was written
-        // is cleaned up conditionally; whatever cannot be is quarantined.
-        match crate::project::recovery::recover_pending_projects(&root) {
-            Ok(report) => {
-                for entry in &report.quarantined {
-                    tracing::error!(event = "project_journal_quarantined", detail = %entry);
-                    recovery_notices.push(format!("recovery:project:{entry}"));
-                }
-            }
-            Err(error) => {
-                tracing::error!(event = "project_recovery_failed", error = %error);
-                recovery_notices.push(format!("recovery:project:{error}"));
-            }
-        }
+    #[cfg(test)]
+    pub(crate) fn prepare_activation(candidate: &str) -> Result<PreparedVault, String> {
+        let root = Self::canonical_vault(candidate)?;
+        let _lease = crate::structural::try_lease(&root).map_err(str::to_owned)?;
+        Self::prepare_root(root)
+    }
+
+    fn prepare_root(root: PathBuf) -> Result<PreparedVault, String> {
+        let (connection, recovery_notices) = recover_before_load(&root)?;
         let mut loaded = vault_index::load_vault(&connection, &root)?;
         loaded.sync.warnings.extend(recovery_notices);
         let _ = crate::database::projection::rebuild_database_projection(&connection, &root);
@@ -307,7 +268,9 @@ impl VaultContext {
         result: impl FnOnce(vault_index::LoadVaultResult, u64) -> T,
     ) -> Result<T, String> {
         let _mutation_guard = self.mutation_gate.lock_or_recover();
-        let prepared = Self::prepare_activation(candidate)?;
+        let root = Self::canonical_vault(candidate)?;
+        self.reserve_desktop(&root)?;
+        let prepared = Self::prepare_root(root)?;
         let (loaded, generation) =
             self.commit_activation_locked(prepared, |active| update_scopes(&active.root))?;
         Ok(result(loaded, generation))
@@ -329,6 +292,89 @@ impl VaultContext {
         active.index_health.set(IndexState::RebuildRequired);
         Ok(())
     }
+}
+
+/// Repair interrupted vault operations before opening or rebuilding the index.
+pub(crate) fn recover_before_load(root: &Path) -> Result<(Connection, Vec<String>), String> {
+    crate::structural::recover_desktop(root)?;
+    // К11 (ж): the old trash moves into the archive when the vault is opened, before the index,
+    // the watcher and the synchronisation look at it. A failure leaves everything in place (the
+    // journal resumes it at the next opening) and does not stop the vault from opening.
+    crate::archive_migration::run_when_opening(root);
+
+    // Preflight is read-only and must complete before the active state can
+    // change. Opening the connection verifies schema initialization too.
+    let preflight = vault_index::preflight_vault(root)?;
+    if let Some(recovery) = preflight.unfinished_migrations.first() {
+        return Err(format!(
+            "An unfinished ID migration must be recovered before opening this vault: {}",
+            recovery.journal_path
+        ));
+    }
+    // Read and validate every pending value and reciprocal-schema journal
+    // before restoring either namespace. The two plans touch disjoint
+    // user-owned paths, but a corrupt journal in either namespace must
+    // still block activation before any recovery write occurs.
+    let pending_relations = crate::database::relation_recovery::prepare_pending_relations(root)
+        .map_err(|error| format!("Relation recovery blocked vault activation: {error}"))?;
+    let pending_relation_schemas =
+        crate::database::relation_schema_recovery::prepare_pending_relation_schemas(root).map_err(
+            |error| format!("Relation schema recovery blocked vault activation: {error}"),
+        )?;
+    crate::database::relation_recovery::restore_prepared_relations(pending_relations)
+        .map_err(|error| format!("Relation recovery blocked vault activation: {error}"))?;
+    crate::database::relation_schema_recovery::restore_prepared_relation_schemas(
+        pending_relation_schemas,
+    )
+    .map_err(|error| format!("Relation schema recovery blocked vault activation: {error}"))?;
+    let connection = vault_index::open_connection(root)?;
+    // What this device began before it stopped is finished first (З29); then the mirror.
+    if property_groups::in_groups(root) {
+        let _ = property_groups::recover_operations(&connection, root);
+        property_groups::check_old_version_on_open(&connection, root);
+    }
+    property_groups::restore_cache_any(&connection, root)?;
+    let _ = crate::recovery::sweep_expired_recovery(root);
+    // Notices for the user, prefixed `recovery:` so the renderer shows only
+    // these from the sync warnings. Evidence is always preserved.
+    let mut recovery_notices: Vec<String> = Vec::new();
+    for anomaly in crate::recycle_bin::detect_anomalies(root) {
+        tracing::warn!(
+            event = "trash_anomaly",
+            id = %anomaly.id,
+            kind = ?anomaly.kind
+        );
+        recovery_notices.push(format!("recovery:trash:{}:{:?}", anomaly.id, anomaly.kind));
+    }
+    // Unreadable or unrecoverable batch journals are quarantined, never
+    // dropped, and must not lock the user out of the vault.
+    match crate::database::mutations::recover_pending_batches(root) {
+        Ok(report) => {
+            for entry in &report.quarantined {
+                tracing::error!(event = "database_batch_journal_quarantined", detail = %entry);
+                recovery_notices.push(format!("recovery:batch:{entry}"));
+            }
+        }
+        Err(error) => {
+            tracing::error!(event = "database_batch_recovery_failed", error = %error);
+            recovery_notices.push(format!("recovery:batch:{error}"));
+        }
+    }
+    // A project creation interrupted before its structure file was written
+    // is cleaned up conditionally; whatever cannot be is quarantined.
+    match crate::project::recovery::recover_pending_projects(root) {
+        Ok(report) => {
+            for entry in &report.quarantined {
+                tracing::error!(event = "project_journal_quarantined", detail = %entry);
+                recovery_notices.push(format!("recovery:project:{entry}"));
+            }
+        }
+        Err(error) => {
+            tracing::error!(event = "project_recovery_failed", error = %error);
+            recovery_notices.push(format!("recovery:project:{error}"));
+        }
+    }
+    Ok((connection, recovery_notices))
 }
 
 #[cfg(test)]

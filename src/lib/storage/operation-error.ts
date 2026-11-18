@@ -1,5 +1,11 @@
 export type StorageOperationErrorCode =
-  "notFound" | "alreadyExists" | "permissionDenied" | "invalidPath" | "operationFailed"
+  | "notFound"
+  | "alreadyExists"
+  | "permissionDenied"
+  | "invalidPath"
+  | "operationFailed"
+  | "vaultBusy"
+  | "vaultRecoveryRequired"
 
 /** Stable adapter-boundary category; the original diagnostic stays available. */
 export class StorageOperationError extends Error {
@@ -35,6 +41,8 @@ export function desktopOperationError(message: string): StorageOperationError {
 }
 
 function legacyCode(message: string): StorageOperationErrorCode {
+  if (message === "vaultBusy") return "vaultBusy"
+  if (message.startsWith("vaultRecoveryRequired: ")) return "vaultRecoveryRequired"
   // Rust io::Error includes a locale-independent OS code even on localized Windows.
   const os = /\(os error (\d+)\)\s*$/u.exec(message)?.[1]
   if (os === "2" || os === "3") return "notFound"

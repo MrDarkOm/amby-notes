@@ -1,0 +1,25 @@
+[package]
+name = "amby-cli"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.100"
+license = "AGPL-3.0-only"
+publish = false
+
+[[bin]]
+name = "amby"
+path = "src/main.rs"
+
+[dependencies]
+amby-core = { path = "../amby-core" }
+dirs = "7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+similar = "2"
+tokio = { version = "1", features = ["rt", "net", "time"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.clippy]
+unwrap_used = "deny"

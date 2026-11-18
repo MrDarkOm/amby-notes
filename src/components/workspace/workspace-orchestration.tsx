@@ -44,6 +44,7 @@ import type { HelpContext } from "./help-modal"
 import { WorkspaceProfileModal } from "./modules/workspace-profile-modal"
 import type { ProfileId } from "@/lib/modules"
 import { useOpenPanelRequests } from "./panel-navigation"
+import { useCliOpenRequests } from "./windows/use-cli-open-requests"
 import { useOpenNoteRequests } from "./notices/note-open-request"
 import { relativeToVault } from "./editor/document-breadcrumbs-utils"
 import { OPEN_SETTINGS_REQUEST_EVENT, type SettingsNavigationTarget } from "./settings-navigation"
@@ -791,6 +792,15 @@ export function WorkspaceOrchestration() {
     refreshDatabaseCatalog,
   })
 
+  function openNotePath(path: string) {
+    const wanted = path.normalize("NFC")
+    const item = flattenFileItems(displayTreeItems).find(
+      (candidate) =>
+        vault !== null && relativeToVault(candidate.path, vault).normalize("NFC") === wanted,
+    )
+    if (item) void handleSelect(item.id)
+  }
+
   // The notification centre and its toasts lead to a note by its id (an open note) or by its path in the vault
   // (the journal remembers only that).
   useOpenNoteRequests((request) => {
@@ -799,13 +809,10 @@ export function WorkspaceOrchestration() {
       if (!activateNoteTab(request.id)) void handleSelect(request.id)
       return
     }
-    const wanted = request.path.normalize("NFC")
-    const item = flattenFileItems(displayTreeItems).find(
-      (candidate) =>
-        vault !== null && relativeToVault(candidate.path, vault).normalize("NFC") === wanted,
-    )
-    if (item) void handleSelect(item.id)
+    openNotePath(request.path)
   })
+
+  useCliOpenRequests(windowLabel, startupResolved, loadVault, openNotePath)
 
   // Embedded database views open pages and databases through the app, not on their own.
   React.useEffect(

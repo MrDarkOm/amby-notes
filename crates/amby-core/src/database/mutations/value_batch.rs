@@ -98,10 +98,38 @@ pub fn apply_value_batch_typed(
     request: &DatabaseValueBatchRequest,
     history: Option<&crate::database::history::DatabaseHistoryState>,
 ) -> Result<DatabaseValueBatchResult, ValueBatchError> {
+    apply_value_batch_inner(vault, watcher, request, history, None)
+}
+
+pub(crate) fn apply_scoped_value_batch(
+    vault: &Path,
+    watcher: &SelfWriteTracker,
+    request: &DatabaseValueBatchRequest,
+) -> Result<DatabaseValueBatchResult, ValueBatchError> {
+    let revision = raw_revision(&serde_json::to_vec(request).map_err(|error| error.to_string())?);
+    apply_value_batch_inner(vault, watcher, request, None, Some(revision))
+}
+
+fn apply_value_batch_inner(
+    vault: &Path,
+    watcher: &SelfWriteTracker,
+    request: &DatabaseValueBatchRequest,
+    history: Option<&crate::database::history::DatabaseHistoryState>,
+    scoped_revision: Option<String>,
+) -> Result<DatabaseValueBatchResult, ValueBatchError> {
     if !valid_operation_id(&request.operation_id) || request.cells.is_empty() {
         return Err("operationId and at least one cell are required"
             .to_owned()
             .into());
+    }
+    if let Some(revision) = scoped_revision.as_deref() {
+        if let Some(result) = crate::database::value_batch_recovery::scoped_completed_result(
+            vault,
+            &request.operation_id,
+            revision,
+        )? {
+            return Ok(result);
+        }
     }
     let container = find_database_container(vault, &request.database_id)?;
     let manifest_path = crate::database::discovery::manifest_path_for_container(&container);
@@ -261,12 +289,14 @@ pub fn apply_value_batch_typed(
 
     // The recovery point (backups + journal) must exist before the first note
     // changes; any failure here aborts the operation with the notes untouched.
+    let recover_other = scoped_revision.is_none();
     let recovery = BatchRecovery::publish(
         vault,
         &request.operation_id,
         &request.database_id,
-        raw_revision(&manifest_bytes),
+        scoped_revision.unwrap_or_else(|| raw_revision(&manifest_bytes)),
         &planned_writes,
+        recover_other,
     )?;
 
     for (path, bytes, _, _) in &planned_writes {

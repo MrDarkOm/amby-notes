@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/amby-core", "src-tauri"]
+members = ["crates/amby-core", "crates/amby-cli", "src-tauri"]
 exclude = ["sync"]
 resolver = "2"
 

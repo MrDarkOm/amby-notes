@@ -129,7 +129,9 @@ fn incremental_watcher_refreshes_search_tags_and_links_with_identical_metadata()
                 let _ = sender.send(());
             }
         },
-        notify::Config::default().with_compare_contents(true),
+        notify::Config::default()
+            .with_compare_contents(true)
+            .with_manual_polling(),
     )
     .unwrap();
     watcher
@@ -144,6 +146,8 @@ fn incremental_watcher_refreshes_search_tags_and_links_with_identical_metadata()
     receiver
         .recv_timeout(Duration::from_secs(5))
         .expect("watcher did not report external edit");
+    // Removing the watch waits for the in-flight scan and its callbacks to finish.
+    watcher.unwatch(&vault.0).unwrap();
     drop(watcher);
 
     context.with_active(|active| {

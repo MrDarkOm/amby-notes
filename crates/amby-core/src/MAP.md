@@ -24,10 +24,14 @@ read the [vault format](../../../docs/vault-format.md) and
 - **Properties of notes (appendix З), old `properties.json`** — [property_groups map](property_groups/MAP.md), [property_store.rs](property_store.rs), [property_template.rs](property_template.rs), [commands/properties.rs](../../../src-tauri/src/commands/properties.rs)
 - **Creative workshops (discovery, create, recovery)** — [project map](project/MAP.md)
 - **Database domain** — [database map](database/MAP.md)
+- **Local CLI protocol** — [cli_ipc/mod.rs](cli_ipc/mod.rs) defines the request and bounded frames. The transports authenticate by [Unix user ID](cli_ipc/unix.rs) or [Windows user SID](cli_ipc/windows.rs).
+- **Structural CLI operations** — [structural/mod.rs](structural/mod.rs) owns the process lease and entry points, [structural/plan.rs](structural/plan.rs) prepares paths and refactors, and [structural/journal.rs](structural/journal.rs) publishes and resumes changes. [vault_context.rs](vault_context.rs) shares activation recovery with the CLI.
+- **Simple CLI edits** — [note_edit.rs](note_edit.rs) preserves frontmatter and coordinates publication with [the desktop text lock](paths.rs).
 - **Snapshots / crash recovery** — [history.rs](history.rs), [recovery.rs](recovery.rs)
 - **Archive `.amby/archive/` (К), old trash, OS trash** — [archive.rs](archive.rs), [archive_migration.rs](archive_migration.rs) (trash → archive, journal), [recycle_bin.rs](recycle_bin.rs) (service trash), [system_recycle_bin.rs](system_recycle_bin.rs) (`SystemTrash`); routing in [commands/mutations.rs](../../../src-tauri/src/commands/mutations.rs)
 - **Self-write fingerprints and reconciliation** — [self_write.rs](self_write.rs)
-- **Read-only note tools and path confinement** — [ai_tools.rs](ai_tools.rs)
+- **Capability-checked MCP operations** — [vault_tools/mod.rs](vault_tools/mod.rs) applies scoped writes, [workspace module switches](vault_tools/modules.rs) gate the domain tools, [database tools](vault_tools/database.rs) authorize the exact Relation write plan and reuse database mutations, and [workshop tools](vault_tools/workshop.rs) use the journaled project domain and story text operations.
+- **Read-only catalog and note tools** — [index/read_only.rs](index/read_only.rs), [index/snapshot.rs](index/snapshot.rs), [ai_tools.rs](ai_tools.rs), [mcp.rs](mcp.rs). See the [CLI map](../../amby-cli/MAP.md).
 - **Shared IPC data types** — [model.rs](model.rs) and the owning modules
 
 Markdown, attachments and durable sidecars are authoritative; index computations

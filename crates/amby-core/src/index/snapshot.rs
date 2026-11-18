@@ -238,7 +238,7 @@ fn apply_wal(
     Ok(())
 }
 
-pub(super) struct IndexSnapshot {
+pub struct IndexSnapshot {
     // Fields drop in declaration order: SQLite closes before its borrowed image.
     connection: rusqlite::Connection,
     _image: Vec<u8>,
@@ -251,10 +251,7 @@ impl std::ops::Deref for IndexSnapshot {
     }
 }
 
-pub(super) fn open(
-    root: &Path,
-    cancelled: impl Fn() -> bool,
-) -> Result<IndexSnapshot, &'static str> {
+pub fn open(root: &Path, cancelled: impl Fn() -> bool) -> Result<IndexSnapshot, &'static str> {
     let mut captured = None;
     for _ in 0..3 {
         let index = index_header(root)?;

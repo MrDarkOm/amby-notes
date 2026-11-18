@@ -3,9 +3,12 @@ pub mod identity;
 pub mod links;
 pub mod note_index;
 pub mod query;
+pub mod read_only;
 pub mod refactor;
 pub mod schema;
+pub mod snapshot;
 pub mod sync;
+pub(crate) use sync::load_vault_with_policy;
 pub mod sync_paths;
 pub mod tags;
 

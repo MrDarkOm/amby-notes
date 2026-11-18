@@ -1,5 +1,7 @@
 mod ai;
 mod app_data;
+mod cli_open;
+mod cli_structural;
 mod commands;
 mod credentials;
 mod keychain_access;
@@ -71,6 +73,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
         updater::app_release_version,
         updater::check_app_update,
+        cli_open::take_cli_open,
         commands::vault::load_vault,
         commands::vault::load_active_vault,
         commands::vault::refresh_vault_paths,
@@ -338,7 +341,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            cli_open::enqueue(app, args.into_iter().skip(1).map(std::ffi::OsString::from));
             if let Err(error) = show_and_focus_main_window(app) {
                 tracing::warn!(event = "restore_window_failed", error = %error);
             }
@@ -346,6 +350,7 @@ pub fn run() {
         .manage(vault_context::VaultContext::new())
         .manage(WatcherState::new())
         .manage(path_grants::PathGrants::default())
+        .manage(cli_open::PendingCliOpens::default())
         .manage(ai::AiStreamState::default())
         .manage(ai::codex::launch::LoginSlot::default())
         .manage(ai::claude_code::launch::ClaudeLoginSlot::default())
@@ -357,6 +362,7 @@ pub fn run() {
         .on_menu_event(handle_menu_event)
         .on_webview_event(remember_dropped_paths)
         .setup(|app| {
+            cli_open::enqueue(app.handle(), std::env::args_os().skip(1));
             let debug = logging::global_runtime();
             debug.set_app(app.handle().clone());
             // Merely remember the path; the opt-in writer creates files only
@@ -404,6 +410,8 @@ pub fn run() {
                     )),
                 ));
             }
+
+            cli_structural::start(app.handle());
 
             #[cfg(target_os = "macos")]
             set_macos_application_icon();

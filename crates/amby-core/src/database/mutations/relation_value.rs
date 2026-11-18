@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::database::format::{parse_manifest, raw_revision, PropertyDefinition, PropertyValue};
 use crate::frontmatter::{self};
@@ -13,6 +13,45 @@ pub fn update_database_relation_value(
     request: &UpdateDatabaseRelationValueRequest,
     history: Option<&crate::database::history::DatabaseHistoryState>,
 ) -> Result<UpdateDatabaseRelationValueResult, String> {
+    run_relation_value(vault, watcher, request, history, None).map(|result| result.value)
+}
+
+pub(crate) struct ScopedRelationValue {
+    pub value: UpdateDatabaseRelationValueResult,
+    /// Actual paths in the plan, including inverse values being removed.
+    pub paths: Vec<PathBuf>,
+    pub replayed: bool,
+}
+
+struct Scope<'a> {
+    folder: &'a Path,
+    dry_run: bool,
+}
+
+pub(crate) fn update_scoped_relation_value(
+    vault: &Path,
+    watcher: &SelfWriteTracker,
+    request: &UpdateDatabaseRelationValueRequest,
+    folder: &Path,
+    dry_run: bool,
+) -> Result<ScopedRelationValue, String> {
+    run_relation_value(
+        vault,
+        watcher,
+        request,
+        None,
+        Some(Scope { folder, dry_run }),
+    )
+}
+
+fn run_relation_value(
+    vault: &Path,
+    watcher: &SelfWriteTracker,
+    request: &UpdateDatabaseRelationValueRequest,
+    history: Option<&crate::database::history::DatabaseHistoryState>,
+    scope: Option<Scope<'_>>,
+) -> Result<ScopedRelationValue, String> {
+    let dry_run = scope.as_ref().is_some_and(|scope| scope.dry_run);
     #[cfg(test)]
     let before_publish_hook = RELATION_BEFORE_PUBLISH_HOOK.with(|hook| hook.borrow_mut().take());
     #[cfg(test)]
@@ -24,8 +63,14 @@ pub fn update_database_relation_value(
     {
         return Err("noteId and propertyId must be canonical ULIDs".to_owned());
     }
-    if let Some(result) = crate::database::relation_recovery::replay(vault, request)? {
-        return Ok(result);
+    if !dry_run {
+        if let Some(value) = crate::database::relation_recovery::replay(vault, request)? {
+            return Ok(ScopedRelationValue {
+                value,
+                paths: Vec::new(),
+                replayed: true,
+            });
+        }
     }
     crate::database::relation_recovery::ensure_no_pending(vault)?;
     crate::database::relation_schema_recovery::ensure_no_pending(vault)?;
@@ -72,6 +117,30 @@ pub fn update_database_relation_value(
         }
     }
 
+    // A tool validates every requested destination, including for a
+    // one-way relation whose write set contains only the source record.
+    let target_container =
+        if inverse_property_id.is_some() || (scope.is_some() && !clean_targets.is_empty()) {
+            Some(find_database_container(vault, &target_database_id)?)
+        } else {
+            None
+        };
+    if let (Some(_), Some(target_container)) = (&scope, &target_container) {
+        for target_id in &clean_targets {
+            resolve_note_path_for_id(vault, target_container, target_id)?;
+        }
+        if request
+            .target_note_ids
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            > 1
+            && max_items == Some(1)
+        {
+            return Err("tooManyRelationTargets".into());
+        }
+    }
+
     // 1. Update source note frontmatter
     let note_path = crate::paths::confine(
         vault,
@@ -110,8 +179,7 @@ pub fn update_database_relation_value(
         }
     }
 
-    if let Some(inv_prop_id) = inverse_property_id {
-        let target_container = find_database_container(vault, &target_database_id)?;
+    if let (Some(inv_prop_id), Some(target_container)) = (inverse_property_id, target_container) {
         let target_manifest_path =
             crate::database::discovery::manifest_path_for_container(&target_container);
         let target_bytes = fs::read(&target_manifest_path).map_err(|e| e.to_string())?;
@@ -128,8 +196,17 @@ pub fn update_database_relation_value(
             .ok_or_else(|| {
                 format!("Inverse property {inv_prop_id} not found in target database")
             })?;
-        if !matches!(inv_prop_def, PropertyDefinition::Relation(_)) {
+        let PropertyDefinition::Relation(inverse) = inv_prop_def else {
             return Err("Inverse property is not a relation".to_owned());
+        };
+        if scope.is_some()
+            && (inverse.config.target_database_id != request.database_id
+                || inverse.config.inverse_property_id.as_deref()
+                    != Some(request.property_id.as_str())
+                || !crate::database::validation::validate_manifest(&target_manifest.value)
+                    .is_writable())
+        {
+            return Err("invalidRelation".to_owned());
         }
         let inv_prop_name = inv_prop_def
             .frontmatter_key()
@@ -300,6 +377,30 @@ pub fn update_database_relation_value(
         },
     );
 
+    // Authorize the exact plan before history, backup or journal writes.
+    // Removed targets are part of this plan, even though they are absent
+    // from the request's targetNoteIds list.
+    let mut paths = Vec::new();
+    if let Some(scope) = &scope {
+        let mut output_bytes = 0;
+        for planned in &planned_writes {
+            if !planned.path.starts_with(scope.folder) {
+                return Err("outsideWriteScope".into());
+            }
+            let rel = crate::durable::relative_string(vault, &planned.path, "MCP relation")
+                .map_err(|_| "accessDenied")?;
+            crate::durable::guarded_path(vault, &rel, "MCP relation")
+                .map_err(|_| "accessDenied")?;
+            output_bytes += serde_json::to_vec(&rel)
+                .map_err(|error| error.to_string())?
+                .len();
+            if output_bytes > 180 * 1024 {
+                return Err("operationTooLarge".into());
+            }
+            paths.push(planned.path.clone());
+        }
+    }
+
     #[cfg(test)]
     if let Some(hook) = before_publish_hook {
         hook();
@@ -340,6 +441,14 @@ pub fn update_database_relation_value(
         warnings,
     };
 
+    if dry_run {
+        return Ok(ScopedRelationValue {
+            value: result,
+            paths,
+            replayed: false,
+        });
+    }
+
     // Snapshot and execute atomic writes with rollback
     for planned in &planned_writes {
         crate::history::snapshot_before_write(
@@ -378,7 +487,13 @@ pub fn update_database_relation_value(
         // Even an atomic write that reports a post-rename sync failure may
         // have published its bytes. Conditional rollback verifies what remains.
         written.push(planned);
-        if let Err(error) = frontmatter::atomic_write_bytes(&planned.path, &planned.post_bytes) {
+        if let Err(error) =
+            crate::atomic_fs::atomic_write_bytes_checked(&planned.path, &planned.post_bytes, || {
+                journal.check_revision()?;
+                check_relation_manifest_revisions(vault, &manifest_inputs)?;
+                check_relation_file_revision(vault, &planned.path, &planned.pre_bytes, "record")
+            })
+        {
             write_err = Some(error);
             break;
         }
@@ -436,5 +551,9 @@ pub fn update_database_relation_value(
         }
     }
 
-    Ok(result)
+    Ok(ScopedRelationValue {
+        value: result,
+        paths,
+        replayed: false,
+    })
 }

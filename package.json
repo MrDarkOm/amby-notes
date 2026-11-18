@@ -1,7 +1,7 @@
 {
   "name": "amby-notes",
   "private": true,
-  "version": "0.1.9",
+  "version": "0.1.10",
   "license": "AGPL-3.0-only",
   "description": "Local-first desktop knowledge workspace",
   "type": "module",
@@ -11,6 +11,8 @@
   },
   "scripts": {
     "dev": "vite",
+    "build:desktop": "tauri build --config src-tauri/tauri.cli.conf.json",
+    "build:cli-sidecar": "node scripts/prepare-cli-sidecar.mjs",
     "build": "tsc && vite build",
     "emoji:prepare": "node scripts/prepare-noto-emoji.mjs",
     "emoji:prepare-search": "node scripts/prepare-emoji-search.mjs",

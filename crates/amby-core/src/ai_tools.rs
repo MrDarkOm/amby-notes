@@ -10,7 +10,7 @@ use std::path::{Component, Path, PathBuf};
 use rusqlite::Connection;
 use serde_json::{json, Value};
 
-fn resolve_note_path(root: &Path, relative: &str) -> Result<PathBuf, &'static str> {
+pub(crate) fn resolve_note_path(root: &Path, relative: &str) -> Result<PathBuf, &'static str> {
     let path = Path::new(relative);
     if relative.is_empty() || path.is_absolute() {
         return Err("accessDenied");
@@ -29,6 +29,36 @@ fn resolve_note_path(root: &Path, relative: &str) -> Result<PathBuf, &'static st
         return Err("notFound");
     }
     Ok(real)
+}
+
+/// Descriptions of the vault tools shared by provider adapters.
+pub fn definitions(search: bool) -> Vec<(&'static str, &'static str, Value)> {
+    let mut defs = vec![
+        (
+            "read_note",
+            "Read a note by ID. Offset and maxChars count Unicode characters.",
+            json!({"type":"object","properties":{"id":{"type":"string"},"offset":{"type":"integer","minimum":0},"maxChars":{"type":"integer","minimum":1,"maximum":20000}},"required":["id"]}),
+        ),
+        (
+            "get_links",
+            "Find outgoing and incoming links for a note.",
+            json!({"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}),
+        ),
+    ];
+    if search {
+        defs.extend([
+            ("search_notes", "Search the vault's indexed notes.", json!({"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":10}},"required":["query"]})),
+            ("list_folder", "List notes in a vault-relative folder. Empty path means the vault root.", json!({"type":"object","properties":{"path":{"type":"string"}},"required":["path"]})),
+        ]);
+    }
+    defs
+}
+
+pub fn mcp_definitions(search: bool) -> Vec<Value> {
+    definitions(search).into_iter().map(|(name, description, schema)| json!({
+        "name": name, "description": description, "inputSchema": schema,
+        "annotations": {"readOnlyHint": true, "openWorldHint": false, "destructiveHint": false}
+    })).collect()
 }
 
 /// The model never chooses its own authority: this scope comes from the user's
@@ -120,7 +150,7 @@ fn indexed_note(
     Ok((note, file))
 }
 
-fn safe_folder(root: &Path, relative: &str) -> Result<PathBuf, &'static str> {
+pub(crate) fn safe_folder(root: &Path, relative: &str) -> Result<PathBuf, &'static str> {
     if relative.is_empty() {
         return Ok(root.to_path_buf());
     }

@@ -9,7 +9,7 @@ use tauri::Emitter;
 
 use super::chats::{ChatSource, ChatStep};
 use super::provider_stream::{StreamDecoder, ToolCall};
-use super::tools::{ToolBudget, ToolScope};
+use super::tools::{mcp_definitions as mcp_tools, ToolBudget, ToolScope};
 use super::{AiChatError, AiConfig, AiErrorCode, AiMessage, AiStreamState, StreamGuard};
 use crate::vault_context::VaultContext;
 
@@ -76,25 +76,7 @@ fn check(
 }
 
 fn definitions(search: bool, anthropic: bool) -> Vec<Value> {
-    let mut defs = vec![
-        (
-            "read_note",
-            "Read a note by ID. Offset and maxChars count Unicode characters.",
-            json!({"type":"object","properties":{"id":{"type":"string"},"offset":{"type":"integer","minimum":0},"maxChars":{"type":"integer","minimum":1,"maximum":20000}},"required":["id"]}),
-        ),
-        (
-            "get_links",
-            "Find outgoing and incoming links for a note.",
-            json!({"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}),
-        ),
-    ];
-    if search {
-        defs.extend([
-            ("search_notes", "Search the vault's indexed notes.", json!({"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":10}},"required":["query"]})),
-            ("list_folder", "List notes in a vault-relative folder. Empty path means the vault root.", json!({"type":"object","properties":{"path":{"type":"string"}},"required":["path"]})),
-        ]);
-    }
-    defs.into_iter().map(|(name, description, schema)| {
+    super::tools::definitions(search).into_iter().map(|(name, description, schema)| {
         if anthropic { json!({"name":name,"description":description,"input_schema":schema}) }
         else { json!({"type":"function","function":{"name":name,"description":description,"parameters":schema}}) }
     }).collect()
@@ -481,21 +463,6 @@ impl TurnEngine {
             sources: self.sources,
         }
     }
-}
-
-/// The read-only tools as an MCP server describes them (the same set the other providers get).
-fn mcp_tools(search: bool) -> Vec<Value> {
-    definitions(search, false)
-        .into_iter()
-        .map(|tool| {
-            json!({
-                "name": tool["function"]["name"],
-                "description": tool["function"]["description"],
-                "inputSchema": tool["function"]["parameters"],
-                "annotations": {"readOnlyHint": true, "openWorldHint": false, "destructiveHint": false}
-            })
-        })
-        .collect()
 }
 
 /// Turn events from more than one task (the answer's tokens and the tool bridge) share one

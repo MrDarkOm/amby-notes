@@ -29,7 +29,7 @@ pub mod claude_code;
 pub mod codex;
 pub mod connections;
 pub(crate) mod consent;
-mod index_snapshot;
+use amby_core::index::snapshot as index_snapshot;
 pub mod local_apps;
 mod provider_stream;
 pub(crate) use amby_core::ai_tools as tools;

@@ -21,6 +21,7 @@ This is an ownership index of the working code, not a feature-completion claim.
 | AI client, updater, diagnostics, recovery helpers              | [Shared services](../../src/lib/MAP.md)                          |
 | Themes, CSS, icons, localization                               | [Appearance](../../src/themes/MAP.md)                            |
 | Vault I/O, IDs, indexing, links, bundles, history, trash       | [Rust core](../../crates/amby-core/src/MAP.md)                   |
+| Command line and MCP                                           | [CLI](../../crates/amby-cli/MAP.md)                              |
 | Desktop bootstrap, permissions, packaging                      | [Tauri](../../src-tauri/MAP.md)                                  |
 | Commands, CI, benchmarks, release automation                   | [Tooling](../../scripts/MAP.md)                                  |
 | Encrypted sync: crypto, server, conformance, client (`sync/`)  | [Sync](../../sync/MAP.md)                                        |

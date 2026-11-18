@@ -173,6 +173,9 @@ fn desktop_e2e_switching_vault_rejects_old_generation_and_keeps_flush() {
         .unwrap();
 
     let reopened = VaultContext::new();
+    let result = reopened.activate(first_vault.0.to_str().unwrap(), |_| Ok(()), |_, _| ());
+    assert_eq!(result, Err("vaultBusy".into()));
+    drop(context);
     activate(&reopened, &first_vault.0);
     reopened
         .with_active(|active| {

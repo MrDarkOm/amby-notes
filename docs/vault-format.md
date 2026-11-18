@@ -128,6 +128,8 @@ test holds the two together.
 | `property-backups/`        | yes          | immutable backups of removed properties                                |
 | `conflicts/`               | yes          | second versions of conflicts, listed and resolved from any device      |
 | `notes.db`, `-wal`, `-shm` | no           | rebuildable index                                                      |
+| `operation.lock`           | no           | exclusive local lease for desktop and CLI structural writes            |
+| `text-write.lock`          | no           | advisory lock for simple local Markdown writes                         |
 | `history/`                 | no           | each device keeps its own snapshots                                    |
 | `ai/`                      | no           | conversations remain on this device                                    |
 | `recovery/`                | no           | drafts and journals of this device                                     |
@@ -346,8 +348,26 @@ rename. Attachment imports enforce product limits (100MB disk files, 25MB
 clipboard payloads), sanitize stems and extensions (ASCII alphanumeric only,
 preventing directory traversal), and classify SVGs as non-inline file attachments.
 
+Matching versions of Amby coordinate CLI edits, desktop text saves, history restores,
+and incoming Markdown replacements with the local `.amby/text-write.lock` advisory
+lock. History operations share `.amby/history/.lock` across processes. These empty
+coordination files stay in place so processes lock the same filesystem entry. A CLI
+edit compares the prepared source bytes again immediately before publication.
+External editors and older Amby versions can still write without this lock.
+
 Autosave work is serialized per file. A completed older write cannot clear the
 unsaved state of a newer in-memory buffer, and a stale queued buffer is skipped.
+
+Desktop activation and structural CLI writes acquire the same local advisory
+lock, `.amby/operation.lock`. If the active desktop owns the lease, it handles
+the CLI request under its mutation gate. Structural publication uses
+`.amby/text-write.lock` to coordinate with the CLI, desktop saves and sync
+publication. A pending structural journal also defers sync passes and text
+saves for that vault. Amby records planned moves and rewrites in
+`.amby/recovery/cli/structural.json` with a version. A small sidecar tracks the current step. Recovery
+recognizes a published step by its expected bytes or tree fingerprint and
+continues from the cursor. If actual contents match neither recorded state,
+recovery keeps the journal and the current files for inspection.
 
 ## External changes
 

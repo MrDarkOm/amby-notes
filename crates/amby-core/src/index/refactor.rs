@@ -470,6 +470,30 @@ fn replace_outside_protected(text: &str, from: &str, to: &str) -> String {
     out
 }
 
+pub(crate) fn render_rewrite(rewrite: &PlannedWikiRewrite, original: &str) -> Option<String> {
+    let malformed = is_markdown(&rewrite.source_path)
+        && frontmatter::parse_markdown(original)
+            .frontmatter_status
+            .is_malformed();
+    let (envelope, editable) = if malformed {
+        // With no closing fence, YAML/body boundaries are unknown. A link
+        // refactor must not guess and modify possible YAML properties.
+        let parts = frontmatter::split_frontmatter_envelope(original)?;
+        parts
+    } else {
+        ("", original)
+    };
+    let mut next = editable.to_string();
+    for (raw, replacement) in &rewrite.replacements {
+        next =
+            replace_outside_protected(&next, &format!("[[{raw}]]"), &format!("[[{replacement}]]"));
+    }
+    for (raw, replacement) in &rewrite.literal_replacements {
+        next = next.replace(raw, replacement);
+    }
+    Some(format!("{envelope}{next}"))
+}
+
 pub fn apply_planned_wiki_rewrites(
     vault: &Path,
     plan: &[PlannedWikiRewrite],
@@ -478,32 +502,9 @@ pub fn apply_planned_wiki_rewrites(
     for rewrite in plan {
         let original =
             fs::read_to_string(&rewrite.source_path).map_err(|error| error.to_string())?;
-        let malformed = is_markdown(&rewrite.source_path)
-            && frontmatter::parse_markdown(&original)
-                .frontmatter_status
-                .is_malformed();
-        let (envelope, editable) = if malformed {
-            // With no closing fence, YAML/body boundaries are unknown. A link
-            // refactor must not guess and modify possible YAML properties.
-            let Some(parts) = frontmatter::split_frontmatter_envelope(&original) else {
-                continue;
-            };
-            parts
-        } else {
-            ("", original.as_str())
+        let Some(next) = render_rewrite(rewrite, &original) else {
+            continue;
         };
-        let mut next = editable.to_string();
-        for (raw, replacement) in &rewrite.replacements {
-            next = replace_outside_protected(
-                &next,
-                &format!("[[{raw}]]"),
-                &format!("[[{replacement}]]"),
-            );
-        }
-        for (raw, replacement) in &rewrite.literal_replacements {
-            next = next.replace(raw, replacement);
-        }
-        let next = format!("{envelope}{next}");
         if next != original {
             proposed.push((rewrite.source_path.clone(), original, next));
         }

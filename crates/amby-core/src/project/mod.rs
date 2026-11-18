@@ -49,3 +49,29 @@ mod preset_test;
 #[cfg(test)]
 #[path = "text_test.rs"]
 mod text_test;
+
+/// MCP can inspect completed operations but leaves interrupted work to activation recovery.
+pub(crate) fn require_completed_or_new(
+    vault: &std::path::Path,
+    operation_id: &str,
+) -> Result<(), model::ProjectError> {
+    for directory in [
+        journal::journal_dir(vault),
+        journal::legacy_journal_dir(vault),
+    ] {
+        let path = directory.join(format!("{operation_id}.json"));
+        let rel = crate::durable::relative_string(vault, &path, "workshop tool")
+            .map_err(|error| model::ProjectError::failed("invalidPath", error))?;
+        crate::durable::guarded_path(vault, &rel, "workshop tool")
+            .map_err(|error| model::ProjectError::failed("invalidPath", error))?;
+    }
+    if journal::read_journal(vault, operation_id)?
+        .is_some_and(|entry| entry.status != journal::STATUS_COMPLETED)
+    {
+        return Err(model::ProjectError::RecoveryRequired {
+            operation_id: operation_id.into(),
+            message: "An interrupted workshop operation requires recovery".into(),
+        });
+    }
+    Ok(())
+}

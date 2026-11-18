@@ -117,7 +117,7 @@ fn archive_file_path(vault: &Path, id: &str) -> Result<PathBuf, String> {
     }
 }
 
-fn meta_files(vault: &Path) -> Vec<PathBuf> {
+pub(crate) fn meta_files(vault: &Path) -> Vec<PathBuf> {
     fs::read_dir(meta_root(vault))
         .into_iter()
         .flatten()
@@ -129,7 +129,7 @@ fn meta_files(vault: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-fn read_meta(path: &Path) -> Option<ArchiveMeta> {
+pub(crate) fn read_meta(path: &Path) -> Option<ArchiveMeta> {
     use std::io::Read;
     let mut bytes = Vec::new();
     fs::File::open(path)

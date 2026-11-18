@@ -946,6 +946,12 @@ fn property_definitions(manifest: &DatabaseManifest) -> HashMap<&str, &PropertyD
         .collect()
 }
 
+pub(crate) fn is_valid_assignment(value: &PropertyValue, definition: &PropertyDefinition) -> bool {
+    let mut report = ValidationReport::default();
+    validate_property_value(&mut report, value, definition, "value");
+    report.is_valid()
+}
+
 fn validate_property_value(
     report: &mut ValidationReport,
     value: &PropertyValue,

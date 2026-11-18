@@ -323,6 +323,7 @@ updater.install_failed
 updater.install_skipped
 updater.version_read_failed
 upsert_custom_property
+vault.cli_open_failed
 vault.reveal_failed
 vault.startup_failed
 vault_open.recovery_notices

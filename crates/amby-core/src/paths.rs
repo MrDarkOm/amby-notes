@@ -127,6 +127,43 @@ pub fn confine_rel_no_symlinks(root: &Path, rel: &str) -> Result<PathBuf, String
     confine(&root, &candidate)
 }
 
+/// A private advisory lock shared by cooperating Amby processes. Keep the
+/// empty lock file in place so all holders refer to the same filesystem entry.
+pub(crate) fn lock_vault_file(vault: &Path, relative: &str) -> Result<fs::File, String> {
+    let file = open_vault_lock(vault, relative)?;
+    file.lock().map_err(|error| error.to_string())?;
+    Ok(file)
+}
+
+pub(crate) fn open_vault_lock(vault: &Path, relative: &str) -> Result<fs::File, String> {
+    let path = confine_rel_no_symlinks(vault, relative)?;
+    let parent = path.parent().ok_or("Lock path has no parent")?;
+    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    if fs::symlink_metadata(&path).is_ok_and(|metadata| !metadata.is_file()) {
+        return Err("Vault lock is not a file".into());
+    }
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+        .map_err(|error| error.to_string())?;
+    if !file
+        .metadata()
+        .map_err(|error| error.to_string())?
+        .is_file()
+    {
+        return Err("Vault lock is not a file".into());
+    }
+    Ok(file)
+}
+
+/// Coordinate simple text writes with the desktop save revision check.
+pub fn lock_text_write(vault: &Path) -> Result<fs::File, String> {
+    lock_vault_file(vault, ".amby/text-write.lock")
+}
+
 const MAX_NAME_TRIES: u32 = 1_000;
 
 /// `name`, or `stem 2.ext`, `stem 3.ext`... for the first one that is free in `dir`.

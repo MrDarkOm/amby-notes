@@ -257,6 +257,134 @@ export const nativeNoteCases: Array<{
     },
   },
   {
+    name: "CLI and MCP delegation preserve the native edit conflict contract",
+    async run({ adapter, vaultPath }) {
+      const note = await adapter.createNote(vaultPath, vaultPath, "CLI external")
+      const id = note.primaryId!
+      const path = note.primaryPath!
+      const reference = await adapter.createNote(vaultPath, vaultPath, "Reference")
+      await adapter.createFolder(vaultPath, "Destination")
+      const initial = await adapter.readNote(vaultPath, id)
+      const { generation } = await adapter.loadActiveVaultData()
+      await adapter.writeVaultRaw(
+        "workspace.json",
+        JSON.stringify({
+          profile: { id: "custom" },
+          enabledModules: ["amby.databases", "amby.creative"],
+        }),
+        generation,
+      )
+      await adapter.setDatabaseModuleEnabled(false, generation)
+      const referenceId = reference.primaryId!
+      const beforeLink = await adapter.readNote(vaultPath, referenceId)
+      await adapter.writeNote(
+        vaultPath,
+        referenceId,
+        "[[CLI external]]",
+        generation,
+        beforeLink.revision,
+        "main",
+      )
+      await adapter.startVaultWatcher(vaultPath)
+      let changed = false
+      const movedPath = joinStoragePath(vaultPath, "Destination/CLI renamed.md")
+      let observedMove = false
+      const unlisten = await listen<{ path: string }>("vault-file-changed", (event) => {
+        if (event.payload.path === path) changed = true
+        if (event.payload.path === movedPath) observedMove = true
+      })
+      try {
+        await adapter.writeFile(joinStoragePath(vaultPath, ".amby/cli-native-ready"), "")
+        const deadline = Date.now() + 10_000
+        let external = await adapter.readNote(vaultPath, id)
+        while (
+          (!changed || !external.content.includes("external CLI edit")) &&
+          Date.now() < deadline
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 30))
+          external = await adapter.readNote(vaultPath, id)
+        }
+        check(changed, "The watched note change was delivered by the filesystem watcher")
+        check(
+          external.content.includes("external CLI edit"),
+          "The external CLI append reached the open vault",
+        )
+        check(
+          !isUnchangedNoteRevision(external.revision, initial.revision, initial.revision),
+          "The editor sees a changed revision even with an unsaved local edit",
+        )
+        let conflict: unknown
+        try {
+          await adapter.writeNote(
+            vaultPath,
+            id,
+            "unsaved local edit",
+            generation,
+            initial.revision,
+            "main",
+          )
+        } catch (error) {
+          conflict = error
+        }
+        check(conflict instanceof NoteRevisionConflictError, "A stale autosave returns a conflict")
+        check(
+          (await adapter.readNote(vaultPath, id)).revision === external.revision,
+          "The external edit stays on disk",
+        )
+        await adapter.writeFile(joinStoragePath(vaultPath, ".amby/cli-native-structural-ready"), "")
+        const resultPath = joinStoragePath(vaultPath, ".amby/cli-native-structural-result")
+        // The packaged launcher starts a new process for each request in this sequence.
+        const structuralDeadline = Date.now() + 60_000
+        let result = ""
+        let enabledModules = false
+        while ((!result || !observedMove) && Date.now() < structuralDeadline) {
+          await new Promise((resolve) => setTimeout(resolve, 30))
+          if (!enabledModules) {
+            const requested = await adapter
+              .readFile(joinStoragePath(vaultPath, ".amby/cli-native-enable-modules"))
+              .then(
+                () => true,
+                () => false,
+              )
+            if (requested) {
+              await adapter.setDatabaseModuleEnabled(true, generation)
+              await adapter.writeFile(
+                joinStoragePath(vaultPath, ".amby/cli-native-modules-enabled"),
+                "",
+              )
+              enabledModules = true
+            }
+          }
+          try {
+            result = await adapter.readFile(resultPath)
+          } catch {
+            // The probe publishes the result only when every CLI command returns.
+          }
+          if (result && result !== "done") break
+        }
+        check(result === "done", result || "Timed out waiting for the CLI and MCP probe")
+        check(observedMove, "The active desktop published the destination change")
+        const moved = await adapter.readNote(vaultPath, id)
+        check(
+          moved.content.includes("external CLI edit"),
+          "The original identity and content survived",
+        )
+        const newReference = await adapter.readNote(vaultPath, reference.primaryId!)
+        check(
+          newReference.content.includes("CLI MCP renamed"),
+          "The desktop updated the inbound link",
+        )
+        check(
+          !(await adapter.listArchive()).some((entry) => entry.id.includes("CLI renamed")),
+          "Restore cleared the archive entry",
+        )
+      } finally {
+        unlisten()
+        await adapter.stopVaultWatcher()
+      }
+    },
+  },
+  {
     name: "native attached database preserves the open note identity in the tree",
     async run({ adapter, vaultPath }) {
       const loaded = await adapter.loadActiveVaultData()

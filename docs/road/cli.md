@@ -1,15 +1,15 @@
 # CLI and a core without Tauri: plan
 
-Status as of 2026-11-17: **step 0 implemented, steps 1–4 proposed.** Open decisions are in
+Status as of 2026-11-18: **steps 0–4 implemented.** Open decisions are in
 section 8. Data work follows the "tests first" rule (section 6 of the [sync plan](../sync-plan.md)).
 
 | Step | What                                                      | Status      |
 | ---- | --------------------------------------------------------- | ----------- |
 | 0    | Cargo workspace, `amby-core` moved out without Tauri      | implemented |
-| 1    | `amby` for reading, `--json`, read-only `amby mcp`        | not started |
-| 2    | Simple writes (create, append, replace) with snapshots    | not started |
-| 3    | Complex operations while the app is closed, vault lock    | not started |
-| 4    | Handing operations to the running app over a local socket | not started |
+| 1    | `amby` for reading, `--json`, read-only `amby mcp`        | implemented |
+| 2    | Simple writes (create, append, replace) with snapshots    | implemented |
+| 3    | Complex operations while the app is closed, vault lock    | implemented |
+| 4    | Handing operations to the running app over a local socket | implemented |
 
 ## 1. In short
 
@@ -67,16 +67,15 @@ the "no Tauri" check in CI is green; the `rust:test` time for the core is record
 
 ## 3. Step 1. Reading and `--json`
 
-Commands (draft): `amby vault list|use`, `amby ls [folder]`, `amby cat <note>`, `amby search <query>`,
+See the [CLI contract](../cli.md) for build and install instructions. Commands: `amby vault list|use`, `amby ls [folder]`, `amby cat <note>`, `amby search <query>`,
 `amby links|backlinks <note>`, `amby tags`, `amby open <note>` (open it in the app).
 
-- The vault is chosen with `--vault <path>`, the `AMBY_VAULT` variable, or the last vault opened in the app.
+- The vault is chosen with `--vault <path>`, the `AMBY_VAULT` variable, `vault use`, or the last vault opened in the app.
 - A note is given by path, title or `amby-id`; an ambiguous match is an error listing the candidates.
-- The index is opened read-only (SQLite WAL, `busy_timeout`); if it is missing or stale, the CLI reads from
-  disk and does not rebuild the index.
+- The CLI reads a read-only snapshot of the SQLite index and committed WAL. If the snapshot
+  is missing, unusable, or stale, it reads Markdown into an ephemeral in-memory catalog.
 - `--json`: a stable, versioned schema; errors are codes without raw text (as in the [notice rules](../notices.md)).
-- Human-facing text follows the system language; where the strings and translations live is decided during
-  implementation.
+- Terminal help and errors support English and Russian based on the locale environment.
 
 `amby mcp` (read-only): stdio, the same tools as the Codex bridge (`ai/codex/mcp.rs`, `ToolHost`). Paths do
 not leave the vault; `.amby/`, sync keys and credentials are not reachable.
@@ -91,30 +90,43 @@ Commands: `amby new <note>`, `amby append <note>`, `amby write <note>` (text fro
   to a conflict. Sync picks up the change through the watcher.
 - `--dry-run` shows a diff without writing.
 - **AI:** `amby mcp` writes only with `--allow-write`, which can be limited to a folder
-  (`--allow-write=Projects/`). Every AI edit takes a snapshot marked `ai-edit`, so any step can be undone from
-  history. Write tools run the same checks as the CLI commands.
+  (`--allow-write=Projects/`). Every changed existing note gets a snapshot marked `ai-edit`.
+  Write tools and CLI commands share the same checks. See the [editing contract](../cli.md#editing-notes).
 
 ## 5. Step 3. Complex operations
 
-Rename and move with link rewriting, archive and restore, databases and workshops use recovery journals. Two
-processes must not run them at the same time.
+The CLI supports rename and move with link rewriting, archive and restore, and
+read-only previews. Structural moves include note bundles, database files and
+workshop folders. Existing database and workshop journal replay is shared with
+desktop activation.
 
-- In step 3 they work **only while the app is closed**. The CLI takes a vault lock (a file in `.amby/`,
-  released when the process exits); when the app opens the vault, it sees the lock and waits or reports it.
-- If the app is open — a clear error: "close Amby or wait for step 4".
-- Journal recovery when the CLI starts is the same as when the app activates a vault.
+- The CLI and desktop app take the same exclusive vault lock in
+  `.amby/operation.lock`. Desktop Amby holds the lock until it exits.
+- The CLI records moves and rewrites before publishing them. The next structural
+  command, `amby recover`, or desktop activation resumes pending work. Recovery
+  stops and keeps the journal when a file has changed since the interrupted
+  operation.
+- See the [CLI contract](../cli.md#structural-operations) for targets and exit codes.
 
 ## 6. Step 4. Working next to an open app
 
-The app listens on a local socket (Unix socket / named pipe, current user only). When it is open, the CLI
-hands complex operations to it, so only one process writes. A separate IPC contract and separate tests; the
-format is decided when the step starts.
+The CLI hands structural writes to desktop Amby when the desktop owns the
+lease for the requested vault. The desktop checks the current vault, orders
+the request with editor saves, and refreshes the index and windows after
+publication. Unix uses a user-only domain socket. Windows uses a local named
+pipe restricted to the user's SID. See the [local IPC contract](../cli-ipc.md)
+for framing, errors and timeouts.
+
+The expanded stdio tool surface has its own [MCP implementation plan](mcp.md).
 
 ## 7. Installation
 
-- `amby` ships inside the app (macOS: in `Amby.app`; Windows/Linux: next to the executable).
-- Settings get an "Install the `amby` command" button: a link in `~/.local/bin` or `/usr/local/bin` (macOS,
-  Linux), PATH on Windows. No administrator rights by default.
+- Desktop release packages include `amby` next to the application executable.
+  AppImage runs it through `--amby-cli`. Development bundles use
+  `npm run build:desktop`. See [installation](../cli.md#installation) for shell
+  access on macOS, Windows and Linux.
+- A Settings shortcut for adding the command to PATH remains a separate
+  feature.
 - A separate headless Linux build of `amby` — after step 0, if there is demand.
 
 ## 8. Owner decisions
@@ -123,8 +135,7 @@ Open:
 
 1. Scope of the first release: step 1, or steps 1–2 at once. Proposal: 1–2; without writes the CLI is of
    little use to AI.
-2. In step 3, complex operations only while the app is closed — to be agreed.
-3. What comes first: terminal convenience or `amby mcp`. Proposal: `amby mcp`; its base already exists.
+2. What comes first: terminal convenience or `amby mcp`. Proposal: `amby mcp`; its base already exists.
 
 Non-goals: a terminal editor (TUI), managing sync and the account from the CLI, third-party plugins,
 arbitrary shell commands for AI.

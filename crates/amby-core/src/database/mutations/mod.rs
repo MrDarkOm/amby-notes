@@ -34,3 +34,5 @@ pub use value_batch::*;
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) use value_batch::apply_scoped_value_batch;

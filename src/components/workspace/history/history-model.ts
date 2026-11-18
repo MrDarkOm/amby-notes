@@ -7,6 +7,8 @@ export function historyReasonKey(reason: string): string {
     restore: "beforeRestore",
     "link-refactor": "linksUpdated",
     "note-rewrite": "beforeBlockRewrite",
+    "cli-edit": "beforeCliEdit",
+    "ai-edit": "beforeAiEdit",
     "sync-overwrite": "beforeSyncOverwrite",
     "id-assignment": "metadataUpdated",
   }

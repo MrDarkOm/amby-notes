@@ -224,7 +224,7 @@ pub fn publish_prepared_no_replace(temp: &Path, target: &Path) -> Result<(), Ato
 /// that does not support the flag falls back to "look, then rename", which is
 /// the best a plain `rename` can do there.
 pub(crate) fn rename_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
-    match rename_no_replace_os(from, to) {
+    match rename_no_replace_strict(from, to) {
         Err(error) if rename_flag_is_unsupported(&error) => {
             if fs::symlink_metadata(to).is_ok() {
                 return Err(std::io::ErrorKind::AlreadyExists.into());
@@ -233,6 +233,11 @@ pub(crate) fn rename_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
         }
         other => other,
     }
+}
+
+/// A journaled mutation must refuse filesystems lacking an exclusive rename.
+pub(crate) fn rename_no_replace_strict(from: &Path, to: &Path) -> std::io::Result<()> {
+    rename_no_replace_os(from, to)
 }
 
 #[cfg(unix)]
@@ -363,6 +368,14 @@ pub fn atomic_rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
 /// rename it into place. A unique sibling avoids collisions between concurrent
 /// writes and keeps a crash from leaving a truncated user file at `path`.
 pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> Result<(), String> {
+    atomic_write_bytes_checked(path, content, || Ok(()))
+}
+
+pub(crate) fn atomic_write_bytes_checked(
+    path: &Path,
+    content: &[u8],
+    before_publish: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or_else(|| format!("Path has no parent: {}", path.to_string_lossy()))?;
@@ -388,6 +401,7 @@ pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> Result<(), String> {
         drop(file);
         copy_existing_permissions(path, &tmp);
         fail_if_requested(4)?;
+        before_publish()?;
         atomic_rename_with_retry(&tmp, path).map_err(|e| e.to_string())?;
         if nth_fault == Some(true) {
             #[cfg(any(test, feature = "test-support"))]

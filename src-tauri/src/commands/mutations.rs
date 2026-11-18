@@ -948,7 +948,6 @@ struct MovedPathsEvent {
 }
 
 fn notify_moved_paths(app: &tauri::AppHandle, origin_window: &str, outcome: &MutationOutcome) {
-    use tauri::Emitter;
     let Some((generation, _)) = &outcome.rewritten_notes else {
         return;
     };
@@ -959,13 +958,23 @@ fn notify_moved_paths(app: &tauri::AppHandle, origin_window: &str, outcome: &Mut
         .filter(|change| !change.old_path.is_empty() && !change.new_path.is_empty())
         .cloned()
         .collect();
+    emit_paths_moved(app, origin_window, *generation, path_changes);
+}
+
+pub(crate) fn emit_paths_moved(
+    app: &tauri::AppHandle,
+    origin_window: &str,
+    generation: u64,
+    path_changes: Vec<PathChange>,
+) {
+    use tauri::Emitter;
     if path_changes.is_empty() {
         return;
     }
     if let Err(error) = app.emit(
         "amby:paths-moved",
         MovedPathsEvent {
-            generation: *generation,
+            generation,
             origin_window: origin_window.to_owned(),
             path_changes,
         },
