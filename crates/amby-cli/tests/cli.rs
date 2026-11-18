@@ -669,6 +669,15 @@ fn busy_vault_routes_to_one_authenticated_desktop_request() {
                     .unwrap()
                     .unwrap();
             cli_ipc::read_request(&mut stream).await.unwrap().unwrap();
+            drop(stream);
+            // Let Tokio finish closing the pipe while the child observes EOF.
+            tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                while !cli.is_finished() {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("CLI exits after the interrupted response");
         });
         let output = cli.join().unwrap();
         assert!(!output.status.success());

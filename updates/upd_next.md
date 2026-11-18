@@ -1,5 +1,7 @@
 # Amby — Next version
 
+- Исправлена обработка последовательных запросов CLI и MCP к открытому Amby в Windows.
+
 - Для разработчиков: сохранены результаты проверки CLI и MCP на Windows для продолжения диагностики.
 
 - MCP can create reciprocal database relations and edit relation values. Previews include inverse record changes, and folder grants cover every added or removed link.

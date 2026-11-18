@@ -146,7 +146,18 @@ impl Listener {
 
     pub async fn accept(&mut self) -> io::Result<Stream> {
         self.next.connect().await?;
-        let replacement = open_listener(&self.name, &self.sid, false)?;
+        // A just-closed instance can still count toward the Windows limit while
+        // its client handle is being released. Keep the connected instance alive
+        // and wait for a slot; never replay the client's request.
+        let replacement = loop {
+            match open_listener(&self.name, &self.sid, false) {
+                Ok(server) => break server,
+                Err(error) if error.raw_os_error() == Some(ERROR_PIPE_BUSY as i32) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                }
+                Err(error) => return Err(error),
+            }
+        };
         Ok(std::mem::replace(&mut self.next, replacement))
     }
 }

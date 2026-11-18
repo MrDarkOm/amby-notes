@@ -194,6 +194,47 @@ fn profile_key(profile: &Path) -> io::Result<String> {
 mod tests {
     use super::*;
 
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn sequential_pipe_requests_receive_complete_errors() {
+        let profile =
+            std::env::temp_dir().join(format!("amby-pipe-test-{}", ulid::Ulid::generate()));
+        std::fs::create_dir(&profile).unwrap();
+        let mut listener = Listener::bind(profile.as_path()).unwrap();
+        let server = tokio::spawn(async move {
+            for _ in 0..2 {
+                let mut stream = listener.accept().await.expect("accept pipe");
+                let request = read_request(&mut stream).await.unwrap();
+                let result = match request {
+                    Ok(_) => Err("vaultNotActive".to_owned()),
+                    Err(code) => Err(code.to_owned()),
+                };
+                write_response(&mut stream, result).await.unwrap();
+            }
+        });
+        for (version, expected) in [
+            (VERSION, "vaultNotActive"),
+            (VERSION + 1, "desktopProtocolVersion"),
+        ] {
+            let result = dispatch(
+                profile.as_path(),
+                Request {
+                    version,
+                    vault: profile.as_path().to_owned(),
+                    action: Action::Recover,
+                },
+            )
+            .await;
+            assert!(
+                matches!(result, Err(ref code) if code == expected),
+                "expected {expected}, got {}",
+                result.err().unwrap_or_default()
+            );
+        }
+        server.await.unwrap();
+        std::fs::remove_dir(&profile).unwrap();
+    }
+
     #[tokio::test]
     async fn frames_reject_an_invalid_length_before_reading_a_body() {
         for length in [0, REQUEST_BYTES as u32 + 1] {
