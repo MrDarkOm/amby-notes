@@ -425,6 +425,7 @@ export const unavailableSyncPort: SyncPort = {
     enabled: false,
     linked: false,
     resumable: false,
+    backupMissing: false,
     spaceId: null,
     spaceName: null,
     phase: "off",

@@ -36,7 +36,7 @@ fn vault_at(root: &Path, name: &str) -> PathBuf {
 }
 
 fn receipt_path(vault: &Path) -> PathBuf {
-    vault.join(".amby/sync/pre-sync-backup.json")
+    backup::key_dir(vault, false).unwrap().join("receipt.json")
 }
 
 fn json(path: &Path) -> Value {
@@ -184,9 +184,9 @@ fn symlinked_or_special_source_entries_fail_without_publishing_receipt_or_backup
         "a partial copy has no receipt"
     );
     assert!(backup::read_path(&vault).is_none());
-    let backup_container = temp.path().join("unsafe-vault.amby-backups");
+    let key = backup::key_dir(&vault, false).unwrap();
     assert!(
-        !backup_container.exists() || fs::read_dir(backup_container).unwrap().next().is_none(),
+        !key.exists() || fs::read_dir(key).unwrap().next().is_none(),
         "failed preflight must not publish a backup directory"
     );
 }
@@ -236,29 +236,6 @@ fn repeated_ensure_reuses_a_valid_backup_and_preserves_its_bytes() {
 }
 
 #[test]
-fn a_missing_or_corrupt_published_copy_is_rejected_without_replacing_its_receipt() {
-    let temp = TestDir::new();
-    let vault = vault_at(temp.path(), "damaged-vault");
-    fs::write(vault.join("n.md"), b"original").unwrap();
-
-    let backup_root = PathBuf::from(backup::ensure(&vault).unwrap());
-    let receipt_before = fs::read(receipt_path(&vault)).unwrap();
-    fs::write(backup_root.join("vault/n.md"), b"corrupt").unwrap();
-    assert!(
-        backup::ensure(&vault).is_err(),
-        "do not bless a damaged backup as complete"
-    );
-    assert_eq!(fs::read(receipt_path(&vault)).unwrap(), receipt_before);
-
-    fs::remove_dir_all(&backup_root).unwrap();
-    assert!(
-        backup::ensure(&vault).is_err(),
-        "do not silently replace a missing backup"
-    );
-    assert_eq!(fs::read(receipt_path(&vault)).unwrap(), receipt_before);
-}
-
-#[test]
 fn copied_vault_with_a_different_canonical_path_gets_its_own_backup() {
     let temp = TestDir::new();
     let original = vault_at(temp.path(), "original-vault");
@@ -268,7 +245,12 @@ fn copied_vault_with_a_different_canonical_path_gets_its_own_backup() {
     let copied = vault_at(temp.path(), "copied-vault");
     fs::create_dir_all(copied.join(".amby/sync")).unwrap();
     fs::write(copied.join("n.md"), b"same content").unwrap();
-    fs::copy(receipt_path(&original), receipt_path(&copied)).unwrap();
+    // A receipt that came along with a copied folder names another vault path.
+    fs::copy(
+        receipt_path(&original),
+        copied.join(".amby/sync/pre-sync-backup.json"),
+    )
+    .unwrap();
 
     let second = backup::ensure(&copied).unwrap();
     assert_ne!(first, second);
@@ -285,7 +267,9 @@ fn destination_overlap_and_existing_non_directory_fail_without_overwrite() {
     fs::write(vault.join("n.md"), b"note").unwrap();
 
     assert_eq!(
-        backup::create_at(&vault, &vault).unwrap_err().code,
+        backup::create_in(&vault, &vault, || Ok(()))
+            .unwrap_err()
+            .code,
         "backup_invalid"
     );
     assert!(!receipt_path(&vault).exists());
@@ -293,7 +277,7 @@ fn destination_overlap_and_existing_non_directory_fail_without_overwrite() {
     let blocked_parent = temp.path().join("parent-file");
     fs::write(&blocked_parent, b"do not replace").unwrap();
     let untouched = fs::read(&blocked_parent).unwrap();
-    assert!(backup::create_at(&vault, &blocked_parent).is_err());
+    assert!(backup::create_in(&blocked_parent, &vault, || Ok(())).is_err());
     assert_eq!(fs::read(&blocked_parent).unwrap(), untouched);
     fs::remove_file(blocked_parent).unwrap();
 
@@ -301,9 +285,11 @@ fn destination_overlap_and_existing_non_directory_fail_without_overwrite() {
     {
         let outside = temp.path().join("outside");
         fs::create_dir_all(&outside).unwrap();
-        let backup_container = temp.path().join("overlap-vault.amby-backups");
-        std::os::unix::fs::symlink(&outside, &backup_container).unwrap();
-        assert!(backup::create_at(&vault, temp.path()).is_err());
+        let home = temp.path().join("home");
+        fs::create_dir_all(&home).unwrap();
+        let key = backup::key_dir_in(&home, &vault.canonicalize().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&outside, &key).unwrap();
+        assert!(backup::create_in(&home, &vault, || Ok(())).is_err());
         assert!(fs::read_dir(outside).unwrap().next().is_none());
     }
 }
@@ -316,7 +302,7 @@ fn a_failed_creation_does_not_leave_a_complete_marker_or_receipt() {
 
     let blocked_parent = temp.path().join("occupied-parent");
     fs::write(&blocked_parent, b"occupied").unwrap();
-    let result = backup::create_at(&vault, &blocked_parent);
+    let result = backup::create_in(&blocked_parent, &vault, || Ok(()));
     assert_eq!(result.unwrap_err().code, "backup_failed");
     assert!(!receipt_path(&vault).exists());
     let partials = walkdir::WalkDir::new(temp.path())
@@ -367,7 +353,7 @@ fn changing_a_source_during_copy_never_publishes_a_complete_backup() {
     let temp = TestDir::new();
     let vault = vault_at(temp.path(), "changing");
     fs::write(vault.join("n.md"), b"before").unwrap();
-    let result = backup::create_with_hook(&vault, temp.path(), || {
+    let result = backup::create_with_hook(&vault, || {
         fs::write(vault.join("n.md"), b"after").unwrap();
         Ok(())
     });
@@ -382,14 +368,14 @@ fn a_mid_copy_failure_preserves_the_source_and_a_retry_can_finish() {
     let temp = TestDir::new();
     let vault = vault_at(temp.path(), "interrupted");
     fs::write(vault.join("n.md"), b"original").unwrap();
-    let result = backup::create_with_hook(&vault, temp.path(), || {
+    let result = backup::create_with_hook(&vault, || {
         Err(super::types::SyncError::new("backup_failed"))
     });
     assert_eq!(result.unwrap_err().code, "backup_failed");
     assert!(!receipt_path(&vault).exists());
     assert_eq!(fs::read(vault.join("n.md")).unwrap(), b"original");
     assert_eq!(
-        walkdir::WalkDir::new(temp.path())
+        walkdir::WalkDir::new(backup::key_dir(&vault, false).unwrap())
             .into_iter()
             .filter_map(Result::ok)
             .filter(|e| e.file_name() == "manifest.json")

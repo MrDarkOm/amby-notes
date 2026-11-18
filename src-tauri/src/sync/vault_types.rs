@@ -149,6 +149,10 @@ pub struct VaultSyncStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub backup_path: Option<String>,
+    /// A copy was made before, but it is missing or damaged now. Switching sync on again makes a
+    /// new one.
+    #[serde(default)]
+    pub backup_missing: bool,
     /// The space on the server (hex), if linked.
     pub space_id: Option<String>,
     /// Its name, if it could be read.
@@ -185,6 +189,7 @@ impl VaultSyncStatus {
             linked: false,
             resumable: false,
             backup_path: None,
+            backup_missing: false,
             space_id: None,
             space_name: None,
             phase: SyncPhase::Off,

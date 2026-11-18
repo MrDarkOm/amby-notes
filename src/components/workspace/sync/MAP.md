@@ -41,7 +41,7 @@ and a way back from `.amby/trash/`.
 
 The choice in a conflict and what is said after it: [the notices of a note](../note-notices/MAP.md), [conflict-outcome.ts](conflict-outcome.ts).
 
-Before the first pass Rust creates a verified external copy beside the vault.
+Before the first pass Rust makes a verified copy in app data (not beside the vault), deleted 14 days after the first sync.
 Backup manager: [backup-panel.tsx](../backup/backup-panel.tsx). See [the backup contract](../../../../docs/vault-format.md#backup-and-git-policy).
 
 Tests sit beside the files. The manual check in a native window, against a server in Docker, is the

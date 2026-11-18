@@ -267,6 +267,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::backups::list_vault_backups,
         commands::backups::verify_vault_backup,
         commands::backups::restore_vault_backup,
+        commands::backups::delete_vault_backup,
+        commands::backups::reveal_vault_backup,
         commands::sync::sync_check_server,
         commands::sync::sync_check_password,
         commands::sync::sync_prepare_account,
@@ -383,6 +385,8 @@ pub fn run() {
                 // holds the address and the name (docs/sync-plan.md, Р5).
                 use tauri::Manager;
                 let root = app_data::app_root(app.handle())?;
+                // Pre-sync copies of vaults live here, never beside a vault.
+                sync::backup::set_home(root.join("backups"));
                 let secrets: std::sync::Arc<dyn sync::secrets::SecretStore> = std::sync::Arc::new(
                     sync::secrets::BundledSecrets::new(sync::secrets::KeyringStore),
                 );

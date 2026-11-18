@@ -11,7 +11,7 @@ fn an_error_after_receipt_publication_keeps_the_complete_copy_for_retry() {
     std::fs::create_dir_all(&vault).unwrap();
     std::fs::write(vault.join("n.md"), b"the only version").unwrap();
 
-    let result = backup::create_with_hook(&vault, &container, || {
+    let result = backup::create_with_hook(&vault, || {
         inject_nth_atomic_write_failure(1, true);
         Ok(())
     });
@@ -20,15 +20,15 @@ fn an_error_after_receipt_publication_keeps_the_complete_copy_for_retry() {
         result.is_err(),
         "the caller must see the durability failure"
     );
-    let receipt: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(vault.join(".amby/sync/pre-sync-backup.json")).unwrap(),
-    )
-    .unwrap();
+    let key = backup::key_dir(&vault.canonicalize().unwrap(), false).unwrap();
+    let receipt: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(key.join("receipt.json")).unwrap()).unwrap();
     let path = std::path::PathBuf::from(receipt["backup_root"].as_str().unwrap());
     let bytes = std::fs::read(path.join("vault/n.md"));
     let retry = backup::ensure(&vault);
     // Clean up before assertions, including on the broken implementation.
     std::fs::remove_dir_all(&container).unwrap();
+    let _ = std::fs::remove_dir_all(&key);
     assert_eq!(bytes.unwrap(), b"the only version");
     assert_eq!(retry.unwrap(), path.to_str().unwrap());
 }

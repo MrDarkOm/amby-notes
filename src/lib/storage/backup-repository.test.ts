@@ -3,6 +3,8 @@ const commands = vi.hoisted(() => ({
   listVaultBackups: vi.fn(),
   verifyVaultBackup: vi.fn(),
   restoreVaultBackup: vi.fn(),
+  deleteVaultBackup: vi.fn(),
+  revealVaultBackup: vi.fn(),
 }))
 vi.mock("../bindings", () => ({ commands }))
 import { createBackupPort } from "./backup-repository"
@@ -26,5 +28,17 @@ it("returns only a machine code for failed IPC", async () => {
   await expect(createBackupPort(true).verify(5, "id")).rejects.toMatchObject({
     message: "backup_failed",
     code: "backup_failed",
+  })
+})
+it("deletes and reveals a copy by id in the pinned generation, never by a path", async () => {
+  commands.deleteVaultBackup.mockResolvedValue({ status: "ok", data: null })
+  commands.revealVaultBackup.mockResolvedValue({ status: "ok", data: null })
+  const port = createBackupPort(true)
+  await port.remove(5, "backup-id")
+  await port.reveal(5, "backup-id")
+  expect(commands.deleteVaultBackup).toHaveBeenCalledWith(5, "backup-id")
+  expect(commands.revealVaultBackup).toHaveBeenCalledWith(5, "backup-id")
+  await expect(createBackupPort(false).remove(5, "x")).rejects.toMatchObject({
+    code: "unavailable",
   })
 })

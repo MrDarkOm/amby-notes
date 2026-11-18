@@ -77,12 +77,12 @@ describe("sync of the open vault: switching it on", () => {
     await show({ ...VAULT_OFF })
     const panel = await screen.findByTestId("sync-vault")
     expect(panel.textContent).toMatch(/полную копию/i)
-    expect(panel.textContent).toMatch(/рядом с папкой/i)
+    expect(panel.textContent).toMatch(/14 дней/i)
     expect(panel.textContent).toMatch(/синхронизация не начнётся.*если.*ошиб/i)
   })
 
   it("offers the backup manager instead of a manual restore procedure", async () => {
-    await show({ ...VAULT_OFF, backupPath: "/notes.amby-backups/01J9TEST/vault" })
+    await show({ ...VAULT_OFF, backupPath: "/app-data/backups/key/01J9TEST" })
     const panel = await screen.findByTestId("sync-vault")
     expect(panel.querySelector("summary")?.textContent).toContain("Резервные копии")
     expect(panel.textContent).not.toMatch(/переименуйте|закройте Amby/)

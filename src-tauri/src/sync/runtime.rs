@@ -537,7 +537,11 @@ impl SyncRuntime {
     }
 
     fn rest(&self, vault: &Path, mut status: VaultSyncStatus) -> VaultSyncStatus {
-        status.backup_path = backup::read_path(vault);
+        match backup::standing(vault) {
+            backup::Standing::Ready(path) => status.backup_path = Some(path),
+            backup::Standing::Lost => status.backup_missing = true,
+            _ => {}
+        }
         let mut inner = self.inner();
         inner.vault = Some(vault.to_path_buf());
         inner.resting = Some(status.clone());
@@ -652,10 +656,20 @@ impl SyncRuntime {
 
     async fn prepare_backup(vault: &Path) -> Result<(), SyncError> {
         let vault = vault.to_path_buf();
-        tokio::task::spawn_blocking(move || backup::ensure(&vault))
+        tokio::task::spawn_blocking(move || backup::prepare(&vault))
             .await
             .map_err(|_| SyncError::new("backup_failed"))??;
         Ok(())
+    }
+
+    /// Deletes the pre-sync copy once its 14 days after the first successful sync are over.
+    /// Best effort: a failure leaves the copy and is tried again at the next start.
+    async fn expire_backup(vault: &Path) {
+        let vault = vault.to_path_buf();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(0));
+        let _ = tokio::task::spawn_blocking(move || backup::cleanup_expired(&vault, now)).await;
     }
 
     /// The key of a space this vault was linked to: from the state when it is kept there (no
@@ -705,6 +719,7 @@ impl SyncRuntime {
         let vault = vault
             .canonicalize()
             .map_err(|_| SyncError::new("storage_error"))?;
+        Self::expire_backup(&vault).await;
         let Some(link) = Self::read_link(&vault)? else {
             return Ok(self.rest_current(&vault, VaultSyncStatus::off(), token));
         };
@@ -729,7 +744,7 @@ impl SyncRuntime {
         };
         // Older enabled vaults have no receipt yet. Protect them before their
         // first automatic pass, without rehashing a complete copy on every restart.
-        if backup::read_path(&vault).is_none() {
+        if backup::standing(&vault) == backup::Standing::Never {
             if let Err(error) = Self::prepare_backup(&vault).await {
                 return Ok(self.rest_current(
                     &vault,
