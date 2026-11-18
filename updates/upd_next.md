@@ -1,5 +1,7 @@
 # Amby — Next version
 
+- For developers: `npm run lint` passes again — the browser-console audit scripts in `docs/audit/**/scripts/` now lint with browser globals, and one needless regex escape was removed.
+
 - Interface polish (no layout or style changes): keyboard focus is now visible on the dock, tabs and toolbars; the "Delete" items in menus are readable in the light theme; an "off" switch is clearly visible in the light theme; the emoji picker uses the app accent and font instead of blue; the note title lines up with the text below it; a hovered row in the file tree no longer looks selected; settings drop-downs have one size and long values no longer push the arrow out.
 - The file tree is one Tab stop again: the type icon of a row (it adds the note to favourites) is no longer a separate stop; favourites stay available from the context menu. Tab no longer enters the note text, where it typed a tab: it moves between the buttons; the text is entered with a click or with Enter from the title.
 - Shortcut hints match the system: ⌘ on macOS, Ctrl on Windows and Linux (undo, redo, link, formula). "Show in Finder" / "Show in File Explorer" / "Show in the file manager" now names the file manager of the current system.

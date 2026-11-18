@@ -5,7 +5,7 @@
     const m = c.match(/rgba?\(([^)]+)\)/)
     if (!m) return null
     const p = m[1]
-      .split(/[ ,\/]+/)
+      .split(/[ ,/]+/)
       .filter(Boolean)
       .map(Number)
     return [p[0], p[1], p[2], p[3] === undefined ? 1 : p[3]]
