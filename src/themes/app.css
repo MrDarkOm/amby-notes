@@ -3326,7 +3326,7 @@ body:has(header [data-pane-edge-aligned] > div:first-child > [data-active-tab]:f
   background: radial-gradient(circle at top left, transparent 0.45rem, var(--note-surface) 0.5rem);
 }
 
-[data-tab-item-key]:first-child .amby-active-tab-surface::before {
+[data-pane-edge-aligned] [data-tab-item-key]:first-child .amby-active-tab-surface::before {
   display: none;
 }
 

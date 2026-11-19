@@ -879,9 +879,9 @@ export function HeaderTabs({
               ? true
               : undefined
           }
-          className="pointer-events-auto flex min-w-0 flex-1 items-center gap-1 overflow-hidden pl-0 pr-1"
+          className="pointer-events-auto flex min-w-0 flex-1 items-center gap-1 pl-0 pr-1"
         >
-          <TabList className="flex h-full min-w-0 max-w-full items-center gap-1 overflow-hidden shrink">
+          <TabList className="flex h-full min-w-0 max-w-full shrink items-center gap-1 overflow-hidden px-2 -mx-2">
             <AnimatePresence initial={false}>
               {tabs.map((tab, index) => {
                 const isSelected = activeTabKey === tab.key
