@@ -214,6 +214,7 @@ export function FilesPanel(props: PanelRenderProps) {
   const canCreateDatabase = Boolean(databaseRuntimeEnabled ?? canCreateDatabaseLayer)
   const [newItemModalOpen, setNewItemModalOpen] = React.useState(false)
   const [databaseDialogOpen, setDatabaseDialogOpen] = React.useState(false)
+  const [databaseParentId, setDatabaseParentId] = React.useState<string | null>(null)
   const [databaseName, setDatabaseName] = React.useState("")
   const [databaseNameError, setDatabaseNameError] = React.useState(false)
   const [databaseCreateFailed, setDatabaseCreateFailed] = React.useState(false)
@@ -297,11 +298,12 @@ export function FilesPanel(props: PanelRenderProps) {
     setNewItemModalOpen(true)
   }
 
-  function handleNewDatabaseClick() {
+  function handleNewDatabaseClick(parentId: string | null = null) {
     if (!vault) {
       onOpenVault()
       return
     }
+    setDatabaseParentId(parentId)
     setDatabaseName(t("defaults.untitled"))
     setDatabaseNameError(false)
     setDatabaseCreateFailed(false)
@@ -317,7 +319,7 @@ export function FilesPanel(props: PanelRenderProps) {
     }
     setDatabaseCreateFailed(false)
     try {
-      await onNewDatabase?.(null, name)
+      await onNewDatabase?.(databaseParentId, name)
     } catch (error) {
       // The dialog stays open with an inline error next to the action (notice rules).
       logger.warn("database.create_failed", { errorType: errorType(error) })
@@ -519,6 +521,9 @@ export function FilesPanel(props: PanelRenderProps) {
                   onDelete={onDelete}
                   onDeleteMany={onDeleteMany}
                   onNewFile={onNewFile}
+                  onNewFolder={onNewFolder}
+                  onNewSketch={onNewSketch}
+                  onNewDatabase={onNewDatabase ? handleNewDatabaseClick : undefined}
                   onAttachCanvas={onAttachCanvas}
                   onAttachSketch={onAttachSketch}
                   onOpenInNewTab={onOpenInNewTab}
@@ -609,7 +614,7 @@ export function FilesPanel(props: PanelRenderProps) {
           <ContextMenuItem
             disabled={!canCreateDatabase}
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white disabled:opacity-50"
-            onSelect={handleNewDatabaseClick}
+            onSelect={() => handleNewDatabaseClick()}
           >
             <Database className="size-3.5" />
             {t("filesPanel.database")}

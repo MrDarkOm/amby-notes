@@ -103,6 +103,9 @@ export interface SidebarTreeProps {
   onDelete?: (id: string, mode?: "archive") => void
   onDeleteMany?: (ids: string[]) => void
   onNewFile?: (parentId: string | null) => void
+  onNewFolder?: (parentId: string | null) => void
+  onNewSketch?: (parentId: string | null) => void
+  onNewDatabase?: (parentId: string | null) => void
   onAttachCanvas?: (id: string) => void
   onAttachSketch?: (id: string) => void
   onOpenInNewTab?: (id: string) => void
@@ -194,6 +197,9 @@ export interface TreeNodeProps {
   onDelete?: (id: string, mode?: "archive") => void
   onDeleteMany?: (ids: string[]) => void
   onNewFile?: (parentId: string | null) => void
+  onNewFolder?: (parentId: string | null) => void
+  onNewSketch?: (parentId: string | null) => void
+  onNewDatabase?: (parentId: string | null) => void
   onAttachCanvas?: (id: string) => void
   onAttachSketch?: (id: string) => void
   onOpenInNewTab?: (id: string) => void

@@ -435,6 +435,8 @@ describe("SidebarTree rename trigger", () => {
     expect(row).not.toBeNull()
 
     fireEvent.contextMenu(row as HTMLElement)
+    const nestTrigger = await screen.findByText("Вложить")
+    fireEvent.click(nestTrigger)
     const createItem = await screen.findByText("Новая заметка")
     fireEvent.click(createItem)
 
@@ -536,6 +538,7 @@ describe("SidebarTree rename trigger", () => {
       fireEvent.contextMenu(
         container.querySelector(`[data-tree-item-id="${item.id}"]`) as HTMLElement,
       )
+      fireEvent.click(await screen.findByText("Вложить"))
       fireEvent.click(await screen.findByText("Новая заметка"))
 
       await act(async () => {
