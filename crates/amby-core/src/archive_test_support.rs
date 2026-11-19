@@ -102,6 +102,11 @@ pub fn files_under(base: &Path, dir: &Path) -> BTreeMap<String, Vec<u8>> {
                 .unwrap()
                 .to_string_lossy()
                 .replace('\\', "/");
+            // This runtime coordination file is held exclusively by the active
+            // vault; it is not archive or user data and cannot be read on Windows.
+            if rel == ".amby/operation.lock" {
+                continue;
+            }
             found.insert(rel, fs::read(&path).unwrap());
         }
     }

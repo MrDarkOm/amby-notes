@@ -530,8 +530,20 @@ mod tests {
         let second = temp_dir("reg-second");
         let registry = registry_for(&[("v1", &first), ("v2", &second)]);
         // No vault is open here at all: the answer comes from the list of known vaults.
-        assert_eq!(vault_folder_from_registry(&registry, "v2"), Ok(second));
-        assert_eq!(vault_folder_from_registry(&registry, "v1"), Ok(first));
+        assert_eq!(
+            vault_folder_from_registry(&registry, "v2")
+                .unwrap()
+                .canonicalize()
+                .unwrap(),
+            second.canonicalize().unwrap()
+        );
+        assert_eq!(
+            vault_folder_from_registry(&registry, "v1")
+                .unwrap()
+                .canonicalize()
+                .unwrap(),
+            first.canonicalize().unwrap()
+        );
     }
 
     #[test]

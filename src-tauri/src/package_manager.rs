@@ -1712,8 +1712,10 @@ mod tests {
     fn revoked_public_key_is_not_trusted_anywhere() {
         assert_ne!(OFFICIAL_ED25519_PUBLIC_KEY_HEX, REVOKED_PUBLIC_KEY_HEX);
         assert_ne!(OFFICIAL_ED25519_KEY_ID, REVOKED_KEY_ID);
-        let source = include_str!("package_manager.rs");
-        let production = source.split("#[cfg(test)]\nmod tests").next().unwrap();
+        let source = include_str!("package_manager.rs").replace("\r\n", "\n");
+        let (production, _) = source
+            .split_once("#[cfg(test)]\nmod tests")
+            .expect("package manager test boundary exists");
         assert!(!production.contains(REVOKED_PUBLIC_KEY_HEX));
         let frontend = include_str!("../../src/lib/modules/package-manager/validator.ts");
         assert!(!frontend.contains(REVOKED_PUBLIC_KEY_HEX));

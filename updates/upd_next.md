@@ -1,5 +1,7 @@
 # Amby — Next version
 
+- Fixed Windows portability of desktop archive, vault-path and revoked-key verification.
+
 - On Windows, bound the CLI pipe listener wait, corrected cross-platform verification fixtures, and documented native validation results.
 
 - Исправлена обработка последовательных запросов CLI и MCP к открытому Amby в Windows.
