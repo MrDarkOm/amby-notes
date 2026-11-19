@@ -1344,6 +1344,7 @@ export function WorkspaceOrchestration() {
       setNestedNotesPlacement,
       handleMoveItem,
       handleNewFolderIn,
+      handleConvertFolderToNote,
       handleMergeFile,
       handleDeleteFile,
       handleSelect,
@@ -1465,6 +1466,7 @@ export function WorkspaceOrchestration() {
         activeFolder={activeFolder}
         handleNewFileIn={handleNewFileIn}
         handleNewFolderIn={handleNewFolderIn}
+        handleConvertFolderToNote={handleConvertFolderToNote}
         handleSetIcon={handleSetIcon}
         renderCachedTabSurfaces={renderCachedTabSurfaces}
         focusShowLeft={focusShowLeft}

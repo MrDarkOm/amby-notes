@@ -98,6 +98,7 @@ interface UsePaneRenderersParams {
   setNestedNotesPlacement: (id: string, placement: NestedNotesPlacement) => void
   handleMoveItem: (sourceIds: string[], targetId: string | null) => Promise<MoveOutcome>
   handleNewFolderIn: (parentId: string | null, requestedName?: string) => Promise<void>
+  handleConvertFolderToNote: (folderId: string) => Promise<void>
   handleMergeFile: (sourceId: string, targetId: string) => Promise<void>
   handleDeleteFile: (id: string, mode?: DeleteMode) => Promise<void>
   handleSelect: (fileId: string, displayTitle?: string) => Promise<void>
@@ -202,6 +203,7 @@ export function usePaneRenderers({
   setNestedNotesPlacement,
   handleMoveItem,
   handleNewFolderIn,
+  handleConvertFolderToNote,
   handleMergeFile,
   handleDeleteFile,
   handleSelect,
@@ -803,6 +805,7 @@ export function usePaneRenderers({
               onOpenItem={handleSelect}
               onNewNote={handleNewFileIn}
               onNewFolder={handleNewFolderIn}
+              onConvertToNote={handleConvertFolderToNote}
               onIconChange={(icon) => handleSetIcon(leafActiveFolder.id, icon)}
             />
           ) : null}
