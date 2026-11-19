@@ -1,5 +1,4 @@
 import type { TreeItem } from "@/lib/storage"
-import { isSuperNoteItem } from "./workspace-tree-utils"
 
 export type TreeSortKey = "manual" | "name" | "created" | "modified"
 export type TreeSortDirection = "asc" | "desc"
@@ -131,11 +130,7 @@ export function reorderTreeItems(
 }
 
 function isFolderGroupItem(item: TreeItem): boolean {
-  return (
-    item.type === "folder" ||
-    isSuperNoteItem(item) ||
-    (item.type === "file" && Boolean(item.children?.length))
-  )
+  return item.type === "folder" || (item.type === "file" && Boolean(item.children?.length))
 }
 
 /**

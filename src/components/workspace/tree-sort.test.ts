@@ -31,21 +31,21 @@ describe("sortTreeItems", () => {
     expect(sorted.map(({ id }) => id)).toEqual(["second", "first"])
   })
 
-  it("groups folders and supernotes together above regular notes", () => {
+  it("groups folders and supernotes with children together above regular notes", () => {
     const bundleNote = item("bundle", "file", {
       name: "Zulu",
       children: [item("attachment", "canvas")],
     })
-    const emptySuperNote: TreeItem = {
-      ...item("super", "file", { name: "Beta" }),
+    const emptyBundleNote: TreeItem = {
+      ...item("empty-bundle", "file", { name: "Beta" }),
       path: "/vault/Beta/Beta.md",
     }
     const looseNote = item("loose", "file", { name: "Alpha" })
     const folder = item("folder", "folder", { name: "Middle" })
 
-    const sorted = sortTreeItems([bundleNote, looseNote, folder, emptySuperNote], "name", "asc")
+    const sorted = sortTreeItems([bundleNote, looseNote, folder, emptyBundleNote], "name", "asc")
 
-    expect(sorted.map(({ id }) => id)).toEqual(["super", "folder", "bundle", "loose"])
+    expect(sorted.map(({ id }) => id)).toEqual(["folder", "bundle", "loose", "empty-bundle"])
   })
 
   it("keeps folders and supernotes first in descending order", () => {

@@ -15,7 +15,11 @@ import { cn } from "@/lib/utils"
 import { EmojiGlyph } from "@/components/ui/emoji-glyph"
 import { IconValue } from "../icon-value"
 import { isRichIconValue } from "../icon-values"
-import { isSuperCanvasItem, isSuperNoteItem, isSuperSketchItem } from "../workspace-tree-utils"
+import { isSuperCanvasItem, isSuperSketchItem } from "../workspace-tree-utils"
+
+function isExpandableSuperNote(item: TreeItem): boolean {
+  return item.type === "file" && Boolean(item.children?.length)
+}
 import { KNOWN_ICONS, type TreeItem } from "./tree-types"
 import { isEnterKey } from "@/lib/keyboard"
 
@@ -85,7 +89,7 @@ export function TreeItemIcon({ item, className }: { item: TreeItem; className?: 
     item.icon !== "sketch" &&
     item.icon !== "database"
       ? item.icon
-      : isSuperNoteItem(item)
+      : isExpandableSuperNote(item)
         ? "supernote"
         : isSuperCanvasItem(item)
           ? "supercanvas"
@@ -136,7 +140,7 @@ export function TreeItemStatusIcon({
 }) {
   const isFavoriteItem = isFavorite
   const isInteractive = !!onActivate
-  const isSuperNote = isSuperNoteItem(item)
+  const isSuperNote = isExpandableSuperNote(item)
   const Icon =
     item.type === "folder"
       ? Folder
