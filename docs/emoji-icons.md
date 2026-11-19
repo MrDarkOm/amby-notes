@@ -23,10 +23,11 @@ asset path. Rendering does not write user data.
   `getImageURL` option alone does not work here. Per-skin `src` takes precedence.
   A capture-phase shadow-root error handler restores native text if an image fails;
   it is detached when the retained picker is disposed.
-- `src/lib/emoji/picker-styles.ts` waits for Mart's asynchronous initial root and
-  inserts an external bundled CSS link. This survives packaged CSP configurations
-  that disallow constructor-injected inline styles. A one-shot child-list observer
-  disconnects immediately after initialization; searches and scrolling are not observed.
+- `src/lib/emoji/picker-styles.ts` adopts the bundled stylesheet in engines that
+  support constructable stylesheets. It stays with the shadow root when the
+  retained picker moves into the popover. Older engines use a same-origin
+  stylesheet link after the initial root appears and refresh it on picker moves.
+  Both routes use the packaged CSS and the existing security policy.
 - `src/themes/app.css` and `emoji-mart-base.css`: visual definitions. The picker's
   hardcoded loupe is replaced by a local mask matching the installed Lucide Search
   geometry, with its ISC notice. Search font, field size and transparent focused

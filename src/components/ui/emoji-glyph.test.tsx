@@ -37,18 +37,35 @@ describe("EmojiGlyph", () => {
       ])
     expect(shapes(mask)).toEqual(shapes(icon))
   })
-  it("installs bundled styles after a delayed first picker render, surviving search updates", async () => {
+  it("keeps the adopted sheet across the first render and picker moves", () => {
     const root = document.createElement("div").attachShadow({ mode: "open" })
+    const styles = installPickerStyles(root)
+    const sheet = root.adoptedStyleSheets[0]
+    expect(sheet).toBeInstanceOf(CSSStyleSheet)
+    root.innerHTML = '<section id="root"><input type="search" /></section>'
+    styles.afterMove()
+    expect(root.adoptedStyleSheets).toEqual([sheet])
+    styles.dispose()
+    expect(root.adoptedStyleSheets).toHaveLength(0)
+  })
+  it("loads and refreshes an external link when adopted stylesheets are unavailable", async () => {
+    const root = document.createElement("div").attachShadow({ mode: "open" })
+    Object.defineProperty(root, "adoptedStyleSheets", { value: undefined })
     root.innerHTML = "<style>constructor styles</style>"
-    const remove = installPickerStyles(root)
+    const styles = installPickerStyles(root)
     // Mart's asynchronous initial render replaces constructor-injected shadow content.
     root.innerHTML = '<section id="root"><input type="search" /></section>'
     await waitFor(() =>
       expect(root.querySelector("link[data-amby-emoji-mart-base]")).not.toBeNull(),
     )
+    const initialLink = root.querySelector("link[data-amby-emoji-mart-base]")
     root.querySelector("#root")!.append(document.createElement("button"))
-    expect(root.querySelectorAll("link[data-amby-emoji-mart-base]")).toHaveLength(1)
-    remove()
+    expect(root.querySelector("link[data-amby-emoji-mart-base]")).toBe(initialLink)
+    styles.afterMove()
+    const movedLinks = root.querySelectorAll("link[data-amby-emoji-mart-base]")
+    expect(movedLinks).toHaveLength(1)
+    expect(movedLinks[0]).not.toBe(initialLink)
+    styles.dispose()
   })
   it("falls back to the original sequence after a load error and recovers for a new value", () => {
     const { container, rerender } = render(<EmojiGlyph value="👩🏽‍💻" />)

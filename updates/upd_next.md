@@ -1,5 +1,7 @@
 # Amby — Next version
 
+- The emoji picker keeps its search and grid styles in WebKit when the warmed picker moves into the popover under the packaged security policy.
+
 - Fixed Windows portability of desktop archive, vault-path and revoked-key verification.
 
 - On Windows, bound the CLI pipe listener wait, corrected cross-platform verification fixtures, and documented native validation results.

@@ -86,8 +86,12 @@ test("picker styles survive asynchronous initialization under packaged-style CSP
   )
   await seedVault(page, { Emoji: original })
   await openInLive(page, "Emoji")
+  const parkedSearch = page.locator(
+    '.amby-emoji-picker-parking [data-amby-emoji-picker] input[type="search"]',
+  )
+  await expect(parkedSearch).toHaveCSS("height", "40px")
   await page.locator(".amby-callout-emoji-btn").click()
-  const picker = page.locator("[data-amby-emoji-picker]")
+  const picker = page.locator(".amby-emoji-picker-panel [data-amby-emoji-picker]")
   const search = picker.locator('input[type="search"]')
   await expect(search).toHaveCSS("height", "40px")
   await search.fill("Finland")

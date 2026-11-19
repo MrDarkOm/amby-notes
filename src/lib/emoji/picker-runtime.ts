@@ -22,7 +22,7 @@ interface Entry {
   owner?: symbol
   select?: (emoji: { native: string }) => void
   close?: () => void
-  disposeStyles: () => void
+  styles: ReturnType<typeof installPickerStyles>
   disposeFallback: () => void
 }
 let cached: Entry | undefined
@@ -66,7 +66,7 @@ function disposeEntry(entry: Entry) {
   entry.owner = undefined
   entry.select = undefined
   entry.close = undefined
-  entry.disposeStyles()
+  entry.styles.dispose()
   entry.disposeFallback()
   entry.picker.retained = false
   entry.picker.remove()
@@ -101,7 +101,7 @@ function entryFor(setup: PickerSetup): Entry {
   Object.assign(entry, {
     key,
     picker,
-    disposeStyles: installPickerStyles(picker.shadowRoot!),
+    styles: installPickerStyles(picker.shadowRoot!),
     disposeFallback: installPickerImageFallback(picker.shadowRoot!),
   })
   cached = entry
@@ -132,7 +132,10 @@ export function mountEmojiPicker(
     entry.select = onSelect
     entry.close = onClose
     previousClose?.()
-    mount.replaceChildren(entry.picker)
+    if (entry.picker.parentNode !== mount) {
+      mount.replaceChildren(entry.picker)
+      entry.styles.afterMove()
+    }
   }
   const frame = cached ? undefined : requestAnimationFrame(attach)
   if (cached) attach()
@@ -157,6 +160,7 @@ export function mountEmojiPicker(
     // deferred update runs after the selection event has saved the recent choice.
     if (refreshOnRelease()) entry.picker.update({ categories: null })
     parkingPlace().append(entry.picker)
+    entry.styles.afterMove()
   }
 }
 

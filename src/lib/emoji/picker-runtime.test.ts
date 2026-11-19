@@ -37,7 +37,9 @@ vi.mock("emoji-mart", () => ({
 }))
 vi.mock("./picker-search", () => ({ configurePickerSearch: calls.configure }))
 vi.mock("./picker-data", () => ({ notoPickerData: {}, installPickerImageFallback: () => vi.fn() }))
-vi.mock("./picker-styles", () => ({ installPickerStyles: () => vi.fn() }))
+vi.mock("./picker-styles", () => ({
+  installPickerStyles: () => ({ afterMove: vi.fn(), dispose: vi.fn() }),
+}))
 const setup: PickerSetup = { language: "ru", theme: "light", i18n: {} }
 const mount = () => {
   const node = document.createElement("div")
