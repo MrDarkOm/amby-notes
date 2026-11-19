@@ -543,7 +543,7 @@ export function FilesPanel(props: PanelRenderProps) {
               )}
             </div>
 
-            <div className="shrink-0 p-2">
+            <div className="shrink-0 p-3">
               <Button
                 data-help-target="create"
                 className="w-full gap-2 border border-foreground/10 bg-foreground/10 font-medium text-foreground shadow-sm hover:bg-foreground/15 hover:shadow-md active:shadow-sm focus-visible:ring-1 focus-visible:ring-foreground/20"

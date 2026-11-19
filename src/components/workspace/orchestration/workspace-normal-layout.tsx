@@ -320,7 +320,7 @@ export function WorkspaceNormalLayout({
             data-help-area="content"
             ref={mainStageRef}
             className={cn(
-              "amby-workspace-stage relative flex flex-1 gap-0 overflow-hidden",
+              "amby-workspace-stage relative z-10 flex flex-1 gap-0 overflow-hidden bg-background",
               !rightPanelEnabled && "pr-2",
               isMultiPane && "-mt-11",
             )}
@@ -503,18 +503,11 @@ function PinnedSidePanel({
   return (
     <motion.div
       data-help-area={`${side}-panel`}
-      className={cn("relative flex shrink-0", side === "left" ? "justify-start" : "justify-end")}
-      style={{
-        width: animatedWidth,
-        // Anchor the panel to its outer dock edge and clip only along the inner
-        // edge where the central workspace stage meets it, so the central card
-        // smoothly covers and uncovers the side panel like a stacked sheet.
-        clipPath: !presence.settled
-          ? side === "left"
-            ? "inset(-16px 0px -16px -16px)"
-            : "inset(-16px -16px -16px 0px)"
-          : undefined,
-      }}
+      className={cn(
+        "relative z-0 flex shrink-0",
+        side === "left" ? "justify-start" : "justify-end",
+      )}
+      style={{ width: animatedWidth }}
       {...hover}
     >
       <motion.div

@@ -229,7 +229,7 @@ export function CanvasAreaControls({
   const { t } = useTranslation()
 
   return (
-    <div className="absolute bottom-2 right-4 z-10 flex items-center select-none">
+    <div className="absolute bottom-3 right-3 z-10 flex items-center select-none">
       {/* Consolidated Area Controls Block */}
       <div className="flex items-center gap-0.5 rounded-xl border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-md">
         <ToolbarButton title={t("canvas.zoomOut")} onClick={onZoomOut}>

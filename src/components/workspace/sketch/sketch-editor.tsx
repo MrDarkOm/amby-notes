@@ -937,7 +937,7 @@ export function SketchEditor({
       )}
 
       {/* Area Controls (Identical to Canvas Toolbar) */}
-      <div className="absolute bottom-2 right-4 z-10 flex items-center select-none">
+      <div className="absolute bottom-3 right-3 z-10 flex items-center select-none">
         <div className="flex items-center gap-0.5 rounded-xl border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-md">
           <ToolbarButton title={t("canvas.zoomOut")} onClick={handleZoomOut}>
             <ZoomOut className="size-3.5" />

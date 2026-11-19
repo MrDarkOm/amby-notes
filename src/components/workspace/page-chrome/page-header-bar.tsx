@@ -72,7 +72,7 @@ function FloatingHistoryButton({
       aria-label={label}
       onClick={onClick}
       disabled={disabled}
-      className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-30"
+      className="flex size-7 items-center justify-center rounded-md text-foreground/80 hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:text-muted-foreground disabled:opacity-25"
     >
       {icon}
     </button>
@@ -223,8 +223,10 @@ export function PageHeaderBar({
             <Button
               variant="ghost"
               size="icon"
-              className={`size-7 text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-30 ${fadedByPath ? "pointer-events-none" : ""}`}
-              animate={{ opacity: fadedByPath ? 0 : 1 }}
+              className={`size-7 hover:bg-accent hover:text-accent-foreground disabled:opacity-25 ${
+                canGoBack ? "text-foreground/80" : "text-muted-foreground"
+              } ${fadedByPath ? "pointer-events-none" : ""}`}
+              animate={{ opacity: fadedByPath ? 0 : canGoBack ? 1 : 0.25 }}
               transition={motionTransitions.default}
               onClick={onBack}
               disabled={!canGoBack}
@@ -236,8 +238,10 @@ export function PageHeaderBar({
             <Button
               variant="ghost"
               size="icon"
-              className={`size-7 text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-30 ${fadedByPath ? "pointer-events-none" : ""}`}
-              animate={{ opacity: fadedByPath ? 0 : 1 }}
+              className={`size-7 hover:bg-accent hover:text-accent-foreground disabled:opacity-25 ${
+                canGoForward ? "text-foreground/80" : "text-muted-foreground"
+              } ${fadedByPath ? "pointer-events-none" : ""}`}
+              animate={{ opacity: fadedByPath ? 0 : canGoForward ? 1 : 0.25 }}
               transition={motionTransitions.default}
               onClick={onForward}
               disabled={!canGoForward}

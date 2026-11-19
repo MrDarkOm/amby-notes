@@ -35,7 +35,7 @@ export function DatabaseFloatingToolbar({
   const { t } = useTranslation()
 
   return (
-    <div className="pointer-events-none absolute bottom-2 right-2 z-10 select-none max-w-[calc(100%-1rem)]">
+    <div className="pointer-events-none absolute bottom-3 right-3 z-10 select-none max-w-[calc(100%-1.5rem)]">
       <div className="pointer-events-auto flex items-center gap-0.5 rounded-xl border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-md">
         {/* Statistics: Row count & Property count */}
         <div className="flex items-center px-1.5 text-[11px] text-muted-foreground select-none">
