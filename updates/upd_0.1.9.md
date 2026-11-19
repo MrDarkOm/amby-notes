@@ -1,4 +1,4 @@
-# Amby 0.1.9-beta.8 — November 18, 2026
+# Amby 0.1.9-beta.8 — November 19, 2026
 
 The eighth Amby 0.1.9 beta includes a command-line tool and a local MCP server for working with your vault. This release also improves saving, cross-window updates, and the responsiveness of large vaults.
 
