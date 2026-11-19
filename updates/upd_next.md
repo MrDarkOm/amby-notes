@@ -1,5 +1,7 @@
 # Amby — Next version
 
+- For developers: release builds add the macOS x64 and Windows arm64 cross-compilation targets to the pinned Rust toolchain.
+
 - The dock browser test now checks the visible keyboard focus ring on Settings.
 
 - For developers: fixed the Windows lint check for the Unix-only pre-sync backup test.

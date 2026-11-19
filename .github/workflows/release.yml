@@ -201,9 +201,15 @@ jobs:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust-targets }}
+      # Cargo builds with the toolchain pinned in rust-toolchain.toml, so the cross-compilation
+      # target must be added to that toolchain, not to `stable`.
+      - name: Set up Rust (rust-toolchain.toml)
+        shell: bash
+        env:
+          RUST_TARGETS: ${{ matrix.rust-targets }}
+        run: |
+          rustup toolchain install
+          if [ -n "$RUST_TARGETS" ]; then rustup target add $RUST_TARGETS; fi
 
       - uses: swatinem/rust-cache@v2
         with:
