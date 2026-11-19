@@ -143,7 +143,10 @@ export function getTauriDropPosForView(
   clientY: number,
 ): number | null {
   const contentRect = view.dom.getBoundingClientRect()
-  const containerRect = view.dom.closest(".amby-tiptap")?.getBoundingClientRect() ?? contentRect
+  const containerRect =
+    view.dom.closest(".amby-editor-scroll")?.getBoundingClientRect() ??
+    view.dom.closest(".amby-tiptap")?.getBoundingClientRect() ??
+    contentRect
   if (
     clientX < containerRect.left ||
     clientX > containerRect.right ||
@@ -154,7 +157,8 @@ export function getTauriDropPosForView(
   }
   if (clientY < contentRect.top) return 0
   if (clientY > contentRect.bottom) return view.state.doc.content.size
-  return view.posAtCoords({ left: clientX, top: clientY })?.pos ?? null
+  const clampedX = Math.max(contentRect.left + 1, Math.min(clientX, contentRect.right - 1))
+  return view.posAtCoords({ left: clampedX, top: clientY })?.pos ?? view.state.doc.content.size
 }
 
 export function getImportContextForView(view: EditorView): ImportCtx | null {

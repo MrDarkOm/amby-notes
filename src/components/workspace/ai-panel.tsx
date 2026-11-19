@@ -3,6 +3,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { ArrowLeft, History, Settings2, SquarePen } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
@@ -29,7 +30,7 @@ import {
 import { useDocStore } from "./use-doc-store"
 import { useVaultStore } from "./use-vault-store"
 import type { PanelRenderProps } from "./panel-registry"
-import { PanelHeader } from "./panels/panel-header"
+import { PanelHeader, PanelSearch } from "./panels/panel-header"
 import { toRelativeVaultPath } from "./workspace-tree-utils"
 import {
   allContextItems,
@@ -573,41 +574,37 @@ export function AiPanel({
       changeChat({ ...current, modelId: next.activeModelId })
   }
 
+  const [chatSearchQuery, setChatSearchQuery] = React.useState("")
+
+  const openChatList = () => {
+    stop()
+    void useAiChatStore.getState().refresh()
+    setScreen("list")
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PanelHeader
         leading={
           screen !== "chat" ? (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="icon"
               title={t("ai.backToChat")}
+              aria-label={t("ai.backToChat")}
               onClick={() => setScreen("chat")}
-              className="-ml-1 rounded p-1 text-muted-foreground hover:bg-accent"
+              className="-ml-1 size-7 text-muted-foreground hover:bg-accent hover:text-white"
             >
-              <ArrowLeft className="size-4" />
-            </button>
+              <ArrowLeft className="size-3.5" />
+            </Button>
           ) : undefined
         }
         title={screen === "list" ? t("ai.chatList") : chat?.title || t("ai.unnamedChat")}
         actions={
-          <div className="flex items-center gap-0.5">
-            {screen === "chat" && (
-              <button
-                type="button"
-                title={t("ai.chatList")}
-                aria-label={t("ai.chatList")}
-                onClick={() => {
-                  stop()
-                  void useAiChatStore.getState().refresh()
-                  setScreen("list")
-                }}
-                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-              >
-                <History className="size-4" />
-              </button>
-            )}
-            <button
-              type="button"
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
               title={t("ai.newChat")}
               aria-label={t("ai.newChat")}
               onClick={() => {
@@ -615,26 +612,51 @@ export function AiPanel({
                 useAiChatStore.getState().create(newChatModelId(ai), currentDocId ?? null)
                 setError(null)
                 setInput("")
+                setChatSearchQuery("")
                 setScreen("chat")
               }}
-              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
             >
-              <SquarePen className="size-4" />
-            </button>
-            <button
-              type="button"
+              <SquarePen className="size-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
               title={t("ai.settings")}
               aria-label={t("ai.settings")}
               onClick={openAiSettings}
-              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
             >
-              <Settings2 className="size-4" />
-            </button>
+              <Settings2 className="size-3.5" />
+            </Button>
           </div>
         }
       />
+      <PanelSearch
+        value={chatSearchQuery}
+        onChange={(value) => {
+          setChatSearchQuery(value)
+          if (screen === "chat" && value.trim()) openChatList()
+        }}
+        placeholder={t("ai.searchChats")}
+        ariaLabel={t("ai.searchChats")}
+        trailing={
+          screen === "chat" ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              title={t("ai.chatList")}
+              aria-label={t("ai.chatList")}
+              onClick={openChatList}
+              className="size-8 shrink-0 text-muted-foreground hover:bg-accent hover:text-white"
+            >
+              <History className="size-3.5" />
+            </Button>
+          ) : undefined
+        }
+      />
       {screen === "list" ? (
-        <ChatList onOpen={() => setScreen("chat")} />
+        <ChatList query={chatSearchQuery} onOpen={() => setScreen("chat")} />
       ) : readOnly ? (
         <ScrollArea className="min-h-0 flex-1 p-3">
           <p className="text-xs text-muted-foreground">

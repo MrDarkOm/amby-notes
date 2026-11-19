@@ -68,6 +68,20 @@ fn remember_dropped_paths<R: tauri::Runtime>(
     }
 }
 
+/// Same as `remember_dropped_paths` for `WebviewWindow` drops: Tauri 2 delivers drops on a
+/// `WindowContent` webview as `WindowEvent::DragDrop` rather than `WebviewEvent::DragDrop`.
+fn remember_window_dropped_paths<R: tauri::Runtime>(
+    window: &tauri::Window<R>,
+    event: &tauri::WindowEvent,
+) {
+    use tauri::Manager;
+    if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+        window
+            .state::<path_grants::PathGrants>()
+            .grant_sources(paths);
+    }
+}
+
 /// Single source of truth for the command set — drives both the runtime
 /// invoke handler and the generated TypeScript bindings (so the frontend IPC
 /// types can't drift from the Rust signatures).
@@ -361,6 +375,7 @@ pub fn run() {
         .manage(DebugState(logging::global_runtime()))
         .invoke_handler(builder.invoke_handler())
         .on_menu_event(handle_menu_event)
+        .on_window_event(remember_window_dropped_paths)
         .on_webview_event(remember_dropped_paths)
         .setup(|app| {
             let debug = logging::global_runtime();

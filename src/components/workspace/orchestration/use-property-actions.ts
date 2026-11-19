@@ -135,9 +135,18 @@ export function usePropertyActions({
     const noteDir = notePath.slice(0, notePath.lastIndexOf("/"))
     const refs: string[] = []
     const markdownImage = /!\[[^\]]*\]\((?:<([^>]+)>|([^\s)]+))/gu
+    const markdownLink = /(?<!!)\[[^\]]*\]\((?:<([^>]+)>|([^\s)]+))/gu
     const htmlImage = /<img\b[^>]*\bsrc=["']([^"']+)["']/giu
     for (const match of currentDoc.content.matchAll(markdownImage)) refs.push(match[1] ?? match[2])
     for (const match of currentDoc.content.matchAll(htmlImage)) refs.push(match[1])
+    for (const match of currentDoc.content.matchAll(markdownLink)) {
+      const target = (match[1] ?? match[2] ?? "").trim().replace(/[?#].*$/u, "")
+      if (!target || /^(?:data:|https?:|mailto:|#)/iu.test(target)) continue
+      if (/\.(?:md|markdown)$/iu.test(target)) continue
+      if (/(?:^|[\\/])assets[\\/]/iu.test(target) || /\.[a-z0-9]{1,10}$/iu.test(target)) {
+        refs.push(target)
+      }
+    }
     const seen = new Set<string>()
     const items = refs.flatMap((ref) => {
       const cleanRef = ref.trim().replace(/[?#].*$/u, "")
