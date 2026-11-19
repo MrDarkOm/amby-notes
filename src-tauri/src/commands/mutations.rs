@@ -1507,17 +1507,27 @@ fn with_removed_root(
 /// removal that touches an indexed workshop pays for the scan. A failure is a warning: the next
 /// `refresh_projects` reads the disk again.
 fn forget_removed_workshops(db: &VaultContext, vault: &Path, root: &Path) {
-    let Ok(relative) = root.strip_prefix(vault) else {
-        return;
-    };
-    let relative = relative.to_string_lossy().replace('\\', "/");
     let Ok(guard) = db.conn.lock() else {
         return;
     };
     let Some(active) = guard.as_ref() else {
         return;
     };
-    let held: Result<i64, _> = active.connection.query_row(
+    forget_removed_workshops_in(&active.connection, &active.root, vault, root);
+}
+
+/// [`forget_removed_workshops`] for a caller that already holds the active connection.
+pub(crate) fn forget_removed_workshops_in(
+    connection: &rusqlite::Connection,
+    active_root: &Path,
+    vault: &Path,
+    root: &Path,
+) {
+    let Ok(relative) = root.strip_prefix(vault) else {
+        return;
+    };
+    let relative = relative.to_string_lossy().replace('\\', "/");
+    let held: Result<i64, _> = connection.query_row(
         "SELECT COUNT(*) FROM project_workshops
          WHERE path = ?1 OR path LIKE ?2 ESCAPE '\\' OR ?1 = ''",
         rusqlite::params![
@@ -1533,9 +1543,7 @@ fn forget_removed_workshops(db: &VaultContext, vault: &Path, root: &Path) {
         |row| row.get(0),
     );
     if held.is_ok_and(|count| count > 0) {
-        if let Err(error) =
-            crate::project::index::rebuild_project_index(&active.connection, &active.root)
-        {
+        if let Err(error) = crate::project::index::rebuild_project_index(connection, active_root) {
             tracing::warn!(event = "project_index_rebuild_failed", %error);
         }
     }

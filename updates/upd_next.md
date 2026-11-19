@@ -1,5 +1,16 @@
 # Amby — Next version
 
+- CLI and MCP: vault hygiene. `amby info` summarizes a note (size, words, dates, tags, links, properties, attachments), `amby orphans` lists notes nothing links to, and `amby unresolved` lists links to missing notes. MCP adds `get_note_info`, `find_orphans` and `list_unresolved_links`.
+- CLI and MCP: attachments. `amby attachments` lists a note's local files, including missing ones, and `amby attach` copies a file into the note's assets folder under a new name and links it. MCP adds `list_attachments`, `read_attachment` (images as image content) and `add_attachment`.
+- CLI and MCP: bulk edits. `amby bulk set` and `amby bulk move` change up to 200 notes found by search filters, need `--dry-run` or `--yes`, and report each note; MCP adds `bulk_set_property` and `bulk_move`. `amby prop order` and `reorder_properties` set the order of a note's properties.
+- MCP: four prompts guide agents through common tasks: summarize a tag, tidy a folder, fix broken links and review orphans.
+
+- CLI and MCP: read and change note properties. `amby prop` lists, sets, styles, renames and deletes them; values go to the YAML header and the type, icon and settings (options, default, colours) to Amby's property groups, with a history snapshot before each header write. MCP adds `get_properties`, `set_property`, `set_property_appearance`, `rename_property` and `delete_property`.
+- CLI and MCP: search by tag, header property and folder, with or without a text query. MCP search results now include the note path, a snippet and the match type, and a new `list_tags` tool lists tags.
+- CLI and MCP: `amby delete` and `delete_item` move a note, bundle or folder to the system trash, with a preview. Nothing is deleted permanently, and nothing is removed if the trash refuses the item.
+- MCP: `read_note` and `get_links` accept a vault-relative path, notes are available as `amby://vault/…` resources, and the server reports the application version instead of 0.1.0.
+- For developers: `crates/amby-cli/Cargo.toml` follows the application version and is checked by `npm run version:check`.
+
 - For developers: release builds add the macOS x64 and Windows arm64 cross-compilation targets to the pinned Rust toolchain.
 
 - The dock browser test now checks the visible keyboard focus ring on Settings.

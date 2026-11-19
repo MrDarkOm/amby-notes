@@ -25,8 +25,8 @@ disagree, the guidelines win.
 2. Curate `updates/upd_next.md`, then move it to `updates/upd_<version>.md` with the date, in the
    style of `updates/TEMPLATE.md` and `updates/upd_0.1.8.md`: short, sectioned, scannable.
    Recreate an empty `updates/upd_next.md`.
-3. Bump the **patch** version once, in `package.json`, `src-tauri/Cargo.toml` and
-   `src-tauri/tauri.conf.json` together. Never again because a check or push had to be retried.
+3. Bump the **patch** version once, in `package.json`, `src-tauri/Cargo.toml`,
+   `src-tauri/tauri.conf.json` and `crates/amby-cli/Cargo.toml` together. Never again because a check or push had to be retried.
 4. `npm run version:check`, `npm run verify`, `npm run build`. Native packaging check when
    desktop behaviour changed. Report any failure; commit only if all pass or the owner accepts
    the named failure.

@@ -36,22 +36,37 @@ pub fn definitions(search: bool) -> Vec<(&'static str, &'static str, Value)> {
     let mut defs = vec![
         (
             "read_note",
-            "Read a note by ID. Offset and maxChars count Unicode characters.",
-            json!({"type":"object","properties":{"id":{"type":"string"},"offset":{"type":"integer","minimum":0},"maxChars":{"type":"integer","minimum":1,"maximum":20000}},"required":["id"]}),
+            "Read a note by ID or vault-relative path. Offset and maxChars count Unicode characters.",
+            json!({"type":"object","properties":{"id":{"type":"string","description":"A note ID or a vault-relative Markdown path."},"offset":{"type":"integer","minimum":0},"maxChars":{"type":"integer","minimum":1,"maximum":20000}},"required":["id"]}),
         ),
         (
             "get_links",
-            "Find outgoing and incoming links for a note.",
-            json!({"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}),
+            "Find outgoing and incoming links for a note by ID or vault-relative path.",
+            json!({"type":"object","properties":{"id":{"type":"string","description":"A note ID or a vault-relative Markdown path."}},"required":["id"]}),
         ),
     ];
     if search {
         defs.extend([
-            ("search_notes", "Search the vault's indexed notes.", json!({"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":10}},"required":["query"]})),
+            ("search_notes", "Search notes by text, tags, header properties and folder. Give a query, a filter, or both; every filter must match.", json!({"type":"object","properties":{
+                "query":{"type":"string","maxLength":1024},
+                "tags":{"type":"array","items":{"type":"string","minLength":1,"maxLength":256},"maxItems":16,"description":"Every tag must be present; a tag also matches its nested tags."},
+                "properties":{"type":"array","maxItems":16,"items":{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":256},"value":{"type":"string","maxLength":1024}},"required":["name"],"additionalProperties":false},"description":"The header key must exist; with value, the value or a list item must equal it, ignoring case."},
+                "folder":{"type":"string","maxLength":1024,"description":"A vault-relative folder."},
+                "limit":{"type":"integer","minimum":1,"maximum":50}}})),
             ("list_folder", "List notes in a vault-relative folder. Empty path means the vault root.", json!({"type":"object","properties":{"path":{"type":"string"}},"required":["path"]})),
         ]);
     }
     defs
+}
+
+/// `list_tags`, offered by the standalone MCP server only (the desktop chat keeps its own set).
+pub fn list_tags_definition() -> Value {
+    json!({
+        "name": "list_tags",
+        "description": "List up to 200 tags with the number of notes that carry each.",
+        "inputSchema": {"type":"object","properties":{}},
+        "annotations": {"readOnlyHint": true, "openWorldHint": false, "destructiveHint": false}
+    })
 }
 
 pub fn mcp_definitions(search: bool) -> Vec<Value> {
@@ -128,10 +143,24 @@ fn indexed_note(
     scope: &ToolScope,
     id: &str,
 ) -> Result<(crate::index::IndexedNote, PathBuf), &'static str> {
-    if id.len() > 512 {
+    if id.len() > 1024 {
         return Err("invalidArguments");
     }
-    let note = crate::index::note_by_id(conn, root, id).map_err(|_| "notFound")?;
+    let note = match crate::index::note_by_id(conn, root, id) {
+        Ok(note) => note,
+        // A vault-relative path names the note too; the scope below still checks its ID.
+        Err(_) => {
+            let id: String = conn
+                .query_row(
+                    "SELECT id FROM notes WHERE path = ?1",
+                    [id.replace('\\', "/")],
+                    |row| row.get(0),
+                )
+                .map_err(|_| "notFound")?;
+            crate::index::note_by_id(conn, root, &id).map_err(|_| "notFound")?
+        }
+    };
+    let id = note.id.as_str();
     let relative = Path::new(&note.path)
         .strip_prefix(root)
         .map_err(|_| "accessDenied")?;
@@ -175,6 +204,91 @@ pub(crate) fn safe_folder(root: &Path, relative: &str) -> Result<PathBuf, &'stat
     Ok(resolved)
 }
 
+fn relative_path(root: &Path, note: &crate::index::IndexedNote) -> Option<String> {
+    Path::new(&note.path)
+        .strip_prefix(root)
+        .ok()
+        .map(crate::vault::scan::normalize_rel_path)
+}
+
+/// The search filter of a tool's arguments (`query`, `tags`, `properties`, `folder`,
+/// `limit` up to 50); at least a query or a filter.
+pub fn filter_from(args: &Value, root: &Path) -> Result<crate::index::NoteFilter, &'static str> {
+    let strings = |key: &str, max: usize| -> Result<Vec<String>, &'static str> {
+        let Some(items) = args.get(key) else {
+            return Ok(Vec::new());
+        };
+        let items = items
+            .as_array()
+            .filter(|items| items.len() <= max)
+            .ok_or("invalidArguments")?;
+        items
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .filter(|item| !item.trim().is_empty() && item.len() <= 256)
+                    .map(str::to_owned)
+                    .ok_or("invalidArguments")
+            })
+            .collect()
+    };
+    let tags = strings("tags", 16)?;
+    let mut properties = Vec::new();
+    if let Some(items) = args.get("properties") {
+        let items = items
+            .as_array()
+            .filter(|items| items.len() <= 16)
+            .ok_or("invalidArguments")?;
+        for item in items {
+            let object = item.as_object().ok_or("invalidArguments")?;
+            if object.keys().any(|key| key != "name" && key != "value") {
+                return Err("invalidArguments");
+            }
+            let name = string_arg(item, "name")?;
+            if name.trim().is_empty() || name.len() > 256 {
+                return Err("invalidArguments");
+            }
+            let value = item
+                .get("value")
+                .map(|_| string_arg(item, "value"))
+                .transpose()?;
+            properties.push(crate::index::PropertyFilter {
+                name: name.to_owned(),
+                value: value.map(str::to_owned),
+            });
+        }
+    }
+    let folder = args
+        .get("folder")
+        .map(|_| string_arg(args, "folder"))
+        .transpose()?
+        .unwrap_or("");
+    let folder = folder.trim_matches('/').replace('\\', "/");
+    safe_folder(root, &folder)?;
+    let query = args
+        .get("query")
+        .map(|_| string_arg(args, "query"))
+        .transpose()?;
+    let limit = match args.get("limit") {
+        None => 10,
+        Some(limit) => limit
+            .as_u64()
+            .filter(|n| (1..=50).contains(n))
+            .ok_or("invalidArguments")? as usize,
+    };
+    let filter = crate::index::NoteFilter {
+        query: query.map(str::to_owned),
+        tags,
+        properties,
+        folder,
+        limit,
+    };
+    if filter.is_empty() {
+        return Err("invalidArguments");
+    }
+    Ok(filter)
+}
+
 fn string_arg<'a>(args: &'a Value, name: &str) -> Result<&'a str, &'static str> {
     args.get(name)
         .and_then(Value::as_str)
@@ -194,24 +308,47 @@ fn run_tool(
             if !scope.search_enabled {
                 return Err("accessDenied");
             }
-            let query = string_arg(args, "query")?;
-            let limit = args
-                .get("limit")
-                .and_then(Value::as_u64)
-                .unwrap_or(10)
-                .min(10) as usize;
+            let mut filter = filter_from(args, root)?;
+            let limit = filter.limit;
+            // Hidden or out-of-scope notes are dropped below, so ask for the full page.
+            filter.limit = 50;
             let matches =
-                crate::index::search_notes(conn, root, query).map_err(|_| "unavailable")?;
+                crate::index::find_notes(conn, root, &filter).map_err(|_| "unavailable")?;
             let notes: Vec<Value> = matches
                 .into_iter()
                 .filter_map(|result| {
                     indexed_note(conn, root, scope, &result.note.id)
                         .ok()
-                        .map(|(note, _)| json!({"id": note.id, "title": note.title}))
+                        .map(|(note, _)| json!({
+                            "id": note.id, "title": note.title, "path": relative_path(root, &note),
+                            "snippet": result.snippet.map(|snippet| snippet.chars().take(1024).collect::<String>()),
+                            "matchType": result.match_type,
+                        }))
                 })
                 .take(limit)
                 .collect();
             Ok(json!({"notes": notes}))
+        }
+        "list_tags" => {
+            if !scope.search_enabled {
+                return Err("accessDenied");
+            }
+            let tags = crate::index::list_tags(conn, root).map_err(|_| "unavailable")?;
+            let truncated = tags.len() > 200;
+            let tags: Vec<Value> = tags
+                .into_iter()
+                .take(200)
+                .map(|entry| {
+                    let count = entry
+                        .notes
+                        .iter()
+                        .filter(|note| indexed_note(conn, root, scope, &note.id).is_ok())
+                        .count();
+                    json!({"tag": entry.tag, "count": count})
+                })
+                .filter(|tag| tag["count"] != 0)
+                .collect();
+            Ok(json!({"tags": tags, "truncated": truncated}))
         }
         "read_note" => {
             let id = string_arg(args, "id")?;
@@ -243,7 +380,7 @@ fn run_tool(
             let content: String = chars.by_ref().take(limit).collect();
             let truncated = chars.next().is_some();
             Ok(
-                json!({"id": note.id, "title": note.title, "content": content, "truncated": truncated}),
+                json!({"id": note.id, "title": note.title, "path": relative_path(root, &note), "content": content, "truncated": truncated}),
             )
         }
         "list_folder" => {
@@ -267,14 +404,14 @@ fn run_tool(
                         truncated = true;
                         break;
                     }
-                    notes.push(json!({"id": note.id, "title": note.title}));
+                    notes.push(json!({"id": note.id, "title": note.title, "path": relative_path(root, &note)}));
                 }
             }
             Ok(json!({"notes": notes, "truncated": truncated}))
         }
         "get_links" => {
-            let id = string_arg(args, "id")?;
-            indexed_note(conn, root, scope, id)?;
+            let (note, _) = indexed_note(conn, root, scope, string_arg(args, "id")?)?;
+            let id = note.id.as_str();
             let mut statement = conn.prepare("SELECT note_id, target_note_id, target, label FROM links WHERE note_id = ?1 OR target_note_id = ?1 ORDER BY note_id, target LIMIT 201").map_err(|_| "unavailable")?;
             let rows = statement
                 .query_map([id], |row| {
@@ -297,7 +434,7 @@ fn run_tool(
                 if let Some(target) = target {
                     let other = if source == id { &target } else { &source };
                     if let Ok((note, _)) = indexed_note(conn, root, scope, other) {
-                        links.push(json!({"id": note.id, "title": note.title, "direction": if source == id { "outgoing" } else { "incoming" }}));
+                        links.push(json!({"id": note.id, "title": note.title, "path": relative_path(root, &note), "direction": if source == id { "outgoing" } else { "incoming" }}));
                     }
                 } else if source == id {
                     // The unresolved target is text already present in the permitted note.

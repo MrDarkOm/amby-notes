@@ -33,6 +33,7 @@ amby vault use /path/to/vault
 amby ls Projects
 amby cat 'Projects/Meeting.md'
 amby search --json 'meeting agenda'
+amby search --tag work --property status=active --folder Projects
 amby links 'Meeting'
 amby backlinks 'Meeting'
 amby tags
@@ -52,6 +53,14 @@ checks the exact set of visible notes and their size and modification stamps.
 Otherwise it reads the Markdown into a temporary in-memory catalog. Neither
 path writes an index or assigns identities. Notes without IDs can have temporary
 path-based keys in the results.
+
+`search` takes an optional text query and any number of filters. Every filter must
+match. `--tag TAG` also matches nested tags (`work` finds `work/review`). `--property
+NAME` requires the header key; `--property NAME=VALUE` also requires the value, or
+one item of a list, to equal `VALUE`. Names and values ignore case in every script,
+so `статус` finds `Статус`. `--folder` keeps the notes inside one visible
+folder, and `--limit` caps the results (50 by default). A search needs a query or a
+filter.
 
 `open` asks the desktop app to navigate to the note through its regular vault
 activation and save flow. The CLI reports successful dispatch. Set
@@ -86,6 +95,93 @@ When desktop Amby is open, an edit from the CLI arrives as an external change.
 The normal conflict flow protects unsaved edits. A conflicting write returns
 `revisionConflict` so the caller can read the latest bytes and retry.
 
+## Properties
+
+```sh
+amby prop list 'Meeting'
+amby prop set 'Meeting' status paused
+amby prop set 'Meeting' priority 3 --type number
+amby prop set 'Meeting' people Ann Bob
+amby prop set 'Meeting' status
+amby prop style 'Meeting' status --type select --icon 'amby-icon:circle-chevron-down:' \
+  --settings '{"options":["active","paused","done"],"default":"active","colors":{"done":"green"}}'
+amby prop rename 'Meeting' status state
+amby prop order 'Meeting' state tags
+amby prop delete 'Meeting' state
+```
+
+A property's value lives in the note's YAML header; its presentation (type, icon and
+settings) lives in Amby's property groups, as described in the
+[vault format](vault-format.md). `prop list` shows every header key except `amby-*`
+with its value, list items, type, icon, settings and whether it comes from the
+template of basic properties. Settings are JSON: `options`, `default` and `colors`
+(a colour name per option).
+
+`prop set` creates a missing property. Several values make a list, and no value
+clears the value. Put `--` before a value that starts with `-`, as in
+`amby prop set Meeting delta -- -5`. `--type` gives a new property its type or changes the type of an
+existing one; the types are `text`, `number`, `checkbox`, `date`, `select`, `list`
+and `url`. `prop style` changes only the presentation and leaves the header bytes as
+they are. It needs at least one of `--type`, `--icon` and `--settings`. `prop order`
+puts the named properties first, in that order; the others follow.
+
+Every write rewrites only the affected header line, keeps the BOM and line endings,
+and takes a history snapshot of the previous note first. A note without `amby-id`
+accepts value edits and deletions in its header (no ID is added) but not styling or
+renames, which are keyed by the ID. A vault whose properties Amby has not yet
+migrated is read-only until the desktop opens it once. When desktop Amby has the
+vault open, property writes run in the app, which refreshes its properties panel.
+
+## Links, orphans and note info
+
+```sh
+amby info 'Plan'
+amby orphans --folder Projects
+amby unresolved
+```
+
+`info` summarizes a note: path, ID, size, words, dates, tags, outgoing, incoming and
+unresolved link counts, the number of properties, and attachments (with how many are
+missing). `orphans` lists notes no other note links to. `unresolved` lists links to
+notes that do not exist, with the note that holds each; a wiki embed of an existing
+file is not unresolved. Both take `--folder` and `--limit`.
+
+## Attachments
+
+```sh
+amby attachments 'Plan'
+amby attach 'Plan' ~/Downloads/report.pdf
+amby attach 'Plan' ~/Pictures/chart.png --name 'Q3 chart.png' --no-link
+```
+
+`attachments` lists the local files a note refers to: Markdown links and images
+(resolved next to the note first, then from the vault root), including missing ones,
+and wiki embeds of files that exist. External URLs are not attachments. Each entry has
+a vault-relative path, a kind (`image`, `pdf`, `audio`, `video` or `file`), whether it
+exists and its size.
+
+`attach` copies a file into the note's assets folder under a new random name, as the
+editor does, and appends a link to the note (an image is embedded). It never replaces
+a file, takes a history snapshot of the note, and leaves the source in place. `--name`
+sets the display name and `--no-link` copies without editing the note. Files over
+100 MB are refused.
+
+## Bulk edits
+
+```sh
+amby bulk set status archived --tag 2025 --dry-run
+amby bulk set status archived --tag 2025 --yes
+amby bulk move Archive --folder Inbox --property status=done --yes
+```
+
+`bulk set NAME [VALUE]...` sets a property and `bulk move FOLDER` moves notes, with
+link updates, for every note the filters find. The filters are those of `search`
+(`--tag`, `--property`, `--folder`) plus `--query TEXT`; at least one is required. A
+bulk edit needs `--dry-run` to list the notes or `--yes` to run, and touches at most
+200 notes (`tooManyNotes` otherwise). Each note is changed on its own: a failed note
+does not stop the others, and the result lists every note with its error. The command
+then exits with code 8.
+
 ## Structural operations
 
 ```sh
@@ -95,6 +191,8 @@ amby move 'Projects/Planning.md' 'Planning Notes'
 amby archive 'Planning Notes/Planning.md'
 amby archive list
 amby restore 'Planning Notes/Planning.md'
+amby delete 'Planning Notes/Old.md' --dry-run
+amby delete 'Planning Notes/Old.md'
 amby recover
 ```
 
@@ -109,6 +207,12 @@ When desktop Amby has the selected vault open, the CLI sends structural writes
 to that app instance through a [local connection](cli-ipc.md) for the same
 user and profile. If Amby holds the lease for a vault that is no longer active,
 switch to that vault or close the app before running a structural write.
+
+`delete` moves a note, bundle or folder to the operating system's trash, where it
+can be restored. A note inside a bundle takes the whole bundle. `delete --dry-run`
+lists the item and the notes it would remove. The CLI never deletes permanently: if
+the system trash cannot take the item, nothing is removed and the command returns
+`trashUnavailable`, so use `archive` instead.
 
 `archive list` and `--dry-run` are read-only. A preview reports the proposed
 destination and rewritten paths. An interrupted operation resumes before the
@@ -137,11 +241,12 @@ vault before repeating the command.
 | 0    | Success                                               |
 | 1    | Read, preferences, desktop dispatch or output failure |
 | 2    | Invalid invocation or missing vault                   |
-| 3    | Vault, note or folder absent                          |
-| 4    | More than one note matches                            |
+| 3    | Vault, note, folder or property absent                |
+| 4    | More than one note or header key matches              |
 | 5    | The requested path is outside the visible vault       |
 | 6    | Path collision or conflicting edit                    |
 | 7    | Vault is busy or automatic recovery could not finish  |
+| 8    | A bulk edit ran, but some notes failed                |
 
 Without `--json`, `cat` emits the original UTF-8 bytes, including the BOM, line
 endings and any final newline. Other commands emit human-readable text.
@@ -168,8 +273,8 @@ with an `mcpServers` object can use:
 Use the absolute bundled executable path as `command` if `amby` is outside PATH.
 For an AppImage, use its path as `command` and put `--amby-cli` first in `args`.
 
-The stdio server exposes read tools for notes, the archive, databases and
-workshops. Add `--allow-write=Projects/` after `mcp` for a folder grant or
+The stdio server exposes read tools for notes, tags, properties, the archive,
+databases and workshops, and lists notes as resources. Add `--allow-write=Projects/` after `mcp` for a folder grant or
 `--allow-write` for the visible vault. The [MCP tool contract](mcp.md) lists
 arguments, previews, revisions, grants and error codes. Complex mutations
 reuse the desktop's local IPC connection when Amby owns the vault lease.

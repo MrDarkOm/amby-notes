@@ -67,6 +67,7 @@ fn handle(app: &tauri::AppHandle, request: Request) -> Result<Payload, &'static 
     let mut changed = HashSet::new();
     let mut moves = Vec::new();
     let mut archive_changed = false;
+    let mut properties_changed = false;
     let result = if let Action::Tool {
         grant,
         request: tool,
@@ -82,11 +83,24 @@ fn handle(app: &tauri::AppHandle, request: Request) -> Result<Payload, &'static 
         }
         let sync = app.state::<crate::sync::runtime::SyncRuntime>();
         let watcher = app.state::<watcher::WatcherState>();
-        amby_core::vault_tools::execute(root, grant, tool, &watcher.self_writes, |changes| {
+        let index = Some(&active.connection);
+        amby_core::vault_tools::execute(root, grant, tool, index, &watcher.self_writes, |changes| {
             sync.note_renames(root, changes);
             moves.extend_from_slice(changes);
         })
         .map(|published| {
+            if let amby_core::vault_tools::Mutation::Delete { .. } = tool {
+                // The removed root comes first; the notes inside it follow.
+                if let Some(removed) = published.changed.first() {
+                    crate::commands::mutations::forget_removed_workshops_in(
+                        &active.connection,
+                        root,
+                        root,
+                        removed,
+                    );
+                }
+            }
+            properties_changed = published.properties_changed;
             changed.extend(published.changed);
             archive_changed = published.archive_changed;
             Payload::Tool(published.output)
@@ -164,6 +178,10 @@ fn handle(app: &tauri::AppHandle, request: Request) -> Result<Payload, &'static 
             archive_changed,
             &result,
         );
+    }
+    if properties_changed && result.is_ok() {
+        // Property edits write `.amby`, which the file watcher does not report.
+        crate::commands::properties::notify_properties_written(app, generation);
     }
     result
 }

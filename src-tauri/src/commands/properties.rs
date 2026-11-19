@@ -200,7 +200,7 @@ macro_rules! with_vault_mutation {
     }};
 }
 
-fn notify_properties_written(app: &tauri::AppHandle, generation: u64) {
+pub(crate) fn notify_properties_written(app: &tauri::AppHandle, generation: u64) {
     use tauri::Emitter;
     if let Err(error) = app.emit("amby:properties-written", generation) {
         tracing::warn!(event = "properties_written_event_failed", %error);

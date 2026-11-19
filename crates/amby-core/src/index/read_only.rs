@@ -49,7 +49,7 @@ impl ReadVault {
         &self.root
     }
 
-    fn conn(&self) -> &Connection {
+    pub(crate) fn conn(&self) -> &Connection {
         match &self.catalog {
             Catalog::Snapshot(index) => index,
             Catalog::Memory(index) => index,
@@ -69,6 +69,48 @@ impl ReadVault {
 
     pub fn search(&self, query: &str) -> Result<Vec<SearchResult>, &'static str> {
         super::search_notes(self.conn(), &self.root, query).map_err(|_| UNAVAILABLE)
+    }
+
+    /// Search narrowed by tags, header properties and a folder.
+    pub fn find(&self, filter: &super::NoteFilter) -> Result<Vec<SearchResult>, &'static str> {
+        safe_folder(&self.root, &filter.folder)?;
+        super::find_notes(self.conn(), &self.root, filter).map_err(|_| UNAVAILABLE)
+    }
+
+    /// Visible notes no other note links to.
+    pub fn orphans(&self, folder: &str, limit: usize) -> Result<Value, &'static str> {
+        crate::vault_tools::hygiene::orphans(self.conn(), &self.root, folder, limit)
+    }
+
+    /// Links to notes that do not exist.
+    pub fn unresolved(&self, folder: &str, limit: usize) -> Result<Value, &'static str> {
+        crate::vault_tools::hygiene::unresolved(self.conn(), &self.root, folder, limit)
+    }
+
+    /// A summary of one note.
+    pub fn info(&self, note: &IndexedNote) -> Result<Value, &'static str> {
+        crate::vault_tools::hygiene::info(self.conn(), &self.root, note)
+    }
+
+    /// The note with this ID or vault-relative path.
+    pub fn note(&self, reference: &str) -> Result<IndexedNote, &'static str> {
+        if let Ok(note) = super::note_by_id(self.conn(), &self.root, reference) {
+            return Ok(note);
+        }
+        let id: String = self
+            .conn()
+            .query_row(
+                "SELECT id FROM notes WHERE path = ?1",
+                [reference.replace('\\', "/")],
+                |row| row.get(0),
+            )
+            .map_err(|_| "notFound")?;
+        super::note_by_id(self.conn(), &self.root, &id).map_err(|_| "notFound")
+    }
+
+    /// The properties of the note at a vault-relative path (docs/cli.md).
+    pub fn properties(&self, path: &str) -> Result<Value, &'static str> {
+        crate::vault_tools::properties::read(self.conn(), &self.root, path)
     }
 
     pub fn tags(&self) -> Result<Vec<TagEntry>, &'static str> {

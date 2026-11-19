@@ -3,6 +3,7 @@ mod config;
 mod edit;
 mod launch;
 mod mcp;
+mod mcp_extra;
 mod mcp_tools;
 
 use std::env;
@@ -13,10 +14,11 @@ use std::process::ExitCode;
 
 use amby_core::cli_ipc::{self, Action, Payload, Request};
 use amby_core::index::read_only::{list_visible, visible_note, ReadVault};
-use amby_core::index::{IndexedNote, CONFLICT_PREFIX};
+use amby_core::index::{IndexedNote, NoteFilter, PropertyFilter, CONFLICT_PREFIX};
 use amby_core::note_edit::EditKind;
 use amby_core::structural::{self, Operation};
 use amby_core::vault::scan::normalize_rel_path;
+use amby_core::vault_tools::{self, properties, Mutation};
 use serde_json::{json, Value};
 
 use args::{Command, Options};
@@ -41,9 +43,9 @@ impl Error {
     fn exit_code(&self) -> u8 {
         match self.code {
             "usage" | "invalidArguments" | "vaultRequired" => 2,
-            "vaultNotFound" | "notFound" => 3,
-            "ambiguousNote" => 4,
-            "accessDenied" => 5,
+            "vaultNotFound" | "notFound" | "propertyNotFound" => 3,
+            "ambiguousNote" | "ambiguousProperty" => 4,
+            "accessDenied" | "outsideWriteScope" => 5,
             "alreadyExists" | "revisionConflict" | "mutationConflict" => 6,
             "vaultBusy" | "vaultNotActive" | "recoveryRequired" => 7,
             "invalidEncoding" | "invalidFrontmatter" => 2,
@@ -131,6 +133,50 @@ impl Error {
                 "The operation exceeds the recovery journal limit.",
                 "Операция превышает допустимый размер журнала восстановления.",
             ),
+            "propertyNotFound" => (
+                "The note has no property with that name.",
+                "У заметки нет свойства с таким именем.",
+            ),
+            "ambiguousProperty" => (
+                "Several header keys match that property name.",
+                "Этому имени свойства соответствует несколько ключей заголовка.",
+            ),
+            "propertiesNotMigrated" => (
+                "Open this vault in Amby once to enable property edits.",
+                "Откройте это хранилище в Amby, чтобы включить изменение свойств.",
+            ),
+            "propertiesFormatNewer" => (
+                "The properties were saved by a newer Amby. Update Amby.",
+                "Свойства сохранены более новой версией Amby. Обновите Amby.",
+            ),
+            "propertiesReadOnly" => (
+                "The properties of this note are read-only.",
+                "Свойства этой заметки доступны только для чтения.",
+            ),
+            "noteWithoutId" => (
+                "This note has no amby-id. Open it in Amby to style or rename its properties.",
+                "У заметки нет amby-id. Откройте её в Amby, чтобы менять оформление или имена свойств.",
+            ),
+            "propertyRejected" => (
+                "Amby could not apply this property change.",
+                "Amby не удалось применить это изменение свойства.",
+            ),
+            "trashUnavailable" => (
+                "The system trash is unavailable. Nothing was deleted. Use amby archive instead.",
+                "Системная корзина недоступна. Ничего не удалено. Используйте amby archive.",
+            ),
+            "tooManyNotes" => (
+                "The filter finds more than 200 notes. Narrow it.",
+                "Фильтр находит больше 200 заметок. Сузьте его.",
+            ),
+            "attachmentTooLarge" => (
+                "The file is larger than the attachment limit.",
+                "Файл больше допустимого размера вложения.",
+            ),
+            "moduleDisabled" => (
+                "This module is turned off in the workspace.",
+                "Этот модуль отключён в рабочем пространстве.",
+            ),
             _ => ("The request failed.", "Не удалось выполнить запрос."),
         };
         if ru {
@@ -144,11 +190,17 @@ impl Error {
 struct Output {
     data: Value,
     text: String,
+    /// Non-zero when the command ran but some of its items failed.
+    exit: u8,
 }
 
 impl Output {
     fn new(data: Value, text: String) -> Self {
-        Self { data, text }
+        Self {
+            data,
+            text,
+            exit: 0,
+        }
     }
 }
 
@@ -248,8 +300,14 @@ fn run(command: Command, options: &Options, ru: bool) -> Result<Output, Error> {
             };
             let text = format!(
                 "{heading}: amby [--vault PATH] [--json] COMMAND\n\
-                \n  vault list | vault use PATH\n  ls [FOLDER]\n  cat NOTE\n  search QUERY\n\
-                \x20 links NOTE | backlinks NOTE\n  tags\n  open NOTE\n  new PATH | append NOTE | write NOTE [--file PATH] [--dry-run]\n  rename PATH NAME | move PATH FOLDER\n  archive PATH | archive list | restore PATH\n  recover\n  mcp [--allow-write[=FOLDER]]\n"
+                \n  vault list | vault use PATH\n  ls [FOLDER]\n  cat NOTE\n  search [QUERY] [--tag TAG]... [--property NAME[=VALUE]]... [--folder FOLDER] [--limit N]\n\
+                \x20 links NOTE | backlinks NOTE\n  tags\n  open NOTE\n  new PATH | append NOTE | write NOTE [--file PATH] [--dry-run]\n\
+                \x20 prop list NOTE\n  prop set NOTE NAME [VALUE]... [--type TYPE]\n  prop style NOTE NAME [--type TYPE] [--icon ICON] [--settings JSON]\n\
+                \x20 prop rename NOTE NAME NEW_NAME | prop delete NOTE NAME | prop order NOTE NAME...\n\
+                \x20 info NOTE | orphans [--folder FOLDER] | unresolved [--folder FOLDER]\n\
+                \x20 attachments NOTE | attach NOTE FILE [--name NAME] [--no-link]\n\
+                \x20 bulk set NAME [VALUE]... | bulk move FOLDER  FILTERS (--dry-run | --yes)\n  rename PATH NAME | move PATH FOLDER\n  archive PATH | archive list | restore PATH\n\
+                \x20 delete PATH [--dry-run]\n  recover\n  mcp [--allow-write[=FOLDER]]\n"
             );
             return Ok(Output::new(json!({ "usage": text }), text));
         }
@@ -308,6 +366,61 @@ fn run(command: Command, options: &Options, ru: bool) -> Result<Output, Error> {
             .unwrap_or_else(|| format!("{}\n", result.path.escape_debug()));
         return Ok(Output::new(json!(result), text));
     }
+    if let Delete(path) = &command {
+        let request = Mutation::Delete { path: path.clone() };
+        let result = if options.dry_run {
+            vault_tools::preview(&root, "", &request).map_err(Error::from)?
+        } else {
+            mcp_tools::execute(&root, "", request).map_err(|code| Error::from(known_code(&code)))?
+        };
+        let mut text = format!(
+            "{}\n",
+            result["path"].as_str().unwrap_or_default().escape_debug()
+        );
+        for path in result["affectedPaths"].as_array().into_iter().flatten() {
+            text.push_str(&format!(
+                "  {}\n",
+                path.as_str().unwrap_or_default().escape_debug()
+            ));
+        }
+        return Ok(Output::new(result, text));
+    }
+    if let Prop(property) = command {
+        return run_prop(&root, property, options);
+    }
+    if let Bulk(op) = command {
+        return run_bulk(&root, op, options);
+    }
+    if let Attach { note, file } = &command {
+        let vault = ReadVault::open(&root)?;
+        let path = if visible_note(&root, &note.replace('\\', "/")).is_ok() {
+            note.replace('\\', "/")
+        } else {
+            relative(&root, &choose_note(&vault, note)?.path)?
+        };
+        drop(vault);
+        let name = match &options.name {
+            Some(name) => name.clone(),
+            None => file
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .ok_or("invalidArguments")?,
+        };
+        let result = mcp_tools::attach(
+            &root,
+            &root,
+            &path,
+            &name,
+            vault_tools::attachments::Source::File(file),
+            !options.no_link,
+            false,
+        )?;
+        let text = format!(
+            "{}\n",
+            result["path"].as_str().unwrap_or_default().escape_debug()
+        );
+        return Ok(Output::new(result, text));
+    }
     let operation = match &command {
         Rename { path, name } => Operation::Rename { path, name },
         Move { path, folder } => Operation::Move { path, folder },
@@ -337,7 +450,7 @@ fn run(command: Command, options: &Options, ru: bool) -> Result<Output, Error> {
             };
             return Ok(Output::new(json!({ "recovered": recovered }), text.into()));
         }
-        _ => return run_read(command, &ReadVault::open(&root)?),
+        _ => return run_read(command, &ReadVault::open(&root)?, options),
     };
     let result = match structural::execute(&root, operation, options.dry_run) {
         Err("vaultBusy") => match request_desktop(&root, operation.into())? {
@@ -391,8 +504,15 @@ fn request_desktop(root: &Path, action: Action) -> Result<Payload, Error> {
         })
 }
 
-fn run_read(command: Command, vault: &ReadVault) -> Result<Output, Error> {
+fn run_read(command: Command, vault: &ReadVault, options: &Options) -> Result<Output, Error> {
     let root = vault.root();
+    let filter = search_filter(
+        match &command {
+            Command::Search(query) => query.clone(),
+            _ => None,
+        },
+        options,
+    );
     match command {
         Command::Cat(reference) => {
             let note = choose_note(vault, &reference)?;
@@ -404,10 +524,86 @@ fn run_read(command: Command, vault: &ReadVault) -> Result<Output, Error> {
                 content,
             ))
         }
-        Command::Search(query) => {
+        Command::Orphans | Command::Unresolved => {
+            let limit = options.limit.unwrap_or(1000);
+            let listing = if matches!(command, Command::Orphans) {
+                vault.orphans(&filter.folder, limit)?
+            } else {
+                vault.unresolved(&filter.folder, limit)?
+            };
+            let text = if matches!(command, Command::Orphans) {
+                listing["notes"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|note| {
+                        format!(
+                            "{}\n",
+                            note["path"].as_str().unwrap_or_default().escape_debug()
+                        )
+                    })
+                    .collect()
+            } else {
+                listing["links"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|link| {
+                        format!(
+                            "{}\t[[{}]]\n",
+                            link["source"].as_str().unwrap_or_default().escape_debug(),
+                            link["target"].as_str().unwrap_or_default().escape_debug()
+                        )
+                    })
+                    .collect()
+            };
+            Ok(Output::new(listing, text))
+        }
+        Command::Info(reference) => {
+            let note = choose_note(vault, &reference)?;
+            let info = vault.info(&note)?;
+            let text = format!(
+                "{}\nid\t{}\nsize\t{}\nwords\t{}\ntags\t{}\nlinks\t{} out, {} in, {} unresolved\nproperties\t{}\nattachments\t{} ({} missing)\n",
+                info["path"].as_str().unwrap_or_default().escape_debug(),
+                info["noteId"].as_str().unwrap_or("-"),
+                info["size"],
+                info["words"],
+                info["tags"].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>().join(", "),
+                info["links"]["outgoing"],
+                info["links"]["incoming"],
+                info["links"]["unresolved"],
+                info["properties"],
+                info["attachments"]["count"],
+                info["attachments"]["missing"],
+            );
+            Ok(Output::new(info, text))
+        }
+        Command::Attachments(reference) => {
+            let note = choose_note(vault, &reference)?;
+            let path = relative(root, &note.path)?;
+            let file = visible_note(root, &path)?;
+            let content = fs::read_to_string(&file).map_err(|_| "invalidEncoding")?;
+            let attachments = vault_tools::attachments::list(root, &file, &content);
+            let text = attachments
+                .iter()
+                .map(|item| {
+                    format!(
+                        "{}\t{}{}\n",
+                        item.path.escape_debug(),
+                        item.kind,
+                        if item.exists { "" } else { "\tmissing" }
+                    )
+                })
+                .collect();
+            Ok(Output::new(
+                json!({ "note": path, "attachments": attachments }),
+                text,
+            ))
+        }
+        Command::Search(_) => {
             let mut text = String::new();
             let mut results = Vec::new();
-            for hit in vault.search(&query)? {
+            for hit in vault.find(&filter)? {
                 let path = relative(root, &hit.note.path)?;
                 text.push_str(&format!(
                     "{}\t{}\n",
@@ -476,6 +672,199 @@ fn run_read(command: Command, vault: &ReadVault) -> Result<Output, Error> {
     }
 }
 
+/// The stable code for an error returned by the desktop or a shared operation.
+fn known_code(code: &str) -> &'static str {
+    const CODES: &[&str] = &[
+        "invalidArguments",
+        "accessDenied",
+        "outsideWriteScope",
+        "notFound",
+        "alreadyExists",
+        "mutationConflict",
+        "operationTooLarge",
+        "recoveryRequired",
+        "vaultBusy",
+        "vaultNotActive",
+        "desktopProtocolVersion",
+        "desktopRequestInterrupted",
+        "revisionConflict",
+        "invalidEncoding",
+        "invalidFrontmatter",
+        "historyFailed",
+        "propertyNotFound",
+        "ambiguousProperty",
+        "propertiesNotMigrated",
+        "propertiesFormatNewer",
+        "propertiesReadOnly",
+        "noteWithoutId",
+        "propertyRejected",
+        "trashUnavailable",
+        "moduleDisabled",
+        "appDataUnavailable",
+    ];
+    CODES
+        .iter()
+        .find(|known| **known == code)
+        .copied()
+        .unwrap_or("unavailable")
+}
+
+fn properties_text(listing: &Value) -> String {
+    listing["properties"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|property| {
+            let value = match property["items"].as_array() {
+                Some(items) if !items.is_empty() => items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                _ => property["value"].as_str().unwrap_or_default().to_owned(),
+            };
+            format!(
+                "{}\t{}\t{}\n",
+                property["name"].as_str().unwrap_or_default().escape_debug(),
+                property["type"].as_str().unwrap_or_default(),
+                value.escape_debug()
+            )
+        })
+        .collect()
+}
+
+fn run_prop(root: &Path, property: args::Prop, options: &Options) -> Result<Output, Error> {
+    use args::Prop;
+    let vault = ReadVault::open(root)?;
+    let note = match &property {
+        Prop::List(note)
+        | Prop::Set { note, .. }
+        | Prop::Style { note, .. }
+        | Prop::Rename { note, .. }
+        | Prop::Delete { note, .. }
+        | Prop::Order { note, .. } => note,
+    };
+    let path = if visible_note(root, &note.replace('\\', "/")).is_ok() {
+        note.replace('\\', "/")
+    } else {
+        relative(root, &choose_note(&vault, note)?.path)?
+    };
+    let request = match property {
+        Prop::List(_) => {
+            let listing = vault.properties(&path)?;
+            let text = properties_text(&listing);
+            return Ok(Output::new(listing, text));
+        }
+        Prop::Set { name, values, .. } => {
+            let value = match values.as_slice() {
+                [] => Value::Null,
+                [one] => Value::String(one.clone()),
+                many => json!(many),
+            };
+            Mutation::SetProperty(properties::SetProperty {
+                path,
+                name,
+                value,
+                property_type: options.property_type.clone(),
+            })
+        }
+        Prop::Style { name, .. } => {
+            let settings = options
+                .settings
+                .as_deref()
+                .map(serde_json::from_str::<Value>)
+                .transpose()
+                .map_err(|_| "invalidArguments")?;
+            Mutation::SetPropertyAppearance(properties::PropertyAppearance {
+                path,
+                name,
+                property_type: options.property_type.clone(),
+                icon: options.icon.clone(),
+                settings,
+            })
+        }
+        Prop::Rename { name, new_name, .. } => Mutation::RenameProperty {
+            path,
+            name,
+            new_name,
+        },
+        Prop::Delete { name, .. } => Mutation::DeleteProperty { path, name },
+        Prop::Order { names, .. } => Mutation::ReorderProperties { path, names },
+    };
+    drop(vault);
+    let listing =
+        mcp_tools::execute(root, "", request).map_err(|code| Error::from(known_code(&code)))?;
+    let text = properties_text(&listing);
+    Ok(Output::new(listing, text))
+}
+
+fn search_filter(query: Option<String>, options: &Options) -> NoteFilter {
+    NoteFilter {
+        query,
+        tags: options.tags.clone(),
+        properties: options
+            .properties
+            .iter()
+            .map(|condition| match condition.split_once('=') {
+                Some((name, value)) => PropertyFilter {
+                    name: name.to_owned(),
+                    value: Some(value.to_owned()),
+                },
+                None => PropertyFilter {
+                    name: condition.clone(),
+                    value: None,
+                },
+            })
+            .collect(),
+        folder: options
+            .folder
+            .as_deref()
+            .unwrap_or_default()
+            .replace('\\', "/")
+            .trim_matches('/')
+            .to_owned(),
+        limit: options.limit.unwrap_or(50),
+    }
+}
+
+fn run_bulk(root: &Path, op: args::Bulk, options: &Options) -> Result<Output, Error> {
+    let op = match op {
+        args::Bulk::Set { name, values } => mcp_tools::BulkOp::Set {
+            name,
+            value: match values.as_slice() {
+                [] => Value::Null,
+                [one] => Value::String(one.clone()),
+                many => json!(many),
+            },
+            property_type: options.property_type.clone(),
+        },
+        args::Bulk::Move { folder } => mcp_tools::BulkOp::Move {
+            folder: folder.replace('\\', "/").trim_matches('/').to_owned(),
+        },
+    };
+    let filter = search_filter(options.query.clone(), options);
+    let result = mcp_tools::bulk(root, "", filter, &op, options.dry_run)
+        .map_err(|code| Error::from(known_code(&code)))?;
+    let mut text = String::new();
+    for note in result["notes"].as_array().into_iter().flatten() {
+        let path = note["path"]
+            .as_str()
+            .unwrap_or_default()
+            .escape_debug()
+            .to_string();
+        match note["error"].as_str() {
+            Some(error) => text.push_str(&format!("{path}\t{error}\n")),
+            None => text.push_str(&format!("{path}\n")),
+        }
+    }
+    let failed = result["failed"].as_u64().unwrap_or(0);
+    let mut output = Output::new(result, text);
+    if failed > 0 {
+        output.exit = 8;
+    }
+    Ok(output)
+}
+
 fn write_json(out: &mut impl Write, value: Value) -> io::Result<()> {
     serde_json::to_writer(&mut *out, &value)?;
     out.write_all(b"\n")
@@ -516,7 +905,7 @@ fn main() -> ExitCode {
                 out.write_all(reply.text.as_bytes())
             };
             if written.is_ok() {
-                ExitCode::SUCCESS
+                ExitCode::from(reply.exit)
             } else {
                 ExitCode::FAILURE
             }

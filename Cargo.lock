@@ -61,9 +61,10 @@ dependencies = [
 
 [[package]]
 name = "amby-cli"
-version = "0.1.0"
+version = "0.1.9"
 dependencies = [
  "amby-core",
+ "base64 0.22.1",
  "dirs",
  "serde",
  "serde_json",

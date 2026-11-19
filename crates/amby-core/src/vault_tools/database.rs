@@ -376,6 +376,7 @@ pub fn create_relation(
         }),
         changed,
         archive_changed: false,
+        properties_changed: false,
     })
 }
 
@@ -422,6 +423,7 @@ pub fn set_relation(
         }),
         changed: if dry_run { Vec::new() } else { outcome.paths },
         archive_changed: false,
+        properties_changed: false,
     })
 }
 

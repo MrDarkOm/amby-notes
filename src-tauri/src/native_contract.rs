@@ -356,6 +356,76 @@ fn spawn_cli_write_probe(root: std::path::PathBuf, binary: std::ffi::OsString) {
                             "The inverse relation was not durably written",
                         ));
                     }
+                    // Property edits run inside the app while it holds the index connection. The
+                    // probe vault has no legacy properties, so it is in the group format as soon
+                    // as the layout exists, as after the migration at the first opening.
+                    let layout = amby_core::property_groups::layout_path(&vault);
+                    if let Some(parent) = layout.parent() {
+                        fs::create_dir_all(parent)?;
+                    }
+                    fs::write(&layout, amby_core::property_groups::layout_text())?;
+                    let row_path = left["path"].clone();
+                    let property = scoped(
+                        "set_property",
+                        serde_json::json!({"path":row_path,"name":"Native check","value":["a","b"]}),
+                    )?;
+                    let found = |listing: &serde_json::Value| {
+                        listing["properties"].as_array().and_then(|items| {
+                            items
+                                .iter()
+                                .find(|item| item["name"] == "Native check")
+                                .cloned()
+                        })
+                    };
+                    if found(&property).map(|item| item["items"].clone())
+                        != Some(serde_json::json!(["a", "b"]))
+                    {
+                        return Err(std::io::Error::other(format!(
+                            "Expected a delegated property write: {property}"
+                        )));
+                    }
+                    let styled = scoped(
+                        "set_property_appearance",
+                        serde_json::json!({"path":row_path,"name":"Native check",
+                            "settings":{"options":["a","b"],"colors":{"a":"green"}}}),
+                    )?;
+                    if found(&styled).map(|item| item["settings"]["colors"]["a"].clone())
+                        != Some(serde_json::json!("green"))
+                    {
+                        return Err(std::io::Error::other(format!(
+                            "Expected a delegated presentation write: {styled}"
+                        )));
+                    }
+                    let names = styled["properties"]
+                        .as_array()
+                        .map(|items| {
+                            items
+                                .iter()
+                                .rev()
+                                .filter_map(|item| item["name"].as_str())
+                                .map(str::to_owned)
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    let ordered = scoped(
+                        "reorder_properties",
+                        serde_json::json!({"path":row_path,"names":names}),
+                    )?;
+                    let order: Vec<String> = ordered["properties"]
+                        .as_array()
+                        .map(|items| {
+                            items
+                                .iter()
+                                .filter_map(|item| item["name"].as_str())
+                                .map(str::to_owned)
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    if order.is_empty() || order != names {
+                        return Err(std::io::Error::other(format!(
+                            "Expected a delegated property order: {ordered}"
+                        )));
+                    }
                     let workshop = scoped(
                         "create_workshop",
                         serde_json::json!({
