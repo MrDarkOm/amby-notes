@@ -52,12 +52,13 @@ test("each dock zone switches off only its own buttons, never settings", async (
   await page.mouse.up()
   await page.keyboard.press("Escape")
   await expect(dockButton(page, "search")).toHaveCount(0)
-  await expect(dockButton(page, "settings")).toBeVisible()
-  // No control anywhere gets the browser's own focus ring.
-  await dockButton(page, "settings").focus()
-  expect(
-    await dockButton(page, "settings").evaluate((button) => getComputedStyle(button).outlineStyle),
-  ).toBe("none")
+  const settings = dockButton(page, "settings")
+  await expect(settings).toBeVisible()
+  // After keyboard input, the Settings button shows the app's focus ring.
+  await settings.focus()
+  await expect(settings).toBeFocused()
+  await expect(settings).toHaveCSS("outline-style", "solid")
+  await expect(settings).toHaveCSS("outline-width", "2px")
 
   // A button's own menu hides it too; settings has no such item.
   await dockButton(page, "archive").click({ button: "right" })
