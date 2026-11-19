@@ -1,6 +1,5 @@
 //! Pre-sync copy is a prerequisite of the first outgoing or incoming pass.
 
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use super::backup;
@@ -40,6 +39,8 @@ fn runtime(env: &Env, hooks: Arc<Recorder>) -> SyncRuntime {
 #[cfg(unix)]
 #[test]
 fn a_failed_backup_prevents_a_new_server_space_and_every_pass() {
+    use std::sync::atomic::Ordering;
+
     // Handoff, steps 5-6: the copy must finish before sync is enabled.
     let env = Env::new();
     let vault = TempVault::new("backup-blocked");

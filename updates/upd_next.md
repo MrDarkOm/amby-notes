@@ -1,5 +1,7 @@
 # Amby — Next version
 
+- For developers: fixed the Windows lint check for the Unix-only pre-sync backup test.
+
 - Integrated the worktree UI changes with the CLI and MCP. Attachment open errors use the shared notice flow, folder conversion events reach diagnostics, and UI tests cover the updated menus and panel layout.
 
 - The emoji picker keeps its search and grid styles in WebKit when the warmed picker moves into the popover under the packaged security policy.
