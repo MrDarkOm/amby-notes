@@ -697,7 +697,8 @@
 }
 
 .amby-editor-scroll::-webkit-scrollbar-track {
-  margin-block: 10px;
+  margin-top: 10px;
+  margin-bottom: 60px;
   border: 4px solid transparent;
   border-radius: 999px;
   background: color-mix(in srgb, var(--scrollbar-thumb) 24%, transparent);
@@ -728,6 +729,11 @@
   border-radius: 5px;
 }
 
+.amby-table-scroll::-webkit-scrollbar-track:vertical {
+  margin-top: 8px;
+  margin-bottom: 60px;
+}
+
 .amby-table-scroll::-webkit-scrollbar-thumb {
   min-width: 48px;
   min-height: 48px;
@@ -749,9 +755,23 @@
   background: transparent;
 }
 
+/* One inline inset for the body text and the page title, so their left edges line up. */
+:root {
+  --amby-editor-inline-pad: clamp(0.5rem, 1.5vw, 0.75rem);
+  /* One monospace stack for code everywhere: the fonts people install first, then each
+     system's own (macOS, Windows, Linux), so code never falls back to Courier. */
+  --font-mono:
+    "JetBrains Mono", "Fira Code", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
+    "Cascadia Mono", "DejaVu Sans Mono", "Liberation Mono", monospace;
+}
+
+.amby-page-title {
+  padding-inline-start: var(--amby-editor-inline-pad);
+}
+
 .amby-tiptap .ProseMirror {
   min-height: 320px;
-  padding: 0.5rem clamp(0.5rem, 1.5vw, 0.75rem) 5rem;
+  padding: 0.5rem var(--amby-editor-inline-pad) 5rem;
   outline: none;
   /* A tab typed with the Tab key is a real tab character. */
   tab-size: 4;
@@ -970,7 +990,7 @@
   background: var(--code-bg);
   color: var(--code-fg);
   padding: 0.15em 0.4em;
-  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.85em;
 }
 
@@ -1032,7 +1052,7 @@
   padding: 0.5rem 0.75rem;
   margin: 0.5rem 0;
   color: var(--pre-fg);
-  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.875em;
   line-height: 1.6;
 }
@@ -1064,7 +1084,7 @@
 }
 
 .amby-tiptap .ProseMirror .amby-code-block-language {
-  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 
 .amby-tiptap .ProseMirror .amby-code-block-copy {
@@ -1191,7 +1211,7 @@
   background: var(--pre-bg);
   color: var(--pre-fg);
   padding: 0.5rem 0.75rem;
-  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.875em;
   line-height: 1.6;
   outline: none;
@@ -1925,7 +1945,7 @@ body.amby-resizing-columns * {
 .amby-block-row-hint {
   font-size: 0.66rem;
   color: var(--panel-hint-fg);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
 }
 
 .amby-block-panel-close {
@@ -2828,6 +2848,22 @@ em-emoji-picker {
   height: 380px;
 }
 
+/* The picker Amby renders (picker-runtime.ts) follows the app accent, text colour and
+   font instead of emoji-mart's blue and its Apple-only font stack. */
+amby-emoji-picker {
+  --color-foreground: hsl(var(--foreground));
+  --color-accent: hsl(var(--primary));
+  --font-family: var(
+    --app-font-family,
+    Inter,
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif
+  );
+}
+
 .amby-emoji-picker-panel {
   overflow: hidden;
   border: 1px solid var(--menu-border);
@@ -3209,7 +3245,7 @@ em-emoji-picker {
 }
 
 .amby-source-editor .cm-scroller {
-  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 
 /* Keep the slash search field readable in both themes. */
@@ -3296,8 +3332,8 @@ body:has(header [data-pane-edge-aligned] > div:first-child > [data-active-tab]:f
   background: radial-gradient(circle at top left, transparent 0.45rem, var(--note-surface) 0.5rem);
 }
 
-[data-tab-item-key]:first-child .amby-active-tab-surface::before {
-  display: none;
+[data-pane-edge-aligned] [data-tab-item-key]:first-child .amby-active-tab-surface::before {
+  opacity: 0;
 }
 
 .amby-active-tab-surface::after {
@@ -3779,6 +3815,14 @@ body {
   outline: none;
 }
 
+/* Keyboard focus on a control without its own focus style gets the accent ring, so the
+   dock, tabs and toolbars show where focus is. Mouse clicks do not match :focus-visible.
+   Zero specificity: any component `outline-none` / ring class still wins. */
+:where(button, a[href], summary, [role="button"], [role="tab"], [role="switch"]):focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+
 /* Blend each root branch from the active accent to its next neighbour.
    The stop for every row is calculated from the current root-branch count. */
 
@@ -3810,18 +3854,6 @@ html[data-rainbow-tree="true"]
 }
 
 html[data-rainbow-tree="true"] .amby-tree-virtual-row[data-tree-branch] .amby-tree-folder-icon {
-  color: var(--tree-branch-color);
-}
-
-html[data-rainbow-tree="true"]
-  .amby-tree-virtual-row[data-tree-branch]
-  [data-tree-file-status="file"]:not(:hover),
-html[data-rainbow-tree="true"]
-  .amby-tree-virtual-row[data-tree-branch]
-  [data-tree-file-status="folder"]:not(:hover),
-html[data-rainbow-tree="true"]
-  .amby-tree-virtual-row[data-tree-branch]
-  [data-tree-file-status="canvas"]:not(:hover) {
   color: var(--tree-branch-color);
 }
 
@@ -4838,7 +4870,7 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
 }
 .amby-debug-event {
   border-bottom: 1px solid var(--debug-line);
-  font-family: var(--font-mono, ui-monospace, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 .amby-debug-event.is-error {
@@ -5185,7 +5217,7 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
 
   html.sync-printing .sync-print-sheet .sync-print-code {
     margin: 10mm 0;
-    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 18pt;
     letter-spacing: 0.08em;
     word-break: break-all;
@@ -6310,7 +6342,7 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   padding: 2px 5px;
   background: hsl(var(--muted) / 0.55);
   color: hsl(var(--muted-foreground));
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   font-size: 10px;
   white-space: nowrap;
 }

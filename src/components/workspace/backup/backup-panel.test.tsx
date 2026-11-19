@@ -10,13 +10,18 @@ import {
 } from "@/lib/storage"
 import { BackupPanel } from "./backup-panel"
 import { requestOpenRestoredVault } from "./backup-navigation"
+import { confirm } from "@/lib/confirm"
 vi.mock("./backup-navigation", () => ({ requestOpenRestoredVault: vi.fn(async () => {}) }))
+vi.mock("@/lib/confirm", () => ({ confirm: vi.fn(async () => true) }))
 const item: BackupInfo = {
   id: "01JBACKUP",
   createdMs: 1700000000000,
   bytes: 2500,
   files: 3,
   status: "unchecked",
+  origin: "appData",
+  deletable: true,
+  expiresMs: null,
 }
 const catalog: BackupCatalog = { vault: "/notes", generation: 42, backups: [item] }
 function port(overrides: Partial<BackupPort> = {}) {
@@ -25,6 +30,8 @@ function port(overrides: Partial<BackupPort> = {}) {
     list: vi.fn(async () => catalog),
     verify: vi.fn(async () => ({ ...item, status: "verified" as const })),
     restore: vi.fn(async () => ({ path: "/restored/vault" })),
+    remove: vi.fn(async () => {}),
+    reveal: vi.fn(async () => {}),
     ...overrides,
   }
 }
@@ -143,5 +150,55 @@ describe("verified backups", () => {
     await screen.findByText(/Копий пока нет/)
     expect(fake.list).toHaveBeenCalledWith("/other")
     expect(screen.queryByText("Проверена")).toBeNull()
+  })
+})
+describe("the copy before sync", () => {
+  it("is one line with its creation date and can be shown in the file manager", async () => {
+    const fake = port()
+    render(<BackupPanel vault="/notes" port={fake} />)
+    const date = new Date(item.createdMs).toLocaleString("ru")
+    await screen.findByText(`Копия перед синхронизацией: создана ${date}`)
+    click("Показать")
+    await waitFor(() => expect(fake.reveal).toHaveBeenCalledWith(42, item.id))
+  })
+
+  it("is deleted only after the confirmation, then the list is read again", async () => {
+    const fake = port()
+    render(<BackupPanel vault="/notes" port={fake} />)
+    await screen.findByRole("button", { name: "Удалить" })
+    vi.mocked(confirm).mockResolvedValueOnce(false)
+    click("Удалить")
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+    expect(fake.remove).not.toHaveBeenCalled()
+    click("Удалить")
+    await waitFor(() => expect(fake.remove).toHaveBeenCalledWith(42, item.id))
+    await waitFor(() => expect(fake.list).toHaveBeenCalledTimes(2))
+  })
+
+  it("tells when the automatic deletion is due", async () => {
+    const fake = port({
+      list: vi.fn(async () => ({
+        ...catalog,
+        backups: [{ ...item, expiresMs: 1700000000000 + 14 * 86400000 }],
+      })),
+    })
+    render(<BackupPanel vault="/notes" port={fake} />)
+    await screen.findByText(/удалит её сам/)
+  })
+
+  it("offers only an old copy that the vault's receipt names, as an old copy", async () => {
+    const stranger = { ...item, id: "01JSTRANGER", origin: "legacy" as const, deletable: false }
+    const old = { ...item, id: "01JOLD", origin: "legacy" as const, deletable: true }
+    const fake = port({ list: vi.fn(async () => ({ ...catalog, backups: [stranger, old] })) })
+    render(<BackupPanel vault="/notes" port={fake} />)
+    await screen.findByRole("button", { name: "Удалить старую копию" })
+    expect(screen.getAllByRole("button", { name: "Удалить старую копию" })).toHaveLength(1)
+    expect(screen.getAllByRole("button", { name: "Показать" })).toHaveLength(1)
+  })
+
+  it("says that a missing copy is not a problem and enabling makes a new one", async () => {
+    const fake = port({ list: vi.fn(async () => ({ ...catalog, backups: [] })) })
+    render(<BackupPanel vault="/notes" port={fake} missing />)
+    await screen.findByText(/Копии перед синхронизацией не нашлось/)
   })
 })

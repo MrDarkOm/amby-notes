@@ -64,8 +64,11 @@ test("Emoji and Icons search fields share the same focused appearance", async ({
       iconColor: icon.color,
     }
   })
-  const { mask: _mask, ...style } = emojiStyle
-  expect(style).toEqual(iconsStyle)
+  const { mask: _mask, iconInsetX, ...style } = emojiStyle
+  const { iconInsetX: iconsInsetX, ...expectedStyle } = iconsStyle
+  expect(style).toEqual(expectedStyle)
+  // WebKit rounds transformed popover rectangles to fractional CSS pixels.
+  expect(iconInsetX).toBeCloseTo(iconsInsetX, 0)
 })
 
 test("picker styles survive asynchronous initialization under packaged-style CSP", async ({

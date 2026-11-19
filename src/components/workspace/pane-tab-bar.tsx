@@ -131,7 +131,7 @@ export function PaneTabBar({
         rightInsetClass,
       )}
     >
-      <TabList className="flex h-full min-w-0 max-w-full shrink items-center gap-1 overflow-hidden">
+      <TabList className="flex h-full min-w-0 max-w-full shrink items-center gap-1 overflow-hidden px-2 -mx-2">
         <AnimatePresence initial={false}>
           {tabs.map((tab, index) => {
             const isSelected = activeTabKey === tab.key

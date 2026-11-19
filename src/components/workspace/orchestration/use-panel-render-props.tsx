@@ -43,6 +43,7 @@ interface UsePanelRenderPropsParams {
   handleOpenSplitDown: (fileId: string) => void
   handleOpenInNewWindow: (fileId: string) => void
   handleCloneFile: (fileId: string) => Promise<void>
+  handleConvertFolderToNote: (folderId: string) => Promise<void>
   handleMoveItem: (sourceIds: string[], targetId: string | null) => Promise<MoveOutcome>
   handleSetIcon: (id: string, icon: string) => void
   pendingRenameId: string | null
@@ -133,6 +134,7 @@ export function usePanelRenderProps({
   handleOpenSplitDown,
   handleOpenInNewWindow,
   handleCloneFile,
+  handleConvertFolderToNote,
   handleMoveItem,
   handleSetIcon,
   pendingRenameId,
@@ -197,6 +199,7 @@ export function usePanelRenderProps({
       onOpenSplitDown: handleOpenSplitDown,
       onOpenInNewWindow: handleOpenInNewWindow,
       onCloneFile: handleCloneFile,
+      onConvertFolderToNote: handleConvertFolderToNote,
       onOpenInExplorer: (path: string) => void showInFileManager(path),
       onMoveItem: handleMoveItem,
       onSetIcon: handleSetIcon,
@@ -300,6 +303,7 @@ export function usePanelRenderProps({
       handleOpenSplitDown,
       handleOpenInNewWindow,
       handleCloneFile,
+      handleConvertFolderToNote,
       handleMoveItem,
       handleSetIcon,
       pendingRenameId,

@@ -564,28 +564,68 @@ Local history protects against accidental application actions and failed saves;
 it is not a substitute for a second physical copy. A protected vault should be
 backed up by the operating system or a sync service with version history.
 
-Before enabling sync, Amby creates `<vault-name>.amby-backups/<ULID>/` beside
-the vault. `vault/` contains all files and empty directories, including unknown
-metadata and durable `.amby/` data. Known `.amby/notes.db` and
-`.amby/sync/state.db` use consistent SQLite online snapshots (`VACUUM INTO`,
-`quick_check`); their WAL/SHM files are not copied separately. The version-1 local
-receipt `.amby/sync/pre-sync-backup.json` itself is omitted. That receipt holds
-the canonical source path, backup root and SHA-256 of the manifest, with no
-credentials; it is not synchronised. A copied vault at another path gets its own
-backup. Other files retain their bytes. Symlinks, special entries, unsupported
-names, unreadable files and changes detected while copying block completion
-instead of being silently skipped.
+Before enabling sync, Amby creates a full copy in its own app data, never in or
+beside the vault: `<app data>/backups/<vault key>/<ULID>/`. The vault key is the
+first 16 bytes (hex) of the SHA-256 of the canonical vault path, so a vault at
+another path (a copy, or a folder synced between computers by Dropbox or Google
+Drive) never uses another machine's receipt and gets its own copy. The native UI
+harness uses its isolated app-data root. `vault/` contains all files and empty
+directories, including unknown metadata and durable `.amby/` data. Known
+`.amby/notes.db` and `.amby/sync/state.db` use consistent SQLite online snapshots
+(`VACUUM INTO`, `quick_check`); their WAL/SHM files are not copied separately.
+Symlinks, special entries, unsupported names, unreadable files and changes detected
+while copying block completion instead of being silently skipped. A copy that fails
+for lack of disk space reports `backup_failed`; sync does not start.
 
 A directory with `INCOMPLETE`, or without a valid version-1 `manifest.json`, is
 not a completed backup. File hashes and the source inventory are checked before
-publishing the immutable manifest; only then is a receipt written in the vault.
-The copy remains unchanged after later edits. A missing or damaged copy is
-reported when manually enabling sync again. Automatic resumption validates the
-receipt and manifest without rehashing every backup file. This is a snapshot of
-files on disk, not an ongoing backup or protection against failure of that disk.
+publishing the immutable manifest; only then is the receipt written.
+
+**Receipt.** The receipt lives in app data, next to the copies:
+`<app data>/backups/<vault key>/receipt.json` (version 1: canonical source path,
+absolute backup root, SHA-256 of the manifest, `first_sync_ms`, `removed_ms`,
+`superseded`; no credentials). It is app-data, not vault, state on purpose: an
+absolute path from another computer must never travel with a vault folder. It
+names only a copy directly inside its own `<vault key>/` folder; anything else is
+refused. It is replaced atomically.
+
+**One copy per vault.** A second enable reuses the recorded copy after
+re-verifying it. A copy that is missing, incomplete or damaged is never repaired or
+overwritten and is not a dead end: enabling makes a new copy in a new ULID folder
+and the receipt is replaced atomically so that it names the new one. A damaged copy
+stays on disk, listed in `superseded`, and can be deleted from Settings. An
+unreadable receipt is renamed aside (`receipt.unreadable-<ULID>.json`), not
+deleted. The status carries `backupMissing` while a recorded copy is gone, so
+Settings explains that a new one is made the next time sync is switched on.
+Automatic resumption validates the receipt and manifest without rehashing every
+file and never makes a copy for a vault that has a record (only for a vault with
+none); this is a snapshot of files on disk, not an ongoing backup.
+
+**Retention.** The copy is deleted 14 days after the first successful sync of the
+vault: the first completed (`Done`) pass of a session whose receipt has no
+`first_sync_ms` records it; the next vault activation (app start or opening the
+vault) at or after that time removes the copy and writes `removed_ms`. The record
+is kept, so a synced vault whose copy expired (or was deleted in Settings) is not
+copied again when sync is switched off and on or the app restarts; a copy deleted
+_before_ the first sync is made again when sync is switched on. Deletion goes
+through a single function that accepts only a ULID folder directly inside the
+vault's own backups folder (no symlinks, canonical path), never the vault, and is
+the only code that removes a copy besides discarding an unpublished partial copy.
+
+**Legacy copies.** Versions before this one wrote `<vault-name>.amby-backups/<ULID>/`
+beside the vault and a receipt `.amby/sync/pre-sync-backup.json` inside it. That
+receipt is still read (an app-data receipt wins when both exist) and its copy stays
+valid as long as it exists, but it is never written, deleted or moved and the copy
+is never removed automatically; the file is still omitted from new copies. If the
+sibling folder was deleted, the stale receipt is ignored and a new copy is made in
+app data. Settings offers "Show" and "Delete old copy" only for the legacy copy
+that the in-vault receipt names; other `*.amby-backups` folders are only listed
+(restorable) and never touched.
 
 Settings → General → Backups lists the open vault's completed, incomplete,
-missing and damaged copies. Metadata alone is never labeled verified: explicit
+missing and damaged copies ("Copy before sync: created <date>", with Show, which
+reveals the folder in the file manager, and Delete behind the in-app confirmation
+dialog, plus the date of the automatic deletion). Metadata alone is never labeled verified: explicit
 verification hashes every copied file against the version-1 manifest and, for
 the recorded pre-sync copy, verifies the receipt's manifest digest. The same
 manager is available from the sync vault's backup disclosure. It does not read

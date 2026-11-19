@@ -3,7 +3,7 @@ import type { ComponentProps } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen } from "@testing-library/react"
 import "@/lib/i18n"
-import { HeaderTabs } from "@/components/workspace/header-tabs"
+import { detectWindowControlsSide, HeaderTabs } from "@/components/workspace/header-tabs"
 
 function headerProps(): ComponentProps<typeof HeaderTabs> {
   return {
@@ -118,5 +118,55 @@ describe("HeaderTabs tab layout and close button visibility", () => {
     // Mouse leave restores divider
     fireEvent.mouseLeave(tab2)
     expect(tab2.querySelector("span[aria-hidden='true'].bg-border\\/60")).not.toBeNull()
+  })
+})
+
+describe("HeaderTabs window controls and sidebar toggle alignment", () => {
+  it("detects window control placement by runtime and platform", () => {
+    expect(
+      detectWindowControlsSide({ isTauriEnv: false, isSiteDemo: false, platform: "MacIntel" }),
+    ).toBe("none")
+    expect(
+      detectWindowControlsSide({ isTauriEnv: false, isSiteDemo: false, platform: "Win32" }),
+    ).toBe("none")
+    expect(
+      detectWindowControlsSide({ isTauriEnv: true, isSiteDemo: true, platform: "MacIntel" }),
+    ).toBe("none")
+    expect(
+      detectWindowControlsSide({ isTauriEnv: true, isSiteDemo: false, platform: "MacIntel" }),
+    ).toBe("left")
+    expect(
+      detectWindowControlsSide({ isTauriEnv: true, isSiteDemo: false, platform: "Win32" }),
+    ).toBe("right")
+    expect(
+      detectWindowControlsSide({ isTauriEnv: true, isSiteDemo: false, platform: "Linux x86_64" }),
+    ).toBe("right")
+  })
+
+  it("aligns both sidebar toggles with their docks and omits OS controls in web mode", () => {
+    const { container } = render(<HeaderTabs {...headerProps()} windowControlsSide="none" />)
+
+    expect(container.querySelector('[data-window-controls-spacer="left"]')).toBeNull()
+    expect(container.querySelector('[data-window-controls="right"]')).toBeNull()
+    expect(container.querySelector('[data-sidebar-toggle-slot="left"]')).not.toBeNull()
+    expect(container.querySelector('[data-sidebar-toggle-slot="right"]')).not.toBeNull()
+  })
+
+  it("shifts only the left toggle on macOS Tauri while keeping the right toggle dock-aligned", () => {
+    const { container } = render(<HeaderTabs {...headerProps()} windowControlsSide="left" />)
+
+    expect(container.querySelector('[data-window-controls-spacer="left"]')).not.toBeNull()
+    expect(container.querySelector('[data-sidebar-toggle-slot="left-shifted"]')).not.toBeNull()
+    expect(container.querySelector('[data-sidebar-toggle-slot="right"]')).not.toBeNull()
+    expect(container.querySelector('[data-window-controls="right"]')).toBeNull()
+  })
+
+  it("keeps the left toggle dock-aligned and places the right toggle beside Windows controls", () => {
+    const { container } = render(<HeaderTabs {...headerProps()} windowControlsSide="right" />)
+
+    expect(container.querySelector('[data-window-controls-spacer="left"]')).toBeNull()
+    expect(container.querySelector('[data-sidebar-toggle-slot="left"]')).not.toBeNull()
+    expect(container.querySelector('[data-sidebar-toggle-slot="right"]')).toBeNull()
+    expect(container.querySelector('[data-window-controls="right"]')).not.toBeNull()
   })
 })

@@ -73,7 +73,7 @@ export function LayerButton({
         </ContextMenuItem>
         <ContextMenuItem
           onSelect={() => onDelete?.(layer)}
-          className="text-red-400 focus:text-red-300"
+          className="text-destructive focus:bg-destructive/10 focus:text-destructive"
         >
           {t("docEditor.delete")}
         </ContextMenuItem>

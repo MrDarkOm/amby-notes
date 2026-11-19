@@ -40,6 +40,7 @@ database.change_property_type_failed
 database.commit_cell
 database.commit_cell_failed
 database.copy_view_failed
+database.create_failed
 database.create_property
 database.create_property_failed
 database.create_relation_row
@@ -113,6 +114,9 @@ file.attach_canvas_failed
 file.attach_sketch
 file.attach_sketch_failed
 file.clone_failed
+file.convert_folder_properties_read_failed
+file.convert_folder_to_note
+file.convert_folder_to_note_failed
 file.create_canvas
 file.create_canvas_failed
 file.create_folder

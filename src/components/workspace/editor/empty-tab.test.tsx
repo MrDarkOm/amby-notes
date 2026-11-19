@@ -56,10 +56,10 @@ describe("EmptyTab", () => {
     expect(onOpenVault).toHaveBeenCalledTimes(1)
   })
 
-  it("offers an Excalidraw drawing beside the canvas", () => {
+  it("offers a sketch action", () => {
     const onNewSketch = vi.fn()
     render(<EmptyTab hasVault onNewNote={vi.fn()} onNewSketch={onNewSketch} />)
-    fireEvent.click(screen.getByRole("button", { name: /Создать Excalidraw/ }))
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("docEditor.empty.newSketch") }))
     expect(onNewSketch).toHaveBeenCalledTimes(1)
   })
 

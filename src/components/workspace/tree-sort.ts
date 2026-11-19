@@ -129,10 +129,13 @@ export function reorderTreeItems(
   return replaceSiblings(items, sourceParentId, reordered)
 }
 
+function isFolderGroupItem(item: TreeItem): boolean {
+  return item.type === "folder" || (item.type === "file" && Boolean(item.children?.length))
+}
+
 /**
- * Sort every tree level while keeping real folders above all document types.
- * Notes with children are still notes and therefore share the same sort group
- * as standalone notes and canvases.
+ * Sort every tree level while keeping folders and supernotes (bundle notes that
+ * act as containers) above standalone notes and other document types.
  */
 export function sortTreeItems(
   items: TreeItem[],
@@ -149,7 +152,7 @@ export function sortTreeItems(
       children: item.children ? sortTreeItems(item.children, key, direction) : item.children,
     }))
     .sort((left, right) => {
-      const folderRank = (item: TreeItem) => (item.type === "folder" ? 0 : 1)
+      const folderRank = (item: TreeItem) => (isFolderGroupItem(item) ? 0 : 1)
       const folderResult = folderRank(left) - folderRank(right)
       if (folderResult) return folderResult
 

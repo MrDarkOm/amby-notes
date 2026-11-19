@@ -47,6 +47,7 @@ interface WorkspaceFocusLayoutProps {
     initialContent?: string,
   ) => Promise<void>
   handleNewFolderIn: (parentId: string | null, requestedName?: string) => Promise<void>
+  handleConvertFolderToNote: (folderId: string) => Promise<void>
   handleSetIcon: (id: string, icon: string) => void
   renderCachedTabSurfaces: (
     isFocusMode: boolean,
@@ -123,6 +124,7 @@ export function WorkspaceFocusLayout({
   activeFolder,
   handleNewFileIn,
   handleNewFolderIn,
+  handleConvertFolderToNote,
   handleSetIcon,
   renderCachedTabSurfaces,
   focusShowLeft,
@@ -223,6 +225,7 @@ export function WorkspaceFocusLayout({
           onOpenItem={handleSelect}
           onNewNote={handleNewFileIn}
           onNewFolder={handleNewFolderIn}
+          onConvertToNote={handleConvertFolderToNote}
           onIconChange={(icon) => handleSetIcon(activeFolder.id, icon)}
         />
       ) : (

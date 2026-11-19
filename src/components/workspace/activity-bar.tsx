@@ -372,6 +372,7 @@ export function ActivityBar({
         data-activity-button={def.id}
         data-activity-zone={zone}
         aria-expanded={def.id === "notices" ? stackOpen : undefined}
+        aria-pressed={def.kind === "view" ? isActive : undefined}
         data-active={isActive || undefined}
         data-dragging={isDragging || undefined}
         onPointerDown={(event) => {

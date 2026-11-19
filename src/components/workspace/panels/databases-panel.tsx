@@ -143,15 +143,11 @@ export function DatabasesPanel({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <PanelHeader
         title={t("panels.databases")}
+        count={status === "ready" ? databases.length : t(`databasePanel.status.${status}`)}
         actions={
-          <>
-            {visibleDiagnostics.length > 0 && (
-              <DiagnosticHint message={diagnosticTooltip(visibleDiagnostics)} />
-            )}
-            <span className="text-[10px] font-normal text-muted-foreground">
-              {status === "ready" ? databases.length : t(`databasePanel.status.${status}`)}
-            </span>
-          </>
+          visibleDiagnostics.length > 0 ? (
+            <DiagnosticHint message={diagnosticTooltip(visibleDiagnostics)} />
+          ) : undefined
         }
       />
       {databaseRuntimeEnabled && databases.length > 0 && (

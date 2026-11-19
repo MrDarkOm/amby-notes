@@ -19,6 +19,7 @@ import { Reorder } from "motion/react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { PropertyEditor } from "./property-editor"
 import { databasePropertyIconKey } from "../database/property-icon"
+import { Button } from "@/components/ui/button"
 import { PanelHeader } from "./panel-header"
 import { PropertyDormantList } from "./property-dormant-list"
 
@@ -168,24 +169,23 @@ export function InfoPanelBody({
     <div className="flex h-full min-h-0 flex-col">
       <PanelHeader
         title={t("infoPanel.properties")}
+        count={
+          nonDatabaseFrontmatterProperties.length +
+          nonDuplicateCustomProperties.length +
+          (noteDatabaseContext?.properties.length ?? 0)
+        }
         actions={
-          <>
-            {!properties.frontmatter.parseError && (
-              <button
-                type="button"
-                className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                title={t("infoPanel.addProperty")}
-                onClick={openPropertyEditor}
-              >
-                <Plus className="size-3.5" />
-              </button>
-            )}
-            <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
-              {nonDatabaseFrontmatterProperties.length +
-                nonDuplicateCustomProperties.length +
-                (noteDatabaseContext?.properties.length ?? 0)}
-            </span>
-          </>
+          !properties.frontmatter.parseError ? (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              title={t("infoPanel.addProperty")}
+              aria-label={t("infoPanel.addProperty")}
+              onClick={openPropertyEditor}
+            >
+              <Plus className="size-4" />
+            </Button>
+          ) : undefined
         }
       />
       <ScrollArea className="flex-1">

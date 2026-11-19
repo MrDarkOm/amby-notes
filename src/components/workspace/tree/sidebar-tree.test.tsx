@@ -435,6 +435,8 @@ describe("SidebarTree rename trigger", () => {
     expect(row).not.toBeNull()
 
     fireEvent.contextMenu(row as HTMLElement)
+    const nestTrigger = await screen.findByText("Вложить")
+    fireEvent.click(nestTrigger)
     const createItem = await screen.findByText("Новая заметка")
     fireEvent.click(createItem)
 
@@ -536,6 +538,7 @@ describe("SidebarTree rename trigger", () => {
       fireEvent.contextMenu(
         container.querySelector(`[data-tree-item-id="${item.id}"]`) as HTMLElement,
       )
+      fireEvent.click(await screen.findByText("Вложить"))
       fireEvent.click(await screen.findByText("Новая заметка"))
 
       await act(async () => {
@@ -545,4 +548,37 @@ describe("SidebarTree rename trigger", () => {
       expect(screen.queryByText("Root action")).toBeNull()
     },
   )
+
+  it("shows Convert to note only for folders and invokes onConvertFolderToNote", async () => {
+    const folder = {
+      id: "folder-1",
+      path: "/vault/Projects",
+      name: "Projects",
+      type: "folder" as const,
+      children: [],
+    }
+    const note = {
+      id: "note-1",
+      path: "/vault/Note.md",
+      name: "Note",
+      type: "file" as const,
+    }
+    const onConvertFolderToNote = vi.fn()
+    const { container } = render(
+      <SidebarTree
+        items={[folder, note]}
+        selectedId={folder.id}
+        onSelect={() => {}}
+        onConvertFolderToNote={onConvertFolderToNote}
+      />,
+    )
+
+    fireEvent.contextMenu(container.querySelector('[data-tree-item-id="note-1"]') as HTMLElement)
+    await screen.findByText("Вложить")
+    expect(screen.queryByText("Преобразовать в заметку")).toBeNull()
+
+    fireEvent.contextMenu(container.querySelector('[data-tree-item-id="folder-1"]') as HTMLElement)
+    fireEvent.click(await screen.findByText("Преобразовать в заметку"))
+    expect(onConvertFolderToNote).toHaveBeenCalledWith("folder-1")
+  })
 })

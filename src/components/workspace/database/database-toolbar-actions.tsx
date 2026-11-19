@@ -98,7 +98,7 @@ export function DatabaseToolbarActions({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="text-slate-500 hover:text-slate-900 dark:text-muted-foreground dark:hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground"
                 title={t("databaseWorkspace.search")}
                 aria-label={t("databaseWorkspace.search")}
                 aria-pressed={searchOpen}
@@ -110,7 +110,7 @@ export function DatabaseToolbarActions({
                 variant="ghost"
                 size="icon-sm"
                 className={cn(
-                  "relative text-slate-500 hover:text-slate-900 dark:text-muted-foreground dark:hover:text-foreground",
+                  "relative text-muted-foreground hover:text-foreground",
                   settingsOpen && "bg-accent text-foreground",
                 )}
                 aria-label={t("databaseWorkspace.settings")}
@@ -143,7 +143,7 @@ export function DatabaseToolbarActions({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="text-slate-500 hover:text-slate-900 dark:text-muted-foreground dark:hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground"
                 title={t("databaseWorkspace.search")}
                 aria-label={t("databaseWorkspace.search")}
                 onClick={() => setSearchOpen((open) => !open)}
@@ -154,7 +154,7 @@ export function DatabaseToolbarActions({
                 variant="ghost"
                 size="sm"
                 className={cn(
-                  "size-8 p-0 text-slate-500 hover:text-slate-900 dark:text-muted-foreground dark:hover:text-foreground",
+                  "size-8 p-0 text-muted-foreground hover:text-foreground",
                   settingsOpen && "bg-accent text-foreground",
                 )}
                 aria-label={t("databaseWorkspace.settings")}

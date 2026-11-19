@@ -312,6 +312,8 @@ impl SyncSession {
             enabled: true,
             linked: true,
             backup_path: crate::sync::backup::read_path(&config.vault),
+            backup_missing: crate::sync::backup::standing(&config.vault)
+                == crate::sync::backup::Standing::Lost,
             space_id: Some(space_hex),
             space_name: config.space_name.clone(),
             phase: SyncPhase::Idle,
@@ -1039,6 +1041,13 @@ fn settle(shared: &Arc<Shared>, outcome: Outcome, failures: &mut u32, schedule: 
             match &report.outcome {
                 CycleOutcome::Done => {
                     *failures = 0;
+                    if shared.snapshot().last_sync_ms.is_none() {
+                        // The first successful pass starts the 14 days of the pre-sync copy.
+                        let _ = crate::sync::backup::record_first_sync(
+                            &shared.config.vault,
+                            u64::try_from(now_ms()).unwrap_or(0),
+                        );
+                    }
                     let item_errors = u32::try_from(report.errors.len()).unwrap_or(u32::MAX);
                     shared.update(|status| {
                         status.phase = SyncPhase::Idle;

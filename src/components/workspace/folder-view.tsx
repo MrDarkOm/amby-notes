@@ -3,6 +3,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import {
+  BookOpenText,
   Database,
   FileText,
   Folder,
@@ -25,6 +26,7 @@ interface FolderViewProps {
   onOpenItem: (id: string) => void
   onNewNote: (parentId: string | null) => void
   onNewFolder: (parentId: string | null) => void
+  onConvertToNote?: (folderId: string) => void
   onIconChange: (icon: string) => void
 }
 
@@ -55,6 +57,7 @@ export function FolderView({
   onOpenItem,
   onNewNote,
   onNewFolder,
+  onConvertToNote,
   onIconChange,
 }: FolderViewProps) {
   const { t, i18n } = useTranslation()
@@ -132,7 +135,17 @@ export function FolderView({
               {t("folderView.summary", { notes: counts.notes, folders: counts.folders })}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {onConvertToNote && (
+              <button
+                type="button"
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-foreground hover:bg-accent"
+                onClick={() => onConvertToNote(folder.id)}
+              >
+                <BookOpenText className="size-4" />
+                {t("folderView.convertToSupernote")}
+              </button>
+            )}
             <button
               type="button"
               className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-foreground hover:bg-accent"

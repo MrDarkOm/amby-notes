@@ -129,6 +129,7 @@ export function SidebarSearch({
   const activeScope = allScopes.find((scope) => scope.id === scopeId) ?? null
   const [indexResults, setIndexResults] = React.useState<SearchResult[]>([])
   const [selectedIndex, setSelectedIndex] = React.useState(0)
+  const listId = React.useId()
   const [searching, setSearching] = React.useState(false)
   const inputRef = React.useRef<HTMLInputElement>(null)
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -294,6 +295,9 @@ export function SidebarSearch({
       <button
         key={result.item.id}
         type="button"
+        id={`${listId}-result-${i}`}
+        role="option"
+        aria-selected={i === selectedIndex}
         data-result={i}
         onClick={() => onSelect(result.item.id)}
         onMouseEnter={() => setSelectedIndex(i)}
@@ -372,6 +376,14 @@ export function SidebarSearch({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
+          role="combobox"
+          aria-label={t("search.title")}
+          aria-expanded={showList}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            showList && results.length > 0 ? `${listId}-result-${selectedIndex}` : undefined
+          }
           placeholder={
             activeScope
               ? t("search.scopedPlaceholder", { name: activeScope.name })
@@ -402,6 +414,7 @@ export function SidebarSearch({
               key={k}
               type="button"
               tabIndex={-1}
+              aria-pressed={k === kind}
               onClick={() => {
                 setKind(k)
                 focusInput()
@@ -484,7 +497,13 @@ export function SidebarSearch({
         <div ref={panelRef}>
           {showList && (
             <div className="border-t border-border">
-              <div ref={listRef} className="max-h-[min(56vh,520px)] overflow-y-auto">
+              <div
+                ref={listRef}
+                id={listId}
+                role="listbox"
+                aria-label={t("search.title")}
+                className="max-h-[min(56vh,520px)] overflow-y-auto"
+              >
                 {typed === "#" || (kind === "tag" && !typed) ? (
                   <div className="flex items-center gap-2 px-4 py-3 text-[12px] text-muted-foreground">
                     <Hash className="size-3.5 shrink-0" />

@@ -9,13 +9,22 @@ import { useClipped } from "@/lib/use-clipped"
 
 interface PanelHeaderProps {
   title: React.ReactNode
+  count?: React.ReactNode
+  countTestId?: string
   leading?: React.ReactNode
   actions?: React.ReactNode
   hideTitle?: boolean
 }
 
-/** Shared panel chrome: a text-only section title with optional controls. */
-export function PanelHeader({ title, leading, actions, hideTitle = false }: PanelHeaderProps) {
+/** Shared panel chrome: a text-only section title with optional count pill and controls. */
+export function PanelHeader({
+  title,
+  count,
+  countTestId,
+  leading,
+  actions,
+  hideTitle = false,
+}: PanelHeaderProps) {
   const [titleRef, clipped] = useClipped<HTMLHeadingElement>(
     typeof title === "string" ? title : null,
   )
@@ -37,6 +46,14 @@ export function PanelHeader({ title, leading, actions, hideTitle = false }: Pane
           >
             {title}
           </h2>
+          {count !== undefined && (
+            <span
+              data-testid={countTestId}
+              className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-[10px] font-normal tabular-nums text-muted-foreground"
+            >
+              {count}
+            </span>
+          )}
         </div>
       )}
       {actions && <div className="flex shrink-0 items-center gap-0.5">{actions}</div>}

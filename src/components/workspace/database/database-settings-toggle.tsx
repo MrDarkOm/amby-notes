@@ -66,7 +66,7 @@ export function DatabaseSettingsToggle({
               variant="ghost"
               size="icon-sm"
               className={cn(
-                "relative text-slate-500 hover:text-slate-900 dark:text-muted-foreground dark:hover:text-foreground",
+                "relative text-muted-foreground hover:text-foreground",
                 settingsOpen && "bg-accent text-foreground",
               )}
               aria-label={t("databaseWorkspace.settings")}

@@ -31,20 +31,24 @@ describe("sortTreeItems", () => {
     expect(sorted.map(({ id }) => id)).toEqual(["second", "first"])
   })
 
-  it("keeps only real folders above the unified note group", () => {
+  it("groups folders and supernotes with children together above regular notes", () => {
     const bundleNote = item("bundle", "file", {
       name: "Zulu",
       children: [item("attachment", "canvas")],
     })
+    const emptyBundleNote: TreeItem = {
+      ...item("empty-bundle", "file", { name: "Beta" }),
+      path: "/vault/Beta/Beta.md",
+    }
     const looseNote = item("loose", "file", { name: "Alpha" })
     const folder = item("folder", "folder", { name: "Middle" })
 
-    const sorted = sortTreeItems([bundleNote, looseNote, folder], "name", "asc")
+    const sorted = sortTreeItems([bundleNote, looseNote, folder, emptyBundleNote], "name", "asc")
 
-    expect(sorted.map(({ id }) => id)).toEqual(["folder", "loose", "bundle"])
+    expect(sorted.map(({ id }) => id)).toEqual(["folder", "bundle", "loose", "empty-bundle"])
   })
 
-  it("keeps folders first in descending order", () => {
+  it("keeps folders and supernotes first in descending order", () => {
     const sorted = sortTreeItems(
       [
         item("alpha", "file", { name: "Alpha" }),
@@ -58,7 +62,7 @@ describe("sortTreeItems", () => {
     expect(sorted.map(({ id }) => id)).toEqual(["folder", "zulu", "alpha"])
   })
 
-  it("sorts notes with and without children together by date", () => {
+  it("sorts folders and supernotes together by date above standalone notes", () => {
     const sorted = sortTreeItems(
       [
         item("bundle", "file", { modified: 20, children: [item("layer", "canvas")] }),
@@ -70,7 +74,7 @@ describe("sortTreeItems", () => {
       "desc",
     )
 
-    expect(sorted.map(({ id }) => id)).toEqual(["folder", "new", "bundle", "old"])
+    expect(sorted.map(({ id }) => id)).toEqual(["bundle", "folder", "new", "old"])
   })
 
   it("applies the same grouping and ordering recursively", () => {
@@ -93,8 +97,8 @@ describe("sortTreeItems", () => {
 
     expect(sorted[0].children?.map(({ id }) => id)).toEqual([
       "nested-folder",
-      "nested-note",
       "nested-bundle",
+      "nested-note",
     ])
   })
 })

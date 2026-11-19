@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { formatShortcut } from "../keyboard-shortcuts"
 import { useTranslation } from "react-i18next"
 import {
   AlignCenter,
@@ -228,7 +229,7 @@ export function CanvasAreaControls({
   const { t } = useTranslation()
 
   return (
-    <div className="absolute bottom-2 right-4 z-10 flex items-center select-none">
+    <div className="absolute bottom-3 right-3 z-10 flex items-center select-none">
       {/* Consolidated Area Controls Block */}
       <div className="flex items-center gap-0.5 rounded-xl border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-md">
         <ToolbarButton title={t("canvas.zoomOut")} onClick={onZoomOut}>
@@ -247,10 +248,18 @@ export function CanvasAreaControls({
         {!isLocked && (
           <>
             <div className="mx-0.5 h-3.5 w-px bg-border/80" />
-            <ToolbarButton title={`${t("canvas.undo")} (⌘Z)`} disabled={!canUndo} onClick={onUndo}>
+            <ToolbarButton
+              title={`${t("canvas.undo")} (${formatShortcut("Mod+Z")})`}
+              disabled={!canUndo}
+              onClick={onUndo}
+            >
               <Undo2 className="size-3.5" />
             </ToolbarButton>
-            <ToolbarButton title={`${t("canvas.redo")} (⇧⌘Z)`} disabled={!canRedo} onClick={onRedo}>
+            <ToolbarButton
+              title={`${t("canvas.redo")} (${formatShortcut("Mod+Shift+Z")})`}
+              disabled={!canRedo}
+              onClick={onRedo}
+            >
               <Redo2 className="size-3.5" />
             </ToolbarButton>
           </>

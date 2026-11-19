@@ -34,6 +34,9 @@ export function SidebarTree({
   onDelete,
   onDeleteMany,
   onNewFile,
+  onNewFolder,
+  onNewSketch,
+  onNewDatabase,
   onAttachCanvas,
   onAttachSketch,
   onOpenInNewTab,
@@ -41,6 +44,7 @@ export function SidebarTree({
   onOpenSplitDown,
   onOpenInNewWindow,
   onCloneFile,
+  onConvertFolderToNote,
   onOpenInExplorer,
   onMoveItem,
   onReorderItems,
@@ -64,6 +68,9 @@ export function SidebarTree({
   const stableOnDelete = useStableCallback(onDelete)
   const stableOnDeleteMany = useStableCallback(onDeleteMany)
   const stableOnNewFile = useStableCallback(onNewFile)
+  const stableOnNewFolder = useStableCallback(onNewFolder)
+  const stableOnNewSketch = useStableCallback(onNewSketch)
+  const stableOnNewDatabase = useStableCallback(onNewDatabase)
   const stableOnAttachCanvas = useStableCallback(onAttachCanvas)
   const stableOnAttachSketch = useStableCallback(onAttachSketch)
   const stableOnOpenInNewTab = useStableCallback(onOpenInNewTab)
@@ -71,6 +78,7 @@ export function SidebarTree({
   const stableOnOpenSplitDown = useStableCallback(onOpenSplitDown)
   const stableOnOpenInNewWindow = useStableCallback(onOpenInNewWindow)
   const stableOnCloneFile = useStableCallback(onCloneFile)
+  const stableOnConvertFolderToNote = useStableCallback(onConvertFolderToNote)
   const stableOnOpenInExplorer = useStableCallback(onOpenInExplorer)
   const stableOnSetIcon = useStableCallback(onSetIcon)
   const stableOnContextMenuSelect = useStableCallback(onContextMenuSelect)
@@ -370,6 +378,9 @@ export function SidebarTree({
                   onDelete={stableOnDelete}
                   onDeleteMany={stableOnDeleteMany}
                   onNewFile={stableOnNewFile}
+                  onNewFolder={stableOnNewFolder}
+                  onNewSketch={stableOnNewSketch}
+                  onNewDatabase={stableOnNewDatabase}
                   onAttachCanvas={stableOnAttachCanvas}
                   onAttachSketch={stableOnAttachSketch}
                   onOpenInNewTab={stableOnOpenInNewTab}
@@ -377,6 +388,7 @@ export function SidebarTree({
                   onOpenSplitDown={stableOnOpenSplitDown}
                   onOpenInNewWindow={stableOnOpenInNewWindow}
                   onCloneFile={stableOnCloneFile}
+                  onConvertFolderToNote={stableOnConvertFolderToNote}
                   onOpenInExplorer={stableOnOpenInExplorer}
                   onSetIcon={stableOnSetIcon}
                   onContextMenuSelect={handleContextMenuSelect}

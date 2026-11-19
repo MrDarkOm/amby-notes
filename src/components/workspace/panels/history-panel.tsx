@@ -108,7 +108,7 @@ function HistoryContents({
                 disabled={history.loading || history.busy}
                 onClick={history.openLatest}
               >
-                <Clock3 className="size-3.5" />
+                <Clock3 className="size-4" />
               </Button>
             )}
             <Button
@@ -121,10 +121,10 @@ function HistoryContents({
             >
               {history.loading ? (
                 <MotionSpinner>
-                  <RefreshCw className="size-3.5" />
+                  <RefreshCw className="size-4" />
                 </MotionSpinner>
               ) : (
-                <RefreshCw className="size-3.5" />
+                <RefreshCw className="size-4" />
               )}
             </Button>
             <Button

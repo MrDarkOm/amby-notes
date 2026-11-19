@@ -28,6 +28,8 @@ export const confirmations = {
   deleteArchived: (params: { name: string }) => ask("deleteArchived", params, true),
   resetSettings: () => ask("resetSettings", {}, true),
   deleteDebugHistory: () => ask("deleteDebugHistory", {}, true),
+  // The copy of the vault that is kept before sync
+  deleteBackup: () => ask("deleteBackup", {}, true),
   // Layers, connections
   deleteLayer: (params: { layer: string; title: string }) => ask("deleteLayer", params, true),
   removeAiConnection: (params: { name: string }) => ask("removeAiConnection", params, true),

@@ -154,7 +154,7 @@ describe("how the centre is built into the dock", () => {
     expect(document.activeElement).toBe(dockButton())
   })
 
-  it("stands beside the bell and grows upwards from it, on the side where the dock is, with a gap from the dock", async () => {
+  it("aligns to the dock edge on either side of the window", async () => {
     await mountHost()
     const box = (left: number, width: number, top: number, bottom: number) =>
       ({
@@ -171,10 +171,8 @@ describe("how the centre is built into the dock", () => {
     dockButton()!.getBoundingClientRect = () => box(4, 36, 500, 530)
     dock.getBoundingClientRect = () => box(0, 48, 0, 768)
     const left = await openCentre()
-    // 12px from the edge of the dock (not from the button), so no button of the dock is covered.
-    expect(left.style.left).toBe("60px")
-    // The foot of the stack is level with the foot of the bell, never lower.
-    expect(Number.parseInt(left.style.bottom)).toBeGreaterThanOrEqual(window.innerHeight - 530)
+    expect(left.style.left).toBe("48px")
+    expect(left.style.bottom).toBe("8px")
     expect(left.style.maxHeight).toBeTruthy()
     fireEvent.click(dockButton()!)
     await waitFor(() => expect(screen.queryByTestId("notices-centre")).toBeNull())
@@ -182,7 +180,7 @@ describe("how the centre is built into the dock", () => {
     dockButton()!.getBoundingClientRect = () => box(edge + 8, 36, 500, 530)
     dock.getBoundingClientRect = () => box(edge, 48, 0, 768)
     const right = await openCentre()
-    expect(right.style.right).toBe("60px")
+    expect(right.style.right).toBe("48px")
     expect(right.style.left).toBe("")
   })
 

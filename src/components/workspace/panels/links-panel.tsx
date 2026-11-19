@@ -108,6 +108,7 @@ export function LinksPanel({ currentDocId, onSelectLink }: PanelRenderProps) {
     <div className="flex h-full min-h-0 flex-col">
       <PanelHeader
         title={t("panels.links")}
+        count={outgoing.length + backlinks.length}
         actions={
           <Button
             variant="ghost"

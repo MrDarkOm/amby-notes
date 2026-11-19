@@ -37,7 +37,7 @@ than silently changing source data to match a plan.
   the former separate plans. Status and counts can reflect an earlier revision; do not bulk-load these files.
 - [audit/](audit/) holds the audits, one folder or file each: [storage](audit/storage-issues-audit.md),
   [database stabilization](audit/database-stabilization.md), [Windows](audit/windows-audit-2026-09-28.md) and the
-  [editor audit](audit/editor-audit-2026-10/). They are evidence at a date, not contracts.
+  [editor audit](audit/editor-audit-2026-10/) and the [UI/UX polish audit](audit/ui-ux-audit-2026-11/README.md). They are evidence at a date, not contracts.
 - [road/target/](road/target/README.md) lists what was deferred on purpose (sync, AI, editor, safety,
   platforms) and the product [ideas](road/target/IDEAS.md). Read it before proposing "next" work.
 - `docs/archive/` is local only and is not in git (ignored): full texts of old plans, audits, handoffs and

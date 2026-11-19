@@ -14,7 +14,7 @@ The eighth Amby 0.1.9 beta includes a command-line tool and a local MCP server f
 
 > **License.** Amby 0.1.9 is distributed under GNU AGPL-3.0. Versions through 0.1.8 remain under MIT.
 
-> **Sync backups.** The pre-sync backup is stored next to the vault on the same disk. Restoring from Settings creates a separate folder. Subscription management and deleting the server copy require sync server 0.2.0.
+> **Sync backups.** New pre-sync copies live in Amby's app data and expire 14 days after the first successful sync. Existing copies beside the vault remain available. Restoring from Settings creates a separate folder. Subscription management and deleting the server copy require sync server 0.2.0.
 
 ## 🪶 Creative workshop
 
@@ -37,7 +37,9 @@ The eighth Amby 0.1.9 beta includes a command-line tool and a local MCP server f
 - Open notes, graphs, databases, canvases, and sketches in resizable workspace panes. Tabs remember their scroll position, and the start screen lists recent vaults.
 - Unified search covers notes, folders, databases, canvases, text, and tags. The graph saves its layout and zoom when locked and supports back and forward navigation.
 - The file tree supports dragging files and folders from the system file manager, offers sorting and filtering in its empty-area menu, and refreshes when an empty folder is deleted.
-- Separate note windows use Amby's header. Opening a folder in the system file manager opens that folder directly.
+- Separate note windows use Amby's header. Sidebars animate with the workspace, and header controls align with the docks across platforms. Opening a folder in the system file manager opens that folder directly.
+- Bookmark folders in Favorites, or turn a folder into a note with children from its header or context menu. The file tree groups expandable notes with folders.
+- The Attachments panel shows and searches local files. Image and file drops from Finder work in notes and in the file tree.
 - Notifications appear next to the dock bell. Naming and editing errors appear near the affected control, with conflict choices available from the notice.
 - Document tabs work with the keyboard, and image previews and centered database dialogs manage focus while open.
 

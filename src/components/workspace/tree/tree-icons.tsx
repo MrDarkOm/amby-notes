@@ -15,7 +15,11 @@ import { cn } from "@/lib/utils"
 import { EmojiGlyph } from "@/components/ui/emoji-glyph"
 import { IconValue } from "../icon-value"
 import { isRichIconValue } from "../icon-values"
-import { isSuperCanvasItem, isSuperNoteItem, isSuperSketchItem } from "../workspace-tree-utils"
+import { isSuperCanvasItem, isSuperSketchItem } from "../workspace-tree-utils"
+
+function isExpandableSuperNote(item: TreeItem): boolean {
+  return item.type === "file" && Boolean(item.children?.length)
+}
 import { KNOWN_ICONS, type TreeItem } from "./tree-types"
 import { isEnterKey } from "@/lib/keyboard"
 
@@ -85,7 +89,7 @@ export function TreeItemIcon({ item, className }: { item: TreeItem; className?: 
     item.icon !== "sketch" &&
     item.icon !== "database"
       ? item.icon
-      : isSuperNoteItem(item)
+      : isExpandableSuperNote(item)
         ? "supernote"
         : isSuperCanvasItem(item)
           ? "supercanvas"
@@ -134,9 +138,9 @@ export function TreeItemStatusIcon({
   onActivate?: () => void
   label?: string
 }) {
-  const isFavoriteItem = item.type !== "folder" && isFavorite
-  const isInteractive = item.type !== "folder" && !!onActivate
-  const isSuperNote = isSuperNoteItem(item)
+  const isFavoriteItem = isFavorite
+  const isInteractive = !!onActivate
+  const isSuperNote = isExpandableSuperNote(item)
   const Icon =
     item.type === "folder"
       ? Folder
@@ -153,11 +157,11 @@ export function TreeItemStatusIcon({
   return (
     <span
       aria-hidden={isInteractive ? undefined : true}
-      data-tree-file-status={
-        item.type === "folder" ? "folder" : isFavoriteItem ? "favorite" : item.type
-      }
+      data-tree-file-status={isFavoriteItem ? "favorite" : item.type}
       role={isInteractive ? "button" : undefined}
-      tabIndex={isInteractive ? 0 : undefined}
+      // Not a Tab stop: the row is the tree's single stop, and the context menu offers the
+      // same favourite action from the keyboard.
+      tabIndex={isInteractive ? -1 : undefined}
       aria-label={isInteractive ? label : undefined}
       aria-pressed={isInteractive ? isFavoriteItem : undefined}
       title={isInteractive ? label : undefined}

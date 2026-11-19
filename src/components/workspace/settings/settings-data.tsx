@@ -96,7 +96,7 @@ export function DataTab({ vault }: { vault: string | null }) {
         </button>
         <button
           type="button"
-          className={cn(btn, "text-red-300 hover:bg-red-950/30")}
+          className={cn(btn, "text-destructive hover:bg-destructive/10")}
           onClick={() => {
             setVaults([])
             void saveWorkspaces({

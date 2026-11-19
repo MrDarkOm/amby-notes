@@ -215,7 +215,12 @@ export function TiptapEditor({
   // useEditor compares option references on every React render. An inline
   // editorProps object reapplies DOM props and editor state even when only
   // autosave metadata changed. Leave the focused editor DOM untouched.
-  const editorProps = React.useMemo(() => ({ attributes: { class: "amby-tiptap-prose" } }), [])
+  // tabindex -1: Tab moves between the app's buttons and never lands in the text, where it
+  // would type a tab. The text is entered by a click or from the title (Enter).
+  const editorProps = React.useMemo(
+    () => ({ attributes: { class: "amby-tiptap-prose", tabindex: "-1" } }),
+    [],
+  )
 
   const pointerSelectingRef = React.useRef(false)
   const selectionSettleTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)

@@ -761,6 +761,7 @@ export function WorkspaceOrchestration() {
     handleDeleteFile,
     handleDeleteFiles,
     handleNewFileIn,
+    handleConvertFolderToNote,
     handleNewFolderIn,
     handleNewCanvasIn,
     handleAttachCanvasToNote,
@@ -1165,7 +1166,7 @@ export function WorkspaceOrchestration() {
           title: tab.title,
           icon:
             tab.kind === "folder"
-              ? (item?.icon ?? "📁")
+              ? (item?.icon ?? "folder") // a known icon: drawn like note tabs, not as the 📁 emoji
               : tab.kind === "creative"
                 ? creativeTarget?.kind === "workshop"
                   ? (creativeTarget.workshop.icon ?? undefined)
@@ -1238,6 +1239,7 @@ export function WorkspaceOrchestration() {
     handleDeleteFile,
     handleDeleteFiles,
     handleNewFileIn,
+    handleConvertFolderToNote,
     handleNewFolderIn,
     handleNewCanvasIn,
     handleNewSketchIn,
@@ -1349,6 +1351,7 @@ export function WorkspaceOrchestration() {
       setNestedNotesPlacement,
       handleMoveItem,
       handleNewFolderIn,
+      handleConvertFolderToNote,
       handleMergeFile,
       handleDeleteFile,
       handleSelect,
@@ -1470,6 +1473,7 @@ export function WorkspaceOrchestration() {
         activeFolder={activeFolder}
         handleNewFileIn={handleNewFileIn}
         handleNewFolderIn={handleNewFolderIn}
+        handleConvertFolderToNote={handleConvertFolderToNote}
         handleSetIcon={handleSetIcon}
         renderCachedTabSurfaces={renderCachedTabSurfaces}
         focusShowLeft={focusShowLeft}

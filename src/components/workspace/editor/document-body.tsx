@@ -33,8 +33,8 @@ const LazySketchEditor = React.lazy(() =>
 )
 import type { EditorHandle } from "../tiptap/constants"
 import type { MarkdownSelection } from "../tiptap/markdown-selection"
-import { IconValue } from "../icon-value"
 import { KNOWN_ICONS } from "../tree/tree-types"
+import { TreeIcon } from "../tree/tree-icons"
 import type { TreeItem } from "../sidebar-tree"
 import { stripMdExt } from "./document-breadcrumbs-utils"
 import type { RenameOutcome } from "../file-actions/rename-outcome"
@@ -257,12 +257,12 @@ export function DocumentBody({
               note.icon && !KNOWN_ICONS.has(note.icon)
                 ? note.icon
                 : note.type === "canvas"
-                  ? "🗺️"
+                  ? "canvas"
                   : note.type === "sketch"
-                    ? "✏️"
+                    ? "sketch"
                     : note.type === "database"
-                      ? "🗄️"
-                      : "📄"
+                      ? "database"
+                      : "file"
             return (
               <ContextMenu key={note.id}>
                 <ContextMenuTrigger asChild>
@@ -272,7 +272,7 @@ export function DocumentBody({
                     onClick={() => onOpenItem?.(note.id)}
                   >
                     <span className="flex size-5 items-center justify-center" aria-hidden="true">
-                      <IconValue value={icon} className="size-5" />
+                      <TreeIcon icon={icon} className="size-5 text-muted-foreground" />
                     </span>
                     <span className="truncate">{stripMdExt(note.name)}</span>
                   </button>

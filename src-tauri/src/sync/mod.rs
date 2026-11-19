@@ -88,6 +88,8 @@ mod archive_sync_tests;
 #[cfg(test)]
 mod backup_boundary_tests;
 #[cfg(test)]
+mod backup_home_tests;
+#[cfg(test)]
 mod backup_tests;
 #[cfg(test)]
 mod base_store_tests;

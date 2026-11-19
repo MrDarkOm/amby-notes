@@ -141,7 +141,7 @@ export function PropertyHeaderMenu({
         {trigger ?? (
           <button
             type="button"
-            className="flex h-full min-w-0 w-full flex-1 cursor-pointer items-center justify-start gap-2 rounded px-2 py-1.5 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100 hover:text-foreground dark:hover:bg-accent/40"
+            className="flex h-full min-w-0 w-full flex-1 cursor-pointer items-center justify-start gap-2 rounded px-2 py-1.5 text-left text-xs font-medium text-muted-foreground hover:bg-accent/40 hover:text-foreground"
             title={property.name}
             aria-label={property.name}
             onClick={(event) => event.stopPropagation()}

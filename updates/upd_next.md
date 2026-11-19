@@ -1,5 +1,7 @@
 # Amby — Next version
 
+- Integrated the worktree UI changes with the CLI and MCP. Attachment open errors use the shared notice flow, folder conversion events reach diagnostics, and UI tests cover the updated menus and panel layout.
+
 - The emoji picker keeps its search and grid styles in WebKit when the warmed picker moves into the popover under the packaged security policy.
 
 - Fixed Windows portability of desktop archive, vault-path and revoked-key verification.
@@ -21,13 +23,43 @@
 - Added `amby new`, `amby append`, and `amby write` with diff previews and restorable history. The CLI MCP server can write when explicitly enabled and can restrict edits to one folder.
 - Added the read-only `amby` command line for listing, reading, searching and navigating vault notes, with JSON output and a local stdio MCP server.
 - For developers: moved vault services and read-only AI tools into the Tauri-free `amby-core` crate, with independent Rust tests.
+
+- Fixed side-panel open/close animation: the central workspace stage now glides smoothly over and away from the side panels in lockstep with the header columns instead of snapping at the end of opening or the start of closing, and the top-left corner of the document surface morphs smoothly when aligning with the first tab.
+- Fixed header sidebar-toggle alignment across OSes and Web: both toggles align flush with their dock rails when no OS window buttons sit on that edge (including in Web builds, which no longer reserve macOS traffic-light space on the left or render inactive Windows buttons on the right); only the side with native window buttons shifts its toggle inward. The first active tab now automatically shows its left concave fillet whenever the tab strip is inset from the pane edge.
+- Favorites: bookmarked folders now appear in the top Favorites section of the Files panel as well as the dedicated Favorites panel.
+- File tree context menu & folder overview: added "Convert to note" (`tree.convertToNote`) in the folder context menu and "Convert to supernote" (`folderView.convertToSupernote`) in `FolderView`, creating a same-named Markdown note inside the folder to promote it into a supernote and opening it immediately.
+- File tree context menu: removed "Open below", moved "Appearance" directly under "Open in new window", moved "Duplicate" directly under "Show in Finder/Explorer", and added a "Nest" submenu (new note, drawing, database, folder) directly above "Attach".
+- Panel headers: unified item count badges (databases, archive, properties, attachments, links) as rounded pills immediately beside the section title, and standardized header icon buttons to `size="icon-sm"` with `16 px` icons across AI, Properties, History, and Links.
+- Renamed "Excalidraw" to "Набросок" (RU) / "Draw" (EN) across the interface and updated the file-creation menu item from "База данных" / "Database" to "Новая база данных" / "New database".
+- Attachments and AI panels: renamed the Attachments "Images" tab to "Files" showing all local attached files (images with preview, plus PDFs, audio, video, and generic files) with an always-visible search bar; added a search bar with the all-conversations button beside it in the AI panel and unified its header icon buttons with other panels.
+- Fixed drag-and-drop of images and files into notes (and the tree) on macOS: Tauri 2 delivers drops on main/note `WebviewWindow`s via `WindowEvent::DragDrop` rather than `WebviewEvent::DragDrop`, so dropped file paths are now granted in both hooks; editor drop hit-testing also accepts drops in the note's side margins and empty tail.
+- File tree: expandable supernotes (notes with child items) now sort together with folders above standalone notes, empty bundle notes without children display and sort as regular notes, and folders can now be added to Favorites (via the right-side icon or context menu) and opened from the Favorites panel.
+- UI polish: Back/Forward page history arrows now clearly dim when unavailable; floating status bars across notes, graph, workshop, canvas, sketches, and databases share a symmetrical 12 px bottom-right inset with vertical scrollbar tracks ending cleanly above the bar; the file-tree footer uses matching 12 px padding; non-bookmarked right-side type icons in the file tree stay a uniform neutral gray even in rainbow-tree mode; and the notification center anchors flush with the side-panel left edge and 8 px from the bottom of the window.
+
+- For developers: `npm run lint` passes again — the browser-console audit scripts in `docs/audit/**/scripts/` now lint with browser globals, and one needless regex escape was removed.
+
+- Interface polish (no layout or style changes): keyboard focus is now visible on the dock, tabs and toolbars; the "Delete" items in menus are readable in the light theme; an "off" switch is clearly visible in the light theme; the emoji picker uses the app accent and font instead of blue; the note title lines up with the text below it; a hovered row in the file tree no longer looks selected; settings drop-downs have one size and long values no longer push the arrow out.
+- The file tree is one Tab stop again: the type icon of a row (it adds the note to favourites) is no longer a separate stop; favourites stay available from the context menu. Tab no longer enters the note text, where it typed a tab: it moves between the buttons; the text is entered with a click or with Enter from the title.
+- Shortcut hints match the system: ⌘ on macOS, Ctrl on Windows and Linux (undo, redo, link, formula). "Show in Finder" / "Show in File Explorer" / "Show in the file manager" now names the file manager of the current system.
+- After the window is narrowed and widened again, the side panels come back as they were. Closing Settings returns focus to the Settings button.
+- If a database cannot be created, the dialog now says so instead of silently staying open; its default name is selected so typing replaces it.
+- The main window cannot be shrunk below 720×480, as note windows already could not, so the dock, tabs and editor never overlap.
+- In windows 960–1100 px wide the right panel steps aside so the note keeps a readable width; it comes back when the window grows.
+- The page-icon picker is no longer cut off by a narrow editor, and Esc closes it.
+- Code uses one monospace font stack everywhere, with system fonts for macOS, Windows and Linux, so it never falls back to Courier.
+- Nested-note chips and folder tabs use the same type icons as the file tree instead of emoji; the "Colors & effects" settings group has its own icon.
+- Screen readers hear the names of settings controls, which dock section is open, and the selected search result. Russian texts consistently address the user formally.
+
 - Fixed note windows opened separately using a system title bar instead of Amby's header. They now use the same macOS overlay and window-button placement as the main window, and no system decorations on Windows and Linux.
 
 - Fixed "Show in file manager" for workspace and note folders: it now opens the folder itself instead of showing its parent with the folder selected. Files are still selected in their containing folder.
 
+- The copy made before sync is first switched on is no longer created next to your vault folder (no more `<vault>.amby-backups` clutter). It lives in Amby's own data folder, one copy per vault, and Amby deletes it 14 days after the first successful sync. Settings → Backups shows one line, "Copy before sync: created <date>", with Show and Delete. If that copy is missing, switching sync on no longer fails with "the copy could not be verified": Amby says the copy is missing and makes a new one. Copies made by earlier versions beside the vault are never moved or deleted automatically; the one a vault still points to can be shown or deleted in Settings.
+
 - For developers: the repository now uses English for all docs, plans, maps, agent instructions and release notes (`updates/`); Russian stays only as an app interface language. `AGENTS.md` (also read by Claude Code and Gemini CLI) has a language policy for agents: they take requests in Russian, work and write in English, and answer the owner briefly in Russian. The release notes template, the GitHub installation footer and the beta banner of a release are in English; older Russian documents are translated over time. App behavior did not change.
 - For developers: a plan for the `amby` command line (for people, scripts and AI agents through `amby mcp`) and for moving the vault core into its own crate without Tauri — `docs/road/cli.md`. This is a task description; app behavior did not change.
 - For developers: the remaining Russian documents (plans, audits, contracts, the sync plan) are translated to English; app behavior did not change.
+- For developers: a UI/UX polish audit of the current interface with screenshots, measurements and a prioritised fix plan — `docs/audit/ui-ux-audit-2026-11/`. App behavior did not change.
 
 - The emoji picker is prepared in the background after startup and reuses a single ready-made grid instead of rebuilding it on every open. Closing it clears the search, refreshes "Recents", and releases handlers for the current note; switching language or theme refreshes the cache.
 

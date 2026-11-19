@@ -320,7 +320,7 @@ export function WorkspaceNormalLayout({
             data-help-area="content"
             ref={mainStageRef}
             className={cn(
-              "amby-workspace-stage relative flex flex-1 gap-0 overflow-hidden",
+              "amby-workspace-stage relative z-10 flex flex-1 gap-0 overflow-hidden bg-background",
               !rightPanelEnabled && "pr-2",
               isMultiPane && "-mt-11",
             )}
@@ -456,9 +456,9 @@ export function WorkspaceNormalLayout({
 }
 
 /**
- * A pinned side panel. On a wide window it slides over the content with a transform and takes
- * its width only once it has settled, so the editor reflows once under the panel instead of on
- * every frame. In the compact layout it is an overlay already and simply grows.
+ * A pinned side panel. Its outer width follows `presence.progress` directly so the central
+ * workspace stage and header columns shift smoothly in lockstep while the inner panel keeps
+ * its full width without squishing.
  */
 function PinnedSidePanel({
   side,
@@ -474,8 +474,9 @@ function PinnedSidePanel({
   children: React.ReactNode
 }) {
   const width = `var(--amby-${side}-panel-width, 300px)`
-  const compactWidth = usePanelLength(presence.progress, "0px", width)
-  const slide = useTransform(presence.progress, [0, 1], [side === "left" ? "-100%" : "100%", "0%"])
+  const animatedWidth = usePanelLength(presence.progress, "0px", width)
+  const panelOpacity = useTransform(presence.progress, [0, 0.15, 1], [0, 0.25, 1])
+  const panelScale = useTransform(presence.progress, [0, 1], [0.985, 1])
   const hover = {
     onMouseEnter: () => onHoverChange(true),
     onMouseLeave: () => onHoverChange(false),
@@ -485,7 +486,7 @@ function PinnedSidePanel({
     return (
       <motion.div
         data-help-area={`${side}-panel`}
-        style={{ width: compactWidth }}
+        style={{ width: animatedWidth }}
         {...hover}
         className={cn(
           "fixed bottom-0 top-11 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl",
@@ -500,25 +501,26 @@ function PinnedSidePanel({
   }
 
   return (
-    <div
+    <motion.div
       data-help-area={`${side}-panel`}
-      className="relative shrink-0"
-      style={{ width: presence.settled ? width : 0 }}
+      className={cn(
+        "relative z-0 flex shrink-0",
+        side === "left" ? "justify-start" : "justify-end",
+      )}
+      style={{ width: animatedWidth }}
       {...hover}
     >
-      {/* Clips the sliding panel to its own column while it lies over the content. */}
-      <div
-        className={cn(
-          "absolute inset-y-0 z-30",
-          side === "left" ? "left-0" : "right-0",
-          !presence.settled && "overflow-hidden",
-        )}
-        style={{ width }}
+      <motion.div
+        className="relative h-full shrink-0"
+        style={{
+          width,
+          opacity: panelOpacity,
+          scale: panelScale,
+          transformOrigin: side === "left" ? "left center" : "right center",
+        }}
       >
-        <motion.div className="relative h-full shrink-0" style={{ width, x: slide }}>
-          {children}
-        </motion.div>
-      </div>
-    </div>
+        {children}
+      </motion.div>
+    </motion.div>
   )
 }

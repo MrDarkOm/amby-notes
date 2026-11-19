@@ -66,6 +66,20 @@ fn remember_dropped_paths<R: tauri::Runtime>(
     }
 }
 
+/// Same as `remember_dropped_paths` for `WebviewWindow` drops: Tauri 2 delivers drops on a
+/// `WindowContent` webview as `WindowEvent::DragDrop` rather than `WebviewEvent::DragDrop`.
+fn remember_window_dropped_paths<R: tauri::Runtime>(
+    window: &tauri::Window<R>,
+    event: &tauri::WindowEvent,
+) {
+    use tauri::Manager;
+    if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+        window
+            .state::<path_grants::PathGrants>()
+            .grant_sources(paths);
+    }
+}
+
 /// Single source of truth for the command set — drives both the runtime
 /// invoke handler and the generated TypeScript bindings (so the frontend IPC
 /// types can't drift from the Rust signatures).
@@ -266,6 +280,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::backups::list_vault_backups,
         commands::backups::verify_vault_backup,
         commands::backups::restore_vault_backup,
+        commands::backups::delete_vault_backup,
+        commands::backups::reveal_vault_backup,
         commands::sync::sync_check_server,
         commands::sync::sync_check_password,
         commands::sync::sync_prepare_account,
@@ -360,6 +376,7 @@ pub fn run() {
         .manage(DebugState(logging::global_runtime()))
         .invoke_handler(builder.invoke_handler())
         .on_menu_event(handle_menu_event)
+        .on_window_event(remember_window_dropped_paths)
         .on_webview_event(remember_dropped_paths)
         .setup(|app| {
             cli_open::enqueue(app.handle(), std::env::args_os().skip(1));
@@ -385,6 +402,8 @@ pub fn run() {
                 // holds the address and the name (docs/sync-plan.md, Р5).
                 use tauri::Manager;
                 let root = app_data::app_root(app.handle())?;
+                // Pre-sync copies of vaults live here, never beside a vault.
+                sync::backup::set_home(root.join("backups"));
                 let secrets: std::sync::Arc<dyn sync::secrets::SecretStore> = std::sync::Arc::new(
                     sync::secrets::BundledSecrets::new(sync::secrets::KeyringStore),
                 );

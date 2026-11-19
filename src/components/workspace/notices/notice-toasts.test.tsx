@@ -171,7 +171,7 @@ describe("a toast and the stack of the centre", () => {
     expect(toasts()).toHaveLength(1)
   })
 
-  it("stands on the side of the dock, like the stack, 12px from the edge of the dock, and does not cover its buttons", () => {
+  it("aligns with the left dock edge above the bottom inset", () => {
     const box = (left: number, width: number, top: number, bottom: number) =>
       ({
         left,
@@ -194,12 +194,12 @@ describe("a toast and the stack of the centre", () => {
     render(<NoticeToastHost />)
     announce(conflictToast("a"))
     const stack = screen.getByTestId("notice-toasts")
-    expect(stack.style.left).toBe("60px")
-    expect(Number.parseInt(stack.style.bottom)).toBeGreaterThanOrEqual(window.innerHeight - 530)
+    expect(stack.style.left).toBe("48px")
+    expect(stack.style.bottom).toBe("8px")
     dock.remove()
   })
 
-  it("keeps the same gap on the right side when the dock is there", () => {
+  it("aligns with the right dock edge", () => {
     const box = (left: number, width: number, top: number, bottom: number) =>
       ({
         left,
@@ -223,7 +223,7 @@ describe("a toast and the stack of the centre", () => {
     render(<NoticeToastHost />)
     announce(conflictToast("a"))
     const stack = screen.getByTestId("notice-toasts")
-    expect(stack.style.right).toBe("60px")
+    expect(stack.style.right).toBe("48px")
     expect(stack.style.left).toBe("")
     dock.remove()
   })
