@@ -1,4 +1,5 @@
 import * as React from "react"
+import { fileManagerPlace } from "../show-in-file-manager"
 import {
   AlertTriangle,
   Columns2,
@@ -409,7 +410,7 @@ export function ProjectPage({
     [
       {
         id: "show-in-explorer",
-        label: t("tree.showInExplorer"),
+        label: t("tree.showInExplorer", { place: fileManagerPlace() }),
         icon: icon16(FolderOpen),
         disabled: !host?.onShowInExplorer,
         onSelect: () => host?.onShowInExplorer?.(folderPath),

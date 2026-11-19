@@ -289,17 +289,15 @@ pub async fn sync_delete_space(
 }
 
 /// Switches sync on for the open vault after a complete external backup.
-/// `test_vault` is a legacy IPC compatibility argument; the current UI sends false.
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_enable_vault(
     runtime: State<'_, SyncRuntime>,
     context: State<'_, VaultContext>,
     target: SpaceTarget,
-    test_vault: bool,
 ) -> Result<VaultSyncStatus, SyncError> {
     let vault = open_vault(&context)?;
-    runtime.enable(&vault, target, test_vault).await
+    runtime.enable(&vault, target).await
 }
 
 /// Switches sync off for the open vault; the link with the space stays.
@@ -497,15 +495,16 @@ pub async fn sync_restore_server_version(
                 let db = app.state::<VaultContext>();
                 let watcher_state = app.state::<WatcherState>();
                 let _gate = db.mutation_gate.lock_or_recover();
-                let prepared =
-                    watcher_state.prepare_write([(target, watcher::fingerprint_for_bytes(bytes))]);
+                let prepared = watcher_state
+                    .self_writes
+                    .prepare_write([(target, watcher::fingerprint_for_bytes(bytes))]);
                 match server_history::plain_restore_write(&vault, target, bytes, &expected) {
                     Ok(true) => {
-                        watcher_state.confirm_prepared_write(&prepared);
+                        watcher_state.self_writes.confirm_prepared_write(&prepared);
                         Ok(true)
                     }
                     other => {
-                        watcher_state.cancel_prepared_write(&prepared);
+                        watcher_state.self_writes.cancel_prepared_write(&prepared);
                         other
                     }
                 }
@@ -580,12 +579,13 @@ pub async fn sync_restore_deleted(
                 let db = app.state::<VaultContext>();
                 let watcher_state = app.state::<WatcherState>();
                 let _gate = db.mutation_gate.lock_or_recover();
-                let prepared =
-                    watcher_state.prepare_write([(target, watcher::fingerprint_for_bytes(bytes))]);
+                let prepared = watcher_state
+                    .self_writes
+                    .prepare_write([(target, watcher::fingerprint_for_bytes(bytes))]);
                 let result = crate::frontmatter::atomic_write_bytes_new(target, bytes);
                 match &result {
-                    Ok(()) => watcher_state.confirm_prepared_write(&prepared),
-                    Err(_) => watcher_state.cancel_prepared_write(&prepared),
+                    Ok(()) => watcher_state.self_writes.confirm_prepared_write(&prepared),
+                    Err(_) => watcher_state.self_writes.cancel_prepared_write(&prepared),
                 }
                 result
             };

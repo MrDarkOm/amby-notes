@@ -5,6 +5,7 @@ description = "Local-first desktop knowledge workspace"
 authors = ["Amby Authors"]
 license = "AGPL-3.0-only"
 edition = "2021"
+rust-version = "1.100"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -23,6 +24,7 @@ tauri-build = { version = "2", features = [] }
 native-contract = []
 
 [dependencies]
+amby-core = { path = "../crates/amby-core" }
 tauri = { version = "2", features = ["protocol-asset", "devtools"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
@@ -37,7 +39,7 @@ serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
 tokio = { version = "1", features = ["sync", "macros", "net", "time", "rt", "io-util", "process"] }
 url = "2"
 reqwest = { version = "0.13", features = ["json", "rustls", "stream", "webpki-roots"], default-features = false }
-rfd = { version = "0.16", default-features = false, features = ["gtk3"] }
+rfd = { version = "0.17", default-features = false, features = ["gtk3"] }
 futures-util = "0.3"
 rusqlite = { version = "0.41", features = ["bundled", "fallible_uint"] }
 ulid = "3"
@@ -65,32 +67,12 @@ objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["NSApplication", "NSImage"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["NSData", "NSError", "NSFileManager", "NSString", "NSURL"] }
 
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_UI_Shell"] }
-
 [dev-dependencies]
+amby-core = { path = "../crates/amby-core", features = ["test-support"] }
 # The server of the sync workspace, started inside a test (stage Э4: the link against a real server).
 amby-sync-conformance = { path = "../sync/conformance" }
 
-# The shipped build: whole-program optimisation and no symbol table (smaller, slightly faster
-# binary; slower release builds). Panics must keep unwinding: `lock_util` recovers a mutex left
-# poisoned by a panicking command, which `panic = "abort"` would turn into a crash.
-[profile.release]
-lto = "fat"
-codegen-units = 1
-strip = "symbols"
-
-# Argon2id uses 64 MiB per derivation: optimised even in debug and test builds, otherwise every
-# test that signs in would take seconds (the same rule as in sync/Cargo.toml).
-[profile.dev.package.argon2]
-opt-level = 3
-[profile.test.package.argon2]
-opt-level = 3
-[profile.dev.package.blake2]
-opt-level = 3
-[profile.test.package.blake2]
-opt-level = 3
-[profile.dev.package.chacha20poly1305]
-opt-level = 3
-[profile.test.package.chacha20poly1305]
-opt-level = 3
+[lints.clippy]
+# Panicking on None/Err in shipped code is a decision, not a shortcut: use `?`, a handled error or
+# `expect` with the reason it cannot fail. Tests may unwrap (clippy.toml: allow-unwrap-in-tests).
+unwrap_used = "deny"

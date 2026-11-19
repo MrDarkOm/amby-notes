@@ -16,7 +16,7 @@ import "@xyflow/react/dist/style.css"
 
 import { CANVAS_UI_THEME_COLORS } from "@/themes"
 import { CanvasCtx, type CanvasCtxValue } from "./canvas-context"
-import { TextNode, FileNode, GroupNode } from "./canvas-nodes"
+import { TextNode, FileNode, GroupNode, UnknownNode } from "./canvas-nodes"
 import { CanvasEdge } from "./canvas-edges"
 import {
   CanvasObjectsToolbar,
@@ -52,6 +52,7 @@ const NODE_TYPES = {
   text: TextNode,
   file: FileNode,
   group: GroupNode,
+  unknown: UnknownNode,
 }
 
 const EDGE_TYPES = {

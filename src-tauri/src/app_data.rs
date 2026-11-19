@@ -24,6 +24,7 @@ pub(crate) fn lock_app_data_writes() -> Result<MutexGuard<'static, ()>, String> 
 use tauri::Manager;
 
 use crate::frontmatter;
+use crate::lock_util::LockExt;
 use crate::paths;
 use crate::vault_context::VaultContext;
 
@@ -59,6 +60,80 @@ fn vault_meta_root(context: &VaultContext) -> Result<PathBuf, String> {
     Ok(root)
 }
 
+/// Names the renderer may use in the app-data area. Everything else there (the
+/// sign-in files of Codex and Claude, for one) is out of reach of these commands.
+/// Keep in step with the constants in `app-config.ts`, `modules/types.ts`,
+/// `package-manager/catalog.ts` and `notices/journal-storage.ts`.
+const APP_DATA_FILES: &[&str] = &[
+    "workspaces.json",
+    "settings.json",
+    "ai-connections.json",
+    "modules.json",
+    "module-catalog.json",
+];
+
+/// Names the renderer may use inside `.amby/` (`app-config.ts`, `graph-layout-store.ts`).
+const VAULT_META_FILES: &[&str] = &["workspace.json", "session.json", "graph-layout.json"];
+
+fn is_hex_name(name: &str, len: usize) -> bool {
+    name.len() == len
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// `settings.json.corrupt-1700000000000.json` is the backup the renderer makes
+/// of a damaged file; the name it is a backup of comes back.
+fn strip_corrupt_backup(rel: &str) -> &str {
+    if let Some(head) = rel.strip_suffix(".json") {
+        if let Some((name, stamp)) = head.rsplit_once(".corrupt-") {
+            if !stamp.is_empty() && stamp.bytes().all(|b| b.is_ascii_digit()) {
+                return name;
+            }
+        }
+    }
+    rel
+}
+
+/// Is `rel` one of the files the renderer keeps in the app-data area?
+pub(crate) fn app_data_name_allowed(rel: &str) -> bool {
+    let name = strip_corrupt_backup(rel);
+    if APP_DATA_FILES.contains(&name) {
+        return true;
+    }
+    // The notice journal of one vault: `notice-journal/<16 hex digits>.json`.
+    name.strip_prefix("notice-journal/")
+        .and_then(|rest| rest.strip_suffix(".json"))
+        .is_some_and(|key| is_hex_name(key, 16))
+}
+
+/// Is `rel` one of the files the renderer keeps in `.amby/`?
+pub(crate) fn vault_meta_name_allowed(rel: &str) -> bool {
+    let name = strip_corrupt_backup(rel);
+    if VAULT_META_FILES.contains(&name) {
+        return true;
+    }
+    // A sidecar of a database block: `blocks/<id>.json`, the id being a UUID or
+    // `blk-<ms>-<base36>`: letters, digits, `-` and `_`, at most 128 characters.
+    name.strip_prefix("blocks/")
+        .and_then(|rest| rest.strip_suffix(".json"))
+        .is_some_and(|id| {
+            !id.is_empty()
+                && id.len() <= 128
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        })
+}
+
+fn refuse_unknown(allowed: bool) -> Result<(), String> {
+    if allowed {
+        Ok(())
+    } else {
+        Err("appDataNameNotAllowed".into())
+    }
+}
+
 fn read_opt(path: &PathBuf) -> Result<Option<String>, String> {
     match fs::read_to_string(path) {
         Ok(s) => Ok(Some(s)),
@@ -77,6 +152,7 @@ fn write_all(path: &Path, contents: &str) -> Result<(), String> {
 #[tauri::command]
 #[specta::specta]
 pub fn read_app_data(app: tauri::AppHandle, rel: String) -> Result<Option<String>, String> {
+    refuse_unknown(app_data_name_allowed(&rel))?;
     let path = paths::confine_rel(&app_root(&app)?, &rel)?;
     read_opt(&path)
 }
@@ -84,6 +160,7 @@ pub fn read_app_data(app: tauri::AppHandle, rel: String) -> Result<Option<String
 #[tauri::command]
 #[specta::specta]
 pub fn write_app_data(app: tauri::AppHandle, rel: String, contents: String) -> Result<(), String> {
+    refuse_unknown(app_data_name_allowed(&rel))?;
     let _guard = lock_app_data_writes()?;
     let root = app_root(&app)?;
     let path = paths::confine_rel(&root, &rel)?;
@@ -102,6 +179,7 @@ pub fn compare_write_app_data(
     expected: Option<String>,
     contents: String,
 ) -> Result<bool, String> {
+    refuse_unknown(app_data_name_allowed(&rel))?;
     let _guard = lock_app_data_writes()?;
     let root = app_root(&app)?;
     let path = paths::confine_rel(&root, &rel)?;
@@ -167,6 +245,7 @@ pub fn read_vault_meta(
     context: tauri::State<VaultContext>,
     rel: String,
 ) -> Result<Option<String>, String> {
+    refuse_unknown(vault_meta_name_allowed(&rel))?;
     let path = paths::confine_rel(&vault_meta_root(&context)?, &rel)?;
     read_opt(&path)
 }
@@ -177,15 +256,75 @@ pub fn write_vault_meta(
     context: tauri::State<VaultContext>,
     rel: String,
     contents: String,
+    expected_generation: Option<u64>,
 ) -> Result<(), String> {
-    let path = paths::confine_rel(&vault_meta_root(&context)?, &rel)?;
-    write_all(&path, &contents)
+    write_vault_meta_under_gate(
+        &context.mutation_gate,
+        || vault_meta_root(&context),
+        || context.generation(),
+        expected_generation,
+        &rel,
+        &contents,
+    )
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn delete_vault_meta(context: tauri::State<VaultContext>, rel: String) -> Result<(), String> {
-    let path = paths::confine_rel(&vault_meta_root(&context)?, &rel)?;
+pub fn delete_vault_meta(
+    context: tauri::State<VaultContext>,
+    rel: String,
+    expected_generation: Option<u64>,
+) -> Result<(), String> {
+    delete_vault_meta_under_gate(
+        &context.mutation_gate,
+        || vault_meta_root(&context),
+        || context.generation(),
+        expected_generation,
+        &rel,
+    )
+}
+
+/// A write that names the vault generation it was made for is refused when another vault
+/// (or the same one, reopened) is active now, so a late save cannot land in the wrong `.amby/`.
+/// `None` is for a window that does not know the generation (the settings window).
+fn refuse_stale_generation(
+    current: impl FnOnce() -> Result<u64, String>,
+    expected: Option<u64>,
+) -> Result<(), String> {
+    match expected {
+        Some(expected) if current()? != expected => Err("vaultGenerationConflict".into()),
+        _ => Ok(()),
+    }
+}
+
+/// Writes under `mutation_gate`, as every other write into the vault does, and
+/// only for the names the renderer really keeps in `.amby/`.
+fn write_vault_meta_under_gate(
+    gate: &Mutex<()>,
+    root: impl FnOnce() -> Result<PathBuf, String>,
+    current_generation: impl FnOnce() -> Result<u64, String>,
+    expected_generation: Option<u64>,
+    rel: &str,
+    contents: &str,
+) -> Result<(), String> {
+    refuse_unknown(vault_meta_name_allowed(rel))?;
+    let _guard = gate.lock_or_recover();
+    refuse_stale_generation(current_generation, expected_generation)?;
+    let path = paths::confine_rel(&root()?, rel)?;
+    write_all(&path, contents)
+}
+
+fn delete_vault_meta_under_gate(
+    gate: &Mutex<()>,
+    root: impl FnOnce() -> Result<PathBuf, String>,
+    current_generation: impl FnOnce() -> Result<u64, String>,
+    expected_generation: Option<u64>,
+    rel: &str,
+) -> Result<(), String> {
+    refuse_unknown(vault_meta_name_allowed(rel))?;
+    let _guard = gate.lock_or_recover();
+    refuse_stale_generation(current_generation, expected_generation)?;
+    let path = paths::confine_rel(&root()?, rel)?;
     match fs::remove_file(&path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -258,5 +397,207 @@ mod tests {
         assert!(guard_ai_version(&path, r#"{"models":[]}"#, AiFile::Connections).is_err());
         assert!(guard_ai_version(&path, r#"{"version":1,"x":1}"#, AiFile::Connections).is_ok());
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn app_data_names_are_a_closed_list() {
+        for rel in [
+            "workspaces.json",
+            "settings.json",
+            "ai-connections.json",
+            "modules.json",
+            "module-catalog.json",
+            "settings.json.corrupt-1700000000000.json",
+            "notice-journal/0123456789abcdef.json",
+        ] {
+            assert!(app_data_name_allowed(rel), "{rel} must be allowed");
+        }
+        for rel in [
+            "codex/auth.json",
+            "claude/settings.json",
+            "../x",
+            "/etc/passwd",
+            "C:/x.json",
+            "notice-journal/../codex/auth.json",
+            "notice-journal/xyz.json",
+            "notice-journal/0123456789abcdef.json.bak",
+            "settings.json/../codex/auth.json",
+            "codex/auth.json.corrupt-1.json",
+            "",
+        ] {
+            assert!(!app_data_name_allowed(rel), "{rel} must be refused");
+        }
+    }
+
+    #[test]
+    fn vault_meta_names_are_a_closed_list() {
+        for rel in [
+            "workspace.json",
+            "session.json",
+            "graph-layout.json",
+            "session.json.corrupt-42.json",
+            "blocks/0b1f6a9c-1111-4222-8333-444455556666.json",
+            "blocks/blk-1700000000000-ab12cd34.json",
+        ] {
+            assert!(vault_meta_name_allowed(rel), "{rel} must be allowed");
+        }
+        for rel in [
+            "notes.db",
+            "sync/state.db",
+            "history/manifest.json",
+            "recovery/x.json",
+            "migrations/x.json",
+            "properties/layout.json",
+            "blocks/../notes.db",
+            "blocks/a/b.json",
+            "blocks/.json",
+            "../x",
+            "/abs.json",
+            "",
+        ] {
+            assert!(!vault_meta_name_allowed(rel), "{rel} must be refused");
+        }
+    }
+
+    #[test]
+    fn a_vault_meta_write_outside_the_list_is_refused_and_writes_nothing() {
+        let root = temp_test_dir("meta-refused");
+        let gate = Mutex::new(());
+        assert!(write_vault_meta_under_gate(
+            &gate,
+            || Ok(root.clone()),
+            || Ok(1),
+            None,
+            "notes.db",
+            "x"
+        )
+        .is_err());
+        assert!(write_vault_meta_under_gate(
+            &gate,
+            || Ok(root.clone()),
+            || Ok(1),
+            None,
+            "history/manifest.json",
+            "x"
+        )
+        .is_err());
+        assert!(!root.join("notes.db").exists());
+        assert!(!root.join("history").exists());
+        fs::write(root.join("keep.json"), "k").unwrap();
+        assert!(delete_vault_meta_under_gate(
+            &gate,
+            || Ok(root.clone()),
+            || Ok(1),
+            None,
+            "keep.json"
+        )
+        .is_err());
+        assert!(root.join("keep.json").exists());
+        write_vault_meta_under_gate(
+            &gate,
+            || Ok(root.clone()),
+            || Ok(1),
+            None,
+            "workspace.json",
+            "{}",
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(root.join("workspace.json")).unwrap(),
+            "{}"
+        );
+        delete_vault_meta_under_gate(&gate, || Ok(root.clone()), || Ok(1), None, "workspace.json")
+            .unwrap();
+        assert!(!root.join("workspace.json").exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_vault_meta_write_for_another_generation_is_refused_and_writes_nothing() {
+        let root = temp_test_dir("meta-generation");
+        let gate = Mutex::new(());
+        fs::write(root.join("session.json"), "old").unwrap();
+        let err = write_vault_meta_under_gate(
+            &gate,
+            || Ok(root.clone()),
+            || Ok(7),
+            Some(6),
+            "workspace.json",
+            "{}",
+        )
+        .unwrap_err();
+        assert_eq!(err, "vaultGenerationConflict");
+        assert!(!root.join("workspace.json").exists());
+        let err = delete_vault_meta_under_gate(
+            &gate,
+            || Ok(root.clone()),
+            || Ok(7),
+            Some(6),
+            "session.json",
+        )
+        .unwrap_err();
+        assert_eq!(err, "vaultGenerationConflict");
+        assert!(root.join("session.json").exists());
+        write_vault_meta_under_gate(
+            &gate,
+            || Ok(root.clone()),
+            || Ok(7),
+            Some(7),
+            "workspace.json",
+            "{}",
+        )
+        .unwrap();
+        assert!(root.join("workspace.json").exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn vault_meta_writes_and_deletes_wait_for_the_mutation_gate() {
+        use std::sync::Arc;
+        use std::time::Duration;
+        let root = temp_test_dir("meta-gate");
+        fs::write(root.join("session.json"), "old").unwrap();
+        let gate = Arc::new(Mutex::new(()));
+        let held = gate.lock().unwrap();
+        let writer = {
+            let (gate, root) = (gate.clone(), root.clone());
+            std::thread::spawn(move || {
+                write_vault_meta_under_gate(
+                    &gate,
+                    || Ok(root.clone()),
+                    || Ok(1),
+                    None,
+                    "workspace.json",
+                    "{}",
+                )
+            })
+        };
+        let deleter = {
+            let (gate, root) = (gate.clone(), root.clone());
+            std::thread::spawn(move || {
+                delete_vault_meta_under_gate(
+                    &gate,
+                    || Ok(root.clone()),
+                    || Ok(1),
+                    None,
+                    "session.json",
+                )
+            })
+        };
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(
+            !root.join("workspace.json").exists(),
+            "the write must wait for the gate"
+        );
+        assert!(
+            root.join("session.json").exists(),
+            "the delete must wait for the gate"
+        );
+        drop(held);
+        writer.join().unwrap().unwrap();
+        deleter.join().unwrap().unwrap();
+        assert!(root.join("workspace.json").exists());
+        assert!(!root.join("session.json").exists());
+        let _ = fs::remove_dir_all(root);
     }
 }

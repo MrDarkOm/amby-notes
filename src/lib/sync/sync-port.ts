@@ -163,7 +163,7 @@ export interface SyncPort {
   /** Removes the server copy of a space; `password` proves the account (appendix Ц, Ц1, Ц4). */
   deleteSpace(spaceId: string, password: string): Promise<void>
   /** Switches sync on for the open vault: a new space or an existing one. */
-  enableVault(target: SpaceTarget, testVault: boolean): Promise<VaultSyncStatus>
+  enableVault(target: SpaceTarget): Promise<VaultSyncStatus>
   /** Switches sync off for the open vault; the link with the space stays. */
   disableVault(): Promise<VaultSyncStatus>
   /** A pass now. */
@@ -310,7 +310,7 @@ export function createDesktopSyncPort(): SyncPort {
     deleteSpace: async (spaceId, password) => {
       await call(commands.syncDeleteSpace(spaceId, password))
     },
-    enableVault: (target, testVault) => call(commands.syncEnableVault(target, testVault)),
+    enableVault: (target) => call(commands.syncEnableVault(target)),
     disableVault: () => call(commands.syncDisableVault()),
     runNow: async () => {
       await call(commands.syncRunNow())
@@ -425,8 +425,7 @@ export const unavailableSyncPort: SyncPort = {
     enabled: false,
     linked: false,
     resumable: false,
-    testVault: false,
-    gateClosed: true,
+    backupMissing: false,
     spaceId: null,
     spaceName: null,
     phase: "off",

@@ -21,7 +21,7 @@ export function QueryPanelButton({
     <Button
       variant="ghost"
       size="sm"
-      className="relative size-8 p-0 text-slate-500 hover:text-slate-900 dark:text-muted-foreground dark:hover:text-foreground"
+      className="relative size-8 p-0 text-muted-foreground hover:text-foreground"
       aria-label={label}
       aria-pressed={active}
       title={label}

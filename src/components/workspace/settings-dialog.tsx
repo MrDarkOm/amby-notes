@@ -19,6 +19,7 @@ import {
   Monitor,
   Keyboard,
   Palette,
+  SwatchBook,
   PencilLine,
   RefreshCw,
   Search,
@@ -44,6 +45,12 @@ import { isTauri } from "@/lib/storage"
 import { ACCENT_HEX } from "@/lib/themes"
 import { SUPPORTED_LANGUAGES } from "@/lib/i18n"
 import { useSettingsStore } from "./use-settings-store"
+import { useVaultStore } from "./use-vault-store"
+import {
+  acceptSettingsGeneration,
+  readInitialSettingsGeneration,
+  useSettingsVaultActivation,
+} from "./windows/settings-window-vault"
 import {
   isSettingsModuleId,
   isSettingsSectionId,
@@ -74,6 +81,7 @@ import {
   DataTab,
   DeleteConfirmationSetting,
   DeleteModeSetting,
+  FolderClickSetting,
   SearchResults,
   DebugSettings,
 } from "./settings"
@@ -109,12 +117,15 @@ interface ModuleChangePayload {
 interface SettingsContextPayload {
   activeModules: string[]
   vault: string | null
+  /** Backend generation of that vault: the settings window binds its vault writes to it (IPC-11). */
+  generation?: number | null
   target?: SettingsNavigationTarget
 }
 
 function settingsWindowUrl(
   activeModules: string[],
   vault: string | null,
+  generation: number | null,
   target: SettingsNavigationTarget | null,
 ): string {
   const params = new URLSearchParams({
@@ -122,6 +133,7 @@ function settingsWindowUrl(
     activeModules: JSON.stringify(activeModules),
   })
   if (vault) params.set("vault", vault)
+  if (generation !== null) params.set("generation", String(generation))
   if (target) {
     params.set("settingsSection", target.section)
     if (target.moduleId) params.set("settingsModule", target.moduleId)
@@ -133,11 +145,12 @@ function openSettingsWindow(
   activeModules: string[],
   title: string,
   vault: string | null,
+  generation: number | null,
   target: SettingsNavigationTarget | null,
   prewarm = false,
 ): Promise<boolean> {
   const operation = settingsWindowQueue.then(() =>
-    openSettingsWindowNow(activeModules, title, vault, target, prewarm),
+    openSettingsWindowNow(activeModules, title, vault, generation, target, prewarm),
   )
   // Keeps the queue going: the failure itself reaches the caller of the previous opening
   // (`operation`).
@@ -149,6 +162,7 @@ async function openSettingsWindowNow(
   activeModules: string[],
   title: string,
   vault: string | null,
+  generation: number | null,
   target: SettingsNavigationTarget | null,
   prewarm: boolean,
 ): Promise<boolean> {
@@ -161,6 +175,7 @@ async function openSettingsWindowNow(
       await emitTo<SettingsContextPayload>(SETTINGS_WINDOW_LABEL, SETTINGS_CONTEXT_CHANGE_EVENT, {
         activeModules,
         vault,
+        generation,
         target: target ?? undefined,
       }).catch(() => {})
       await existing.unminimize()
@@ -175,7 +190,7 @@ async function openSettingsWindowNow(
     })
     const stopReady = await listen(SETTINGS_READY_EVENT, () => markReady?.())
     const child = new WebviewWindow(SETTINGS_WINDOW_LABEL, {
-      url: settingsWindowUrl(activeModules, vault, target),
+      url: settingsWindowUrl(activeModules, vault, generation, target),
       title,
       width: 1024,
       height: 720,
@@ -220,6 +235,7 @@ async function openSettingsWindowNow(
     await emitTo<SettingsContextPayload>(SETTINGS_WINDOW_LABEL, SETTINGS_CONTEXT_CHANGE_EVENT, {
       activeModules,
       vault,
+      generation,
       target: target ?? undefined,
     })
     await child.show()
@@ -284,6 +300,15 @@ function SettingsWindowFrame({
           event.preventDefault()
           searchInputRef.current?.focus()
         }}
+        onCloseAutoFocus={(event) => {
+          // Return keyboard focus to the dock's Settings button instead of the page body.
+          const settingsButton = document.querySelector<HTMLElement>(
+            '[data-activity-button="settings"]',
+          )
+          if (!settingsButton) return
+          event.preventDefault()
+          settingsButton.focus()
+        }}
         className="flex max-w-none flex-col gap-0 overflow-hidden rounded-xl border-border bg-background p-0 shadow-2xl sm:max-w-none"
         style={{
           width: maximized ? "calc(100vw - 16px)" : "min(1024px, calc(100vw - 32px))",
@@ -312,6 +337,7 @@ export function SettingsDialog({
   onPresetChange,
 }: SettingsDialogProps) {
   const { t } = useTranslation()
+  const generation = useVaultStore((s) => s.backendGeneration)
   const prefs = useSettingsStore((s) => s.prefs)
   const themes = useSettingsStore((s) => s.themes)
   const setPrefs = useSettingsStore((s) => s.setPrefs)
@@ -443,13 +469,21 @@ export function SettingsDialog({
     void emitTo<SettingsContextPayload>(SETTINGS_WINDOW_LABEL, SETTINGS_CONTEXT_CHANGE_EVENT, {
       activeModules,
       vault,
+      generation,
     }).catch(() => {})
-  }, [activeModules, standalone, vault])
+  }, [activeModules, generation, standalone, vault])
 
   React.useEffect(() => {
     if (standalone || !isTauri()) return
     const timer = window.setTimeout(() => {
-      void openSettingsWindow(activeModules, t("settings.window.title"), vault, null, true)
+      void openSettingsWindow(
+        activeModules,
+        t("settings.window.title"),
+        vault,
+        generation,
+        null,
+        true,
+      )
     }, 500)
     return () => window.clearTimeout(timer)
     // Warm up only once; current context is sent again when opening.
@@ -463,6 +497,7 @@ export function SettingsDialog({
       activeModules,
       t("settings.window.title"),
       vault,
+      generation,
       navigationTarget,
     ).then((opened) => {
       if (cancelled) return
@@ -472,7 +507,17 @@ export function SettingsDialog({
     return () => {
       cancelled = true
     }
-  }, [activeModules, navigationTarget, onOpenChange, open, standalone, t, useInlineFallback, vault])
+  }, [
+    activeModules,
+    generation,
+    navigationTarget,
+    onOpenChange,
+    open,
+    standalone,
+    t,
+    useInlineFallback,
+    vault,
+  ])
 
   React.useEffect(() => {
     if (!standalone || !open) return
@@ -583,6 +628,7 @@ export function SettingsDialog({
                     </Select>
                   </Row>
                   <DeleteModeSetting />
+                  <FolderClickSetting />
                   <DeleteConfirmationSetting vault={vault} />
                 </SettingsGroup>
                 <SettingsGroup title={t("settings.groups.startup")} icon={Sparkles}>
@@ -624,7 +670,7 @@ export function SettingsDialog({
                     onThemesChange={setThemes}
                   />
                 </SettingsGroup>
-                <SettingsGroup title={t("settings.groups.colorsEffects")} icon={Palette}>
+                <SettingsGroup title={t("settings.groups.colorsEffects")} icon={SwatchBook}>
                   <Row label={t("settings.appearance.accent")}>
                     <div className="flex items-center gap-1.5">
                       {ACCENTS.map((a) => (
@@ -916,6 +962,12 @@ function initialSettingsNavigationTarget(): SettingsNavigationTarget | null {
 }
 
 export function StandaloneSettingsWindow() {
+  const [generation, setGeneration] = React.useState(() => {
+    // Before the first render: the sections below read and write vault files as they mount.
+    const initial = readInitialSettingsGeneration(window.location.search)
+    acceptSettingsGeneration(initial)
+    return initial
+  })
   const [activeModules, setActiveModules] = React.useState(initialSettingsModules)
   const [vault, setVault] = React.useState(initialSettingsVault)
   const [navigationTarget, setNavigationTarget] = React.useState(initialSettingsNavigationTarget)
@@ -929,6 +981,8 @@ export function StandaloneSettingsWindow() {
       listen<SettingsContextPayload>(SETTINGS_CONTEXT_CHANGE_EVENT, (event) => {
         setActiveModules(event.payload.activeModules)
         setVault(event.payload.vault)
+        acceptSettingsGeneration(event.payload.generation)
+        setGeneration(useVaultStore.getState().backendGeneration)
         setNavigationTarget(event.payload.target ?? null)
       }),
       getCurrentWindow().onCloseRequested((event) => {
@@ -954,6 +1008,12 @@ export function StandaloneSettingsWindow() {
     }
   }, [])
 
+  // The main window switched to another vault while this window is open: show that vault.
+  useSettingsVaultActivation((path) => {
+    setVault(path)
+    setGeneration(useVaultStore.getState().backendGeneration)
+  }, isTauri())
+
   const handleModuleEnabledChange = React.useCallback((id: string, enabled: boolean) => {
     setActiveModules((current) =>
       enabled
@@ -971,6 +1031,8 @@ export function StandaloneSettingsWindow() {
 
   return (
     <SettingsDialog
+      // A new vault has its own presets, modules and history settings: start the sections afresh.
+      key={`${vault ?? ""}:${generation ?? ""}`}
       standalone
       open
       vault={vault}

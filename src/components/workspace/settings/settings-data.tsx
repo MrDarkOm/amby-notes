@@ -13,7 +13,8 @@ import {
 } from "@/components/ui/select"
 import { confirm } from "@/lib/confirm"
 import { confirmations } from "@/lib/confirmations"
-import { isTauri, openInExplorer } from "@/lib/storage"
+import { errorType, logger } from "@/lib/logger"
+import { isTauri, revealAppDataFolder } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import {
   DEFAULT_PREFS,
@@ -26,6 +27,7 @@ import {
 } from "../app-config"
 import { useSettingsStore } from "../use-settings-store"
 import { useVaultStore } from "../use-vault-store"
+import { NoticeLine } from "../notices/notice-line"
 import { Row, selectTrigger } from "./settings-common"
 
 export function DataTab({ vault }: { vault: string | null }) {
@@ -33,6 +35,18 @@ export function DataTab({ vault }: { vault: string | null }) {
   const setPrefs = useSettingsStore((s) => s.setPrefs)
   const setVaults = useVaultStore((s) => s.setVaults)
   const [dir, setDir] = React.useState<string>("")
+  /** The answer to "Open folder" when the folder could not be shown stands under the button (docs/notices.md, section 8). */
+  const [openFailed, setOpenFailed] = React.useState(false)
+
+  async function openDataFolder() {
+    setOpenFailed(false)
+    try {
+      await revealAppDataFolder()
+    } catch (error) {
+      logger.warn("vault.reveal_failed", { errorType: errorType(error) })
+      setOpenFailed(true)
+    }
+  }
 
   React.useEffect(() => {
     if (!isTauri()) return
@@ -58,7 +72,7 @@ export function DataTab({ vault }: { vault: string | null }) {
             <button
               type="button"
               className={btn}
-              onClick={() => void openInExplorer(dir)}
+              onClick={() => void openDataFolder()}
               disabled={!dir}
             >
               <FolderOpen className="size-4" />
@@ -66,6 +80,7 @@ export function DataTab({ vault }: { vault: string | null }) {
             </button>
           )}
         </div>
+        {openFailed && <NoticeLine text={t("settings.data.openFolderFailed")} className="mt-1" />}
       </div>
 
       <div className="flex flex-col gap-2">
@@ -81,7 +96,7 @@ export function DataTab({ vault }: { vault: string | null }) {
         </button>
         <button
           type="button"
-          className={cn(btn, "text-red-300 hover:bg-red-950/30")}
+          className={cn(btn, "text-destructive hover:bg-destructive/10")}
           onClick={() => {
             setVaults([])
             void saveWorkspaces({
@@ -143,7 +158,8 @@ export function DeleteConfirmationSetting({ vault }: { vault: string | null }) {
 
 export function DeleteModeSetting() {
   const { t } = useTranslation()
-  const mode = useSettingsStore((s) => s.prefs.files.deleteMode)
+  const files = useSettingsStore((s) => s.prefs.files)
+  const mode = files.deleteMode
   const setPrefs = useSettingsStore((s) => s.setPrefs)
 
   return (
@@ -156,7 +172,9 @@ export function DeleteModeSetting() {
         onValueChange={(value) =>
           // The failed save is already reported by the settings window (emitSettingsSaveError);
           // nothing more to do here.
-          void setPrefs({ files: { deleteMode: value as DeleteModePref } }).catch(() => {})
+          void setPrefs({ files: { ...files, deleteMode: value as DeleteModePref } }).catch(
+            () => {},
+          )
         }
       >
         <SelectTrigger className={selectTrigger}>
@@ -170,6 +188,27 @@ export function DeleteModeSetting() {
           ))}
         </SelectContent>
       </Select>
+    </Row>
+  )
+}
+
+export function FolderClickSetting() {
+  const { t } = useTranslation()
+  const files = useSettingsStore((s) => s.prefs.files)
+  const setPrefs = useSettingsStore((s) => s.setPrefs)
+
+  return (
+    <Row
+      label={t("settings.general.folderClickToggles")}
+      hint={t("settings.general.folderClickTogglesHint")}
+    >
+      <Switch
+        checked={!files.folderClickToggles}
+        onCheckedChange={(next) =>
+          // A failed save is already reported by the settings window.
+          void setPrefs({ files: { ...files, folderClickToggles: !next } }).catch(() => {})
+        }
+      />
     </Row>
   )
 }

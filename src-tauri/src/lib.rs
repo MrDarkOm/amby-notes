@@ -1,36 +1,20 @@
 mod ai;
 mod app_data;
-mod archive;
-mod archive_migration;
-mod bundle;
+mod cli_open;
+mod cli_structural;
 mod commands;
 mod credentials;
-mod database;
-mod durable;
-mod frontmatter;
-mod history;
-pub mod index;
 mod keychain_access;
-mod lock_util;
 pub mod logging;
-mod model;
 pub mod package_manager;
 mod page_info;
-mod paths;
-mod project;
-mod property_groups;
-mod property_store;
-mod property_template;
-mod recovery;
-mod recycle_bin;
+mod path_grants;
 mod shadow_check;
 mod state;
 pub mod sync;
-mod system_recycle_bin;
+mod system_open;
+mod terminate_gate;
 mod updater;
-pub mod vault;
-mod vault_context;
-pub mod vault_index;
 mod watcher;
 
 #[cfg(feature = "native-contract")]
@@ -44,9 +28,57 @@ mod security_integration_test;
 #[cfg(test)]
 mod desktop_e2e_tests;
 
+#[cfg(test)]
+mod archive_command_tests;
+
+#[cfg(test)]
+mod index_incremental_tests;
+
+#[cfg(test)]
+mod property_migration_flow_test;
+
+#[cfg(test)]
+mod tree_patch_tests;
+
+use amby_core::{
+    archive, archive_migration, bundle, database, durable, frontmatter, history, lock_util, model,
+    paths, project, property_groups, property_template, recovery, recycle_bin, storage_error,
+    system_recycle_bin, vault_context,
+};
+pub use amby_core::{index, vault, vault_index};
+
 use logging::DebugState;
 use state::*;
 use watcher::WatcherState;
+
+/// IPC-03: the paths of a drag-and-drop are remembered here, before the webview can act on them, so
+/// that `import_asset` and `import_files` accept only what the person really dropped. Tauri's own
+/// handler runs first and only queues the event for the page; this one runs before the page answers.
+fn remember_dropped_paths<R: tauri::Runtime>(
+    webview: &tauri::Webview<R>,
+    event: &tauri::WebviewEvent,
+) {
+    use tauri::Manager;
+    if let tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+        webview
+            .state::<path_grants::PathGrants>()
+            .grant_sources(paths);
+    }
+}
+
+/// Same as `remember_dropped_paths` for `WebviewWindow` drops: Tauri 2 delivers drops on a
+/// `WindowContent` webview as `WindowEvent::DragDrop` rather than `WebviewEvent::DragDrop`.
+fn remember_window_dropped_paths<R: tauri::Runtime>(
+    window: &tauri::Window<R>,
+    event: &tauri::WindowEvent,
+) {
+    use tauri::Manager;
+    if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+        window
+            .state::<path_grants::PathGrants>()
+            .grant_sources(paths);
+    }
+}
 
 /// Single source of truth for the command set — drives both the runtime
 /// invoke handler and the generated TypeScript bindings (so the frontend IPC
@@ -55,12 +87,14 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
         updater::app_release_version,
         updater::check_app_update,
+        cli_open::take_cli_open,
         commands::vault::load_vault,
         commands::vault::load_active_vault,
         commands::vault::refresh_vault_paths,
         commands::vault::reindex_vault,
         commands::vault::preflight_vault,
         commands::vault::apply_id_migration,
+        commands::vault::apply_note_id_migration,
         commands::vault::inspect_id_migrations,
         commands::vault::recover_id_migration,
         commands::vault::list_files,
@@ -222,6 +256,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::project::create_workshop_entity,
         commands::assets::open_in_explorer,
         commands::external::open_attachment,
+        commands::external::reveal_vault_folder,
+        commands::external::reveal_app_data_folder,
         commands::external::save_attachment_copy,
         commands::external::open_web_address,
         commands::external::fetch_page_info,
@@ -244,6 +280,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::backups::list_vault_backups,
         commands::backups::verify_vault_backup,
         commands::backups::restore_vault_backup,
+        commands::backups::delete_vault_backup,
+        commands::backups::reveal_vault_backup,
         commands::sync::sync_check_server,
         commands::sync::sync_check_password,
         commands::sync::sync_prepare_account,
@@ -288,17 +326,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::modules::list_installed_module_packages,
         commands::modules::get_module_entry_path,
         commands::modules::verify_module_signature,
-        commands::debug::get_log_dir_path,
-        commands::debug::get_log_file_path,
         commands::debug::open_log_folder,
-        commands::debug::read_log_file,
-        commands::debug::clear_log_file,
-        commands::debug::append_log,
-        commands::debug::get_recent_logs,
-        commands::debug::set_debug_mode_enabled,
-        commands::debug::open_devtools,
         commands::debug::toggle_devtools,
-        commands::debug::is_devtools_open,
         commands::debug::configure_debug,
         commands::debug::get_debug_status,
         commands::debug::append_debug_events,
@@ -328,13 +357,16 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            cli_open::enqueue(app, args.into_iter().skip(1).map(std::ffi::OsString::from));
             if let Err(error) = show_and_focus_main_window(app) {
                 tracing::warn!(event = "restore_window_failed", error = %error);
             }
         }))
         .manage(vault_context::VaultContext::new())
         .manage(WatcherState::new())
+        .manage(path_grants::PathGrants::default())
+        .manage(cli_open::PendingCliOpens::default())
         .manage(ai::AiStreamState::default())
         .manage(ai::codex::launch::LoginSlot::default())
         .manage(ai::claude_code::launch::ClaudeLoginSlot::default())
@@ -343,7 +375,11 @@ pub fn run() {
         .manage(database::history::DatabaseHistoryState::default())
         .manage(DebugState(logging::global_runtime()))
         .invoke_handler(builder.invoke_handler())
+        .on_menu_event(handle_menu_event)
+        .on_window_event(remember_window_dropped_paths)
+        .on_webview_event(remember_dropped_paths)
         .setup(|app| {
+            cli_open::enqueue(app.handle(), std::env::args_os().skip(1));
             let debug = logging::global_runtime();
             debug.set_app(app.handle().clone());
             // Merely remember the path; the opt-in writer creates files only
@@ -366,6 +402,8 @@ pub fn run() {
                 // holds the address and the name (docs/sync-plan.md, Р5).
                 use tauri::Manager;
                 let root = app_data::app_root(app.handle())?;
+                // Pre-sync copies of vaults live here, never beside a vault.
+                sync::backup::set_home(root.join("backups"));
                 let secrets: std::sync::Arc<dyn sync::secrets::SecretStore> = std::sync::Arc::new(
                     sync::secrets::BundledSecrets::new(sync::secrets::KeyringStore),
                 );
@@ -392,6 +430,8 @@ pub fn run() {
                 ));
             }
 
+            cli_structural::start(app.handle());
+
             #[cfg(target_os = "macos")]
             set_macos_application_icon();
 
@@ -406,6 +446,9 @@ pub fn run() {
             // Tauri creates this window from the configuration before calling
             // `setup`. Keeping creation declarative avoids a dev-only window
             // lifecycle and guarantees exactly one `main` window per process.
+            // SAVE-04: Cmd+Q must reach the close handlers that save the last edits.
+            #[cfg(target_os = "macos")]
+            app.set_menu(app_menu(app.handle())?)?;
             show_and_focus_main_window(app.handle())
         })
         .build(tauri::generate_context!());

@@ -11,6 +11,7 @@ import { KNOWN_ICONS } from "../tree/tree-types"
 import { renameFailureText, type RenameOutcome } from "../file-actions/rename-outcome"
 import { RenameHint } from "../notices/rename-hint"
 import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
+import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
 import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "../tiptap/floating-menu-events"
 import { isEnterKey } from "@/lib/keyboard"
 
@@ -120,70 +121,94 @@ export function DocumentTitle({
 
   return (
     <div className="amby-page-title relative mb-4 flex items-center gap-3">
-      <div
-        ref={emojiSlotRef}
-        className={hasPageEmoji ? "relative shrink-0" : "absolute -left-10 top-0"}
+      <Popover
+        open={emojiPickerOpen}
+        onOpenChange={(open) => {
+          if (!open) setEmojiPickerOpen(false)
+        }}
       >
-        {hasPageEmoji ? (
-          <motion.button
-            type="button"
-            className="text-3xl leading-none focus:outline-none"
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.96 }}
-            transition={motionTransitions.default}
-            title={t("docEditor.changeIcon")}
-            onClick={() => {
-              if (emojiPickerOpen) {
-                setEmojiPickerOpen(false)
-              } else {
-                window.dispatchEvent(new Event(CLOSE_BLOCK_MENUS_EVENT))
-                window.dispatchEvent(new Event(CLOSE_EDITOR_MENUS_EVENT))
-                setEmojiPickerOpen(true)
-              }
-            }}
+        <PopoverAnchor asChild>
+          <div
+            ref={emojiSlotRef}
+            className={
+              // The add button keeps its 4px gap to the title, which is inset by the editor padding.
+              hasPageEmoji
+                ? "relative shrink-0"
+                : "absolute left-[calc(var(--amby-editor-inline-pad)-2.5rem)] top-0"
+            }
           >
-            <IconValue value={fileIcon} className="size-8 rounded-md text-3xl" />
-          </motion.button>
-        ) : (
-          <motion.button
-            type="button"
-            className="amby-page-emoji-add flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus:outline-none"
-            whileHover={{ scale: 1.06 }}
-            whileTap={{ scale: 0.96 }}
-            transition={motionTransitions.default}
-            title={t("docEditor.changeIcon")}
-            aria-label={t("docEditor.changeIcon")}
-            onClick={() => {
-              if (emojiPickerOpen) {
-                setEmojiPickerOpen(false)
-              } else {
-                window.dispatchEvent(new Event(CLOSE_BLOCK_MENUS_EVENT))
-                window.dispatchEvent(new Event(CLOSE_EDITOR_MENUS_EVENT))
-                setEmojiPickerOpen(true)
-              }
-            }}
-          >
-            <SmilePlus className="size-5" />
-          </motion.button>
-        )}
-        {emojiPickerOpen && (
-          <div className="absolute left-0 top-full z-50 mt-1">
-            <EmojiPickerPanel
-              triggerRef={emojiSlotRef}
-              onSelect={(emojiData) => {
-                onFileIconChange?.(emojiData.native)
-                setEmojiPickerOpen(false)
-              }}
-              onClear={() => {
-                onFileIconChange?.("file")
-                setEmojiPickerOpen(false)
-              }}
-              clearLabel={t("tree.resetIcon")}
-              onClose={() => setEmojiPickerOpen(false)}
-            />
+            {hasPageEmoji ? (
+              <motion.button
+                type="button"
+                className="text-3xl leading-none focus:outline-none"
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.96 }}
+                transition={motionTransitions.default}
+                title={t("docEditor.changeIcon")}
+                onClick={() => {
+                  if (emojiPickerOpen) {
+                    setEmojiPickerOpen(false)
+                  } else {
+                    window.dispatchEvent(new Event(CLOSE_BLOCK_MENUS_EVENT))
+                    window.dispatchEvent(new Event(CLOSE_EDITOR_MENUS_EVENT))
+                    setEmojiPickerOpen(true)
+                  }
+                }}
+              >
+                <IconValue value={fileIcon} className="size-8 rounded-md text-3xl" />
+              </motion.button>
+            ) : (
+              <motion.button
+                type="button"
+                className="amby-page-emoji-add flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus:outline-none"
+                whileHover={{ scale: 1.06 }}
+                whileTap={{ scale: 0.96 }}
+                transition={motionTransitions.default}
+                title={t("docEditor.changeIcon")}
+                aria-label={t("docEditor.changeIcon")}
+                onClick={() => {
+                  if (emojiPickerOpen) {
+                    setEmojiPickerOpen(false)
+                  } else {
+                    window.dispatchEvent(new Event(CLOSE_BLOCK_MENUS_EVENT))
+                    window.dispatchEvent(new Event(CLOSE_EDITOR_MENUS_EVENT))
+                    setEmojiPickerOpen(true)
+                  }
+                }}
+              >
+                <SmilePlus className="size-5" />
+              </motion.button>
+            )}
           </div>
-        )}
-      </div>
+        </PopoverAnchor>
+        {/* A portal: the editor pane no longer clips the picker, and Esc closes it. */}
+        <PopoverContent
+          align="start"
+          side="bottom"
+          sideOffset={4}
+          collisionPadding={16}
+          className="w-auto border-0 bg-transparent p-0 shadow-none"
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          onCloseAutoFocus={(event) => event.preventDefault()}
+          onInteractOutside={(event) => {
+            if (emojiSlotRef.current?.contains(event.target as Node)) event.preventDefault()
+          }}
+        >
+          <EmojiPickerPanel
+            triggerRef={emojiSlotRef}
+            onSelect={(emojiData) => {
+              onFileIconChange?.(emojiData.native)
+              setEmojiPickerOpen(false)
+            }}
+            onClear={() => {
+              onFileIconChange?.("file")
+              setEmojiPickerOpen(false)
+            }}
+            clearLabel={t("tree.resetIcon")}
+            onClose={() => setEmojiPickerOpen(false)}
+          />
+        </PopoverContent>
+      </Popover>
       <textarea
         ref={titleInputRef}
         rows={1}

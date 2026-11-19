@@ -1,0 +1,119 @@
+name: Check desktop CLI bundles
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - ".github/workflows/check-cli-bundles.yml"
+      - "src-tauri/tauri*.conf.json"
+      - "scripts/prepare-cli-sidecar.mjs"
+  pull_request:
+    paths:
+      - ".github/workflows/check-cli-bundles.yml"
+      - "crates/amby-cli/**"
+      - "crates/amby-core/src/cli_ipc/**"
+      - "crates/amby-core/src/mcp.rs"
+      - "src-tauri/src/cli_*.rs"
+      - "src-tauri/src/main.rs"
+      - "src-tauri/src/native_contract.rs"
+      - "src-tauri/tauri*.conf.json"
+      - "scripts/check-bundled-cli.mjs"
+      - "scripts/prepare-cli-sidecar.mjs"
+      - "scripts/run-native-contract.mjs"
+      - "tests/native/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src-tauri/Cargo.toml"
+      - "package.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    name: ${{ matrix.runner }} / ${{ matrix.bundle }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      AMBY_DEV_SIGN: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_INCREMENTAL: "0"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            bundle: appimage
+          - runner: ubuntu-22.04-arm
+            bundle: appimage
+          - runner: windows-latest
+            bundle: nsis
+          - runner: windows-latest
+            bundle: msi
+          - runner: windows-11-arm
+            bundle: nsis
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils xvfb xauth
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.bundle }}
+
+      - run: npm ci
+      - run: npm run build:desktop -- --bundles ${{ matrix.bundle }}
+
+      - name: Test the AppImage against a running desktop
+        if: runner.os == 'Linux'
+        run: |
+          images=(target/release/bundle/appimage/*.AppImage)
+          test "${#images[@]}" -eq 1
+          image="$(realpath "${images[0]}")"
+          APPIMAGE_EXTRACT_AND_RUN=1 node scripts/check-bundled-cli.mjs "$image" --amby-cli
+
+          # The native contract opens a new process for each request. Reuse one extraction.
+          extract_dir="$(mktemp -d "$RUNNER_TEMP/amby-appimage.XXXXXX")"
+          (cd "$extract_dir" && "$image" --appimage-extract >/dev/null)
+          export AMBY_SMOKE_APP_RUN="$extract_dir/squashfs-root/AppRun"
+          wrapper="$RUNNER_TEMP/amby-appimage-cli"
+          cat > "$wrapper" <<'SH'
+          #!/bin/sh
+          exec "$AMBY_SMOKE_APP_RUN" --amby-cli "$@"
+          SH
+          chmod +x "$wrapper"
+          AMBY_NATIVE_CLI_BIN="$wrapper" xvfb-run -a npm run test:storage:live
+
+      - name: Install and test the Windows package against a running desktop
+        if: runner.os == 'Windows'
+        env:
+          BUNDLE: ${{ matrix.bundle }}
+        shell: pwsh
+        run: |
+          $installDir = Join-Path $env:RUNNER_TEMP 'Amby CLI smoke'
+          $bundles = "target/release/bundle/$env:BUNDLE"
+          if ($env:BUNDLE -eq 'msi') {
+            $installer = @(Get-ChildItem $bundles -Filter '*.msi')
+            if ($installer.Count -ne 1) { throw 'Expected one MSI package' }
+            $process = Start-Process msiexec.exe -ArgumentList "/i `"$($installer[0].FullName)`" /qn /norestart INSTALLDIR=`"$installDir`"" -Wait -PassThru
+          } else {
+            $installer = @(Get-ChildItem $bundles -Filter '*-setup.exe')
+            if ($installer.Count -ne 1) { throw 'Expected one NSIS package' }
+            $process = Start-Process $installer[0].FullName -ArgumentList "/S /D=$installDir" -Wait -PassThru
+          }
+          if ($process.ExitCode -ne 0) { throw "Installer exited with $($process.ExitCode)" }
+          $env:AMBY_NATIVE_CLI_BIN = Join-Path $installDir 'amby.exe'
+          node scripts/check-bundled-cli.mjs $env:AMBY_NATIVE_CLI_BIN
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:storage:live

@@ -71,6 +71,87 @@ pub fn close_main_window_helpers<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     }
 }
 
+/// Id of Amby's own Quit item. On macOS it replaces the predefined Quit item: that one sends
+/// `terminate:`, which ends the process without asking any window to close, so the last edits of an
+/// open note were never saved (SAVE-04).
+pub const QUIT_MENU_ID: &str = "amby-quit";
+
+/// What Quit does with the windows that are open now.
+#[derive(Debug, PartialEq, Eq)]
+pub enum QuitPlan {
+    /// Ask these windows to close. Each saves its edits in its own close handler (and may stay
+    /// open when its text would be lost); the process exits once the last one is gone.
+    CloseWindows(Vec<String>),
+    /// Nothing holds edits: exit at once.
+    Exit,
+}
+
+pub fn quit_plan<'a>(labels: impl IntoIterator<Item = &'a str>) -> QuitPlan {
+    let windows: Vec<String> = labels
+        .into_iter()
+        .filter(|label| !closes_with_main_window(label))
+        .map(str::to_owned)
+        .collect();
+    if windows.is_empty() {
+        QuitPlan::Exit
+    } else {
+        QuitPlan::CloseWindows(windows)
+    }
+}
+
+/// Quit through the windows' own close handlers rather than by ending the process.
+pub fn request_quit<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    use tauri::Manager;
+
+    let windows = app.webview_windows();
+    match quit_plan(windows.keys().map(String::as_str)) {
+        QuitPlan::Exit => app.exit(0),
+        QuitPlan::CloseWindows(labels) => {
+            for label in labels {
+                if let Some(window) = windows.get(&label) {
+                    if let Err(error) = window.close() {
+                        tracing::warn!(event = "quit_window_close_failed", label = %label, error = %error);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The default macOS menu with Amby's own Quit item in place of the predefined one (same label,
+/// same Cmd+Q shortcut).
+#[cfg(target_os = "macos")]
+pub fn app_menu<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> tauri::Result<tauri::menu::Menu<R>> {
+    use tauri::menu::{Menu, MenuItem, MenuItemKind};
+
+    let menu = Menu::default(app)?;
+    if let Some(MenuItemKind::Submenu(app_submenu)) = menu.items()?.into_iter().next() {
+        if let Some(MenuItemKind::Predefined(quit)) = app_submenu.items()?.last() {
+            let label = quit.text()?;
+            app_submenu.remove(quit)?;
+            app_submenu.append(&MenuItem::with_id(
+                app,
+                QUIT_MENU_ID,
+                label,
+                true,
+                Some("CmdOrCtrl+Q"),
+            )?)?;
+        }
+    }
+    Ok(menu)
+}
+
+pub fn handle_menu_event<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    event: tauri::menu::MenuEvent,
+) {
+    if event.id() == QUIT_MENU_ID {
+        request_quit(app);
+    }
+}
+
 /// Shared by the production app and the isolated native UI smoke harness.
 pub fn handle_run_event<R: tauri::Runtime>(handle: &tauri::AppHandle<R>, event: tauri::RunEvent) {
     match event {
@@ -81,6 +162,13 @@ pub fn handle_run_event<R: tauri::Runtime>(handle: &tauri::AppHandle<R>, event: 
             if let Err(error) = show_and_focus_main_window(handle) {
                 tracing::warn!(event = "restore_window_failed", error = %error);
             }
+        }
+        // SAVE-04: Dock → Quit and logout end the process through `terminate:`, which no window
+        // hears. Hook it once the application delegate exists.
+        tauri::RunEvent::Ready => crate::terminate_gate::install(handle),
+        // The process is ending by itself (the windows saved and closed): nothing is left to release.
+        tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
+            crate::terminate_gate::note_exiting()
         }
         tauri::RunEvent::WindowEvent {
             label,
@@ -123,7 +211,33 @@ pub fn set_macos_application_icon() {
 
 #[cfg(test)]
 mod tests {
-    use super::{closes_with_main_window, main_window_config, MAIN_WINDOW_LABEL};
+    use super::{
+        closes_with_main_window, main_window_config, quit_plan, QuitPlan, MAIN_WINDOW_LABEL,
+        QUIT_MENU_ID,
+    };
+
+    // SAVE-04: Quit (Cmd+Q, the app menu) asks every window to close, so each one saves its edits
+    // through its own close handler, instead of terminating the process under them.
+    #[test]
+    fn quit_asks_every_editing_window_to_close() {
+        let plan = quit_plan(["main", "settings", "note-3f2a"]);
+        assert_eq!(
+            plan,
+            QuitPlan::CloseWindows(vec!["main".to_string(), "note-3f2a".to_string()])
+        );
+    }
+
+    #[test]
+    fn quit_with_no_editing_window_exits() {
+        assert_eq!(quit_plan(["settings"]), QuitPlan::Exit);
+        assert_eq!(quit_plan(std::iter::empty::<&str>()), QuitPlan::Exit);
+    }
+
+    #[test]
+    fn the_quit_menu_item_has_its_own_id() {
+        // The predefined Quit item terminates the process without a close request.
+        assert_eq!(QUIT_MENU_ID, "amby-quit");
+    }
 
     #[test]
     fn main_window_is_created_by_tauri_configuration() {

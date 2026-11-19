@@ -8,8 +8,8 @@ import i18n from "@/lib/i18n"
 import { EditorContent, useEditor, type Editor } from "@tiptap/react"
 
 import { buildExtensions } from "./extensions"
-import { requestSourceRewriteSnapshot } from "../autosave/source-rewrite"
-import { composeMarkdown, markdownToDoc, restoreSourceFormatting } from "./markdown"
+import { markdownToDoc } from "./markdown"
+import { useEditorSerialization, useEditorSerializationLifecycle } from "./use-editor-serialization"
 import { clamp, type EditorHandle } from "./constants"
 import {
   docSelectionToMarkdownSelection,
@@ -41,7 +41,6 @@ import { primeAssetConverter, setAssetContext } from "./asset-resolver"
 import { setTransclusionFetcher } from "./transclusion-context"
 import { bindTauriFileDrop, getTauriDropPosForView } from "./media-drop"
 import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "./floating-menu-events"
-import { registerEditorSerialization } from "./editor-serialization-lifecycle"
 import { OPEN_LINK_PANEL_EVENT } from "./block-shortcuts"
 import { InlineSuggestPanel } from "./InlineSuggestPanel"
 import { dismissInlineSuggest } from "./inline-suggest"
@@ -164,11 +163,13 @@ export function TiptapEditor({
   onContentDirty,
   onContentClean,
 }: TiptapEditorProps) {
-  const valueRef = React.useRef(value)
-  const originalValueRef = React.useRef(value)
-  const onChangeRef = React.useRef(onChange)
-  const onContentDirtyRef = React.useRef(onContentDirty)
-  const onContentCleanRef = React.useRef(onContentClean)
+  const serialization = useEditorSerialization({
+    value,
+    noteId,
+    onChange,
+    onContentDirty,
+    onContentClean,
+  })
   const onSelectionChangeRef = React.useRef(onSelectionChange)
   const restoredSelectionRef = React.useRef(false)
   const suppressSelectionMenuRef = React.useRef(false)
@@ -177,12 +178,6 @@ export function TiptapEditor({
     onWikiLinkClick,
     resolveWikiLinkTarget,
   })
-  const serializeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
-  const documentDirtyRef = React.useRef(false)
-  const noteIdRef = React.useRef(noteId)
-  // One request per loaded text: the first save that may rewrite a block's source.
-  const rewriteSnapshotRequestedRef = React.useRef(false)
-  const userInteractedRef = React.useRef(false)
   const [menu, setMenu] = React.useState<MenuState>({ open: false, left: 0, right: 0, top: 0 })
   const [cropRequest, setCropRequest] = React.useState<CropRequest | null>(null)
   const [lightbox, setLightbox] = React.useState<{
@@ -192,53 +187,6 @@ export function TiptapEditor({
   const [wikiLinkContext, setWikiLinkContext] = React.useState<WikiLinkContextDetail | null>(null)
   const [inlineUnlink, setInlineUnlink] = React.useState<InlineUnlinkState | null>(null)
   const unlinkCloseTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // Serializing is O(doc size); running it on every keystroke lags large notes.
-  // Debounce it, and flush on blur/unmount so the save path never loses edits.
-  const flushSerialize = React.useCallback((ed: Editor) => {
-    if (serializeTimerRef.current) {
-      clearTimeout(serializeTimerRef.current)
-      serializeTimerRef.current = null
-    }
-    // Source/Live switches and React Fast Refresh both unmount this component.
-    // Serializing an untouched editor during those transitions can persist a
-    // transient ProseMirror document and repeatedly materialise blank blocks.
-    // Only a real editor update authorises a Markdown write.
-    if (!documentDirtyRef.current) return
-    if (ed.isDestroyed) return
-    const composed = composeMarkdown(ed.state.doc)
-    const markdown = restoreSourceFormatting(composed.markdown, originalValueRef.current)
-    documentDirtyRef.current = false
-    if (markdown === valueRef.current) {
-      onContentCleanRef.current?.()
-      return
-    }
-    // The note holds text the editor would spell differently, and this edit may be the
-    // one that rewrites it: the file being replaced must stay recoverable from history.
-    if (composed.mayRewriteSource && noteIdRef.current && !rewriteSnapshotRequestedRef.current) {
-      rewriteSnapshotRequestedRef.current = true
-      requestSourceRewriteSnapshot(noteIdRef.current)
-    }
-    valueRef.current = markdown
-    originalValueRef.current = markdown
-    onChangeRef.current(markdown)
-  }, [])
-
-  React.useEffect(() => {
-    onChangeRef.current = onChange
-  }, [onChange])
-
-  React.useEffect(() => {
-    noteIdRef.current = noteId
-  }, [noteId])
-
-  React.useEffect(() => {
-    onContentDirtyRef.current = onContentDirty
-  }, [onContentDirty])
-
-  React.useEffect(() => {
-    onContentCleanRef.current = onContentClean
-  }, [onContentClean])
 
   React.useEffect(() => {
     onSelectionChangeRef.current = onSelectionChange
@@ -267,7 +215,12 @@ export function TiptapEditor({
   // useEditor compares option references on every React render. An inline
   // editorProps object reapplies DOM props and editor state even when only
   // autosave metadata changed. Leave the focused editor DOM untouched.
-  const editorProps = React.useMemo(() => ({ attributes: { class: "amby-tiptap-prose" } }), [])
+  // tabindex -1: Tab moves between the app's buttons and never lands in the text, where it
+  // would type a tab. The text is entered by a click or from the title (Enter).
+  const editorProps = React.useMemo(
+    () => ({ attributes: { class: "amby-tiptap-prose", tabindex: "-1" } }),
+    [],
+  )
 
   const pointerSelectingRef = React.useRef(false)
   const selectionSettleTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -362,21 +315,8 @@ export function TiptapEditor({
       setAssetContext(editor, { vaultPath: vaultPath ?? "", notePath: notePath ?? "", noteId })
     },
     editorProps,
-    onTransaction: ({ transaction }) => {
-      if (transaction.getMeta("uiEvent") || transaction.getMeta("pointer")) {
-        userInteractedRef.current = true
-      }
-    },
-    onUpdate: ({ editor, transaction }) => {
-      const isUserAction =
-        userInteractedRef.current ||
-        Boolean(transaction.getMeta("uiEvent") || transaction.getMeta("pointer"))
-      if (!isUserAction) return
-      documentDirtyRef.current = true
-      onContentDirtyRef.current?.()
-      if (serializeTimerRef.current) clearTimeout(serializeTimerRef.current)
-      serializeTimerRef.current = setTimeout(() => flushSerialize(editor), 200)
-    },
+    onTransaction: ({ transaction }) => serialization.handleTransaction(transaction),
+    onUpdate: ({ editor, transaction }) => serialization.handleUpdate(editor, transaction),
     onSelectionUpdate: ({ editor }) => {
       if (!editor.isEditable) return
       if (suppressSelectionMenuRef.current) {
@@ -406,7 +346,7 @@ export function TiptapEditor({
       }, 160)
     },
     onBlur: ({ editor }) => {
-      flushSerialize(editor)
+      serialization.flush(editor)
       setInlineUnlink(null)
       window.setTimeout(() => {
         // Don't close if focus moved into the floating bubble toolbar (e.g. an
@@ -583,19 +523,10 @@ export function TiptapEditor({
   // (history navigation) or a parent-driven content reset arrives.
   React.useEffect(() => {
     if (!editor || editor.isDestroyed) return
-    if (value === valueRef.current) return
-    userInteractedRef.current = false
-    documentDirtyRef.current = false
-    if (serializeTimerRef.current) {
-      clearTimeout(serializeTimerRef.current)
-      serializeTimerRef.current = null
-    }
-    valueRef.current = value
-    originalValueRef.current = value
-    rewriteSnapshotRequestedRef.current = false
+    if (!serialization.acceptExternalValue(value)) return
     setInlineUnlink(null)
     editor.commands.setContent(markdownToDoc(value), { emitUpdate: false })
-  }, [value, editor])
+  }, [value, editor, serialization])
 
   // A Source <-> Live transition remounts the editor. Restore the source
   // offset once, after parsing, without feeding a selection transaction back
@@ -608,20 +539,7 @@ export function TiptapEditor({
     editor.commands.setTextSelection(mapped)
   }, [editor, selection, value])
 
-  // Flush any pending serialization before this editor instance goes away
-  // (document switch, view-mode toggle, tab close) so the latest edit is saved.
-  React.useEffect(() => {
-    if (!editor || editor.isDestroyed) return
-    return () => flushSerialize(editor)
-  }, [editor, flushSerialize])
-
-  // Lifecycle boundaries (window close, visibility hide, vault switch) happen
-  // before React unmounts this component, so register the same guarded flush
-  // independently of the unmount cleanup above.
-  React.useEffect(() => {
-    if (!editor || editor.isDestroyed) return
-    return registerEditorSerialization({ flush: () => flushSerialize(editor) })
-  }, [editor, flushSerialize])
+  useEditorSerializationLifecycle(editor, serialization)
 
   // Toggle Live <-> Read in place without re-instantiating the editor.
   React.useEffect(() => {
@@ -701,16 +619,20 @@ export function TiptapEditor({
     if (!editorRef || !editor) return
     ;(editorRef as React.MutableRefObject<EditorHandle>).current = {
       undo: () => {
-        userInteractedRef.current = true
+        serialization.markUserIntent()
         editor.chain().focus().undo().run()
       },
       redo: () => {
-        userInteractedRef.current = true
+        serialization.markUserIntent()
         editor.chain().focus().redo().run()
       },
-      flush: () => flushSerialize(editor),
+      flush: () => serialization.flush(editor),
       getMarkdownSelection: () =>
-        docSelectionToMarkdownSelection(editor.state.doc, valueRef.current, editor.state.selection),
+        docSelectionToMarkdownSelection(
+          editor.state.doc,
+          serialization.currentValue(),
+          editor.state.selection,
+        ),
       focusAtPoint,
       focus: (position?: "start" | "end") => {
         if (!editor || editor.isDestroyed || !editor.isEditable) return
@@ -723,7 +645,7 @@ export function TiptapEditor({
         editor.chain().focus("start").run()
       },
     }
-  }, [editor, editorRef, flushSerialize, focusAtPoint])
+  }, [editor, editorRef, serialization, focusAtPoint])
 
   // Make vault/note paths reachable from inside extensions/node views.
   React.useEffect(() => {
@@ -899,7 +821,7 @@ export function TiptapEditor({
       setInlineUnlink(null)
       return
     }
-    userInteractedRef.current = true
+    serialization.markUserIntent()
     editor.view.dispatch(editor.state.tr.insertText(replacement, from, to))
     editor.view.focus()
     setInlineUnlink(null)
@@ -937,19 +859,19 @@ export function TiptapEditor({
         focusAtPoint(event.clientX, event.clientY)
       }}
       onKeyDownCapture={() => {
-        userInteractedRef.current = true
+        serialization.markUserIntent()
       }}
       onInputCapture={() => {
-        userInteractedRef.current = true
+        serialization.markUserIntent()
       }}
       onPasteCapture={() => {
-        userInteractedRef.current = true
+        serialization.markUserIntent()
       }}
       onCutCapture={() => {
-        userInteractedRef.current = true
+        serialization.markUserIntent()
       }}
       onDropCapture={() => {
-        userInteractedRef.current = true
+        serialization.markUserIntent()
       }}
     >
       {editor && find && (

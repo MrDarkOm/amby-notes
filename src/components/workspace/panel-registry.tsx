@@ -107,6 +107,7 @@ export interface PanelRenderProps {
   onOpenSplitDown?: (id: string) => void
   onOpenInNewWindow?: (id: string) => void
   onCloneFile?: (id: string) => void
+  onConvertFolderToNote?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
   /** The tree's own move; a caller that has to go on after it reads how it ended. */
   onMoveItem?: (
@@ -151,7 +152,6 @@ export interface PanelRenderProps {
   attachments?: AttachmentItem[]
   attachmentImages?: AttachmentItem[]
   databaseProperties?: DatabasePanelProperties | null
-  linkGraph?: LinkGraph
   currentDocId?: string | null
   currentDocPath?: string | null
   onSelectLink?: (id: string) => void

@@ -6,17 +6,13 @@
 use super::*;
 use crate::ai::codex::home::{prepare_home, CodexHome};
 use std::os::unix::fs::PermissionsExt;
-use std::sync::atomic::{AtomicU32, Ordering};
-
-static NEXT: AtomicU32 = AtomicU32::new(0);
 
 fn scratch() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "amby-codex-launch-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::SeqCst)
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
+    // A ULID, not the process id: ids are reused, and a directory left by an earlier
+    // process with the same id and counter holds other kinds of files (`codex` as a
+    // directory), which made these tests fail at random. `create_dir` refuses an existing one.
+    let dir = std::env::temp_dir().join(format!("amby-codex-launch-{}", ulid::Ulid::generate()));
+    std::fs::create_dir(&dir).unwrap();
     dir.canonicalize().unwrap()
 }
 
@@ -731,7 +727,8 @@ async fn live_codex_does_not_obey_an_injected_note() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
-    let marker = std::env::temp_dir().join(format!("amby-injection-marker-{}", std::process::id()));
+    let marker =
+        std::env::temp_dir().join(format!("amby-injection-marker-{}", ulid::Ulid::generate()));
     let _ = std::fs::remove_file(&marker);
 
     struct Evil {

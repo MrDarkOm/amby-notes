@@ -41,58 +41,48 @@ describe("sync of the open vault: switching it on", () => {
   })
   afterEach(cleanup)
 
-  it("ignores legacy gate and test-vault flags and allows switching sync on", async () => {
-    const port = await show({ ...VAULT_OFF, gateClosed: true, testVault: true })
+  it("allows switching sync on", async () => {
+    const port = await show({ ...VAULT_OFF })
     const panel = await screen.findByTestId("sync-vault")
     expect(panel.textContent).not.toMatch(/экспериментальн|тестов/i)
     expect(screen.queryByTestId("sync-test-warning")).toBeNull()
     expect(screen.queryByTestId("sync-test-vault")).toBeNull()
     expect(button("Включить синхронизацию").hasAttribute("disabled")).toBe(false)
     click("Включить синхронизацию")
-    await waitFor(() =>
-      expect(port.enableVault).toHaveBeenCalledWith({ kind: "new", name: "" }, false),
-    )
+    await waitFor(() => expect(port.enableVault).toHaveBeenCalledWith({ kind: "new", name: "" }))
   })
 
   it("sends the name the person typed", async () => {
-    const port = await show({ ...VAULT_OFF, gateClosed: true, testVault: true })
+    const port = await show({ ...VAULT_OFF })
     fireEvent.change(await screen.findByLabelText("Название"), {
       target: { value: "  Мои заметки " },
     })
     click("Включить синхронизацию")
     await waitFor(() =>
-      expect(port.enableVault).toHaveBeenCalledWith({ kind: "new", name: "Мои заметки" }, false),
+      expect(port.enableVault).toHaveBeenCalledWith({ kind: "new", name: "Мои заметки" }),
     )
   })
 
-  it("does not demand the test mark when the gate is open", async () => {
-    const port = await show({ ...VAULT_OFF, gateClosed: false })
+  it("does not demand a mark of a test vault", async () => {
+    const port = await show({ ...VAULT_OFF })
     await screen.findByRole("button", { name: "Включить синхронизацию" })
     expect(screen.queryByTestId("sync-test-warning")).toBeNull()
     expect(screen.queryByTestId("sync-test-vault")).toBeNull()
     expect(button("Включить синхронизацию").hasAttribute("disabled")).toBe(false)
     click("Включить синхронизацию")
-    await waitFor(() =>
-      expect(port.enableVault).toHaveBeenCalledWith({ kind: "new", name: "" }, false),
-    )
+    await waitFor(() => expect(port.enableVault).toHaveBeenCalledWith({ kind: "new", name: "" }))
   })
 
   it("explains the complete backup made before sync starts", async () => {
-    await show({ ...VAULT_OFF, gateClosed: false })
+    await show({ ...VAULT_OFF })
     const panel = await screen.findByTestId("sync-vault")
     expect(panel.textContent).toMatch(/полную копию/i)
-    expect(panel.textContent).toMatch(/рядом с папкой/i)
+    expect(panel.textContent).toMatch(/14 дней/i)
     expect(panel.textContent).toMatch(/синхронизация не начнётся.*если.*ошиб/i)
   })
 
-  it("ignores legacy test-vault metadata even when the old gate is closed", async () => {
-    await show({ ...VAULT_OFF, gateClosed: true, testVault: true })
-    expect(screen.queryByTestId("sync-test-warning")).toBeNull()
-    expect(screen.queryByTestId("sync-test-vault")).toBeNull()
-  })
-
   it("offers the backup manager instead of a manual restore procedure", async () => {
-    await show({ ...VAULT_OFF, backupPath: "/notes.amby-backups/01J9TEST/vault" })
+    await show({ ...VAULT_OFF, backupPath: "/app-data/backups/key/01J9TEST" })
     const panel = await screen.findByTestId("sync-vault")
     expect(panel.querySelector("summary")?.textContent).toContain("Резервные копии")
     expect(panel.textContent).not.toMatch(/переименуйте|закройте Amby/)
@@ -100,7 +90,7 @@ describe("sync of the open vault: switching it on", () => {
 
   it("does not enable sync when creating its pre-sync backup fails", async () => {
     const port = await show(
-      { ...VAULT_OFF, gateClosed: false },
+      { ...VAULT_OFF },
       {
         enableVault: async () => {
           throw new SyncPortError("backup_failed")
@@ -117,7 +107,7 @@ describe("sync of the open vault: switching it on", () => {
   })
 
   it("lists the spaces of the account to connect an existing one", async () => {
-    const port = await show({ ...VAULT_OFF, gateClosed: true })
+    const port = await show({ ...VAULT_OFF })
     fireEvent.click(await screen.findByRole("radio", { name: /Подключить существующее/ }))
     await waitFor(() => expect(port.listSpaces).toHaveBeenCalled())
     const first = await screen.findByRole("radio", { name: /Рабочее/ })
@@ -126,10 +116,10 @@ describe("sync of the open vault: switching it on", () => {
     fireEvent.click(first)
     click("Включить синхронизацию")
     await waitFor(() =>
-      expect(port.enableVault).toHaveBeenCalledWith(
-        { kind: "existing", spaceId: SPACES[0].spaceId },
-        false,
-      ),
+      expect(port.enableVault).toHaveBeenCalledWith({
+        kind: "existing",
+        spaceId: SPACES[0].spaceId,
+      }),
     )
   })
 
@@ -165,7 +155,7 @@ describe("sync of the open vault: switching it on", () => {
     expect(button("Включить синхронизацию").hasAttribute("disabled")).toBe(false)
     click("Включить синхронизацию")
     await waitFor(() =>
-      expect(port.enableVault).toHaveBeenCalledWith({ kind: "new", name: "Amby" }, false),
+      expect(port.enableVault).toHaveBeenCalledWith({ kind: "new", name: "Amby" }),
     )
   })
 
@@ -210,7 +200,7 @@ describe("sync of the open vault: a binding that was switched off", () => {
 
   it("shows the first-time choice, not 'switch on again', when the binding is of another server or account", async () => {
     // the remembered link does not belong to this connection: it must never be resumed
-    const port = await show(off({ resumable: false, testVault: false }))
+    const port = await show(off({ resumable: false }))
     expect(screen.queryByRole("button", { name: "Включить снова" })).toBeNull()
     expect(await screen.findByRole("radio", { name: /Создать новое/ })).toBeTruthy()
     expect(screen.getByRole("radio", { name: /Подключить существующее/ })).toBeTruthy()
@@ -220,53 +210,38 @@ describe("sync of the open vault: a binding that was switched off", () => {
     fireEvent.change(screen.getByLabelText("Название"), { target: { value: "Новое" } })
     click("Включить синхронизацию")
     await waitFor(() =>
-      expect(port.enableVault).toHaveBeenCalledWith({ kind: "new", name: "Новое" }, false),
+      expect(port.enableVault).toHaveBeenCalledWith({ kind: "new", name: "Новое" }),
     )
   })
 
   it("lets the person connect an existing space from a stale binding", async () => {
-    const port = await show(off({ resumable: false, testVault: false }))
+    const port = await show(off({ resumable: false }))
     fireEvent.click(await screen.findByRole("radio", { name: /Подключить существующее/ }))
     fireEvent.click(await screen.findByRole("radio", { name: /Рабочее/ }))
     click("Включить синхронизацию")
     await waitFor(() =>
-      expect(port.enableVault).toHaveBeenCalledWith(
-        { kind: "existing", spaceId: SPACES[0].spaceId },
-        false,
-      ),
+      expect(port.enableVault).toHaveBeenCalledWith({
+        kind: "existing",
+        spaceId: SPACES[0].spaceId,
+      }),
     )
   })
 
-  it("resumes despite legacy gate metadata and always sends false", async () => {
-    const port = await show(off({ gateClosed: true, testVault: false }))
+  it("resumes a vault that was switched off", async () => {
+    const port = await show(off({}))
     expect(screen.queryByTestId("sync-test-vault")).toBeNull()
     expect(button("Включить снова").hasAttribute("disabled")).toBe(false)
     expect(port.enableVault).not.toHaveBeenCalled()
     click("Включить снова")
     await waitFor(() => expect(port.enableVault).toHaveBeenCalledTimes(1))
-    expect(vi.mocked(port.enableVault).mock.calls[0][1]).toBe(false)
-  })
-
-  it("ignores a legacy test-vault flag when resuming", async () => {
-    await show(off({ gateClosed: true, testVault: true }))
-    expect(screen.queryByTestId("sync-test-vault")).toBeNull()
-    expect(button("Включить снова").hasAttribute("disabled")).toBe(false)
-    click("Включить снова")
-    await waitFor(() => expect(screen.getByTestId("sync-vault")).toBeTruthy())
-    cleanup()
-    const port = await show(off({ gateClosed: false, testVault: false }))
-    expect(screen.queryByTestId("sync-test-vault")).toBeNull()
-    expect(button("Включить снова").hasAttribute("disabled")).toBe(false)
-    click("Включить снова")
-    await waitFor(() => expect(port.enableVault).toHaveBeenCalledTimes(1))
-    expect(port.enableVault).toHaveBeenCalledWith({ kind: "new", name: "" }, false)
+    expect(port.enableVault).toHaveBeenCalledWith({ kind: "new", name: "" })
   })
 
   it("falls back to the first-time choice when resuming finds the space gone", async () => {
-    const port = await show(off({ gateClosed: true, testVault: true }), {
+    const port = await show(off({}), {
       enableVault: async () => {
         // the application forgot the stale link and tells the screen
-        emitVaultStatus({ ...VAULT_OFF, gateClosed: true })
+        emitVaultStatus({ ...VAULT_OFF })
         throw new SyncPortError("space_not_found")
       },
     })
@@ -313,11 +288,6 @@ describe("sync of the open vault: the status", () => {
     expect(status.textContent).toMatch(/40 с/)
     expect(screen.getByTestId("sync-status-detail").textContent).toMatch(/Не удалось связаться/)
     expect(screen.queryByTestId("sync-stop")).toBeNull()
-  })
-
-  it("ignores legacy test-vault metadata in the status", async () => {
-    await show(vaultStatus({ gateClosed: true, testVault: true }))
-    expect(screen.queryByText(/тестовое хранилище/i)).toBeNull()
   })
 
   it("asks for a pass now and shows what it did", async () => {
@@ -381,9 +351,7 @@ describe("sync of the open vault: the status", () => {
       expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("false"),
     )
     fireEvent.click(screen.getByRole("switch"))
-    await waitFor(() =>
-      expect(port.enableVault).toHaveBeenCalledWith({ kind: "new", name: "" }, false),
-    )
+    await waitFor(() => expect(port.enableVault).toHaveBeenCalledWith({ kind: "new", name: "" }))
     await waitFor(() =>
       expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("true"),
     )

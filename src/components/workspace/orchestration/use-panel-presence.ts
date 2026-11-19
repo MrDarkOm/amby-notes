@@ -41,17 +41,15 @@ export function useEdgeProgress(
 export interface PanelPresence {
   /** The panel is in the DOM: while open and while it slides away. */
   mounted: boolean
-  /** Open and done moving: only now does the panel take its width from the content. */
+  /** Open and done moving: overflow clipping can be lifted for resize handles. */
   settled: boolean
   /** How far the panel is open, 0 to 1, moved by Motion. */
   progress: MotionValue<number>
 }
 
 /**
- * Drives a side panel that slides over the content instead of squeezing it frame by frame.
- * Opening mounts it, Motion moves its progress to 1 and only then the panel takes its width, so
- * the editor reflows once, under the panel. Closing gives the width back at once, moves the
- * progress to 0 and unmounts the panel when Motion is done.
+ * Drives a side panel's mount lifecycle and Motion progress (0 to 1) so the panel,
+ * central stage, and header columns animate in lockstep.
  */
 export function usePanelPresence(open: boolean): PanelPresence {
   const reduced = useReducedMotion()

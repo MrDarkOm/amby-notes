@@ -42,7 +42,6 @@ type UsePropertyActionsParams = {
   activeTab: Tab | null
   currentDoc: OpenDocument | null
   treeItemById: ReadonlyMap<string, TreeItem>
-  linkGraph: { edges: Array<{ target: string }> }
   t: TFunction
   vault: string | null
   includeAttachmentImages?: boolean
@@ -78,19 +77,10 @@ export function usePropertyActions({
   activeTab,
   currentDoc,
   treeItemById,
-  linkGraph,
   t,
   vault,
   includeAttachmentImages = true,
 }: UsePropertyActionsParams) {
-  const backlinkCounts = React.useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const edge of linkGraph.edges) {
-      counts.set(edge.target, (counts.get(edge.target) ?? 0) + 1)
-    }
-    return counts
-  }, [linkGraph])
-
   const currentProperties = React.useMemo(() => {
     if (activeTab?.kind === "folder") {
       const folder = treeItemById.get(activeTab.fileId)
@@ -109,7 +99,8 @@ export function usePropertyActions({
     return {
       kind: "document" as const,
       type: "Markdown",
-      backlinks: backlinkCounts.get(currentDoc.id) ?? 0,
+      // The count comes from the link graph, which the Info panel reads itself (SHELL-02).
+      backlinks: 0,
       created: currentDoc.created,
       modified: currentDoc.modified,
       id: currentDoc.id,
@@ -119,7 +110,7 @@ export function usePropertyActions({
         customProperties: [],
       },
     }
-  }, [activeTab?.fileId, activeTab?.kind, backlinkCounts, currentDoc, t, treeItemById, vault])
+  }, [activeTab?.fileId, activeTab?.kind, currentDoc, t, treeItemById, vault])
 
   const attachments = React.useMemo<AttachmentItem[]>(() => {
     const source =
@@ -144,9 +135,18 @@ export function usePropertyActions({
     const noteDir = notePath.slice(0, notePath.lastIndexOf("/"))
     const refs: string[] = []
     const markdownImage = /!\[[^\]]*\]\((?:<([^>]+)>|([^\s)]+))/gu
+    const markdownLink = /(?<!!)\[[^\]]*\]\((?:<([^>]+)>|([^\s)]+))/gu
     const htmlImage = /<img\b[^>]*\bsrc=["']([^"']+)["']/giu
     for (const match of currentDoc.content.matchAll(markdownImage)) refs.push(match[1] ?? match[2])
     for (const match of currentDoc.content.matchAll(htmlImage)) refs.push(match[1])
+    for (const match of currentDoc.content.matchAll(markdownLink)) {
+      const target = (match[1] ?? match[2] ?? "").trim().replace(/[?#].*$/u, "")
+      if (!target || /^(?:data:|https?:|mailto:|#)/iu.test(target)) continue
+      if (/\.(?:md|markdown)$/iu.test(target)) continue
+      if (/(?:^|[\\/])assets[\\/]/iu.test(target) || /\.[a-z0-9]{1,10}$/iu.test(target)) {
+        refs.push(target)
+      }
+    }
     const seen = new Set<string>()
     const items = refs.flatMap((ref) => {
       const cleanRef = ref.trim().replace(/[?#].*$/u, "")

@@ -28,6 +28,8 @@ export const confirmations = {
   deleteArchived: (params: { name: string }) => ask("deleteArchived", params, true),
   resetSettings: () => ask("resetSettings", {}, true),
   deleteDebugHistory: () => ask("deleteDebugHistory", {}, true),
+  // The copy of the vault that is kept before sync
+  deleteBackup: () => ask("deleteBackup", {}, true),
   // Layers, connections
   deleteLayer: (params: { layer: string; title: string }) => ask("deleteLayer", params, true),
   removeAiConnection: (params: { name: string }) => ask("removeAiConnection", params, true),
@@ -40,6 +42,9 @@ export const confirmations = {
     ask(params.count > 1 ? "deletePermanentMany" : "deletePermanent", params, true),
   // The vault: a switch after a failed save, the migration of ids
   switchAfterSaveFailure: () => ask("switchAfterSaveFailure", {}, true),
+  // Leaving when a note is neither saved nor in a recovery draft (a full disk): its text would be lost
+  closeWithUnsavedText: () => ask("closeWithUnsavedText", {}, true),
+  switchWithUnsavedText: () => ask("switchWithUnsavedText", {}, true),
   resumeMigration: (params: { files: number }) => ask("resumeMigration", params),
   rollbackMigration: () => ask("rollbackMigration", {}, true),
   // Recovery and conflicts

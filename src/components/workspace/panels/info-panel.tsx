@@ -525,14 +525,7 @@ export function InfoPanel({
   if (properties.kind === "folder") {
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <PanelHeader
-          title={t("panels.info")}
-          actions={
-            <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
-              {properties.noteCount}
-            </span>
-          }
-        />
+        <PanelHeader title={t("panels.info")} count={properties.noteCount} />
         <div className="flex-1" />
         {metadata}
       </div>

@@ -1,11 +1,12 @@
 "use client"
 
+import { EmojiGlyph } from "@/components/ui/emoji-glyph"
+
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { createPortal } from "react-dom"
 import { motion } from "motion/react"
 import type { Editor } from "@tiptap/react"
-import { Fragment, type Node as PMNode } from "@tiptap/pm/model"
 import {
   AlignCenter,
   AlignLeft,
@@ -32,7 +33,14 @@ import {
 
 import { getTurnIntoItems, type BlockInsertItem } from "./block-insert-items"
 import { markActiveRow, pointerReallyMoved, revealRow, stepIndex } from "./menu-keyboard"
-import { convertBlockToParagraph, convertBlockWrapper } from "./block-conversion"
+import {
+  convertBlockToParagraph,
+  convertBlockWrapper,
+  convertList,
+  findListParent,
+  splitParagraphIntoBlocks,
+  type ListKind,
+} from "./block-conversion"
 import { EmojiPickerPanel } from "./EmojiPickerPanel"
 import { attachmentKind, localFileKind } from "./attachment-kind"
 import { isVaultImage } from "./image-actions"
@@ -49,7 +57,8 @@ import { updateImageNode, type ImagePatch } from "./image-edit"
 import { useSmartPlacement, type AnchorRect } from "./use-smart-placement"
 import { BLOCK_TEXT_COLORS as TEXT_COLORS, CALLOUT_SWATCHES } from "@/lib/themes"
 import { motionTransitions } from "@/lib/motion-config"
-import { isEnterKey } from "@/lib/keyboard"
+import { matchesAlias } from "./block-menu-aliases"
+import { isComposingKeyEvent, isEnterKey } from "@/lib/keyboard"
 
 const MotionRowButton = React.forwardRef<
   HTMLButtonElement,
@@ -90,53 +99,6 @@ interface Props {
   onInsertBelow: () => void
   onFocusInsideBlock: () => void
   onClose: () => void
-}
-
-/**
- * Turns the visual lines in one paragraph into sibling paragraph blocks while
- * preserving inline marks and inline nodes. This is deliberately a separate
- * action from "Turn into": a paragraph stays a paragraph.
- */
-function splitParagraphIntoBlocks(editor: Editor, nodePos: number): boolean {
-  const paragraph = editor.state.doc.nodeAt(nodePos)
-  if (!paragraph || paragraph.type.name !== "paragraph") return false
-
-  const lines: PMNode[][] = [[]]
-  const nextLine = () => lines.push([])
-  const appendToCurrentLine = (child: PMNode) => {
-    lines[lines.length - 1]?.push(child)
-  }
-
-  paragraph.forEach((child) => {
-    if (child.type.name === "hardBreak") {
-      nextLine()
-      return
-    }
-
-    if (!child.isText || !child.text?.includes("\n")) {
-      appendToCurrentLine(child)
-      return
-    }
-
-    const parts = child.text.split(/\r?\n/u)
-    parts.forEach((part, index) => {
-      if (part) appendToCurrentLine(paragraph.type.schema.text(part, child.marks))
-      if (index < parts.length - 1) nextLine()
-    })
-  })
-
-  if (lines.length < 2) return false
-
-  const paragraphs = lines.map((line) =>
-    paragraph.type.create(paragraph.attrs, Fragment.fromArray(line)),
-  )
-  const transaction = editor.state.tr
-    .replaceWith(nodePos, nodePos + paragraph.nodeSize, Fragment.fromArray(paragraphs))
-    .scrollIntoView()
-
-  editor.view.dispatch(transaction)
-  editor.commands.focus()
-  return true
 }
 
 export function BlockActionsPanel({
@@ -207,8 +169,7 @@ export function BlockActionsPanel({
     canTurnInto &&
     (matches(t("blockPanel.turnInto")) ||
       turnIntoItems.some((i) => matches(t(`blockItems.${i.id}.title`))))
-  const splitVisible =
-    canSplitParagraph && (matches("split") || matches("разделить") || matches("block"))
+  const splitVisible = canSplitParagraph && matchesAlias(matches, "split")
   const insertVisible = matches(t("blockPanel.insertAbove")) || matches(t("blockPanel.insertBelow"))
 
   function chooseTurnInto(item: BlockInsertItem) {
@@ -305,7 +266,7 @@ export function BlockActionsPanel({
 
   function onMenuKey(event: KeyboardEvent) {
     const key = event.key
-    if (event.isComposing) return
+    if (isComposingKeyEvent(event)) return
     const handled = () => {
       event.preventDefault()
       event.stopPropagation()
@@ -317,7 +278,7 @@ export function BlockActionsPanel({
         const next = stepIndex(subActive, count, key === "ArrowDown" ? 1 : -1)
         setSubActive(next)
         revealRow(submenuRows()[next])
-      } else if (key === "Enter") {
+      } else if (isEnterKey(event)) {
         handled()
         const item = shownTurnIntoItems[Math.min(subActive, count - 1)]
         if (item) chooseTurnInto(item)
@@ -339,7 +300,7 @@ export function BlockActionsPanel({
       const next = key === "Home" ? 0 : rows.length - 1
       setActive(next)
       revealRow(rows[next])
-    } else if (key === "Enter") {
+    } else if (isEnterKey(event)) {
       handled()
       rows[Math.min(active, rows.length - 1)]?.click()
       if (rows[Math.min(active, rows.length - 1)] === turnIntoBtnRef.current) setSubActive(0)
@@ -468,7 +429,11 @@ export function BlockActionsPanel({
                 type="button"
                 className="amby-block-row"
                 onClick={() => {
-                  if (splitParagraphIntoBlocks(editor, nodePos)) onClose()
+                  const split = splitParagraphIntoBlocks(editor.state, nodePos)
+                  if (!split) return
+                  editor.view.dispatch(split)
+                  editor.commands.focus()
+                  onClose()
                 }}
               >
                 <Rows3 className="amby-block-row-icon" />
@@ -670,15 +635,10 @@ function CalloutContext({
       ? "expanded"
       : "none"
 
-  const showBg = matches("background") || matches("фон") || matches("color")
-  const showText = matches("text color") || matches("color") || matches("текст")
-  const showEmoji = matches("emoji") || matches("эмодзи") || matches(t("callout.changeEmoji"))
-  const showFolding =
-    matches("fold") ||
-    matches("collapse") ||
-    matches("сворач") ||
-    matches("раскрыт") ||
-    matches(t("callout.foldable"))
+  const showBg = matchesAlias(matches, "background")
+  const showText = matchesAlias(matches, "textColor")
+  const showEmoji = matchesAlias(matches, "emoji") || matches(t("callout.changeEmoji"))
+  const showFolding = matchesAlias(matches, "fold") || matches(t("callout.foldable"))
 
   if (!showBg && !showText && !showEmoji && !showFolding) return null
 
@@ -760,7 +720,7 @@ function CalloutContext({
           }}
         >
           <span className="amby-block-row-icon amby-block-row-emoji" aria-hidden="true">
-            {String(node?.attrs.emoji ?? "💡")}
+            <EmojiGlyph value={String(node?.attrs.emoji ?? "💡")} />
           </span>
           <span className="amby-block-row-label">{t("callout.changeEmoji")}</span>
         </MotionRowButton>
@@ -801,19 +761,7 @@ function HeadingContext({
   const node = editor.state.doc.nodeAt(nodePos)
   const currentLevel = (node?.attrs.level as number) ?? 1
 
-  if (
-    !matches("heading") &&
-    !matches("уровень") &&
-    !matches("level") &&
-    !matches("h1") &&
-    !matches("h2") &&
-    !matches("h3") &&
-    !matches("h4") &&
-    !matches("h5") &&
-    !matches("h6")
-  ) {
-    return null
-  }
+  if (!matchesAlias(matches, "heading")) return null
 
   function setLevel(level: 1 | 2 | 3 | 4 | 5 | 6) {
     editor
@@ -975,11 +923,10 @@ function ImageContext({
 
   const alignLabel = t("blockPanel.align")
   const detailsLabel = t("blockPanel.imageDetails")
-  const showAlign = matches(alignLabel) || matches("align")
+  const showAlign = matches(alignLabel) || matchesAlias(matches, "align")
   const showDetails =
     matches(detailsLabel) ||
-    matches("alt") ||
-    matches("caption") ||
+    matchesAlias(matches, "imageDetails") ||
     matches(t("editorToolbar.imageCaption"))
   const alignments = [
     { id: "left", Icon: AlignLeft, label: t("editorToolbar.imageAlignLeft") },
@@ -1111,27 +1058,6 @@ function ImageContext({
 
 // ── Context: List ────────────────────────────────────────────────────────────
 
-type ListParent = {
-  type: "bulletList" | "orderedList" | "taskList"
-  pos: number
-  node: PMNode
-}
-
-function findListParent(editor: Editor, pos: number): ListParent | null {
-  const doc = editor.state.doc
-  const inside = Math.min(pos + 1, doc.content.size - 1)
-  if (inside < 0) return null
-  const $pos = doc.resolve(inside)
-  for (let d = $pos.depth; d >= 0; d--) {
-    const n = $pos.node(d)
-    const name = n.type.name
-    if (name === "bulletList" || name === "orderedList" || name === "taskList") {
-      return { type: name, pos: $pos.before(d), node: n }
-    }
-  }
-  return null
-}
-
 function ListContext({
   editor,
   nodePos,
@@ -1142,51 +1068,16 @@ function ListContext({
   matches: (s: string) => boolean
 }) {
   const { t } = useTranslation()
-  const parent = findListParent(editor, nodePos)
-  const parentType = parent?.type ?? null
+  const parentType = findListParent(editor.state, nodePos)?.type ?? null
 
-  function switchTo(target: "bullet" | "ordered" | "task") {
-    const same =
-      (target === "bullet" && parentType === "bulletList") ||
-      (target === "ordered" && parentType === "orderedList") ||
-      (target === "task" && parentType === "taskList")
-    if (same || !parent) return
-
-    const listType =
-      editor.schema.nodes[
-        target === "bullet" ? "bulletList" : target === "ordered" ? "orderedList" : "taskList"
-      ]
-    const itemType = editor.schema.nodes[target === "task" ? "taskItem" : "listItem"]
-    if (!listType || !itemType) return
-
-    const items: PMNode[] = []
-    parent.node.forEach((item) => {
-      items.push(
-        itemType.create(target === "task" ? { checked: false } : null, item.content, item.marks),
-      )
-    })
-    const replacement = listType.create(
-      target === "ordered" ? { start: 1 } : null,
-      Fragment.fromArray(items),
-    )
-    editor.view.dispatch(
-      editor.state.tr
-        .replaceWith(parent.pos, parent.pos + parent.node.nodeSize, replacement)
-        .scrollIntoView(),
-    )
+  function switchTo(target: ListKind) {
+    const transaction = convertList(editor.state, nodePos, target)
+    if (!transaction) return
+    editor.view.dispatch(transaction)
     editor.commands.focus()
   }
 
-  if (
-    !matches("list") &&
-    !matches("список") &&
-    !matches("bullet") &&
-    !matches("ordered") &&
-    !matches("task") &&
-    !matches("тип")
-  ) {
-    return null
-  }
+  if (!matchesAlias(matches, "list")) return null
 
   const buttons = [
     {

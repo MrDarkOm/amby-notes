@@ -2,6 +2,8 @@
 //! Credential Manager, Linux Secret Service, service `com.ambynotes.sync`. Not in the settings,
 //! not in the vault. Like [`crate::credentials`], no platform detail is copied into an error.
 
+use zeroize::Zeroizing;
+
 /// The service name of the key store entries (Р5).
 pub const KEYRING_SERVICE: &str = "com.ambynotes.sync";
 /// The name of the entry with AK (64 hex characters).
@@ -73,7 +75,7 @@ impl SecretStore for KeyringStore {
 /// A failed read is not remembered, so a denied prompt can be retried.
 pub struct CachedSecrets<S> {
     inner: S,
-    memory: std::sync::Mutex<std::collections::HashMap<String, Option<String>>>,
+    memory: std::sync::Mutex<std::collections::HashMap<String, Option<Zeroizing<String>>>>,
 }
 
 impl<S: SecretStore> CachedSecrets<S> {
@@ -86,7 +88,8 @@ impl<S: SecretStore> CachedSecrets<S> {
 
     fn memory(
         &self,
-    ) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, Option<String>>> {
+    ) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, Option<Zeroizing<String>>>>
+    {
         self.memory
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -97,10 +100,10 @@ impl<S: SecretStore> SecretStore for CachedSecrets<S> {
     fn get(&self, name: &str) -> Result<Option<String>, SecretError> {
         let mut memory = self.memory();
         if let Some(known) = memory.get(name) {
-            return Ok(known.clone());
+            return Ok(known.as_deref().cloned());
         }
         let value = self.inner.get(name)?;
-        memory.insert(name.to_string(), value.clone());
+        memory.insert(name.to_string(), value.clone().map(Zeroizing::new));
         Ok(value)
     }
 
@@ -108,7 +111,7 @@ impl<S: SecretStore> SecretStore for CachedSecrets<S> {
         let mut memory = self.memory();
         memory.remove(name);
         self.inner.set(name, value)?;
-        memory.insert(name.to_string(), Some(value.to_string()));
+        memory.insert(name.to_string(), Some(Zeroizing::new(value.to_string())));
         Ok(())
     }
 
@@ -142,8 +145,8 @@ pub struct BundledSecrets<S> {
 
 #[derive(Clone, Default, PartialEq, Eq)]
 struct Bundle {
-    account_key: Option<String>,
-    device_token: Option<String>,
+    account_key: Option<Zeroizing<String>>,
+    device_token: Option<Zeroizing<String>>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -167,25 +170,33 @@ impl Bundle {
     fn parse(raw: &str) -> Option<Self> {
         let stored: StoredBundle = serde_json::from_str(raw).ok()?;
         (stored.v == BUNDLE_VERSION).then_some(Self {
-            account_key: stored.account_key,
-            device_token: stored.device_token,
+            account_key: stored.account_key.map(Zeroizing::new),
+            device_token: stored.device_token.map(Zeroizing::new),
         })
     }
 
-    fn to_json(&self) -> String {
-        serde_json::to_string(&StoredBundle {
-            v: BUNDLE_VERSION,
-            account_key: self.account_key.clone(),
-            device_token: self.device_token.clone(),
-        })
-        .unwrap_or_default()
+    fn to_json(&self) -> Zeroizing<String> {
+        #[derive(serde::Serialize)]
+        struct Borrowed<'a> {
+            v: u32,
+            account_key: Option<&'a str>,
+            device_token: Option<&'a str>,
+        }
+        Zeroizing::new(
+            serde_json::to_string(&Borrowed {
+                v: BUNDLE_VERSION,
+                account_key: self.account_key.as_ref().map(|key| key.as_str()),
+                device_token: self.device_token.as_ref().map(|token| token.as_str()),
+            })
+            .unwrap_or_default(),
+        )
     }
 
     fn is_empty(&self) -> bool {
         self.account_key.is_none() && self.device_token.is_none()
     }
 
-    fn slot(&mut self, name: &str) -> Result<&mut Option<String>, SecretError> {
+    fn slot(&mut self, name: &str) -> Result<&mut Option<Zeroizing<String>>, SecretError> {
         match name {
             SECRET_ACCOUNT_KEY => Ok(&mut self.account_key),
             SECRET_DEVICE_TOKEN => Ok(&mut self.device_token),
@@ -204,8 +215,8 @@ impl<S: SecretStore> BundledSecrets<S> {
 
     fn read_old(&self) -> Result<Bundle, SecretError> {
         Ok(Bundle {
-            account_key: self.inner.get(SECRET_ACCOUNT_KEY)?,
-            device_token: self.inner.get(SECRET_DEVICE_TOKEN)?,
+            account_key: self.inner.get(SECRET_ACCOUNT_KEY)?.map(Zeroizing::new),
+            device_token: self.inner.get(SECRET_DEVICE_TOKEN)?.map(Zeroizing::new),
         })
     }
 
@@ -280,14 +291,14 @@ impl<S: SecretStore> SecretStore for BundledSecrets<S> {
         Bundle::default().slot(name)?;
         let mut memory = self.memory();
         let mut bundle = self.current(&mut memory, false)?;
-        Ok(bundle.slot(name)?.clone())
+        Ok(bundle.slot(name)?.as_deref().cloned())
     }
 
     fn set(&self, name: &str, value: &str) -> Result<(), SecretError> {
         Bundle::default().slot(name)?;
         let mut memory = self.memory();
         let mut bundle = self.current(&mut memory, true)?;
-        *bundle.slot(name)? = Some(value.to_string());
+        *bundle.slot(name)? = Some(Zeroizing::new(value.to_string()));
         self.write(&bundle)?;
         *memory = Some(bundle);
         Ok(())
@@ -738,5 +749,18 @@ mod bundled_tests {
         assert!(secrets.set("something-else", "x").is_err());
         assert!(secrets.delete("something-else").is_err());
         assert!(fake.names().is_empty());
+    }
+
+    #[test]
+    fn the_secrets_kept_in_memory_are_wiped_when_they_go() {
+        // SYNC-08: the account key and the token are held as `Zeroizing`; the type is the test
+        // (a plain `String` does not compile here).
+        let bundle = super::Bundle::parse(
+            &serde_json::json!({"v": 1, "account_key": "ak", "device_token": "tok"}).to_string(),
+        )
+        .unwrap();
+        let _: &Option<zeroize::Zeroizing<String>> = &bundle.account_key;
+        let _: &Option<zeroize::Zeroizing<String>> = &bundle.device_token;
+        let _: zeroize::Zeroizing<String> = bundle.to_json();
     }
 }

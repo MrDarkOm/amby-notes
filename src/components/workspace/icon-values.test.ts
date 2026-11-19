@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest"
 import { isRichIconValue, makeIconValue, parseIconValue } from "./icon-values"
 
 describe("icon values", () => {
+  it.each(["amby-icon:star:%", "amby-icon:star:%FF", "amby-icon:__proto__:", "amby-icon:unknown:"])(
+    "does not crash for damaged %s",
+    (value) => {
+      expect(parseIconValue(value)).toBeNull()
+    },
+  )
   it("round-trips a colored icon", () => {
     const value = makeIconValue("star", "#a855f7")
     const parsed = parseIconValue(value)

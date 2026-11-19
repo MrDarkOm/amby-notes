@@ -11,13 +11,18 @@ import { useDocumentCrud } from "./use-document-crud"
 import { DEFAULT_PREFS } from "../app-config"
 import { useSettingsStore } from "../use-settings-store"
 import { useVaultStore } from "../use-vault-store"
+import { logger } from "@/lib/logger"
 import { useTreeMessageStore } from "../tree/use-tree-message-store"
 
 const deleteItem = vi.fn()
+const createNote = vi.fn()
+const createFolder = vi.fn()
 
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
   deleteItem: (...args: unknown[]) => deleteItem(...args),
+  createNote: (...args: unknown[]) => createNote(...args),
+  createFolder: (...args: unknown[]) => createFolder(...args),
 }))
 vi.mock("@/lib/confirm", () => ({ confirm: vi.fn() }))
 
@@ -32,13 +37,13 @@ const deleted: FsMutationResult = {
   deletedPaths: ["/v/План.md"],
 }
 
-function setup() {
+function setup(tree: TreeItem[] = TREE) {
   return renderHook(() =>
     useDocumentCrud({
       vault: "/v",
-      treeItems: TREE,
+      treeItems: tree,
       setTreeItems: vi.fn(),
-      refreshTreePaths: vi.fn().mockResolvedValue(TREE),
+      refreshTreePaths: vi.fn().mockResolvedValue(tree),
       setOpenCanvases: vi.fn(),
       setOpenSketches: vi.fn(),
       setPendingRenameId: vi.fn(),
@@ -57,6 +62,8 @@ function setup() {
 beforeEach(async () => {
   await i18n.changeLanguage("ru")
   deleteItem.mockReset().mockResolvedValue(deleted)
+  createNote.mockReset()
+  createFolder.mockReset()
   vi.mocked(confirm).mockReset().mockResolvedValue(true)
   useVaultStore.setState({ vault: "/v", switching: false })
   useSettingsStore.setState({
@@ -111,5 +118,48 @@ describe("a failed deletion", () => {
     const { result } = setup()
     await act(() => result.current.handleDeleteFiles(["n1"]))
     expect(useTreeMessageStore.getState().message).toBeNull()
+  })
+})
+
+describe("a root note named like the vault folder (CORE-01)", () => {
+  // The vault is `/v`, so `/v/v.md` looks like the main note of a bundle whose folder is the vault.
+  const ROOT_TREE: TreeItem[] = [
+    { id: "r1", path: "/v/v.md", name: "v", type: "file" },
+    { id: "n2", path: "/v/Идея.md", name: "Идея", type: "file" },
+  ]
+
+  it("is deleted as a note, and the other selected note is deleted too", async () => {
+    const { result } = setup(ROOT_TREE)
+    await act(() => result.current.handleDeleteFiles(["r1", "n2"]))
+    expect(deleteItem).toHaveBeenCalledWith("/v", "/v/v.md", "permanent")
+    expect(deleteItem).toHaveBeenCalledWith("/v", "/v/Идея.md", "permanent")
+    expect(deleteItem).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("a failed creation (audit UI-02)", () => {
+  it("says under the tree that the note was not created, with the code in the log and not in the console", async () => {
+    createNote.mockRejectedValue(new Error("EACCES /Users/me/secret"))
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    const logged = vi.spyOn(logger, "error").mockImplementation(() => null)
+    const { result } = setup()
+    await act(() => result.current.handleNewFileIn(null))
+    const message = useTreeMessageStore.getState().message
+    expect(message?.level).toBe("warning")
+    expect(message?.titleKey).toBe("notices.tree.createNoteFailed")
+    expect(i18n.t(message!.titleKey)).not.toBe(message!.titleKey)
+    expect(JSON.stringify(message)).not.toContain("EACCES")
+    expect(logged).toHaveBeenCalledWith("file.create_note_failed", expect.anything())
+    expect(consoleError).not.toHaveBeenCalled()
+    consoleError.mockRestore()
+    logged.mockRestore()
+  })
+
+  it("says under the tree that the folder was not created", async () => {
+    createFolder.mockRejectedValue(new Error("EEXIST"))
+    vi.spyOn(logger, "error").mockImplementation(() => null)
+    const { result } = setup()
+    await act(() => result.current.handleNewFolderIn(null, "Папка"))
+    expect(useTreeMessageStore.getState().message?.titleKey).toBe("notices.tree.createFolderFailed")
   })
 })

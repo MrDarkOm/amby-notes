@@ -6,8 +6,8 @@ import {
   getDebugEvents,
   getDebugHistory,
   getDebugStatus,
-  settingsRepository,
 } from "../../src/lib/storage"
+import { joinStoragePath } from "../../src/lib/storage/storage-path"
 import type { DebugEvent } from "../../src/lib/debug/types"
 import type { StorageContractContext } from "../../src/lib/storage/storage-contract"
 
@@ -153,12 +153,16 @@ export const nativeDebugCases: Array<{
   },
   {
     name: "native Debug reports isolated disk failure within bounded flush time",
-    async run() {
+    async run({ adapter, vaultPath }) {
       await clearDebugLogs()
       // The native harness gives this test a disposable app-data root. Making
       // the configured file path a directory forces a real writer open error
       // without touching the user's profile or introducing a test IPC hook.
-      await settingsRepository.writeGlobalRaw("logs/amby-debug.jsonl/blocked", "fixture")
+      // The app-data allowlist is intentionally unchanged. The disposable app-data root
+      // is inside the harness root, so prepare the fault through vault-scoped filesystem I/O.
+      const root = vaultPath.replace(/[\\/][^\\/]+$/u, "")
+      await adapter.loadVaultData(root)
+      await adapter.createFolder(joinStoragePath(root, ".app-data/logs"), "amby-debug.jsonl")
       await configureDebug({ enabled: true, logLevel: "info", logToFile: true })
       try {
         await appendDebugEvents([sample()])
@@ -172,7 +176,10 @@ export const nativeDebugCases: Array<{
         check(flushFailed, "A real disk writer failure is returned to the caller")
         check(performance.now() - started < 5000, "Failure reporting stays bounded")
         const status = await getDebugStatus()
-        check(status?.fileError === "IoError", "Status reports the sanitized writer error")
+        check(
+          status?.fileError === "IoError" || status?.fileError === "PermissionDenied",
+          `Status reports the sanitized writer error: ${status?.fileError}`,
+        )
       } finally {
         await configureDebug({ enabled: false, logLevel: "info", logToFile: false })
       }

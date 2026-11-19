@@ -112,7 +112,7 @@ test("dragging the last block out removes its column and can be undone", async (
   await expect(editor.getByText("Left text", { exact: true })).toBeVisible()
   await expect(editor.getByText("Right text", { exact: true })).toBeVisible()
   await waitForAutosaveWindow(page)
-  const markdown = await storedMarkdown(page, "Columns")
+  const markdown = (await storedMarkdown(page, "Columns")) ?? ""
   expect(markdown).not.toContain("amby:column")
   expect(markdown.match(/Right text/gu)).toHaveLength(1)
   await editor.press("Meta+z")
@@ -164,4 +164,23 @@ test("side insertion uses all whitespace and stays at the visible content edge",
   await expect(editor.locator(".amby-column-set")).toHaveCount(1)
   await expect(editor.locator(".amby-column").nth(0)).toHaveText("Source")
   await expect(editor.locator(".amby-column").nth(1)).toHaveText("Target")
+})
+
+// EDIT-02: the first thing done after opening a note is deleting a block from the grip menu, with the
+// mouse only. The change used to show on screen and never reach the file.
+test("a block deleted from the grip menu with the mouse only is saved", async ({ page }) => {
+  await seedVault(page, { Menu: NOTE })
+  await openInLive(page, "Menu")
+  const lower = (await liveEditor(page).getByText("Lower line").boundingBox())!
+  await page.mouse.move(lower.x + 40, lower.y + lower.height / 2, { steps: 3 })
+  expect(await handleHeading(page)).toBe("Lower line")
+  await page.locator(".amby-block-handle-grip").click()
+  await page
+    .locator(".amby-block-panel--actions")
+    .getByText(/^(Удалить|Delete)$/u)
+    .click()
+  await expect(liveEditor(page).getByText("Lower line")).toHaveCount(0)
+  await expect.poll(() => storedMarkdown(page, "Menu")).toBe("## Upper line\n\nTail\n")
+  await waitForAutosaveWindow(page)
+  expect(await storedMarkdown(page, "Menu")).toBe("## Upper line\n\nTail\n")
 })

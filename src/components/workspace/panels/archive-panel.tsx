@@ -165,27 +165,19 @@ function ArchiveContents() {
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <PanelHeader
         title={t("panels.archive")}
+        count={(showServer ? server.list?.available : !loading) ? shownCount : undefined}
+        countTestId="archive-count"
         actions={
-          <>
-            {server.syncOn && (
-              <ArchiveViewSwitch
-                cloud={showServer}
-                onChange={(cloud) => {
-                  // The list is asked for again on every switch to it: it may be minutes old (И13).
-                  if (cloud && !serverView) void server.reload()
-                  setServerView(cloud)
-                }}
-              />
-            )}
-            {(showServer ? server.list?.available : !loading) && (
-              <span
-                data-testid="archive-count"
-                className="text-[10px] font-normal text-muted-foreground"
-              >
-                {shownCount}
-              </span>
-            )}
-          </>
+          server.syncOn ? (
+            <ArchiveViewSwitch
+              cloud={showServer}
+              onChange={(cloud) => {
+                // The list is asked for again on every switch to it: it may be minutes old (И13).
+                if (cloud && !serverView) void server.reload()
+                setServerView(cloud)
+              }}
+            />
+          ) : undefined
         }
       />
       {(showServer || entries.length > 0) && (

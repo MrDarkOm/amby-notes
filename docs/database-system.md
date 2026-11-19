@@ -1,99 +1,99 @@
-# Система баз данных Amby
+# Amby database system
 
-Статус: архитектурное предложение; раздел хранения значений заменён
-фактическим контрактом (см. ниже)
-Версия документа: 1
-Дата: 2026-09-04 (контракт хранения уточнён 2026-10-02)
+Status: architectural proposal; the value-storage section has been replaced by
+the actual contract (see below)
+Document version: 1
+Date: 2026-09-04 (storage contract clarified 2026-10-02)
 
-> **Актуальный контракт хранения значений.** Значения свойств строки живут в
-> frontmatter её Markdown-заметки; `.ambd/records/<note-id>.json` — legacy и
-> переходный формат, а не основное хранилище. Точные правила — в
-> [формате базы](database-format.md), раздел 1.1. Где ниже сказано «record
-> shard» или «property shard» как о хранилище значений, читайте это
-> предложение 2026-09-04 как устаревшее.
+> **Current value-storage contract.** Row property values live in the
+> frontmatter of the row's Markdown note; `.ambd/records/<note-id>.json` is a
+> legacy and transitional format, not the primary storage. The exact rules are in
+> the [database format](database-format.md), section 1.1. Wherever the text below
+> says "record shard" or "property shard" in the sense of value storage, read that
+> sentence of the 2026-09-04 proposal as obsolete.
 
-## 1. Цель
+## 1. Goal
 
-Базы данных Amby должны давать удобство Notion-подобных коллекций, не создавая
-вторую закрытую модель документов. Главный инвариант:
+Amby databases should offer the convenience of Notion-like collections without
+creating a second, closed document model. The main invariant:
 
-> Каждая строка базы — обычная Markdown-заметка с устойчивым `amby-id`.
+> Every database row is an ordinary Markdown note with a stable `amby-id`.
 
-База определяет общую схему свойств, способ включения заметок и набор
-представлений. Текст заметки, вложения и связанные слои остаются доступны без
-модуля баз данных. SQLite используется только как перестраиваемый индекс и не
-является источником истины.
+A database defines a shared property schema, a way of including notes, and a set
+of views. The note text, attachments, and related layers remain available without
+the databases module. SQLite is used only as a rebuildable index and is not the
+source of truth.
 
-В этом документе «база» означает пользовательскую коллекцию, а «индекс» —
-внутреннюю `.amby/notes.db`.
+In this document, "database" means a user collection, and "index" means the
+internal `.amby/notes.db`.
 
-## 2. Что полезно перенять у Notion
+## 2. What is worth borrowing from Notion
 
-Нужно перенять не внешний вид таблицы, а разделение сущностей:
+What to borrow is not the look of the table but the separation of entities:
 
-- строка является страницей, а не анонимной записью;
-- схема свойств принадлежит источнику данных, а значения — строкам;
-- несколько представлений показывают одни данные по-разному;
-- фильтры, сортировки, группировка и видимость колонок принадлежат конкретному
-  представлению;
-- связанное представление ссылается на исходную базу, поэтому изменение данных
-  видно везде, а локальная настройка вида не меняет источник;
-- relation связывает записи по устойчивым идентификаторам, rollup вычисляет
-  агрегат поверх relation.
+- a row is a page, not an anonymous record;
+- the property schema belongs to the data source, and the values belong to rows;
+- several views show the same data in different ways;
+- filters, sorts, grouping, and column visibility belong to a specific view;
+- a linked view refers to the source database, so a change to the data is
+  visible everywhere, while a local view setting does not change the source;
+- a relation links records by stable identifiers, and a rollup computes an
+  aggregate on top of a relation.
 
-В Amby это должно работать поверх файлов и устойчивых идентификаторов, без
-облачных сущностей и без исполнения произвольного SQL или JavaScript.
+In Amby this must work on top of files and stable identifiers, without cloud
+entities and without executing arbitrary SQL or JavaScript.
 
-Справочные материалы Notion:
+Notion reference materials:
 
 - <https://www.notion.com/help/what-is-a-database>
 - <https://www.notion.com/help/views-filters-and-sorts>
 - <https://www.notion.com/help/relations-and-rollups>
 - <https://www.notion.com/help/guides/databases-reimagined-whats-changed>
 
-## 3. Аудит текущего состояния
+## 3. Audit of the current state
 
-Сейчас в репозитории существуют три независимых прототипа одной функции.
+Currently the repository contains three independent prototypes of the same feature.
 
 ### 3.1. Database layer
 
-`bundle/layers.rs` умеет создать `Metadata.md` с блоком `amby-db`, однако
-содержимое `[]` не имеет версии, устойчивой схемы и backend-сервиса. Слой можно
-создать из нескольких UI-точек, хотя модуль `databases` помечен как `preview`.
+`bundle/layers.rs` can create a `Metadata.md` with an `amby-db` block, but the
+content `[]` has no version, no stable schema, and no backend service. The layer
+can be created from several UI entry points, even though the `databases` module
+is marked `preview`.
 
-### 3.2. Встроенный `amby-db` block
+### 3.2. Embedded `amby-db` block
 
-`AmbyBlockView.tsx` хранит простую таблицу строк в
-`.amby/blocks/<block-id>.json`. У нее нет типизированных колонок, привязки строк
-к заметкам, версионирования, CAS/revision, обработки ошибок сохранения,
-межоконной синхронизации и восстановления. Отложенная запись отменяется при
-размонтировании, поэтому последняя правка потенциально может не попасть на
-диск.
+`AmbyBlockView.tsx` stores a simple table of rows in
+`.amby/blocks/<block-id>.json`. It has no typed columns, no binding of rows
+to notes, no versioning, no CAS/revision, no handling of save errors,
+no cross-window synchronization, and no recovery. A deferred write is cancelled
+on unmount, so the last edit may potentially never reach
+the disk.
 
 ### 3.3. Custom properties
 
-`properties.json` и `note_custom_properties` уже дают заметкам свойства, но
-каждый `CustomProperty` одновременно содержит определение поля и его значение.
-Тип, значение и настройки представлены строками. Такая форма не позволяет
-иметь одну общую схему базы, надежно менять типы, строить relation/rollup или
-валидировать запросы.
+`properties.json` and `note_custom_properties` already give notes properties, but
+every `CustomProperty` contains both the field definition and its value at once.
+The type, value, and settings are represented as strings. This shape does not allow
+having a single shared database schema, reliably changing types, building relation/rollup, or
+validating queries.
 
-### 3.4. Модульная граница
+### 3.4. Module boundary
 
-Текущий `activeModules` управляет в основном кнопками панелей. Разрешения
-manifest пока advisory, lifecycle hooks пусты, а действия слоя базы не связаны
-с одной проверкой capability. Поэтому «выключено» еще не является настоящим
-состоянием модуля.
+The current `activeModules` mostly controls panel buttons. The manifest
+permissions are still advisory, the lifecycle hooks are empty, and the database layer's actions are not tied
+to a single capability check. So "disabled" is not yet a real
+module state.
 
-### 3.5. Вывод аудита
+### 3.5. Audit conclusion
 
-Нельзя наращивать возможности отдельно в `AmbyBlockView`, `Metadata.md` и
-`CustomProperty`. Сначала нужен единый домен свойств и баз, затем все UI-входы
-должны стать его клиентами.
+Capabilities must not be grown separately in `AmbyBlockView`, `Metadata.md`, and
+`CustomProperty`. First, a single domain of properties and databases is needed; then all UI entry points
+must become its clients.
 
-## 4. Доменная модель
+## 4. Domain model
 
-### 4.1. Основные сущности
+### 4.1. Core entities
 
 ```text
 Markdown note (Record)
@@ -108,7 +108,7 @@ Property values
 
 #### Record
 
-Ссылка на существующую заметку:
+A reference to an existing note:
 
 ```ts
 interface RecordRef {
@@ -116,15 +116,15 @@ interface RecordRef {
 }
 ```
 
-Заголовок строки — системное свойство `title`, связанное с отображаемым
-названием заметки. Непустой namespaced `amby-title` имеет приоритет над первым
-H1/body title и именем файла. Отображаемые названия могут совпадать; identity и
-связи всегда используют полный `amby-id`. Изменение `amby-title` не обязано
-переименовывать файл, а явное filesystem-переименование остаётся отдельной
-операцией через refactor pipeline.
+The row title is the system property `title`, tied to the displayed
+note name. A non-empty namespaced `amby-title` takes priority over the first
+H1/body title and the file name. Displayed names may coincide; identity and
+links always use the full `amby-id`. Changing `amby-title` does not have to
+rename the file, and an explicit filesystem rename remains a separate
+operation through the refactor pipeline.
 
-Открытие строки открывает ту же заметку в peek, вкладке или отдельном окне.
-Создание строки проходит через обычную безопасную команду создания заметки.
+Opening a row opens the same note in a peek, a tab, or a separate window.
+Creating a row goes through the ordinary safe note-creation command.
 
 #### DatabaseDefinition
 
@@ -143,24 +143,24 @@ interface DatabaseDefinition {
 }
 ```
 
-`databaseId`, идентификаторы свойств, вариантов select/status, представлений и
-шаблонов — ULID. Отображаемое имя никогда не используется как ключ. Runtime
-revision вычисляется по raw bytes и не хранится внутри JSON.
+`databaseId`, property identifiers, select/status option identifiers, view
+identifiers, and template identifiers are ULIDs. The displayed name is never used as a key. The runtime
+revision is computed from raw bytes and is not stored inside the JSON.
 
 #### Membership
 
-Состав базы определяется файловой иерархией, а не скрытым списком:
+The database's composition is determined by the file hierarchy, not by a hidden list:
 
-- заметки внутри каталога с `ambd.json` являются строками базы;
-- обычные подпапки можно использовать как категории, их заметки остаются
-  строками той же базы;
-- папка bundle, содержащая одноименную основную заметку, представляет строку с
-  дочерними строками;
-- ближайший родительский контейнер с `ambd.json` является владельцем строки;
-- перенос заметки внутрь/наружу добавляет или удаляет ее из базы без отдельной
-  membership-записи.
+- notes inside a directory with `ambd.json` are rows of the database;
+- ordinary subfolders can be used as categories; their notes remain
+  rows of the same database;
+- a bundle folder containing a same-named main note represents a row with
+  child rows;
+- the nearest parent container with `ambd.json` is the owner of the row;
+- moving a note in or out adds it to or removes it from the database without a separate
+  membership record.
 
-Пример Notion-подобных sub-items:
+An example of Notion-like sub-items:
 
 ```text
 Персонажи/
@@ -173,29 +173,29 @@ revision вычисляется по raw bytes и не хранится внут
 └── Борис.md
 ```
 
-`Алиса`, `Ученик Алисы`, `Сестра Алисы` и `Борис` являются строками одной базы.
-`Ученик` и `Сестра` отображаются как дочерние строки Алисы; обычная папка
-`Семья` помогает организовать файлы, но сама строкой не является. Системные
-свойства `Parent` и `Sub-items` вычисляются из структуры файлов.
+`Алиса` (Alice), `Ученик Алисы` (Alice's Student), `Сестра Алисы` (Alice's Sister), and `Борис` (Boris) are rows of one database.
+The Student and Sister are displayed as child rows of Alice; the ordinary folder
+`Семья` (Family) helps organize files but is not itself a row. The system
+properties `Parent` and `Sub-items` are computed from the file structure.
 
-Drag-and-drop строки на другую строку выполняет обычное безопасное filesystem
-move. Если родитель был одиночным `.md`, он сначала атомарно превращается в
-bundle. Нельзя создать цикл или переместить строку за пределы разрешенного
+Dragging and dropping a row onto another row performs an ordinary safe filesystem
+move. If the parent was a single `.md`, it is first atomically turned into a
+bundle. A cycle cannot be created, and a row cannot be moved outside the permitted
 vault.
 
-Удаление строки с sub-items предлагает удалить весь bundle в Trash либо удалить
-только родителя и атомарно поднять дочерние строки на его уровень. Preview
-показывает число всех затронутых страниц.
+Deleting a row with sub-items offers to delete the whole bundle to Trash or to delete
+only the parent and atomically lift the child rows to its level. The preview
+shows the number of all affected pages.
 
-Строка внешней базы может иметь собственный database layer. Ее основная
-одноименная `.md` остается строкой внешней базы, а дочерние заметки принадлежат
-ближайшему внутреннему `ambd.json`. Scan не должен одновременно включать их в
-обе базы.
+A row of an outer database may have its own database layer. Its main
+same-named `.md` remains a row of the outer database, while the child notes belong
+to the nearest inner `ambd.json`. The scan must not include them in
+both databases at once.
 
-#### PropertyDefinition и PropertyValue
+#### PropertyDefinition and PropertyValue
 
-Определение отделено от значения и представлено discriminated union, а не
-набором строк:
+The definition is separated from the value and is represented as a discriminated union, not as
+a set of strings:
 
 ```ts
 type PropertyDefinition =
@@ -219,47 +219,47 @@ type PropertyDefinition =
   | { id: string; name: string; type: "formula"; expression: FormulaAst }
 ```
 
-Значения также типизированы. Даты хранят ISO-значение, исходный timezone и
-необязательный конец диапазона; number не проходит через локализованную строку;
-select хранит ID варианта; relation хранит `noteId`. Неизвестное или более новое
-значение сохраняется как opaque payload и показывается read-only вместо
-удаления.
+Values are also typed. Dates store an ISO value, the original timezone, and an
+optional range end; a number does not pass through a localized string;
+select stores the option ID; relation stores a `noteId`. An unknown or newer
+value is preserved as an opaque payload and shown read-only instead of
+being deleted.
 
-`Status` отличается от обычного Select: его варианты входят в настраиваемые
-группы `notStarted`, `inProgress` и `done`; названия и цвета самих вариантов
-остаются пользовательскими.
+`Status` differs from an ordinary Select: its options belong to configurable
+groups `notStarted`, `inProgress`, and `done`; the names and colors of the options themselves
+remain user-defined.
 
-Обычные значения дочерней строки не наследуются от родителя. `Parent` и
-`Sub-items` отражают только иерархию; явное получение данных родителя позднее
-делается через relation/rollup или formula.
+Ordinary values of a child row are not inherited from the parent. `Parent` and
+`Sub-items` reflect only the hierarchy; explicitly obtaining the parent's data later
+is done through relation/rollup or formula.
 
-Системные поля `title`, `created`, `modified`, `path`, `tags`, `backlinks` и
-`wordCount` вычисляются из заметки/индекса. Их можно показывать, фильтровать и
-сортировать, но нельзя удалить как обычное поле базы.
+The system fields `title`, `created`, `modified`, `path`, `tags`, `backlinks`, and
+`wordCount` are computed from the note/index. They can be shown, filtered, and
+sorted, but cannot be deleted like an ordinary database field.
 
-### 4.2. Локальные свойства и свойства базы
+### 4.2. Local properties and database properties
 
-Существующие custom properties заметки остаются локальными свойствами. Поля
-базы являются общей схемой и не копируются в каждую заметку. В Info panel
-свойства показываются секциями:
+The existing custom properties of a note remain local properties. Database
+fields are a shared schema and are not copied into every note. In the Info panel,
+properties are shown in sections:
 
 ```text
-Локальные свойства
-Проекты / свойства базы
-Клиенты / свойства базы
+Local properties
+Projects / database properties
+Clients / database properties
 ```
 
-Одна заметка имеет одну owning database, определенную ближайшим родительским
-`ambd.json`. В других базах она появляется через Relation, а в других местах
-интерфейса — через linked view исходной базы. Одинаковые отображаемые имена
-полей из разных баз не означают одинаковый `propertyId`.
+A note has one owning database, determined by the nearest parent
+`ambd.json`. In other databases it appears through a Relation, and in other places of the
+interface through a linked view of the source database. Identical displayed field names
+from different databases do not mean the same `propertyId`.
 
-## 5. Источники истины и формат на диске
+## 5. Sources of truth and on-disk format
 
-### 5.1. Определение базы
+### 5.1. Database definition
 
-Определение базы хранится в `ambd.json` внутри ее контейнера. Это специальный
-переносимый файл, а не пользовательская заметка и не строка SQLite:
+The database definition is stored in `ambd.json` inside its container. This is a special
+portable file, not a user note and not a SQLite row:
 
 ```json
 {
@@ -273,8 +273,8 @@ select хранит ID варианта; relation хранит `noteId`. Неи�
 }
 ```
 
-Для базы-слоя и самостоятельной базы структура отличается только наличием
-основной заметки:
+For a layer database and a standalone database, the structure differs only in whether a
+main note is present:
 
 ```text
 Персонажи истории/          Персонажи/
@@ -284,79 +284,79 @@ select хранит ID варианта; relation хранит `noteId`. Неи�
 └── Борис.md
 ```
 
-Amby скрывает `ambd.json` в своем дереве и распознает контейнер как базу по
-точному `format` и поддерживаемой версии. Неизвестные JSON-поля сохраняются.
-Поврежденный или слишком новый файл не блокирует открытие основной заметки или
-вложенных строк: база переходит в read-only Source/Repair mode.
+Amby hides `ambd.json` in its tree and recognizes a container as a database by the
+exact `format` and a supported version. Unknown JSON fields are preserved.
+A corrupted or too-new file does not block opening the main note or
+nested rows: the database switches to read-only Source/Repair mode.
 
-SQLite зеркалирует определение для запросов, но удаление `.amby/notes.db`
-должно полностью восстановить схему и виды из `ambd.json`.
+SQLite mirrors the definition for queries, but deleting `.amby/notes.db`
+must fully restore the schema and views from `ambd.json`.
 
-### 5.2. Значения свойств базы
+### 5.2. Database property values
 
-Значения базы хранятся в frontmatter Markdown-заметок строк, внутри переносимого
-контейнера базы. Отдельного хранилища значений нет:
+Database values are stored in the frontmatter of the rows' Markdown notes, inside the portable
+database container. There is no separate value storage:
 
 ```text
 Персонажи/
-├── Персонажи.json   (или устаревший ambd.json)
+├── Персонажи.json   (or the legacy ambd.json)
 ├── .ambd/
 │   ├── views/
 │   ├── templates/
 │   ├── recovery/
 │   └── trash/
-└── Алиса.md         ← frontmatter с значениями свойств
+└── Алиса.md         ← frontmatter with property values
 ```
 
-`.ambd/` скрывается в дереве Amby и исключается из note indexing. Запись ячейки
-точечно меняет только нужный ключ frontmatter (`replace_yaml_binding_lossless`)
-с проверкой raw-byte revision; остальной YAML, BOM и переводы строк сохраняются.
-Массовые операции используют журнал восстановления `.amby/recovery/`.
+`.ambd/` is hidden in the Amby tree and excluded from note indexing. A cell write
+surgically changes only the needed frontmatter key (`replace_yaml_binding_lossless`)
+with a raw-byte revision check; the rest of the YAML, the BOM, and line endings are preserved.
+Bulk operations use the recovery journal `.amby/recovery/`.
 
-Если заметку вынести из базы, ее frontmatter не меняется: значения остаются в
-заметке, но не участвуют в запросах этой базы. Очистка выполняется только явной
-командой с preview и подтверждением.
+If a note is moved out of the database, its frontmatter is not changed: the values stay
+in the note but do not participate in this database's queries. Cleanup is performed only by an explicit
+command with a preview and confirmation.
 
-Файлы схемы, views и templates — durable data, а не кэш. Копирование или
-перемещение папки базы переносит схему, views, templates и значения вместе с
-Markdown строками. `notes.db` остается единственной удаляемой и полностью
-перестраиваемой частью.
+Schema, view, and template files are durable data, not a cache. Copying or
+moving a database folder carries the schema, views, templates, and values together with the
+Markdown rows. `notes.db` remains the only deletable and fully
+rebuildable part.
 
-Legacy: `.ambd/records/<note-id>.json` из ранних версий формата при обнаружении
-базы переносятся в frontmatter и удаляются; пока они есть, проекция читает их
-как запасной источник, а frontmatter имеет приоритет. Подробности — в
-[формате базы](database-format.md), раздел 6.
+Legacy: `.ambd/records/<note-id>.json` from early versions of the format are, when a
+database is detected, moved into frontmatter and deleted; while they exist, the projection
+reads them as a fallback source, and frontmatter takes priority. Details are in the
+[database format](database-format.md), section 6.
 
-### 5.3. Локальные свойства заметок
+### 5.3. Local note properties
 
-Текущий монолитный `.amby/properties.json` продолжает относиться только к
-локальным свойствам заметок. До интенсивного табличного редактирования его нужно
-перевести versioned migration на per-note shards в `.amby/properties/notes/`.
-Эта миграция не переносит database values обратно в глобальное хранилище.
+The current monolithic `.amby/properties.json` continues to apply only to
+local note properties. Before intensive table editing, it must be
+moved by a versioned migration to per-note shards in `.amby/properties/notes/`.
+This migration does not move database values back into the global storage.
 
-Переход с `properties.json` требует отдельной миграции по правилам
-`docs/engineering.md`: read-only preflight, raw backup, журнал, идемпотентный
-resume, rollback и запись результата. Старый файл не удаляется до подтверждения
-успешной проверки.
+Moving off `properties.json` requires a separate migration under the rules of
+`docs/engineering.md`: read-only preflight, raw backup, journal, idempotent
+resume, rollback, and recording of the result. The old file is not deleted until
+a successful check is confirmed.
 
-Исходный замысел (2026-09-04) предполагал гибридную модель: полная
-типизированная запись в property shard и явная привязка выбранных полей к YAML.
-Фактически frontmatter стал основным хранилищем, а YAML-привязка (`yamlBinding`)
-определяет только ключ хранения. Связи, вычисляемые поля и внутренние IDs в YAML
-не экспортируются.
+The original design (2026-09-04) assumed a hybrid model: a full
+typed record in a property shard and an explicit binding of selected fields to YAML.
+In practice, frontmatter became the primary storage, and the YAML binding (`yamlBinding`)
+determines only the storage key. Relations, computed fields, and internal IDs are not
+exported to YAML.
 
-Двусторонняя синхронизация первой версии поддерживает Text, Number, Checkbox,
-Date, Select, Multi-select и URL. Files & media и Relation остаются Amby-only.
-YAML key хранится как отдельная стабильная привязка: rename свойства не меняет
-ключ без отдельного preview. Если shard и внешний YAML изменили одно поле после
-общей revision, Amby показывает field-level conflict и не применяет
-last-write-wins. Эта трёхсторонняя логика относится к явной команде YAML sync;
-обычная правка ячейки её не использует.
+Two-way synchronization in the first version supports Text, Number, Checkbox,
+Date, Select, Multi-select, and URL. Files & media and Relation remain Amby-only.
+The YAML key is stored as a separate stable binding: renaming a property does not change
+the key without a separate preview. If the shard and the external YAML changed the same field after
+the common revision, Amby shows a field-level conflict and does not apply
+last-write-wins. This three-way logic applies to the explicit YAML sync command;
+an ordinary cell edit does not use it.
 
-### 5.4. Встроенное связанное представление
+### 5.4. Embedded linked view
 
-`amby-db` в обычной заметке больше не хранит собственные строки. Он ссылается на
-базу и сохраненное представление:
+`amby-db` in an ordinary note no longer stores its own rows. It refers to a
+database and a saved view:
 
 ````markdown
 ```amby-db
@@ -364,32 +364,32 @@ last-write-wins. Эта трёхсторонняя логика относитс
 ```
 ````
 
-При вставке конфигурация выбранного view копируется в локальные overrides блока.
-Строки и значения остаются общими, но последующие изменения фильтра, сортировки
-или layout внутри блока не меняют исходный saved view. Блок предлагает команды
-`Open source database` и `Reset from source view`.
+On insertion, the configuration of the selected view is copied into the block's local overrides.
+Rows and values remain shared, but subsequent changes to the filter, sort,
+or layout inside the block do not change the source saved view. The block offers the commands
+`Open source database` and `Reset from source view`.
 
-Изменение ячейки идет во frontmatter исходной заметки, изменение общей схемы — в
-манифест базы (`<Название>.json` / `ambd.json`),
-изменение локального вида — в переносимую конфигурацию блока. `.amby/blocks/`
-может быть кэшем или recovery draft, но не единственной копией конфигурации либо
-данных.
+A cell change goes into the frontmatter of the source note, a change to the shared schema goes into the
+database manifest (`<Name>.json` / `ambd.json`),
+and a change to the local view goes into the block's portable configuration. `.amby/blocks/`
+may be a cache or a recovery draft, but not the only copy of the configuration or
+data.
 
-### 5.5. Шаблоны строк
+### 5.5. Row templates
 
-База может хранить несколько versioned templates в
-`.ambd/templates/<template-id>.json`; `ambd.json` хранит их порядок и default ID.
-Template содержит название, Markdown-заготовку body и начальные значения общих
-свойств. Кнопка New предлагает выбрать template.
+A database may store several versioned templates in
+`.ambd/templates/<template-id>.json`; `ambd.json` stores their order and the default ID.
+A template contains a name, a Markdown body skeleton, and initial values of the shared
+properties. The New button offers a choice of template.
 
-Template копируется только при создании заметки. Его последующее изменение не
-переписывает уже созданные строки. Медиа не встраивается бинарными данными в
-JSON; шаблон может содержать только переносимые ссылки или инструкции для
-явного копирования asset.
+A template is copied only when a note is created. Its subsequent change does not
+rewrite rows that were already created. Media is not embedded as binary data in the
+JSON; a template may contain only portable links or instructions for
+explicit asset copying.
 
-## 6. SQLite как перестраиваемый query index
+## 6. SQLite as a rebuildable query index
 
-Индекс нормализует данные примерно в следующие таблицы:
+The index normalizes data into roughly the following tables:
 
 ```text
 database_defs(id, note_id, revision, source_json)
@@ -400,10 +400,10 @@ database_relations(property_id, source_note_id, target_note_id, position)
 database_views(id, database_id, type, name, position, config_json)
 ```
 
-Внешние ключи и индексы обязательны. Кэш строится из `ambd.json` и property
-shards. Неизвестные версии не индексируются как частично понятные данные.
+Foreign keys and indexes are mandatory. The cache is built from `ambd.json` and property
+shards. Unknown versions are not indexed as partially understood data.
 
-Frontend не отправляет SQL. Он отправляет версионированный `DatabaseQuery`:
+The frontend does not send SQL. It sends a versioned `DatabaseQuery`:
 
 ```ts
 interface DatabaseQuery {
@@ -417,171 +417,171 @@ interface DatabaseQuery {
 }
 ```
 
-Rust валидирует IDs, типы операторов, глубину filter AST и лимиты, затем строит
-параметризованный SQL. Порядок всегда детерминирован: после пользовательских
-sort rules добавляется `noteId`. Для больших выборок применяется keyset cursor,
-а UI виртуализирует строки и колонки.
+Rust validates IDs, operator types, filter AST depth, and limits, then builds
+parameterized SQL. The order is always deterministic: after the user's
+sort rules, `noteId` is appended. For large result sets a keyset cursor is used,
+and the UI virtualizes rows and columns.
 
-Ответ содержит `snapshotRevision`. Мутация со старой revision возвращает
-конфликт, а не молча перезаписывает внешнее или межоконное изменение.
+The response contains a `snapshotRevision`. A mutation with a stale revision returns a
+conflict instead of silently overwriting an external or cross-window change.
 
-## 7. Представления
+## 7. Views
 
-`DatabaseView` хранит только проекцию над данными:
+`DatabaseView` stores only a projection over the data:
 
-- layout: `table`, `board`, `list`, `gallery` и `chart`; calendar и timeline
-  зарезервированы до готовности range-query contract;
-- порядок, ширину и видимость свойств;
-- filter AST с явными AND/OR groups;
-- последовательность сортировок;
+- layout: `table`, `board`, `list`, `gallery`, and `chart`; calendar and timeline
+  are reserved until the range-query contract is ready;
+- the order, width, and visibility of properties;
+- a filter AST with explicit AND/OR groups;
+- a sequence of sorts;
 - group/subgroup;
-- режим открытия строки;
-- настройки конкретного layout.
+- the row open mode;
+- settings of the specific layout.
 
-View не содержит копии строк. Временные значения — выделение, scroll,
-незавершенный resize, открытое меню — остаются session state и не попадают в
+A view contains no copies of rows. Transient values — selection, scroll,
+an unfinished resize, an open menu — remain session state and do not end up in
 `ambd.json`.
 
-Фильтры, многоуровневая сортировка, group/subgroup, порядок и видимость свойств
-автоматически сохраняются в текущем view. Быстрый текстовый поиск остается
-временным. Для изменения настроек без затрагивания исходного view пользователь
-дублирует представление. Filter AST поддерживает явные вложенные AND/OR groups.
+Filters, multi-level sorting, group/subgroup, and the order and visibility of properties
+are saved automatically in the current view. Quick text search remains
+temporary. To change settings without touching the source view, the user
+duplicates the view. The filter AST supports explicit nested AND/OR groups.
 
-Без активной сортировки строки можно переставлять вручную. Ручной порядок
-хранится по `noteId` отдельно для каждого view; включенная сортировка временно
-отключает reorder, но не удаляет сохраненный порядок.
+Without an active sort, rows can be reordered manually. The manual order is
+stored by `noteId` separately for each view; an enabled sort temporarily
+disables reorder but does not delete the saved order.
 
-View имеет режим sub-items `nested` или `flat`. В nested-режиме сортируются
-siblings каждого уровня с сохранением иерархии; в flat-режиме все строки
-сортируются общим набором. Если filter совпал с дочерней строкой, но не с
-родителем, результат остается видимым с приглушенным breadcrumb до родителя.
+A view has a sub-items mode, `nested` or `flat`. In nested mode, the siblings of each level
+are sorted while preserving the hierarchy; in flat mode, all rows
+are sorted as one set. If a filter matches a child row but not
+its parent, the result stays visible with a muted breadcrumb up to the parent.
 
-Первая реализованная версия включает `table`, `board`, `list`, `gallery` и
-backend-driven `chart`. Chart получает aggregate result на стороне Rust и
-ограниченное число групп, не загружая всю базу в React.
-Table остается первым техническим slice, на котором доказываются типы,
-сохранение и query engine. Title всегда остается первой frozen-колонкой;
-пользователь может закрепить дополнительные колонки. Footer поддерживает Count,
-Count empty, Sum, Average, Min и Max в рамках результата текущего view.
+The first implemented version includes `table`, `board`, `list`, `gallery`, and
+a backend-driven `chart`. Chart receives the aggregate result on the Rust side and a
+limited number of groups, without loading the whole database into React.
+Table remains the first technical slice on which types,
+saving, and the query engine are proven. Title always remains the first frozen column;
+the user can pin additional columns. The footer supports Count,
+Count empty, Sum, Average, Min, and Max within the result of the current view.
 
-Board первой версии группирует только по Status и одиночному Select; перенос
-карточки между колонками меняет значение поля. Multi-select и Relation не
-группируют Board, чтобы не создавать несколько визуальных копий одной строки.
-List показывает компактный настраиваемый набор свойств. Gallery выбирает card
-preview в следующем порядке: указанное поле Files & media, первая картинка из
-заметки, иконка заметки, пустой preview. Calendar, timeline, forms и
-automations остаются следующими этапами.
+The first version of Board groups only by Status and single Select; moving a
+card between columns changes the field value. Multi-select and Relation do not
+group a Board, so as not to create several visual copies of one row.
+List shows a compact configurable set of properties. Gallery chooses the card
+preview in the following order: the specified Files & media field, the first image from
+the note, the note icon, an empty preview. Calendar, timeline, forms, and
+automations remain for later stages.
 
-По клику строка по умолчанию открывается в Side peek, не закрывая базу. Внутри
-доступны две секции свойств и обычный редактор Markdown-описания. Кнопка
-открывает ту же заметку в полноценной вкладке; `Escape` закрывает peek, а
-`Ctrl/Cmd + click` сразу открывает вкладку. View хранит режим открытия
-`sidePeek`, `centerPeek` или `fullPage`; первая версия может начать с рабочего
-`sidePeek` и добавить остальные режимы без изменения формата данных.
+On click, a row opens in a Side peek by default, without closing the database. Inside
+there are two property sections and an ordinary Markdown description editor. A button
+opens the same note in a full tab; `Escape` closes the peek, and
+`Ctrl/Cmd + click` opens a tab right away. A view stores the open mode
+`sidePeek`, `centerPeek`, or `fullPage`; the first version may start with a working
+`sidePeek` and add the other modes without changing the data format.
 
-На широком экране Side peek показывает Markdown-описание слева и две секции
-свойств справа. На узком экране свойства становятся сворачиваемым блоком над
-текстом. Оба layout используют один document/property state, а не отдельные
-копии.
+On a wide screen, Side peek shows the Markdown description on the left and two property
+sections on the right. On a narrow screen, the properties become a collapsible block above
+the text. Both layouts use one document/property state, not separate
+copies.
 
-Панель Databases показывает самостоятельные базы и database layers, раскрывает
-их saved views и позволяет закреплять часто используемые элементы. Из панели
-можно открыть базу/view во вкладке, создать standalone database, подключить
-database layer к текущей заметке или перетащить view в редактор как linked
+The Databases panel shows standalone databases and database layers, expands
+their saved views, and allows pinning frequently used items. From the panel
+you can open a database/view in a tab, create a standalone database, attach a
+database layer to the current note, or drag a view into the editor as a linked
 `amby-db` block.
 
-Глобальный Search использует тот же query contract и умеет искать значения
-свойств, а также ограничивать результат по database, property, Status и
-Relation. При выключенном Databases module database-specific фильтры скрыты,
-обычный поиск по Markdown продолжает работать.
+Global Search uses the same query contract and can search property
+values, as well as restrict the result by database, property, Status, and
+Relation. When the Databases module is disabled, database-specific filters are hidden,
+and ordinary Markdown search keeps working.
 
-Database может быть locked. В locked-состоянии разрешено редактировать значения
-и содержимое страниц, но запрещено менять схему, saved views и файловое
-membership. Поиск и временные фильтры остаются доступны; разблокировка явная.
+A database can be locked. In the locked state, editing values
+and page content is allowed, but changing the schema, saved views, and file
+membership is forbidden. Search and temporary filters remain available; unlocking is explicit.
 
-Для страницы строки schema хранит независимую от views настройку каждого поля:
-`alwaysShow`, `hideWhenEmpty` или `alwaysHide`. Она управляет Info panel/peek, но
-не видимостью колонки конкретного view.
+For a row page, the schema stores a per-field setting independent of views:
+`alwaysShow`, `hideWhenEmpty`, or `alwaysHide`. It controls the Info panel/peek but
+not the visibility of a column in a particular view.
 
-Композиция интерфейса следует знакомой механике Notion — header, tabs views,
-Filter, Sort, Group, Properties, Search и New — но использует компоненты,
-типографику, IconValue и theme tokens Amby. Плотность наследуется из глобальной
-настройки и может быть переопределена view значением `compact`, `default` или
+The interface composition follows the familiar Notion mechanics — header, view tabs,
+Filter, Sort, Group, Properties, Search, and New — but uses Amby's components,
+typography, IconValue, and theme tokens. Density is inherited from the global
+setting and can be overridden by a view with the value `compact`, `default`, or
 `tall`.
 
-Создание строки из однозначно отфильтрованного view или Board column подставляет
-соответствующие значения. Контекст создания имеет приоритет над конфликтующим
-default из row template, чтобы новая строка не исчезала из текущего view.
+Creating a row from an unambiguously filtered view or a Board column fills in
+the corresponding values. The creation context takes priority over a conflicting
+default from a row template, so that the new row does not disappear from the current view.
 
-## 8. Relations, rollups и formulas
+## 8. Relations, rollups, and formulas
 
 ### Relations
 
-Relation хранит устойчивые `noteId`, поэтому rename/move ничего не ломает. При
-создании поля выбирается любая целевая база, включая текущую, а cardinality
-ограничивает значение одной записью или разрешает несколько. Пользователь может
-создать обратное поле с отдельным названием. Обратная сторона вычисляется из
-канонического relation edge, а не записывается вторым независимым значением.
-Удаленная или временно недоступная заметка остается unresolved reference и
-может восстановиться из Trash.
+A relation stores stable `noteId`s, so rename/move breaks nothing. When
+creating the field, any target database is selected, including the current one, and the cardinality
+limits the value to one record or allows several. The user can
+create a reverse field with a separate name. The reverse side is computed from the
+canonical relation edge and is not written as a second independent value.
+A deleted or temporarily unavailable note remains an unresolved reference and
+can be restored from Trash.
 
-Если связанная заметка покинула target database, edge сохраняется и помечается
-`outsideDatabase`; ссылка продолжает открываться. При копировании контейнера в
-другой vault внутренние relations восстанавливаются по ID, а отсутствующие
-внешние цели остаются unresolved до появления соответствующей базы/заметки.
+If the related note has left the target database, the edge is preserved and marked
+`outsideDatabase`; the link keeps opening. When a container is copied into
+another vault, internal relations are restored by ID, while missing
+external targets remain unresolved until the corresponding database/note appears.
 
 ### Rollups
 
-Rollup задает relation property, target property и allowlisted aggregate:
+A rollup specifies a relation property, a target property, and an allowlisted aggregate:
 `count`, `countUnique`, `sum`, `average`, `min`, `max`, `earliest`, `latest`.
-Значение вычисляется и кэшируется; оно никогда не становится источником истины.
+The value is computed and cached; it never becomes a source of truth.
 
 ### Formulas
 
-Formula — собственный парсер и типизированный AST. Запрещены `eval`, JavaScript,
-динамический импорт, сетевой доступ и сырой SQL. Функции pure и allowlisted,
-вычисление имеет лимиты глубины/операций. Граф зависимостей обнаруживает циклы и
-показывает диагностическое значение вместо зависания.
+Formula is its own parser and a typed AST. `eval`, JavaScript,
+dynamic import, network access, and raw SQL are forbidden. Functions are pure and allowlisted,
+and evaluation has depth/operation limits. The dependency graph detects cycles and
+shows a diagnostic value instead of hanging.
 
-Relation входит в первую пользовательскую версию. Formula имеет versioned
-config и bounded pure Rust evaluator. Rollup config и validation готовы для
-совместимых relation/target IDs, но dependency scheduler, computed cache и
-редактор wizard остаются следующим этапом.
+Relation is part of the first user-facing version. Formula has a versioned
+config and a bounded pure Rust evaluator. Rollup config and validation are ready for
+compatible relation/target IDs, but the dependency scheduler, computed cache, and
+editor wizard remain for the next stage.
 
-## 9. Граница отключаемого модуля
+## 9. The boundary of the disable-able module
 
-Нужно разделить две вещи:
+Two things need to be separated:
 
-- **Property kernel** — небольшое всегда доступное ядро типов/значений, нужное
-  Info panel, поиску и другим модулям;
-- **Databases module** — схемы коллекций, membership, query engine, views,
-  database layer и embedded views.
+- **Property kernel** — a small, always-available core of types/values needed by the
+  Info panel, search, and other modules;
+- **Databases module** — collection schemas, membership, query engine, views,
+  database layer, and embedded views.
 
-При выключенном `databases`:
+When `databases` is disabled:
 
-- скрыты панель, создание/подключение слоя, переключатель database layer,
-  команды вставки database block и database-specific settings;
-- не запускаются query subscriptions, formula/rollup evaluation и построение
-  database-specific кэша;
-- существующие манифесты баз, legacy `Metadata.md`, `amby-db` blocks и legacy
-  shards не изменяются и не удаляются;
-- обычные заметки, локальные свойства, поиск, ссылки и редакторы работают;
-- generic Markdown editor видит `amby-db` как сохраняемый code fence;
-- повторное включение валидирует durable files и перестраивает индекс.
+- the panel, layer creation/attachment, the database layer switch,
+  database block insert commands, and database-specific settings are hidden;
+- query subscriptions, formula/rollup evaluation, and building of the
+  database-specific cache are not started;
+- existing database manifests, legacy `Metadata.md`, `amby-db` blocks, and legacy
+  shards are not modified or deleted;
+- ordinary notes, local properties, search, links, and editors work;
+- the generic Markdown editor sees `amby-db` as a preserved code fence;
+- re-enabling validates the durable files and rebuilds the index.
 
-Выключение сначала flush-ит ожидающие подтвержденные мутации и отписывает UI.
-Оно не запускает миграцию формата. Если flush завершить нельзя, пользователь
-получает явную ошибку, а модуль не сообщает ложное состояние «выключен».
+Disabling first flushes pending confirmed mutations and unsubscribes the UI.
+It does not start a format migration. If the flush cannot be completed, the user
+gets an explicit error, and the module does not report a false "disabled" state.
 
-Все entry points используют одну capability-проверку. Нельзя отдельно скрыть
-панель и оставить активной команду создания слоя. Backend-команды также
-проверяют состояние/контекст capability, а не полагаются на отсутствие кнопки.
+All entry points use one capability check. It is not allowed to hide the
+panel separately and leave the layer creation command active. Backend commands also
+check the capability state/context rather than relying on the absence of a button.
 
-`activeModules` отвечает за функциональность, а activity-bar layout — только за
-расположение/видимость кнопок. Эти понятия не должны снова сливаться в одну
-проверку.
+`activeModules` is responsible for functionality, and the activity-bar layout only for the
+placement/visibility of buttons. These concepts must not merge again into one
+check.
 
-## 10. Архитектура frontend и IPC
+## 10. Frontend architecture and IPC
 
 ```text
 Database UI / Info panel / Folder view / Search
@@ -605,12 +605,12 @@ Database UI / Info panel / Folder view / Search
       └── index projector
 ```
 
-Компоненты не читают `loadVaultJSON` и не пишут sidecar напрямую.
-`AmbyBlockView` становится renderer/controller, а не хранилищем. Workspace
-получает нормализованное состояние через один Zustand store и focused hooks;
-таблица, Info panel и Folder view не создают параллельные копии строк.
+Components do not read `loadVaultJSON` and do not write sidecars directly.
+`AmbyBlockView` becomes a renderer/controller, not a storage. The workspace
+receives a normalized state through one Zustand store and focused hooks;
+the table, Info panel, and Folder view do not create parallel copies of rows.
 
-Минимальные backend operations:
+Minimal backend operations:
 
 ```text
 list_databases
@@ -623,7 +623,7 @@ apply_database_batch(expected_revisions)
 add_database_member / remove_database_member
 ```
 
-Результат мутации различает durable commit и состояние индекса:
+The mutation result distinguishes the durable commit from the index state:
 
 ```ts
 interface DatabaseMutationOutcome {
@@ -634,83 +634,83 @@ interface DatabaseMutationOutcome {
 }
 ```
 
-Если durable file уже записан, а обновление SQLite не удалось, команда не
-возвращает двусмысленное «ничего не сохранено». Она сообщает commit и
-`rebuildRequired`; повторный scan восстанавливает кэш.
+If the durable file is already written but the SQLite update failed, the command does not
+return an ambiguous "nothing saved". It reports the commit and
+`rebuildRequired`; a repeated scan restores the cache.
 
-Web adapter реализует тот же контракт на небольшой reference engine. Общие
-contract tests обязаны проходить для desktop и browser fallback, даже если
-browser-версия не обещает производительность native backend.
+The Web adapter implements the same contract on a small reference engine. Shared
+contract tests must pass for the desktop and the browser fallback, even if the
+browser version does not promise the performance of the native backend.
 
-## 11. Конкурентность, история и внешние изменения
+## 11. Concurrency, history, and external changes
 
-- Все записи значений одной заметки сериализуются по `noteId`.
-- Schema/view writes сериализуются по `databaseId`.
-- Каждая мутация использует expected revision; last-write-wins запрещен.
-- Изменение свойства открытой dirty-заметки не должно очищать dirty state или
-  перезаписывать body.
-- Успешная мутация публикует межоконное событие с новой revision.
-- Autosave UI не очищается до durable acknowledgement.
-- Text cells сохраняются через debounce с обязательным flush при blur,
-  размонтировании и закрытии view. Discrete types сохраняются сразу. Ошибка
-  оставляет recovery draft и видимый pending/error state.
-- Перед schema replacement, массовой операцией и миграцией создается snapshot
-  или recovery journal.
-- Удаление строки проходит через vault-local Trash, потому что строка — заметка.
-- Удаление из membership не удаляет заметку. Значения базы удаляются только
-  отдельной подтвержденной cleanup-операцией.
-- Restore возвращает связь и значения по тому же `noteId`.
-- Rename свойства сохраняет его ID и значения. Смена типа требует preview;
-  неконвертируемые значения сохраняются как диагностируемые данные.
-- Удаленная колонка и ее значения сначала попадают в восстанавливаемую корзину
-  базы, а не уничтожаются немедленно.
+- All value writes of one note are serialized by `noteId`.
+- Schema/view writes are serialized by `databaseId`.
+- Every mutation uses an expected revision; last-write-wins is forbidden.
+- Changing a property of an open dirty note must not clear the dirty state or
+  overwrite the body.
+- A successful mutation publishes a cross-window event with the new revision.
+- The autosave UI is not cleared before a durable acknowledgement.
+- Text cells are saved through a debounce with a mandatory flush on blur,
+  unmount, and view close. Discrete types are saved immediately. An error
+  leaves a recovery draft and a visible pending/error state.
+- Before a schema replacement, a bulk operation, and a migration, a snapshot
+  or recovery journal is created.
+- Deleting a row goes through the vault-local Trash, because a row is a note.
+- Removal from membership does not delete the note. Database values are deleted only by
+  a separate confirmed cleanup operation.
+- Restore brings back the link and values by the same `noteId`.
+- Renaming a property preserves its ID and values. A type change requires a preview;
+  unconvertible values are preserved as diagnosable data.
+- A deleted column and its values first go into the database's recoverable trash,
+  rather than being destroyed immediately.
 
-Удаление базы разделено на две команды. `Remove database, keep pages` отправляет
-`ambd.json` и `.ambd/` в Trash и превращает контейнер в обычную папку, сохраняя
-все `.md`. `Delete database with pages` показывает число затрагиваемых заметок
-и переносит контейнер целиком в vault-local Trash.
+Deleting a database is split into two commands. `Remove database, keep pages` sends
+`ambd.json` and `.ambd/` to Trash and turns the container into an ordinary folder, keeping
+all the `.md` files. `Delete database with pages` shows the number of affected notes
+and moves the whole container to the vault-local Trash.
 
-Для Files & media одиночная строка при необходимости становится bundle, а
-импортированный файл атомарно помещается в ее `assets/`. Значение содержит
-относительную ссылку. Очистка значения не удаляет asset автоматически;
-неиспользуемые вложения удаляются отдельной операцией с preview.
+For Files & media, a single row becomes a bundle if necessary, and the
+imported file is atomically placed in its `assets/`. The value contains
+a relative link. Clearing the value does not delete the asset automatically;
+unused attachments are deleted by a separate operation with a preview.
 
-Подключение database layer к заметке с существующими дочерними заметками сначала
-показывает preview; после подтверждения они становятся строками без физического
-перемещения. Команда `Add existing pages` и drag из дерева, наоборот, явно
-показывают будущие filesystem moves, сохраняют IDs/ссылки/assets и используют
-существующий refactor pipeline. Строка не может одновременно иметь две owning
-databases.
+Attaching a database layer to a note with existing child notes first
+shows a preview; after confirmation they become rows without physical
+moving. The `Add existing pages` command and dragging from the tree, by contrast, explicitly
+show the upcoming filesystem moves, preserve IDs/links/assets, and use the
+existing refactor pipeline. A row cannot have two owning
+databases at once.
 
-Multi-selection поддерживает массовое изменение свойства, Relation, move и
-delete-to-Trash. Операция валидируется целиком и выполняется через журнал: после
-частичного сбоя доступны resume или rollback.
+Multi-selection supports bulk change of a property, Relation, move, and
+delete-to-Trash. The operation is validated as a whole and executed through a journal: after
+a partial failure, resume or rollback is available.
 
-Table поддерживает стрелки, Enter, Tab, Shift+Tab, Escape и copy/paste диапазона.
-Вставка нескольких ячеек сначала валидирует типы и показывает preview
-неприменимых значений; она выполняется как одна batch operation.
+Table supports arrows, Enter, Tab, Shift+Tab, Escape, and range copy/paste.
+Pasting several cells first validates the types and shows a preview of
+inapplicable values; it is executed as one batch operation.
 
-CSV import сначала показывает mapping колонок, типы и список создаваемых
-Markdown-заметок. CSV export работает для текущего view или всей базы; Relation
-и Files & media сериализуются как переносимые ссылки. Импорт не перезаписывает
-существующие заметки по одному совпадению title.
+CSV import first shows the column mapping, the types, and the list of Markdown
+notes to be created. CSV export works for the current view or the whole database; Relation
+and Files & media are serialized as portable links. Import does not overwrite
+existing notes on a single title match.
 
-Создание новой базы предлагает empty database либо копию schema, views и row
-templates существующей базы без строк. Полное клонирование с rows/assets и
-перегенерацией всех внутренних IDs остается после первой версии. Ручная копия
-внутри одного vault с duplicate IDs диагностируется и никогда не исправляется
-автоматически.
+Creating a new database offers an empty database or a copy of the schema, views, and row
+templates of an existing database without rows. Full cloning with rows/assets and
+regeneration of all internal IDs remains for after the first version. A manual copy
+inside one vault with duplicate IDs is diagnosed and never fixed
+automatically.
 
-Database имеет IconValue и необязательную cover-ссылку на asset контейнера.
-Schema mutation создает snapshot `ambd.json`, а view/template mutation —
-snapshot соответствующего shard. Правка значения делает snapshot заметки перед
-записью; правки одной ячейки объединяются в историю
-сессии, batch/CSV import записываются как одна восстанавливаемая операция. Undo
-не создает обходной небезопасный write path.
+A database has an IconValue and an optional cover link to a container asset.
+A schema mutation creates a snapshot of `ambd.json`, and a view/template mutation creates a
+snapshot of the corresponding shard. A value edit takes a snapshot of the note before
+writing; edits of a single cell are merged into the session
+history, and batch/CSV import is recorded as one recoverable operation. Undo
+does not create a bypassing unsafe write path.
 
-## 12. Ошибки и безопасное ухудшение
+## 12. Errors and safe degradation
 
-IPC должен возвращать стабильные машинные коды как минимум для:
+IPC must return stable machine codes at least for:
 
 ```text
 moduleDisabled
@@ -727,216 +727,216 @@ staleQueryCursor
 indexRebuildRequired
 ```
 
-Ни одна из этих ошибок не должна делать Markdown-заметку недоступной. При
-непонятной схеме база становится read-only, исходный `ambd.json` остается
-открываемым в Source/Repair mode, а opaque поля не выбрасываются.
+None of these errors must make a Markdown note unavailable. When the
+schema is not understood, the database becomes read-only, the source `ambd.json` remains
+openable in Source/Repair mode, and opaque fields are not discarded.
 
-## 13. Миграция существующих прототипов
+## 13. Migrating existing prototypes
 
 ### Existing custom properties
 
-Они мигрируют в локальные свойства заметок без изменения семантики. Перенос в
-общую схему базы выполняется отдельным wizard с preview сопоставления по
-`name + type`; исходные значения не удаляются до подтверждения результата.
+They migrate into local note properties without changing the semantics. Moving into the
+shared database schema is done by a separate wizard with a mapping preview by
+`name + type`; the source values are not deleted until the result is confirmed.
 
 ### Existing `Metadata.md` with `[]`
 
-Считается legacy empty database layer. Файл не переписывается при обычном
-сканировании. При первом открытии показывается preview создания version-1
-`ambd.json`, backup и возможность отмены. После успешной проверки старый файл
-остается в backup до явной cleanup-операции.
+It is considered a legacy empty database layer. The file is not rewritten during ordinary
+scanning. On first open, a preview is shown for creating a version-1
+`ambd.json`, a backup, and the option to cancel. After a successful check, the old file
+stays in the backup until an explicit cleanup operation.
 
 ### Existing block sidecars
 
-Таблица `columns + rows` не может быть автоматически превращена в базу заметок:
-в строках нет `noteId`, а создание заметки на каждую строку меняет vault.
-Поэтому legacy block остается доступным read-only/editable в старом режиме, а
-явная команда Convert показывает:
+A `columns + rows` table cannot be automatically turned into a database of notes:
+the rows have no `noteId`, and creating a note for each row changes the vault.
+Therefore the legacy block stays available read-only/editable in the old mode, and
+an explicit Convert command shows:
 
-- какие заметки будут созданы;
-- какую колонку использовать как title;
-- тип и ID каждого нового свойства;
-- куда будет помещена база;
-- какие файлы и snapshots появятся.
+- which notes will be created;
+- which column to use as the title;
+- the type and ID of each new property;
+- where the database will be placed;
+- which files and snapshots will appear.
 
-Исходный JSON сохраняется до завершения и проверки конверсии.
+The source JSON is kept until the conversion is completed and verified.
 
-## 14. План реализации
+## 14. Implementation plan
 
-### Этап 0 — контракт и защита legacy
+### Stage 0 — contract and legacy protection
 
-- Зафиксировать форматы и fixtures.
-- Закрыть потерю последней debounce-записи legacy block: flush on blur/unmount,
-  обработка ошибки и recovery draft.
-- Связать все database entry points с единой capability-проверкой.
-- Оставить экспериментальный флаг выключенным по умолчанию.
+- Fix the formats and fixtures.
+- Close the loss of the last debounced write of the legacy block: flush on blur/unmount,
+  error handling, and a recovery draft.
+- Tie all database entry points to a single capability check.
+- Keep the experimental flag off by default.
 
-### Этап 1 — property kernel
+### Stage 1 — property kernel
 
-- Ввести shared typed unions и runtime validation.
-- Реализовать versioned migration локальных `properties.json` в property shards.
-- ~~Добавить database-local `.ambd/records` для значений общей схемы.~~ Заменено
-  решением 2026-10-02: значения хранятся во frontmatter заметок.
-- Добавить revision/CAS, write queues, mutation outcomes и межоконные события.
-- Перевести Info panel на новый repository без изменения пользовательского UX.
+- Introduce shared typed unions and runtime validation.
+- Implement a versioned migration of local `properties.json` into property shards.
+- ~~Add a database-local `.ambd/records` for the values of the shared schema.~~ Replaced
+  by the decision of 2026-10-02: values are stored in the frontmatter of notes.
+- Add revision/CAS, write queues, mutation outcomes, and cross-window events.
+- Move the Info panel to the new repository without changing the user UX.
 
-### Этап 2 — DatabaseDefinition и Table
+### Stage 2 — DatabaseDefinition and Table
 
-- Реализовать безопасный parser/writer `ambd.json`.
-- Добавить normalized SQLite projection и rebuild.
-- Реализовать filesystem membership, создание строки-заметки, sub-items,
-  универсальный Relation, typed cells, table query, pagination и virtualization.
-- Подключить field-level History/Undo и ручной порядок строк.
-- Заменить placeholder панели реальным списком баз.
+- Implement a safe `ambd.json` parser/writer.
+- Add a normalized SQLite projection and rebuild.
+- Implement filesystem membership, creation of a row-note, sub-items,
+  universal Relation, typed cells, table query, pagination, and virtualization.
+- Hook up field-level History/Undo and manual row order.
+- Replace the panel placeholder with a real list of databases.
 
-### Этап 3 — Views, List и linked blocks
+### Stage 3 — Views, List, and linked blocks
 
-- Saved table views, property visibility/order/width, filters, sorts и search.
-- List projection и режим открытия Side peek.
-- `amby-db` reference block без собственной копии строк.
-- Folder view и Search используют общий query API.
+- Saved table views, property visibility/order/width, filters, sorts, and search.
+- List projection and the Side peek open mode.
+- An `amby-db` reference block without its own copy of rows.
+- Folder view and Search use the shared query API.
 
-### Этап 4 — Board и Gallery
+### Stage 4 — Board and Gallery
 
-- Общая group/subgroup модель.
-- Board для Status и одиночного Select.
-- Table aggregates и column freezing.
-- Gallery с Files & media, первой картинкой и иконкой как fallback.
-- Multi-select batch operations и CSV import/export с preview.
-- Завершение первого пользовательского релиза с четырьмя layout.
+- A shared group/subgroup model.
+- Board for Status and single Select.
+- Table aggregates and column freezing.
+- Gallery with Files & media, the first image, and the icon as a fallback.
+- Multi-select batch operations and CSV import/export with preview.
+- Completion of the first user-facing release with four layouts.
 
-### Этап 5 — Расширенные relations и rollups
+### Stage 5 — Advanced relations and rollups
 
-- Двусторонние relation, unresolved references и aggregates.
-- Тесты rename/move/trash/restore и циклов между базами.
+- Two-way relations, unresolved references, and aggregates.
+- Tests for rename/move/trash/restore and cycles between databases.
 
-### Этап 6 — Formulas
+### Stage 6 — Formulas
 
-- Парсер, type checker, dependency graph, execution budget и diagnostic UI.
+- Parser, type checker, dependency graph, execution budget, and diagnostic UI.
 
-### Этап 7 — Multi-source views
+### Stage 7 — Multi-source views
 
-Один view сможет объединять несколько owning databases без изменения их
-файловой принадлежности:
+A single view will be able to combine several owning databases without changing their
+file ownership:
 
-- `sourceRefs` хранит устойчивые `databaseId` и пользовательские aliases;
-- системные поля Title, Created, Modified, Path и Tags общие;
-- свойства разных баз никогда не объединяются автоматически по отображаемому
-  имени;
-- пользователь создает unified column только через явное mapping совместимых
-  пар `{ databaseId, propertyId }`;
-- query compiler строит параметризованный `UNION ALL` и добавляет
-  `(databaseId, noteId)` как стабильный tie-breaker cursor;
-- редактирование маршрутизируется в owning database и во frontmatter ее заметки;
-- перенос строки между базами остается отдельной filesystem-операцией с preview
-  mapping свойств;
-- недоступный source оставляет view частично рабочим и показывает диагностику,
-  не удаляя ссылку;
-- multi-source view хранится в host `.ambd/views/<view-id>.json` либо в
-  переносимой конфигурации embedded block, а схемы исходных баз остаются
-  независимыми.
+- `sourceRefs` stores stable `databaseId`s and user aliases;
+- the system fields Title, Created, Modified, Path, and Tags are shared;
+- properties of different databases are never merged automatically by displayed
+  name;
+- the user creates a unified column only through an explicit mapping of compatible
+  `{ databaseId, propertyId }` pairs;
+- the query compiler builds a parameterized `UNION ALL` and adds
+  `(databaseId, noteId)` as a stable cursor tie-breaker;
+- editing is routed to the owning database and into the frontmatter of its note;
+- moving a row between databases remains a separate filesystem operation with a preview of the
+  property mapping;
+- an unavailable source leaves the view partially working and shows diagnostics,
+  without deleting the reference;
+- a multi-source view is stored in the host `.ambd/views/<view-id>.json` or in the
+  portable configuration of an embedded block, while the schemas of the source databases remain
+  independent.
 
-Multi-source не входит в первую версию: сначала один source должен доказать
-корректность membership, typed queries, relations и conflict handling.
+Multi-source is not part of the first version: first a single source must prove
+the correctness of membership, typed queries, relations, and conflict handling.
 
-Каждый этап должен быть отдельным небольшим PR. Нельзя объединять format
-migration, query engine и полный UI в одну поставку.
+Each stage must be a separate small PR. Format
+migration, query engine, and the full UI must not be combined into one delivery.
 
-## 15. Обязательные проверки
+## 15. Required checks
 
-### Модульность
+### Modularity
 
-- Выключение скрывает все entry points и не меняет durable files.
-- После перезапуска модуль остается выключенным.
-- Повторное включение восстанавливает те же базы и виды.
-- Simple preset открывает заметки с database blocks без потери байтов.
+- Disabling hides all entry points and does not change durable files.
+- After a restart, the module stays disabled.
+- Re-enabling restores the same databases and views.
+- The Simple preset opens notes with database blocks without losing bytes.
 
-### Целостность
+### Integrity
 
-- Удаление `notes.db`, `-wal` и `-shm` с последующим rebuild не меняет результат.
-- Rename/move заметки сохраняет membership, значения и relations.
-- Перенос строки внутрь и наружу меняет membership по файловой структуре.
-- Drag-and-drop на строку создает sub-item без дублирования заметки.
-- Ближайший вложенный `ambd.json` корректно меняет owning database.
-- Копирование полного контейнера в другой vault сохраняет схему, views,
-  templates, значения и relations после rebuild индекса.
-- Исключение и повторное добавление строки восстанавливает прежние значения.
-- Trash/restore возвращает строку с тем же `noteId`.
-- Удаление родителя отдельно от sub-items не оставляет частично перемещенный
-  bundle при сбое.
-- Обе команды удаления базы восстанавливаются без потери страниц или схемы.
-- Изменение шаблона не переписывает существующие строки.
-- Удаление media value не удаляет asset без отдельного подтверждения.
-- Одновременное изменение YAML и legacy shard при явном YAML sync дает
+- Deleting `notes.db`, `-wal`, and `-shm` followed by a rebuild does not change the result.
+- Renaming/moving a note preserves membership, values, and relations.
+- Moving a row in and out changes membership according to the file structure.
+- Drag-and-drop onto a row creates a sub-item without duplicating the note.
+- The nearest nested `ambd.json` correctly changes the owning database.
+- Copying a full container into another vault preserves the schema, views,
+  templates, values, and relations after an index rebuild.
+- Excluding and re-adding a row restores the previous values.
+- Trash/restore returns the row with the same `noteId`.
+- Deleting a parent separately from sub-items does not leave a partially moved
+  bundle on failure.
+- Both database deletion commands are recoverable without losing pages or the schema.
+- Changing a template does not rewrite existing rows.
+- Deleting a media value does not delete the asset without separate confirmation.
+- A simultaneous change of YAML and a legacy shard during an explicit YAML sync yields a
   field-level conflict.
-- Batch failure восстанавливается через resume/rollback без частичного сокрытия.
-- CSV import не перезаписывает заметку только из-за совпадения title.
-- Внешние Title-дубликаты видимы и не переименовываются автоматически.
-- Unmount/blur не теряет последнюю debounce-правку ячейки.
-- Multi-cell paste проходит общую типовую валидацию до записи.
-- Relation остается доступным и диагностируемым после выхода цели из базы.
-- Board drag атомарно меняет Status/Select и корректно откатывается при ошибке.
-- Поврежденный манифест базы или legacy shard не перезаписывается.
-- Старая revision не может затереть внешнее или межоконное изменение.
-- Сбой после durable write и до index update дает `rebuildRequired`, а не
-  ложный rollback.
+- A batch failure is recovered through resume/rollback without partial hiding.
+- CSV import does not overwrite a note merely because of a title match.
+- External Title duplicates are visible and are not renamed automatically.
+- Unmount/blur does not lose the last debounced cell edit.
+- Multi-cell paste goes through shared type validation before writing.
+- Relation stays available and diagnosable after the target leaves the database.
+- A Board drag atomically changes Status/Select and rolls back correctly on error.
+- A corrupted database manifest or legacy shard is not overwritten.
+- An old revision cannot overwrite an external or cross-window change.
+- A failure after the durable write and before the index update yields `rebuildRequired`, not a
+  false rollback.
 
-### Совместимость
+### Compatibility
 
-- Новый `ambd.json` и reference `amby-db` имеют golden/contract fixtures.
-- Неизвестные JSON-поля сохраняются.
-- Unsupported version работает только read-only.
-- Поврежденный JSON никогда не перезаписывается автоматическим repair.
+- The new `ambd.json` and the reference `amby-db` have golden/contract fixtures.
+- Unknown JSON fields are preserved.
+- An unsupported version works only read-only.
+- Corrupted JSON is never overwritten by automatic repair.
 
-### Запросы
+### Queries
 
-- Все filter operators имеют тесты для null/empty и неверного типа.
-- Sort стабилен при одинаковых значениях.
-- Cursor обнаруживает устаревший snapshot.
-- Ни один пользовательский текст не конкатенируется в SQL.
-- Циклическая formula завершается диагностикой.
+- All filter operators have tests for null/empty and a wrong type.
+- Sort is stable for equal values.
+- The cursor detects a stale snapshot.
+- No user text is concatenated into SQL.
+- A cyclic formula ends with a diagnostic.
 
-### Масштаб
+### Scale
 
-Нужно зафиксировать benchmark vault минимум на 10 000 заметок и 20 свойств.
-Первый экран таблицы не должен загружать все строки в React. Конкретные p95
-бюджеты утверждаются после baseline на Windows/macOS/Linux и затем становятся
-регрессионным контрактом.
+A benchmark vault of at least 10,000 notes and 20 properties must be fixed.
+The first table screen must not load all rows into React. Specific p95
+budgets are approved after a baseline on Windows/macOS/Linux and then become
+a regression contract.
 
-## 16. Решения для первого production slice
+## 16. Decisions for the first production slice
 
-Принятые по умолчанию решения:
+Decisions accepted by default:
 
-1. Строка всегда является Markdown-заметкой.
-2. Schema живет в `ambd.json`, views/templates — в собственных `.ambd` shards.
-3. Значения базы живут во frontmatter заметок строк; `.ambd/records` — legacy
-   (решение 2026-10-02, см. [формат базы](database-format.md), раздел 1.1);
-   SQLite — только индекс.
-4. Membership и sub-items определяются реальной файловой вложенностью.
-5. Первая версия содержит Table, Board, List, Gallery и универсальный Relation.
-6. Side peek является режимом открытия строки по умолчанию.
-7. Базы поддерживают шаблоны новых строк без обратной синхронизации.
-8. Исключение строки сохраняет значения до отдельной cleanup-команды.
-9. Вложенная база перехватывает владение своими дочерними строками.
-10. Linked view разделяет данные, но хранит локальные настройки отображения.
-11. Rollup и formula отложены до устойчивого property/query kernel.
-12. Ключ frontmatter поля задаётся стабильной привязкой `yamlBinding`; sidecar
-    значений нет.
-13. Database поддерживает блокировку структуры без блокировки значений.
-14. YAML sync двусторонний для простых типов и разрешает конфликты по полям.
-15. View автоматически сохраняет настройки и имеет собственный ручной порядок.
-16. Первая версия поддерживает batch operations и CSV import/export.
-17. История coalesce-ит ввод, а массовые изменения журналируются целиком.
-18. Title уникален в owning database и переименовывает реальный файл.
-19. Sub-items отображаются в nested или flat режиме.
-20. Text autosave всегда flush-ится, а таблица поддерживает keyboard/paste.
-21. Table имеет frozen Title и агрегаты, Board группирует Status/Select.
-22. Видимость свойства на странице не зависит от видимости колонки view.
-23. Property kernel остается доступным приложению, Databases module отключаем.
-24. Выключение никогда не удаляет и не мигрирует данные.
-25. Frontend не получает raw SQL и не пишет sidecars напрямую.
-26. Multi-source views добавляются отдельным этапом через явное typed mapping.
+1. A row is always a Markdown note.
+2. The schema lives in `ambd.json`, views/templates in their own `.ambd` shards.
+3. Database values live in the frontmatter of the row notes; `.ambd/records` is legacy
+   (decision of 2026-10-02, see the [database format](database-format.md), section 1.1);
+   SQLite is only an index.
+4. Membership and sub-items are determined by the actual file nesting.
+5. The first version contains Table, Board, List, Gallery, and a universal Relation.
+6. Side peek is the default row open mode.
+7. Databases support new-row templates without back-synchronization.
+8. Excluding a row keeps the values until a separate cleanup command.
+9. A nested database takes over ownership of its child rows.
+10. A linked view shares the data but stores local display settings.
+11. Rollup and formula are deferred until a stable property/query kernel.
+12. A field's frontmatter key is set by a stable `yamlBinding` binding; there is no
+    value sidecar.
+13. A database supports locking the structure without locking the values.
+14. YAML sync is two-way for simple types and resolves conflicts per field.
+15. A view saves settings automatically and has its own manual order.
+16. The first version supports batch operations and CSV import/export.
+17. History coalesces input, while bulk changes are journaled as a whole.
+18. Title is unique in the owning database and renames the real file.
+19. Sub-items are displayed in nested or flat mode.
+20. Text autosave is always flushed, and the table supports keyboard/paste.
+21. Table has a frozen Title and aggregates; Board groups by Status/Select.
+22. The visibility of a property on the page does not depend on the visibility of a view column.
+23. The property kernel stays available to the app; the Databases module is disable-able.
+24. Disabling never deletes or migrates data.
+25. The frontend does not get raw SQL and does not write sidecars directly.
+26. Multi-source views are added as a separate stage through an explicit typed mapping.
 
-Любое изменение пунктов 1–3 меняет source-of-truth model и требует отдельного
-архитектурного решения до начала реализации. Пункт 3 уже пересмотрен таким
-решением: см. раздел 1.1 формата базы.
+Any change to items 1–3 changes the source-of-truth model and requires a separate
+architectural decision before implementation begins. Item 3 has already been revised by such a
+decision: see section 1.1 of the database format.

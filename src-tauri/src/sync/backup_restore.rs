@@ -1,8 +1,9 @@
 //! Read-only catalog and verified restore into a new, exclusively reserved folder.
 //! The original vault and backup are never changed. Partial restores retain their journal.
 use super::{
-    digest, inventory, no_links, private_dir, read_limited, text, Entry, Manifest, Receipt,
-    MAX_MANIFEST_BYTES,
+    digest, inventory, key_dir, legacy_container, lookup, no_links, private_dir, read_limited,
+    root_id, text, valid_id, Entry, Found, Manifest, Origin, Receipt, MAX_MANIFEST_BYTES,
+    RETENTION_MS,
 };
 use crate::frontmatter::{
     atomic_copy_file_new, atomic_write_bytes, atomic_write_bytes_new, sync_parent_directory,
@@ -23,6 +24,19 @@ pub struct BackupInfo {
     pub bytes: u64,
     pub files: u64,
     pub status: BackupCondition,
+    /// Where the copy lives: Amby's app data, or beside the vault (made by an older version).
+    pub origin: BackupOrigin,
+    /// The person may delete it here: every app-data copy, and the older copy that the vault's
+    /// receipt names. Other folders beside the vault are never offered.
+    pub deletable: bool,
+    /// When the copy is deleted automatically (Unix ms); known after the first successful sync.
+    pub expires_ms: Option<u64>,
+}
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum BackupOrigin {
+    AppData,
+    Legacy,
 }
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -67,27 +81,38 @@ fn id(value: &str) -> Result<ulid::Ulid, SyncError> {
     Ok(parsed)
 }
 fn container(vault: &Path) -> Result<PathBuf, SyncError> {
-    let name = vault
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| err("backup_invalid"))?;
-    Ok(vault
-        .parent()
-        .ok_or_else(|| err("backup_invalid"))?
-        .join(format!("{name}.amby-backups")))
+    legacy_container(vault)
 }
-fn receipt(vault: &Path) -> Result<Option<Receipt>, SyncError> {
-    Ok(super::load_receipt(vault)?.filter(|r| r.source_canonical == vault.to_string_lossy()))
+/// The receipt of this vault, from app data or (older versions) from the vault itself.
+fn receipt(vault: &Path) -> Result<Option<(Receipt, Origin)>, SyncError> {
+    Ok(match lookup(vault)? {
+        Found::Receipt(r, origin) => Some((r, origin)),
+        _ => None,
+    })
 }
-fn root_for(vault: &Path, backup_id: &str) -> Result<PathBuf, SyncError> {
+pub(super) fn root_for(vault: &Path, backup_id: &str) -> Result<PathBuf, SyncError> {
     id(backup_id)?;
-    if let Some(r) = receipt(vault)? {
+    let own = key_dir(vault, false)?.join(backup_id);
+    if fs::symlink_metadata(&own).is_ok() {
+        return Ok(own);
+    }
+    if let Some((r, _)) = receipt(vault)? {
         let root = PathBuf::from(r.backup_root);
         if root.file_name().is_some_and(|name| name == backup_id) {
             return Ok(root);
         }
     }
     Ok(container(vault)?.join(backup_id))
+}
+/// The copy as a path for the system file manager: it must exist and be a real directory.
+pub fn locate(vault: &Path, backup_id: &str) -> Result<PathBuf, SyncError> {
+    let vault = vault.canonicalize().map_err(fail)?;
+    let root = root_for(&vault, backup_id)?;
+    no_links(&root)?;
+    if !root.is_dir() {
+        return Err(err("backup_invalid"));
+    }
+    Ok(root)
 }
 fn read_manifest(vault: &Path, root: &Path) -> Result<(Manifest, String), SyncError> {
     no_links(root)?;
@@ -107,7 +132,7 @@ fn read_manifest(vault: &Path, root: &Path) -> Result<(Manifest, String), SyncEr
     }
     let raw = read_limited(&root.join("manifest.json"), MAX_MANIFEST_BYTES)?;
     let hash = hex::encode(Sha256::digest(&raw));
-    if let Some(r) = receipt(vault)? {
+    if let Some((r, _)) = receipt(vault)? {
         if Path::new(&r.backup_root) == root && r.manifest_sha256 != hash {
             return Err(err("backup_invalid"));
         }
@@ -140,7 +165,24 @@ fn info(vault: &Path, backup_id: &str) -> Result<BackupInfo, SyncError> {
         bytes: 0,
         files: 0,
         status: BackupCondition::Unchecked,
+        origin: BackupOrigin::Legacy,
+        deletable: false,
+        expires_ms: None,
     };
+    let key = key_dir(vault, false)?;
+    if root.parent() == Some(key.as_path()) {
+        item.origin = BackupOrigin::AppData;
+        item.deletable = true;
+    }
+    if let Some((r, origin)) = receipt(vault)? {
+        if root_id(root.parent().unwrap_or(&root), &r.backup_root).as_deref() == Some(backup_id) {
+            if origin == Origin::Legacy {
+                item.deletable = true;
+            } else if r.removed_ms.is_none() {
+                item.expires_ms = r.first_sync_ms.map(|t| t.saturating_add(RETENTION_MS));
+            }
+        }
+    }
     no_links(&root)?;
     if !root.exists() {
         item.status = BackupCondition::Missing;
@@ -167,24 +209,31 @@ fn info(vault: &Path, backup_id: &str) -> Result<BackupInfo, SyncError> {
 /// Metadata only. A fresh explicit verification is required before claiming integrity.
 pub fn list(vault: &Path) -> Result<Vec<BackupInfo>, SyncError> {
     let vault = vault.canonicalize().map_err(fail)?;
-    let family = container(&vault)?;
-    no_links(&family)?;
     let mut ids = std::collections::BTreeSet::new();
-    if family.exists() {
-        for entry in fs::read_dir(family).map_err(fail)? {
-            let entry = entry.map_err(fail)?;
-            if let Some(name) = entry.file_name().to_str().filter(|name| id(name).is_ok()) {
-                ids.insert(name.to_owned());
+    for family in [key_dir(&vault, false)?, container(&vault)?] {
+        no_links(&family)?;
+        if family.exists() {
+            for entry in fs::read_dir(family).map_err(fail)? {
+                let entry = entry.map_err(fail)?;
+                if let Some(name) = entry.file_name().to_str().filter(|name| valid_id(name)) {
+                    if entry.path().is_dir() {
+                        ids.insert(name.to_owned());
+                    }
+                }
             }
         }
     }
-    if let Some(r) = receipt(&vault)? {
-        if let Some(name) = Path::new(&r.backup_root)
-            .file_name()
-            .and_then(|v| v.to_str())
-            .filter(|v| id(v).is_ok())
-        {
-            ids.insert(name.to_owned());
+    // The receipt's copy is listed even when its folder is gone (shown as missing), unless
+    // it was deleted on purpose.
+    if let Some((r, _)) = receipt(&vault)? {
+        if r.removed_ms.is_none() {
+            if let Some(name) = Path::new(&r.backup_root)
+                .file_name()
+                .and_then(|v| v.to_str())
+                .filter(|v| valid_id(v))
+            {
+                ids.insert(name.to_owned());
+            }
         }
     }
     let mut items = ids
@@ -273,6 +322,7 @@ fn restore_with_hook(
         || parent.starts_with(&vault)
         || parent.starts_with(&backup)
         || parent.starts_with(container(&vault)?)
+        || parent.starts_with(key_dir(&vault, false)?)
     {
         return Err(err("backup_unsafe_destination"));
     }

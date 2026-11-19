@@ -95,7 +95,7 @@ beforeEach(() => {
   vi.mocked(isTauri).mockReturnValue(false)
   useVaultStore.setState(useVaultStore.getInitialState())
   useDocStore.getState().clearDocs()
-  useTabsStore.setState({ tabs: [], activeTabKey: "", secondaryTabKey: null })
+  useTabsStore.setState({ tabs: [], activeTabKey: "" })
   useViewStateStore
     .getState()
     .hydrateFromSession({ icons: {}, favorites: [], viewModes: {}, lockedFileIds: [] })
@@ -307,6 +307,7 @@ describe("a note deleted on another computer while open", () => {
                   { kind: "remove", parentPath: "/vault/Folder", paths: ["/vault/Folder/Note.md"] },
                 ],
               },
+              sync: { inserted: 0, updated: 0, deleted: 0, warnings: [], pathToId: {} },
             }
           : null,
       )
@@ -464,6 +465,7 @@ describe("vault tree component lifecycle", () => {
         created: "",
         modified: "",
         wordCount: 2,
+        source: "Unsaved text",
       })
       useDocStore.getState().markUnsaved("note")
       useTabsStore.getState().openItem({ kind: "document", fileId: "note", title: "Note" })

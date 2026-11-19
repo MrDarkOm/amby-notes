@@ -1,4 +1,5 @@
 //! Backup paths are derived from the active vault; a restore parent is chosen natively.
+use crate::sync::backup;
 use crate::sync::backup::restore::{self, BackupInfo, RestoredBackup};
 use crate::sync::types::SyncError;
 use crate::vault_context::VaultContext;
@@ -97,8 +98,47 @@ pub async fn restore_vault_backup(
     let parent = parent
         .into_path()
         .map_err(|_| SyncError::new("backup_unsafe_destination"))?;
+    let restored = tauri::async_runtime::spawn_blocking(move || {
+        restore::restore(&vault, &backup_id, &parent, &operation_id)
+    })
+    .await
+    .map_err(|_| SyncError::new("backup_failed"))??;
+    // The restored copy is opened as a vault next (IPC-03): Rust made it, so Rust vouches for it.
+    app.state::<crate::path_grants::PathGrants>()
+        .grant_folder(std::path::Path::new(&restored.path));
+    Ok(Some(restored))
+}
+
+/// Deletes one copy the person chose in the list. The path is derived from the id in Rust; only a
+/// copy in Amby's app data or the older copy named by the vault's receipt can be deleted.
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_vault_backup(
+    context: tauri::State<'_, VaultContext>,
+    expected_generation: u64,
+    backup_id: String,
+) -> Result<(), SyncError> {
+    let vault = scoped(&context, expected_generation)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(0));
+    tauri::async_runtime::spawn_blocking(move || backup::delete(&vault, &backup_id, now))
+        .await
+        .map_err(|_| SyncError::new("backup_failed"))?
+}
+
+/// Shows a copy in the system's file manager.
+#[tauri::command]
+#[specta::specta]
+pub async fn reveal_vault_backup(
+    context: tauri::State<'_, VaultContext>,
+    expected_generation: u64,
+    backup_id: String,
+) -> Result<(), SyncError> {
+    let vault = scoped(&context, expected_generation)?;
     tauri::async_runtime::spawn_blocking(move || {
-        restore::restore(&vault, &backup_id, &parent, &operation_id).map(Some)
+        let root = restore::locate(&vault, &backup_id)?;
+        crate::system_open::reveal_path(&root).map_err(|_| SyncError::new("backup_failed"))
     })
     .await
     .map_err(|_| SyncError::new("backup_failed"))?

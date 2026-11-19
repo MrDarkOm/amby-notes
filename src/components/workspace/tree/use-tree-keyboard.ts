@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { isEnterKey } from "@/lib/keyboard"
 import { treeItemHasChildren, type FlatRow, type TreeItem } from "./tree-types"
 
 export function useTreeKeyboard({
@@ -80,6 +81,13 @@ export function useTreeKeyboard({
         )
       }
 
+      if (isEnterKey(event)) {
+        if (!current) return
+        event.preventDefault()
+        onSelect(current.item.id)
+        return
+      }
+
       switch (event.key) {
         case "ArrowDown":
           event.preventDefault()
@@ -117,7 +125,6 @@ export function useTreeKeyboard({
           }
           break
         }
-        case "Enter":
         case " ":
           if (!current) break
           event.preventDefault()

@@ -36,6 +36,7 @@ import {
 } from "./compare/block-compare"
 import { conflictName, recordConflictOutcome } from "./conflict-outcome"
 import type { OutcomeChoice, SyncConflict } from "./use-sync-notices-store"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 /**
  * The two versions of a conflict side by side (Р7, stage Э4б К4). A note is drawn as a note, read only,
@@ -179,16 +180,8 @@ export function SyncCompareDialog({
           </div>
         )}
 
-        {loadFailed && (
-          <p role="alert" className="text-sm text-destructive">
-            {t("sync.notices.loadFailed")}
-          </p>
-        )}
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
+        {loadFailed && <NoticeLine role="alert" text={t("sync.notices.loadFailed")} />}
+        {error && <NoticeLine role="alert" text={error} />}
         <div className="flex flex-wrap items-center gap-2">
           {chosen && blocks ? (
             <>

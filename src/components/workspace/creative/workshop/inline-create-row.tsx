@@ -3,6 +3,7 @@ import { treeIndent } from "./tree-indent"
 import { useTranslation } from "react-i18next"
 import { projectErrorText } from "@/lib/operation-errors"
 import { isEnterKey } from "@/lib/keyboard"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 /**
  * A row starts from a menu or a dialog that is still closing and keeps focus trapped for a moment,
@@ -113,9 +114,11 @@ export function InlineCreateRow({
         />
       </div>
       {error && (
-        <p role="alert" className="px-1.5 pt-1 text-[11px] text-destructive">
-          {t("creative.workshop.createFailed", { message: error })}
-        </p>
+        <NoticeLine
+          role="alert"
+          text={t("creative.workshop.createFailed", { message: error })}
+          className="px-1.5 pt-1"
+        />
       )}
     </div>
   )

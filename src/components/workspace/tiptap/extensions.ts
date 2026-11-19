@@ -24,6 +24,7 @@ import { BlockAnchors } from "./block-anchors"
 import { ImagePlacement } from "./image-placement"
 import { ImageLine } from "./image-line"
 import { SelectionHighlight } from "./selection-highlight"
+import { MarkdownLineBreaks } from "./markdown-line-breaks"
 
 export interface BuildExtensionsOptions {
   placeholder: string
@@ -57,6 +58,7 @@ export function buildExtensions({ placeholder, callbacks }: BuildExtensionsOptio
     BookmarkCards,
     LinkOpen,
     BlockShortcuts,
+    MarkdownLineBreaks,
     BlockAnchors,
     ImageLine,
     ImagePlacement,

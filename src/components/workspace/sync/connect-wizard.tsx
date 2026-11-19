@@ -18,6 +18,7 @@ import { SettingsGroup, Row } from "../settings/settings-common"
 import { NewPasswordFields } from "./password-fields"
 import { RecoveryCodeStep } from "./recovery-code-step"
 import { useSyncServerCheck } from "./use-sync-server-check"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 export interface ConnectWizardProps {
   port: SyncPort
@@ -55,11 +56,7 @@ function Field({
 }
 
 function ErrorLine({ message }: { message: string | null }) {
-  return message ? (
-    <p role="alert" className="text-[12px] text-destructive">
-      {message}
-    </p>
-  ) : null
+  return message ? <NoticeLine role="alert" text={message} /> : null
 }
 
 /**

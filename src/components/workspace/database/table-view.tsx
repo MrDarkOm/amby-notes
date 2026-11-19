@@ -5,39 +5,21 @@ import { MotionSpinner } from "@/lib/motion"
 import { motionTransition, motionTransitions } from "@/lib/motion-config"
 import {
   AlertTriangle,
-  ArrowDown,
-  ArrowDownUp,
-  ArrowLeftToLine,
-  ArrowRightToLine,
-  ArrowUp,
-  Check,
-  ChevronRight,
   Eye,
   EyeOff,
-  Info,
-  ListFilter,
   Loader2,
   MoreHorizontal,
-  Pin,
-  PinOff,
   Plus,
-  Repeat2,
   RotateCcw,
-  Settings2,
   SquareArrowOutUpRight,
-  Trash2,
   Type,
-  WrapText,
-  X,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { DatabasePropertySummary, DatabaseRow, DatabaseSummary } from "@/lib/storage"
 import { DatabaseCell } from "./database-cell"
-import { databaseCellText, readDatabaseCellValue } from "./database-cell-value"
 import { IconValue } from "../icon-value"
-import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
 import { useViewStateStore } from "../use-view-state-store"
 import { databasePropertyIconKey } from "./property-icon"
 import { PropertyTypeIcon as PropertyIcon } from "./property-type-icon"
@@ -55,42 +37,24 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { isEnterKey } from "@/lib/keyboard"
+import { PropertyHeaderMenu } from "./property-header-menu"
+import { useTableVirtualRange } from "./use-table-virtual-range"
+import {
+  ACTION_COLUMN_WIDTH,
+  canFilterType,
+  DEFAULT_ROW_HEIGHT,
+  defaultPropertyWidths,
+  defaultTitleWidth,
+  FREEZE_COLUMNS_AVAILABLE,
+  GUTTER_WIDTH,
+  MIN_PROPERTY_WIDTH,
+  MIN_TITLE_WIDTH,
+  WRAPPED_ROW_HEIGHT,
+} from "./table-columns"
 
-const DEFAULT_ROW_HEIGHT = 40
-const WRAPPED_ROW_HEIGHT = 76
-const OVERSCAN = 8
-function canFilterType(propertyType: string): boolean {
-  return [
-    "text",
-    "url",
-    "number",
-    "date",
-    "checkbox",
-    "select",
-    "status",
-    "multiselect",
-    "multiSelect",
-    "relation",
-    "files",
-  ].includes(propertyType)
-}
-
-const MIN_PROPERTY_WIDTH = 56
-const MIN_TITLE_WIDTH = 80
-const ACTION_COLUMN_WIDTH = "3.5rem"
-/** Left of the first column: the grip and the checkbox, outside the table's own borders. */
-const GUTTER_WIDTH = 64
-/**
- * Pinning columns is a placeholder for now: the setting is kept in the view untouched, but no
- * column is held while the table scrolls sideways, and the menu item says it is coming.
- */
-const FREEZE_COLUMNS_AVAILABLE = false
+export { PropertyHeaderMenu }
 
 export interface TableSavedSettings {
   widths: Record<string, number>
@@ -165,26 +129,6 @@ export interface RowReorderConfig {
   onBlockedDrag?: () => void
 }
 
-function defaultPropertyWidth(property: DatabasePropertySummary, rows: DatabaseRow[]) {
-  const candidates = [property.name, ...property.options.map((option) => option.name)]
-  for (const row of rows) {
-    const value = readDatabaseCellValue(row.valuesJson, property.propertyId)
-    const text = databaseCellText(value, property.propertyType)
-    if (text) candidates.push(text)
-  }
-  const longestWord = candidates
-    .flatMap((candidate) => candidate.trim().split(/\s+/u))
-    .reduce((max, word) => Math.max(max, word.length), 0)
-  return Math.min(320, Math.max(160, Math.ceil(longestWord * 7.5) + 48))
-}
-
-function defaultTitleWidth(rows: DatabaseRow[]) {
-  const longestWord = rows
-    .flatMap((row) => row.title.trim().split(/\s+/u))
-    .reduce((max, word) => Math.max(max, word.length), "Название".length)
-  return Math.min(360, Math.max(MIN_TITLE_WIDTH, Math.ceil(longestWord * 7.5) + 48))
-}
-
 export function TableView({
   databaseId,
   rows,
@@ -227,7 +171,6 @@ export function TableView({
   const { t } = useTranslation()
   const iconOverrides = useViewStateStore((state) => state.iconOverrides)
   const setIcon = useViewStateStore((state) => state.setIcon)
-  const [viewportHeight, setViewportHeight] = React.useState(480)
   const [selectedNoteId, setSelectedNoteId] = React.useState<string | null>(null)
   const [columnWidths, setColumnWidths] = React.useState<Record<string, number>>({})
   const [propertySort, setPropertySort] = React.useState<{
@@ -278,10 +221,14 @@ export function TableView({
     [onSavedSettingsChange],
   )
   const initializedWidthKeys = React.useRef(new Set<string>())
+  // Recomputed only when the loaded rows or the schema change, not on each render or scroll step.
+  const defaultWidths = React.useMemo(
+    () => defaultPropertyWidths(properties, rows),
+    [properties, rows],
+  )
+  const defaultWidthOf = (property: DatabasePropertySummary) =>
+    defaultWidths.get(property.propertyId) ?? 160
   const resizeRef = React.useRef<{ key: string; startX: number; startWidth: number } | null>(null)
-  const viewportRef = React.useRef<HTMLDivElement>(null)
-  const scrollTopRef = React.useRef(0)
-  const rangeRafRef = React.useRef<number | null>(null)
   const nextPagePendingRef = React.useRef(false)
   const lastPageTriggerRef = React.useRef(0)
 
@@ -307,7 +254,7 @@ export function TableView({
       }
       properties.forEach((property) => {
         const key = property.propertyId
-        const defaultWidth = defaultPropertyWidth(property, rows)
+        const defaultWidth = defaultWidths.get(key) ?? 160
         if (!initializedWidthKeys.current.has(key)) {
           if (!next[key] || next[key] === 320) {
             next[key] = defaultWidth
@@ -318,7 +265,7 @@ export function TableView({
       })
       return changed ? next : current
     })
-  }, [properties, rows])
+  }, [properties, rows, defaultWidths])
 
   React.useEffect(() => {
     // An empty schema is "not loaded yet", not "all properties were deleted".
@@ -375,16 +322,6 @@ export function TableView({
     }
   }, [persistSettings])
 
-  React.useLayoutEffect(() => {
-    const element = viewportRef.current
-    if (!element) return
-    const update = () => setViewportHeight(element.clientHeight)
-    update()
-    const observer = new ResizeObserver(update)
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [])
-
   const visibleProperties = properties.filter(
     (property) => !hiddenPropertyIds.has(property.propertyId),
   )
@@ -392,6 +329,15 @@ export function TableView({
   // direct projection of the loaded page so large databases are never
   // silently filtered or reordered only in the renderer.
   const tableRows = rows
+  const rowHeight = visibleProperties.some((property) =>
+    wrappedPropertyIds.has(property.propertyId),
+  )
+    ? WRAPPED_ROW_HEIGHT
+    : DEFAULT_ROW_HEIGHT
+  const { viewportRef, scrollTopRef, visibleRange, scheduleRangeUpdate } = useTableVirtualRange({
+    rowCount: tableRows.length,
+    rowHeight,
+  })
   // The rows have one height, so the row under the pointer follows from the pointer alone, and the
   // lifted row can be dragged anywhere over the table, not only along its grip.
   const dragLayout = React.useRef({ rowIds: [] as string[], rowHeight: 0, headerHeight: 0 })
@@ -438,49 +384,7 @@ export function TableView({
   const [headerHovered, setHeaderHovered] = React.useState(false)
   const selection = useRowSelection(tableRows)
   const contextMenu = useRowContextMenu({ rows: tableRows, rowMenu })
-  const rowHeight = visibleProperties.some((property) =>
-    wrappedPropertyIds.has(property.propertyId),
-  )
-    ? WRAPPED_ROW_HEIGHT
-    : DEFAULT_ROW_HEIGHT
   dragLayout.current = { rowIds: tableRows.map((r) => r.noteId), rowHeight, headerHeight }
-  const calculateRange = React.useCallback(
-    (offset: number) => {
-      const first = Math.min(
-        tableRows.length,
-        Math.max(0, Math.floor(offset / rowHeight) - OVERSCAN),
-      )
-      return {
-        first,
-        last: Math.min(
-          tableRows.length,
-          first + Math.ceil(viewportHeight / rowHeight) + OVERSCAN * 2,
-        ),
-      }
-    },
-    [rowHeight, tableRows.length, viewportHeight],
-  )
-  const [visibleRange, setVisibleRange] = React.useState(() => calculateRange(0))
-  const rangeRef = React.useRef(visibleRange)
-  rangeRef.current = visibleRange
-  const scheduleRangeUpdate = React.useCallback(() => {
-    if (rangeRafRef.current !== null) return
-    rangeRafRef.current = requestAnimationFrame(() => {
-      rangeRafRef.current = null
-      const next = calculateRange(scrollTopRef.current)
-      const current = rangeRef.current
-      if (next.first === current.first && next.last === current.last) return
-      rangeRef.current = next
-      setVisibleRange(next)
-    })
-  }, [calculateRange])
-  React.useEffect(() => {
-    scheduleRangeUpdate()
-    return () => {
-      if (rangeRafRef.current !== null) cancelAnimationFrame(rangeRafRef.current)
-      rangeRafRef.current = null
-    }
-  }, [scheduleRangeUpdate])
   React.useEffect(() => {
     if (!loading) nextPagePendingRef.current = false
   }, [loading])
@@ -492,19 +396,18 @@ export function TableView({
   const gridTemplateColumns = [
     titleColumn,
     ...visibleProperties.map(
-      (property) =>
-        `${columnWidths[property.propertyId] ?? defaultPropertyWidth(property, rows)}px`,
+      (property) => `${columnWidths[property.propertyId] ?? defaultWidthOf(property)}px`,
     ),
     ACTION_COLUMN_WIDTH,
   ].join(" ")
   const totalTableWidth = React.useMemo(() => {
     let total = titleColumnWidth
     for (const property of visibleProperties) {
-      total += columnWidths[property.propertyId] ?? defaultPropertyWidth(property, rows)
+      total += columnWidths[property.propertyId] ?? defaultWidths.get(property.propertyId) ?? 160
     }
     total += 56
     return total
-  }, [titleColumnWidth, visibleProperties, columnWidths, rows])
+  }, [titleColumnWidth, visibleProperties, columnWidths, defaultWidths])
   const tableWidthStyle = React.useMemo<React.CSSProperties>(
     () => ({
       width: "max-content",
@@ -521,7 +424,7 @@ export function TableView({
   let frozenLeft = titleColumnWidth
   visibleProperties.forEach((property) => {
     frozenLeftByProperty.set(property.propertyId, frozenLeft)
-    frozenLeft += columnWidths[property.propertyId] ?? defaultPropertyWidth(property, rows)
+    frozenLeft += columnWidths[property.propertyId] ?? defaultWidthOf(property)
   })
   const startResize = (event: React.PointerEvent, key: string) => {
     event.preventDefault()
@@ -531,10 +434,7 @@ export function TableView({
       (key === "title"
         ? titleColumnWidth
         : visibleProperties.find((p) => p.propertyId === key)
-          ? defaultPropertyWidth(
-              visibleProperties.find((p) => p.propertyId === key)!,
-              rows,
-            )
+          ? defaultWidthOf(visibleProperties.find((p) => p.propertyId === key)!)
           : MIN_PROPERTY_WIDTH)
     resizeRef.current = {
       key,
@@ -613,7 +513,7 @@ export function TableView({
     return () => {
       element.removeEventListener("wheel", handleWheel)
     }
-  }, [])
+  }, [viewportRef])
 
   React.useLayoutEffect(() => {
     const height = headerRef.current?.offsetHeight
@@ -1232,387 +1132,5 @@ export function TableView({
         }
       />
     </div>
-  )
-}
-
-export function PropertyHeaderMenu({
-  property,
-  trigger,
-  iconValue,
-  onIconChange,
-  onRename,
-  onChangeType,
-  settingsEditor,
-  filterActive = false,
-  sortDirection = null,
-  canFilter = true,
-  isFrozen = false,
-  isWrapped = false,
-  canWrap = false,
-  onFilter,
-  onSort,
-  onToggleFreeze,
-  onHide,
-  onToggleWrap,
-  onInsertLeft,
-  onInsertRight,
-  onDelete,
-}: {
-  property: DatabasePropertySummary
-  trigger?: React.ReactNode
-  iconValue?: string
-  onIconChange?: (icon: string) => Promise<void> | void
-  onRename: (name: string) => Promise<RenameOutcome | void> | void
-  onChangeType?: (propertyType: string) => Promise<void> | void
-  /** The settings of the property, shown in a submenu; `null` when it has none. */
-  settingsEditor?: React.ReactNode
-  filterActive?: boolean
-  sortDirection?: "asc" | "desc" | null
-  canFilter?: boolean
-  isFrozen?: boolean
-  isWrapped?: boolean
-  canWrap?: boolean
-  cursorText?: boolean
-  onFilter?: () => void
-  onSort?: (direction: "asc" | "desc" | null) => void
-  onToggleFreeze?: () => void
-  onHide?: () => void
-  onToggleWrap?: () => void
-  onInsertLeft?: () => void
-  onInsertRight?: () => void
-  onDelete?: () => Promise<void> | void
-}) {
-  const { t } = useTranslation()
-  const [open, setOpen] = React.useState(false)
-  const [draft, setDraft] = React.useState(property.name)
-  const [busy, setBusy] = React.useState(false)
-  const inputRef = React.useRef<HTMLInputElement>(null)
-  const committingRef = React.useRef(false)
-  const iconTriggerRef = React.useRef<HTMLButtonElement>(null)
-  const [iconPickerOpen, setIconPickerOpen] = React.useState(false)
-  const PropertyTypeIcon = React.useMemo(
-    () => <PropertyIcon type={property.propertyType} />,
-    [property.propertyType],
-  )
-
-  React.useEffect(() => {
-    if (!open && !busy) setDraft(property.name)
-  }, [busy, open, property.name])
-
-  const commit = React.useCallback(async () => {
-    if (committingRef.current) return
-    const next = draft.trim()
-    if (!next || next === property.name) {
-      setDraft(property.name)
-      return
-    }
-    committingRef.current = true
-    setBusy(true)
-    try {
-      await onRename(next)
-    } catch {
-      setDraft(property.name)
-    } finally {
-      committingRef.current = false
-      setBusy(false)
-    }
-  }, [draft, onRename, property.name])
-
-  const focusName = () => {
-    requestAnimationFrame(() => {
-      inputRef.current?.focus()
-      inputRef.current?.setSelectionRange(draft.length, draft.length)
-    })
-  }
-
-  return (
-    <DropdownMenu
-      open={open}
-      onOpenChange={(nextOpen) => {
-        setOpen(nextOpen)
-        if (nextOpen) {
-          setDraft(property.name)
-          focusName()
-        }
-      }}
-    >
-      <DropdownMenuTrigger asChild>
-        {trigger ?? (
-          <button
-            type="button"
-            className="flex h-full min-w-0 w-full flex-1 cursor-pointer items-center justify-start gap-2 rounded px-2 py-1.5 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100 hover:text-foreground dark:hover:bg-accent/40"
-            title={property.name}
-            aria-label={property.name}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <IconValue
-              value={iconValue}
-              fallback={<PropertyIcon type={property.propertyType} />}
-              className="size-3.5 shrink-0"
-            />
-            <span className="truncate">{property.name}</span>
-          </button>
-        )}
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        sideOffset={5}
-        className="w-72 rounded-xl p-2"
-        onCloseAutoFocus={(event) => event.preventDefault()}
-      >
-        <div
-          className="mb-1 flex items-center gap-2"
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <div className="relative shrink-0">
-            <button
-              ref={iconTriggerRef}
-              type="button"
-              disabled={!onIconChange}
-              className="flex size-9 items-center justify-center rounded-lg border border-border bg-background hover:bg-accent disabled:cursor-default"
-              title={t("databaseWorkspace.changeIcon")}
-              aria-label={t("databaseWorkspace.changeIcon")}
-              onPointerDown={(event) => event.preventDefault()}
-              onClick={(event) => {
-                event.stopPropagation()
-                if (onIconChange) setIconPickerOpen((current) => !current)
-              }}
-            >
-              <IconValue value={iconValue} fallback={PropertyTypeIcon} className="size-4" />
-            </button>
-            {iconPickerOpen && onIconChange && (
-              <div className="absolute left-0 top-full z-[100] mt-1">
-                <EmojiPickerPanel
-                  triggerRef={iconTriggerRef}
-                  onSelect={(next) => {
-                    void onIconChange(next.native)
-                    setIconPickerOpen(false)
-                  }}
-                  onClear={() => {
-                    void onIconChange("")
-                    setIconPickerOpen(false)
-                  }}
-                  clearLabel={t("tree.resetIcon")}
-                  onClose={() => setIconPickerOpen(false)}
-                />
-              </div>
-            )}
-          </div>
-          <div className="flex h-9 min-w-0 flex-1 items-center rounded-lg border border-border bg-background px-2.5 focus-within:ring-1 focus-within:ring-ring">
-            <input
-              ref={inputRef}
-              value={draft}
-              disabled={busy}
-              aria-label={t("databaseWorkspace.propertyName")}
-              className="min-w-0 flex-1 bg-transparent text-sm font-medium text-foreground outline-none disabled:opacity-60"
-              onChange={(event) => setDraft(event.target.value)}
-              onBlur={() => void commit()}
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={(event) => {
-                event.stopPropagation()
-                if (isEnterKey(event)) {
-                  event.preventDefault()
-                  void commit().then(() => setOpen(false))
-                }
-                if (event.key === "Escape") {
-                  event.preventDefault()
-                  setDraft(property.name)
-                  setOpen(false)
-                }
-              }}
-            />
-            <Info
-              className="size-4 shrink-0 text-muted-foreground"
-              aria-label={t("databaseTable.propertyInfo")}
-            />
-          </div>
-        </div>
-
-        {onChangeType && (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="h-9 gap-2.5 rounded-lg px-2 text-sm">
-              <Repeat2 />
-              <span className="truncate">{t("databaseTable.changeType")}</span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-56 rounded-xl p-1.5">
-              {[
-                "text",
-                "number",
-                "checkbox",
-                "date",
-                "url",
-                "select",
-                "multiSelect",
-                "status",
-                "formula",
-                "relation",
-              ].map((propertyType) => (
-                <DropdownMenuItem
-                  key={propertyType}
-                  disabled={propertyType === property.propertyType || busy}
-                  className="h-9 rounded-lg"
-                  onSelect={() => void onChangeType(propertyType)}
-                >
-                  <PropertyIcon type={propertyType} />
-                  <span className="flex-1 truncate">
-                    {t(`databaseWorkspace.propertyTypes.${propertyType}`)}
-                  </span>
-                  {propertyType === property.propertyType && <Check className="size-4" />}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        )}
-
-        {settingsEditor && (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="h-9 gap-2.5 rounded-lg px-2 text-sm">
-              <Settings2 />
-              <span className="truncate">{t("databaseProperty.settings")}</span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-72 rounded-xl p-3">
-              {/* Typing in these fields must not reach the menu's own type-ahead and arrow keys. */}
-              <div
-                onKeyDown={(event) => {
-                  if (event.key !== "Escape") event.stopPropagation()
-                }}
-              >
-                {settingsEditor}
-              </div>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        )}
-
-        <DropdownMenuSeparator className="my-1.5" />
-
-        <PropertyMenuItem
-          icon={<ListFilter />}
-          label={t("databaseTable.filterProperty")}
-          active={filterActive}
-          disabled={!onFilter || !canFilter}
-          onSelect={() => {
-            setOpen(false)
-            onFilter?.()
-          }}
-        />
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger
-            className="h-9 gap-2.5 rounded-lg px-2 text-sm"
-            disabled={!onSort}
-          >
-            <ArrowDownUp />
-            <span className="truncate">{t("databaseTable.sortProperty")}</span>
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-52 rounded-xl p-1.5">
-            <DropdownMenuItem className="h-9 rounded-lg" onSelect={() => onSort?.("asc")}>
-              <ArrowUp className="size-4" />
-              {t("databaseTable.sortAscending")}
-              {sortDirection === "asc" && <Check className="ml-auto size-4" />}
-            </DropdownMenuItem>
-            <DropdownMenuItem className="h-9 rounded-lg" onSelect={() => onSort?.("desc")}>
-              <ArrowDown className="size-4" />
-              {t("databaseTable.sortDescending")}
-              {sortDirection === "desc" && <Check className="ml-auto size-4" />}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="h-9 rounded-lg"
-              disabled={!sortDirection}
-              onSelect={() => onSort?.(null)}
-            >
-              <X className="size-4" />
-              {t("databaseTable.clearSort")}
-            </DropdownMenuItem>
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-        <PropertyMenuItem
-          icon={isFrozen ? <PinOff /> : <Pin />}
-          label={
-            !onToggleFreeze
-              ? `${t("databaseTable.freezeProperty")} · ${t("common.comingSoon")}`
-              : isFrozen
-                ? t("databaseTable.unfreezeProperty")
-                : t("databaseTable.freezeProperty")
-          }
-          active={isFrozen}
-          disabled={!onToggleFreeze}
-          onSelect={onToggleFreeze}
-        />
-        <PropertyMenuItem
-          icon={<EyeOff />}
-          label={t("databaseTable.hideProperty")}
-          disabled={!onHide}
-          onSelect={onHide}
-        />
-        <PropertyMenuItem
-          icon={<WrapText />}
-          label={t("databaseTable.wrapProperty")}
-          active={isWrapped}
-          disabled={!canWrap || !onToggleWrap}
-          onSelect={onToggleWrap}
-        />
-
-        <DropdownMenuSeparator className="my-1.5" />
-
-        <PropertyMenuItem
-          icon={<ArrowLeftToLine />}
-          label={t("databaseTable.insertPropertyLeft")}
-          disabled={!onInsertLeft}
-          onSelect={onInsertLeft}
-        />
-        <PropertyMenuItem
-          icon={<ArrowRightToLine />}
-          label={t("databaseTable.insertPropertyRight")}
-          disabled={!onInsertRight}
-          onSelect={onInsertRight}
-        />
-        <PropertyMenuItem
-          icon={<Trash2 />}
-          label={t("databaseTable.deleteProperty")}
-          destructive
-          disabled={!onDelete}
-          onSelect={() => void onDelete?.()}
-        />
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
-function PropertyMenuItem({
-  icon,
-  label,
-  badge,
-  chevron = false,
-  active = false,
-  destructive = false,
-  disabled = false,
-  onSelect,
-}: {
-  icon: React.ReactNode
-  label: string
-  badge?: string
-  chevron?: boolean
-  active?: boolean
-  destructive?: boolean
-  disabled?: boolean
-  onSelect?: React.ComponentProps<typeof DropdownMenuItem>["onSelect"]
-}) {
-  return (
-    <DropdownMenuItem
-      className="h-9 gap-2.5 rounded-lg px-2 text-sm"
-      variant={destructive ? "destructive" : "default"}
-      disabled={disabled}
-      onSelect={onSelect}
-    >
-      {icon}
-      <span className="truncate">{label}</span>
-      {badge && (
-        <span className="ml-auto shrink-0 rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-          {badge}
-        </span>
-      )}
-      {active && !chevron && <Check className="ml-auto size-4 text-primary" />}
-      {chevron && <ChevronRight className={badge ? "size-4" : "ml-auto size-4"} />}
-    </DropdownMenuItem>
   )
 }

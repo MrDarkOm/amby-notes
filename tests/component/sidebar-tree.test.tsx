@@ -1,5 +1,4 @@
 // @vitest-environment happy-dom
-import * as React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import i18n from "@/lib/i18n"
@@ -91,7 +90,10 @@ describe("sidebar tree interactions", () => {
         <SidebarTree items={items} selectedId={null} onSelect={vi.fn()} onNewFile={onNewFile} />,
       )
       fireEvent.contextMenu(screen.getByRole("treeitem", { name }), { button: 2 })
-      fireEvent.click(screen.getByRole("menuitem", { name: i18n.t("tree.newNote") }))
+      fireEvent.keyDown(screen.getByRole("menuitem", { name: i18n.t("tree.nest") }), {
+        key: "ArrowRight",
+      })
+      fireEvent.click(screen.getByRole("menuitem", { name: i18n.t("filesPanel.newNote") }))
 
       expect(onNewFile).not.toHaveBeenCalled()
       await act(async () => {

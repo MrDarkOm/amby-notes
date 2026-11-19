@@ -16,16 +16,16 @@ describe("IconValue", () => {
     },
   )
 
-  it("renders emoji values directly", () => {
+  it("renders emoji values with local Noto artwork", () => {
     const { container } = render(<IconValue value="🚀" />)
-    expect(container.textContent).toBe("🚀")
+    expect(container.querySelector("img")?.getAttribute("src")).toContain("emoji_u1f680.svg")
   })
 
   it("renders emoji values inside a styled span with className applied", () => {
     const { container } = render(<IconValue value="🚀" className="size-3.5" />)
     const span = container.querySelector("span")
     expect(span).not.toBeNull()
-    expect(span?.textContent).toBe("🚀")
+    expect(span?.querySelector("img")).not.toBeNull()
     expect(span?.className).toContain("size-3.5")
   })
 

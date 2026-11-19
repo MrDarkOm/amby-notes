@@ -1,6 +1,7 @@
 import * as React from "react"
 import { Plus } from "lucide-react"
 import { Input } from "@/components/ui/input"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface QuickCreateProps {
   /** The button that opens the field. */
@@ -71,11 +72,7 @@ export function QuickCreate({ label, placeholder, failed, onCreate, describe }: 
         }}
         className="h-7 max-w-xs text-xs"
       />
-      {error && (
-        <p role="alert" className="text-xs text-destructive">
-          {failed(error)}
-        </p>
-      )}
+      {error && <NoticeLine role="alert" text={failed(error)} />}
     </form>
   )
 }

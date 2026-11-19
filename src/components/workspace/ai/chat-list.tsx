@@ -8,6 +8,7 @@ import { useClipped } from "@/lib/use-clipped"
 import { useAiChatStore } from "./use-ai-chat-store"
 import type { ChatEntry } from "@/lib/storage"
 import { isEnterKey } from "@/lib/keyboard"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 function group(entry: ChatEntry): "today" | "yesterday" | "earlier" {
   if (!entry.updatedAt) return "earlier"
@@ -43,14 +44,21 @@ function ChatTitle({ children, title }: { children: React.ReactNode; title: stri
   )
 }
 
-export function ChatList({ onOpen }: { onOpen: () => void }) {
+export function ChatList({
+  onOpen,
+  query: controlledQuery,
+}: {
+  onOpen: () => void
+  query?: string
+}) {
   const { t, i18n } = useTranslation()
   const currentId = useAiChatStore((state) => state.chat?.id)
   const entries = useAiChatStore((state) => state.entries)
   const error = useAiChatStore((state) => state.error)
   const open = useAiChatStore((state) => state.open)
   const remove = useAiChatStore((state) => state.remove)
-  const [query, setQuery] = React.useState("")
+  const [internalQuery, setInternalQuery] = React.useState("")
+  const query = controlledQuery ?? internalQuery
   const [editing, setEditing] = React.useState<string | null>(null)
   const [title, setTitle] = React.useState("")
   const filtered = entries.filter((entry) =>
@@ -75,19 +83,17 @@ export function ChatList({ onOpen }: { onOpen: () => void }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <PanelSearch
-        value={query}
-        onChange={setQuery}
-        placeholder={t("ai.searchChats")}
-        ariaLabel={t("ai.searchChats")}
-      />
+      {controlledQuery === undefined && (
+        <PanelSearch
+          value={internalQuery}
+          onChange={setInternalQuery}
+          placeholder={t("ai.searchChats")}
+          ariaLabel={t("ai.searchChats")}
+        />
+      )}
       <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block">
         <div className="space-y-3 px-3 pb-3">
-          {error && (
-            <p role="alert" className="text-xs text-destructive">
-              {t("ai.chatSaveFailed")}
-            </p>
-          )}
+          {error && <NoticeLine role="alert" text={t("ai.chatSaveFailed")} />}
           {filtered.length === 0 && (
             <p className="text-xs text-muted-foreground">{t("ai.noChats")}</p>
           )}

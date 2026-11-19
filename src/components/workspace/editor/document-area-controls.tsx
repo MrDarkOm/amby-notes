@@ -1,4 +1,5 @@
 import type * as React from "react"
+import { formatRedoShortcut, formatShortcut } from "../keyboard-shortcuts"
 import { useTranslation } from "react-i18next"
 import { PanelBottomClose, Files, Maximize2 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -132,8 +133,8 @@ export function DocumentAreaControls({
       wordCount={t("docEditor.wordCount", { count: wordCount })}
       onUndo={onUndo}
       onRedo={onRedo}
-      undoLabel={t("docEditor.undo")}
-      redoLabel={t("docEditor.redo")}
+      undoLabel={t("docEditor.undo", { shortcut: formatShortcut("Mod+Z") })}
+      redoLabel={t("docEditor.redo", { shortcut: formatRedoShortcut() })}
       historyDisabled={isLocked}
       lock={
         onToggleLock

@@ -137,6 +137,10 @@ pub enum FsError {
     /// The disk is full (С4). The target is untouched.
     #[error("no space left")]
     NoSpace,
+    /// The target is not what the decision looked at: the person changed or made the file after
+    /// the check (С9, SYNC-01). Nothing is written; the next pass decides again.
+    #[error("changed meanwhile: {0}")]
+    Changed(String),
     /// The system refuses access to this one file or folder (permissions, a lock held by another
     /// program). It stops that item only, never the whole pass (Э4, carried over from Э3).
     #[error("access denied: {0}")]
@@ -144,6 +148,17 @@ pub enum FsError {
     /// Anything else, including a lost process in the simulation.
     #[error("i/o error: {0}")]
     Io(String),
+}
+
+/// What a write expects to find at its target when it is published (С9, SYNC-01).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpectedLocal {
+    /// The target must not be there: the file is new here.
+    Absent,
+    /// The target must hold exactly the content of this BLAKE3 hash.
+    Hash([u8; 32]),
+    /// A path that nothing else can own (a copy under a fresh name): no check.
+    Any,
 }
 
 /// A file being written next to its target (С3, Ф24). Nothing is visible at the target until
@@ -154,7 +169,15 @@ pub trait StagedWrite {
     /// Makes the temporary file the target **atomically**. If the target exists and `snapshot` is
     /// given, the old content is first saved to the history of this device (Р8, Д53); a failure
     /// of the snapshot fails the publish and leaves the old file.
-    fn publish(self: Box<Self>, snapshot: Option<SnapshotReason>) -> Result<(), FsError>;
+    ///
+    /// `expected` is what the decision looked at: the target is checked as close to the replace
+    /// as the port can, and when it differs nothing is published and the error is
+    /// [`FsError::Changed`] (С9, SYNC-01).
+    fn publish(
+        self: Box<Self>,
+        snapshot: Option<SnapshotReason>,
+        expected: ExpectedLocal,
+    ) -> Result<(), FsError>;
     /// Throws the temporary file away. The target is not touched.
     fn abort(self: Box<Self>);
 }
@@ -484,4 +507,16 @@ pub trait StateStore {
 
     /// Removes every base except the listed `(item, hash)` pairs (Г9). Nothing listed removes all.
     fn base_prune(&mut self, keep: &[(ItemId, [u8; 32])]) -> Result<(), StateError>;
+}
+
+/// Ends a batch of incoming changes whatever happened inside it, then hands back the result or lets
+/// the panic go on. A batch left open after a panic held every later watcher event of the app, so
+/// open notes stopped learning about outside edits (SYNC-04). `work` is the result of the batch's
+/// work under [`std::panic::catch_unwind`].
+pub fn end_batch_after<T>(work: std::thread::Result<T>, end: impl FnOnce()) -> T {
+    end();
+    match work {
+        Ok(value) => value,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
 }

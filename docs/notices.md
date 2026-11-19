@@ -1,265 +1,267 @@
-# Уведомления: правила
+# Notices: rules
 
-Статус: правила приняты владельцем 2026-11-07. Новый код следует им сразу. Существующий код пока
-не приведён к ним: что расходится и в каком порядке это переводится — раздел [«Переход»](#16-переход).
+Status: the rules were accepted by the owner on 2026-11-07. New code follows them right away. Existing code has not
+yet been brought in line with them: what differs and in what order it is being converted is in the section ["Transition"](#16-transition).
 
-Документ отвечает на вопрос «как программа сообщает человеку о чём-то, кроме самого содержимого»:
-об ошибке, предупреждении, конфликте, вопросе, событии, итоге действия. Не уведомления: индикаторы
-загрузки, пустые состояния, подсказки к полям и заглушка сбоя (у неё свой [раздел](#14-заглушка-сбоя)).
+This document answers the question "how does the program tell a person about something other than the content itself":
+an error, a warning, a conflict, a question, an event, the result of an action. Not notices: loading
+indicators, empty states, hints for fields, and the failure placeholder (it has its own [section](#14-failure-placeholder)).
 
-## 1. Главное в пяти строках
+## 1. The essentials in five lines
 
-1. У каждого уведомления один **уровень** (раздел 2) и ровно одно **место**, где оно живёт и решается (раздел 3).
-2. **Анонс** — не больше одного и только для «Опасности» и «Нужно решение» (раздел 4).
-3. Всё фоновое собирается в **центре уведомлений** — колокольчике в доке (раздел 5).
-4. Ответ на действие показывается **там, где нажали**; подтверждение необратимого — **окном в приложении**.
-5. Текст говорит, что случилось, что с данными и что делать; **никакого сырого текста ошибки** (раздел 10).
+1. Every notice has one **level** (section 2) and exactly one **place** where it lives and is resolved (section 3).
+2. An **announcement** — at most one, and only for "Danger" and "Needs a decision" (section 4).
+3. Everything in the background is collected in the **notification center** — the bell in the dock (section 5).
+4. The response to an action is shown **where the person clicked**; confirmation of something irreversible is a **dialog inside the app**.
+5. The text says what happened, what happened to the data, and what to do; **no raw error text** (section 10).
 
-## 2. Четыре вопроса к уведомлению
+## 2. Four questions about a notice
 
-### 2.1. Уровень
+### 2.1. Level
 
-| Уровень                    | Когда                                                                                                                                      | Раскрывается / анонсируется |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------- |
-| `danger` — Опасность       | Текст человека не сохранён или может потеряться, если ничего не сделать (сбой сохранения)                                                  | да                          |
-| `decision` — Нужно решение | Ничего не потеряно, но программа остановилась и ждёт человека (конфликт, массовое удаление, найден черновик, файл открытой заметки пропал) | да                          |
-| `warning` — Внимание       | Работает, но с ограничением; решать не обязательно (только исходник, файл больше лимита, формат новее)                                     | нет                         |
-| `info` — Сведение          | Произошло то, о чём полезно знать (правки слиты, заметка вернулась, свойства переведены в новый формат)                                    | нет                         |
-| `success` — Успех          | Итог явного долгого действия человека (резервная копия, экспорт, импорт многих файлов). Мгновенные действия — без него                     | нет                         |
+| Level                         | When                                                                                                                                                      | Expanded / announced |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| `danger` — Danger             | The person's text is not saved or may be lost if nothing is done (a save failure)                                                                         | yes                  |
+| `decision` — Needs a decision | Nothing is lost, but the program has stopped and is waiting for the person (a conflict, a mass deletion, a draft found, the file of an open note is gone) | yes                  |
+| `warning` — Attention         | It works, but with a limitation; deciding is not required (source only, file over the limit, newer format)                                                | no                   |
+| `info` — Information          | Something happened that is useful to know (edits merged, a note came back, properties converted to the new format)                                        | no                   |
+| `success` — Success           | The outcome of an explicit long action by the person (backup, export, import of many files). Instant actions — without it                                 | no                   |
 
-Сомнение между уровнями решается в пользу более высокого, только если без действия человека данные
-действительно пострадают. Иначе — более низкий: лишняя тревога приучает не читать уведомления.
+A doubt between levels is resolved in favor of the higher one only if, without the person's action, the data
+will really suffer. Otherwise — the lower one: extra alarm teaches people not to read notices.
 
-### 2.2. Источник
+### 2.2. Source
 
-- **Ответ на действие** — человек только что нажал, ввёл, перетащил. Показывается там же.
-- **Произошло само** — синхронизация, автосохранение, наблюдатель за файлами, проверка при открытии.
-  Показывается у объекта (если он на экране) или в центре.
+- **Response to an action** — the person has just clicked, typed, or dragged. Shown in the same place.
+- **Happened by itself** — sync, autosave, the file watcher, a check on open.
+  Shown at the object (if it is on screen) or in the center.
 
-### 2.3. Природа
+### 2.3. Nature
 
-- **Состояние** живёт, пока есть причина, и уходит вместе с ней. Его не «закрывают», а решают.
-- **Событие** произошло один раз: о нём говорят и больше не повторяют.
+- A **state** lives as long as there is a cause and goes away with it. It is not "closed", it is resolved.
+- An **event** happened once: it is mentioned and not repeated.
 
-### 2.4. Область
+### 2.4. Scope
 
-Элемент (поле, ячейка, кнопка) → заметка → раздел (синхронизация, база, мастерская, ИИ) → приложение.
+Element (field, cell, button) → note → section (sync, database, workshop, AI) → application.
 
-## 3. Места
+## 3. Places
 
-| Место                                 | Что туда идёт                                                                                        | Чего там не бывает                     |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| **Под элементом**                     | Ответ на действие в этом месте, любого уровня                                                        | Фоновые события                        |
-| **Карточка заметки** (полоса)         | Всё о конкретной открытой заметке: состояния и события                                               | То, что не касается этой заметки       |
-| **Центр уведомлений** (колокольчик)   | Закрытые заметки, хранилище, разделы, приложение; копии опасности и решений открытых заметок; журнал | Ошибки ввода под полями, подтверждения |
-| **Окно подтверждения** (в приложении) | Необратимое или опасное действие по просьбе человека; выбор, без которого нельзя продолжить          | Простое сообщение об ошибке            |
+| Place                                | What goes there                                                                                           | What is never there                      |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| **Under the element**                | The response to an action in this place, of any level                                                     | Background events                        |
+| **Note card** (strip)                | Everything about a specific open note: states and events                                                  | Anything not about this note             |
+| **Notification center** (bell)       | Closed notes, the vault, sections, the application; copies of danger and decisions of open notes; the log | Input errors under fields, confirmations |
+| **Confirmation dialog** (in the app) | An irreversible or dangerous action requested by the person; a choice without which one cannot continue   | A simple error message                   |
 
-Тост — не место, а только анонс (раздел 6). Журнал отладки (`logger`) — не уведомление (раздел 13).
+A toast is not a place, only an announcement (section 6). The debug log (`logger`) is not a notice (section 13).
 
-Выбор места по порядку, первое подходящее:
+Choosing the place, in order, the first that fits:
 
-1. Человек просит необратимое действие → **окно подтверждения**.
-2. Ответ на действие, и человек всё ещё там, где действовал → **под элементом**. Если действие долгое и
-   закончилось, когда человек ушёл, → итог в **журнал центра** (успех) или в **«Требует решения»** (сбой).
-3. Касается открытой заметки → **карточка заметки**; для `danger` и `decision` ещё и копия в центре.
-4. Всё остальное → **центр уведомлений**.
-5. Человеку нечего делать, и данные не затронуты → не уведомление, только `logger` с кодом.
+1. The person requests an irreversible action → **confirmation dialog**.
+2. A response to an action, and the person is still where they acted → **under the element**. If the action is long and
+   finished after the person left, → the result goes to the **center log** (success) or to **"Требует решения"** (Needs a decision) (failure).
+3. It concerns an open note → **note card**; for `danger` and `decision` also a copy in the center.
+4. Everything else → **notification center**.
+5. The person has nothing to do, and the data is not affected → not a notice, only `logger` with a code.
 
-## 4. Одно место и один анонс
+## 4. One place and one announcement
 
-- **Одно место.** Уведомление живёт в одном месте. Копия в центре для открытой заметки — то же
-  уведомление с тем же `id`: решение в любом из мест убирает оба.
-- **Не больше одного анонса.** Для открытой заметки анонс — сама раскрывшаяся стопка карточек. Для
-  остального — тост. Ни того ни другого одновременно.
-- **Анонсируются только `danger` и `decision`.** `warning`, `info` и `success` появляются в своём месте молча.
-- **При запуске** и при смене хранилища то, что уже было, видно на своём месте, но не анонсируется:
-  первый статус — точка отсчёта, а не новость.
-- **Одна причина — одно уведомление.** Повтор не создаёт второе, а обновляет число («3 конфликта»).
+- **One place.** A notice lives in one place. The copy in the center for an open note is the same
+  notice with the same `id`: a decision in either place removes both.
+- **At most one announcement.** For an open note the announcement is the expanded stack of cards itself. For
+  everything else — a toast. Never both at once.
+- **Only `danger` and `decision` are announced.** `warning`, `info`, and `success` appear in their place silently.
+- **At startup** and when the vault changes, what already existed is visible in its place but not announced:
+  the first status is a reference point, not news.
+- **One cause — one notice.** A repeat does not create a second one but updates the number ("3 conflicts").
 
-## 5. Центр уведомлений
+## 5. Notification center
 
-- **Кнопка** — колокольчик в доке, над настройками: обычная кнопка дока того же вида, что остальные, она есть всегда. Открывает **стопку карточек у самого колокольчика**, а не боковую панель: стопка плавает сбоку от дока, с той стороны, где док, растёт вверх от кнопки, высота ограничена окном, внутри прокрутка. Лежит на одной подложке, как всплывающие меню (фон `--popover`, тонкая рамка, тень, скругление), прокрутка внутри; от края дока стоит на 12 пикселей и нижним краем выровнена по колокольчику, так что кнопки дока остаются видны и нажимаются; если внизу боковой панели стоит переключатель рабочей области, стопка поднимается над ним и не закрывает его. Закрывается повторным кликом по колокольчику, кликом мимо и `Esc`; фокус возвращается на кнопку, пока колокольчик открыт — он подсвечен.
-- **Разделы:**
-  - «Требует решения» — `danger` и `decision`;
-  - «Внимание» — `warning`;
-  - «Ранее» — журнал: события `info` и `success`, новые сверху, компактными строками со временем и ссылкой на объект; видны последние три, «Показать все» раскрывает остальные в той же стопке; там же «Очистить».
-  - Порядок сверху вниз: «Требует решения» (по серьёзности), «Внимание», «Ранее». Заголовки разделов мелкие и тихие; пустой раздел не показывается.
-- **Счётчик** на колокольчике — число записей в «Требует решения» и «Внимание». Цвет — по самому
-  серьёзному уровню среди них. Журнал счётчик не меняет: иначе через неделю там «37», и колокольчик
-  перестают открывать.
-- **«Требует решения» и «Внимание» не хранятся.** Они каждый раз выводятся из живых причин (статуса
-  синхронизации, стора документов и т. п.) и исчезают вместе с причиной. Запись «Внимания» можно
-  скрыть; скрытая возвращается, только если причина ушла и пришла снова. Скрытие помнится до
-  перезапуска.
-- **Журнал хранится** в данных приложения, отдельно для каждого хранилища, а не в `.amby/` хранилища:
-  он не синхронизируется и не должен попадать в чужие правила о служебных данных. Записи живут 7 дней
-  или до очистки вручную.
-- **Экраны управления остаются.** Список конфликтов и файлов, которые не синхронизируются, в настройках
-  синхронизации — это экран работы с ними, а не уведомление. Центр ведёт туда кнопкой.
-- Отдельного бейджа конфликтов в углу окна больше нет: его заменила кнопка-колокольчик в доке (шаг 1), счётчик которой — счётчик центра (шаг 2).
-- **Что в «Требует решения»:** все конфликты синхронизации (кнопка «Сравнить»), остановки синхронизации (кнопка «Открыть настройки синхронизации», решение там), копии `danger` и `decision` открытых заметок с тем же `id`, что у карточки (кнопка «Открыть заметку»), сбой автосохранения закрытой заметки (кнопка «Открыть»). **В «Внимании»:** лимиты тарифа и файлы с ошибками (кнопка «Показать» и «Скрыть»).
-- **Журнал** умеет «Очистить» и не умеет «Вернуть»: кнопки «Вернуть» у записей пока нет.
-- **Конфликт — такая же карточка уровня `decision`**, как остальные, с одной главной кнопкой «Сравнить»; отдельного списка конфликтов со своим видом в центре нет (список остаётся в настройках синхронизации).
+- **The button** — the bell in the dock, above settings: an ordinary dock button of the same kind as the others, always present. It opens a **stack of cards right at the bell**, not a side panel: the stack floats beside the dock, on the side where the dock is, grows upward from the window’s bottom inset, its height is limited by the window, with scrolling inside. It sits on one backing, like popup menus (background `--popover`, thin border, shadow, rounding), scrolling inside; it aligns with the dock’s inner edge and sits 8 pixels above the bottom of the window, keeping the dock buttons visible and clickable. It closes by clicking the bell again, by clicking elsewhere, and by `Esc`; focus returns to the button; while the bell is open it is highlighted.
+- **Sections:**
+  - "Требует решения" (Needs a decision) — `danger` and `decision`;
+  - "Внимание" (Attention) — `warning`;
+  - "Ранее" (Earlier) — the log: `info` and `success` events, newest on top, in compact rows with a time and a link to the object; the last three are visible, "Показать все" (Show all) expands the rest in the same stack; "Очистить" (Clear) is there too.
+  - Order from top to bottom: "Требует решения" (by severity), "Внимание", "Ранее". Section headings are small and quiet; an empty section is not shown.
+- **The counter** on the bell — the number of entries in "Требует решения" and "Внимание". The color is by the most
+  severe level among them. The log does not change the counter: otherwise in a week it says "37", and people
+  stop opening the bell.
+- **"Требует решения" and "Внимание" are not stored.** They are derived each time from live causes (the sync
+  status, the documents store, and so on) and disappear with the cause. An entry in "Внимание" can be
+  hidden; a hidden one returns only if the cause went away and came back. Hiding is remembered until
+  restart.
+- **The log is stored** in the application data, separately for each vault, and not in the vault's `.amby/`:
+  it is not synced and must not fall under other rules about service data. Entries live 7 days
+  or until cleared manually.
+- **Management screens remain.** The list of conflicts and of files that are not synced, in the sync
+  settings, is a screen for working with them, not a notice. The center leads there with a button.
+- There is no longer a separate conflicts badge in the corner of the window: it was replaced by the bell button in the dock (step 1), whose counter is the center's counter (step 2).
+- **What is in "Требует решения":** all sync conflicts (the "Сравнить" (Compare) button), sync stops (the "Открыть настройки синхронизации" (Open sync settings) button, the decision is there), copies of `danger` and `decision` of open notes with the same `id` as the card (the "Открыть заметку" (Open note) button), an autosave failure of a closed note (the "Открыть" (Open) button). **In "Внимание":** plan limits and files with errors (the "Показать" (Show) and "Скрыть" (Hide) buttons).
+- **The log** can "Очистить" (Clear) and cannot "Вернуть" (Restore): entries do not have a "Вернуть" button yet.
+- **A conflict is the same kind of `decision`-level card** as the others, with one main button "Сравнить"; there is no separate conflict list with its own look in the center (the list remains in the sync settings).
 
-## 6. Тост
+## 6. Toast
 
-- Только анонс `danger` или `decision`, когда объекта нет на экране. Сейчас анонсируются: новый конфликт закрытой заметки (один тост на причину, несколько за один проход — «Новых конфликтов: N»), новая остановка синхронизации, сбой автосохранения закрытой заметки. Тост уходит вместе с причиной.
-- Тост стоит **там же, у колокольчика** (с той же стороны, с тем же отступом от дока и от той же точки, что стопка), и это та же спокойная карточка, что в стопке. Пока стопка открыта, тостов нет: место уведомления уже на виду; висевшие тосты при открытии стопки убираются в неё.
-- Исчезает через 10 секунд, при наведении время останавливается. У каждого тоста свой таймер.
-- Видно не больше трёх, остальные сворачиваются в «ещё N».
-- Клик по тосту открывает стопку (то же делает «ещё N»). Если у уведомления есть своё действие (открыть заметку), у тоста короткая кнопка «Открыть». Решать в тосте нельзя: он
-  исчезает, а решение должно оставаться доступным.
+- Only an announcement of `danger` or `decision`, when the object is not on screen. Currently announced: a new conflict of a closed note (one toast per cause, several in one pass — "Новых конфликтов: N" (New conflicts: N)), a new sync stop, an autosave failure of a closed note. A toast goes away together with its cause.
+- The toast stands **in the same place, at the bell** (on the same side, with the same offset from the dock and from the same point as the stack), and it is the same calm card as in the stack. While the stack is open there are no toasts: the notice's place is already in view; toasts hanging when the stack opens are tucked into it.
+- It disappears after 10 seconds; on hover the time stops. Each toast has its own timer.
+- No more than three are visible, the rest collapse into "ещё N" (N more).
+- A click on a toast opens the stack (as does "ещё N"). If the notice has its own action (open the note), the toast has a short "Открыть" (Open) button. Deciding in a toast is not possible: it
+  disappears, and the decision must remain available.
 
-## 7. Карточка заметки
+## 7. Note card
 
-Устройство описано в [карте уведомлений заметки](../src/components/workspace/note-notices/MAP.md).
-Правила поверх него:
+The structure is described in the [note notices map](../src/components/workspace/note-notices/MAP.md).
+The rules on top of it:
 
-- **Пилюля вместо лампочки.** Уведомления заметки — маленький самостоятельный элемент рядом с нижней панелью
-  заметки («Только что · 19 сл.», отмена, повтор, замок): у её правого края, с зазором около 8 пикселей над
-  панелью, не под ней и не вровень с её шириной. Нет карточек — нет пилюли.
-- **Свёрнутая** — пилюля по ширине содержимого (с пределом, длинный заголовок обрезается): иконка самого
-  серьёзного уровня, заголовок его карточки в одну строку, «+N» при остальных и шеврон «развернуть». Одна кнопка
-  (`aria-expanded`). **Развёрнутая** — скруглённая со всех сторон панель на поверхности всплывающих меню (фон,
-  рамка, мягкая тень, как стопка у колокольчика), шириной около 24rem, но не шире области заметки: строка
-  заголовка (иконка уровня, «Уведомления заметки · N», шеврон «свернуть») и под ней карточки отдельными
-  плитками; много карточек — прокрутка внутри, высота ограничена. Панель не перекрывает кнопки нижней панели.
-- Карточки `danger` и `decision` разворачивают полосу сами, когда появляются или когда заметку открывают.
-  `warning`, `info` и `success` ждут клика по полосе.
-- Цвет иконки — по самому серьёзному уровню карточек (`danger`, `decision`, `warning`, `info`, `success` по
-  убыванию).
-- Карточка уходит, когда уходит её источник. Сведение можно убрать кнопкой.
-- Кнопка действия показывает, что идёт («Восстанавливаю…»); ошибка действия — в той же карточке.
+- **A pill instead of a lightbulb.** Note notices are a small standalone element next to the bottom bar
+  of the note ("Только что · 19 сл." (Just now · 19 words), undo, redo, lock): at its right edge, with a gap of about 8 pixels above the
+  bar, not under it and not flush with its width. No cards — no pill.
+- **Collapsed** — a pill as wide as its content (with a limit, a long title is truncated): the icon of the most
+  severe level, the title of its card on one line, "+N" for the others, and a "expand" chevron. One button
+  (`aria-expanded`). **Expanded** — a panel rounded on all sides on the popup menu surface (background,
+  border, soft shadow, like the stack at the bell), about 24rem wide, but no wider than the note area: a
+  title row (level icon, "Уведомления заметки · N" (Note notices · N), "collapse" chevron) and under it the cards as separate
+  tiles; with many cards — scrolling inside, height limited. The panel does not cover the buttons of the bottom bar.
+- `danger` and `decision` cards expand the strip by themselves when they appear or when the note is opened.
+  `warning`, `info`, and `success` wait for a click on the strip.
+- The icon color is by the most severe level of the cards (`danger`, `decision`, `warning`, `info`, `success` in
+  descending order).
+- A card goes away when its source goes away. An information item can be dismissed with a button.
+- The action button shows what is going on ("Восстанавливаю…" (Restoring…)); an action error is in the same card.
 
-## 8. Под элементом
+## 8. Under the element
 
-- Строка под полем, ячейкой или кнопкой, в той панели или поповере, где было действие.
-- Строку рисует `NoticeLine` ([notice-line.tsx](../src/components/workspace/notices/notice-line.tsx)): иконка и цвет уровня (`warning`), а не красный `text-destructive`; так в редакторах свойств баз и заметки и в ячейках (отметка ячейки — `noticeTextClass`). Страж держит список этих файлов.
-- Исчезает при следующей попытке или при изменении ввода.
-- В центр не попадает: человек и так смотрит на это место.
-- Пример: имя, которое не приняли при переименовании (занято, недопустимые символы). Поле остаётся открытым с введённым
-  именем, под ним строка уровня `warning` из словаря по коду ошибки; она уходит при правке имени и по Esc, а уход из поля
-  с тем же именем сдаётся, а не спрашивает снова. Компонент — `RenameHint`, результат переименования — `RenameOutcome`. Так же сделано под названием открытой заметки и под названием базы данных. Отказ окна базы (новый вид, новая запись, новое свойство) показывается только в самом окне под полем, а не ещё раз над таблицей; «Отмена» снимает его.
+- A line under a field, cell, or button, in the same panel or popover where the action took place.
+- The line is drawn by `NoticeLine` ([notice-line.tsx](../src/components/workspace/notices/notice-line.tsx)): the icon and color of the level (`warning`), not the red `text-destructive`; this is how it is in the property editors of databases and notes and in cells (the cell mark is `noticeTextClass`). The guard keeps the list of these files.
+- It disappears on the next attempt or when the input changes.
+- It does not go to the center: the person is looking at that place anyway.
+- Example: a name that was not accepted on rename (taken, invalid characters). The field stays open with the entered
+  name, under it a `warning`-level line from the dictionary by error code; it goes away when the name is edited and on Esc, and leaving the field
+  with the same name counts as giving up, rather than asking again. The component is `RenameHint`, the rename result is `RenameOutcome`. It is done the same way under the title of an open note and under the title of a database. A refusal of the database window (new view, new record, new property) is shown only in the window itself under the field, not once more above the table; "Отмена" (Cancel) removes it.
 
-## 9. Окно подтверждения
+## 9. Confirmation dialog
 
-- Только когда человек просит необратимое или опасное действие (удалить навсегда, откатить, загрузить
-  хранилище заново), или когда без выбора нельзя продолжить (сравнение версий при внешней правке).
-- Окно рисует само приложение: в своём стиле, с переводом, с проверкой тестами. Системные окна ОС
-  (`confirmAction`, `showErrorMessage`, `window.confirm`, `window.alert`) не используются. Исключения —
-  системный выбор файла или папки и запросы связки ключей. Спрашивают так: `confirm({ title, description,
-confirmLabel, destructive })` из [confirm.ts](../src/lib/confirm.ts) возвращает `Promise<boolean>`;
-  окно рисует [ConfirmDialogHost](../src/components/confirm-dialog-host.tsx), он стоит в `App` один раз, поэтому
-  работает в главном окне, в отдельном окне настроек и до открытия хранилища. Вопросы собраны в одном месте,
-  [confirmations.ts](../src/lib/confirmations.ts); тексты — в `confirmations.*` словаря.
-- Окно поверх другого окна работает. Вопросы идут по одному, в порядке заданных. `Esc` и щелчок мимо — это
-  «Отмена» (`confirm()`); `confirmChoice()` отличает «закрыто без ответа» от «нет», для вопроса, где «нет» что-то делает. Если действие опасное (`destructive`), кнопка выделена и фокус стоит на «Отмена»; иначе фокус на
-  кнопке действия. Фокус держится внутри окна и по закрытии возвращается туда, где был. Слово «Отмена»
-  меняют, только если оно соврёт: при восстановлении черновика холста и скетча «нет» стирает черновик, там
-  кнопка «Не восстанавливать», и стирает его только она. `Esc` и щелчок мимо закрывают вопрос без решения:
-  черновик остаётся, слой показывает файл с диска только для чтения (ничто не затрёт черновик), вопрос
-  возвращается при следующем показе слоя ([held-drafts-store.ts](../src/components/workspace/held-drafts-store.ts)).
-- Заголовок — вопрос о действии («Удалить «План»?»), строка — что будет с данными («Заметка попадёт в
-  корзину хранилища, её можно вернуть»). Кнопка действия — глаголом («Удалить»), опасное действие
-  выделено как опасное; вторая — «Отмена».
-- Обратимое действие не спрашивают, а дают отменить или вернуть. Так сделано: **восстановление версии** (текущий
-  текст перед этим всегда становится версией истории, и при выключенной истории тоже, а готовая строка говорит, что
-  прежнее состояние в истории); **убрать тему** из библиотеки (строка под библиотекой «Тема убрана» с кнопкой
-  «Вернуть»); **удалить блокнот** (заметки уходят на уровень выше, пустая папка идёт в корзину, не навсегда). Вопрос
-  остаётся там, где правка меняет другие заметки или не возвращается: переименование и перенос, которые переписывают
-  ссылки, и слияние заметок.
-- Вопрос об удалении называет вещь по виду («Удалить заметку «План»?», «Удалить папку…», скетч, холст, базу), а не «файл»; строка под заголовком одна и короткая («Попадёт в корзину хранилища, оттуда можно вернуть»).
-- Удалённое самим Amby не воскресает: после удаления скетча или холста запись, которую присылает закрывающийся редактор, отбрасывается (без вопроса «перезаписать?»), пока тот же путь не откроют снова.
+- Only when the person requests an irreversible or dangerous action (delete permanently, roll back, upload the
+  vault again), or when one cannot continue without a choice (version comparison on an external edit).
+- The dialog is drawn by the application itself: in its own style, with translation, covered by tests. The OS system dialogs
+  (`confirmAction`, `showErrorMessage`, `window.confirm`, `window.alert`) are not used. The exceptions are the
+  system file or folder picker and keychain requests. It is asked like this: `confirm({ title, description,
+confirmLabel, destructive })` from [confirm.ts](../src/lib/confirm.ts) returns `Promise<boolean>`;
+  the dialog is drawn by [ConfirmDialogHost](../src/components/confirm-dialog-host.tsx), which stands in `App` once, so it
+  works in the main window, in the separate settings window, and before a vault is opened. The questions are collected in one place,
+  [confirmations.ts](../src/lib/confirmations.ts); the texts are in `confirmations.*` of the dictionary.
+- A dialog over another dialog works. Questions go one at a time, in the order asked. `Esc` and a click outside are
+  "Cancel" (`confirm()`); `confirmChoice()` distinguishes "closed without an answer" from "no", for a question where "no" does something. If the action is dangerous (`destructive`), the button is highlighted and focus is on "Cancel"; otherwise focus is on the
+  action button. Focus is held inside the dialog and on closing returns to where it was. The word "Cancel"
+  is changed only if it would lie: when restoring a canvas and sketch draft, "no" erases the draft, so there
+  the button is "Не восстанавливать" (Do not restore), and only it erases it. `Esc` and a click outside close the question without a decision:
+  the draft remains, the layer shows the file from disk read-only (nothing will overwrite the draft), and the question
+  returns the next time the layer is shown ([held-drafts-store.ts](../src/components/workspace/held-drafts-store.ts)).
+- The title is a question about the action ("Удалить «План»?" (Delete “План”?)), the line says what will happen to the data ("Заметка попадёт в
+  корзину хранилища, её можно вернуть" (The note will go to the vault trash, it can be restored)). The action button is a verb ("Удалить" (Delete)), a dangerous action
+  is highlighted as dangerous; the second is "Отмена" (Cancel).
+- A reversible action is not asked about but is made undoable or restorable. This is how it is done for: **restoring a version** (the current
+  text always becomes a history version first, even when history is off, and the finished line says that the
+  previous state is in history); **removing a theme** from the library (a line under the library "Тема убрана" (Theme removed) with a
+  "Вернуть" (Restore) button); **deleting a notebook** (the notes move up a level, an empty folder goes to the trash, not permanently). The question
+  remains where the edit changes other notes or is not reversible: renames and moves that rewrite
+  links, and merging notes.
+- A question about deletion names the thing by its kind ("Удалить заметку «План»?" (Delete the note “План”?), "Удалить папку…" (Delete the folder…), sketch, canvas, database), not "file"; the line under the title is one and short ("Попадёт в корзину хранилища, оттуда можно вернуть" (It will go to the vault trash, it can be restored from there)).
+- What Amby itself deleted does not come back to life: after a sketch or canvas is deleted, the record sent by the closing editor is discarded (without the question "overwrite?") until the same path is opened again.
 
-## 10. Текст
+## 10. Text
 
-- **Три части:** что случилось; что с данными; что делать. Если данные целы, это говорится прямо:
-  «Текст в черновике, ничего не потеряно».
-- **Никакого сырого текста ошибки** из Rust, сервера или библиотеки. Ошибка несёт машинный код, код
-  превращается в текст через `src/locales/resources.ts` (образец —
-  [sync-errors.ts](../src/lib/sync/sync-errors.ts); базы данных и мастерская — [operation-errors.ts](../src/lib/operation-errors.ts)). Для неизвестного кода — общий текст и мелко сам код,
-  чтобы с ним можно было обратиться в поддержку.
-- **Действие обязательно** для `danger` и `decision`. Для `warning` — действие или фраза «делать ничего
-  не нужно».
-- **Кнопки — глаголом:** «Сохранить снова», «Сравнить», «Открыть». Не «ОК».
-- **Объект по имени:** какая заметка, какой файл, какое хранилище.
-- **Без упрёков и без жаргона:** «шапка заметки», а не «frontmatter»; «другой компьютер», а не «узел».
-- **Коротко.** В уведомлении заголовок, не больше одной строки пояснения и не больше двух кнопок, из них
-  одна главная. Если вариантов больше, уведомление ведёт туда, где решают (сравнение, окно), а не
-  перечисляет их.
-- **Кнопке не нужна легенда.** Если без абзаца-объяснения непонятно, что делает кнопка, её переименовывают.
-- **Заметки и версии, а не файлы и копии.** Имя без расширения, без путей и служебных слов («основной файл»,
-  «копия», «идентификатор»).
-- **Последствия — после действия, а не до него.** Не описывать заранее, что случится, а сделать и показать
-  запись в журнале с кнопкой «Вернуть». Обратимое действие не нужно объяснять, его можно отменить.
-- **Выбор — когда обе стороны видны.** Выбирать между версиями предлагают там, где человек видит их обе.
-- Все строки — в `resources.ts` на всех языках, под стабильным ключом.
+- **Three parts:** what happened; what happened to the data; what to do. If the data is intact, say so
+  directly: «Текст в черновике, ничего не потеряно» (The text is in the draft, nothing is lost).
+- **No raw error text** from Rust, the server, or a library. The error carries a machine code, and the
+  code is turned into text through `src/locales/resources.ts` (the model is
+  [sync-errors.ts](../src/lib/sync/sync-errors.ts); databases and the workshop use [operation-errors.ts](../src/lib/operation-errors.ts)). For an unknown code, show a generic text and the code itself in small type,
+  so the person can contact support with it.
+- **An action is mandatory** for `danger` and `decision`. For `warning`, either an action or the phrase "nothing
+  needs to be done".
+- **Buttons use a verb:** «Сохранить снова» (Save again), «Сравнить» (Compare), «Открыть» (Open). Not "OK".
+- **Name the object:** which note, which file, which vault.
+- **No blame and no jargon:** "note header", not "frontmatter"; "another computer", not "node".
+- **Short.** A notice has a title, at most one line of explanation, and at most two buttons, one of which is
+  primary. If there are more options, the notice leads to where the decision is made (a comparison, a window) instead of
+  listing them.
+- **A button needs no legend.** If it is unclear what a button does without an explanatory paragraph, the button is renamed.
+- **Notes and versions, not files and copies.** Name without extension, without paths and service words ("main file",
+  "copy", "identifier").
+- **Consequences come after the action, not before it.** Do not describe in advance what will happen; do it and show
+  a journal entry with a «Вернуть» (Restore) button. A reversible action does not need explaining; it can be undone.
+- **Choose when both sides are visible.** Choosing between versions is offered where the person sees both of them.
+- All strings go in `resources.ts` in all languages, under a stable key.
 
-## 11. Вид
+## 11. Appearance
 
-- Цвета уровней — токены в `src/themes/` (`--notice-danger`, `--notice-decision`, `--notice-warning`,
-  `--notice-info`, `--notice-success` с вариантами фона, текста и рамки). Классы вроде `text-amber-500`
-  в компонентах для уведомлений не используются.
-- Иконка закреплена за уровнем (Lucide): `danger` — `OctagonAlert`, `decision` — `TriangleAlert`,
-  `warning` — `CircleAlert`, `info` — `Info`, `success` — `CircleCheck`. Хорошая новость никогда не
-  идёт с треугольником.
-- Один общий компонент рисует уровень (цвет, иконку, роль) для карточки, записи центра, тоста и строки
-  под элементом.
-- **Спокойный вид** у карточек стопки, тостов и строк журнала: обычная поверхность, тонкая нейтральная рамка, цветная полоска слева и цветная иконка уровня. Без заливки цветом и без цветных рамок (карточки заметки пока остаются в цветной рамке). Одна главная кнопка в карточке.
-- **Имя заметки при глаголе** с родом или числом идёт со словом «заметка»: «Заметка «Дневник» не сохранилась», не ««Дневник» не сохранилась»; это держит тест.
-- Для читалок экрана: `danger` — `role="alert"`, остальное — `role="status"`.
-- Фокус забирает только окно подтверждения. Анимации учитывают `prefers-reduced-motion`.
+- Level colors are tokens in `src/themes/` (`--notice-danger`, `--notice-decision`, `--notice-warning`,
+  `--notice-info`, `--notice-success` with background, text, and border variants). Classes like `text-amber-500`
+  are not used in notice components.
+- The icon is tied to the level (Lucide): `danger` — `OctagonAlert`, `decision` — `TriangleAlert`,
+  `warning` — `CircleAlert`, `info` — `Info`, `success` — `CircleCheck`. Good news never
+  comes with a triangle.
+- One shared component draws the level (color, icon, role) for the card, the centre entry, the toast, and the line
+  under an element.
+- **A calm look** for stack cards, toasts, and journal rows: a plain surface, a thin neutral border, a colored strip on the left, and a colored level icon. No color fill and no colored borders (note cards still keep a colored border for now). One primary button per card.
+- **A note name next to a verb** with gender or number goes with the word "note": «Заметка «Дневник» не сохранилась» (The note "Дневник" was not saved), not ««Дневник» не сохранилась»; a test enforces this.
+- For screen readers: `danger` — `role="alert"`, everything else — `role="status"`.
+- Only the confirmation window takes focus. Animations respect `prefers-reduced-motion`.
 
-## 12. Решения, которые программа приняла сама
+## 12. Decisions the program made on its own
 
-Если программа сама изменила текст или данные человека — слила правки двух компьютеров, оставила
-более позднюю правку свойства, вернула удалённую заметку, перевела формат, — молчать нельзя:
+If the program itself changed the person's text or data — merged the edits of two computers, kept the
+later edit of a property, restored a deleted note, converted a format — it must not stay silent:
 
-- до изменения делается снимок в истории (правило Р8 [плана синхронизации](sync-plan.md));
-- появляется `info`: карточка, если заметка открыта (стопка не раскрывается), и запись в журнале центра.
+- a snapshot is taken in history before the change (rule Р8 of the [sync plan](sync-plan.md));
+- an `info` appears: a card if the note is open (the stack is not expanded), and an entry in the centre journal.
 
-## 13. Молчание и журнал отладки
+## 13. Silence and the debug log
 
-- Ошибку можно не показывать, только если человеку нечего с ней делать и данные не затронуты
-  (уборка, кэш, необязательное чтение). Тогда — комментарий в коде, почему молчим, и `logger` с кодом
-  ошибки.
-- `.catch(() => {})` без комментария не допускается. То же для `catch {}`, `.catch(() => undefined)` и `.catch(() => null)`: комментарий стоит в той же строке, строкой выше `.catch` или строкой выше оператора. Если это не очевидная уборка (закрыть ручку, жест окна), рядом ещё `logger` с кодом события, зарегистрированным в `event-codes.ts` и в `logging.rs`. Это держит [notice-rules-guard.test.ts](../src/lib/notice-rules-guard.test.ts).
-- Если затронуты данные человека, молчать нельзя ни при каких условиях.
-- Код события журнала должен знать и интерфейс (`event-codes.ts`), и Rust (`ALLOWED_EVENTS` в `logging.rs`): неизвестный код сохраняется как `diagnostic.invalid_event`, и настоящее имя теряется. Это держит [event-registry.test.ts](../src/lib/debug/event-registry.test.ts): новый `logger.*("имя")` или `event = "имя"` без записи в оба списка роняет тест.
+- An error may go unshown only if there is nothing for the person to do about it and the data is not affected
+  (cleanup, cache, optional reads). In that case, leave a comment in the code explaining why we stay silent, and a `logger` with the error
+  code.
+- `.catch(() => {})` without a comment is not allowed. The same goes for `catch {}`, `.catch(() => undefined)`, and `.catch(() => null)`: the comment goes on the same line, on the line above `.catch`, or on the line above the statement. If it is not an obvious cleanup (closing a handle, a window gesture), there is also a `logger` with an event code recorded in `allowed-events.txt`. This is enforced by [notice-rules-guard.test.ts](../src/lib/notice-rules-guard.test.ts).
+- If the person's data is affected, staying silent is never allowed.
+- A log event code must be in the single list [allowed-events.txt](../src/lib/debug/allowed-events.txt), which is read by both the interface (`event-codes.ts`) and Rust (`allowed_event` in `logging.rs`): an unknown code is saved as `diagnostic.invalid_event`, and the real name is lost. This is enforced by [event-registry.test.ts](../src/lib/debug/event-registry.test.ts): a new `logger.*("name")` or `event = "name"` without a line in that file fails the test.
 
-## 14. Заглушка сбоя
+## 14. Failure placeholder
 
-Не место уведомлений, а страховка: когда вкладка или панель падает при отрисовке,
-[surface-error-boundary.tsx](../src/components/workspace/surface-error-boundary.tsx) показывает на её месте
-«Что-то пошло не так» и «Повторить», остальное окно работает; при запуске то же делает
-[startup-error-boundary.tsx](../src/components/startup-error-boundary.tsx). Правило одно: текст говорит,
-что данные целы и что делать, сырую ошибку не показывает, сама ошибка уходит в `logger`.
+Not a place for notices but a safety net: when a tab or panel crashes while rendering,
+[surface-error-boundary.tsx](../src/components/workspace/surface-error-boundary.tsx) shows in its place
+«Что-то пошло не так» (Something went wrong) and «Повторить» (Retry), and the rest of the window keeps working; at startup
+[startup-error-boundary.tsx](../src/components/startup-error-boundary.tsx) does the same. There is one rule: the text says
+that the data is intact and what to do, does not show the raw error, and the error itself goes to `logger`.
 
-## 15. Проверка
+## 15. Verification
 
-Каждое новое уведомление проверяется тестом:
+Every new notice is verified by a test:
 
-- появляется в своём месте с нужным уровнем;
-- анонсируется один раз (или не анонсируется, если уровень ниже `decision`);
-- повтор той же причины не создаёт второго;
-- уходит вместе с причиной;
-- текст берётся из `resources.ts`, а не из ошибки (это держит [notice-rules-guard.test.ts](../src/lib/notice-rules-guard.test.ts): новое исключение вносится в его список с причиной).
+- it appears in its place with the right level;
+- it is announced once (or not announced, if the level is below `decision`);
+- a repeat of the same cause does not create a second one;
+- it goes away together with its cause;
+- the text comes from `resources.ts`, not from the error (this is enforced by [notice-rules-guard.test.ts](../src/lib/notice-rules-guard.test.ts): a new exception is added to its list with a reason).
+- the color rules (red `role="alert"` and palette classes like `text-amber-500`) are checked across all of `src`, not against a list of files; earlier violations are recorded in the baseline lists `RED_ALERT_BASELINE` and `PALETTE_BASELINE` of the same test. A list can only shrink: a new violation and a fixed one that was not struck from the list both fail the test.
+- a failed action does not stay only in `console.error`: `console.error` calls are checked across all of `src`, and the remaining ones are recorded in `CONSOLE_ERROR_BASELINE` (which also only shrinks). A failure is a `logger` with a code and, if the person was waiting for a result, a line under the tree or a `warning` in the centre.
 
-## 16. Переход
+## 16. Transition
 
-Отклонения, найденные при инвентаризации 2026-11-07, и порядок их перевода. Числа — по поиску в коде,
-примерные.
+Deviations found during the 2026-11-07 inventory, and the order of converting them. The numbers are from a search of the code,
+approximate.
 
-| №   | Шаг                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **Сделано 2026-11-07.** Токены уровней `--notice-{уровень}-{bg,fg,border}` в [app.css](../src/themes/app.css) (светлая и тёмная тема, разрешены портативным темам) и общий компонент уровня [notice-level.tsx](../src/components/workspace/notices/notice-level.tsx): иконка, роль и цвета по уровню. На него переведены карточки заметки ([notice-card.tsx](../src/components/workspace/note-notices/notice-card.tsx)) и тосты и лимиты в [sync-notices-host.tsx](../src/components/workspace/sync/sync-notices-host.tsx). Что раскрывает стопку само, теперь выводится из уровня (только `danger` и `decision`), иконка и точка полосы заметки — по самому серьёзному уровню карточек (§7). Лампочка заменена полосой, бейдж конфликтов — кнопкой-колокольчиком в доке.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| 2   | **Сделано 2026-11-07, кроме «Вернуть» и успехов, которых ещё нет.** Центр — стопка спокойных карточек у колокольчика ([notices-stack.tsx](../src/components/workspace/notices/notices-stack.tsx)); поповер конфликтов, бейдж и боковая панель ушли. «Требует решения» и «Внимание» выводятся из живых причин ([centre-entries.ts](../src/components/workspace/notices/centre-entries.ts)); журнал — по хранилищу, в данных приложения (`notice-journal/<хеш>.json`), 7 дней, «Очистить» ([lib/notices/](../src/lib/notices/notice-journal.ts)). Тосты вынесены в общие стор и хост ([notice-toasts-host.tsx](../src/components/workspace/notices/notice-toasts-host.tsx)), стоят у колокольчика и открывают стопку: анонсируют только новый конфликт закрытой заметки, новую остановку синхронизации и сбой автосохранения закрытой заметки (вместо системного окна); лимиты и «заметка вернулась» тостами больше не показываются; у открытой заметки конфликт не даёт тост. Не сделано: кнопка «Вернуть» у записей журнала; успехи «экспорт» и «импорт многих файлов» (их концов в коде ещё нет); из резервных копий в журнал попадает только копия перед первым проходом синхронизации.                                                                                                                                                                                                                  |
-| 3   | **Сделано 2026-11-08, кроме отказа от лишних вопросов.** Окно подтверждения — `confirm()` и `ConfirmDialogHost` в `App` (раздел 9); 22 вопроса собраны в [confirmations.ts](../src/lib/confirmations.ts); `window.confirm` из базы данных тоже ушёл. Методы `confirmAction` и `showErrorMessage` убраны из порта хранения, разрешение `dialog:allow-message` убрано из окон; выбор файла остался. Бывшие сообщения об ошибках пришли на своё место: под деревом (перенос, массовое удаление, перетаскивание файлов — [tree-message.tsx](../src/components/workspace/tree/tree-message.tsx)), в окне обрезки и в карточке подключения ИИ (строка под элементом), в центре как `warning` или `decision` ([use-app-notices-store.ts](../src/components/workspace/notices/use-app-notices-store.ts)): хранилище не открылось — `decision` с тостом, данные восстановления, ссылка не открылась, картинка не сохранилась, старый ключ остался — `warning`. Сырого текста ошибки в этих местах больше нет; коды ошибок баз и мастерской — шаг 4. Лишние вопросы убраны 2026-11-09 (раздел 9): восстановление версии, убрать тему (с кнопкой «Вернуть»), удалить блокнот. Остались: переименование и перенос со ссылками, слияние. Черновик холста и скетча: стирает его только кнопка «Не восстанавливать», `Esc` и щелчок мимо оставляют его.                                                                   |
-| 4   | **Сделано 2026-11-08 для баз данных и творческой мастерской.** Ошибка Rust несёт код: у баз данных — `reason` (перечисление `FailureReason`, `src-tauri/src/database/failure.rs`: `revision_conflict`, `locked`, `name_taken`, `formula_invalid` и другие) рядом с кодом команды, у мастерской — вид ошибки `ProjectError` и код `failed`. Текст берётся из словаря: [database-errors.ts](../src/lib/database-errors.ts), [project-errors.ts](../src/lib/project-errors.ts) и общий вход [operation-errors.ts](../src/lib/operation-errors.ts) (`operationErrorText`); для неизвестного кода — общий текст с кодом. Предупреждения, пришедшие с удачной записью, сводятся к одному тексту (`warningNotices`), подсказка у формулы и сводки — тоже из словаря. Разборы текста ошибки (`/revision conflict/`, «No such property», «existing values are cleared») заменены кодами. Сам текст ушёл в журнал отладки с `failureCode`. Тест-страж держит эти каталоги без `error.message` (с шага 6 — весь `src`). Не сделано: общие команды `Result<T, String>` (свойства заметок, файлы) — им нужны свои коды; остальные места с сырым текстом переведены на шаге 6.                                                                                                                                                                                                                                           |
-| 5   | **Сделано 2026-11-07, кроме правки свойства.** Событие `sync-merged` слушает порт синхронизации (`onMerged`), оно пишет в журнал «“Имя”: правки двух компьютеров объединены», а для открытой заметки показывает тихую карточку `info` «Правки двух компьютеров объединены — прежняя версия в истории» ([note-notices.tsx](../src/components/workspace/note-notices/note-notices.tsx)). Не сделано: «более поздняя правка свойства победила» по-прежнему молчит (раздел 12).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| 6   | **Сделано 2026-11-08.** Один страж на весь `src` — [notice-rules-guard.test.ts](../src/lib/notice-rules-guard.test.ts) (поглотил `no-system-dialogs` и `error-text-guard`): нет системных окон (`window.confirm`/`alert`, `confirmAction`, `showErrorMessage`, разрешений `dialog:allow-message`); нет чтения `.message` и `String(ошибка)` вне журнала и короткого списка исключений с причинами (граничные адаптеры, свои словари, коды в тексте); нет разбора фраз ошибок и сырых `warnings` в компонентах; нет `.catch(() => {})`, `catch {}` и им подобных без комментария «почему молчим»; нет классов палитры (`amber-*`, `red-*` и т. д.) в местах, где рисуются уведомления; нет второго хоста тостов. Каждое правило страж объясняет сообщением со ссылкой на раздел. Оставшиеся места с сырым текстом переведены на словари: установщик и настройки модулей — [install-errors.ts](../src/lib/modules/package-manager/install-errors.ts), замечания о базах — `databaseDiagnosticText`, прочее — `operationErrorText`; сырой текст остался только в журнале. Не сделано: английские замечания разбора Mermaid на доске (исключение стража); не переведены `Result<T, String>`-команды без кодов из шага 4.                                                                                                                                                                                       |
-| 7   | **Сделано 2026-11-07.** Сбой автоматического обновления ([app-updater.ts](../src/lib/app-updater.ts)) пишется в журнал центра как `info` (запись «Не удалось проверить обновления, попробуем позже»; если обновление найдено, но не установилось, — «Не удалось установить обновление 0.1.9-beta.6» со ссылкой «Скачать версию вручную» на его выпуск в GitHub; повтор — та же запись с числом). До открытия хранилища запись ждёт в памяти и попадает в журнал первого открытого хранилища.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| 8   | **Сделано 2026-11-07, кроме журнала.** Конфликт синхронизации переделан по разделу 10 (журнал — шаг 2). Строка в списке и карточка в заметке: «“Имя” изменили на двух компьютерах» (для двух новых файлов «создали»), «Обе версии целы», одна кнопка «Сравнить»; без путей, расширений и легенды ([sync-vault-parts.tsx](../src/components/workspace/sync/sync-vault-parts.tsx), [note-notices.tsx](../src/components/workspace/note-notices/note-notices.tsx)). Окно сравнения: стороны «Версия в заметке» и «Вторая версия», а не «этот» и «другой компьютер» — движок не записывает, чья версия лежит во второй (при повторе прохода и при ничьей двух новых файлов там версия сервера), поэтому окно этого не утверждает; время одно, «Конфликт найден …»; две главные кнопки «Оставить версию в заметке» и «Взять вторую версию», «Сохранить обе как отдельные заметки» — в меню «…» ([sync-compare-dialog.tsx](../src/components/workspace/sync/sync-compare-dialog.tsx)). Конфликт служебных данных и групп свойств остался как был, из текстов убраны пути и служебные слова. После выбора результат пишется в журнал центра (шаг 2), а для открытой заметки остаётся ещё и карточка `info` с «Открыть историю», если версия ушла в историю ([conflict-outcome.ts](../src/components/workspace/sync/conflict-outcome.ts)); строки в списке больше нет. Кнопки «Вернуть» у записи журнала пока нет. |
-| 9   | **Сделано 2026-11-09.** Перенос заметки в базу: если не удалось прочитать свойства, место заметки в базе или записать перенос, под деревом появляется `warning` «Свойства «…» не перенесены в базу» с кнопкой «Перенести» (заново читает и снова спрашивает), а у самой заметки — карточка `warning` с той же кнопкой, пока сессия идёт ([property-move-retry-store.ts](../src/components/workspace/file-actions/property-move-retry-store.ts)); свойства остаются в заметке, пока человек не ответит. Модуль «Базы данных» выключен — молчим, заметка для человека не в базе. Тихие сбои стали `warning` в центре: проверка формата свойств при открытии хранилища и проверка правок старой версии ([property-notices.tsx](../src/components/workspace/note-notices/property-notices.tsx)); подписка на состояние синхронизации (`sync.listen_failed`, [listen-failure.ts](../src/components/workspace/sync/listen-failure.ts)) — центр говорит, что состояние перестало обновляться, панель пишет «Состояние неизвестно» вместо устаревшего «синхронизировано» и подписывается ещё до трёх раз с паузой 10 с. Красные строки в редакторах свойств и ячейках баз переведены на `NoticeLine` и токены уровней, страж расширен.                                                                                                                                                                             |
+| №   | Step                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Done 2026-11-07.** Level tokens `--notice-{level}-{bg,fg,border}` in [app.css](../src/themes/app.css) (light and dark theme, allowed for portable themes) and the shared level component [notice-level.tsx](../src/components/workspace/notices/notice-level.tsx): icon, role, and colors by level. Note cards ([notice-card.tsx](../src/components/workspace/note-notices/notice-card.tsx)) and the toasts and limits in [sync-notices-host.tsx](../src/components/workspace/sync/sync-notices-host.tsx) were moved onto it. What expands the stack on its own is now derived from the level (only `danger` and `decision`), and the icon and the dot of the note's strip follow the most serious level among the cards (§7). The lamp was replaced by a strip, and the conflict badge by a bell button in the dock.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| 2   | **Done 2026-11-07, except "Restore" and successes, which do not exist yet.** The centre is a stack of calm cards by the bell ([notices-stack.tsx](../src/components/workspace/notices/notices-stack.tsx)); the conflicts popover, the badge, and the side panel are gone. "Needs a decision" and "Attention" are derived from live causes ([centre-entries.ts](../src/components/workspace/notices/centre-entries.ts)); the journal is per vault, in the app data (`notice-journal/<hash>.json`), 7 days, with "Clear" ([lib/notices/](../src/lib/notices/notice-journal.ts)). Toasts were moved into a shared store and host ([notice-toasts-host.tsx](../src/components/workspace/notices/notice-toasts-host.tsx)), sit by the bell, and open the stack: they announce only a new conflict on a closed note, a new sync stop, and an autosave failure on a closed note (instead of a system window); limits and "note came back" are no longer shown as toasts; for an open note a conflict gives no toast. Not done: the "Restore" button on journal entries; the "export" and "import of many files" successes (their endpoints do not exist in the code yet); of the backups, only the copy before the first sync pass gets into the journal.                                                                                                                                                                                                                                                  |
+| 3   | **Done 2026-11-08, except dropping unnecessary questions.** The confirmation window is `confirm()` and `ConfirmDialogHost` in `App` (section 9); 22 questions are gathered in [confirmations.ts](../src/lib/confirmations.ts); `window.confirm` from the database is gone too. The methods `confirmAction` and `showErrorMessage` were removed from the storage port, and the `dialog:allow-message` permission was removed from the windows; file picking remains. Former error messages moved to their proper places: under the tree (move, bulk delete, file drag-and-drop — [tree-message.tsx](../src/components/workspace/tree/tree-message.tsx)), in the crop window and in the AI connection card (a line under the element), in the centre as `warning` or `decision` ([use-app-notices-store.ts](../src/components/workspace/notices/use-app-notices-store.ts)): the vault failed to open — `decision` with a toast; recovery data, a link that failed to open, an image that failed to save, an old key that remained — `warning`. There is no longer any raw error text in these places; error codes for databases and the workshop are step 4. Unnecessary questions were removed on 2026-11-09 (section 9): restoring a version, removing a theme (with a «Вернуть» (Restore) button), deleting a notebook. Remaining: rename and move with links, merge. Canvas and sketch draft: only the «Не восстанавливать» (Don't restore) button erases it; `Esc` and a click outside leave it. |
+| 4   | **Done 2026-11-08 for databases and the creative workshop.** The Rust error carries a code: for databases, `reason` (the `FailureReason` enum, `crates/amby-core/src/database/failure.rs`: `revision_conflict`, `locked`, `name_taken`, `formula_invalid`, and others) alongside the command code; for the workshop, the `ProjectError` kind and the code `failed`. The text comes from a dictionary: [database-errors.ts](../src/lib/database-errors.ts), [project-errors.ts](../src/lib/project-errors.ts), and the shared entry point [operation-errors.ts](../src/lib/operation-errors.ts) (`operationErrorText`); for an unknown code, a generic text with the code. Warnings that arrive with a successful write are reduced to one text (`warningNotices`), and the hint on a formula and on a summary also comes from the dictionary. Parsing of error text (`/revision conflict/`, "No such property", "existing values are cleared") was replaced by codes. The text itself went to the debug log with `failureCode`. The guard test keeps these catalogs free of `error.message` (since step 6, all of `src`). Not done: the shared `Result<T, String>` commands (note properties, files) — they need their own codes; the other places with raw text were converted in step 6.                                                                                                                                                                                                          |
+| 5   | **Done 2026-11-07, except property edits.** The `sync-merged` event is listened to by the sync port (`onMerged`); it writes to the journal "“Name”: edits from two computers were merged", and for an open note shows a quiet `info` card "Edits from two computers were merged — the previous version is in history" ([note-notices.tsx](../src/components/workspace/note-notices/note-notices.tsx)). Not done: "the later property edit won" is still silent (section 12).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| 6   | **Done 2026-11-08.** One guard for all of `src` — [notice-rules-guard.test.ts](../src/lib/notice-rules-guard.test.ts) (it absorbed `no-system-dialogs` and `error-text-guard`): no system windows (`window.confirm`/`alert`, `confirmAction`, `showErrorMessage`, `dialog:allow-message` permissions); no reading of `.message` and `String(error)` outside the log and a short list of exceptions with reasons (boundary adapters, own dictionaries, codes in the text); no parsing of error phrases and raw `warnings` in components; no `.catch(() => {})`, `catch {}`, and the like without a "why we are silent" comment; no palette classes (`amber-*`, `red-*`, etc.) in places where notices are drawn; no second toast host. The guard explains each rule with a message linking to the section. The remaining places with raw text were converted to dictionaries: the installer and module settings — [install-errors.ts](../src/lib/modules/package-manager/install-errors.ts), database remarks — `databaseDiagnosticText`, everything else — `operationErrorText`; raw text remains only in the log. Not done: English Mermaid parse remarks on the board (a guard exception); the `Result<T, String>` commands without codes from step 4 were not converted.                                                                                                                                                                                                                         |
+| 7   | **Done 2026-11-07.** An automatic update failure ([app-updater.ts](../src/lib/app-updater.ts)) is written to the centre journal as `info` (the entry "Не удалось проверить обновления, попробуем позже" (Could not check for updates, will try later); if an update is found but did not install — "Не удалось установить обновление 0.1.9-beta.6" (Could not install update 0.1.9-beta.6) with a link "Скачать версию вручную" (Download the version manually) to its release on GitHub; a repeat is the same entry with a count). Until a vault is opened, the entry waits in memory and goes into the journal of the first vault opened.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 8   | **Done 2026-11-07, except the journal.** The sync conflict was reworked per section 10 (the journal is step 2). The row in the list and the card in the note: "“Name” was changed on two computers" (for two new files, "created"), "Both versions are intact", one «Сравнить» (Compare) button; no paths, extensions, or legend ([sync-vault-parts.tsx](../src/components/workspace/sync/sync-vault-parts.tsx), [note-notices.tsx](../src/components/workspace/note-notices/note-notices.tsx)). The comparison window: the sides are "Version in the note" and "Second version", not "this" and "other computer" — the engine does not record whose version lies in the second slot (on a repeated pass and on a tie of two new files it is the server's version), so the window does not claim it; one time, "Conflict found …"; two primary buttons "Keep the version in the note" and "Take the second version", and "Save both as separate notes" in the "…" menu ([sync-compare-dialog.tsx](../src/components/workspace/sync/sync-compare-dialog.tsx)). After a choice, the result is written to the centre journal (step 2), and for an open note an `info` card also remains with "Open history" if a version went into history ([conflict-outcome.ts](../src/components/workspace/sync/conflict-outcome.ts)); the row in the list is gone. There is no "Restore" button on the journal entry yet.                                                                                          |
+| 9   | **Done 2026-11-09.** Moving a note into a database: if reading the properties, the note's place in the database, or writing the move failed, a `warning` "Properties of “…” were not moved to the database" appears under the tree with a «Перенести» (Move) button (it reads again and asks again), and the note itself gets a `warning` card with the same button while the session lasts ([property-move-retry-store.ts](../src/components/workspace/file-actions/property-move-retry-store.ts)); the properties stay in the note until the person answers. The "Databases" module is off — we stay silent, the note is not in a database as far as the person is concerned. Silent failures became `warning` in the centre: the property format check on vault open and the check of edits from an old version ([property-notices.tsx](../src/components/workspace/note-notices/property-notices.tsx)); the subscription to sync state (`sync.listen_failed`, [listen-failure.ts](../src/components/workspace/sync/listen-failure.ts)) — the centre says the state stopped updating, the panel shows "Состояние неизвестно" (State unknown) instead of a stale "synced" and re-subscribes up to three more times with a 10 s pause. Red lines in property editors and database cells were moved to `NoticeLine` and the level tokens, and the guard was extended.                                                                                                                               |
 
-Пока шаг не сделан, существующее поведение не ломается ради правил: переводится целиком, вместе с тестами.
+Until a step is done, existing behavior is not broken for the sake of the rules: it is converted as a whole, together with the tests.

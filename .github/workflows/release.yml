@@ -83,11 +83,15 @@ jobs:
           components: rustfmt, clippy
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: . -> target
       - run: npm ci
       - run: npm run rust:fmt
       - run: npm run rust:clippy
       - run: npm run rust:test
+      # `rust:test` regenerates src/lib/bindings.ts in this clean checkout: any difference means the
+      # committed bindings are stale (bindings:check alone compares the file with itself here).
+      - name: Committed IPC bindings match the Rust types
+        run: git diff --exit-code -- src/lib/bindings.ts
       - run: npm run bindings:check
 
   gate-audit:
@@ -138,7 +142,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: . -> target
       - run: npm ci
       - run: npm run rust:test
       - if: matrix.browser
@@ -203,7 +207,7 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: . -> target
           # The two Windows builds share a runner image; their caches must not overwrite each other.
           key: ${{ matrix.rust-targets }}
 
@@ -242,7 +246,7 @@ jobs:
           {
             echo "body<<AMBY_RELEASE_NOTES"
             if [[ "$GITHUB_REF_NAME" == *-beta.* ]]; then
-              echo "> **Пробная версия для обкатки.**"
+              echo "> **Beta version for testing.**"
               echo
             fi
             tail -n +2 "updates/upd_${version%%-beta.*}.md"
@@ -251,7 +255,9 @@ jobs:
             echo "AMBY_RELEASE_NOTES"
           } >> "$GITHUB_OUTPUT"
 
-      - uses: tauri-apps/tauri-action@v1
+      # Holds the signing key: pinned to the commit the `v1` tag pointed at on 2026-11-16
+      # (the tag moves; Dependabot proposes the next commit, see .github/dependabot.yml).
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -262,7 +268,7 @@ jobs:
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-beta.') }}
-          args: ${{ matrix.args }} --config "${{ steps.release_config.outputs.path }}"
+          args: --config src-tauri/tauri.cli.conf.json ${{ matrix.args }} --config "${{ steps.release_config.outputs.path }}"
 
   validate-release-manifest:
     name: Validate signed release manifest

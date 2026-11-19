@@ -17,7 +17,7 @@ use super::model::{
     StateOp, StopReason, SyncState, UnsyncedReason, UnsyncedRecord,
 };
 use super::plan::{Act, CopyPlan, KeepAct, LinkBase, MoveAct, Plan, PutAct, Srv};
-use super::ports::{FsError, RemoteError, SnapshotReason, StagedWrite, TrashReason};
+use super::ports::{ExpectedLocal, FsError, RemoteError, SnapshotReason, StagedWrite, TrashReason};
 use super::props_groups::{
     check_group, count_properties, kind_of_path, merge_group, pass_mass_loss, vanishing_properties,
     GroupKind, GroupMergeOutcome, GroupWrite, PROPS_LOSS_MIN, PROPS_MERGE_MAX_BYTES,
@@ -598,8 +598,18 @@ impl Engine {
                 }
                 self.note_conflict(copy, ctx, report)?;
             }
-            match staged.publish(snapshot) {
+            let expected = match &put.existing {
+                Some(existing) => ExpectedLocal::Hash(existing.hash),
+                None => ExpectedLocal::Absent,
+            };
+            match staged.publish(snapshot, expected) {
                 Ok(()) => {}
+                // The person saved or made the file after the check: it stays as it is, the
+                // next pass decides again (С9, SYNC-01).
+                Err(FsError::Changed(_)) => {
+                    plan.hold_before(put.seq);
+                    return Ok(Step::Skipped);
+                }
                 Err(error @ (FsError::NoSpace | FsError::AccessDenied(_))) => {
                     fail(plan, put.seq, srv, ItemErrorKind::Disk(error));
                     return Ok(Step::Skipped);
@@ -661,7 +671,7 @@ impl Engine {
                     return Err(flow);
                 }
             }
-            match staged.publish(None) {
+            match staged.publish(None, ExpectedLocal::Any) {
                 Ok(()) => {}
                 Err(error @ (FsError::NoSpace | FsError::AccessDenied(_))) => {
                     fail(plan, keep.seq, srv, ItemErrorKind::Disk(error));
@@ -772,7 +782,7 @@ impl Engine {
             staged.abort();
             return Err(error);
         }
-        staged.publish(snapshot)
+        staged.publish(snapshot, ExpectedLocal::Any)
     }
 
     /// Creates the second version of a conflict (Д47, Г23): `other` first, then the base, then

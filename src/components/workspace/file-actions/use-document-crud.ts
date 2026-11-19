@@ -36,6 +36,7 @@ import {
 import { insertTreeItemOptimistically, mutationPaths, removeTreeItem } from "../workspace-mutations"
 import { beginLocalTreeMutation, recordLocalTreePaths } from "../watcher-tree-reconciliation"
 import { dispatchArchiveChanged } from "../use-archive-tree-refresh"
+import { reportTreeActionFailure } from "./action-failure"
 import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
 
 type DeleteResolution = "confirm" | "archive" | "keep_recovery" | "discard" | "cancel"
@@ -49,10 +50,17 @@ function pathName(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1)
 }
 
-function deletionRoot(item: { path: string; type: TreeItem["type"] }): string {
+// What a delete removes: the bundle folder for a bundle's main note, the item itself otherwise. A note
+// directly in the vault root is never a bundle's main note, even when the vault folder has its name
+// (`/Notes/Notes.md`): its "bundle" would be the whole vault (CORE-01, the same rule as in Rust).
+function deletionRoot(
+  item: { path: string; type: TreeItem["type"] },
+  vault: string | null,
+): string {
   const path = normalizeFsPath(item.path)
   if (item.type !== "file") return path
   const parent = path.slice(0, Math.max(0, path.lastIndexOf("/")))
+  if (vault && parent === normalizeFsPath(vault)) return path
   const stem = pathName(path).replace(/\.[^.]+$/u, "")
   return pathName(parent) === stem ? parent : path
 }
@@ -64,6 +72,7 @@ function isPathInside(path: string, root: string): boolean {
 }
 
 function deleteTargets(
+  vault: string | null,
   items: Array<{
     id: string
     name: string
@@ -71,7 +80,7 @@ function deleteTargets(
     type: TreeItem["type"]
   }>,
 ) {
-  const candidates = items.map((item) => ({ ...item, root: deletionRoot(item) }))
+  const candidates = items.map((item) => ({ ...item, root: deletionRoot(item, vault) }))
   const uniqueCandidates = candidates.filter(
     (candidate, index) => candidates.findIndex((other) => other.root === candidate.root) === index,
   )
@@ -206,7 +215,7 @@ export function useDocumentCrud({
       const items = ids
         .map((id) => findTreeItem(treeItems, id))
         .filter((item): item is NonNullable<typeof item> => Boolean(item))
-      const targets = deleteTargets(items)
+      const targets = deleteTargets(vault, items)
       if (targets.length === 0) return
       const openDocuments = Object.values(useDocStore.getState().openDocs)
       const affected = openDocuments.filter((document) =>
@@ -477,7 +486,7 @@ export function useDocumentCrud({
       } catch (error) {
         logger.error("file.create_note_failed", { error })
         setTreeItems((current) => removeTreeItem(current, optimisticId))
-        console.error("Failed to create file:", error)
+        reportTreeActionFailure("createNote")
       } finally {
         reservedNames.delete(title.toLocaleLowerCase())
         if (reservedNames.size === 0) noteNameReservationsRef.current.delete(reservationKey)
@@ -532,7 +541,7 @@ export function useDocumentCrud({
         )
       } catch (error) {
         logger.error("file.create_folder_failed", { title, error })
-        console.error("Failed to create folder:", error)
+        reportTreeActionFailure("createFolder")
       } finally {
         finishLocalMutation()
       }
@@ -567,7 +576,7 @@ export function useDocumentCrud({
         void releaseUnusedDocumentBuffers()
       } catch (error) {
         logger.error("file.create_canvas_failed", { error })
-        console.error("Failed to create canvas:", error)
+        reportTreeActionFailure("createCanvas")
       }
     },
     [
@@ -652,7 +661,7 @@ export function useDocumentCrud({
         void releaseUnusedDocumentBuffers()
       } catch (error) {
         logger.error("file.create_sketch_failed", { error })
-        console.error("Failed to create sketch:", error)
+        reportTreeActionFailure("createSketch")
       }
     },
     [
@@ -706,10 +715,88 @@ export function useDocumentCrud({
       vault,
     ],
   )
+  const handleConvertFolderToNote = React.useCallback(
+    async (folderId: string) => {
+      if (!vault) return
+      const vaultState = useVaultStore.getState()
+      if (vaultState.switching || vaultState.vault !== vault) return
+      const generation = vaultState.generation
+      const stillActive = () => {
+        const current = useVaultStore.getState()
+        return !current.switching && current.vault === vault && current.generation === generation
+      }
+      const folder = findTreeItem(treeItems, folderId)
+      if (!folder || folder.type !== "folder") return
+      const finishLocalMutation = beginLocalTreeMutation()
+      try {
+        const result = await createNote(vault, folder.path, folder.name)
+        if (!stillActive()) return
+        const treeUpdated = handleApplyMutation(result)
+        finishLocalMutation()
+        if (!treeUpdated) {
+          await refreshTreePaths([folder.path])
+          if (!stillActive()) return
+        }
+        const id = result.primaryId ?? result.primaryPath
+        if (!id) return
+        const [note, noteProperties] = await Promise.all([
+          readNote(vault, id),
+          getNoteProperties(vault, id).catch((error: unknown) => {
+            logger.debug("file.convert_folder_properties_read_failed", {
+              failureCode: operationErrorCode(error),
+            })
+            return undefined
+          }),
+        ])
+        if (!stillActive()) return
+        const actualTitle = result.primaryPath ? wsPathStem(result.primaryPath) : folder.name
+        logger.info("file.convert_folder_to_note", { id, folderPath: folder.path })
+        setDoc(id, {
+          id,
+          title: actualTitle,
+          content: note.content,
+          created: t("time.justNow"),
+          modified: t("time.justNow"),
+          wordCount: 0,
+          path: result.primaryPath ?? id,
+          revision: note.revision,
+          source: note.source,
+          noteProperties,
+          noteId: id,
+        })
+        const tabsStore = useTabsStore.getState()
+        const remainingTabs = tabsStore.tabs.filter(
+          (tab) =>
+            !(tab.kind === "folder" && (tab.fileId === folder.id || tab.fileId === folder.path)),
+        )
+        if (remainingTabs.length !== tabsStore.tabs.length) {
+          tabsStore.setTabs(remainingTabs)
+        }
+        openItem({ kind: "document", fileId: id, title: actualTitle }, false)
+        void releaseUnusedDocumentBuffers()
+      } catch (error) {
+        logger.error("file.convert_folder_to_note_failed", { folderId, error })
+        reportTreeActionFailure("createNote")
+      } finally {
+        finishLocalMutation()
+      }
+    },
+    [
+      handleApplyMutation,
+      openItem,
+      refreshTreePaths,
+      releaseUnusedDocumentBuffers,
+      setDoc,
+      t,
+      treeItems,
+      vault,
+    ],
+  )
   return {
     handleDeleteFile,
     handleDeleteFiles,
     handleNewFileIn: createDocumentIn,
+    handleConvertFolderToNote,
     handleNewFolderIn,
     handleNewCanvasIn,
     handleAttachCanvasToNote,

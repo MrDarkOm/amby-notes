@@ -2,7 +2,7 @@
 import { renderHook } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { DOCK_GAP, useBellAnchor } from "./use-bell-anchor"
+import { BOTTOM_INSET, DOCK_GAP, useBellAnchor } from "./use-bell-anchor"
 
 const box = (left: number, width: number, top: number, bottom: number) =>
   ({
@@ -39,26 +39,19 @@ afterEach(() => {
   document.body.innerHTML = ""
 })
 
-describe("useBellAnchor and the workspace switcher", () => {
-  it("keeps the gap from the dock and the foot of the bell when nothing is in the way", () => {
+describe("useBellAnchor", () => {
+  it("anchors beside the left dock with a tight gap and clean bottom inset", () => {
     mountDock()
     const { result } = renderHook(() => useBellAnchor(true))
     expect(result.current.left).toBe(48 + DOCK_GAP)
-    expect(result.current.bottom).toBe(window.innerHeight - 740)
+    expect(result.current.bottom).toBe(BOTTOM_INSET)
   })
 
-  it("stands above the workspace switcher instead of covering it", () => {
+  it("stays anchored at the bottom inset even when the workspace switcher is open", () => {
     mountDock()
     mountSwitcher(box(48, 260, 690, 750))
     const { result } = renderHook(() => useBellAnchor(true))
     expect(result.current.left).toBe(48 + DOCK_GAP)
-    expect(result.current.bottom as number).toBeGreaterThanOrEqual(window.innerHeight - 690 + 8)
-  })
-
-  it("is not lifted by a switcher that is not beside it", () => {
-    mountDock()
-    mountSwitcher(box(900, 200, 690, 750))
-    const { result } = renderHook(() => useBellAnchor(true))
-    expect(result.current.bottom).toBe(window.innerHeight - 740)
+    expect(result.current.bottom).toBe(BOTTOM_INSET)
   })
 })

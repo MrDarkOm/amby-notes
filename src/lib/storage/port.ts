@@ -158,6 +158,10 @@ export interface StoragePort extends DatabasePort, ProjectPort {
 
   // System & Assets
   openInExplorer(path: string): Promise<void>
+  /** Shows the folder of a known vault (by its id in the list of vaults) in the file manager. */
+  revealVaultFolder(id: string): Promise<void>
+  /** Shows the app's own data folder in the file manager. */
+  revealAppDataFolder(): Promise<void>
   /** Opens an attachment of a note with the system program; the backend decides if it may be. */
   openAttachment(notePath: string, attachmentPath: string): Promise<void>
   /** Asks where to save a copy of a note's attachment; the chosen path, or `null` when cancelled. */
@@ -189,7 +193,7 @@ export interface StoragePort extends DatabasePort, ProjectPort {
   writeGlobalRaw(file: string, contents: string): Promise<void>
   compareWriteGlobalRaw(file: string, expected: string | null, contents: string): Promise<boolean>
   readVaultRaw(rel: string): Promise<string | null>
-  writeVaultRaw(rel: string, contents: string): Promise<void>
+  writeVaultRaw(rel: string, contents: string, expectedGeneration?: number | null): Promise<void>
   deleteVaultMeta(rel: string): Promise<void>
 
   // AI Credentials

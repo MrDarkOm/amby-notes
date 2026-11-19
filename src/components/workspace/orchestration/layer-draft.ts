@@ -3,6 +3,29 @@ import { confirmations } from "@/lib/confirmations"
 import { discardRecoveryDraft, readRecoveryDraft, type RecoveryScope } from "@/lib/recovery-drafts"
 import { useHeldDraftsStore } from "../held-drafts-store"
 import { recoveryNeedsConfirmation, resolveRecoveryContent } from "../recovery-restore"
+import { useDocStore } from "../use-doc-store"
+import { canvasLayerPath, sketchLayerPath } from "../workspace-tree-utils"
+
+/** A canvas or sketch file exists but could not be read or parsed; it is not opened (SAVE-01). */
+export class LayerUnreadableError extends Error {
+  constructor(readonly path: string) {
+    super("The layer file could not be read")
+    this.name = "LayerUnreadableError"
+  }
+}
+
+/** The open documents that show the canvas or sketch file at `path` (the file itself or a note's layer). */
+export function layerDocIds(path: string): string[] {
+  return Object.entries(useDocStore.getState().openDocs)
+    .filter(
+      ([, doc]) =>
+        doc.path === path ||
+        doc.id === path ||
+        canvasLayerPath(doc.path) === path ||
+        sketchLayerPath(doc.path) === path,
+    )
+    .map(([docId]) => docId)
+}
 
 /** Questions that are on the screen now, by path: a layer asks one at a time. */
 const asking = new Set<string>()

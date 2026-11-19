@@ -1,22 +1,22 @@
-# Формат базы данных Amby
+# Amby database format
 
-Статус: implemented v1 contract with additive computed/chart extensions
-Версия документа: 1
-Дата: 2026-09-04
+Status: implemented v1 contract with additive computed/chart extensions
+Document version: 1
+Date: 2026-09-04
 
-Документ определяет durable-формат первой версии баз. Он следует
-[архитектуре](database-system.md) и
-[пользовательским сценариям](database-user-flows.md). SQLite-схема является
-отдельной перестраиваемой проекцией этого формата.
+This document defines the durable format of the first version of databases. It follows the
+[architecture](database-system.md) and the
+[user flows](database-user-flows.md). The SQLite schema is a separate
+rebuildable projection of this format.
 
-## 1. Структура контейнера
+## 1. Container structure
 
-Текущий layout — **версия 2 манифеста**. Виды и шаблоны внутри манифеста по-прежнему
-имеют собственную `formatVersion: 1`; это версии вложенных документов.
+The current layout is **manifest version 2**. The views and templates inside the manifest still
+have their own `formatVersion: 1`; these are the versions of the nested documents.
 
 ```text
 Персонажи/
-├── Персонажи.json   — схема, views, templates, порядок и настройки
+├── Персонажи.json   — schema, views, templates, order and settings
 ├── assets/
 │   ├── img_<ULID>.png
 │   └── pdf_<ULID>.pdf
@@ -25,94 +25,94 @@
     └── Борис.md
 ```
 
-Новые базы создаются сразу в версии 2. Все настройки, представления и шаблоны
-хранятся в одном JSON, значения свойств — во frontmatter Markdown. Вложения
-хранятся отдельно: `assets/<тип>_<ULID>.<расширение>` внутри контейнера; исходное имя
-остаётся в описании вложения. При переносе существующих ресурсов сохраняются
-их вложенные пути `assets/<note-id>/<имя>`, чтобы не менять ссылки в значениях.
-Именованные файлы ресурсов не перезаписываются. Символические ссылки запрещены.
+New databases are created directly in version 2. All settings, views and templates
+are stored in a single JSON, and property values in the Markdown frontmatter. Attachments
+are stored separately: `assets/<type>_<ULID>.<extension>` inside the container; the original name
+stays in the attachment description. When existing resources are moved, their
+nested paths `assets/<note-id>/<name>` are preserved so that links in values do not change.
+Named resource files are not overwritten. Symbolic links are forbidden.
 
-При открытии хранилища выполняется только проверка. Базы версии 1 показываются
-в интерфейсе как заблокированные до обновления; уведомление предлагает
-«Обновить данные». Само открытие ничего не переносит. При нажатии завершаются
-автосохранения, проверяется поколение хранилища, синхронизация останавливается
-до окончания прохода миграции и затем запускается снова.
+When a vault is opened, only a check is performed. Version 1 databases are shown
+in the interface as locked until updated; a notice offers
+"Update data" («Обновить данные»). Opening itself migrates nothing. On click, autosaves are
+finished, the vault generation is checked, and sync is stopped
+until the migration pass ends and then started again.
 
-Перед публикацией проверяются все базы: идентичность шаблонов и видов, отсутствие
-коллизий ресурсов, корректность объединённого JSON и лимит **5 МиБ**. Неизвестные
-поля сохраняются. Непустой legacy `records/`, дублирующиеся манифесты, повреждённые
-данные, символические ссылки и пользовательские ссылки на `.ambd/assets/`,
-которые нельзя перенести автоматически, блокируют преобразование без изменения
-исходных файлов.
+Before publishing, all databases are checked: the identity of templates and views, the absence
+of resource collisions, the correctness of the merged JSON and the **5 MiB** limit. Unknown
+fields are preserved. A non-empty legacy `records/`, duplicate manifests, corrupted
+data, symbolic links and user links to `.ambd/assets/`
+that cannot be migrated automatically block the conversion without changing
+the source files.
 
-Версия 1 с `ambd.json`, отдельными `.ambd/views/` и `.ambd/templates/` читается
-для перехода. Описание shards ниже относится к этой совместимости и к моделям
-вложенных документов, а не к расположению файлов новых баз.
+Version 1 with `ambd.json` and separate `.ambd/views/` and `.ambd/templates/` is read
+for the transition. The description of shards below applies to this compatibility and to the models
+of nested documents, not to the file layout of new databases.
 
-## 1.1. Источники истины и контракт хранения (ST-02)
+## 1.1. Sources of truth and the storage contract (ST-02)
 
-- **Значения свойств заметок** — Markdown frontmatter файлов заметок в контейнере базы данных является основным источником истины. Значения записываются через точечный бегло-атомарный сплайс (`replace_yaml_binding_lossless`), сохраняя структуру Markdown, BOM, переносы строк и сторонние поля.
-- **Record shards (`.ambd/records/`)** — устаревший формат версии 1; версия 2 их не читает и не создаёт. Обычная правка
-  ячейки, Relation и создание строки их не пишут и не требуют. Подробности и
-  фактическое поведение — в разделе 6.
-- **Схема и представления базы** — файл манифеста (`<Название_Контейнера>.json` / `ambd.json`) и сохранённые представления (`.ambd/views/`).
-- **SQLite-проекция** — производный, полностью перестраиваемый кэш (`.amby/notes.db`). Удаление файла базы данных SQLite не приводит к потере пользовательских данных или свойств.
-- **Идентичность свойств и ключи:**
-  - `propertyId` — неизменяемый канонический ULID свойства в манифесте базы данных.
-  - `storageKey` — неизменяемый ключ хранения в frontmatter заметки, задаваемый через `yamlBinding.key`.
-  - `name` — отображаемое пользователю название свойства (например, "Дата завершения"). Изменение отображаемого имени не требует перезаписи frontmatter тысяч заметок.
-- **Приоритет разрешения ключей при чтении:**
-  1. Точное совпадение с `storageKey` (`yamlBinding.key`).
-  2. Точное совпадение с `propertyId`.
-  3. Регистронезависимое совпадение с `storageKey`.
-  4. Точное совпадение с отображаемым `name` (legacy fallback).
-  5. Регистронезависимое совпадение с `name` (legacy fallback).
-- **Зарезервированные системные ключи:**
-  - Системные ключи `amby-id`, `amby-title`, `amby-views`, `amby-database` и любые ключи с префиксом `amby-` зарезервированы ядром Amby.
-  - Пользовательские свойства с именами `id` или `title` связываются с соответствующими пользовательскими YAML-ключами и никогда не подменяют `amby-id`. Пользовательским свойствам запрещено связываться с зарезервированными ключами.
-- **Версионирование формата:**
-  - Текущая версия durable-формата: `1`.
-  - Неизвестные/будущие версии (`formatVersion > 1`): открываются в режиме **read-only** с диагностическим предупреждением; файл манифеста и заметки не перезаписываются.
-- **Семантика значений:**
-  - `0` и `false` являются валидными значащими значениями и не интерпретируются как пустота.
-  - Очистка значения ячейки (пустая строка, пустой список файлов или связей) приводит к удалению соответствующего ключа из frontmatter (`remove_yaml_binding_lossless`).
-  - Опции Select/Status/MultiSelect сохраняют устойчивость к переименованию: значение в frontmatter может быть как именем опции, так и её стабильным ULID (`find_option_id`).
+- **Note property values** — the Markdown frontmatter of the note files in the database container is the primary source of truth. Values are written through a targeted, lightweight atomic splice (`replace_yaml_binding_lossless`), preserving the Markdown structure, BOM, line endings and third-party fields.
+- **Record shards (`.ambd/records/`)** — a legacy version 1 format; version 2 neither reads nor creates them. An ordinary edit of a
+  cell, Relation and row creation do not write them and do not require them. Details and
+  the actual behavior are in section 6.
+- **Database schema and views** — the manifest file (`<Название_Контейнера>.json` / `ambd.json`) and the saved views (`.ambd/views/`).
+- **The SQLite projection** — a derived, fully rebuildable cache (`.amby/notes.db`). Deleting the SQLite database file does not lead to the loss of user data or properties.
+- **Property identity and keys:**
+  - `propertyId` — the immutable canonical ULID of the property in the database manifest.
+  - `storageKey` — the immutable storage key in the note frontmatter, set through `yamlBinding.key`.
+  - `name` — the property title shown to the user (for example, "Дата завершения" (Completion date)). Changing the display name does not require rewriting the frontmatter of thousands of notes.
+- **Key resolution priority when reading:**
+  1. An exact match with `storageKey` (`yamlBinding.key`).
+  2. An exact match with `propertyId`.
+  3. A case-insensitive match with `storageKey`.
+  4. An exact match with the display `name` (legacy fallback).
+  5. A case-insensitive match with `name` (legacy fallback).
+- **Reserved system keys:**
+  - The system keys `amby-id`, `amby-title`, `amby-views`, `amby-database` and any keys with the `amby-` prefix are reserved by the Amby core.
+  - User properties named `id` or `title` are bound to the corresponding user YAML keys and never replace `amby-id`. User properties are forbidden from binding to reserved keys.
+- **Format versioning:**
+  - The current version of the durable format: `1`.
+  - Unknown/future versions (`formatVersion > 1`): opened in **read-only** mode with a diagnostic warning; the manifest file and notes are not rewritten.
+- **Value semantics:**
+  - `0` and `false` are valid meaningful values and are not interpreted as empty.
+  - Clearing a cell value (an empty string, an empty list of files or links) removes the corresponding key from the frontmatter (`remove_yaml_binding_lossless`).
+  - Select/Status/MultiSelect options stay stable under renaming: the value in the frontmatter can be either the option name or its stable ULID (`find_option_id`).
 
-## 2. Общие правила JSON
+## 2. General JSON rules
 
-- UTF-8 без обязательного BOM; невалидный UTF-8/BOM обрабатывается read-only.
-- Новые записи форматируются двумя пробелами и завершающим LF.
-- `format` и `formatVersion` обязательны в каждом durable JSON-файле.
-- ID базы, properties, options, views, templates и notes — canonical uppercase
-  ULID.
-- Порядок массивов значим; порядок ключей объектов не используется как данные.
-- Неизвестные ключи сохраняются при записи известного объекта.
-- Неизвестный `formatVersion` открывается read-only целиком.
-- Неизвестный discriminant внутри поддерживаемой версии сохраняется как opaque
-  entry; остальные понятные части продолжают читаться, если это безопасно.
-- `null` используется только там, где он описан. Отсутствующее property value
-  обозначается отсутствием ключа, а не неявной пустой строкой.
-- JSON numbers не используются для пользовательских decimal values.
+- UTF-8 without a mandatory BOM; invalid UTF-8/BOM is handled read-only.
+- New writes are formatted with two spaces and a trailing LF.
+- `format` and `formatVersion` are mandatory in every durable JSON file.
+- The IDs of the database, properties, options, views, templates and notes are canonical uppercase
+  ULIDs.
+- The order of arrays is significant; the order of object keys is not used as data.
+- Unknown keys are preserved when a known object is written.
+- An unknown `formatVersion` opens entirely read-only.
+- An unknown discriminant inside a supported version is preserved as an opaque
+  entry; the other understood parts continue to be read if that is safe.
+- `null` is used only where it is described. A missing property value
+  is denoted by the absence of the key, not by an implicit empty string.
+- JSON numbers are not used for user decimal values.
 
-## 3. Revision и CAS
+## 3. Revision and CAS
 
-Revision не записывается внутрь JSON, иначе внешний редактор может изменить
-файл, не обновив поле revision. Backend возвращает opaque revision, вычисленную
-по точным raw bytes.
+The revision is not written inside the JSON, otherwise an external editor could change
+the file without updating the revision field. The backend returns an opaque revision computed
+from the exact raw bytes.
 
-Каждая mutation принимает `expectedRevision`:
+Each mutation accepts `expectedRevision`:
 
-1. backend заново читает файл;
-2. сравнивает raw-byte revision;
-3. валидирует mutation против текущего состояния;
-4. пишет sibling temporary file, flush/sync и атомарно публикует;
-5. возвращает новую revision;
-6. обновляет SQLite projection.
+1. the backend re-reads the file;
+2. compares the raw-byte revision;
+3. validates the mutation against the current state;
+4. writes a sibling temporary file, flush/sync and atomically publishes;
+5. returns the new revision;
+6. updates the SQLite projection.
 
-Несовпадение возвращает typed conflict. Last-write-wins и автоматическая запись
-поверх поврежденного JSON запрещены.
+A mismatch returns a typed conflict. Last-write-wins and automatic writing
+over corrupted JSON are forbidden.
 
-## 4. Манифест базы данных (`<Название_Контейнера>.json` / `ambd.json`)
+## 4. Database manifest (`<Название_Контейнера>.json` / `ambd.json`)
 
 ```json
 {
@@ -135,25 +135,25 @@ Revision не записывается внутрь JSON, иначе внешн�
 }
 ```
 
-### Поля manifest
+### Manifest fields
 
-| Поле                | Семантика                                                       |
-| ------------------- | --------------------------------------------------------------- |
-| `databaseId`        | Устойчивый ID базы, не зависит от пути и имени                  |
-| `name`              | Отображаемое имя; имя каталога может отличаться после конфликта |
-| `icon`              | Значение существующего `IconValue` либо `null`                  |
-| `cover`             | Database-local asset reference либо `null`                      |
-| `locked`            | Блокирует schema/view/membership mutations через UI             |
-| `membership`        | В v1 только recursive filesystem descendants                    |
-| `properties`        | Упорядоченная общая schema                                      |
-| `viewOrder`         | Упорядоченные IDs файлов `.ambd/views`                          |
-| `defaultViewId`     | View при открытии базы либо `null`, если views еще нет          |
-| `templateOrder`     | Упорядоченные IDs файлов `.ambd/templates`                      |
-| `defaultTemplateId` | Template по умолчанию либо `null`                               |
+| Field               | Semantics                                                             |
+| ------------------- | --------------------------------------------------------------------- |
+| `databaseId`        | The stable database ID, independent of the path and name              |
+| `name`              | The display name; the directory name may differ after a conflict      |
+| `icon`              | The value of an existing `IconValue` or `null`                        |
+| `cover`             | A database-local asset reference or `null`                            |
+| `locked`            | Blocks schema/view/membership mutations through the UI                |
+| `membership`        | In v1 only recursive filesystem descendants                           |
+| `properties`        | The ordered shared schema                                             |
+| `viewOrder`         | The ordered IDs of the `.ambd/views` files                            |
+| `defaultViewId`     | The view on opening the database, or `null` if there are no views yet |
+| `templateOrder`     | The ordered IDs of the `.ambd/templates` files                        |
+| `defaultTemplateId` | The default template or `null`                                        |
 
-`defaultViewId` обязан присутствовать в `viewOrder`. Аналогичное правило
-действует для template. Missing shard не удаляется из manifest автоматически:
-UI показывает diagnostic и предлагает восстановление либо явную очистку ссылки.
+`defaultViewId` must be present in `viewOrder`. A similar rule
+applies to templates. A missing shard is not removed from the manifest automatically:
+the UI shows a diagnostic and offers a repair or an explicit clearing of the reference.
 
 ### Cover
 
@@ -166,12 +166,12 @@ interface DatabaseCover {
 }
 ```
 
-`relativePath` разрешается внутри `assets/` для версии 2 (`.ambd/assets/` для версии 1), не содержит absolute
-prefix, `..`, URL или symlink escape.
+`relativePath` is resolved inside `assets/` for version 2 (`.ambd/assets/` for version 1), and contains no absolute
+prefix, `..`, URL or symlink escape.
 
 ## 5. Property definitions
 
-Каждое определение имеет общие поля:
+Each definition has common fields:
 
 ```ts
 interface PropertyBase {
@@ -183,7 +183,7 @@ interface PropertyBase {
 }
 ```
 
-Поддерживаемые v1 определения:
+The definitions supported in v1:
 
 ```ts
 type PropertyDefinition =
@@ -245,14 +245,14 @@ type PropertyDefinition =
           | "unique"
           | "percentChecked"
       }
-      // Единый реестр: src-tauri/src/database/rollup.rs (`rollup-aggregations.json`
-      // в UI сверяется тестом). Допустимость зависит от типа поля связанной базы;
-      // `avg` и `countUnique` читаются как `average` и `unique`.
+      // A single registry: crates/amby-core/src/database/rollup.rs (`rollup-aggregations.json`
+      // in the UI is checked by a test). What is allowed depends on the field type of the related database;
+      // `avg` and `countUnique` are read as `average` and `unique`.
     })
 ```
 
-Title, Created, Modified, Path, Tags, Backlinks, Word count, Parent и Sub-items
-являются system fields и не записываются как PropertyDefinition.
+Title, Created, Modified, Path, Tags, Backlinks, Word count, Parent and Sub-items
+are system fields and are not written as a PropertyDefinition.
 
 ### Select options
 
@@ -268,21 +268,21 @@ interface StatusOption extends SelectOption {
 }
 ```
 
-Запись хранит в frontmatter **название** варианта (`find_option_id` находит
-вариант по ID, названию или алиасу), поэтому при переименовании старое название
-остаётся в `aliases` варианта: записи, сохранённые до переименования, продолжают
-указывать на тот же вариант. Название всегда сильнее алиаса: алиас, совпавший с
-текущим названием любого варианта, снимается.
+A record stores the option's **name** in the frontmatter (`find_option_id` finds the
+option by ID, name or alias), so on renaming the old name
+stays in the option's `aliases`: records saved before the rename keep
+pointing to the same option. The name always outranks an alias: an alias that matches
+the current name of any option is dropped.
 
-Команда `update_database_property_options` заменяет список целиком (ID
-сохраняются у существующих вариантов, новым выдаются ULID), проверяет цвет
-(`#rrggbb`), уникальность названий без учёта регистра и группу Status, а перед
-записью делает снимок manifest (`database-schema`). Записи не переписываются:
-удалённый вариант остаётся в значениях записанным названием и показывается как
-значение вне списка (предупреждение валидации
-`missing option is retained as a diagnostic value`), поэтому удаление варианта не
-теряет данные; повторное создание варианта с тем же названием или возврат manifest
-из снимка снова делает значение обычным.
+The `update_database_property_options` command replaces the list as a whole (IDs
+are kept for existing options, new ones get ULIDs), checks the color
+(`#rrggbb`), the case-insensitive uniqueness of names and the Status group, and before
+writing takes a snapshot of the manifest (`database-schema`). Records are not rewritten:
+a deleted option stays in the values as the recorded name and is shown as
+an out-of-list value (the validation warning
+`missing option is retained as a diagnostic value`), so deleting an option does not
+lose data; recreating an option with the same name or restoring the manifest
+from the snapshot makes the value ordinary again.
 
 ### YAML binding
 
@@ -293,54 +293,54 @@ interface YamlBinding {
 }
 ```
 
-Binding разрешен для Text, Number, Checkbox, Date, Select, Multi-select, Status, URL,
-Files и Relation. `key` — непустой top-level YAML mapping key, не являющийся
-зарезервированным системным ключом; два поля одной базы не могут писать один key.
-Создание новой привязки к другому YAML-ключу требует preflight всех текущих строк.
+A binding is allowed for Text, Number, Checkbox, Date, Select, Multi-select, Status, URL,
+Files and Relation. `key` is a non-empty top-level YAML mapping key that is not a
+reserved system key; two fields of one database cannot write the same key.
+Creating a new binding to a different YAML key requires a preflight of all current rows.
 
-Переименование свойства меняет только manifest: существующая привязка сохраняется
-целиком. Если у хранимого свойства ещё нет `yamlBinding`, при явном переименовании
-его прежнее имя фиксируется как `key` с направлением `twoWay` в том же атомарном
-изменении manifest. Значения продолжают читаться и записываться по прежнему ключу;
-Markdown-файлы, включая заметки вложенных баз, не переписываются. Это фиксация
-уже используемого ключа, а не перенос данных. Formula и Rollup остаются без YAML
-binding. Manifest проходит валидацию, raw-byte CAS и snapshot перед заменой.
+Renaming a property changes only the manifest: the existing binding is preserved
+as a whole. If a stored property has no `yamlBinding` yet, on an explicit rename
+its previous name is fixed as `key` with the direction `twoWay` in the same atomic
+manifest change. Values keep being read and written under the previous key;
+Markdown files, including the notes of nested databases, are not rewritten. This is the fixing
+of an already used key, not a data migration. Formula and Rollup stay without a YAML
+binding. The manifest goes through validation, raw-byte CAS and a snapshot before replacement.
 
-До записи выполняется read-only preflight текущих строк owning database с тем
-же resolver, который использует проекция: если новое имя изменит найденное YAML
-значение (например, исчезнет legacy fallback при явной привязке), операция
-отклоняется. Вложенные базы учитываются через discovery ownership; главная
-заметка attached database остаётся строкой внешней базы. Совпадающие после trim
-и ASCII case-fold ключи хранения, включая ID других свойств, также блокируют rename. Пока формулы используют
-ссылки по имени, переименование поля с такими зависимостями отклоняется до
-изменения manifest; автоматическая миграция выражений — отдельная задача.
+Before writing, a read-only preflight of the current rows of the owning database is performed with the
+same resolver the projection uses: if the new name would change the found YAML
+value (for example, the legacy fallback disappears with an explicit binding), the operation is
+rejected. Nested databases are accounted for through discovery ownership; the main
+note of an attached database remains a row of the outer database. Storage keys that match after trim
+and ASCII case-fold, including the IDs of other properties, also block a rename. While formulas use
+references by name, renaming a field with such dependencies is rejected before
+the manifest changes; automatic migration of expressions is a separate task.
 
-### Независимое отображаемое название заметки
+### An independent display title for a note
 
-Новая запись может содержать namespaced frontmatter key `amby-title`. Его
-непустое значение имеет приоритет над первым H1/body title и именем файла.
-Generic `title` не захватывается и не изменяется. Смена `amby-title` не требует
-переименования файла; пустое или некорректное значение игнорируется с
-сохранением исходных bytes.
+A new record may contain the namespaced frontmatter key `amby-title`. Its
+non-empty value takes priority over the first H1/body title and the file name.
+A generic `title` is not captured and not changed. Changing `amby-title` does not require
+renaming the file; an empty or incorrect value is ignored with
+the original bytes preserved.
 
-## 6. Record shard (устаревший)
+## 6. Record shard (legacy)
 
-Статус: устаревший формат, источник истины для значений — frontmatter заметки
-(раздел 1.1). Начиная со следующей версии после 0.1.9 **не читаются и не
-выполняются**: перенос shard-значений во frontmatter при discovery
-(`legacy_records.rs`) и явная миграция баз (`migration.rs`, команды
-`detect/preflight/execute/rollback_database_migration`). Файлы `.ambd/records/`
-никто не удаляет и не перезаписывает. Остаётся:
+Status: a legacy format; the source of truth for values is the note frontmatter
+(section 1.1). Starting with the version after 0.1.9 the following are **neither read nor
+executed**: moving shard values into the frontmatter during discovery
+(`legacy_records.rs`) and the explicit database migration (`migration.rs`, the commands
+`detect/preflight/execute/rollback_database_migration`). Nobody deletes or rewrites the
+`.ambd/records/` files. What remains:
 
-- **Запись.** Правка ячейки (`apply_value_batch`), Relation и создание строки
-  shard не создают. Единственный писатель — явная команда YAML sync
-  (`yaml_sync.rs`), которая хранит в shard `yamlSyncBases`.
-- **Проекция.** Значения читаются из frontmatter; shard нужен YAML sync и служит
-  запасным источником только для свойств, которых во frontmatter нет
-  (frontmatter приоритетнее).
-- **Диагностика.** `diagnose_shards` помечает orphan-shards.
-- **Документ ниже** описывает формат файла; новый код не должен рассчитывать на
-  его существование.
+- **Writing.** A cell edit (`apply_value_batch`), Relation and row creation do not
+  create shards. The only writer is the explicit YAML sync command
+  (`yaml_sync.rs`), which stores `yamlSyncBases` in the shard.
+- **Projection.** Values are read from the frontmatter; the shard is needed by YAML sync and serves as
+  a fallback source only for properties that are not in the frontmatter
+  (the frontmatter takes precedence).
+- **Diagnostics.** `diagnose_shards` flags orphan shards.
+- **The document below** describes the file format; new code must not rely on
+  its existence.
 
 ```json
 {
@@ -355,13 +355,13 @@ Generic `title` не захватывается и не изменяется. С
 }
 ```
 
-Filename обязан совпадать с `noteId`; `databaseId` обязан совпадать с ближайшим
-владельцем на момент активного использования. Shard строки, вынесенной из базы,
-сохраняется, но не индексируется как active record.
+The filename must match `noteId`; `databaseId` must match the nearest
+owner at the time of active use. The shard of a row moved out of the database
+is preserved but is not indexed as an active record.
 
-Отсутствие shard означает, что все database values пусты. Пустой shard можно
-удалить только если у него нет YAML sync base, diagnostics или неизвестных
-полей.
+The absence of a shard means that all database values are empty. An empty shard can be
+deleted only if it has no YAML sync base, diagnostics or unknown
+fields.
 
 ## 7. Property values
 
@@ -383,18 +383,18 @@ type PropertyValue =
   | { type: "relation"; targetNoteIds: string[] }
 ```
 
-Правила:
+Rules:
 
-- Number использует каноническую decimal string, чтобы JSON/JavaScript не терял
-  точность; формат валюты принадлежит definition.
-- Date-only использует `YYYY-MM-DD` и `timeZone: null`; date-time использует
-  ISO-8601 offset и исходную IANA timezone при наличии.
-- Date range не допускает `end < start`.
-- Option IDs должны существовать в definition; удаленный option остается
-  diagnostic value до явной конверсии.
-- Multi-select IDs и relation targets уникальны, порядок отображения сохраняется.
-- URL валидируется, но никогда автоматически не открывается.
-- Formula/rollup values не записываются ни во frontmatter, ни в legacy shard.
+- Number uses a canonical decimal string so that JSON/JavaScript does not lose
+  precision; the currency format belongs to the definition.
+- Date-only uses `YYYY-MM-DD` and `timeZone: null`; date-time uses an
+  ISO-8601 offset and the original IANA timezone when present.
+- A date range does not allow `end < start`.
+- Option IDs must exist in the definition; a deleted option stays a
+  diagnostic value until an explicit conversion.
+- Multi-select IDs and relation targets are unique, and the display order is preserved.
+- A URL is validated but never opened automatically.
+- Formula/rollup values are written neither to the frontmatter nor to the legacy shard.
 
 ### Files & media
 
@@ -409,183 +409,183 @@ interface FileValue {
 }
 ```
 
-`relativePath` разрешается от bundle строки и обязан оставаться внутри ее
-`assets/`. Remote URL, absolute path и `..` запрещены. Удаление FileValue не
-удаляет asset автоматически.
+`relativePath` is resolved from the row's bundle and must stay inside its
+`assets/`. A remote URL, an absolute path and `..` are forbidden. Deleting a FileValue does not
+delete the asset automatically.
 
 ### Relations
 
-В текущем native-пути `update_database_relation_value` forward `targetNoteIds`
-и список обратного свойства записываются в YAML соответствующих заметок. Это
-зеркальные durable-значения; обратный список пока не является только вычисляемой
-проекцией. Изменения значений и схемы имеют отдельные журналы, описанные ниже.
-Единая координация схемы/значений ещё требует усиления (P0/F2): изменение схемы
-заполненной связи не должно незаметно переносить или удалять значения.
+In the current native path `update_database_relation_value`, the forward `targetNoteIds`
+and the list of the inverse property are written into the YAML of the corresponding notes. These are
+mirrored durable values; the inverse list is not yet merely a computed
+projection. Value changes and schema changes have separate journals, described below.
+A single coordination of schema/values still needs strengthening (P0/F2): changing the schema
+of a populated relation must not silently move or delete values.
 
-Двустороннее **создание** свойства (`create_database_property`,
-`propertyType: relation`, `relationTwoWay: true`) требует `operationId` и
-`expectedManifestRevision` источника. Для другой базы дополнительно обязателен
-`expectedTargetManifestRevision`; для self-relation используется ревизия
-источника. UI получает актуальную целевую ревизию через storage `listDatabases`
-перед отправкой запроса; native discovery читает raw manifest bytes.
-Rust сначала готовит обе схемы в памяти: проверяет insertion point, locked и
-read-only manifests, лимиты и конфликты имён, YAML-ключей и системных ключей.
-Self-relation создаёт два разных свойства одним изменением manifest.
+The two-way **creation** of a property (`create_database_property`,
+`propertyType: relation`, `relationTwoWay: true`) requires `operationId` and
+the source's `expectedManifestRevision`. For another database, `expectedTargetManifestRevision`
+is additionally mandatory; for a self-relation the source revision is used.
+The UI gets the current target revision through the storage `listDatabases`
+before sending the request; native discovery reads the raw manifest bytes.
+Rust first prepares both schemas in memory: it checks the insertion point, locked and
+read-only manifests, limits, and conflicts of names, YAML keys and system keys.
+A self-relation creates two different properties in one manifest change.
 
-Перед первым publish сохраняются no-replace raw backups и version-1 журнал
+Before the first publish, no-replace raw backups and a version-1 journal
 `.amby/recovery/database_relation_schemas/<operationId>.json`
-(`format: amby-relation-schema-recovery`); backups находятся в
-`<operationId>/<index>.bin`. Он хранит запрос, fingerprint без
-`expectedGeneration`, database IDs, пути manifests, pre/post SHA-256, progress и
-результат со стабильными forward/inverse IDs и `manifestRevisions`. Обычное
-одностороннее создание свойства не требует operation ID и использует прежний
-однофайловый путь. Формат журнала значений Relation не изменён.
+(`format: amby-relation-schema-recovery`) are saved; the backups are in
+`<operationId>/<index>.bin`. It stores the request, a fingerprint without
+`expectedGeneration`, the database IDs, the manifest paths, pre/post SHA-256, progress and
+a result with stable forward/inverse IDs and `manifestRevisions`. An ordinary
+one-way property creation does not require an operation ID and uses the previous
+single-file path. The format of the Relation value journal is unchanged.
 
-Все исходные manifests сравниваются до публикации; каждый файл и журнал
-перепроверяются перед записью. Ошибка запускает условный откат только собственных
-post bytes; внешние правки сохраняются, неполное восстановление возвращает
-`rollback incomplete`. Completion фиксируется до watcher confirmation.
-Тот же ID/payload возвращает завершённый результат до source CAS, без новых
-свойств или записей; другой payload, pending или rolled-back ID отклоняются.
-IPC по-прежнему требует актуальный `expectedGeneration`: после reactivation
-клиент меняет только generation в прежнем запросе; fingerprint его исключает.
-Устаревший generation отклоняется и для replay, сохраняя границу активного vault.
-Отказ до публикации первого journal может оставить raw backup directory без
-журнала и без изменений manifests; повтор с тем же ID тогда отклоняется при
-подготовке каталога. Для новой попытки нужен новый ID. Такие копии сохраняются,
-а не удаляются автоматически; resume/cleanup этого окна ещё не реализованы.
-При activation прерванная операция восстанавливает точные raw pre bytes после
-проверки всех pending journals. Journals/backups не удаляются editor draft
-cleanup или rebuild индекса. Это восстановление незавершённой операции, а не
-пользовательский undo создания свойства.
+All source manifests are compared before publishing; each file and the journal
+are re-checked before writing. An error starts a conditional rollback of only its own
+post bytes; external edits are preserved, and an incomplete restore returns
+`rollback incomplete`. Completion is recorded before watcher confirmation.
+The same ID/payload returns the completed result before the source CAS, with no new
+properties or writes; a different payload, or a pending or rolled-back ID, is rejected.
+IPC still requires a current `expectedGeneration`: after reactivation
+the client changes only the generation in the previous request; the fingerprint excludes it.
+A stale generation is rejected for a replay too, preserving the active vault boundary.
+A failure before the first journal is published may leave a raw backup directory without
+a journal and without manifest changes; a retry with the same ID is then rejected while
+preparing the directory. A new attempt needs a new ID. Such copies are preserved
+and not deleted automatically; resume/cleanup of this window is not yet implemented.
+On activation, an interrupted operation restores the exact raw pre bytes after
+checking all pending journals. Journals/backups are not deleted by editor draft
+cleanup or an index rebuild. This is the recovery of an unfinished operation, not
+a user undo of the property creation.
 
-Настройка существующего Relation и конверсия поля в/из Relation через
-`change_database_property_type` используют version-2 schema journal в том же
-namespace. Version-1 journals создания продолжают читаться без миграции.
-Version-2 различает вид запроса, хранит исходный property ID и результат
-`ChangedDatabasePropertyType`. Запрос содержит `operationId`, source
-`expectedManifestRevision` и `expectedRelatedManifestRevisions` — пары
-`databaseId`/`revision` для прочитанных связанных баз. UI получает их через
-`listDatabases`. Публикация может менять до трёх manifests: source, прежнюю
-inverse-базу и новую inverse-базу; совпадающие базы объединяются в один шаг.
+Configuring an existing Relation and converting a field to/from Relation through
+`change_database_property_type` use a version-2 schema journal in the same
+namespace. Version-1 creation journals continue to be read without migration.
+Version-2 distinguishes the request kind, stores the source property ID and the
+`ChangedDatabasePropertyType` result. The request contains `operationId`, the source
+`expectedManifestRevision` and `expectedRelatedManifestRevisions` — `databaseId`/`revision`
+pairs for the related databases that were read. The UI obtains them through
+`listDatabases`. A publication may change up to three manifests: the source, the previous
+inverse database and the new inverse database; coinciding databases are merged into one step.
 
-Включение двустороннего режима создаёт обратное свойство, в том числе при
-конверсии существующего поля и внутри одной базы. Отключение, смена базы и
-конверсия из Relation снимают reciprocal pointer у прежнего обратного поля,
-сохраняя само поле и его metadata как одностороннюю связь. Неполная или неверная
-пара отклоняется до записи. Изменения топологии требуют отсутствия durable
-значений у исходного и обратного полей; пока автоматический backfill или перенос
-заполненных связей не выполняется. Проверяются принадлежащие базе Markdown,
-record shards и templates; ошибки чтения и malformed YAML блокируют конверсию.
-Вложенные базы не входят в проверку значений внешней базы. Настройка Relation
-сохраняет существующую YAML binding; конверсия типа требует её снять.
+Enabling two-way mode creates the inverse property, including when converting an existing
+field and within a single database. Disabling, changing the database and converting from
+Relation remove the reciprocal pointer from the former inverse field,
+keeping the field itself and its metadata as a one-way relation. An incomplete or invalid
+pair is rejected before writing. Topology changes require that the source and inverse fields
+have no durable values; automatic backfill or migration of
+populated relations is not performed yet. The Markdown, record shards and templates owned by
+the database are checked; read errors and malformed YAML block the conversion.
+Nested databases are not part of the value check of the outer database. Configuring Relation
+preserves the existing YAML binding; type conversion requires removing it.
 
-Version-2 использует те же raw backups, CAS журнала/файлов, conditional rollback,
-activation preflight и durable replay, что и создание пары. Result возвращает
-`inversePropertyId`, `manifestRevisions` и ID операции. Recovery восстанавливает
-схемы, не переписывая Markdown или значения. Неизменяемые связанные manifests
-также проверяются перед каждой записью и completion; они не входят в rollback.
-Запрос без изменения схемы возвращает `operationId: null`, не создаёт journal
-и не резервирует переданный ID. `relationMaxItems: 0` явно снимает ограничение,
-`1` задаёт одну страницу, а отсутствующее значение сохраняет прежний лимит.
-Полноценная миграция заполненной
-связи, пользовательский schema undo и recovery UI остаются отдельными задачами.
+Version-2 uses the same raw backups, journal/file CAS, conditional rollback,
+activation preflight and durable replay as pair creation. The result returns
+`inversePropertyId`, `manifestRevisions` and the operation ID. Recovery restores
+schemas without rewriting Markdown or values. Unchanged related manifests
+are also checked before each write and completion; they are not part of the rollback.
+A request without a schema change returns `operationId: null`, creates no journal
+and does not reserve the supplied ID. `relationMaxItems: 0` explicitly removes the limit,
+`1` sets a single page, and an absent value keeps the previous limit.
+Full migration of a populated
+relation, user-facing schema undo and a recovery UI remain separate tasks.
 
-Успешный результат изменения Relation содержит `affectedNotes` — дедуплицированные
-пары `databaseId`/`noteId` фактически записанных страниц. В них входят источник,
-прежние цели с удалённой обратной ссылкой и новые цели с добавленной обратной
-ссылкой. Неизменённые цели односторонней связи не входят в этот список.
-`targetNoteIds` описывает только новый набор целей. Command использует
-`affectedNotes` для немедленного обновления derived projection обеих сторон.
+A successful Relation change result contains `affectedNotes` — deduplicated
+`databaseId`/`noteId` pairs of the pages actually written. They include the source,
+the previous targets whose back reference was removed and the new targets whose back
+reference was added. Unchanged targets of a one-way relation are not in this list.
+`targetNoteIds` describes only the new set of targets. The command uses
+`affectedNotes` to immediately update the derived projection of both sides.
 
-Запрос изменения значения требует непустой `expectedRevision` исходной страницы:
-SHA-256 исходных raw bytes, как `rowRevision` в query. Несовпадение отклоняет запрос
-до планирования обратных записей, включая запрос без изменения значения. Успешный
-результат возвращает `revisions` (`noteId`, `revision`) для всех записанных страниц;
-источник включается и при повторном сохранении того же значения. Очередь UI берёт
-ревизию из результата предыдущей записи до обновления query.
+A value change request requires a non-empty `expectedRevision` of the source page:
+the SHA-256 of the source raw bytes, like `rowRevision` in a query. A mismatch rejects the request
+before inverse writes are planned, including a request that does not change the value. A successful
+result returns `revisions` (`noteId`, `revision`) for all written pages;
+the source is included even when the same value is saved again. The UI queue takes the
+revision from the result of the previous write before the query is updated.
 
-Перед публикацией Rust сравнивает текущие байты всех запланированных заметок и
-прочитанных manifests с исходными. Перед каждой отдельной записью повторяются
-проверки её файла, пути и manifests. При ошибке уже опубликованные файлы
-восстанавливаются только если их байты всё ещё совпадают с опубликованными этой
-операцией; более поздние внешние изменения сохраняются. Неполный откат возвращает
-ошибку с `rollback incomplete` и ID затронутых страниц.
+Before publication Rust compares the current bytes of all planned notes and the
+manifests that were read with the originals. Before each individual write, the checks of its file, path
+and manifests are repeated. On error, files that were already published
+are restored only if their bytes still match those published by this
+operation; later external changes are preserved. An incomplete rollback returns an
+error with `rollback incomplete` and the IDs of the affected pages.
 
-При снятии связи отсутствующая прежняя цель пропускается с предупреждением:
-обратное значение обновить невозможно. Неоднозначный ID, ошибка чтения или
-некорректное значение найденной цели останавливают операцию до записи. Сохранённые
-цели должны быть canonical uppercase ULIDs (допускается одна пара `[[ULID]]` и
-пробелы вокруг ID); пустые строки, malformed wiki links и другие значения
-отклоняются. `targetNoteIds` запроса требуют canonical uppercase ULIDs. Если цель
-не найдена и часть каталога не удалось прочитать, это ошибка разрешения, а не
-доказательство отсутствия страницы.
+When a relation is removed, a missing former target is skipped with a warning:
+the inverse value cannot be updated. An ambiguous ID, a read error or an
+invalid value of a found target stop the operation before writing. Stored
+targets must be canonical uppercase ULIDs (a single `[[ULID]]` pair and
+whitespace around the ID are allowed); empty strings, malformed wiki links and other values are
+rejected. The request's `targetNoteIds` require canonical uppercase ULIDs. If a target
+is not found and part of the catalog could not be read, that is a resolution error, not
+proof that the page is absent.
 
-Запрос и результат теперь содержат обязательный `operationId` (1–160 ASCII
-букв/цифр, `-` или `_`). До первого изменения заметок Rust публикует no-replace
-raw backups и version-1 журнал
-`.amby/recovery/database_relations/<operationId>.json`; backups лежат в соседнем
-`<operationId>/<index>.bin`. Namespace общий для vault, чтобы журнал покрывал
-обе базы. Журнал содержит исходный запрос, его SHA-256 fingerprint без
-`expectedGeneration`, точные vault-relative paths, note/database IDs, pre/post
-revisions, per-step status и ожидаемый результат. Все ошибки записи backups и
-журнала возвращаются наружу. Завершённый результат фиксируется до session history
-и подтверждения watcher; outcome и backups не удаляются автоматически.
-Обычные pre-write snapshots в `.amby/history/` создаются раньше и могут остаться
-при отказе подготовки journal; session undo entry для отказавшей операции не
-добавляется. Это отдельные raw recovery points, а не запись успешной операции.
+The request and the result now contain a required `operationId` (1–160 ASCII
+letters/digits, `-` or `_`). Before the first change to notes, Rust publishes no-replace
+raw backups and a version-1 journal
+`.amby/recovery/database_relations/<operationId>.json`; the backups are in the adjacent
+`<operationId>/<index>.bin`. The namespace is shared across the vault so that the journal covers
+both databases. The journal contains the original request, its SHA-256 fingerprint without
+`expectedGeneration`, exact vault-relative paths, note/database IDs, pre/post
+revisions, per-step status and the expected result. All errors writing backups and the
+journal are returned to the caller. The completed result is recorded before session history
+and watcher acknowledgement; the outcome and backups are not removed automatically.
+Ordinary pre-write snapshots in `.amby/history/` are created earlier and may remain
+if journal preparation fails; no session undo entry is added for the failed operation.
+These are separate raw recovery points, not a record of a successful operation.
 
-Повтор того же `operationId` с тем же payload (кроме текущего generation) возвращает
-сохранённый результат до source CAS, без повторной записи и history. Другой
-payload с тем же ID отклоняется. `completed` — исторический результат, а не
-утверждение о текущем содержимом после внешних правок, undo или rename. Pending
-операция требует восстановления; `rolledBack` ID нельзя использовать снова.
+Repeating the same `operationId` with the same payload (except the current generation) returns
+the stored result before the source CAS, without rewriting or history. A different
+payload with the same ID is rejected. `completed` is a historical result, not a
+claim about the current content after external edits, undo or rename. A pending
+operation requires recovery; a `rolledBack` ID cannot be used again.
 
-При открытии vault после read-only проверки ID migrations и до загрузки индекса
-незавершённые операции автоматически откатываются к pre bytes. Сначала для ВСЕХ
-pending journals проверяются headers, уникальность путей, confined/no-symlink
-paths, backup integrity/identity и текущие pre/post revisions. Изменённый или
-удалённый файл, повреждённая копия, неподдерживаемая версия или небезопасный путь
-блокируют activation без начала восстановления. Журнал и копии сохраняются для
-разрешения конфликта. Для неизвестных полей журнала/steps применяется сохранение
-при перезаписи. Editor draft TTL/quota и rebuild SQLite не удаляют этот namespace.
+When a vault is opened, after the read-only check of ID migrations and before the index is loaded,
+unfinished operations are automatically rolled back to the pre bytes. First, for ALL
+pending journals the headers, path uniqueness, confined/no-symlink
+paths, backup integrity/identity and the current pre/post revisions are checked. A modified or
+deleted file, a corrupted copy, an unsupported version or an unsafe path
+block activation without starting recovery. The journal and copies are kept for
+conflict resolution. For unknown journal/step fields, preservation
+on rewrite applies. Editor draft TTL/quota and SQLite rebuild do not delete this namespace.
 
-Восстановление также проверяет ревизии перед каждым restore и записывает progress
-после него. Crash между restore и progress update узнаётся по точным pre bytes;
-повторное восстановление безопасно. Ошибка записи во время восстановления может
-оставить часть страниц восстановленной, но pending journal остаётся для повторной
-попытки. Если запись notes завершилась, а completion journal не удалось записать,
-возвращается явная ошибка; notes не объявляются откатанными, journal сохраняется.
+Recovery also checks revisions before each restore and records progress
+after it. A crash between a restore and the progress update is recognized by the exact pre bytes;
+repeated recovery is safe. A write error during recovery may
+leave some pages restored, but the pending journal remains for a retry.
+If the notes write completed but the completion journal could not be written,
+an explicit error is returned; the notes are not declared rolled back and the journal is kept.
 
-Между проверкой и atomic rename остаётся окно для внешней записи; файловая
-блокировка и межпроцессная атомарность CAS не гарантируются. Автоматический resume,
-UI разрешения конфликтов recovery, cleanup журналов и протокол двустороннего
-создания свойств остаются следующими задачами P0.
+A window for an external write remains between the check and the atomic rename; file
+locking and cross-process atomicity of CAS are not guaranteed. Automatic resume,
+a recovery conflict resolution UI, journal cleanup and the protocol for two-way
+property creation remain the next P0 tasks.
 
 ## 8. YAML sync base
 
-Для каждого связанного property record хранит последнее согласованное
-нормализованное значение:
+For each bound property, the record stores the last reconciled
+normalized value:
 
 ```ts
 type YamlSyncBase = { state: "missing" } | { state: "value"; value: PropertyValue }
 ```
 
-Алгоритм сравнивает current shard value, current YAML value и base:
+The algorithm compares the current shard value, the current YAML value and the base:
 
-| Shard               | YAML                | Результат            |
+| Shard               | YAML                | Result               |
 | ------------------- | ------------------- | -------------------- |
-| равен base          | изменен             | импортировать YAML   |
-| изменен             | равен base          | экспортировать shard |
-| одинаково изменены  | одинаково изменены  | принять новый base   |
-| по-разному изменены | по-разному изменены | field-level conflict |
+| equals base         | changed             | import YAML          |
+| changed             | equals base         | export shard         |
+| changed identically | changed identically | accept new base      |
+| changed differently | changed differently | field-level conflict |
 
-Невалидный YAML type не конвертируется молча и становится конфликтом. YAML
-envelope меняется только lossless splice/writer с revision check и snapshot.
+An invalid YAML type is not converted silently and becomes a conflict. The YAML
+envelope is changed only by a lossless splice/writer with a revision check and snapshot.
 
 ## 9. View shard
 
-Версия 2: объект внутри `views` манифеста. Версия 1 также поддерживает `.ambd/views/<view-id>.json`.
+Version 2: an object inside the manifest's `views`. Version 1 also supports `.ambd/views/<view-id>.json`.
 
 ```ts
 interface DatabaseViewFile {
@@ -608,8 +608,8 @@ interface DatabaseViewFile {
 }
 ```
 
-View revision также вычисляется по raw bytes. Изменение одного view не меняет
-revision schema или соседних views.
+The view revision is likewise computed over raw bytes. Changing one view does not change the
+revision of the schema or of neighboring views.
 
 ### Field references
 
@@ -631,9 +631,9 @@ type FieldRef =
   | { kind: "property"; propertyId: string }
 ```
 
-`ViewField` добавляет `visible`, `width` и `frozen`. System Title всегда
-присутствует первым, visible и frozen. Missing property reference сохраняется и
-показывается diagnostic column.
+`ViewField` adds `visible`, `width` and `frozen`. The system Title is always
+present first, visible and frozen. A missing property reference is preserved and
+shown as a diagnostic column.
 
 ### Filter AST
 
@@ -648,46 +648,46 @@ type FilterNode =
     }
 ```
 
-Операторы валидируются по типу поля через единый реестр
-(`src-tauri/src/database/filter_operators.rs`; тот же список читает UI из
-`filter-operators.json`, тест сверяет их). Канонические имена: `contains`,
+Operators are validated against the field type through a single registry
+(`crates/amby-core/src/database/filter_operators.rs`; the UI reads the same list from
+`filter-operators.json`, and a test checks that they match). Canonical names: `contains`,
 `startsWith`, `equals`, `notEquals`, `greaterThan`, `greaterOrEqual`, `lessThan`,
-`lessOrEqual`, `isEmpty`, `isNotEmpty`; ранние написания `is`, `isNot`, `gt`, `gte`,
-`lt`, `lte` читаются как канонические. «Не равно» включает строки без значения.
-Операнд `"@currentPage"` заменяется backend идентификатором страницы, на которой
-показан вид (`contextPageId` запроса); без страницы запрос — ошибка, а не «все записи».
-Frontend не передает SQL. V1 ограничивает
-глубину AST, число conditions и размер operands константами backend.
+`lessOrEqual`, `isEmpty`, `isNotEmpty`; the early spellings `is`, `isNot`, `gt`, `gte`,
+`lt`, `lte` are read as the canonical ones. "Not equals" includes rows without a value.
+The operand `"@currentPage"` is replaced by the backend with the ID of the page on which
+the view is shown (the query's `contextPageId`); without a page the query is an error, not "all records".
+The frontend does not pass SQL. V1 limits the
+AST depth, the number of conditions and the operand size with backend constants.
 
 ### Sort/group/order
 
-- Sort содержит FieldRef, direction и явное null placement.
-- Backend всегда добавляет `(databaseId, noteId)` как стабильный tie-breaker.
-- Nested mode сортирует siblings; Flat mode — общий результат.
-- Group v1 принимает Status или одиночный Select.
-- Manual order применяется только без active sorts, но не удаляется при их
-  включении.
-- Missing note IDs в manual order сохраняются для возможного restore; новые IDs
-  добавляются детерминированно в конец.
+- A sort contains a FieldRef, a direction and an explicit null placement.
+- The backend always appends `(databaseId, noteId)` as a stable tie-breaker.
+- Nested mode sorts siblings; Flat mode sorts the overall result.
+- Group v1 accepts Status or a single Select.
+- Manual order is applied only without active sorts, but is not removed when they
+  are enabled.
+- Missing note IDs in manual order are preserved for a possible restore; new IDs
+  are appended to the end deterministically.
 
 ### Layout config
 
-- Table: column borders/row height, frozen boundary (`frozenBoundary`: ключ поля, по
-  которое колонки закреплены) и `wrappedFields` (ключи полей с переносом текста).
+- Table: column borders/row height, the frozen boundary (`frozenBoundary`: the field key up to
+  which columns are frozen) and `wrappedFields` (keys of fields with text wrapping).
 - Board: group property, card fields, cover visibility.
-- List: secondary fields и indentation.
-- Gallery: card size, field list и preview source (`property`, `firstImage`,
+- List: secondary fields and indentation.
+- Gallery: card size, field list and preview source (`property`, `firstImage`,
   `icon`, `none`).
-- Chart: chart type, category/measure fields, aggregation и ограничение числа
-  групп. Данные получает backend aggregate query, а не renderer-side full scan.
+- Chart: chart type, category/measure fields, aggregation and a limit on the number of
+  groups. The data comes from a backend aggregate query, not a renderer-side full scan.
 
-Unknown layout/config открывается read-only без удаления payload. Calendar и
-timeline пока не входят в v1: для них ещё нет согласованного range-query и
-fictional-time контракта.
+An unknown layout/config opens read-only without deleting the payload. Calendar and
+timeline are not part of v1 yet: they still lack an agreed range-query and
+fictional-time contract.
 
 ## 10. Template shard
 
-Версия 2: объект внутри `templates` манифеста. Версия 1 использует `.ambd/templates/<template-id>.json`.
+Version 2: an object inside the manifest's `templates`. Version 1 uses `.ambd/templates/<template-id>.json`.
 
 ```json
 {
@@ -701,108 +701,108 @@ fictional-time контракта.
 }
 ```
 
-Template body — UTF-8 Markdown без frontmatter `amby-id`. Создание строки
-назначает новый ID через обычный note writer. Template values используют тот же
-PropertyValue contract. Binary media не встраивается в JSON.
+The template body is UTF-8 Markdown without an `amby-id` frontmatter. Creating a row
+assigns a new ID through the ordinary note writer. Template values use the same
+PropertyValue contract. Binary media is not embedded in the JSON.
 
-## 11. Recovery и Trash
+## 11. Recovery and Trash
 
-Relation value mutations используют реализованный vault-wide журнал из
-[контракта Relations](#relations). Для остальных multi-file mutations общий
-контракт `.ambd/recovery/<operation-id>.json` остаётся целевым:
+Relation value mutations use the implemented vault-wide journal from the
+[Relations contract](#relations). For the other multi-file mutations, the general
+contract `.ambd/recovery/<operation-id>.json` remains a target:
 
 - versioned operation kind;
-- точные source/target paths;
+- exact source/target paths;
 - expected raw revisions;
 - backup/snapshot paths;
 - per-step status;
-- итоговый status `planned`, `inProgress`, `completed` или `rolledBack`.
+- final status `planned`, `inProgress`, `completed` or `rolledBack`.
 
-Journal записывается и sync-ится до первого изменения. Resume и rollback
-идемпотентны и никогда не заменяют файл, измененный после операции.
+The journal is written and synced before the first change. Resume and rollback are
+idempotent and never replace a file that was modified after the operation.
 
-Удаленные property/option/view/template и значения legacy shards сначала перемещаются в
-`.ambd/trash/` с manifest восстановления. Обычные Markdown notes и bundles
-продолжают использовать vault-local `.amby/trash/`.
+Deleted properties/options/views/templates and legacy shard values are first moved to
+`.ambd/trash/` with a restore manifest. Ordinary Markdown notes and bundles
+continue to use the vault-local `.amby/trash/`.
 
-## 12. Валидация и лимиты
+## 12. Validation and limits
 
-Backend применяет централизованные лимиты к:
+The backend applies centralized limits to:
 
-- размеру каждого JSON-файла и Markdown template;
-- числу properties, views, templates и select options;
-- длине names/text/URL;
-- числу relation targets и media items;
-- глубине/ширине filter AST;
-- размеру batch mutation и page query.
+- the size of each JSON file and Markdown template;
+- the number of properties, views, templates and select options;
+- the length of names/text/URLs;
+- the number of relation targets and media items;
+- the depth/width of the filter AST;
+- the size of a batch mutation and a page query.
 
-Превышение лимита возвращает typed error и не переписывает исходный файл.
-Значения лимитов фиксируются после benchmark baseline и одинаковы для desktop и
-browser contract tests, кроме допустимого query page size.
+Exceeding a limit returns a typed error and does not rewrite the source file.
+The limit values are fixed after a benchmark baseline and are the same for desktop and
+browser contract tests, except for the permitted query page size.
 
-Все filesystem paths проходят canonical vault guard. Symlink escape, absolute
-path, traversal, remote resource и выполнение JSON как JS запрещены.
+All filesystem paths pass the canonical vault guard. Symlink escape, absolute
+paths, traversal, remote resources and executing JSON as JS are forbidden.
 
-## 13. Rebuild SQLite
+## 13. SQLite rebuild
 
-Rebuild выполняется в порядке:
+The rebuild proceeds in this order:
 
-1. найти валидные `ambd.json` без входа во вложенные `.ambd/`;
-2. определить owning database каждой Markdown note по ближайшему manifest;
-3. загрузить property definitions;
-4. загрузить view/template registries и диагностировать missing shards;
-5. прочитать значения из frontmatter принадлежащих базе заметок; legacy record
-   shard — только запасной источник для свойств, которых во frontmatter нет;
-6. сохранить orphan/removed legacy shards вне active projection;
-7. построить relations и inverse projection;
-8. сопоставить YAML bindings и создать conflicts;
-9. атомарно опубликовать новую index generation.
+1. find valid `ambd.json` files without entering nested `.ambd/`;
+2. determine the owning database of each Markdown note by the nearest manifest;
+3. load property definitions;
+4. load the view/template registries and diagnose missing shards;
+5. read values from the frontmatter of the notes owned by the database; a legacy record
+   shard is only a fallback source for properties absent from the frontmatter;
+6. keep orphan/removed legacy shards outside the active projection;
+7. build relations and the inverse projection;
+8. match YAML bindings and create conflicts;
+9. atomically publish the new index generation.
 
-Unreadable durable file останавливает замену предыдущей здоровой projection или
-изолирует только затронутую базу согласно typed outcome. Он никогда не
-трактуется как подтвержденное удаление данных.
+An unreadable durable file stops the replacement of the previous healthy projection or
+isolates only the affected database according to the typed outcome. It is never
+treated as confirmed data deletion.
 
-## 14. Миграции
+## 14. Migrations
 
 ### Layout v1 → v2
 
-`database/layout.rs` выполняет явное обновление по кнопке уведомления. Каждая
-база имеет журнал версии 1 в `.amby/migrations/database-layout-v2/<ULID>/plan.json`
-и неизменяемые `N.backup` с исходными байтами и SHA-256. Сначала публикуются
-резервные копии и `inProgress`-журнал, затем копии ресурсов, объединённый манифест
-и удаление сохранённых legacy файлов. Неизвестные файлы и непустые папки сохраняются.
-`completed` фиксирует завершение; повторное обновление уже преобразованной базы
-ничего не делает. Старые версии Amby не поддерживают manifest v2: обновить нужно
-оба устройства.
+`database/layout.rs` performs an explicit upgrade via the notice button. Each
+database has a version-1 journal in `.amby/migrations/database-layout-v2/<ULID>/plan.json`
+and immutable `N.backup` files with the original bytes and SHA-256. First the
+backup copies and the `inProgress` journal are published, then the resource copies, the merged manifest
+and the removal of the preserved legacy files. Unknown files and non-empty folders are kept.
+`completed` records completion; upgrading an already converted database again
+does nothing. Old versions of Amby do not support manifest v2: both devices must
+be upgraded.
 
-Ошибка публикации запускает условный rollback. Перед восстановлением сверяются
-все резервные копии и текущие исходные/целевые файлы. Изменённые кем-то файлы не
-перезаписываются: журнал остаётся для разбора. При повторном нажатии незавершённая
-операция сначала откатывается по тем же условиям, затем выполняется новый preflight.
-Само открытие хранилища rollback не запускает. Копии и журнал не удаляются после
-успеха и не синхронизируются. Для ручного отката завершённой операции следует
-остановить обе программы и синхронизацию, сверить `plan.json` и восстановить
-оригиналы из `N.backup`; новые целевые файлы удаляются только при совпадении
-с сохранёнными контрольными суммами. Markdown при этой миграции не переписывается.
+A publication error triggers a conditional rollback. Before restoring, all
+backup copies and the current source/target files are checked. Files modified by someone
+are not overwritten: the journal remains for examination. On a repeated press, the unfinished
+operation is first rolled back under the same conditions, then a new preflight is run.
+Opening the vault itself does not start a rollback. The copies and journal are not deleted after
+success and are not synced. To manually roll back a completed operation, one should
+stop both programs and sync, check `plan.json` and restore the
+originals from `N.backup`; new target files are deleted only if they match
+the saved checksums. Markdown is not rewritten by this migration.
 
-### Прежние миграции
+### Earlier migrations
 
-- `formatVersion` монотонный для каждого типа файла.
-- Read-only preflight перечисляет все будущие записи.
-- До изменения создаются raw backups и journal.
-- Resume/rollback идемпотентны.
-- Outcome записывается до cleanup старого формата.
-- Legacy `Metadata.md` и `.amby/blocks/*.json` не конвертируются при scan.
-- Перенос shard-значений во frontmatter и явная миграция баз удалены после 0.1.9
-  (раздел 6): такие файлы больше не читаются как источник миграции.
-- Existing local `.amby/properties.json` мигрирует только в local-property
-  shards; database values записываются сразу во frontmatter owning-заметки, а не
-  в `.ambd/records`.
-- Downgrade к версии без поддержки нового формата не должен изменять durable
+- `formatVersion` is monotonic for each file type.
+- A read-only preflight lists all future writes.
+- Raw backups and a journal are created before any change.
+- Resume/rollback are idempotent.
+- The outcome is recorded before cleanup of the old format.
+- Legacy `Metadata.md` and `.amby/blocks/*.json` are not converted during scan.
+- Moving shard values into frontmatter and the explicit database migration were removed after 0.1.9
+  (section 6): such files are no longer read as a migration source.
+- An existing local `.amby/properties.json` migrates only into local-property
+  shards; database values are written directly into the frontmatter of the owning note, not
+  into `.ambd/records`.
+- A downgrade to a version without support for the new format must not modify durable
   files.
 
-## 15. Следующий контракт
+## 15. Next contract
 
-Normalized SQLite schema и versioned IPC types определены в
-[runtime-контракте](database-runtime.md). Они являются проекцией данных выше и
-не добавляют единственные копии пользовательских значений.
+The normalized SQLite schema and versioned IPC types are defined in the
+[runtime contract](database-runtime.md). They are a projection of the data above and
+do not add sole copies of user values.

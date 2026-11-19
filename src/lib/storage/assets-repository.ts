@@ -60,4 +60,12 @@ export class AssetsRepository {
   async openInExplorer(path: string): Promise<void> {
     return this.port().openInExplorer(path)
   }
+
+  async revealVaultFolder(id: string): Promise<void> {
+    return this.port().revealVaultFolder(id)
+  }
+
+  async revealAppDataFolder(): Promise<void> {
+    return this.port().revealAppDataFolder()
+  }
 }

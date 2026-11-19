@@ -81,6 +81,23 @@ requests, not for searching past a valid response. The producer therefore keeps
 Beta current with final releases. Missing feeds before initial publication can
 use the legacy endpoint, which only serves final releases.
 
+## Testing the bundled CLI before beta
+
+Run the [desktop CLI bundle checks](../.github/workflows/check-cli-bundles.yml)
+for Linux AppImage and Windows MSI and NSIS. The checks run the packaged
+executable with a disposable vault, then use it to issue scoped MCP requests
+and delegate structural edits to a running desktop. On macOS, pass the
+installed `Amby.app/Contents/MacOS/amby` path to
+`node scripts/check-bundled-cli.mjs`.
+
+Also test the signed release upgrade in a disposable profile. Save the MCP
+client configuration once with the installed CLI path and a folder-scoped
+grant. Apply the update and restart the client with that same configuration.
+Append to an existing note in the granted folder and confirm that a write to a
+note outside it is denied and leaves the file intact. For a previous release
+without the CLI, check that the upgrade installs the executable at the
+documented path before creating the client configuration.
+
 ## Startup behavior
 
 When automatic updates are enabled in the hydrated preferences, the main
@@ -98,6 +115,15 @@ Changing the automatic-update preference after startup applies on the next
 launch. Browser development, Tauri development, and secondary windows do not
 automatically install updates. Manual checks and their progress UI remain
 available in settings.
+
+Installing replaces the program and restarts it, so the update is split into download and
+install, and the edits are flushed between them (SAVE-04). `flushEditingWindows`
+(`src/lib/flush-all-windows.ts`) asks every editing window, the main window and detached note
+windows, to run the same flush as its close handler and waits for all answers (twenty seconds at
+most). A window answers "safe" when each edit is in its file or in a written recovery draft. If
+any window cannot say so, or does not answer, nothing is installed: the settings show a line
+that open edits could not be saved and the same button tries again. The downloaded update is kept
+for that retry.
 
 This startup sequence is shared by Windows, macOS, and Linux. On macOS and
 Linux the native installer returns after replacement; Amby explicitly calls

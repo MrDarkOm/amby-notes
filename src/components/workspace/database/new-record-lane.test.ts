@@ -22,13 +22,14 @@ afterEach(() => vi.restoreAllMocks())
 describe("placing a new page in a board lane", () => {
   it("writes the lane's option into the group property", async () => {
     const batch = vi.spyOn(storage, "applyDatabaseValueBatch").mockResolvedValue({} as never)
+    vi.spyOn(storage, "getFileRevision").mockResolvedValue("rev-created")
     await placeNewRecordInLane({
       ...base,
       groupProperty: { propertyId: "p", propertyType: "status" },
       laneKey: "opt1",
     })
     const cell = batch.mock.calls[0][0].cells[0]
-    expect(cell).toMatchObject({ noteId: "n1", propertyId: "p", expectedRevision: "" })
+    expect(cell).toMatchObject({ noteId: "n1", propertyId: "p", expectedRevision: "rev-created" })
     expect(JSON.parse(cell.valueJson ?? "{}")).toEqual({ type: "status", optionId: "opt1" })
   })
 

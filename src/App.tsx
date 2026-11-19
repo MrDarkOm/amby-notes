@@ -1,4 +1,5 @@
 import * as React from "react"
+import { EmojiPickerWarmup } from "./components/workspace/emoji-picker-warmup"
 import { Workspace } from "./components/workspace/workspace"
 import { ExternalConflictDialog } from "./components/workspace/external-conflict-dialog"
 import { ThemeProvider } from "./components/theme-provider"
@@ -56,6 +57,7 @@ function PreferencesGate() {
   return (
     <>
       <Workspace />
+      <EmojiPickerWarmup />
       <ExternalConflictDialog />
     </>
   )

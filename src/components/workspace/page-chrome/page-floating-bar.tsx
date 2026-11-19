@@ -73,7 +73,7 @@ export function PageFloatingBar({
   const peek = above ? <div className="pointer-events-none relative z-0 h-0">{above}</div> : null
   if (hidden) {
     return peek ? (
-      <div className="pointer-events-none absolute bottom-2 right-4 z-10 w-56 select-none">
+      <div className="pointer-events-none absolute bottom-3 right-3 z-10 w-56 select-none">
         {peek}
       </div>
     ) : null
@@ -190,14 +190,17 @@ export function PageFloatingBar({
   ].filter(Boolean)
   if (sections.length === 0) {
     return peek ? (
-      <div className="pointer-events-none absolute bottom-2 right-4 z-10 w-56 select-none">
+      <div className="pointer-events-none absolute bottom-3 right-3 z-10 w-56 select-none">
         {peek}
       </div>
     ) : null
   }
 
   return (
-    <div className="pointer-events-none absolute bottom-2 right-4 z-10 select-none max-w-[calc(100%-2rem)]">
+    <div
+      data-page-floating-bar=""
+      className="pointer-events-none absolute bottom-3 right-3 z-10 select-none max-w-[calc(100%-1.5rem)]"
+    >
       {peek}
       <div className="pointer-events-auto relative z-10 flex items-center gap-0.5 rounded-xl border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-md">
         {sections.map((section, index) => (

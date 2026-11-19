@@ -1,0 +1,708 @@
+use crate::lock_util::LockExt;
+use std::cell::Cell;
+use std::collections::{HashMap, HashSet};
+use std::ops::Deref;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
+use rusqlite::Connection;
+
+use crate::{
+    model::{IndexState, PathChange},
+    property_groups, vault_index,
+};
+
+/// The answer to a refresh of a few paths: the tree patch and the sync report for them.
+#[derive(serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PathsRefresh {
+    pub generation: u64,
+    pub patch: crate::vault::tree_patch::TreePatch,
+    pub sync: vault_index::SyncReport,
+}
+
+pub struct PreparedMoveRefactor {
+    pub source_path: PathBuf,
+    pub target_path: PathBuf,
+    pub path_changes: Vec<PathChange>,
+    pub plan: Vec<vault_index::PlannedWikiRewrite>,
+}
+
+pub struct ActiveVault {
+    pub root: PathBuf,
+    pub connection: Connection,
+    pub generation: u64,
+    pub watcher_identity: Option<u64>,
+    // Access is already serialized by VaultContext::conn. Interior mutation
+    // lets a command record failure without recursively locking that mutex.
+    pub index_health: Cell<IndexState>,
+    /// Owned by this activation, so delayed callbacks cannot dirty a new vault.
+    pub index_changes: Arc<Mutex<HashSet<PathBuf>>>,
+    /// Reuses the expensive link-refactor plan produced by the confirmation preview.
+    pub pending_move_refactor: Mutex<Option<PreparedMoveRefactor>>,
+}
+
+impl ActiveVault {
+    pub fn refresh(&self) -> Result<vault_index::LoadVaultResult, String> {
+        self.refresh_with_policy(true)
+    }
+
+    fn refresh_with_policy(
+        &self,
+        assign_ids: bool,
+    ) -> Result<vault_index::LoadVaultResult, String> {
+        // Do not hold the event queue lock during I/O. New events remain queued
+        // for the next refresh, even when they refer to a path in this batch.
+        let changed = std::mem::take(&mut *self.index_changes.lock_or_recover());
+        let result = vault_index::load_vault_with_policy(self, &self.root, &changed, assign_ids);
+        if result.is_err() {
+            self.index_changes.lock_or_recover().extend(changed);
+        }
+        result.map(|mut loaded| {
+            loaded.generation = self.generation;
+            loaded
+        })
+    }
+
+    /// Reconcile watcher changes before rebuilding projections that depend on the note index.
+    pub fn refresh_pending_index(&self) -> Result<(), String> {
+        if !self.index_changes.lock_or_recover().is_empty() {
+            self.refresh()?;
+        }
+        Ok(())
+    }
+
+    /// A capability-scoped publish may rebuild cache rows but must never
+    /// assign identities to other files as part of its refresh.
+    pub fn refresh_pending_index_without_assigning_ids(&self) -> Result<(), String> {
+        if !self.index_changes.lock_or_recover().is_empty() {
+            self.refresh_with_policy(false)?;
+        }
+        Ok(())
+    }
+
+    /// Bring the index and the tree up to date for `changed` only. `None` means the change is
+    /// not one a point refresh can cover (the vault root, too many paths, an identity clash that
+    /// needs the whole picture) and the caller has to run `refresh`.
+    pub fn refresh_paths(&self, changed: HashSet<PathBuf>) -> Result<Option<PathsRefresh>, String> {
+        let Some(sync) = vault_index::sync_paths(self, &self.root, &changed)? else {
+            return Ok(None);
+        };
+        let touched = changed
+            .iter()
+            .cloned()
+            .chain(sync.path_to_id.keys().map(PathBuf::from))
+            .collect::<Vec<_>>();
+        let Some(patch) =
+            crate::vault::tree_patch::patch_for_paths(&self.connection, &self.root, &touched)?
+        else {
+            return Ok(None);
+        };
+        // These events are answered; the next full refresh need not re-read their files.
+        self.index_changes
+            .lock_or_recover()
+            .retain(|path| !changed.contains(path));
+        Ok(Some(PathsRefresh {
+            generation: self.generation,
+            patch,
+            sync,
+        }))
+    }
+
+    pub fn reindex(&self) -> Result<vault_index::LoadVaultResult, String> {
+        let _ = property_groups::restore_cache_any(&self.connection, &self.root);
+        let mut changed = HashSet::new();
+        changed.insert(self.root.clone());
+        self.index_changes.lock_or_recover().clear();
+        let result = vault_index::load_vault_with_changes(self, &self.root, &changed);
+        let _ =
+            crate::database::projection::rebuild_database_projection(&self.connection, &self.root);
+        result.map(|mut loaded| {
+            loaded.generation = self.generation;
+            loaded
+        })
+    }
+}
+
+impl Deref for ActiveVault {
+    type Target = Connection;
+
+    fn deref(&self) -> &Self::Target {
+        &self.connection
+    }
+}
+
+pub struct PreparedVault {
+    root: PathBuf,
+    connection: Connection,
+    loaded: vault_index::LoadVaultResult,
+}
+
+/// The only managed backend state for an open vault. Root and SQLite
+/// connection are always read under one mutex, so a command cannot observe a
+/// new root paired with the prior vault's index connection.
+#[derive(Default)]
+pub struct VaultContext {
+    /// Kept as `conn` during the transition so all database command call sites
+    /// lock this single context rather than a separate connection mutex.
+    pub conn: Mutex<Option<ActiveVault>>,
+    /// Serializes filesystem mutations and vault activation without keeping
+    /// the SQLite connection mutex across the disk-heavy phase.
+    pub mutation_gate: Mutex<()>,
+    // Retain the leases of activated vaults until the desktop process exits,
+    // including a previous vault whose background sync is still winding down.
+    desktop_leases: Mutex<HashMap<PathBuf, std::fs::File>>,
+}
+
+impl VaultContext {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn get(&self) -> Result<PathBuf, String> {
+        self.root()
+    }
+
+    pub fn generation(&self) -> Result<u64, String> {
+        self.conn
+            .lock_or_recover()
+            .as_ref()
+            .map(|active| active.generation)
+            .ok_or_else(|| "No vault is open".to_string())
+    }
+
+    pub fn root(&self) -> Result<PathBuf, String> {
+        let active = self.conn.lock_or_recover();
+        let active = active
+            .as_ref()
+            .ok_or_else(|| "No vault is open".to_string())?;
+        Ok(active.root.clone())
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_active<T>(
+        &self,
+        operation: impl FnOnce(&ActiveVault) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let active = self.conn.lock_or_recover();
+        operation(active.as_ref().ok_or("No vault is open")?)
+    }
+
+    pub fn reserve_desktop(&self, root: &Path) -> Result<(), String> {
+        let mut leases = self.desktop_leases.lock_or_recover();
+        if !leases.contains_key(root) {
+            let lease = crate::structural::try_lease(root).map_err(str::to_owned)?;
+            leases.insert(root.to_owned(), lease);
+        }
+        Ok(())
+    }
+
+    fn canonical_vault(candidate: &str) -> Result<PathBuf, String> {
+        let root = Path::new(candidate)
+            .canonicalize()
+            .map_err(|error| format!("Vault not accessible: {error}"))?;
+        if !root.is_dir() {
+            return Err(format!("Vault is not a directory: {}", root.display()));
+        }
+
+        Ok(root)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn prepare_activation(candidate: &str) -> Result<PreparedVault, String> {
+        let root = Self::canonical_vault(candidate)?;
+        let _lease = crate::structural::try_lease(&root).map_err(str::to_owned)?;
+        Self::prepare_root(root)
+    }
+
+    fn prepare_root(root: PathBuf) -> Result<PreparedVault, String> {
+        let (connection, recovery_notices) = recover_before_load(&root)?;
+        let mut loaded = vault_index::load_vault(&connection, &root)?;
+        loaded.sync.warnings.extend(recovery_notices);
+        let _ = crate::database::projection::rebuild_database_projection(&connection, &root);
+        // Files may have changed while the vault was closed.
+        let _ = crate::project::index::rebuild_project_index(&connection, &root);
+
+        Ok(PreparedVault {
+            root,
+            connection,
+            loaded,
+        })
+    }
+
+    /// Commit a fully prepared vault in one replacement, then run the
+    /// post-commit setup while the context remains locked. If setup fails, the
+    /// prior active vault is restored before any command can observe the new
+    /// context.
+    fn commit_activation_locked(
+        &self,
+        prepared: PreparedVault,
+        after_commit: impl FnOnce(&ActiveVault) -> Result<(), String>,
+    ) -> Result<(vault_index::LoadVaultResult, u64), String> {
+        let mut active = self.conn.lock_or_recover();
+        let generation = active
+            .as_ref()
+            .map(|current| current.generation.saturating_add(1))
+            .unwrap_or(1);
+        let previous = active.take();
+        *active = Some(ActiveVault {
+            root: prepared.root,
+            connection: prepared.connection,
+            generation,
+            watcher_identity: None,
+            index_health: Cell::new(IndexState::Healthy),
+            index_changes: Arc::new(Mutex::new(HashSet::new())),
+            pending_move_refactor: Mutex::new(None),
+        });
+        if let Err(error) = after_commit(active.as_ref().expect("active vault was just set")) {
+            *active = previous;
+            return Err(error);
+        }
+        Ok((prepared.loaded, generation))
+    }
+
+    pub fn activate<T>(
+        &self,
+        candidate: &str,
+        update_scopes: impl FnOnce(&Path) -> Result<(), String>,
+        result: impl FnOnce(vault_index::LoadVaultResult, u64) -> T,
+    ) -> Result<T, String> {
+        let _mutation_guard = self.mutation_gate.lock_or_recover();
+        let root = Self::canonical_vault(candidate)?;
+        self.reserve_desktop(&root)?;
+        let prepared = Self::prepare_root(root)?;
+        let (loaded, generation) =
+            self.commit_activation_locked(prepared, |active| update_scopes(&active.root))?;
+        Ok(result(loaded, generation))
+    }
+
+    pub fn set_watcher_identity(&self, watcher_identity: Option<u64>) -> Result<(), String> {
+        let mut active = self.conn.lock_or_recover();
+        let active = active.as_mut().ok_or("No vault is open")?;
+        if active.watcher_identity == watcher_identity {
+            return Ok(());
+        }
+        active.watcher_identity = watcher_identity;
+        Ok(())
+    }
+
+    pub fn mark_index_rebuild_required(&self) -> Result<(), String> {
+        let mut active = self.conn.lock_or_recover();
+        let active = active.as_mut().ok_or("No vault is open")?;
+        active.index_health.set(IndexState::RebuildRequired);
+        Ok(())
+    }
+}
+
+/// Repair interrupted vault operations before opening or rebuilding the index.
+pub(crate) fn recover_before_load(root: &Path) -> Result<(Connection, Vec<String>), String> {
+    crate::structural::recover_desktop(root)?;
+    // К11 (ж): the old trash moves into the archive when the vault is opened, before the index,
+    // the watcher and the synchronisation look at it. A failure leaves everything in place (the
+    // journal resumes it at the next opening) and does not stop the vault from opening.
+    crate::archive_migration::run_when_opening(root);
+
+    // Preflight is read-only and must complete before the active state can
+    // change. Opening the connection verifies schema initialization too.
+    let preflight = vault_index::preflight_vault(root)?;
+    if let Some(recovery) = preflight.unfinished_migrations.first() {
+        return Err(format!(
+            "An unfinished ID migration must be recovered before opening this vault: {}",
+            recovery.journal_path
+        ));
+    }
+    // Read and validate every pending value and reciprocal-schema journal
+    // before restoring either namespace. The two plans touch disjoint
+    // user-owned paths, but a corrupt journal in either namespace must
+    // still block activation before any recovery write occurs.
+    let pending_relations = crate::database::relation_recovery::prepare_pending_relations(root)
+        .map_err(|error| format!("Relation recovery blocked vault activation: {error}"))?;
+    let pending_relation_schemas =
+        crate::database::relation_schema_recovery::prepare_pending_relation_schemas(root).map_err(
+            |error| format!("Relation schema recovery blocked vault activation: {error}"),
+        )?;
+    crate::database::relation_recovery::restore_prepared_relations(pending_relations)
+        .map_err(|error| format!("Relation recovery blocked vault activation: {error}"))?;
+    crate::database::relation_schema_recovery::restore_prepared_relation_schemas(
+        pending_relation_schemas,
+    )
+    .map_err(|error| format!("Relation schema recovery blocked vault activation: {error}"))?;
+    let connection = vault_index::open_connection(root)?;
+    // What this device began before it stopped is finished first (З29); then the mirror.
+    if property_groups::in_groups(root) {
+        let _ = property_groups::recover_operations(&connection, root);
+        property_groups::check_old_version_on_open(&connection, root);
+    }
+    property_groups::restore_cache_any(&connection, root)?;
+    let _ = crate::recovery::sweep_expired_recovery(root);
+    // Notices for the user, prefixed `recovery:` so the renderer shows only
+    // these from the sync warnings. Evidence is always preserved.
+    let mut recovery_notices: Vec<String> = Vec::new();
+    for anomaly in crate::recycle_bin::detect_anomalies(root) {
+        tracing::warn!(
+            event = "trash_anomaly",
+            id = %anomaly.id,
+            kind = ?anomaly.kind
+        );
+        recovery_notices.push(format!("recovery:trash:{}:{:?}", anomaly.id, anomaly.kind));
+    }
+    // Unreadable or unrecoverable batch journals are quarantined, never
+    // dropped, and must not lock the user out of the vault.
+    match crate::database::mutations::recover_pending_batches(root) {
+        Ok(report) => {
+            for entry in &report.quarantined {
+                tracing::error!(event = "database_batch_journal_quarantined", detail = %entry);
+                recovery_notices.push(format!("recovery:batch:{entry}"));
+            }
+        }
+        Err(error) => {
+            tracing::error!(event = "database_batch_recovery_failed", error = %error);
+            recovery_notices.push(format!("recovery:batch:{error}"));
+        }
+    }
+    // A project creation interrupted before its structure file was written
+    // is cleaned up conditionally; whatever cannot be is quarantined.
+    match crate::project::recovery::recover_pending_projects(root) {
+        Ok(report) => {
+            for entry in &report.quarantined {
+                tracing::error!(event = "project_journal_quarantined", detail = %entry);
+                recovery_notices.push(format!("recovery:project:{entry}"));
+            }
+        }
+        Err(error) => {
+            tracing::error!(event = "project_recovery_failed", error = %error);
+            recovery_notices.push(format!("recovery:project:{error}"));
+        }
+    }
+    Ok((connection, recovery_notices))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::sync::Arc;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("amby-context-{name}-{nanos}"));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("Note.md"), "# Note").unwrap();
+        root
+    }
+
+    #[test]
+    fn failed_database_open_keeps_the_previous_active_vault() {
+        let context = VaultContext::default();
+        let first = temp_dir("first");
+        context
+            .activate(first.to_str().unwrap(), |_| Ok(()), |_, _| ())
+            .unwrap();
+        let original_root = context.root().unwrap();
+
+        let broken = temp_dir("broken");
+        fs::write(broken.join(".amby"), "not a directory").unwrap();
+        assert!(context
+            .activate(broken.to_str().unwrap(), |_| Ok(()), |_, _| ())
+            .is_err());
+
+        assert_eq!(context.root().unwrap(), original_root);
+    }
+
+    #[test]
+    fn failed_scope_update_does_not_commit_a_half_active_vault() {
+        let context = VaultContext::default();
+        let first = temp_dir("scope-first");
+        context
+            .activate(first.to_str().unwrap(), |_| Ok(()), |_, _| ())
+            .unwrap();
+        let original_root = context.root().unwrap();
+        let second = temp_dir("scope-second");
+
+        assert!(context
+            .activate(
+                second.to_str().unwrap(),
+                |_| Err("scope rejected".to_string()),
+                |_, _| ()
+            )
+            .is_err());
+
+        assert_eq!(context.root().unwrap(), original_root);
+    }
+
+    #[test]
+    fn generation_advances_only_after_a_successful_commit() {
+        let context = VaultContext::default();
+        let first = temp_dir("generation-first");
+        let (first_path, first_generation) = context
+            .activate(
+                first.to_str().unwrap(),
+                |_| Ok(()),
+                |loaded, generation| (loaded.vault_path, generation),
+            )
+            .unwrap();
+        let failed = temp_dir("generation-failed");
+        assert!(context
+            .activate(
+                failed.to_str().unwrap(),
+                |_| Err("scope rejected".to_string()),
+                |_, _| ()
+            )
+            .is_err());
+        let second = temp_dir("generation-second");
+        let second_generation = context
+            .activate(
+                second.to_str().unwrap(),
+                |_| Ok(()),
+                |_, generation| generation,
+            )
+            .unwrap();
+
+        assert_eq!(first_generation, 1);
+        assert_eq!(second_generation, 2);
+        assert_eq!(PathBuf::from(first_path), first.canonicalize().unwrap());
+    }
+
+    #[test]
+    fn reading_active_vault_data_does_not_advance_generation() {
+        let context = VaultContext::default();
+        let vault = temp_dir("active-refresh");
+        let generation = context
+            .activate(
+                vault.to_str().unwrap(),
+                |_| Ok(()),
+                |_, generation| generation,
+            )
+            .unwrap();
+
+        let loaded = context
+            .with_active(|active| vault_index::load_vault(active, &active.root))
+            .unwrap();
+
+        assert_eq!(loaded.generation, 0);
+        assert_eq!(
+            PathBuf::from(loaded.vault_path),
+            vault.canonicalize().unwrap()
+        );
+        assert_eq!(context.generation().unwrap(), generation);
+    }
+
+    #[test]
+    fn index_failure_marks_the_active_context_for_rebuild() {
+        let context = VaultContext::default();
+        let vault = temp_dir("index-rebuild");
+        context
+            .activate(vault.to_str().unwrap(), |_| Ok(()), |_, _| ())
+            .unwrap();
+
+        context.mark_index_rebuild_required().unwrap();
+        context
+            .with_active(|active| {
+                assert_eq!(active.index_health.get(), IndexState::RebuildRequired);
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn root_and_connection_are_observed_from_the_same_active_vault() {
+        let context = VaultContext::default();
+        let vault = temp_dir("consistent");
+        context
+            .activate(vault.to_str().unwrap(), |_| Ok(()), |_, _| ())
+            .unwrap();
+
+        context
+            .with_active(|active| {
+                let database: String = active
+                    .connection
+                    .query_row("PRAGMA database_list", [], |row| row.get(2))
+                    .map_err(|error| error.to_string())?;
+                assert!(Path::new(&database).starts_with(&active.root));
+                assert_eq!(active.index_health.get(), IndexState::Healthy);
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn concurrent_commands_observe_a_consistent_root_and_connection() {
+        let context = Arc::new(VaultContext::default());
+        let vault = temp_dir("concurrent-first");
+        let alternate_vault = temp_dir("concurrent-second");
+        context
+            .activate(vault.to_str().unwrap(), |_| Ok(()), |_, _| ())
+            .unwrap();
+
+        let switcher_context = Arc::clone(&context);
+        let switcher = std::thread::spawn(move || {
+            for index in 0..16 {
+                let target = if index % 2 == 0 {
+                    &alternate_vault
+                } else {
+                    &vault
+                };
+                switcher_context
+                    .activate(target.to_str().unwrap(), |_| Ok(()), |_, _| ())
+                    .unwrap();
+            }
+        });
+        let commands = (0..8)
+            .map(|_| {
+                let context = Arc::clone(&context);
+                std::thread::spawn(move || {
+                    for _ in 0..16 {
+                        context.with_active(|active| {
+                            let database: String = active
+                                .connection
+                                .query_row("PRAGMA database_list", [], |row| row.get(2))
+                                .map_err(|error| error.to_string())?;
+                            assert!(Path::new(&database).starts_with(&active.root));
+                            Ok(())
+                        })?;
+                    }
+                    Ok::<(), String>(())
+                })
+            })
+            .collect::<Vec<_>>();
+
+        switcher.join().unwrap();
+        for command in commands {
+            command.join().unwrap().unwrap();
+        }
+    }
+
+    #[test]
+    fn stuck_batch_journal_is_quarantined_and_reported_without_blocking_activation() {
+        let vault = temp_dir("quarantine-notice");
+        fs::write(vault.join("Note.md"), "# Note\n").unwrap();
+        let batches = vault.join(".amby/recovery/database_batches");
+        fs::create_dir_all(&batches).unwrap();
+        fs::write(batches.join("broken.json"), b"{ not a journal").unwrap();
+
+        let prepared = VaultContext::prepare_activation(vault.to_str().unwrap()).unwrap();
+        assert!(
+            prepared
+                .loaded
+                .sync
+                .warnings
+                .iter()
+                .any(|warning| warning.starts_with("recovery:batch:")
+                    && warning.contains("broken.json")),
+            "{:?}",
+            prepared.loaded.sync.warnings
+        );
+        assert_eq!(prepared.loaded.notes.len(), 1, "the vault still opens");
+        assert_eq!(
+            fs::read(batches.join("quarantine/broken.json")).unwrap(),
+            b"{ not a journal"
+        );
+    }
+
+    #[test]
+    fn reindexing_active_vault_rescans_all_notes_and_rebuilds_tree() {
+        let context = VaultContext::default();
+        let vault = temp_dir("reindex");
+        fs::write(vault.join("Note.md"), "# Note Content\n").unwrap();
+        context
+            .activate(vault.to_str().unwrap(), |_| Ok(()), |loaded, _| loaded)
+            .unwrap();
+
+        let reindexed = context.with_active(|active| active.reindex()).unwrap();
+        assert_eq!(reindexed.notes.len(), 1);
+        assert_eq!(reindexed.tree.len(), 1);
+    }
+
+    #[test]
+    fn open_and_reindex_do_not_mutate_legacy_database_or_recovery() {
+        let context = VaultContext::default();
+        let vault = temp_dir("legacy_db_open_reindex");
+        let db_dir = vault.join("MyDatabase");
+        fs::create_dir_all(db_dir.join(".ambd/views")).unwrap();
+        fs::create_dir_all(db_dir.join(".ambd/records")).unwrap();
+        let recovery_dir = db_dir.join(".ambd/recovery");
+        fs::create_dir_all(&recovery_dir).unwrap();
+
+        let manifest_bytes = br#"{
+  "format": "amby-database",
+  "formatVersion": 1,
+  "databaseId": "01J00000000000000000000001",
+  "name": "MyDatabase",
+  "locked": false,
+  "membership": {"kind": "filesystem-descendants", "recursive": true},
+  "properties": [],
+  "viewOrder": ["01J00000000000000000000002"],
+  "defaultViewId": "01J00000000000000000000002"
+}"#;
+        let view_bytes = br#"{
+  "format": "amby-database-view",
+  "formatVersion": 1,
+  "databaseId": "01J00000000000000000000001",
+  "viewId": "01J00000000000000000000002",
+  "name": "Table",
+  "layout": "table"
+}"#;
+        let record_bytes = br#"{
+  "format": "amby-database-record",
+  "formatVersion": 1,
+  "databaseId": "01J00000000000000000000001",
+  "noteId": "01J00000000000000000000003",
+  "values": {}
+}"#;
+        let recovery_bytes = b"durable recovery data to preserve";
+        let note_bytes =
+            b"---\namby-id: 01J00000000000000000000003\n---\n# My Note\nBody content\n";
+
+        let manifest_path = db_dir.join("ambd.json");
+        let view_path = db_dir.join(".ambd/views/01J00000000000000000000002.json");
+        let record_path = db_dir.join(".ambd/records/01J00000000000000000000003.json");
+        let recovery_file = recovery_dir.join("journal.json");
+        let note_path = db_dir.join("My Note.md");
+
+        fs::write(&manifest_path, manifest_bytes).unwrap();
+        fs::write(&view_path, view_bytes).unwrap();
+        fs::write(&record_path, record_bytes).unwrap();
+        fs::write(&recovery_file, recovery_bytes).unwrap();
+        fs::write(&note_path, note_bytes).unwrap();
+
+        // 1. Activate vault (prepare_activation)
+        context
+            .activate(vault.to_str().unwrap(), |_| Ok(()), |loaded, _| loaded)
+            .unwrap();
+
+        // Verify files are completely untouched after activation
+        assert_eq!(fs::read(&manifest_path).unwrap(), manifest_bytes);
+        assert_eq!(fs::read(&view_path).unwrap(), view_bytes);
+        assert_eq!(fs::read(&record_path).unwrap(), record_bytes);
+        assert_eq!(fs::read(&recovery_file).unwrap(), recovery_bytes);
+        assert_eq!(fs::read(&note_path).unwrap(), note_bytes);
+
+        // 2. Reindex vault
+        context.with_active(|active| active.reindex()).unwrap();
+
+        // Verify files are still completely untouched after reindex
+        assert_eq!(fs::read(&manifest_path).unwrap(), manifest_bytes);
+        assert_eq!(fs::read(&view_path).unwrap(), view_bytes);
+        assert_eq!(fs::read(&record_path).unwrap(), record_bytes);
+        assert_eq!(fs::read(&recovery_file).unwrap(), recovery_bytes);
+        assert_eq!(fs::read(&note_path).unwrap(), note_bytes);
+    }
+
+    #[test]
+    fn generation_survives_a_connection_mutex_poisoned_by_a_panic() {
+        let context = Arc::new(VaultContext::default());
+        let clone = Arc::clone(&context);
+        let _ = std::thread::spawn(move || {
+            let _guard = clone.conn.lock().unwrap();
+            panic!("poison the connection mutex");
+        })
+        .join();
+        assert!(context.conn.is_poisoned());
+
+        assert_eq!(context.generation(), Err("No vault is open".to_string()));
+    }
+}

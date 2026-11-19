@@ -1,15 +1,20 @@
+const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+
 /**
- * Determines whether the recovered draft and the disk content are semantically
- * equivalent or effectively empty, avoiding false positive recovery prompts.
+ * Determines whether the recovered draft and the disk content are the same document, avoiding false
+ * positive recovery prompts. An "equal" draft is deleted without asking, so the comparison is exact:
+ * only line endings are normalized; whitespace at the edges and a Sketch's `appState` still count.
  */
 function isEffectivelyEmptyOrEquivalent(diskContent: string, recoveredContent: string): boolean {
-  if (diskContent.trim() === recoveredContent.trim()) {
+  const normalizedDisk = diskContent.replace(/\r\n?/gu, "\n")
+  const normalizedRec = recoveredContent.replace(/\r\n?/gu, "\n")
+  if (normalizedDisk === normalizedRec) {
     return true
   }
 
   // Attempt JSON inspection for Canvas and Sketch documents.
-  const trimmedDisk = diskContent.trim()
-  const trimmedRec = recoveredContent.trim()
+  const trimmedDisk = normalizedDisk.trim()
+  const trimmedRec = normalizedRec.trim()
   if (
     (trimmedDisk.startsWith("{") || trimmedDisk.startsWith("[")) &&
     (trimmedRec.startsWith("{") || trimmedRec.startsWith("["))
@@ -59,11 +64,10 @@ function isEffectivelyEmptyOrEquivalent(diskContent: string, recoveredContent: s
         if (isSketch) {
           const diskElements = Array.isArray(diskJson.elements) ? diskJson.elements : []
           const recElements = Array.isArray(recJson.elements) ? recJson.elements : []
-          // If neither has any drawn elements, neither has user artwork.
-          if (diskElements.length === 0 && recElements.length === 0) {
-            return true
-          }
-          if (JSON.stringify(diskElements) === JSON.stringify(recElements)) {
+          // The view settings and embedded files are the person's too: they must match as well.
+          const sameSettings =
+            sameJson(diskJson.appState, recJson.appState) && sameJson(diskJson.files, recJson.files)
+          if (sameSettings && sameJson(diskElements, recElements)) {
             return true
           }
         }

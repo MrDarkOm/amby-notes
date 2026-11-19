@@ -41,4 +41,13 @@ describe("debug storage repository", () => {
     } as never)
     await expect(getDebugStatus()).rejects.toThrow("VaultUnavailable")
   })
+
+  it("maps backend null optionals to absent fields", async () => {
+    configureDebugRepositoryRuntime({ isNative: () => true })
+    vi.spyOn(commands, "getDebugHistory").mockResolvedValue({
+      status: "ok",
+      data: [{ ...sample, metadata: null, sessionId: null, sequence: 3 }],
+    })
+    expect(await getDebugHistory()).toEqual([{ ...sample, sequence: 3 }])
+  })
 })

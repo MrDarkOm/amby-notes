@@ -44,14 +44,7 @@ fn endpoint(config: &AiConfig) -> Result<reqwest::Url, String> {
 }
 
 fn local(url: &reqwest::Url) -> bool {
-    match url.host() {
-        Some(url::Host::Domain(name)) => {
-            name.eq_ignore_ascii_case("localhost") || name.ends_with(".localhost")
-        }
-        Some(url::Host::Ipv4(ip)) => ip.is_loopback() || ip.is_private(),
-        Some(url::Host::Ipv6(ip)) => ip.is_loopback() || ip.is_unique_local(),
-        None => false,
-    }
+    super::host_class(url).is_local()
 }
 
 fn key(config: &AiConfig, url: &reqwest::Url) -> String {

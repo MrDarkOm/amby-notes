@@ -1,6 +1,13 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { ArchiveRestore, CircleCheck, RefreshCw, ShieldCheck } from "lucide-react"
+import {
+  ArchiveRestore,
+  CircleCheck,
+  FolderOpen,
+  RefreshCw,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -9,6 +16,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
 import { MotionSpinner } from "@/lib/motion"
 import {
   resolveBackupPort,
@@ -19,10 +28,13 @@ import {
 } from "@/lib/storage"
 import { formatSize } from "@/lib/sync/format-size"
 import { requestOpenRestoredVault } from "./backup-navigation"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface Props {
   vault: string | null
   port?: BackupPort
+  /** The copy made before sync was recorded but is gone or damaged (the status of the sync). */
+  missing?: boolean
 }
 const knownCodes = [
   "backup_invalid",
@@ -38,7 +50,7 @@ const knownCodes = [
 ] as const
 
 /** A catalog is bound to the backend activation it came from. No renderer filesystem I/O. */
-export function BackupPanel({ vault, port: given }: Props) {
+export function BackupPanel({ vault, port: given, missing = false }: Props) {
   const { t, i18n } = useTranslation()
   const port = React.useMemo(() => given ?? resolveBackupPort(), [given])
   const [catalog, setCatalog] = React.useState<BackupCatalog | null>(null)
@@ -146,7 +158,15 @@ export function BackupPanel({ vault, port: given }: Props) {
       if (scope.current === vault && result) setRestored(result.path)
     })
   }
+  const reveal = (item: BackupInfo) =>
+    void act(`show:${item.id}`, (current) => port.reveal(current.generation, item.id))
+  const remove = async (item: BackupInfo) => {
+    if (!(await confirm(confirmations.deleteBackup()))) return
+    await act(`delete:${item.id}`, (current) => port.remove(current.generation, item.id))
+    if (scope.current === vault) void reload.current()
+  }
   const date = (ms: number) => new Date(ms).toLocaleString(i18n.language)
+  const day = (ms: number) => new Date(ms).toLocaleDateString(i18n.language)
 
   return (
     <div className="backup-panel" data-testid="backup-panel">
@@ -175,11 +195,8 @@ export function BackupPanel({ vault, port: given }: Props) {
       ) : !vault ? (
         <p className="backup-caption">{t("backups.errors.no_vault_open")}</p>
       ) : null}
-      {error && (
-        <p role="alert" className="text-[12px] text-destructive">
-          {error}
-        </p>
-      )}
+      {missing && <p className="backup-caption">{t("backups.lostHint")}</p>}
+      {error && <NoticeLine role="alert" text={error} />}
       {catalog?.backups.length === 0 && <p className="backup-caption">{t("backups.empty")}</p>}
       {catalog && catalog.vault === vault && catalog.backups.length > 0 && (
         <ul className="backup-list">
@@ -189,13 +206,18 @@ export function BackupPanel({ vault, port: given }: Props) {
                 <ArchiveRestore className="size-4" aria-hidden="true" />
               </span>
               <div className="backup-row-text">
-                <h4>{date(item.createdMs)}</h4>
+                <h4>{t("backups.copyBeforeSync", { date: date(item.createdMs) })}</h4>
                 <p>
                   {t("backups.beforeSync")} ·{" "}
                   {["missing", "damaged", "incomplete"].includes(item.status)
                     ? t("backups.sizeUnknown")
                     : `${formatSize(item.bytes, i18n.language)} · ${t("backups.files", { count: item.files })}`}
                 </p>
+                {item.expiresMs !== null && (
+                  <p className="backup-caption">
+                    {t("backups.expires", { date: day(item.expiresMs) })}
+                  </p>
+                )}
                 <span className="backup-condition" data-state={item.status}>
                   {item.status === "verified" && (
                     <CircleCheck className="size-3" aria-hidden="true" />
@@ -204,6 +226,18 @@ export function BackupPanel({ vault, port: given }: Props) {
                 </span>
               </div>
               <div className="backup-actions">
+                {item.deletable && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy !== null}
+                    onClick={() => reveal(item)}
+                  >
+                    <FolderOpen className="size-3.5" aria-hidden="true" />
+                    {t("backups.show")}
+                  </Button>
+                )}
                 <Button
                   type="button"
                   variant="ghost"
@@ -234,6 +268,24 @@ export function BackupPanel({ vault, port: given }: Props) {
                   )}
                   {t(busy === `restore:${item.id}` ? "backups.restoring" : "backups.restore")}
                 </Button>
+                {item.deletable && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy !== null}
+                    onClick={() => void remove(item)}
+                  >
+                    <Trash2 className="size-3.5" aria-hidden="true" />
+                    {t(
+                      busy === `delete:${item.id}`
+                        ? "backups.deleting"
+                        : item.origin === "legacy"
+                          ? "backups.deleteOld"
+                          : "backups.delete",
+                    )}
+                  </Button>
+                )}
               </div>
             </li>
           ))}

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { syncErrorMessage } from "@/lib/sync/sync-errors"
 import { SyncPortError, type SyncPort } from "@/lib/sync/sync-port"
 import { NewPasswordFields } from "./password-fields"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface ChangePasswordFormProps {
   port: SyncPort
@@ -77,11 +78,7 @@ export function ChangePasswordForm({ port, username, onClose }: ChangePasswordFo
         onRepeatChange={setRepeat}
         onValidChange={setValid}
       />
-      {error && (
-        <p role="alert" className="text-[12px] text-destructive">
-          {error}
-        </p>
-      )}
+      {error && <NoticeLine role="alert" text={error} />}
       <div className="flex gap-2">
         <Button type="submit" size="sm" disabled={busy || !valid || oldPassword === ""}>
           {t("sync.changePassword.submit")}

@@ -1,7 +1,6 @@
 //! The choice by notes for a conflict of a group of note properties (docs/sync-plan.md, appendix
 //! З: З17, З64а, З69). The files of the sets are built by hand, as in `conflict_store_tests.rs`.
 //! Red until written: `read_group` and `Resolution::Notes` are `todo!()` today.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::{BTreeMap, BTreeSet};
 

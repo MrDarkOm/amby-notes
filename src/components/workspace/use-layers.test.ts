@@ -20,27 +20,47 @@ afterEach(() => {
 })
 
 describe("loadNoteLayerContent", () => {
-  it("strips amby-id frontmatter from content and preserves source", async () => {
-    const rawNote = "---\namby-id: 01M2G6775PZPKWZ4CFKBAV0AA\n---\n"
-    vi.spyOn(storage, "readFile").mockResolvedValue(rawNote)
+  // The text of a layer holds lines that look like an ID; the backend's tree is the only source.
+  const source = "---\ntitle: Задачи\n---\nid: чужой\n# Tasks\n"
+  const tree = [
+    { id: "real-id", path: "/vault/Tasks/Tasks.md", name: "Tasks", type: "file" as const },
+  ]
 
-    const result = await loadNoteLayerContent("/vault/Tasks/Tasks.md")
-
-    expect(result.content).toBe("")
-    expect(result.source).toBe(rawNote)
-    expect(result.noteId).toBe("01M2G6775PZPKWZ4CFKBAV0AA")
-    expect(result.revision).toBeDefined()
+  beforeEach(() => {
+    vi.spyOn(storage, "readFile").mockResolvedValue(source)
+    vi.spyOn(storage, "readNote").mockImplementation(async (_vault, id) => {
+      if (id !== "real-id") throw new Error("Note not found")
+      return { content: "# Tasks\n", revision: "backend-revision", source }
+    })
   })
 
-  it("extracts noteId and body text when note has content", async () => {
-    const rawNote = "---\namby-id: 01M2G6775PZPKWZ4CFKBAV0AA\n---\n# Tasks\n\n- Task 1"
-    vi.spyOn(storage, "readFile").mockResolvedValue(rawNote)
+  it("takes the ID and the revision from the backend, not from the text", async () => {
+    const result = await loadNoteLayerContent("/vault/Tasks/Tasks.md", "/vault", tree)
 
-    const result = await loadNoteLayerContent("/vault/Tasks/Tasks.md")
+    expect(result.noteId).toBe("real-id")
+    expect(result.revision).toBe("backend-revision")
+    expect(result.content).toBe("# Tasks\n")
+    expect(result.readOnly).toBe(false)
+    expect(storage.readNote).not.toHaveBeenCalledWith("/vault", "чужой")
+  })
 
-    expect(result.content).toBe("# Tasks\n\n- Task 1")
-    expect(result.source).toBe(rawNote)
-    expect(result.noteId).toBe("01M2G6775PZPKWZ4CFKBAV0AA")
+  it("is read only, with no ID and no revision, when the backend does not know the layer", async () => {
+    const result = await loadNoteLayerContent("/vault/Tasks/Tasks.md", "/vault", [])
+
+    expect(result.noteId).toBeUndefined()
+    expect(result.revision).toBeUndefined()
+    expect(result.readOnly).toBe(true)
+    expect(result.source).toBe(source)
+    expect(storage.readNote).not.toHaveBeenCalled()
+  })
+
+  it("is read only when the backend fails to read the note", async () => {
+    vi.spyOn(storage, "readNote").mockRejectedValue(new Error("not indexed"))
+    const result = await loadNoteLayerContent("/vault/Tasks/Tasks.md", "/vault", tree)
+
+    expect(result.noteId).toBeUndefined()
+    expect(result.revision).toBeUndefined()
+    expect(result.readOnly).toBe(true)
   })
 })
 
@@ -126,6 +146,32 @@ describe("layer switching", () => {
     expect(applyMutationResult).toHaveBeenCalledTimes(1)
     expect(useViewStateStore.getState().activeLayers[doc.id]).toBe("sketch")
     expect(useViewStateStore.getState().linkedLayersByDoc[doc.id]?.sketch).toBe(true)
+  })
+
+  it("makes a freshly created note layer editable at once, with the ID and revision of the backend", async () => {
+    useViewStateStore.getState().setLinkedLayers(doc.id, { ...layers, note: false })
+    useDocStore.getState().setDoc(doc.id, { ...doc, path: "/vault/Note/Note.canvas" })
+    const source = "---\nid: чужой\n---\ntext\n"
+    vi.mocked(storage.createLayer).mockResolvedValue({
+      kind: "note",
+      notePath: "/vault/Note/Note.canvas",
+      layerPath: "/vault/Note/Note.md",
+      pathChanges: [],
+    })
+    vi.spyOn(storage, "readFile").mockResolvedValue(source)
+    const readNote = vi
+      .spyOn(storage, "readNote")
+      .mockResolvedValue({ content: "text\n", revision: "backend-revision", source })
+    const { result, refreshTreePaths } = setup()
+    refreshTreePaths.mockResolvedValue([
+      { id: "new-note-id", path: "/vault/Note/Note.md", name: "Note", type: "file" },
+    ])
+    await act(() => result.current.handleLayerChange("editor"))
+    expect(readNote).toHaveBeenCalledWith("/vault", "new-note-id")
+    const stored = useDocStore.getState().openDocs[doc.id]
+    expect(stored?.noteId).toBe("new-note-id")
+    expect(stored?.revision).toBe("backend-revision")
+    expect(stored?.noteProperties?.bodyReadOnly).not.toBe(true)
   })
 
   it("keeps the current layer when creation fails", async () => {

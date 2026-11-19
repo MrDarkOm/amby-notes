@@ -5,6 +5,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import i18n from "@/lib/i18n"
+import { logger } from "@/lib/logger"
+import { useAppNoticesStore } from "../notices/use-app-notices-store"
 import { getNoteProperties, listTrash, readFile, restoreTrash } from "@/lib/storage"
 import type { Document } from "../use-doc-store"
 import { useDocStore } from "../use-doc-store"
@@ -499,4 +501,31 @@ describe("properties changed on another computer (З65)", () => {
     await act(async () => emitAmbyWritten([".amby/blocks/n.json"]))
     expect(getNoteProperties).not.toHaveBeenCalled()
   })
+})
+
+describe("a subscription to sync events that is refused", () => {
+  // SYNC-06: a note that was deleted elsewhere, brought back, merged or written by a pass is
+  // announced by these events; a refused subscription must not be swallowed.
+  it.each(["onRemoteDeleted", "onRestoredAfterDeletion", "onMerged", "onAmbyWritten"] as const)(
+    "%s: warns once in the centre and writes the journal",
+    async (name) => {
+      useAppNoticesStore.setState({ notices: [] })
+      const warn = vi.spyOn(logger, "warn").mockImplementation(() => null)
+      const port = createFakePort({
+        vaultStatus: async () => vaultStatus(),
+        [name]: async () => {
+          throw new Error("listen failed /secret")
+        },
+      })
+      render(<SyncNoticesHost port={port} />)
+      await waitFor(() => expect(port.vaultStatus).toHaveBeenCalled())
+      await waitFor(() =>
+        expect(
+          useAppNoticesStore.getState().notices.find((n) => n.id === "sync-listen-failed")?.level,
+        ).toBe("warning"),
+      )
+      expect(warn).toHaveBeenCalledWith("sync.listen_failed", { errorType: "Error" })
+      warn.mockRestore()
+    },
+  )
 })

@@ -965,7 +965,7 @@ fn group_super_notes(rows: Vec<DeletedFile>) -> Vec<Vec<DeletedFile>> {
 fn free_sibling(path: &Path) -> Option<PathBuf> {
     let dir = path.parent()?;
     let name = path.file_name()?.to_str()?;
-    Some(crate::commands::import_files::free_path(dir, name))
+    Some(crate::paths::free_path(dir, name))
 }
 
 /// One deleted file: the status and the final path (relative to the vault).

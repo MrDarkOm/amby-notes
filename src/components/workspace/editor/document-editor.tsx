@@ -15,7 +15,12 @@ import { DocumentHeader, type NoteTrailProps } from "./document-header"
 import { EmptyTab } from "./empty-tab"
 import { DocumentBody, type EditorFrameProps } from "./document-body"
 import { NotePdfExport, NotePdfExportDialog, type PdfExportOptions } from "./note-pdf-export"
-import { inspectMarkdownCompatibility, noteEditingPolicy } from "./note-editing-policy"
+import {
+  hasMixedLineEndings,
+  inspectMarkdownCompatibility,
+  noteEditingPolicy,
+} from "./note-editing-policy"
+import { requestSourceRewriteSnapshot } from "../autosave/source-rewrite"
 import type { DocumentViewMode, EditorLayer } from "./use-document-view-mode"
 import { NoteNotices } from "../note-notices/note-notices"
 import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
@@ -362,6 +367,11 @@ export function DocumentEditor({
 
   const handleContentChange = (v: string) => {
     if (!document || effectiveLocked) return
+    // A note with mixed line endings is edited in Source only, and the first save writes all of
+    // them in one form: the file being replaced must stay recoverable from history.
+    if (document.source && hasMixedLineEndings(document.source)) {
+      requestSourceRewriteSnapshot(document.id)
+    }
     setBuffer({ documentId: document.id, upstream: document.content, value: v })
     onContentChange?.(v, document.id)
   }

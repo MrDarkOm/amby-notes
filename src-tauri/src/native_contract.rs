@@ -1,5 +1,6 @@
 //! Opt-in real WebView/IPC harness. It uses the production command registry,
 //! not a mock runtime or replacement storage implementation.
+use crate::lock_util::LockExt;
 use std::{
     fs,
     sync::{
@@ -103,15 +104,21 @@ fn run_native_ui(root: std::path::PathBuf) {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(NativeAppDataRoot(root.join(".app-data")))
         .manage(crate::vault_context::VaultContext::new())
+        .manage(crate::cli_open::PendingCliOpens::default())
         .manage(crate::watcher::WatcherState::new())
+        .manage(crate::path_grants::PathGrants::trust_everything())
         .manage(crate::database::runtime_state::DatabaseRuntimeState::default())
         .manage(crate::database::mutation_state::DatabaseMutationState::default())
         .manage(crate::database::history::DatabaseHistoryState::default())
         .manage(crate::ai::AiStreamState::default())
         .manage(crate::logging::DebugState(crate::logging::global_runtime()))
         .invoke_handler(crate::specta_builder().invoke_handler())
+        .on_menu_event(crate::state::handle_menu_event)
         .setup(move |app| {
             manage_harness_sync(app, &app_data_root);
+            crate::cli_structural::start(app.handle());
+            #[cfg(target_os = "macos")]
+            app.set_menu(crate::state::app_menu(app.handle())?)?;
             let debug = crate::logging::global_runtime();
             debug.set_app(app.handle().clone());
             debug
@@ -125,6 +132,286 @@ fn run_native_ui(root: std::path::PathBuf) {
         .build(context)
         .expect("native UI startup")
         .run(crate::state::handle_run_event);
+}
+
+// The real CLI runs outside the webview and writes directly to the disposable
+// scenario vault. The marker is created only after the native watcher is ready.
+fn spawn_cli_write_probe(root: std::path::PathBuf, binary: std::ffi::OsString) {
+    std::thread::spawn(move || {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let deadline = Instant::now() + Duration::from_secs(120);
+        while Instant::now() < deadline {
+            let vault = fs::read_dir(&root)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter(|entry| entry.file_name().to_string_lossy().starts_with("case-"))
+                .map(|entry| entry.path())
+                .find(|path| path.join(".amby/cli-native-ready").is_file());
+            if let Some(vault) = vault {
+                let result = (|| -> std::io::Result<()> {
+                    let mut child = Command::new(&binary)
+                        .arg("--vault")
+                        .arg(&vault)
+                        .args(["append", "CLI external.md"])
+                        .stdin(Stdio::piped())
+                        .stdout(Stdio::null())
+                        .spawn()?;
+                    child
+                        .stdin
+                        .take()
+                        .ok_or_else(|| std::io::Error::other("missing CLI stdin"))?
+                        .write_all(b"external CLI edit\n")?;
+                    if !child.wait()?.success() {
+                        return Err(std::io::Error::other("CLI append failed"));
+                    }
+                    let ready = vault.join(".amby/cli-native-structural-ready");
+                    while !ready.is_file() && Instant::now() < deadline {
+                        std::thread::sleep(Duration::from_millis(25));
+                    }
+                    if !ready.is_file() {
+                        return Err(std::io::Error::other(
+                            "CLI structural probe was not started",
+                        ));
+                    }
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()?;
+                    let profile = root.join(".app-data");
+                    let dispatch = |vault, version| {
+                        use amby_core::cli_ipc::{self, Action, Request};
+                        runtime.block_on(cli_ipc::dispatch(
+                            &profile,
+                            Request {
+                                version,
+                                vault,
+                                action: Action::Archive {
+                                    path: "CLI external.md".into(),
+                                },
+                            },
+                        ))
+                    };
+                    let version = amby_core::cli_ipc::VERSION;
+                    for (target, requested, expected) in [
+                        (root.canonicalize()?, version, "vaultNotActive"),
+                        (vault.canonicalize()?, version + 1, "desktopProtocolVersion"),
+                    ] {
+                        if !matches!(dispatch(target, requested), Err(code) if code == expected) {
+                            return Err(std::io::Error::other(format!(
+                                "Expected {expected} from desktop"
+                            )));
+                        }
+                    }
+                    for args in [
+                        &["rename", "CLI external.md", "CLI renamed"][..],
+                        &["move", "CLI renamed.md", "Destination"][..],
+                        &["archive", "Destination/CLI renamed.md"][..],
+                        &["restore", "Destination/CLI renamed.md"][..],
+                        &["recover"][..],
+                    ] {
+                        let output = Command::new(&binary)
+                            .env("AMBY_APP_DATA_DIR", root.join(".app-data"))
+                            .arg("--vault")
+                            .arg(&vault)
+                            .arg("--json")
+                            .args(args)
+                            .output()?;
+                        if !output.status.success() {
+                            return Err(std::io::Error::other(format!(
+                                "CLI {args:?} failed: {}",
+                                String::from_utf8_lossy(&output.stdout)
+                            )));
+                        }
+                    }
+                    let call_tool = |grant: &str, name: &str, arguments: serde_json::Value| {
+                        let mut child = Command::new(&binary)
+                            .env("AMBY_APP_DATA_DIR", &profile)
+                            .arg("--vault")
+                            .arg(&vault)
+                            .args(["mcp", grant])
+                            .stdin(Stdio::piped())
+                            .stdout(Stdio::piped())
+                            .spawn()?;
+                        let request = serde_json::json!({
+                            "jsonrpc":"2.0", "id":1, "method":"tools/call",
+                            "params":{"name":name, "arguments":arguments}
+                        });
+                        writeln!(
+                            child
+                                .stdin
+                                .take()
+                                .ok_or_else(|| std::io::Error::other("MCP stdin unavailable"))?,
+                            "{request}"
+                        )?;
+                        let output = child.wait_with_output()?;
+                        let reply: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+                        let text = reply["result"]["content"][0]["text"]
+                            .as_str()
+                            .ok_or_else(|| std::io::Error::other("Missing MCP result text"))?;
+                        serde_json::from_str::<serde_json::Value>(text)
+                            .map_err(std::io::Error::other)
+                    };
+                    let rename = serde_json::json!({"path":"Destination/CLI renamed.md","name":"CLI MCP renamed"});
+                    let denied =
+                        call_tool("--allow-write=Destination", "rename_item", rename.clone())?;
+                    if denied["error"] != "outsideWriteScope" {
+                        return Err(std::io::Error::other(format!(
+                            "Expected delegated scope denial: {denied}"
+                        )));
+                    }
+                    let allowed = call_tool("--allow-write", "rename_item", rename)?;
+                    if allowed["destination"] != "Destination/CLI MCP renamed.md" {
+                        return Err(std::io::Error::other(format!(
+                            "Expected delegated rename: {allowed}"
+                        )));
+                    }
+                    let denied = call_tool(
+                        "--allow-write=Destination",
+                        "create_database",
+                        serde_json::json!({"parent":"Destination","name":"Inactive database"}),
+                    )?;
+                    if denied["error"] != "moduleDisabled" {
+                        return Err(std::io::Error::other(format!(
+                            "Expected disabled runtime module: {denied}"
+                        )));
+                    }
+                    fs::write(vault.join(".amby/cli-native-enable-modules"), "")?;
+                    let enabled = vault.join(".amby/cli-native-modules-enabled");
+                    while !enabled.is_file() && Instant::now() < deadline {
+                        std::thread::sleep(Duration::from_millis(25));
+                    }
+                    if !enabled.is_file() {
+                        return Err(std::io::Error::other(
+                            "Native harness did not enable modules",
+                        ));
+                    }
+                    let scoped = |tool, args| call_tool("--allow-write=Destination", tool, args);
+                    let database = scoped(
+                        "create_database",
+                        serde_json::json!({"parent":"Destination","name":"MCP Tasks"}),
+                    )?;
+                    let renamed = scoped(
+                        "rename_database",
+                        serde_json::json!({
+                            "databaseId":database["databaseId"], "expectedRevision":database["revision"], "name":"MCP Tasks Renamed"
+                        }),
+                    )?;
+                    if renamed["name"] != "MCP Tasks Renamed" {
+                        return Err(std::io::Error::other(format!(
+                            "Expected database rename: {renamed}"
+                        )));
+                    }
+                    let targets = scoped(
+                        "create_database",
+                        serde_json::json!({
+                            "parent":"Destination","name":"MCP Targets"
+                        }),
+                    )?;
+                    let relation = scoped(
+                        "create_database_relation",
+                        serde_json::json!({
+                            "databaseId":database["databaseId"],"targetDatabaseId":targets["databaseId"],
+                            "name":"Related","inverseName":"Backlinks","expectedRevision":renamed["revision"],
+                            "expectedTargetRevision":targets["revision"],"operationId":"native-relation"
+                        }),
+                    )?;
+                    let left = scoped(
+                        "create_database_row",
+                        serde_json::json!({
+                            "databaseId":database["databaseId"],"title":"Left"
+                        }),
+                    )?;
+                    let right = scoped(
+                        "create_database_row",
+                        serde_json::json!({
+                            "databaseId":targets["databaseId"],"title":"Right"
+                        }),
+                    )?;
+                    let linked = scoped(
+                        "set_database_relation",
+                        serde_json::json!({
+                            "databaseId":database["databaseId"],"noteId":left["noteId"],
+                            "propertyId":relation["propertyId"],"targetNoteIds":[right["noteId"]],
+                            "expectedRevision":left["revision"],"operationId":"native-link"
+                        }),
+                    )?;
+                    if linked["affectedPaths"] != serde_json::json!([left["path"], right["path"]]) {
+                        return Err(std::io::Error::other(format!(
+                            "Expected both MCP relation paths: {linked}"
+                        )));
+                    }
+                    let inverse = fs::read_to_string(
+                        vault.join(
+                            right["path"]
+                                .as_str()
+                                .ok_or_else(|| std::io::Error::other("No target row path"))?,
+                        ),
+                    )?;
+                    if !left["noteId"]
+                        .as_str()
+                        .is_some_and(|id| inverse.contains(id))
+                    {
+                        return Err(std::io::Error::other(
+                            "The inverse relation was not durably written",
+                        ));
+                    }
+                    let workshop = scoped(
+                        "create_workshop",
+                        serde_json::json!({
+                            "parent":"Destination","name":"MCP Workshop","operationId":"native-workshop"
+                        }),
+                    )?;
+                    let updated = scoped(
+                        "update_workshop",
+                        serde_json::json!({
+                            "workshopId":workshop["workshopId"],"expectedRevision":workshop["revision"],
+                            "operationId":"native-workshop-details","tags":["native"]
+                        }),
+                    )?;
+                    if updated["tags"] != serde_json::json!(["native"]) {
+                        return Err(std::io::Error::other(format!(
+                            "Expected workshop update: {updated}"
+                        )));
+                    }
+                    let story = scoped(
+                        "create_story",
+                        serde_json::json!({
+                            "workshopId":workshop["workshopId"],"title":"First Story","operationId":"native-story"
+                        }),
+                    )?;
+                    let details = scoped(
+                        "read_story",
+                        serde_json::json!({"storyId":story["storyId"]}),
+                    )?;
+                    let page = scoped(
+                        "create_text_page",
+                        serde_json::json!({
+                            "storyId":story["storyId"],"title":"First Page",
+                            "levelId":details["text"]["levels"][0]["id"],"orderKey":"a0"
+                        }),
+                    )?;
+                    let result_path = page["path"].as_str().map(|path| vault.join(path));
+                    if !result_path.is_some_and(|path| path.is_file()) {
+                        return Err(std::io::Error::other(format!(
+                            "Expected lasting text page: {page}"
+                        )));
+                    }
+                    fs::write(vault.join(".amby/cli-native-structural-result"), "done")?;
+                    Ok(())
+                })();
+                if let Err(error) = result {
+                    let _ = fs::write(
+                        vault.join(".amby/cli-native-structural-result"),
+                        error.to_string(),
+                    );
+                    eprintln!("Native CLI probe failed: {error}");
+                }
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    });
 }
 
 pub fn run_native_contract() {
@@ -143,6 +430,7 @@ pub fn run_native_contract() {
         fs::write(fixture.join("note.md"), b"\xef\xbb\xbfNative backup\r\n")
             .expect("backup fixture note");
         fs::write(fixture.join(".amby/keep.bin"), [0, 255, 42]).expect("backup fixture sidecar");
+        crate::sync::backup::set_home(root.join(".app-data").join("backups"));
         crate::sync::backup::ensure(&fixture).expect("verified native backup fixture");
     }
     let setup_root = root.clone();
@@ -161,7 +449,9 @@ pub fn run_native_contract() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(NativeAppDataRoot(root.join(".app-data")))
         .manage(crate::vault_context::VaultContext::new())
+        .manage(crate::cli_open::PendingCliOpens::default())
         .manage(crate::watcher::WatcherState::new())
+        .manage(crate::path_grants::PathGrants::trust_everything())
         .manage(crate::database::runtime_state::DatabaseRuntimeState::default())
         .manage(crate::database::mutation_state::DatabaseMutationState::default())
         .manage(crate::database::history::DatabaseHistoryState::default())
@@ -203,6 +493,21 @@ pub fn run_native_contract() {
             .data_directory(setup_root.join(".webview"))
             .initialization_script(initialization)
             .build()?;
+            if contract_page() == "tests/native/index.html" {
+                crate::cli_structural::start(app.handle());
+                if let Some(binary) = std::env::var_os("AMBY_NATIVE_CLI_BIN") {
+                    spawn_cli_write_probe(setup_root.clone(), binary);
+                }
+                let name = "Command line note.md";
+                fs::write(setup_root.join(name), "# Command line note")?;
+                for path in ["../outside.md", name] {
+                    crate::cli_open::enqueue(app.handle(), [
+                        amby_core::desktop_launch::OPEN_NOTE_FLAG.into(),
+                        setup_root.as_os_str().to_owned(),
+                        path.into(),
+                    ]);
+                }
+            }
             let handle = app.handle().clone();
             let report = setup_root.join("result.json");
             std::thread::spawn(move || {
@@ -234,8 +539,7 @@ pub fn run_native_contract() {
             handle
                 .state::<crate::vault_context::VaultContext>()
                 .conn
-                .lock()
-                .unwrap()
+                .lock_or_recover()
                 .take();
         }
     });

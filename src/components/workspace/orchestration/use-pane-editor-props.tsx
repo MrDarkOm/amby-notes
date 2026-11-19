@@ -13,6 +13,7 @@ import type { NoteLayers } from "@/lib/storage/types"
 import type { PanelId } from "../panel-registry"
 import type { SplitPaneOptions, Tab } from "../use-tabs-store"
 import type { ViewModePref, ContentWidth } from "../app-config"
+import { isLayerDocument, naturalDocumentLayer } from "../layer-documents"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { DatabaseWorkspace, LazyEditorFallback } from "./lazy-surfaces"
@@ -21,6 +22,8 @@ import { databaseContentWidthKey, EMPTY_LAYERS } from "./workspace-constants"
 import { CANONICAL_EMPTY_CANVAS } from "@/lib/canvas-format"
 import { defaultSketchJson } from "@/lib/sketch-format"
 import { useDocStore, type Document } from "../use-doc-store"
+import { hasUnsavedAutosave } from "../autosave/autosave-lifecycle"
+import { useVaultStore } from "../use-vault-store"
 import type { DocumentViewMode } from "../document-editor"
 import {
   exportDatabaseCsv,
@@ -36,11 +39,12 @@ import { useCreativeNavStore } from "../creative/creative-nav-store"
 import type { DatabaseRowActions } from "../database/use-row-menu"
 import { ModuleRequiredFallback } from "../editor/module-required-fallback"
 import type { DatabaseSummary } from "@/lib/storage/database-types"
-import { readNote, openInExplorer, type DatabaseRow } from "@/lib/storage"
+import { readNote, type DatabaseRow } from "@/lib/storage"
+import { showInFileManager } from "../show-in-file-manager"
 import { workspaceRelativePath } from "../vault/use-vault-session"
+import { useOverlaysStore } from "../use-overlays-store"
 
 interface UsePaneEditorPropsParams {
-  openDocs: Record<string, Document>
   treeItemById: Map<string, TreeItem>
   activeTabKey: string
   canGoBack: boolean
@@ -72,7 +76,6 @@ interface UsePaneEditorPropsParams {
   activatePanelAnywhere: (panelId: PanelId) => void
   handleNewDatabase: (parentId: string | null, name: string) => Promise<void>
   displayTreeItems: TreeItem[]
-  setQuickOpenMode: React.Dispatch<React.SetStateAction<"current" | "new" | null>>
   handleOpenVault: () => Promise<void>
   showTagInPanel: (tag: string) => void
   handleWikiLinkClick: (rawLink: string) => Promise<void>
@@ -127,7 +130,6 @@ interface UsePaneEditorPropsParams {
 }
 
 export function usePaneEditorProps({
-  openDocs,
   treeItemById,
   activeTabKey,
   canGoBack,
@@ -155,7 +157,6 @@ export function usePaneEditorProps({
   activatePanelAnywhere,
   handleNewDatabase,
   displayTreeItems,
-  setQuickOpenMode,
   handleOpenVault,
   showTagInPanel,
   handleWikiLinkClick,
@@ -213,15 +214,8 @@ export function usePaneEditorProps({
   // functionality; split panes also get independent navigation, editing, view-mode,
   // and autosave.
   function paneEditorProps(tab: Tab | null, preserveLayer = false, paneId?: string) {
-    const rawDoc = tab ? (openDocs[tab.fileId] ?? null) : null
-    const isCanvasOrSketch =
-      tab?.kind === "canvas" ||
-      tab?.kind === "sketch" ||
-      tab?.kind === "database" ||
-      tab?.fileId.endsWith(".canvas") ||
-      tab?.fileId.endsWith(".excalidraw") ||
-      rawDoc?.path.endsWith(".canvas") ||
-      rawDoc?.path.endsWith(".excalidraw")
+    const rawDoc = tab ? (useDocStore.getState().openDocs[tab.fileId] ?? null) : null
+    const isCanvasOrSketch = isLayerDocument(tab, rawDoc?.path)
     const treeItem = tab
       ? (treeItemById.get(tab.fileId) ?? (rawDoc ? treeItemById.get(rawDoc.id) : null) ?? null)
       : null
@@ -277,14 +271,7 @@ export function usePaneEditorProps({
         : undefined)
 
     const defaultDocLayer: EditorLayer =
-      resolvedPrimaryLayer ??
-      (tab?.kind === "canvas" || doc?.path.endsWith(".canvas")
-        ? "canvas"
-        : tab?.kind === "sketch" || doc?.path.endsWith(".excalidraw")
-          ? "sketch"
-          : tab?.kind === "database"
-            ? "database"
-            : "editor")
+      resolvedPrimaryLayer ?? naturalDocumentLayer(tab, doc?.path)
 
     const resolvedActiveLayer =
       (doc?.id ? activeLayers[doc.id] : undefined) ??
@@ -323,7 +310,16 @@ export function usePaneEditorProps({
       },
       onContentClean: (sourceDocumentId?: string) => {
         const targetId = sourceDocumentId || tab?.fileId
-        if (targetId) {
+        // The text is back to what the editor last published, but a save of an earlier edit may
+        // still be queued: the note stays unsaved until it finishes (SAVE-03).
+        if (
+          targetId &&
+          !hasUnsavedAutosave({
+            generation: useVaultStore.getState().generation,
+            kind: "markdown",
+            documentId: targetId,
+          })
+        ) {
           useDocStore.getState().markSaved(targetId)
         }
       },
@@ -362,7 +358,7 @@ export function usePaneEditorProps({
           // Made without asking for a name, so it must not collide with what is at the root.
           nextAvailableNoteName(displayTreeItems, vault ?? "", t("defaults.untitled")),
         ),
-      onQuickOpen: () => setQuickOpenMode("current"),
+      onQuickOpen: () => useOverlaysStore.getState().setQuickOpenMode("current"),
       onOpenVault: handleOpenVault,
       onTagClick: showTagInPanel,
       onWikiLinkClick: handleWikiLinkClick,
@@ -441,7 +437,7 @@ export function usePaneEditorProps({
           ? (parentId: string | null, name: string) => handleNewFolderIn(parentId, name)
           : undefined,
       onMergeFile: doc ? (targetId: string) => handleMergeFile(doc.id, targetId) : undefined,
-      onShowInExplorer: doc ? () => openInExplorer(doc.path) : undefined,
+      onShowInExplorer: doc ? () => void showInFileManager(doc.path) : undefined,
       onDeleteFile: doc ? (mode?: "archive") => handleDeleteFile(doc.id, mode) : undefined,
       treeItems: displayTreeItems,
       onOpenItem: handleSelect,

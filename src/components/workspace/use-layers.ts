@@ -5,7 +5,7 @@ import { confirmations } from "@/lib/confirmations"
 import { useViewStateStore, type EditorLayer } from "./use-view-state-store"
 import { useDocStore, type Document } from "./use-doc-store"
 import type { TreeItem } from "./sidebar-tree"
-import type { FsMutationResult, LayerKind, LayerResult } from "@/lib/storage"
+import type { FsMutationResult, LayerKind, LayerResult, NoteProperties } from "@/lib/storage"
 import {
   createDatabase,
   createLayer,
@@ -15,7 +15,7 @@ import {
   readFile,
   readNote,
 } from "@/lib/storage"
-import { splitWebFrontmatter, webRevision } from "@/lib/storage/web-frontmatter"
+import { splitWebFrontmatter } from "@/lib/storage/web-frontmatter"
 import { useDatabaseStore } from "./database/database-store"
 import { noteLayerPath, wsPathDir } from "./workspace-tree-utils"
 import { beginLocalTreeMutation, recordLocalTreePaths } from "./watcher-tree-reconciliation"
@@ -42,37 +42,78 @@ function patchDocBuffer(fileId: string, path: string | undefined, patch: Partial
   }
 }
 
+/** The layer has no ID or revision from the backend: the text is shown, nothing is written. */
+const LAYER_UNRESOLVED_PROPERTIES: NoteProperties = {
+  hasFrontmatter: false,
+  bodyReadOnly: true,
+  properties: [],
+  customProperties: [],
+}
+
+type LoadedNoteLayer = {
+  content: string
+  source: string
+  noteId?: string
+  revision?: string
+  readOnly: boolean
+}
+
+/**
+ * The note layer of a container. Its ID is the one the backend's tree gives to the file and its
+ * revision the one `read_note` returns; a pattern over the text would find ordinary `id:`
+ * properties and body lines, and a revision of our own is not one the backend accepts. When the
+ * backend does not know the layer yet (or does not answer), the text is shown read only.
+ */
 export async function loadNoteLayerContent(
   layerPath: string,
-  vault?: string,
-): Promise<{ content: string; source: string; noteId?: string; revision?: string }> {
-  const noteContent = await readFile(layerPath)
-  const idMatch = noteContent.match(/^(?:amby-id|id):\s*([^\s]+)/m)
-  const noteId = idMatch ? idMatch[1] : undefined
-  let revision: string | undefined
-  let content: string | undefined
-  let source = noteContent
-
-  if (noteId && vault) {
+  vault: string | undefined,
+  treeItems: TreeItem[],
+): Promise<LoadedNoteLayer> {
+  const item = vault ? findLayerItem(treeItems, layerPath) : null
+  if (vault && item) {
     try {
-      const indexedNote = await readNote(vault, noteId)
-      revision = indexedNote.revision
-      content = indexedNote.content
-      source = indexedNote.source
+      const note = await readNote(vault, item.id)
+      return {
+        content: note.content,
+        source: note.source,
+        noteId: item.id,
+        revision: note.revision,
+        readOnly: false,
+      }
     } catch {
-      // Fall back if SQLite indexer has not indexed yet
+      // The layer can exist briefly before the index sees it; it stays read only.
     }
   }
+  const source = await readFile(layerPath)
+  const split = splitWebFrontmatter(source)
+  // Without a vault the browser adapter writes the file itself and needs no revision.
+  return { content: split ? split.body : source, source, readOnly: Boolean(vault) }
+}
 
-  if (content === undefined) {
-    const split = splitWebFrontmatter(noteContent)
-    content = split ? split.body : noteContent
-    if (!revision) {
-      revision = webRevision(content)
-    }
+function findLayerItem(items: TreeItem[], path: string): TreeItem | null {
+  for (const item of items) {
+    if (item.type === "file" && item.path === path) return item
+    const found = item.children ? findLayerItem(item.children, path) : null
+    if (found) return found
   }
+  return null
+}
 
-  return { content, source, noteId, revision }
+/** What a loaded layer changes in the open document. */
+function layerPatch(fileId: string, loaded: LoadedNoteLayer): Partial<Document> {
+  const wasUnresolved =
+    useDocStore.getState().openDocs[fileId]?.noteProperties === LAYER_UNRESOLVED_PROPERTIES
+  return {
+    content: loaded.content,
+    source: loaded.source,
+    noteId: loaded.noteId,
+    ...(loaded.revision ? { revision: loaded.revision } : {}),
+    ...(loaded.readOnly
+      ? { noteProperties: LAYER_UNRESOLVED_PROPERTIES }
+      : wasUnresolved
+        ? { noteProperties: undefined }
+        : {}),
+  }
 }
 
 interface UseLayersParams {
@@ -107,6 +148,9 @@ export function useLayers({
   applyMutationResult,
 }: UseLayersParams) {
   const t = i18n.t.bind(i18n)
+  // The latest tree for the loads that run after an await.
+  const treeItemsRef = React.useRef(treeItems)
+  treeItemsRef.current = treeItems
   const activeLayers = useViewStateStore((s) => s.activeLayers)
   const linkedLayersByDoc = useViewStateStore((s) => s.linkedLayersByDoc)
   const databaseInvalidationSeq = useDatabaseStore((state) => state.invalidationSeq)
@@ -219,18 +263,19 @@ export function useLayers({
             pathChanges: result.pathChanges,
             deletedPaths: [],
           })
-          await refreshTreePaths(layerTouchedPaths(result))
+          // The tree the backend returns after the refresh holds the ID of the new layer; the
+          // `treeItems` of this closure predate it.
+          const freshTree = await refreshTreePaths(layerTouchedPaths(result))
           setActiveLayer(doc.id, "editor")
           await refreshLinkedLayers(doc.id, result.notePath ?? doc.path)
           if (result.layerPath) {
             try {
-              const loaded = await loadNoteLayerContent(result.layerPath, vault ?? undefined)
-              patchDocBuffer(doc.id, doc.path, {
-                content: loaded.content,
-                source: loaded.source,
-                noteId: loaded.noteId,
-                ...(loaded.revision ? { revision: loaded.revision } : {}),
-              })
+              const loaded = await loadNoteLayerContent(
+                result.layerPath,
+                vault ?? undefined,
+                freshTree,
+              )
+              patchDocBuffer(doc.id, doc.path, layerPatch(doc.id, loaded))
             } catch (e) {
               console.error("Failed to read newly created note layer:", e)
             }
@@ -250,13 +295,12 @@ export function useLayers({
       ) {
         try {
           const notePath = noteLayerPath(current.path)
-          const loaded = await loadNoteLayerContent(notePath, vault ?? undefined)
-          patchDocBuffer(doc.id, doc.path, {
-            content: loaded.content,
-            source: loaded.source,
-            noteId: loaded.noteId,
-            ...(loaded.revision ? { revision: loaded.revision } : {}),
-          })
+          const loaded = await loadNoteLayerContent(
+            notePath,
+            vault ?? undefined,
+            treeItemsRef.current,
+          )
+          patchDocBuffer(doc.id, doc.path, layerPatch(doc.id, loaded))
         } catch (e) {
           console.error("Failed to load existing note layer:", e)
         }
@@ -326,17 +370,16 @@ export function useLayers({
           pathChanges: result.pathChanges,
           deletedPaths: [],
         })
-        await refreshTreePaths(layerTouchedPaths(result))
+        const freshTree = await refreshTreePaths(layerTouchedPaths(result))
         await refreshLinkedLayers(fileId, result.notePath ?? filePath)
         if (layer === "note" && result.layerPath) {
           try {
-            const loaded = await loadNoteLayerContent(result.layerPath, vault ?? undefined)
-            patchDocBuffer(fileId, item.path, {
-              content: loaded.content,
-              source: loaded.source,
-              noteId: loaded.noteId,
-              ...(loaded.revision ? { revision: loaded.revision } : {}),
-            })
+            const loaded = await loadNoteLayerContent(
+              result.layerPath,
+              vault ?? undefined,
+              freshTree,
+            )
+            patchDocBuffer(fileId, item.path, layerPatch(fileId, loaded))
           } catch (e) {
             console.error("Failed to read newly created note layer:", e)
           }
@@ -481,15 +524,14 @@ export function useLayers({
     void (async () => {
       try {
         const notePath = noteLayerPath(currentDoc.path)
-        const loaded = await loadNoteLayerContent(notePath, vault ?? undefined)
+        const loaded = await loadNoteLayerContent(
+          notePath,
+          vault ?? undefined,
+          treeItemsRef.current,
+        )
         if (cancelled) return
         settled = true
-        patchDocBuffer(currentDoc.id, currentDoc.path, {
-          content: loaded.content,
-          source: loaded.source,
-          noteId: loaded.noteId,
-          ...(loaded.revision ? { revision: loaded.revision } : {}),
-        })
+        patchDocBuffer(currentDoc.id, currentDoc.path, layerPatch(currentDoc.id, loaded))
       } catch (err) {
         settled = true
         console.error("Failed to load active note layer:", err)

@@ -1,6 +1,6 @@
 // Machine reasons of the database commands → texts of the interface (docs/notices.md §10).
 // The backend's own sentence is never shown: only the reason is trusted
-// (src-tauri/src/database/failure.rs). An unknown reason, or `failed`, has the general text.
+// (crates/amby-core/src/database/failure.rs). An unknown reason, or `failed`, has the general text.
 
 import type { TFunction } from "i18next"
 import type { FailureReason } from "@/lib/bindings"

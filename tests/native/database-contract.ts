@@ -1306,7 +1306,7 @@ export const nativeDatabaseCases: Array<{
               noteId: row.noteId,
               propertyId: score.propertyId,
               valueJson: JSON.stringify({ type: "number", decimal: String(value) }),
-              expectedRevision: row.recordRevision,
+              expectedRevision: await adapter.getFileRevision(row.notePath),
             },
           ],
         })
@@ -1443,7 +1443,7 @@ export const nativeDatabaseCases: Array<{
               noteId: row.noteId,
               propertyId: status.propertyId,
               valueJson: JSON.stringify({ type: "status", optionId }),
-              expectedRevision: row.recordRevision,
+              expectedRevision: await adapter.getFileRevision(row.notePath),
             },
           ],
         })
@@ -1618,7 +1618,7 @@ export const nativeDatabaseCases: Array<{
               noteId: task.noteId,
               propertyId: hours.propertyId,
               valueJson: JSON.stringify({ type: "number", decimal: hoursValue }),
-              expectedRevision: task.recordRevision,
+              expectedRevision: await adapter.getFileRevision(task.notePath),
             },
           ],
         })
@@ -1825,7 +1825,7 @@ export const nativeDatabaseCases: Array<{
               noteId: row.noteId,
               propertyId: select.propertyId,
               valueJson: JSON.stringify({ type: "select", optionId }),
-              expectedRevision: row.recordRevision,
+              expectedRevision: await adapter.getFileRevision(row.notePath),
             },
           ],
         })
@@ -1975,7 +1975,7 @@ export const nativeDatabaseCases: Array<{
               end: null,
               timeZone: null,
             }),
-            expectedRevision: row.recordRevision,
+            expectedRevision: await adapter.getFileRevision(row.notePath),
           },
         ],
       })

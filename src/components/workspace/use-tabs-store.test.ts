@@ -15,7 +15,7 @@ function canvasTab(key: string): Tab {
 
 describe("useTabsStore singleton tabs", () => {
   beforeEach(() => {
-    useTabsStore.setState({ tabs: [], activeTabKey: "", secondaryTabKey: null })
+    useTabsStore.setState({ tabs: [], activeTabKey: "" })
   })
 
   it("atomically opens one Canvas tab across repeated calls", () => {
@@ -39,7 +39,7 @@ const targets: TabTarget[] = [
 ]
 
 describe("ordinary item navigation", () => {
-  beforeEach(() => useTabsStore.setState({ tabs: [], activeTabKey: "", secondaryTabKey: null }))
+  beforeEach(() => useTabsStore.setState({ tabs: [], activeTabKey: "" }))
 
   it.each(targets)("replaces an active $kind tab with any other item type", (initial) => {
     const { openItem } = useTabsStore.getState()
@@ -142,7 +142,7 @@ describe("moving a tab within its pane", () => {
   }
 
   beforeEach(() => {
-    useTabsStore.setState({ tabs: [], activeTabKey: "", secondaryTabKey: null })
+    useTabsStore.setState({ tabs: [], activeTabKey: "" })
     openThree()
   })
 

@@ -239,19 +239,7 @@ impl Drop for LoginGuard {
 /// Opens the sign-in page in the user's browser. The caller has already checked the
 /// address; it is passed as one argument, never through a shell.
 fn open_in_browser(url: &str) -> bool {
-    #[cfg(target_os = "windows")]
-    let mut command = std::process::Command::new("explorer");
-    #[cfg(target_os = "macos")]
-    let mut command = std::process::Command::new("open");
-    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-    let mut command = std::process::Command::new("xdg-open");
-    command
-        .arg(url)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .is_ok()
+    crate::system_open::open_address(url).is_ok()
 }
 
 fn failure(error: &CodexError) -> crate::ai::AiChatError {

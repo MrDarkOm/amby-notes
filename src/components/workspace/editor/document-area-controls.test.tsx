@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import "@/lib/i18n"
 import { useSettingsStore } from "../use-settings-store"
 import { DocumentAreaControls } from "./document-area-controls"
+import { formatRedoShortcut, formatShortcut } from "../keyboard-shortcuts"
 
 afterEach(() => {
   cleanup()
@@ -21,8 +22,8 @@ describe("the note's floating bar, drawn by the shared bar", () => {
     expect(screen.getByText("12:00")).toBeTruthy()
     expect(screen.getByText("12 сл.")).toBeTruthy()
     for (const title of [
-      "Отменить (Ctrl+Z)",
-      "Повторить (Ctrl+Y)",
+      `Отменить (${formatShortcut("Mod+Z")})`,
+      `Повторить (${formatRedoShortcut()})`,
       "Режим просмотра",
       "Настройки",
     ]) {
@@ -33,7 +34,7 @@ describe("the note's floating bar, drawn by the shared bar", () => {
   it("takes undo and redo away while the note is locked and says how to unlock it", () => {
     const toggle = vi.fn()
     render(<DocumentAreaControls {...base} isLocked onToggleLock={toggle} />)
-    expect(screen.queryByTitle("Отменить (Ctrl+Z)")).toBeNull()
+    expect(screen.queryByTitle(`Отменить (${formatShortcut("Mod+Z")})`)).toBeNull()
     fireEvent.click(screen.getByTitle("Режим редактирования"))
     expect(toggle).toHaveBeenCalledTimes(1)
   })

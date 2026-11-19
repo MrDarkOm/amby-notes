@@ -25,7 +25,7 @@ function discover(directory) {
   }
 }
 
-for (const directory of ["src", "src-tauri", "docs", "scripts", "tests", "site"]) {
+for (const directory of ["src", "src-tauri", "crates", "docs", "scripts", "tests", "site"]) {
   discover(directory)
 }
 
@@ -42,7 +42,8 @@ for (const file of [...guides, ...maps]) {
     errors.push(`${file}: missing navigation document`)
     continue
   }
-  const content = readFileSync(path.join(root, file), "utf8")
+  // Count checkout-independent content; Windows may expand LF to CRLF.
+  const content = readFileSync(path.join(root, file), "utf8").replace(/\r\n/g, "\n")
   const budget = file === "AGENTS.md" ? 6500 : maps.includes(file) ? 12000 : Infinity
   if (Buffer.byteLength(content) > budget)
     errors.push(`${file}: exceeds ${budget}-byte context budget`)

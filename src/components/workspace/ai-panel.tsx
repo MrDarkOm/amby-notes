@@ -3,6 +3,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { ArrowLeft, History, Settings2, SquarePen } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
@@ -29,9 +30,14 @@ import {
 import { useDocStore } from "./use-doc-store"
 import { useVaultStore } from "./use-vault-store"
 import type { PanelRenderProps } from "./panel-registry"
-import { PanelHeader } from "./panels/panel-header"
+import { PanelHeader, PanelSearch } from "./panels/panel-header"
 import { toRelativeVaultPath } from "./workspace-tree-utils"
-import { allContextItems, buildAttachedContext, currentContext } from "./ai/context"
+import {
+  allContextItems,
+  buildAttachedContext,
+  currentContext,
+  MAX_ATTACHED_CHARS,
+} from "./ai/context"
 import { Composer } from "./ai/composer"
 import { EmptyChat } from "./ai/empty-chat"
 import { AssistantAnswer, LiveAnswer, UserMessage } from "./ai/message-view"
@@ -75,8 +81,6 @@ export function AiPanel({
   const { t, i18n } = useTranslation()
   const backendGeneration = useVaultStore((state) => state.backendGeneration)
   const switching = useVaultStore((state) => state.switching)
-  const openDocs = useDocStore((state) => state.openDocs)
-  const currentDoc = currentDocId ? (openDocs[currentDocId] ?? null) : null
   const chat = useAiChatStore((state) => state.chat)
   const readOnly = useAiChatStore((state) => state.readOnly)
   const revision = useAiChatStore((state) => state.revision)
@@ -104,6 +108,39 @@ export function AiPanel({
     : (ai.models.find((item) => item.id === newChatModelId(ai)) ?? null)
   const tools = model ? modelSupportsTools(model) : false
   const context = chat?.context
+  // What the panel reads of the open notes: titles, and the lengths only while the attached notes come near
+  // the limit. Typing far from it republishes `content` without changing this string, so it does not render.
+  const attachedKey = useDocStore((state) => {
+    const ids = new Set<string>(currentDocId ? [currentDocId] : [])
+    for (const entry of context ?? []) if (entry.kind !== "folder") ids.add(entry.id)
+    let total = 0
+    for (const id of ids) total += state.openDocs[id]?.content.length ?? 0
+    const near = total > MAX_ATTACHED_CHARS
+    return JSON.stringify(
+      [...ids].map((id) => {
+        const doc = state.openDocs[id]
+        if (!doc) return [id]
+        const clipped =
+          doc.content.length > MAX_ATTACHED_CHARS &&
+          Array.from(doc.content).length > MAX_ATTACHED_CHARS
+        return [id, doc.title, clipped, near ? doc.content.length : 0]
+      }),
+    )
+  })
+  const { openDocs, currentDoc, currentClipped } = React.useMemo(() => {
+    const docs: Record<string, { title?: string }> = {}
+    let clipped = false
+    for (const [id, title, over] of JSON.parse(attachedKey) as [string, string?, boolean?][]) {
+      if (title === undefined) continue
+      docs[id] = { title }
+      if (id === currentDocId) clipped = over === true
+    }
+    return {
+      openDocs: docs,
+      currentDoc: currentDocId ? (docs[currentDocId] ?? null) : null,
+      currentClipped: clipped,
+    }
+  }, [attachedKey, currentDocId])
 
   const finalize = React.useCallback(
     (run: RunningTurn, result?: { content: string; steps: ChatStep[]; sources: ChatSource[] }) => {
@@ -215,7 +252,7 @@ export function AiPanel({
       void buildAttachedContext({
         context,
         items: treeItems,
-        openDocs,
+        openDocs: useDocStore.getState().openDocs,
         vault,
         generation: backendGeneration,
         language: i18n.language === "ru" ? "Russian" : "English",
@@ -231,7 +268,7 @@ export function AiPanel({
       active = false
       window.clearTimeout(timer)
     }
-  }, [backendGeneration, context, i18n.language, loading, openDocs, switching, treeItems, vault])
+  }, [backendGeneration, context, i18n.language, loading, attachedKey, switching, treeItems, vault])
 
   React.useEffect(() => {
     scrollEndRef.current?.scrollIntoView?.({ block: "end" })
@@ -537,41 +574,37 @@ export function AiPanel({
       changeChat({ ...current, modelId: next.activeModelId })
   }
 
+  const [chatSearchQuery, setChatSearchQuery] = React.useState("")
+
+  const openChatList = () => {
+    stop()
+    void useAiChatStore.getState().refresh()
+    setScreen("list")
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PanelHeader
         leading={
           screen !== "chat" ? (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="icon-sm"
               title={t("ai.backToChat")}
+              aria-label={t("ai.backToChat")}
               onClick={() => setScreen("chat")}
-              className="-ml-1 rounded p-1 text-muted-foreground hover:bg-accent"
+              className="-ml-1"
             >
               <ArrowLeft className="size-4" />
-            </button>
+            </Button>
           ) : undefined
         }
         title={screen === "list" ? t("ai.chatList") : chat?.title || t("ai.unnamedChat")}
         actions={
-          <div className="flex items-center gap-0.5">
-            {screen === "chat" && (
-              <button
-                type="button"
-                title={t("ai.chatList")}
-                aria-label={t("ai.chatList")}
-                onClick={() => {
-                  stop()
-                  void useAiChatStore.getState().refresh()
-                  setScreen("list")
-                }}
-                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-              >
-                <History className="size-4" />
-              </button>
-            )}
-            <button
-              type="button"
+          <>
+            <Button
+              variant="ghost"
+              size="icon-sm"
               title={t("ai.newChat")}
               aria-label={t("ai.newChat")}
               onClick={() => {
@@ -579,26 +612,49 @@ export function AiPanel({
                 useAiChatStore.getState().create(newChatModelId(ai), currentDocId ?? null)
                 setError(null)
                 setInput("")
+                setChatSearchQuery("")
                 setScreen("chat")
               }}
-              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <SquarePen className="size-4" />
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
               title={t("ai.settings")}
               aria-label={t("ai.settings")}
               onClick={openAiSettings}
-              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <Settings2 className="size-4" />
-            </button>
-          </div>
+            </Button>
+          </>
+        }
+      />
+      <PanelSearch
+        value={chatSearchQuery}
+        onChange={(value) => {
+          setChatSearchQuery(value)
+          if (screen === "chat" && value.trim()) openChatList()
+        }}
+        placeholder={t("ai.searchChats")}
+        ariaLabel={t("ai.searchChats")}
+        trailing={
+          screen === "chat" ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              title={t("ai.chatList")}
+              aria-label={t("ai.chatList")}
+              onClick={openChatList}
+              className="size-8 shrink-0 text-muted-foreground hover:bg-accent hover:text-white"
+            >
+              <History className="size-3.5" />
+            </Button>
+          ) : undefined
         }
       />
       {screen === "list" ? (
-        <ChatList onOpen={() => setScreen("chat")} />
+        <ChatList query={chatSearchQuery} onOpen={() => setScreen("chat")} />
       ) : readOnly ? (
         <ScrollArea className="min-h-0 flex-1 p-3">
           <p className="text-xs text-muted-foreground">
@@ -684,6 +740,7 @@ export function AiPanel({
             truncated={truncated}
             vault={vault}
             currentDoc={currentDoc}
+            currentClipped={currentClipped}
             input={input}
             loading={loading}
             switching={switching}

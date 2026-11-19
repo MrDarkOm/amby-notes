@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { loadVaultJSON, saveVaultJSON } from "@/lib/storage"
+import { useVaultStore } from "../use-vault-store"
 
 /** `.amby/graph-layout.json`: where the nodes of a locked graph stand. */
 export const GRAPH_LAYOUT_FILE = "graph-layout.json"
@@ -74,18 +75,20 @@ export const useGraphLayoutStore = create<GraphLayoutState>((set) => ({
     }
   },
   lock: async (positions, camera) => {
+    const generation = useVaultStore.getState().backendGeneration
     const nodes: Record<string, [number, number]> = {}
     positions.forEach((p, id) => {
       // Two decimals are far finer than a pixel and keep the file small.
       nodes[id] = [Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100]
     })
     const file: GraphLayoutFile = { version: GRAPH_LAYOUT_VERSION, locked: true, nodes, camera }
-    await saveVaultJSON(GRAPH_LAYOUT_FILE, file)
+    await saveVaultJSON(GRAPH_LAYOUT_FILE, file, generation)
     set({ locked: true, positions: new Map(positions), camera })
   },
   unlock: async () => {
+    const generation = useVaultStore.getState().backendGeneration
     const file: GraphLayoutFile = { version: GRAPH_LAYOUT_VERSION, locked: false }
-    await saveVaultJSON(GRAPH_LAYOUT_FILE, file)
+    await saveVaultJSON(GRAPH_LAYOUT_FILE, file, generation)
     set({ locked: false, positions: new Map(), camera: null })
   },
 }))

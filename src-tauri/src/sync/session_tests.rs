@@ -549,6 +549,29 @@ fn keeping_both_turns_the_second_version_into_a_file_beside_the_note() {
 }
 
 #[test]
+fn keeping_both_never_replaces_a_file_that_is_already_at_the_name_of_the_copy() {
+    // SYNC-05: the copy is written without replacing; a file at its name stays and the copy
+    // takes the next free name
+    use amby_sync_core::engine::names::conflict_copy_path;
+    let env = Env::new();
+    let (_a, b, sa, sb, id) = conflict_between_two(&env);
+    let copy = conflict_copy_path("Notes/n.md", &id);
+    b.put(&copy, b"already here");
+    sb.resolve_conflict(&id, ConflictChoice::KeepBoth).unwrap();
+    assert_eq!(b.text(&copy).as_deref(), Some("already here"));
+    let kept: Vec<String> = b
+        .files()
+        .into_iter()
+        .filter(|(path, bytes)| path != &copy && bytes.as_slice() == b"theirs on b")
+        .map(|(path, _)| path)
+        .collect();
+    assert_eq!(kept.len(), 1, "the second version is kept once: {kept:?}");
+    assert!(set_files(&b).is_empty());
+    sa.stop();
+    sb.stop();
+}
+
+#[test]
 fn an_unknown_conflict_is_not_found() {
     let env = Env::new();
     let a = TempVault::new("a");
@@ -1301,7 +1324,7 @@ fn the_status_names_the_space_and_the_test_mark() {
     a.put("x.md", b"x");
     let (sa, _) = env.start(&a, &env.account);
     let status = pass(&sa);
-    assert!(status.enabled && status.linked && status.test_vault);
+    assert!(status.enabled && status.linked);
     assert_eq!(
         status.space_id.as_deref(),
         Some(hex::encode(env.space_id).as_str())

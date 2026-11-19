@@ -11,7 +11,9 @@ node_modules
 dist
 dist-modules
 build/
+/target/
 src-tauri/target/
+/src-tauri/binaries/amby-*
 dist-ssr
 # Local release evidence and generated installers; never source data for Git.
 /.release-evidence/

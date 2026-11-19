@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import * as React from "react"
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import "@/lib/i18n"
 import type { DatabaseRow } from "@/lib/storage"
@@ -51,5 +52,59 @@ describe("DatabaseSidePeek", () => {
   it("the side variant is not a modal dialog", () => {
     render(<DatabaseSidePeek row={row} onClose={() => {}} />)
     expect(screen.queryByRole("dialog")).toBeNull()
+  })
+})
+
+describe("DatabaseSidePeek centered focus", () => {
+  afterEach(cleanup)
+
+  function Harness() {
+    const [open, setOpen] = React.useState(false)
+    // Opened by an event, not a click: a click would make happy-dom move focus after React has.
+    React.useEffect(() => {
+      const show = () => setOpen(true)
+      window.addEventListener("show-peek", show)
+      return () => window.removeEventListener("show-peek", show)
+    }, [])
+    return (
+      <>
+        <button data-testid="opener">open</button>
+        <button data-testid="outside">outside</button>
+        {open && (
+          <DatabaseSidePeek
+            row={row}
+            variant="center"
+            body={<p>Note body</p>}
+            onClose={() => setOpen(false)}
+          />
+        )}
+      </>
+    )
+  }
+
+  it("moves focus inside, keeps Tab inside, and returns it to the opener", async () => {
+    render(<Harness />)
+    const opener = screen.getByTestId("opener")
+    opener.focus()
+    act(() => {
+      window.dispatchEvent(new Event("show-peek"))
+    })
+    const dialog = screen.getByRole("dialog")
+    expect(dialog.contains(document.activeElement)).toBe(true)
+
+    const buttons = Array.from(dialog.querySelectorAll<HTMLButtonElement>("button")).filter(
+      (button) => !button.disabled,
+    )
+    const last = buttons[buttons.length - 1]
+    last.focus()
+    fireEvent.keyDown(last, { key: "Tab" })
+    expect(document.activeElement).toBe(buttons[0])
+    fireEvent.keyDown(buttons[0], { key: "Tab", shiftKey: true })
+    expect(document.activeElement).toBe(last)
+
+    fireEvent.keyDown(window, { key: "Escape" })
+    await act(async () => {})
+    expect(screen.queryByRole("dialog")).toBeNull()
+    expect(document.activeElement).toBe(opener)
   })
 })

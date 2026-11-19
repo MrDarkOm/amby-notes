@@ -94,17 +94,21 @@ pub fn restore_snapshot(
     let vault = scope.get()?;
     let generation = db.generation()?;
     let prepared_restore = history::prepare_snapshot_restore(&vault, &snapshot_id)?;
-    let prepared_write = watcher_state.prepare_write([(
+    let prepared_write = watcher_state.self_writes.prepare_write([(
         &prepared_restore.path,
         watcher::fingerprint_for_bytes(&prepared_restore.bytes),
     )]);
     let path = match history::commit_snapshot_restore(&vault, prepared_restore) {
         Ok(path) => {
-            watcher_state.confirm_prepared_write(&prepared_write);
+            watcher_state
+                .self_writes
+                .confirm_prepared_write(&prepared_write);
             path
         }
         Err(error) => {
-            watcher_state.cancel_prepared_write(&prepared_write);
+            watcher_state
+                .self_writes
+                .cancel_prepared_write(&prepared_write);
             return Err(error);
         }
     };
@@ -240,24 +244,24 @@ pub fn restore_trash(
     let preview = recycle_bin::preview_restore(&vault, &trash_id)?;
     let mut writes = vec![(
         (preview.destination.clone()),
-        watcher::path_fingerprint(&preview.payload),
+        watcher::path_fingerprint_for_move(&preview.payload),
     )];
     writes.extend(preview.restored_paths.iter().filter_map(|source| {
         let relative = source.strip_prefix(&preview.payload).ok()?;
         Some((
             preview.destination.join(relative),
-            watcher::path_fingerprint(source),
+            watcher::path_fingerprint_for_move(source),
         ))
     }));
     let mut restored_paths: Vec<_> = writes.iter().map(|(path, _)| path.clone()).collect();
-    let prepared = watcher_state.prepare_write(writes);
+    let prepared = watcher_state.self_writes.prepare_write(writes);
     let result = match recycle_bin::restore(&vault, &trash_id) {
         Ok(result) => {
-            watcher_state.confirm_prepared_write(&prepared);
+            watcher_state.self_writes.confirm_prepared_write(&prepared);
             result
         }
         Err(error) => {
-            watcher_state.cancel_prepared_write(&prepared);
+            watcher_state.self_writes.cancel_prepared_write(&prepared);
             return Err(error);
         }
     };
@@ -316,16 +320,16 @@ pub fn restore_archive(
     let vault = scope.get()?;
     let generation = db.generation()?;
     let (source, target) = crate::archive::restore_places(&vault, &archive_id)?;
-    let writes = vec![(target.clone(), watcher::path_fingerprint(&source))];
+    let writes = vec![(target.clone(), watcher::path_fingerprint_for_move(&source))];
     let mut restored_paths = vec![target];
-    let prepared = watcher_state.prepare_write(writes);
+    let prepared = watcher_state.self_writes.prepare_write(writes);
     let result = match crate::archive::restore(&vault, &archive_id) {
         Ok(result) => {
-            watcher_state.confirm_prepared_write(&prepared);
+            watcher_state.self_writes.confirm_prepared_write(&prepared);
             result
         }
         Err(error) => {
-            watcher_state.cancel_prepared_write(&prepared);
+            watcher_state.self_writes.cancel_prepared_write(&prepared);
             return Err(error);
         }
     };
@@ -378,7 +382,7 @@ pub fn preview_rename_refactor(
 ) -> Result<vault_index::RefactorPreview, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(&db, &path)?;
-    let preview = crate::bundle::preview_rename_item(&path, &new_name)?;
+    let preview = crate::bundle::preview_rename_item(&db.root()?, &path, &new_name)?;
     let (vault, inputs) = {
         let conn_guard = db.conn.lock_or_recover();
         let conn = conn_guard.as_ref().ok_or("No vault open")?;
@@ -403,7 +407,7 @@ pub fn preview_move_refactor(
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let source_path = paths::guard(&db, &source_path)?;
     let target_path = paths::guard(&db, &target_path)?;
-    let preview = crate::bundle::preview_move_item(&source_path, &target_path)?;
+    let preview = crate::bundle::preview_move_item(&db.root()?, &source_path, &target_path)?;
     let (vault, generation, inputs) = {
         let conn_guard = db.conn.lock_or_recover();
         let conn = conn_guard.as_ref().ok_or("No vault open")?;
@@ -422,8 +426,7 @@ pub fn preview_move_refactor(
         return Err("Vault changed while preparing move preview".to_string());
     }
     conn.pending_move_refactor
-        .lock()
-        .unwrap()
+        .lock_or_recover()
         .replace(PreparedMoveRefactor {
             source_path,
             target_path,

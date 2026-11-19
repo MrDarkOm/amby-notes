@@ -4,7 +4,6 @@ import { render, screen, act, cleanup } from "@testing-library/react"
 import "@/lib/i18n"
 import { SettingsDialog } from "@/components/workspace/settings-dialog"
 import { useSettingsStore } from "@/components/workspace/use-settings-store"
-import { DEFAULT_PREFS } from "@/components/workspace/app-config"
 
 describe("SettingsDialog component", () => {
   beforeEach(() => {
@@ -20,8 +19,6 @@ describe("SettingsDialog component", () => {
         vault={null}
         activeModules={["files", "tags"]}
         onModuleEnabledChange={() => {}}
-        dockPrefs={DEFAULT_PREFS.docks}
-        onDockPrefsChange={() => {}}
       />,
     )
     expect(container.firstChild).toBeNull()
@@ -35,8 +32,6 @@ describe("SettingsDialog component", () => {
         vault={null}
         activeModules={["files", "tags"]}
         onModuleEnabledChange={() => {}}
-        dockPrefs={DEFAULT_PREFS.docks}
-        onDockPrefsChange={() => {}}
       />,
     )
 
@@ -56,8 +51,6 @@ describe("SettingsDialog component", () => {
       onOpenChange: () => {},
       activeModules: ["files", "tags"],
       onModuleEnabledChange: () => {},
-      dockPrefs: DEFAULT_PREFS.docks,
-      onDockPrefsChange: () => {},
     }
     const { rerender } = render(<SettingsDialog {...props} vault={null} />)
     const row = screen.getByText("Подтверждать удаление файлов").closest(".settings-row")

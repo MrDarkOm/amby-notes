@@ -28,6 +28,9 @@ async checkAppUpdate(channel: UpdateChannel, timeoutMs: number) : Promise<Result
     else return { status: "error", error: e  as any };
 }
 },
+async takeCliOpen() : Promise<CliOpenNote | null> {
+    return await TAURI_INVOKE("take_cli_open");
+},
 async loadVault(vaultPath: string) : Promise<Result<LoadVaultResult, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("load_vault", { vaultPath }) };
@@ -80,6 +83,17 @@ async preflightVault(vaultPath: string) : Promise<Result<VaultPreflight, string>
 async applyIdMigration(vaultPath: string) : Promise<Result<IdMigrationResult, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("apply_id_migration", { vaultPath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Opening one note: gives it an `amby-id` if it has none, without walking the vault (CORE-04).
+ */
+async applyNoteIdMigration(noteId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("apply_note_id_migration", { noteId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -742,7 +756,7 @@ async ensureBundle(path: string) : Promise<Result<MutationOutcome, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async createNote(parentPath: string, name: string) : Promise<Result<MutationOutcome, string>> {
+async createNote(parentPath: string, name: string) : Promise<Result<MutationOutcome, StorageError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("create_note", { parentPath, name }) };
 } catch (e) {
@@ -814,7 +828,7 @@ async noteLayers(notePath: string) : Promise<Result<NoteLayers, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async moveItem(sourcePath: string, targetPath: string) : Promise<Result<MutationOutcome, string>> {
+async moveItem(sourcePath: string, targetPath: string) : Promise<Result<MutationOutcome, StorageError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("move_item", { sourcePath, targetPath }) };
 } catch (e) {
@@ -830,7 +844,7 @@ async previewMoveRefactor(sourcePath: string, targetPath: string) : Promise<Resu
     else return { status: "error", error: e  as any };
 }
 },
-async createFile(path: string) : Promise<Result<null, string>> {
+async createFile(path: string) : Promise<Result<null, StorageError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("create_file", { path }) };
 } catch (e) {
@@ -838,7 +852,7 @@ async createFile(path: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async createFolder(path: string) : Promise<Result<null, string>> {
+async createFolder(path: string) : Promise<Result<null, StorageError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("create_folder", { path }) };
 } catch (e) {
@@ -846,7 +860,7 @@ async createFolder(path: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async renameItem(path: string, newName: string) : Promise<Result<MutationOutcome, string>> {
+async renameItem(path: string, newName: string) : Promise<Result<MutationOutcome, StorageError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("rename_item", { path, newName }) };
 } catch (e) {
@@ -862,7 +876,7 @@ async previewRenameRefactor(path: string, newName: string) : Promise<Result<Refa
     else return { status: "error", error: e  as any };
 }
 },
-async deleteItem(path: string, mode: DeleteMode) : Promise<Result<MutationOutcome, string>> {
+async deleteItem(path: string, mode: DeleteMode) : Promise<Result<MutationOutcome, StorageError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("delete_item", { path, mode }) };
 } catch (e) {
@@ -870,7 +884,7 @@ async deleteItem(path: string, mode: DeleteMode) : Promise<Result<MutationOutcom
     else return { status: "error", error: e  as any };
 }
 },
-async archiveItem(path: string) : Promise<Result<MutationOutcome, string>> {
+async archiveItem(path: string) : Promise<Result<MutationOutcome, StorageError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("archive_item", { path }) };
 } catch (e) {
@@ -1455,6 +1469,29 @@ async openAttachment(notePath: string, attachmentPath: string) : Promise<Result<
 }
 },
 /**
+ * Shows the folder of a known vault in the system's file manager. Works on the start screen and for a
+ * vault that is not the open one: the folder is found in the list of known vaults, not in the open vault.
+ */
+async revealVaultFolder(id: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reveal_vault_folder", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Shows the app's own data folder (settings, the list of vaults) in the system's file manager.
+ */
+async revealAppDataFolder() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reveal_app_data_folder") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Saves a copy of an attachment of a note where the person chooses: the file's own bytes, not
  * a re-encoded picture. The attachment is judged by the same rules as for opening it.
  */
@@ -1573,17 +1610,17 @@ async readVaultMeta(rel: string) : Promise<Result<string | null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async writeVaultMeta(rel: string, contents: string) : Promise<Result<null, string>> {
+async writeVaultMeta(rel: string, contents: string, expectedGeneration: number | null) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("write_vault_meta", { rel, contents }) };
+    return { status: "ok", data: await TAURI_INVOKE("write_vault_meta", { rel, contents, expectedGeneration }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async deleteVaultMeta(rel: string) : Promise<Result<null, string>> {
+async deleteVaultMeta(rel: string, expectedGeneration: number | null) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_vault_meta", { rel }) };
+    return { status: "ok", data: await TAURI_INVOKE("delete_vault_meta", { rel, expectedGeneration }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1643,6 +1680,29 @@ async verifyVaultBackup(expectedGeneration: number, backupId: string) : Promise<
 async restoreVaultBackup(expectedGeneration: number, backupId: string, operationId: string) : Promise<Result<RestoredBackup | null, SyncError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("restore_vault_backup", { expectedGeneration, backupId, operationId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Deletes one copy the person chose in the list. The path is derived from the id in Rust; only a
+ * copy in Amby's app data or the older copy named by the vault's receipt can be deleted.
+ */
+async deleteVaultBackup(expectedGeneration: number, backupId: string) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_vault_backup", { expectedGeneration, backupId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Shows a copy in the system's file manager.
+ */
+async revealVaultBackup(expectedGeneration: number, backupId: string) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reveal_vault_backup", { expectedGeneration, backupId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1846,11 +1906,10 @@ async syncDeleteSpace(spaceId: string, password: string) : Promise<Result<null, 
 },
 /**
  * Switches sync on for the open vault after a complete external backup.
- * `test_vault` is a legacy IPC compatibility argument; the current UI sends false.
  */
-async syncEnableVault(target: SpaceTarget, testVault: boolean) : Promise<Result<VaultSyncStatus, SyncError>> {
+async syncEnableVault(target: SpaceTarget) : Promise<Result<VaultSyncStatus, SyncError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("sync_enable_vault", { target, testVault }) };
+    return { status: "ok", data: await TAURI_INVOKE("sync_enable_vault", { target }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2092,22 +2151,6 @@ async verifyModuleSignature(publicKeyHex: string, messageHex: string, signatureS
     else return { status: "error", error: e  as any };
 }
 },
-async getLogDirPath() : Promise<Result<string, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_log_dir_path") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async getLogFilePath() : Promise<Result<string, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_log_file_path") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async openLogFolder() : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("open_log_folder") };
@@ -2116,65 +2159,9 @@ async openLogFolder() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async readLogFile(maxBytes: number | null) : Promise<Result<string, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("read_log_file", { maxBytes }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async clearLogFile() : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("clear_log_file") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async appendLog(line: string) : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("append_log", { line }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async getRecentLogs() : Promise<Result<string[], string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_recent_logs") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async setDebugModeEnabled(enabled: boolean) : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("set_debug_mode_enabled", { enabled }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async openDevtools() : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("open_devtools") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async toggleDevtools() : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("toggle_devtools") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async isDevtoolsOpen() : Promise<Result<boolean, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("is_devtools_open") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2362,7 +2349,21 @@ archivedAtMs: number;
 name: string }
 export type BackupCatalog = { vault: string; generation: number; backups: BackupInfo[] }
 export type BackupCondition = "unchecked" | "verified" | "damaged" | "incomplete" | "missing"
-export type BackupInfo = { id: string; createdMs: number; bytes: number; files: number; status: BackupCondition }
+export type BackupInfo = { id: string; createdMs: number; bytes: number; files: number; status: BackupCondition; 
+/**
+ * Where the copy lives: Amby's app data, or beside the vault (made by an older version).
+ */
+origin: BackupOrigin; 
+/**
+ * The person may delete it here: every app-data copy, and the older copy that the vault's
+ * receipt names. Other folders beside the vault are never offered.
+ */
+deletable: boolean; 
+/**
+ * When the copy is deleted automatically (Unix ms); known after the first successful sync.
+ */
+expiresMs: number | null }
+export type BackupOrigin = "appData" | "legacy"
 /**
  * A line of a group that cannot be used (З51).
  */
@@ -2380,6 +2381,7 @@ export type ChatStep = { tool: string; query: string; noteIds: string[]; error: 
  * What the settings screen shows about the user's Claude Code.
  */
 export type ClaudeStatus = { installed: boolean; supported: boolean; signedIn: boolean }
+export type CliOpenNote = { vault: string; path: string }
 /**
  * What the settings screen shows about the user's Codex.
  */
@@ -3714,6 +3716,12 @@ export type StopView =
  * The server speaks another protocol.
  */
 { kind: "incompatibleServer" }
+export type StorageError = { code: StorageErrorCode; 
+/**
+ * For the logs only; may contain paths. Never shown.
+ */
+detail: string }
+export type StorageErrorCode = "notFound" | "alreadyExists" | "permissionDenied" | "invalidPath" | "failed"
 /**
  * One storage (space) of the account.
  */
@@ -4045,7 +4053,12 @@ historyBytes: number;
  * How many spaces.
  */
 spaces: number }
-export type VaultPreflight = { notes: number; attachments: number; malformedFrontmatter: string[]; userManagedIds: string[]; duplicateIds: string[]; plannedIdWrites: string[]; unfinishedMigrations: IdMigrationRecovery[] }
+export type VaultPreflight = { notes: number; attachments: number; malformedFrontmatter: string[]; userManagedIds: string[]; duplicateIds: string[]; plannedIdWrites: string[]; unfinishedMigrations: IdMigrationRecovery[]; 
+/**
+ * Notes that could not be read (not UTF-8, no access). They are left out of the migration
+ * and never written; one such file must not stop the vault from opening (CORE-02).
+ */
+unreadableNotes: string[] }
 /**
  * The state of the sync of the open vault. No secrets.
  */
@@ -4065,17 +4078,14 @@ linked: boolean;
  */
 resumable: boolean; 
 /**
- * Legacy stored value retained for IPC compatibility; never displayed by the UI.
- */
-testVault: boolean; 
-/**
- * Legacy gate state; false after the confirmed runs of stage Э4.
- */
-gateClosed: boolean; 
-/**
  * Complete external pre-sync copy, containing `vault/`, a manifest and restore instructions.
  */
 backupPath?: string | null; 
+/**
+ * A copy was made before, but it is missing or damaged now. Switching sync on again makes a
+ * new one.
+ */
+backupMissing?: boolean; 
 /**
  * The space on the server (hex), if linked.
  */

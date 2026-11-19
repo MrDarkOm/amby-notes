@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { fileManagerPlace } from "../show-in-file-manager"
 import {
   ArrowDownUp,
   Check,
@@ -10,6 +11,7 @@ import {
   Database,
   FilePlus,
   FileText,
+  FolderOpen,
   FolderPlus,
   History,
   LayoutGrid,
@@ -30,10 +32,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { errorType, logger } from "@/lib/logger"
+import { NoticeLine } from "../notices/notice-line"
 import {
   ContextMenu,
+  ContextMenuCheckboxItem,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import {
@@ -46,6 +57,12 @@ import {
 import type { TreeItem } from "@/lib/storage"
 import { useTreeFileDrop } from "../tree/use-tree-file-drop"
 import { SidebarTree } from "../sidebar-tree"
+import {
+  TREE_ORDER_STORAGE_PREFIX,
+  TREE_SORT_STORAGE_KEY,
+  writeManualTreeOrder,
+  writeTreeSortSelection,
+} from "./tree-view-storage"
 import {
   applyManualTreeOrder,
   collectManualTreeOrder,
@@ -86,7 +103,6 @@ const TREE_SORT_OPTIONS: Array<{
   { key: "manual", direction: "asc", labelKey: "filesPanel.sortManual", icon: ListOrdered },
 ]
 
-const TREE_SORT_STORAGE_KEY = "amby:tree-sort"
 const TREE_TYPE_FILTER_STORAGE_KEY = "amby:tree-type-filter"
 
 function readTreeTypeFilter(): TreeTypeKind[] {
@@ -104,7 +120,6 @@ const TYPE_FILTER_LABELS: Record<TreeTypeKind, { key: string; icon: typeof FileT
   canvas: { key: "filesPanel.filterCanvases", icon: LayoutGrid },
   sketch: { key: "filesPanel.filterSketches", icon: PenLine },
 }
-const TREE_ORDER_STORAGE_PREFIX = "amby:tree-order:"
 
 function readTreeSortSelection(): { key: TreeSortKey; direction: TreeSortDirection } {
   if (typeof window === "undefined") return { key: "name", direction: "asc" }
@@ -179,6 +194,7 @@ export function FilesPanel(props: PanelRenderProps) {
     onOpenSplitDown,
     onOpenInNewWindow,
     onCloneFile,
+    onConvertFolderToNote,
     onOpenInExplorer,
     onMoveItem,
     onSetIcon,
@@ -199,8 +215,10 @@ export function FilesPanel(props: PanelRenderProps) {
   const canCreateDatabase = Boolean(databaseRuntimeEnabled ?? canCreateDatabaseLayer)
   const [newItemModalOpen, setNewItemModalOpen] = React.useState(false)
   const [databaseDialogOpen, setDatabaseDialogOpen] = React.useState(false)
+  const [databaseParentId, setDatabaseParentId] = React.useState<string | null>(null)
   const [databaseName, setDatabaseName] = React.useState("")
   const [databaseNameError, setDatabaseNameError] = React.useState(false)
+  const [databaseCreateFailed, setDatabaseCreateFailed] = React.useState(false)
   const closedTreeIds = useViewStateStore((s) => s.closedTreeIds)
   const setTreeExpanded = useViewStateStore((s) => s.setTreeExpanded)
   const allOpen = closedTreeIds.size === 0
@@ -215,17 +233,14 @@ export function FilesPanel(props: PanelRenderProps) {
   const treeDropRef = React.useRef<HTMLDivElement>(null)
   useTreeFileDrop({ containerRef: treeDropRef, vault, treeItems: vaultTreeItems })
   React.useEffect(() => {
-    localStorage.setItem(
-      TREE_SORT_STORAGE_KEY,
-      JSON.stringify({ key: sortKey, direction: sortDirection }),
-    )
+    writeTreeSortSelection(sortKey, sortDirection)
   }, [sortKey, sortDirection])
   React.useEffect(() => {
     setManualOrder(readManualTreeOrder(vault))
   }, [vault])
   React.useEffect(() => {
     if (!vault || sortKey !== "manual") return
-    localStorage.setItem(`${TREE_ORDER_STORAGE_PREFIX}${vault}`, JSON.stringify(manualOrder))
+    writeManualTreeOrder(vault, manualOrder)
   }, [manualOrder, sortKey, vault])
   const [typeFilter, setTypeFilter] = React.useState<TreeTypeKind[]>(readTreeTypeFilter)
   React.useEffect(() => {
@@ -284,13 +299,15 @@ export function FilesPanel(props: PanelRenderProps) {
     setNewItemModalOpen(true)
   }
 
-  function handleNewDatabaseClick() {
+  function handleNewDatabaseClick(parentId: string | null = null) {
     if (!vault) {
       onOpenVault()
       return
     }
+    setDatabaseParentId(parentId)
     setDatabaseName(t("defaults.untitled"))
     setDatabaseNameError(false)
+    setDatabaseCreateFailed(false)
     setDatabaseDialogOpen(true)
   }
 
@@ -301,7 +318,15 @@ export function FilesPanel(props: PanelRenderProps) {
       setDatabaseNameError(true)
       return
     }
-    await onNewDatabase?.(null, name)
+    setDatabaseCreateFailed(false)
+    try {
+      await onNewDatabase?.(databaseParentId, name)
+    } catch (error) {
+      // The dialog stays open with an inline error next to the action (notice rules).
+      logger.warn("database.create_failed", { errorType: errorType(error) })
+      setDatabaseCreateFailed(true)
+      return
+    }
     setDatabaseDialogOpen(false)
   }
 
@@ -497,6 +522,9 @@ export function FilesPanel(props: PanelRenderProps) {
                   onDelete={onDelete}
                   onDeleteMany={onDeleteMany}
                   onNewFile={onNewFile}
+                  onNewFolder={onNewFolder}
+                  onNewSketch={onNewSketch}
+                  onNewDatabase={onNewDatabase ? handleNewDatabaseClick : undefined}
                   onAttachCanvas={onAttachCanvas}
                   onAttachSketch={onAttachSketch}
                   onOpenInNewTab={onOpenInNewTab}
@@ -504,6 +532,7 @@ export function FilesPanel(props: PanelRenderProps) {
                   onOpenSplitDown={onOpenSplitDown}
                   onOpenInNewWindow={onOpenInNewWindow}
                   onCloneFile={onCloneFile}
+                  onConvertFolderToNote={onConvertFolderToNote}
                   onOpenInExplorer={onOpenInExplorer}
                   onMoveItem={onMoveItem}
                   onReorderItems={sortKey === "manual" ? handleReorderItems : undefined}
@@ -521,7 +550,7 @@ export function FilesPanel(props: PanelRenderProps) {
               )}
             </div>
 
-            <div className="shrink-0 p-2">
+            <div className="shrink-0 p-3">
               <Button
                 data-help-target="create"
                 className="w-full gap-2 border border-foreground/10 bg-foreground/10 font-medium text-foreground shadow-sm hover:bg-foreground/15 hover:shadow-md active:shadow-sm focus-visible:ring-1 focus-visible:ring-foreground/20"
@@ -539,7 +568,7 @@ export function FilesPanel(props: PanelRenderProps) {
             </div>
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-52 border-border bg-popover text-foreground">
+        <ContextMenuContent className="w-72 border-border bg-popover text-foreground">
           <ContextMenuItem
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
             onSelect={() => {
@@ -587,11 +616,115 @@ export function FilesPanel(props: PanelRenderProps) {
           <ContextMenuItem
             disabled={!canCreateDatabase}
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white disabled:opacity-50"
-            onSelect={handleNewDatabaseClick}
+            onSelect={() => handleNewDatabaseClick()}
           >
             <Database className="size-3.5" />
             {t("filesPanel.database")}
           </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuSub>
+            <ContextMenuSubTrigger className="gap-2 text-[13px]">
+              <ArrowDownUp className="size-3.5 text-muted-foreground" />
+              {t("filesPanel.sortOrder")}
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-80 border-border bg-popover text-foreground">
+              <ContextMenuRadioGroup
+                value={`${sortKey}:${sortDirection}`}
+                onValueChange={(value) => {
+                  const option = TREE_SORT_OPTIONS.find(
+                    ({ key, direction }) => `${key}:${direction}` === value,
+                  )
+                  if (option) setSortSelection({ key: option.key, direction: option.direction })
+                }}
+              >
+                {TREE_SORT_OPTIONS.map(({ key, direction, labelKey, icon: Icon }, index) => (
+                  <React.Fragment key={`${key}:${direction}`}>
+                    {index > 0 && index % 2 === 0 && <ContextMenuSeparator />}
+                    <ContextMenuRadioItem
+                      value={`${key}:${direction}`}
+                      className="items-start text-[13px] whitespace-normal break-words"
+                    >
+                      <Icon className="size-3.5 text-muted-foreground" />
+                      {t(labelKey)}
+                    </ContextMenuRadioItem>
+                  </React.Fragment>
+                ))}
+              </ContextMenuRadioGroup>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger className="gap-2 text-[13px]">
+              <ListFilter className="size-3.5 text-muted-foreground" />
+              {t("filesPanel.filter")}
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-56 border-border bg-popover text-foreground">
+              {availableKinds.map((kind) => {
+                const { key, icon: Icon } = TYPE_FILTER_LABELS[kind]
+                return (
+                  <ContextMenuCheckboxItem
+                    key={kind}
+                    checked={activeKinds.has(kind)}
+                    indicatorPosition="right"
+                    className="text-[13px]"
+                    onSelect={(event) => event.preventDefault()}
+                    onCheckedChange={(checked) => {
+                      setTypeFilter((current) =>
+                        checked
+                          ? [...current.filter((entry) => entry !== kind), kind]
+                          : current.filter((entry) => entry !== kind),
+                      )
+                    }}
+                  >
+                    <Icon className="size-3.5 text-muted-foreground" />
+                    {t(key)}
+                  </ContextMenuCheckboxItem>
+                )
+              })}
+              {activeKinds.size > 0 && (
+                <>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem className="text-[13px]" onSelect={() => setTypeFilter([])}>
+                    {t("filesPanel.filterReset")}
+                  </ContextMenuItem>
+                </>
+              )}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuCheckboxItem
+            checked={autoReveal}
+            indicatorPosition="right"
+            className="text-[13px]"
+            onCheckedChange={handleToggleAutoReveal}
+          >
+            <LocateFixed className="size-3.5 text-muted-foreground" />
+            {t("filesPanel.autoReveal")}
+          </ContextMenuCheckboxItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            disabled={!vault || treeItems.length === 0}
+            className="text-[13px]"
+            onSelect={() => setTreeExpanded(treeItems, true)}
+          >
+            <ChevronsUpDown className="size-3.5 text-muted-foreground" />
+            {t("filesPanel.expandAll")}
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!vault || treeItems.length === 0}
+            className="text-[13px]"
+            onSelect={() => setTreeExpanded(treeItems, false)}
+          >
+            <ChevronsDownUp className="size-3.5 text-muted-foreground" />
+            {t("filesPanel.collapseAll")}
+          </ContextMenuItem>
+          {vault && onOpenInExplorer && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem className="text-[13px]" onSelect={() => onOpenInExplorer(vault)}>
+                <FolderOpen className="size-3.5 text-muted-foreground" />
+                {t("tree.showInExplorer", { place: fileManagerPlace() })}
+              </ContextMenuItem>
+            </>
+          )}
         </ContextMenuContent>
       </ContextMenu>
 
@@ -622,16 +755,22 @@ export function FilesPanel(props: PanelRenderProps) {
               <Input
                 id="new-database-name"
                 autoFocus
+                // The default name is selected, so typing replaces it.
+                onFocus={(event) => event.currentTarget.select()}
                 value={databaseName}
                 onChange={(event) => {
                   setDatabaseName(event.target.value)
                   setDatabaseNameError(false)
+                  setDatabaseCreateFailed(false)
                 }}
                 placeholder={t("newItem.databaseNamePlaceholder")}
                 aria-invalid={databaseNameError}
               />
               {databaseNameError && (
                 <p className="text-xs text-destructive">{t("newItem.databaseNameRequired")}</p>
+              )}
+              {databaseCreateFailed && (
+                <NoticeLine role="alert" text={t("newItem.databaseCreateFailed")} />
               )}
             </div>
             <DialogFooter>

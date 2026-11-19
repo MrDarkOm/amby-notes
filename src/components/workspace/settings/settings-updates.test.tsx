@@ -25,6 +25,7 @@ vi.mock("@/lib/app-updater", () => ({
   checkForAppUpdate: updater.check,
   getCurrentAppVersion: updater.currentVersion,
   isAppUpdaterAvailable: updater.available,
+  UpdateFlushError: class UpdateFlushError extends Error {},
 }))
 
 const browser = vi.hoisted(() => ({ open: vi.fn() }))
@@ -210,6 +211,22 @@ describe("a failed update install", () => {
     expect(browser.open).toHaveBeenCalledWith(
       "https://github.com/MrDarkOm/amby-notes/releases/tag/v0.2.0",
     )
+  })
+
+  it("says open edits could not be saved, offers no download and lets the person retry", async () => {
+    const { UpdateFlushError } = await import("@/lib/app-updater")
+    const update = availableUpdate()
+    update.install.mockRejectedValueOnce(new UpdateFlushError())
+    updater.check.mockResolvedValue(update)
+    render(<UpdateSettings />)
+    fireEvent.click(screen.getByRole("button", { name: "Проверить" }))
+    fireEvent.click(await screen.findByRole("button", { name: /Установить 0\.2\.0/ }))
+
+    expect(await screen.findByText(/открытые правки не удалось сохранить/)).toBeTruthy()
+    expect(screen.queryByRole("link", { name: "Скачать версию вручную" })).toBeNull()
+    // The same button tries again.
+    fireEvent.click(screen.getByRole("button", { name: /Установить 0\.2\.0/ }))
+    await waitFor(() => expect(update.install).toHaveBeenCalledTimes(2))
   })
 
   it("offers no download when only the check failed, as no version is known", async () => {

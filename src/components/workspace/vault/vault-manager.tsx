@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { fileManagerPlace } from "../show-in-file-manager"
 import { useTranslation } from "react-i18next"
 import { Check, FolderOpen, FolderTree, MoreHorizontal, PenLine, Unlink } from "lucide-react"
 
@@ -26,8 +27,10 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { SUPPORTED_LANGUAGES } from "@/lib/i18n"
+import { errorType, logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import type { Language } from "../app-config"
+import { NoticeLine } from "../notices/notice-line"
 import { useSettingsStore } from "../use-settings-store"
 import type { VaultRecord } from "../workspace-picker"
 import { isEnterKey } from "@/lib/keyboard"
@@ -41,7 +44,8 @@ export interface VaultManagerProps {
   onRename: (id: string, name: string) => void
   onDelete: (id: string) => void
   onMove: (id: string) => void
-  onOpenInExplorer: (path: string) => void
+  /** Shows the folder of the vault with this id in the file manager; rejects when it cannot. */
+  onRevealVault: (id: string) => Promise<void>
 }
 
 const MENU_ITEM = "flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
@@ -55,7 +59,7 @@ export function VaultManager({
   onRename,
   onDelete,
   onMove,
-  onOpenInExplorer,
+  onRevealVault,
 }: VaultManagerProps) {
   const { t } = useTranslation()
   const language = useSettingsStore((s) => s.prefs.language)
@@ -63,6 +67,8 @@ export function VaultManager({
   const [renamingId, setRenamingId] = React.useState<string | null>(null)
   const [renameValue, setRenameValue] = React.useState("")
   const renameInputRef = React.useRef<HTMLInputElement>(null)
+  /** The vault whose folder could not be shown: the answer stands under it (docs/notices.md, section 8). */
+  const [revealFailedId, setRevealFailedId] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     if (renamingId) setTimeout(() => renameInputRef.current?.focus(), 0)
@@ -72,6 +78,16 @@ export function VaultManager({
     const trimmed = renameValue.trim()
     if (trimmed) onRename(id, trimmed)
     setRenamingId(null)
+  }
+
+  async function revealVault(id: string) {
+    setRevealFailedId(null)
+    try {
+      await onRevealVault(id)
+    } catch (error) {
+      logger.warn("vault.reveal_failed", { errorType: errorType(error) })
+      setRevealFailedId(id)
+    }
   }
 
   return (
@@ -92,7 +108,7 @@ export function VaultManager({
                 <li
                   key={vault.id}
                   className={cn(
-                    "group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent",
+                    "group flex flex-wrap items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent",
                     isCurrent && "bg-accent/60",
                   )}
                 >
@@ -164,16 +180,16 @@ export function VaultManager({
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         className={MENU_ITEM}
-                        onSelect={() => onOpenInExplorer(vault.path)}
+                        onSelect={() => void revealVault(vault.id)}
                       >
                         <FolderOpen className="size-3.5 text-muted-foreground" />
-                        {t("vaultPicker.showInExplorer")}
+                        {t("vaultPicker.showInExplorer", { place: fileManagerPlace() })}
                       </DropdownMenuItem>
                       {!vault.detached && (
                         <>
                           <DropdownMenuSeparator className="bg-accent" />
                           <DropdownMenuItem
-                            className="flex items-center gap-2 text-[13px] text-red-400 focus:bg-accent focus:text-red-300"
+                            className="flex items-center gap-2 text-[13px] text-destructive focus:bg-destructive/10 focus:text-destructive"
                             onSelect={() => onDelete(vault.id)}
                           >
                             <Unlink className="size-3.5" />
@@ -183,6 +199,9 @@ export function VaultManager({
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
+                  {revealFailedId === vault.id && (
+                    <NoticeLine text={t("vaultPicker.revealFailed")} className="basis-full pl-6" />
+                  )}
                 </li>
               )
             })}

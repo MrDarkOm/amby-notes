@@ -15,7 +15,7 @@ Unicode: Russian/Ukrainian/Japanese/emoji and wiki links.
 YAML presentation: comments, both quote styles, inline/nested YAML, aliases,
 heading links, transclusion, custom fence language.
 Generic id: external text alongside trusted amby-id.
-External canonical ULID: generic id is only a migration candidate.
+External canonical ULID: generic id is foreign data; the note gets its own new amby-id.
 Duplicate primary/copy: both notes remain visible with an identity diagnostic.
 Malformed YAML: searchable body without automatic source repair.
 CRLF/BOM: explicit byte encodings preserved by rebuild and body-write tests.

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeBuildCommand": "npm run build && npm run build:cli-sidecar"
+  },
+  "bundle": {
+    "externalBin": ["binaries/amby"]
+  }
+}

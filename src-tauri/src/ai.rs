@@ -19,7 +19,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::str::FromStr;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tauri::Emitter;
@@ -30,10 +29,10 @@ pub mod claude_code;
 pub mod codex;
 pub mod connections;
 pub(crate) mod consent;
-mod index_snapshot;
+use amby_core::index::snapshot as index_snapshot;
 pub mod local_apps;
 mod provider_stream;
-mod tools;
+pub(crate) use amby_core::ai_tools as tools;
 pub mod turn;
 
 pub const MAX_MESSAGES_COUNT: usize = 100;
@@ -245,14 +244,41 @@ mod error_tests {
 
 // ── Reusable HTTP Client & URL Policy ────────────────────────────────────────
 
-pub fn is_loopback_host(host: &str) -> bool {
-    if host.eq_ignore_ascii_case("localhost") || host.ends_with(".localhost") {
-        return true;
+/// Where an endpoint lives, from the point of view of the AI privacy rules. This is the one
+/// definition: plain HTTP is allowed only for `Loopback`; consent and tool defaults treat
+/// `Loopback` and `Private` (the user's own machine and network) as local.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HostClass {
+    /// `localhost`, `*.localhost`, `127.0.0.0/8`, `::1`.
+    Loopback,
+    /// Private IPv4 (10/8, 172.16/12, 192.168/16) and IPv6 unique-local (`fc00::/7`).
+    Private,
+    /// Everything else, including names (they may resolve anywhere) and a missing host.
+    Public,
+}
+
+impl HostClass {
+    pub(crate) fn is_local(self) -> bool {
+        self != HostClass::Public
     }
-    if let Ok(ip) = IpAddr::from_str(host) {
-        return ip.is_loopback();
+}
+
+pub(crate) fn host_class(url: &Url) -> HostClass {
+    match url.host() {
+        Some(url::Host::Domain(name)) => {
+            let name = name.to_ascii_lowercase();
+            if name == "localhost" || name.ends_with(".localhost") {
+                HostClass::Loopback
+            } else {
+                HostClass::Public
+            }
+        }
+        Some(url::Host::Ipv4(ip)) if ip.is_loopback() => HostClass::Loopback,
+        Some(url::Host::Ipv4(ip)) if ip.is_private() => HostClass::Private,
+        Some(url::Host::Ipv6(ip)) if ip.is_loopback() => HostClass::Loopback,
+        Some(url::Host::Ipv6(ip)) if ip.is_unique_local() => HostClass::Private,
+        _ => HostClass::Public,
     }
-    false
 }
 
 pub fn validate_ai_url(url: &Url, allow_http: bool) -> Result<(), String> {
@@ -271,7 +297,13 @@ pub fn validate_ai_url(url: &Url, allow_http: bool) -> Result<(), String> {
         return Err("Forbidden cloud metadata endpoint".to_string());
     }
 
-    if let Ok(ip) = IpAddr::from_str(host) {
+    // `url.host_str()` keeps the brackets of an IPv6 literal, so the address comes from the parsed host.
+    let ip = match url.host() {
+        Some(url::Host::Ipv4(ip)) => Some(IpAddr::V4(ip)),
+        Some(url::Host::Ipv6(ip)) => Some(IpAddr::V6(ip)),
+        _ => None,
+    };
+    if let Some(ip) = ip {
         match ip {
             IpAddr::V4(ipv4) => {
                 if ipv4.is_link_local() {
@@ -294,7 +326,7 @@ pub fn validate_ai_url(url: &Url, allow_http: bool) -> Result<(), String> {
         }
     }
 
-    let loopback = is_loopback_host(host);
+    let loopback = host_class(url) == HostClass::Loopback;
     if scheme == "http" && !allow_http && !loopback {
         return Err(
             "Remote keyed provider must use HTTPS (plain HTTP is only allowed for local loopback services)".to_string()
@@ -1209,6 +1241,76 @@ mod tests {
 
         let u5 = Url::parse("https://api.anthropic.com").unwrap();
         assert!(validate_ai_url(&u5, false).is_ok());
+    }
+
+    #[test]
+    fn plain_http_is_allowed_for_every_loopback_spelling_and_only_for_them() {
+        for allowed in [
+            "http://localhost:1",
+            "http://app.localhost:1",
+            "http://127.0.0.1:1",
+            "http://127.1.2.3:1",
+            "http://[::1]:1",
+        ] {
+            let url = Url::parse(allowed).unwrap();
+            assert!(validate_ai_url(&url, false).is_ok(), "{allowed}");
+        }
+        for refused in [
+            "http://192.168.1.5:1",
+            "http://[fd00::1]:1",
+            "http://example.com",
+        ] {
+            let url = Url::parse(refused).unwrap();
+            assert!(validate_ai_url(&url, false).is_err(), "{refused}");
+        }
+    }
+
+    #[test]
+    fn ipv6_link_local_and_unspecified_hosts_are_forbidden_even_when_http_is_allowed() {
+        for forbidden in ["http://[fe80::1]:1", "http://[::]:1", "http://[::1%25x]:1"] {
+            if let Ok(url) = Url::parse(forbidden) {
+                assert!(validate_ai_url(&url, true).is_err(), "{forbidden}");
+            }
+        }
+    }
+
+    #[test]
+    fn host_class_has_one_definition_for_loopback_private_and_public() {
+        let class = |text: &str| host_class(&Url::parse(text).unwrap());
+        for text in [
+            "http://localhost",
+            "http://LOCALHOST:1",
+            "http://a.b.localhost",
+            "http://127.0.0.1",
+            "http://127.255.255.254",
+            "http://[::1]",
+        ] {
+            assert_eq!(class(text), HostClass::Loopback, "{text}");
+        }
+        for text in [
+            "http://10.0.0.1",
+            "http://172.16.0.1",
+            "http://172.31.255.255",
+            "http://192.168.0.1",
+            "http://[fc00::1]",
+            "http://[fd12::1]",
+        ] {
+            assert_eq!(class(text), HostClass::Private, "{text}");
+        }
+        for text in [
+            "https://example.com",
+            "https://localhost.example.com",
+            "https://notlocalhost",
+            "http://172.32.0.1",
+            "http://8.8.8.8",
+            "http://169.254.169.254",
+            "http://[2001:db8::1]",
+            "http://[::ffff:8.8.8.8]",
+        ] {
+            assert_eq!(class(text), HostClass::Public, "{text}");
+            assert!(!class(text).is_local(), "{text}");
+        }
+        assert!(class("http://127.0.0.1").is_local() && class("http://10.0.0.1").is_local());
     }
 
     #[test]

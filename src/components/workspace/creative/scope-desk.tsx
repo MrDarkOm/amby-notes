@@ -32,6 +32,7 @@ import type { ScopeData } from "./workshop/use-scope-data"
 import { useViewManualOrder } from "./workshop/use-view-order"
 import type { PanelFilter } from "./workshop/workshop-model"
 import { projectErrorText } from "@/lib/operation-errors"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 /** The scopes with a desk of their own: a universe, or the stories that no universe holds. */
 export type DeskScope = Extract<PanelFilter, { kind: "universe" | "standalone" }>
@@ -267,11 +268,7 @@ export function ScopeDesk({
           )}
         </section>
       )}
-      {data.failed && (
-        <p role="alert" className="text-xs text-destructive">
-          {t("creative.workshop.loadFailed")}
-        </p>
-      )}
+      {data.failed && <NoticeLine role="alert" text={t("creative.workshop.loadFailed")} />}
       {activeList && (
         <section aria-label={t("creative.scope.world")} className="flex min-w-0 flex-col gap-3">
           <div

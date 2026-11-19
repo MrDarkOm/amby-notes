@@ -15,6 +15,22 @@ import {
 } from "./app-config"
 
 const COMPACT_LAYOUT_MAX_WIDTH = 960
+/** Below this width the right panel steps aside, so the editor keeps a readable column. */
+const NARROW_LAYOUT_MAX_WIDTH = 1100
+
+type LayoutMode = "wide" | "narrow" | "compact"
+
+function layoutModeFor(width: number): LayoutMode {
+  return width < COMPACT_LAYOUT_MAX_WIDTH
+    ? "compact"
+    : width < NARROW_LAYOUT_MAX_WIDTH
+      ? "narrow"
+      : "wide"
+}
+
+function currentLayoutMode(): LayoutMode {
+  return typeof window === "undefined" ? "wide" : layoutModeFor(window.innerWidth)
+}
 const SIDEBAR_HIDE_DELAY_MS = 280
 
 interface UseSidebarLayoutParams {
@@ -52,8 +68,14 @@ export function useSidebarLayout({
   onWindowPrefsChange,
   rightPanelEnabled = true,
 }: UseSidebarLayoutParams) {
-  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = React.useState(true)
-  const [isRightSidebarOpen, setIsRightSidebarOpen] = React.useState(true)
+  // The first paint already fits the window: no panel opens and then steps aside.
+  const [initialLayoutMode] = React.useState(currentLayoutMode)
+  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = React.useState(
+    () => initialLayoutMode !== "compact",
+  )
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = React.useState(
+    () => initialLayoutMode === "wide",
+  )
   // The panels have the same minimum/default width, but their current widths
   // and resize gestures are intentionally independent.
   const [leftWidth, setLeftWidth] = React.useState(windowPrefs.leftPanelWidth)
@@ -69,7 +91,13 @@ export function useSidebarLayout({
     () => typeof window !== "undefined" && window.innerWidth < COMPACT_LAYOUT_MAX_WIDTH,
   )
   const preFocusSidebars = React.useRef<{ left: boolean; right: boolean } | null>(null)
-  const wasCompactLayout = React.useRef(false)
+  const layoutModeRef = React.useRef<LayoutMode>(initialLayoutMode)
+  // Panel state before the window got too narrow for it; restored when it grows back.
+  const preCompactSidebars = React.useRef<{ left: boolean; right: boolean } | null>(
+    initialLayoutMode === "wide" ? null : { left: true, right: true },
+  )
+  const sidebarOpenRef = React.useRef({ left: isLeftSidebarOpen, right: isRightSidebarOpen })
+  sidebarOpenRef.current = { left: isLeftSidebarOpen, right: isRightSidebarOpen }
   const hideTimersRef = React.useRef<Record<Side, ReturnType<typeof setTimeout> | null>>({
     left: null,
     right: null,
@@ -116,13 +144,27 @@ export function useSidebarLayout({
 
   React.useEffect(() => {
     function updateLayoutMode() {
-      const compact = window.innerWidth < COMPACT_LAYOUT_MAX_WIDTH
-      setIsCompactLayout(compact)
-      if (compact && !wasCompactLayout.current) {
+      const mode = layoutModeFor(window.innerWidth)
+      setIsCompactLayout(mode === "compact")
+      const previous = layoutModeRef.current
+      layoutModeRef.current = mode
+      if (mode === previous) return
+      if (mode === "wide") {
+        if (!preCompactSidebars.current) return
+        setIsLeftSidebarOpen(preCompactSidebars.current.left)
+        setIsRightSidebarOpen(preCompactSidebars.current.right)
+        preCompactSidebars.current = null
+        return
+      }
+      if (!preCompactSidebars.current) preCompactSidebars.current = { ...sidebarOpenRef.current }
+      if (mode === "compact") {
         setIsLeftSidebarOpen(false)
         setIsRightSidebarOpen(false)
+      } else {
+        // Narrow: the left panel stays as the person had it, the right one steps aside.
+        setIsLeftSidebarOpen(preCompactSidebars.current.left)
+        setIsRightSidebarOpen(false)
       }
-      wasCompactLayout.current = compact
     }
 
     updateLayoutMode()

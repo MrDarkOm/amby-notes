@@ -792,10 +792,10 @@ export class DesktopAdapter implements StoragePort {
     noteId: string,
     operationId?: string,
   ): Promise<NoteReadOutcome> {
-    // A file can arrive through the watcher after vault activation. Re-run the
-    // safe identity migration before opening it so notes without amby-id become
-    // editable immediately (malformed/conflicting files remain untouched).
-    await unwrapCommand(commands.applyIdMigration(_vaultPath))
+    // A note without amby-id becomes editable as it is opened. Only this note is
+    // examined (the watcher and index already give new files their IDs); the full
+    // vault pass runs only when the vault is opened (CORE-04).
+    await unwrapCommand(commands.applyNoteIdMigration(noteId))
     return unwrapCommand(commands.readNote(noteId, operationId ?? null))
   }
 
@@ -1102,6 +1102,14 @@ export class DesktopAdapter implements StoragePort {
     await unwrapCommand(commands.openInExplorer(path))
   }
 
+  async revealVaultFolder(id: string): Promise<void> {
+    await unwrapCommand(commands.revealVaultFolder(id))
+  }
+
+  async revealAppDataFolder(): Promise<void> {
+    await unwrapCommand(commands.revealAppDataFolder())
+  }
+
   async openAttachment(notePath: string, attachmentPath: string): Promise<void> {
     await unwrapCommand(commands.openAttachment(notePath, attachmentPath))
   }
@@ -1177,12 +1185,16 @@ export class DesktopAdapter implements StoragePort {
     return unwrapCommand(commands.readVaultMeta(rel))
   }
 
-  async writeVaultRaw(rel: string, contents: string): Promise<void> {
-    return unwrapCommand(commands.writeVaultMeta(rel, contents))
+  async writeVaultRaw(
+    rel: string,
+    contents: string,
+    expectedGeneration?: number | null,
+  ): Promise<void> {
+    return unwrapCommand(commands.writeVaultMeta(rel, contents, expectedGeneration ?? null))
   }
 
   async deleteVaultMeta(rel: string): Promise<void> {
-    await unwrapCommand(commands.deleteVaultMeta(rel))
+    await unwrapCommand(commands.deleteVaultMeta(rel, null))
   }
 
   async storeAiCredential(credentialId: string, secret: string): Promise<void> {

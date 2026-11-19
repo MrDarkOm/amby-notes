@@ -19,8 +19,11 @@ const folder: TreeItem = {
 describe("FavoritesSection", () => {
   beforeEach(() => localStorage.clear())
 
-  it("collects bookmarked notes at any depth and skips folders", () => {
-    expect(collectFavoriteItems([folder], new Set(["n1", "f1"])).map((i) => i.id)).toEqual(["n1"])
+  it("collects bookmarked items including folders at any depth", () => {
+    expect(collectFavoriteItems([folder], new Set(["n1", "f1"])).map((i) => i.id)).toEqual([
+      "f1",
+      "n1",
+    ])
     expect(collectFavoriteItems([folder], undefined)).toEqual([])
   })
 

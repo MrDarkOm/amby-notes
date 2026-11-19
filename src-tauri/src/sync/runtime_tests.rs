@@ -11,7 +11,6 @@ use amby_sync_core::crypto::keys::SpaceId;
 use amby_sync_core::crypto::random::OsRandom;
 
 use super::connection::{ConnectionRecord, ConnectionStore};
-use super::gate;
 use super::runtime::SyncRuntime;
 use super::secrets::{SecretStore, SECRET_ACCOUNT_KEY, SECRET_DEVICE_TOKEN};
 use super::session::Schedule;
@@ -98,11 +97,10 @@ fn switching_on_makes_a_space_named_after_the_folder_and_starts_syncing() {
             SpaceTarget::New {
                 name: String::new(),
             },
-            true,
         ),
     )
     .unwrap();
-    assert!(status.enabled && status.linked && status.test_vault);
+    assert!(status.enabled && status.linked);
     let name = vault
         .root
         .file_name()
@@ -114,7 +112,11 @@ fn switching_on_makes_a_space_named_after_the_folder_and_starts_syncing() {
 
     let state = SqliteStateStore::open(&vault.root).unwrap();
     assert_eq!(state.meta(META_ENABLED).unwrap().as_deref(), Some("1"));
-    assert_eq!(state.meta(META_TEST_VAULT).unwrap().as_deref(), Some("1"));
+    assert_eq!(
+        state.meta(META_TEST_VAULT).unwrap(),
+        None,
+        "the retired test-vault mark is not written any more"
+    );
     assert_eq!(
         state.meta(META_SPACE_ID).unwrap().as_deref(),
         status.space_id.as_deref()
@@ -145,7 +147,6 @@ fn a_chosen_name_is_used_and_cleaned() {
             SpaceTarget::New {
                 name: "  Работа\n".to_string(),
             },
-            true,
         ),
     )
     .unwrap();
@@ -154,61 +155,35 @@ fn a_chosen_name_is_used_and_cleaned() {
 }
 
 #[test]
-fn a_closed_gate_refuses_a_vault_that_is_not_marked_and_changes_nothing() {
-    // Gate of stage Э4: real notes only after the mutation run and the long simulation
+fn a_vault_that_was_never_marked_is_switched_on_with_a_backup() {
+    // The gate of stage Э4 is open for good: no mark of a test vault is asked or written
     let env = Env::new();
     let pc = computer(&env, &env.another_computer("This Mac"));
     let vault = TempVault::new("real");
     vault.put("Notes/important.md", b"real notes");
     let before = server_spaces(&env).len();
-    if gate::gate_closed() {
-        let error = run(
-            &env,
-            pc.runtime.enable(
-                &vault.root,
-                SpaceTarget::New {
-                    name: String::new(),
-                },
-                false,
-            ),
-        )
-        .unwrap_err();
-        assert_eq!(error.code, "test_vault_required");
-        assert_eq!(server_spaces(&env).len(), before, "no space was made");
-        assert!(
-            !state_path(&vault.root).exists(),
-            "the vault was not touched"
-        );
-        assert_eq!(pc.runtime.status().gate_closed, gate::gate_closed());
-        assert!(!pc.runtime.status().enabled);
-    } else {
-        let status = run(
-            &env,
-            pc.runtime.enable(
-                &vault.root,
-                SpaceTarget::New {
-                    name: String::new(),
-                },
-                false,
-            ),
-        )
-        .unwrap();
-        assert!(status.enabled && status.linked);
-        assert!(!status.test_vault);
-        assert!(!status.gate_closed);
-        let backup_path = status.backup_path.as_deref().unwrap();
-        assert_eq!(
-            Some(backup_path),
-            super::backup::read_path(&vault.root).as_deref()
-        );
-        assert_eq!(
-            std::fs::read(std::path::Path::new(backup_path).join("vault/Notes/important.md"))
-                .unwrap(),
-            b"real notes"
-        );
-        assert_eq!(server_spaces(&env).len(), before + 1);
-        pc.runtime.deactivate_vault();
-    }
+    let status = run(
+        &env,
+        pc.runtime.enable(
+            &vault.root,
+            SpaceTarget::New {
+                name: String::new(),
+            },
+        ),
+    )
+    .unwrap();
+    assert!(status.enabled && status.linked);
+    let backup_path = status.backup_path.as_deref().unwrap();
+    assert_eq!(
+        Some(backup_path),
+        super::backup::read_path(&vault.root).as_deref()
+    );
+    assert_eq!(
+        std::fs::read(std::path::Path::new(backup_path).join("vault/Notes/important.md")).unwrap(),
+        b"real notes"
+    );
+    assert_eq!(server_spaces(&env).len(), before + 1);
+    pc.runtime.deactivate_vault();
 }
 
 #[test]
@@ -226,7 +201,6 @@ fn a_second_computer_connects_the_existing_space_and_receives_the_vault() {
             SpaceTarget::New {
                 name: "Shared".to_string(),
             },
-            true,
         ),
     )
     .unwrap();
@@ -246,7 +220,6 @@ fn a_second_computer_connects_the_existing_space_and_receives_the_vault() {
             SpaceTarget::Existing {
                 space_id: ours.space_id.clone(),
             },
-            true,
         ),
     )
     .unwrap();
@@ -272,7 +245,6 @@ fn a_space_that_does_not_exist_is_refused_and_nothing_is_written() {
             SpaceTarget::Existing {
                 space_id: "00".repeat(16),
             },
-            true,
         ),
     )
     .unwrap_err();
@@ -285,7 +257,6 @@ fn a_space_that_does_not_exist_is_refused_and_nothing_is_written() {
             SpaceTarget::Existing {
                 space_id: "not hex".to_string(),
             },
-            true,
         ),
     )
     .unwrap_err();
@@ -305,7 +276,6 @@ fn without_a_signed_in_device_nothing_works_and_says_why() {
             SpaceTarget::New {
                 name: String::new(),
             },
-            true,
         ),
     )
     .unwrap_err();
@@ -332,7 +302,7 @@ fn opening_a_switched_on_vault_resumes_it_and_opening_another_stops_the_first() 
     run(
         &env,
         pc.runtime
-            .enable(&one.root, SpaceTarget::New { name: "One".into() }, true),
+            .enable(&one.root, SpaceTarget::New { name: "One".into() }),
     )
     .unwrap();
     pc.runtime.deactivate_vault();
@@ -349,7 +319,6 @@ fn opening_a_switched_on_vault_resumes_it_and_opening_another_stops_the_first() 
     let status = run(&env, after_restart.runtime.activate_vault(&two.root)).unwrap();
     assert!(!status.enabled && !status.linked);
     assert_eq!(status.phase, SyncPhase::Off);
-    assert_eq!(status.gate_closed, gate::gate_closed());
     // The first session let go of its lock.
     let (session, _) = env.start(&one, &env.account);
     session.stop();
@@ -370,7 +339,6 @@ fn switching_off_keeps_the_link_and_switching_on_again_makes_no_new_space() {
             SpaceTarget::New {
                 name: "Mine".into(),
             },
-            true,
         ),
     )
     .unwrap();
@@ -396,7 +364,6 @@ fn switching_off_keeps_the_link_and_switching_on_again_makes_no_new_space() {
             SpaceTarget::New {
                 name: "ignored".into(),
             },
-            true,
         ),
     )
     .unwrap();
@@ -413,7 +380,7 @@ fn a_signed_out_device_shows_that_the_vault_is_linked_but_cannot_run() {
     run(
         &env,
         pc.runtime
-            .enable(&vault.root, SpaceTarget::New { name: "X".into() }, true),
+            .enable(&vault.root, SpaceTarget::New { name: "X".into() }),
     )
     .unwrap();
     pc.runtime.deactivate_vault();
@@ -475,7 +442,7 @@ fn the_renames_of_amby_reach_the_next_pass() {
     let status = run(
         &env,
         pc.runtime
-            .enable(&vault.root, SpaceTarget::New { name: "H".into() }, true),
+            .enable(&vault.root, SpaceTarget::New { name: "H".into() }),
     )
     .unwrap();
     pc.runtime.sync_now().unwrap();
@@ -541,7 +508,7 @@ fn a_note_made_into_a_super_note_moves_on_the_other_computer_and_is_not_trashed(
         &env,
         first
             .runtime
-            .enable(&a.root, SpaceTarget::New { name: "B".into() }, true),
+            .enable(&a.root, SpaceTarget::New { name: "B".into() }),
     )
     .unwrap();
     first.runtime.sync_now().unwrap();
@@ -554,7 +521,6 @@ fn a_note_made_into_a_super_note_moves_on_the_other_computer_and_is_not_trashed(
             SpaceTarget::Existing {
                 space_id: id.clone(),
             },
-            true,
         ),
     )
     .unwrap();
@@ -596,7 +562,7 @@ fn the_application_hears_about_every_change_of_the_status() {
     run(
         &env,
         pc.runtime
-            .enable(&vault.root, SpaceTarget::New { name: "E".into() }, true),
+            .enable(&vault.root, SpaceTarget::New { name: "E".into() }),
     )
     .unwrap();
     pc.runtime.sync_now().unwrap();
@@ -645,7 +611,7 @@ fn a_copied_vault_does_not_carry_the_test_mark_to_another_device() {
         &env,
         first
             .runtime
-            .enable(&original.root, SpaceTarget::New { name: "M".into() }, true),
+            .enable(&original.root, SpaceTarget::New { name: "M".into() }),
     )
     .unwrap();
     first.runtime.deactivate_vault();
@@ -653,29 +619,19 @@ fn a_copied_vault_does_not_carry_the_test_mark_to_another_device() {
 
     let second = computer(&env, &env.another_computer("Second"));
     let status = run(&env, second.runtime.activate_vault(&copy.root)).unwrap();
-    assert!(!status.enabled && !status.test_vault, "{status:?}");
+    assert!(!status.enabled, "{status:?}");
     let state = SqliteStateStore::open(&copy.root).unwrap();
     assert_ne!(state.meta(META_TEST_VAULT).unwrap().as_deref(), Some("1"));
     drop(state);
 
-    if gate::gate_closed() {
-        let refused = run(
-            &env,
-            second
-                .runtime
-                .enable(&copy.root, SpaceTarget::New { name: "x".into() }, false),
-        )
-        .unwrap_err();
-        assert_eq!(refused.code, "test_vault_required");
-    }
     let marked = run(
         &env,
         second
             .runtime
-            .enable(&copy.root, SpaceTarget::New { name: "x".into() }, true),
+            .enable(&copy.root, SpaceTarget::New { name: "x".into() }),
     )
     .unwrap();
-    assert!(marked.enabled && marked.test_vault);
+    assert!(marked.enabled);
     second.runtime.deactivate_vault();
 }
 
@@ -700,7 +656,7 @@ fn linked_and_off(env: &Env, pc: &Computer, label: &str, name: &str) -> (TempVau
     let on = run(
         env,
         pc.runtime
-            .enable(&vault.root, SpaceTarget::New { name: name.into() }, true),
+            .enable(&vault.root, SpaceTarget::New { name: name.into() }),
     )
     .unwrap();
     pc.runtime.disable().unwrap();
@@ -727,7 +683,6 @@ fn a_link_of_the_same_server_and_account_can_be_resumed_from_another_device() {
             SpaceTarget::New {
                 name: "ignored".into(),
             },
-            true,
         ),
     )
     .unwrap();
@@ -750,15 +705,6 @@ fn a_link_made_with_another_account_is_not_resumed_and_the_chosen_space_is_used(
     assert!(!status.resumable, "{status:?}");
 
     // The old mark of a test vault does not count for the new account.
-    if gate::gate_closed() {
-        let refused = run(
-            &env,
-            pc.runtime
-                .enable(&vault.root, SpaceTarget::New { name: "x".into() }, false),
-        )
-        .unwrap_err();
-        assert_eq!(refused.code, "test_vault_required");
-    }
 
     let on = run(
         &env,
@@ -767,7 +713,6 @@ fn a_link_made_with_another_account_is_not_resumed_and_the_chosen_space_is_used(
             SpaceTarget::New {
                 name: "Fresh".into(),
             },
-            true,
         ),
     )
     .unwrap();
@@ -818,7 +763,6 @@ fn a_link_made_on_another_server_or_without_a_server_is_not_resumable() {
             SpaceTarget::New {
                 name: "Here".into(),
             },
-            true,
         ),
     )
     .unwrap();
@@ -852,7 +796,7 @@ fn resuming_a_space_that_is_gone_forgets_the_link_and_changes_nothing() {
     let error = run(
         &env,
         pc.runtime
-            .enable(&vault.root, SpaceTarget::New { name: "x".into() }, true),
+            .enable(&vault.root, SpaceTarget::New { name: "x".into() }),
     )
     .unwrap_err();
     assert_eq!(error.code, "space_not_found");
@@ -872,7 +816,6 @@ fn resuming_a_space_that_is_gone_forgets_the_link_and_changes_nothing() {
             SpaceTarget::New {
                 name: "Again".into(),
             },
-            true,
         ),
     )
     .unwrap();
@@ -887,25 +830,13 @@ fn resuming_on_another_device_needs_the_test_mark_again_and_starts_nothing_witho
     let (vault, space) = linked_and_off(&env, &pc, "resume-mark", "Old");
     let again = computer(&env, &env.another_computer("This Mac again"));
     let status = run(&env, again.runtime.activate_vault(&vault.root)).unwrap();
-    assert!(status.resumable && !status.test_vault, "{status:?}");
-
-    if gate::gate_closed() {
-        let refused = run(
-            &env,
-            again
-                .runtime
-                .enable(&vault.root, SpaceTarget::New { name: "".into() }, false),
-        )
-        .unwrap_err();
-        assert_eq!(refused.code, "test_vault_required");
-        assert_eq!(again.runtime.status().phase, SyncPhase::Off);
-    }
+    assert!(status.resumable, "{status:?}");
 
     let on = run(
         &env,
         again
             .runtime
-            .enable(&vault.root, SpaceTarget::New { name: "".into() }, true),
+            .enable(&vault.root, SpaceTarget::New { name: "".into() }),
     )
     .unwrap();
     assert_eq!(on.space_id.as_deref(), Some(space.as_str()));
@@ -922,7 +853,7 @@ fn a_legacy_enabled_link_learns_its_server_when_it_starts_and_is_then_resumable(
     let on = run(
         &env,
         pc.runtime
-            .enable(&vault.root, SpaceTarget::New { name: "Old".into() }, true),
+            .enable(&vault.root, SpaceTarget::New { name: "Old".into() }),
     )
     .unwrap();
     pc.runtime.deactivate_vault();
@@ -1016,7 +947,6 @@ fn k10_the_old_trash_is_migrated_before_the_first_pass_and_the_archive_reaches_t
             SpaceTarget::New {
                 name: "K10".to_string(),
             },
-            true,
         ),
     )
     .unwrap();
@@ -1031,7 +961,6 @@ fn k10_the_old_trash_is_migrated_before_the_first_pass_and_the_archive_reaches_t
             SpaceTarget::Existing {
                 space_id: made.space_id.clone().unwrap(),
             },
-            true,
         ),
     )
     .unwrap();

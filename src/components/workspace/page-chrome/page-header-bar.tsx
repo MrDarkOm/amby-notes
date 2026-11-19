@@ -72,7 +72,7 @@ function FloatingHistoryButton({
       aria-label={label}
       onClick={onClick}
       disabled={disabled}
-      className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-30"
+      className="flex size-7 items-center justify-center rounded-md text-foreground/80 hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:text-muted-foreground disabled:opacity-25"
     >
       {icon}
     </button>
@@ -223,8 +223,10 @@ export function PageHeaderBar({
             <Button
               variant="ghost"
               size="icon"
-              className={`size-7 text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-30 ${fadedByPath ? "pointer-events-none" : ""}`}
-              animate={{ opacity: fadedByPath ? 0 : 1 }}
+              className={`size-7 hover:bg-accent hover:text-accent-foreground disabled:opacity-25 ${
+                canGoBack ? "text-foreground/80" : "text-muted-foreground"
+              } ${fadedByPath ? "pointer-events-none" : ""}`}
+              animate={{ opacity: fadedByPath ? 0 : canGoBack ? 1 : 0.25 }}
               transition={motionTransitions.default}
               onClick={onBack}
               disabled={!canGoBack}
@@ -236,8 +238,10 @@ export function PageHeaderBar({
             <Button
               variant="ghost"
               size="icon"
-              className={`size-7 text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-30 ${fadedByPath ? "pointer-events-none" : ""}`}
-              animate={{ opacity: fadedByPath ? 0 : 1 }}
+              className={`size-7 hover:bg-accent hover:text-accent-foreground disabled:opacity-25 ${
+                canGoForward ? "text-foreground/80" : "text-muted-foreground"
+              } ${fadedByPath ? "pointer-events-none" : ""}`}
+              animate={{ opacity: fadedByPath ? 0 : canGoForward ? 1 : 0.25 }}
               transition={motionTransitions.default}
               onClick={onForward}
               disabled={!canGoForward}
@@ -259,7 +263,7 @@ export function PageHeaderBar({
       <motion.div
         data-help-target="breadcrumbs"
         data-path-expanded={pathHovered || undefined}
-        className={`flex min-w-0 flex-1 items-center justify-center gap-1 px-2 text-xs [&[data-path-expanded=true]_[data-breadcrumb-segment]]:max-w-none ${pathHovered ? "absolute inset-x-4 top-2 z-20 min-h-10 justify-start overflow-visible rounded-lg bg-white px-5 text-sm text-slate-900 shadow-lg ring-1 ring-slate-200" : size.isNarrow ? "hidden" : "overflow-hidden"}`}
+        className={`flex min-w-0 flex-1 items-center justify-center gap-1 px-2 text-xs [&[data-path-expanded=true]_[data-breadcrumb-segment]]:max-w-none ${pathHovered ? "absolute inset-x-4 top-2 z-20 min-h-10 justify-start overflow-visible rounded-lg bg-popover px-5 text-sm text-popover-foreground shadow-lg ring-1 ring-border" : size.isNarrow ? "hidden" : "overflow-hidden"}`}
         layout
         initial={false}
         animate={{ scale: pathHovered ? 1.01 : 1 }}

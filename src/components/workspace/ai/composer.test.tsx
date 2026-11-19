@@ -22,10 +22,11 @@ function show(overrides: Partial<React.ComponentProps<typeof Composer>> = {}) {
   const props: React.ComponentProps<typeof Composer> = {
     chat,
     flat: [{ id: "note", path: "/v/Note.md", name: "Note.md", type: "file" }],
-    openDocs: { note: { title: "Note", content: "x" } },
+    openDocs: { note: { title: "Note" } },
     truncated: [],
     vault: "/v",
-    currentDoc: { title: "Note", content: "x" },
+    currentDoc: { title: "Note" },
+    currentClipped: false,
     input: "",
     loading: false,
     switching: false,
@@ -185,10 +186,9 @@ describe("Attached notes", () => {
       name: `${name}.md`,
       type: "file" as const,
     })),
-    openDocs: Object.fromEntries(
-      notes.map((name, index) => [`n${index}`, { title: name, content: "x" }]),
-    ),
+    openDocs: Object.fromEntries(notes.map((name, index) => [`n${index}`, { title: name }])),
     currentDoc: null,
+    currentClipped: false,
   }
   const group = () => document.querySelector("[data-context-group]")!
 

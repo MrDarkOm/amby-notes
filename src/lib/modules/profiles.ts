@@ -1,3 +1,4 @@
+import { OFFICIAL_ED25519_KEY_ID } from "./package-manager/validator"
 import {
   toCanonicalModuleId,
   type ModulePermission,
@@ -26,7 +27,7 @@ export const STANDARD_MODULES: string[] = [
 ]
 
 export const STANDARD_PROFILE_SIGNATURE = {
-  keyId: "amby-official-2026",
+  keyId: OFFICIAL_ED25519_KEY_ID,
   sig: "ed25519:6c9bf88d5e87a2d9c0e2a3456789abcdef0123456789abcdef0123456789abcdef",
 }
 
@@ -53,7 +54,7 @@ export const PROFILES: Record<ProfileId, ProfileDefinition> = {
       permissions: [],
       dependencies: [],
       signature: {
-        keyId: "amby-official-2026",
+        keyId: OFFICIAL_ED25519_KEY_ID,
         sig: "ed25519:minimal-v1-core-verified",
       },
     },
@@ -96,7 +97,7 @@ export function verifyProfileSignature(profile: ProfileDefinition): boolean {
   if (profile.id === "custom") return true
   if (!profile.metadata.signature) return false
   const { keyId, sig } = profile.metadata.signature
-  if (keyId !== "amby-official-2026") return false
+  if (keyId !== OFFICIAL_ED25519_KEY_ID) return false
   return typeof sig === "string" && sig.startsWith("ed25519:")
 }
 

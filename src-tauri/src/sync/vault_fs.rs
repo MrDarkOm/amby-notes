@@ -19,9 +19,11 @@ use std::sync::{Arc, Mutex};
 use std::time::UNIX_EPOCH;
 use unicode_normalization::UnicodeNormalization;
 
+use amby_sync_core::crypto::primitives::blake3_hash;
+use amby_sync_core::engine::rules::AMBY_SYNCED_FOLDERS;
 use amby_sync_core::engine::{
-    FsError, Listing, LocalEntry, LocalFs, LocalKind, NameRules, RenameHint, RootState,
-    SnapshotReason, StagedWrite, TrashReason,
+    ExpectedLocal, FsError, Listing, LocalEntry, LocalFs, LocalKind, NameRules, RenameHint,
+    RootState, SnapshotReason, StagedWrite, TrashReason,
 };
 
 use crate::sync::hints::RenameHints;
@@ -57,16 +59,6 @@ pub struct VaultFs {
 }
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// Folders of `.amby/` whose files are synchronised (Р4, З14); the rest of `.amby/` is listed by
-/// name only. Must agree with `amby_sync_core::engine::rules::is_excluded_path` (a test holds it).
-const AMBY_SYNCED_FOLDERS: [&str; 5] = [
-    "blocks",
-    "property-backups",
-    "conflicts",
-    "properties",
-    "archive",
-];
 
 /// The system trash a `VaultFs` asks by default: the real one, and in the tests of the application
 /// one that refuses (К11 (и)), so the older tests see the fall-back `.amby/trash/`.
@@ -304,30 +296,39 @@ const JOURNAL_FOLDERS: [&str; 6] = [
 /// half-done operation must never leave the computer (the folders `recovery/database_relations`,
 /// `database_relation_schemas`, `database_batches`, `creative`, `projects` and `migrations`; the
 /// drafts of the editors in `recovery/` are not journals; `quarantine/` is ignored).
+fn lock_publication(vault: &Path, relative: &str) -> Result<fs::File, FsError> {
+    let lock = crate::paths::lock_text_write(vault)
+        .map_err(|error| FsError::Io(format!("the write lock for {relative} failed: {error}")))?;
+    amby_core::structural::ensure_clean_for_text_edit(vault)
+        .map_err(|_| FsError::Changed(relative.to_owned()))?;
+    Ok(lock)
+}
+
 pub fn pending_journals(vault: &Path) -> bool {
-    JOURNAL_FOLDERS.iter().any(|folder| {
-        let dir = vault.join(".amby").join(folder);
-        let Ok(entries) = fs::read_dir(&dir) else {
-            return false;
-        };
-        entries.flatten().any(|entry| {
-            let path = entry.path();
-            let is_file = entry.file_type().is_ok_and(|kind| kind.is_file());
-            if !is_file || path.extension().is_none_or(|extension| extension != "json") {
+    amby_core::structural::ensure_clean_for_text_edit(vault).is_err()
+        || JOURNAL_FOLDERS.iter().any(|folder| {
+            let dir = vault.join(".amby").join(folder);
+            let Ok(entries) = fs::read_dir(&dir) else {
                 return false;
-            }
-            match fs::read(&path)
-                .ok()
-                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-            {
-                Some(journal) => matches!(
-                    journal.get("status").and_then(|status| status.as_str()),
-                    Some("planned" | "inProgress")
-                ),
-                None => true,
-            }
+            };
+            entries.flatten().any(|entry| {
+                let path = entry.path();
+                let is_file = entry.file_type().is_ok_and(|kind| kind.is_file());
+                if !is_file || path.extension().is_none_or(|extension| extension != "json") {
+                    return false;
+                }
+                match fs::read(&path)
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                {
+                    Some(journal) => matches!(
+                        journal.get("status").and_then(|status| status.as_str()),
+                        Some("planned" | "inProgress")
+                    ),
+                    None => true,
+                }
+            })
         })
-    })
 }
 
 /// A file being written next to its target (С3, Ф24).
@@ -356,8 +357,12 @@ impl StagedWrite for VaultStaged {
             .map_err(|error| map_io(&self.rel, &error))
     }
 
-    fn publish(mut self: Box<Self>, snapshot: Option<SnapshotReason>) -> Result<(), FsError> {
-        let result = self.publish_inner(snapshot);
+    fn publish(
+        mut self: Box<Self>,
+        snapshot: Option<SnapshotReason>,
+        expected: ExpectedLocal,
+    ) -> Result<(), FsError> {
+        let result = self.publish_inner(snapshot, expected);
         if result.is_err() {
             self.remove_temp();
         } else if self.rel.starts_with(".amby/") {
@@ -379,7 +384,11 @@ impl StagedWrite for VaultStaged {
 }
 
 impl VaultStaged {
-    fn publish_inner(&mut self, snapshot: Option<SnapshotReason>) -> Result<(), FsError> {
+    fn publish_inner(
+        &mut self,
+        snapshot: Option<SnapshotReason>,
+        expected: ExpectedLocal,
+    ) -> Result<(), FsError> {
         let rel = self.rel.clone();
         let io = |error: std::io::Error| map_io(&rel, &error);
         let mut file = self
@@ -389,6 +398,7 @@ impl VaultStaged {
         file.flush().map_err(io)?;
         file.sync_all().map_err(io)?;
         drop(file);
+        let _write = lock_publication(&self.vault, &rel)?;
         let existing = match fs::symlink_metadata(&self.target) {
             Ok(metadata) if metadata.is_dir() => {
                 return Err(FsError::Io(format!("{rel} is a folder")));
@@ -397,6 +407,12 @@ impl VaultStaged {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
             Err(error) => return Err(map_io(&rel, &error)),
         };
+        // The decision looked at the file before the body was fetched; the person may have saved
+        // or made it since (С9, SYNC-01). The check is repeated here, after the temporary file is
+        // durable and before the snapshot and the rename, so the window is only these two steps.
+        if !self.target_matches(&expected, existing) {
+            return Err(FsError::Changed(rel));
+        }
         if existing && snapshot.is_some() {
             // The old content is the only copy of what this write replaces (Р8): without its
             // snapshot nothing is replaced. The history is written even when it is switched off.
@@ -412,11 +428,31 @@ impl VaultStaged {
         if let Some(parent) = self.target.parent() {
             fs::create_dir_all(parent).map_err(io)?;
         }
+        // Last look right before the replace: the snapshot above may have taken a while.
+        if !self.target_matches(&expected, existing) {
+            return Err(FsError::Changed(rel));
+        }
         frontmatter::atomic_rename_with_retry(&self.temp, &self.target).map_err(io)?;
         if let Some(parent) = self.target.parent() {
             let _ = frontmatter::sync_parent_directory(parent);
         }
         Ok(())
+    }
+
+    /// Is the target what the decision looked at? A target that cannot be read does not match.
+    fn target_matches(&self, expected: &ExpectedLocal, existing: bool) -> bool {
+        match expected {
+            ExpectedLocal::Any => true,
+            ExpectedLocal::Absent => {
+                matches!(
+                    fs::symlink_metadata(&self.target),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound
+                ) && !existing
+            }
+            ExpectedLocal::Hash(hash) => {
+                fs::read(&self.target).is_ok_and(|bytes| blake3_hash(&bytes) == *hash)
+            }
+        }
     }
 }
 
@@ -456,6 +492,7 @@ impl LocalFs for VaultFs {
     }
 
     fn begin_write(&mut self, path: &str) -> Result<Box<dyn StagedWrite>, FsError> {
+        let _write = lock_publication(&self.root, path)?;
         let target = self.resolve(path)?;
         let name = target
             .file_name()
@@ -489,6 +526,7 @@ impl LocalFs for VaultFs {
     }
 
     fn create_dir(&mut self, path: &str) -> Result<(), FsError> {
+        let _write = lock_publication(&self.root, path)?;
         let target = self.resolve(path)?;
         match fs::symlink_metadata(&target) {
             Ok(metadata) if metadata.is_dir() => return Ok(()),
@@ -500,6 +538,7 @@ impl LocalFs for VaultFs {
     }
 
     fn rename(&mut self, from: &str, to: &str) -> Result<(), FsError> {
+        let _write = lock_publication(&self.root, from)?;
         let source = self.resolve(from)?;
         let target = self.resolve(to)?;
         let source_kind = match fs::symlink_metadata(&source) {
@@ -556,6 +595,7 @@ impl LocalFs for VaultFs {
     }
 
     fn move_to_trash(&mut self, path: &str, _reason: TrashReason) -> Result<(), FsError> {
+        let _write = lock_publication(&self.root, path)?;
         let target = self.resolve(path)?;
         fs::symlink_metadata(&target).map_err(|error| map_io(path, &error))?;
         self.trash_resolved(path, &target)
@@ -567,6 +607,7 @@ impl LocalFs for VaultFs {
         files: &[String],
         _reason: TrashReason,
     ) -> Result<bool, FsError> {
+        let _write = lock_publication(&self.root, dir)?;
         let target = self.resolve(dir)?;
         // К3а: a service folder (`.amby/…`) is never grouped; it is trashed per file as before.
         if amby_sync_core::engine::history::is_service_path(dir) {
@@ -589,6 +630,7 @@ impl LocalFs for VaultFs {
     }
 
     fn remove_empty_dir(&mut self, path: &str) -> Result<bool, FsError> {
+        let _write = lock_publication(&self.root, path)?;
         let target = self.resolve(path)?;
         match fs::symlink_metadata(&target) {
             Ok(metadata) if metadata.is_dir() => {}

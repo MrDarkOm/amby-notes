@@ -15,6 +15,8 @@ import {
 } from "./project-fixtures.test-support"
 import { ProjectPage, type CreativePageHost } from "./project-page"
 import { useProjectStore } from "./project-store"
+import { fileManagerPlace } from "../show-in-file-manager"
+import { formatRedoShortcut, formatShortcut } from "../keyboard-shortcuts"
 
 const queryDatabase = vi.fn()
 const listTextStats = vi.fn()
@@ -146,7 +148,7 @@ const trail = () =>
   )
 const MORE = { name: "Другие действия" }
 /** The floating bar at the foot of the page. */
-const bar = () => within(document.querySelector<HTMLElement>("div.bottom-2.right-4")!)
+const bar = () => within(document.querySelector<HTMLElement>("[data-page-floating-bar]")!)
 const openMenu = () =>
   fireEvent.pointerDown(screen.getByRole("button", MORE), { button: 0, ctrlKey: false })
 const menuRows = () => screen.getAllByRole("menuitem").map((item) => item.textContent?.trim())
@@ -258,7 +260,7 @@ describe("the header menu of a page", () => {
       "Открыть в новой вкладке",
       "Разделить вправо",
       "Разделить вниз",
-      "Показать в проводнике",
+      `Показать в ${fileManagerPlace()}`,
       "Настройки",
     ])
     expect(screen.getAllByRole("separator")).toHaveLength(2)
@@ -273,7 +275,7 @@ describe("the header menu of a page", () => {
       "Открыть в новой вкладке",
       "Разделить вправо",
       "Разделить вниз",
-      "Показать в проводнике",
+      `Показать в ${fileManagerPlace()}`,
       "Настройки",
     ])
     cleanup()
@@ -318,7 +320,7 @@ describe("the header menu of a page", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Открыть в новой вкладке" }))
     expect(pageHost.onOpenInNewTab).toHaveBeenCalledTimes(1)
     openMenu()
-    fireEvent.click(screen.getByRole("menuitem", { name: "Показать в проводнике" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: `Показать в ${fileManagerPlace()}` }))
     // A story shows its own folder.
     expect(pageHost.onShowInExplorer).toHaveBeenLastCalledWith("Мастерская/hills")
   })
@@ -326,7 +328,7 @@ describe("the header menu of a page", () => {
   it("shows the workshop's folder for the workshop's page", () => {
     const { host: pageHost } = mount("w")
     openMenu()
-    fireEvent.click(screen.getByRole("menuitem", { name: "Показать в проводнике" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: `Показать в ${fileManagerPlace()}` }))
     expect(pageHost.onShowInExplorer).toHaveBeenLastCalledWith("Мастерская")
   })
 
@@ -356,13 +358,13 @@ describe("the header menu of a page", () => {
     await waitFor(() =>
       expect(useSettingsStore.getState().prefs.editor.showAreaControls).toBe(false),
     )
-    expect(document.querySelector("div.bottom-2.right-4")).toBeNull()
+    expect(document.querySelector("[data-page-floating-bar]")).toBeNull()
     openMenu()
     fireEvent.click(screen.getByRole("menuitem", { name: "Показать статусную панель" }))
     await waitFor(() =>
       expect(useSettingsStore.getState().prefs.editor.showAreaControls).toBe(true),
     )
-    expect(document.querySelector("div.bottom-2.right-4")).not.toBeNull()
+    expect(document.querySelector("[data-page-floating-bar]")).not.toBeNull()
   })
 
   it("keeps the old header's gear away: settings are in the menu only", () => {
@@ -433,8 +435,8 @@ describe("the floating bar of a page", () => {
     expect(screen.getByTitle("Режим просмотра")).toBeTruthy()
     expect(screen.getByTitle("Настроить стол")).toBeTruthy()
     // No real undo for a page of the workshop.
-    expect(screen.queryByTitle("Отменить (Ctrl+Z)")).toBeNull()
-    expect(screen.queryByTitle("Повторить (Ctrl+Y)")).toBeNull()
+    expect(screen.queryByTitle(`Отменить (${formatShortcut("Mod+Z")})`)).toBeNull()
+    expect(screen.queryByTitle(`Повторить (${formatRedoShortcut()})`)).toBeNull()
   })
 
   it("gives the workshop's and a universe's page the change and words only", async () => {
@@ -448,7 +450,7 @@ describe("the floating bar of a page", () => {
     expect(bar().getByText("Правка 2 мин назад")).toBeTruthy()
     expect(screen.queryByTitle("Режим просмотра")).toBeNull()
     expect(screen.queryByTitle("Настроить стол")).toBeNull()
-    expect(screen.queryByTitle("Отменить (Ctrl+Z)")).toBeNull()
+    expect(screen.queryByTitle(`Отменить (${formatShortcut("Mod+Z")})`)).toBeNull()
     cleanup()
     mount("universe:u1")
     await waitFor(() => expect(bar().getByText("500 сл.")).toBeTruthy())

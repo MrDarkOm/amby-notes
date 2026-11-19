@@ -781,6 +781,9 @@ export const previewMoveRefactor = (
 
 // Assets, Dialogs & System
 export const openInExplorer = (path: string): Promise<void> => assetsRepository.openInExplorer(path)
+export const revealVaultFolder = (id: string): Promise<void> =>
+  assetsRepository.revealVaultFolder(id)
+export const revealAppDataFolder = (): Promise<void> => assetsRepository.revealAppDataFolder()
 export const openAttachment = (notePath: string, attachmentPath: string): Promise<void> =>
   assetsRepository.openAttachment(notePath, attachmentPath)
 export const saveAttachmentCopy = (
@@ -823,8 +826,11 @@ export const saveGlobalJSON = (file: string, data: unknown): Promise<void> =>
   settingsRepository.saveGlobalJSON(file, data)
 export const loadVaultJSON = <T>(rel: string, fallback: T): Promise<T> =>
   settingsRepository.loadVaultJSON<T>(rel, fallback)
-export const saveVaultJSON = (rel: string, data: unknown): Promise<void> =>
-  settingsRepository.saveVaultJSON(rel, data)
+export const saveVaultJSON = (
+  rel: string,
+  data: unknown,
+  expectedGeneration?: number | null,
+): Promise<void> => settingsRepository.saveVaultJSON(rel, data, expectedGeneration)
 export const readGlobalRaw = (file: string): Promise<string | null> =>
   settingsRepository.readGlobalRaw(file)
 export const writeGlobalRaw = (file: string, contents: string): Promise<void> =>
@@ -858,3 +864,6 @@ export {
 export const resolveBackupPort = () => createBackupPort(isTauri())
 export const resolveDatabaseLayoutPort = () => createDatabaseLayoutPort(isTauri())
 export const resolveAiChatRepository = () => createAiChatRepository(isTauri())
+
+/** Consume a native command-line request in the desktop main window. */
+export const takeCliOpen = () => commands.takeCliOpen()

@@ -36,7 +36,6 @@ use crate::sync::conflict_store::{
     copy_name_id, ConflictEntry, ConflictError, ConflictSource, ConflictStore, FileConflictStore,
     NotePick, Resolution,
 };
-use crate::sync::gate;
 use crate::sync::remote::HttpRemote;
 use crate::sync::state_db::{
     state_dir, SqliteStateStore, META_DEVICE_ID, META_ENABLED, META_SPACE_ID,
@@ -159,8 +158,6 @@ pub struct SessionConfig {
     pub vk: SpaceKey,
     /// The identifier of this device on the server (Р10).
     pub device_id: String,
-    /// Legacy compatibility value; not a user permission or a visible label.
-    pub test_vault: bool,
     /// When passes run.
     pub schedule: Schedule,
     /// Side effects of the application.
@@ -314,13 +311,13 @@ impl SyncSession {
         let status = VaultSyncStatus {
             enabled: true,
             linked: true,
-            test_vault: config.test_vault,
-            gate_closed: gate::gate_closed(),
             backup_path: crate::sync::backup::read_path(&config.vault),
+            backup_missing: crate::sync::backup::standing(&config.vault)
+                == crate::sync::backup::Standing::Lost,
             space_id: Some(space_hex),
             space_name: config.space_name.clone(),
             phase: SyncPhase::Idle,
-            ..VaultSyncStatus::off(gate::gate_closed())
+            ..VaultSyncStatus::off()
         };
         let shared = Arc::new(Shared {
             control: Mutex::new(Control {
@@ -462,8 +459,8 @@ impl SyncSession {
     /// leaves the list, and a pass follows. `conflict_not_found` for an id that is not in the
     /// list.
     pub fn resolve_conflict(&self, id: &str, choice: ConflictChoice) -> Result<(), SyncError> {
-        self.resolve_with(id, None, |store, entry, files, vault| match choice {
-            ConflictChoice::KeepBoth => keep_both(store, entry, files, vault),
+        self.resolve_with(id, None, |store, entry, _files, _vault| match choice {
+            ConflictChoice::KeepBoth => store.keep_both(&entry.id),
             ConflictChoice::KeepOriginal => store.resolve(&entry.id, Resolution::Current),
             ConflictChoice::KeepCopy => store.resolve(&entry.id, Resolution::Other),
         })
@@ -585,8 +582,11 @@ impl SyncSession {
         let (mut conflict_store, mut files) =
             conflict_store_of(vault, &mut store, shared).map_err(|e| state_error(&e))?;
         files.batch_begin();
-        let result = change(&mut conflict_store, &conflict, &mut files, vault);
-        files.batch_end();
+        let work = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            change(&mut conflict_store, &conflict, &mut files, vault)
+        }));
+        // The batch ends even after a panic, or the watcher would hold its events (SYNC-04).
+        let result = amby_sync_core::engine::ports::end_batch_after(work, || files.batch_end());
         result.map_err(|error| SyncError::new(conflict_error_code(&error)))?;
 
         let mut gone = vec![StateOp::RemoveConflict(conflict.id.clone())];
@@ -656,88 +656,6 @@ fn conflict_stamp(vault: &Path, conflict: &ConflictEntry) -> String {
         }
     }
     hex::encode(digest.finalize())
-}
-
-/// "Keep both" (Г29), kept until the interface of К3: the second version becomes a file beside the
-/// note, as a copy was, with an identity of its own when it is a note; a set is removed.
-fn keep_both(
-    store: &mut FileConflictStore,
-    entry: &ConflictEntry,
-    files: &mut VaultFs,
-    vault: &Path,
-) -> Result<(), ConflictError> {
-    use amby_sync_core::engine::names::conflict_copy_path;
-    match entry.source {
-        ConflictSource::LegacyCopy => {
-            give_copy_its_own_identity(files, vault, &entry.path, &entry.other_path);
-            Ok(())
-        }
-        ConflictSource::Bundle => {
-            let copy = conflict_copy_path(&entry.path, &entry.id);
-            let bytes = files
-                .read(&entry.other_path)
-                .map_err(|e| ConflictError::Storage(e.to_string()))?;
-            let mut staged = files
-                .begin_write(&copy)
-                .map_err(|e| ConflictError::Storage(e.to_string()))?;
-            for chunk in bytes.chunks(64 * 1024) {
-                if let Err(error) = staged.write(chunk) {
-                    staged.abort();
-                    return Err(ConflictError::Storage(error.to_string()));
-                }
-            }
-            staged
-                .publish(None)
-                .map_err(|e| ConflictError::Storage(e.to_string()))?;
-            give_copy_its_own_identity(files, vault, &entry.path, &copy);
-            store.resolve(&entry.id, Resolution::Current)
-        }
-    }
-}
-
-/// A copy of a note repeats the `amby-id` of its file, and Amby refuses to edit two notes with one
-/// identity (docs/vault-format.md). When the person keeps both files, the copy becomes a note of its
-/// own: a new `amby-id`, nothing else changed, the old text first in the history. Best effort:
-/// a copy whose frontmatter cannot take it without guessing stays as it is (a read-only duplicate
-/// that the person can still read and copy from).
-fn give_copy_its_own_identity(files: &mut VaultFs, vault: &Path, original: &str, copy: &str) {
-    let (Ok(copy_bytes), Ok(original_bytes)) = (files.read(copy), files.read(original)) else {
-        return;
-    };
-    let (Ok(copy_text), Ok(original_text)) = (
-        String::from_utf8(copy_bytes),
-        String::from_utf8(original_bytes),
-    ) else {
-        return;
-    };
-    let copy_id = crate::frontmatter::parse_markdown(&copy_text)
-        .note_id()
-        .map(str::to_string);
-    let original_id = crate::frontmatter::parse_markdown(&original_text)
-        .note_id()
-        .map(str::to_string);
-    if copy_id.is_none() || copy_id != original_id {
-        return;
-    }
-    let Ok(next) =
-        crate::frontmatter::with_replaced_amby_id(&copy_text, &ulid::Ulid::generate().to_string())
-    else {
-        return;
-    };
-    let target = vault.join(copy);
-    if crate::history::snapshot_before_write(vault, &target, next.as_bytes(), "id-assignment")
-        .is_err()
-    {
-        return;
-    }
-    let Ok(mut staged) = files.begin_write(copy) else {
-        return;
-    };
-    if staged.write(next.as_bytes()).is_err() {
-        staged.abort();
-        return;
-    }
-    let _: Result<(), _> = staged.publish(None);
 }
 
 /// The store of the conflicts of this vault (Г25, Г27) and the files it writes through.
@@ -1123,6 +1041,13 @@ fn settle(shared: &Arc<Shared>, outcome: Outcome, failures: &mut u32, schedule: 
             match &report.outcome {
                 CycleOutcome::Done => {
                     *failures = 0;
+                    if shared.snapshot().last_sync_ms.is_none() {
+                        // The first successful pass starts the 14 days of the pre-sync copy.
+                        let _ = crate::sync::backup::record_first_sync(
+                            &shared.config.vault,
+                            u64::try_from(now_ms()).unwrap_or(0),
+                        );
+                    }
                     let item_errors = u32::try_from(report.errors.len()).unwrap_or(u32::MAX);
                     shared.update(|status| {
                         status.phase = SyncPhase::Idle;

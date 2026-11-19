@@ -197,7 +197,10 @@ export function useMarkdownAutosave({
         if (
           !current ||
           current.content !== snapshot.value.content ||
-          useDocStore.getState().externalConflicts[snapshot.value.fileId]
+          useDocStore.getState().externalConflicts[snapshot.value.fileId] ||
+          // A newer snapshot is still queued (an edit undone back to this text): the note stays
+          // unsaved and keeps its draft until that save finishes (SAVE-03).
+          autosaveRef.current?.inspect(snapshot.key)?.dirty
         )
           return
         void discardRecoveryDraft(snapshot.value.fileId, recoveryScope)
