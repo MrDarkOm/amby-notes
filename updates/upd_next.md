@@ -1,5 +1,8 @@
 # Amby — Next version
 
+- Fixed side-panel open/close animation: the central workspace stage now shifts smoothly in lockstep with the side panels and header columns instead of snapping at the end of opening or the start of closing.
+- Fixed header sidebar-toggle alignment across OSes and Web: both toggles align flush with their dock rails when no OS window buttons sit on that edge (including in Web builds, which no longer reserve macOS traffic-light space on the left or render inactive Windows buttons on the right); only the side with native window buttons shifts its toggle inward.
+
 - For developers: `npm run lint` passes again — the browser-console audit scripts in `docs/audit/**/scripts/` now lint with browser globals, and one needless regex escape was removed.
 
 - Interface polish (no layout or style changes): keyboard focus is now visible on the dock, tabs and toolbars; the "Delete" items in menus are readable in the light theme; an "off" switch is clearly visible in the light theme; the emoji picker uses the app accent and font instead of blue; the note title lines up with the text below it; a hovered row in the file tree no longer looks selected; settings drop-downs have one size and long values no longer push the arrow out.

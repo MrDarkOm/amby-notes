@@ -22,7 +22,20 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
-const isMac = IS_SITE_DEMO || (typeof navigator !== "undefined" && /Mac/i.test(navigator.platform))
+export type WindowControlsSide = "left" | "right" | "none"
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function detectWindowControlsSide(options?: {
+  isTauriEnv?: boolean
+  isSiteDemo?: boolean
+  platform?: string
+}): WindowControlsSide {
+  const isSiteDemo = options?.isSiteDemo ?? IS_SITE_DEMO
+  const isTauriEnv = options?.isTauriEnv ?? isTauri()
+  if (isSiteDemo || !isTauriEnv) return "none"
+  const platform = options?.platform ?? (typeof navigator !== "undefined" ? navigator.platform : "")
+  return /Mac/i.test(platform) ? "left" : "right"
+}
 import { cn } from "@/lib/utils"
 import { isComposingKeyEvent, isEnterKey } from "@/lib/keyboard"
 import { motionTransition, motionTransitions } from "@/lib/motion-config"
@@ -259,16 +272,21 @@ interface HeaderTabsProps {
   /** How far each side panel is open (Motion); the header columns follow it. */
   leftPanelProgress?: MotionValue<number>
   rightPanelProgress?: MotionValue<number>
+  /** Where native window controls live. Defaults to platform + Tauri detection. */
+  windowControlsSide?: WindowControlsSide
 }
 
 // Keep the title-bar controls aligned with the activity rails.
 // Using an approximate width here makes the sidebar toggles jump when a panel
 // opens or closes.
 const ACTIVITY_BAR_WIDTH = "var(--amby-dock-width, 48px)"
-// Windows keeps the right-sidebar toggle beside the three native-style
-// window controls, so the full edge-control cluster is four 48px slots.
-const WINDOW_CONTROLS_WIDTH = 192
-const MACOS_SIDEBAR_TOGGLE_WIDTH = 44
+const MACOS_TRAFFIC_LIGHTS_WIDTH = 80
+// Clears the 32px left-sidebar toggle at left-[80px] plus a 4px breathing gap.
+const MACOS_LEFT_TOGGLE_CLEARANCE = 36
+// Windows/Linux places the three 48px window buttons on the right, with the
+// right-sidebar toggle immediately to their left when the right panel is enabled.
+const WINDOW_CONTROLS_BASE_WIDTH = 144
+const WINDOW_CONTROLS_WITH_TOGGLE_WIDTH = 192
 
 // Shared style for header toolbar icon buttons (sidebar toggles, dropdown,
 // plus) — keeps a uniform 32×32 hit area, rounding and hover highlight.
@@ -563,46 +581,56 @@ export function HeaderTabs({
   hideCenterTabsWhenSplit = false,
   leftPanelProgress,
   rightPanelProgress,
+  windowControlsSide,
 }: HeaderTabsProps) {
   const { t } = useTranslation()
+  const controlsSide = windowControlsSide ?? detectWindowControlsSide()
   const hideCenterStrip = isSplit && hideCenterTabsWhenSplit
   const hasSelectedTab = tabs.some((tab) => tab.key === activeTabKey)
   // The left header dock ends on the same divider as the left body panel.
-  // On macOS account for the fixed traffic-light region and the current rail width.
+  // When native window controls sit on the left (macOS Tauri), account for the
+  // traffic-light region and keep enough clearance for the shifted toggle even
+  // while the left panel is closed or animating.
   const rightDockWidth = rightPanelEnabled && isRightDockPinned ? ACTIVITY_BAR_WIDTH : "0px"
-  // When the right panel is hidden, edge controls still occupy the end of the
-  // header: the system window controls on Windows/Linux or the right-sidebar
-  // toggle on macOS. Keep the view controls to their left.
-  const leftPanelHeaderCssWidth = IS_SITE_DEMO
-    ? `var(--amby-left-panel-width, ${leftTreeWidth}px)`
-    : isMac
-      ? `max(0px, calc(var(--amby-left-panel-width, ${leftTreeWidth}px) + ${ACTIVITY_BAR_WIDTH} - 80px))`
-      : `var(--amby-left-panel-width, ${leftTreeWidth}px)`
+  const rightPinned = rightPanelEnabled && isRightDockPinned
+  const leftHeaderClosed = controlsSide === "left" ? `${MACOS_LEFT_TOGGLE_CLEARANCE}px` : "0px"
+  const leftHeaderOpen =
+    controlsSide === "left"
+      ? isLeftDockPinned
+        ? `max(${MACOS_LEFT_TOGGLE_CLEARANCE}px, calc(var(--amby-left-panel-width, ${leftTreeWidth}px) + ${ACTIVITY_BAR_WIDTH} - ${MACOS_TRAFFIC_LIGHTS_WIDTH}px))`
+        : `${MACOS_LEFT_TOGGLE_CLEARANCE}px`
+      : isLeftDockPinned
+        ? `var(--amby-left-panel-width, ${leftTreeWidth}px)`
+        : "0px"
   // The header columns follow the progress of the side panels they line up with
   // (orchestration/use-panel-presence.ts): Motion moves it, the lengths are calc()s of it.
-  const edgeControlsWidth = `${isMac ? MACOS_SIDEBAR_TOGGLE_WIDTH : WINDOW_CONTROLS_WIDTH}px`
-  const rightPinned = rightPanelEnabled && isRightDockPinned
+  const edgeControlsWidth =
+    controlsSide === "right"
+      ? `${rightPanelEnabled ? WINDOW_CONTROLS_WITH_TOGGLE_WIDTH : WINDOW_CONTROLS_BASE_WIDTH}px`
+      : rightPanelEnabled
+        ? ACTIVITY_BAR_WIDTH
+        : "8px"
   const leftProgress = useEdgeProgress(leftPanelProgress, isLeftSidebarOpen)
   const rightProgress = useEdgeProgress(
     rightPanelProgress,
     Boolean(rightPanelEnabled && isRightSidebarOpen),
   )
-  const leftHeaderWidth = usePanelLength(leftProgress, "0px", leftPanelHeaderCssWidth)
+  const leftHeaderWidth = usePanelLength(leftProgress, leftHeaderClosed, leftHeaderOpen)
   const rightHeaderInset = usePanelLength(
     rightProgress,
     edgeControlsWidth,
     rightPinned
-      ? `max(${edgeControlsWidth}, calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth}))`
+      ? controlsSide === "right"
+        ? `max(${edgeControlsWidth}, calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth}))`
+        : `calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${ACTIVITY_BAR_WIDTH})`
       : edgeControlsWidth,
   )
-  const rightColumnClosed = isMac ? "0px" : rightDockWidth
-  const rightColumnWidth = usePanelLength(
+  const rightColumnLength = usePanelLength(
     rightProgress,
-    rightColumnClosed,
-    rightPinned
-      ? `(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth})`
-      : rightColumnClosed,
+    "0px",
+    rightPinned ? `var(--amby-right-panel-width, ${rightPanelWidth}px)` : "0px",
   )
+  const rightColumnWidth = controlsSide === "right" ? rightHeaderInset : rightColumnLength
   const [isMaximized, setIsMaximized] = React.useState(false)
   const lastClickTimeRef = React.useRef(0)
 
@@ -778,22 +806,17 @@ export function HeaderTabs({
             .catch(() => {})
       }}
     >
-      {/* macOS traffic light spacer — native buttons live here */}
-      {IS_SITE_DEMO ? (
+      {/* Left edge: macOS native traffic-light spacer, or the left sidebar toggle
+          aligned with the left activity rail on Windows, Linux and Web. */}
+      {controlsSide === "left" ? (
         <div
-          className="flex shrink-0 items-center justify-center"
-          style={{ width: ACTIVITY_BAR_WIDTH }}
-        >
-          {leftSidebarToggle}
-        </div>
-      ) : isMac ? (
-        <div
+          data-window-controls-spacer="left"
           className="pointer-events-auto w-[80px] shrink-0 bg-background"
           onMouseDown={handleDragStart}
         />
       ) : (
-        /* Windows: the left toggle is aligned with the left activity rail. */
         <div
+          data-sidebar-toggle-slot="left"
           className="pointer-events-auto flex shrink-0 items-center justify-center bg-background"
           style={{ width: ACTIVITY_BAR_WIDTH }}
           onMouseDown={handleDragStart}
@@ -852,20 +875,11 @@ export function HeaderTabs({
           data-pane-tab-bar={paneId}
           data-pane-edge-aligned={
             (isLeftSidebarOpen && isLeftDockPinned && leftTreeWidth > 0) ||
-            ((IS_SITE_DEMO || !isMac) && !isLeftSidebarOpen && isLeftDockPinned)
+            (controlsSide !== "left" && !isLeftSidebarOpen && isLeftDockPinned)
               ? true
               : undefined
           }
-          className={cn(
-            "pointer-events-auto flex min-w-0 flex-1 items-center gap-1 overflow-hidden pr-1",
-            isMac && !IS_SITE_DEMO
-              ? isLeftSidebarOpen && isLeftDockPinned
-                ? "pl-0"
-                : "pl-9"
-              : isLeftSidebarOpen
-                ? "pl-0"
-                : "pl-0",
-          )}
+          className="pointer-events-auto flex min-w-0 flex-1 items-center gap-1 overflow-hidden pl-0 pr-1"
         >
           <TabList className="flex h-full min-w-0 max-w-full items-center gap-1 overflow-hidden shrink">
             <AnimatePresence initial={false}>
@@ -922,35 +936,43 @@ export function HeaderTabs({
 
       {/* Sidebar toggles are window-edge controls: unlike panel content they
           never move when a sidebar opens, closes, or is resized. */}
-      {isMac && !IS_SITE_DEMO && (
-        <div className="pointer-events-auto absolute left-[80px] top-1.5 z-20">
+      {controlsSide === "left" && (
+        <div
+          data-sidebar-toggle-slot="left-shifted"
+          className="pointer-events-auto absolute left-[80px] top-1.5 z-20"
+        >
           {leftSidebarToggle}
         </div>
       )}
-      {/* Match the exact body dock width. This keeps the right toggle attached
-          to the panel divider and prevents the large jump when it is closed. */}
+      {/* Match the exact body panel width so tabs end on the panel divider. */}
       <motion.div
         style={{ width: rightColumnWidth }}
         className="pointer-events-auto shrink-0 bg-background"
         onMouseDown={handleDragStart}
       />
 
-      {/* macOS: right panel toggle in the former logo position */}
-      {isMac && rightPanelEnabled && (
+      {/* macOS and Web: right panel toggle aligned with the right activity rail. */}
+      {controlsSide !== "right" && rightPanelEnabled && (
         <div
-          className="pointer-events-auto flex w-11 shrink-0 items-center justify-center bg-background"
+          data-sidebar-toggle-slot="right"
+          className="pointer-events-auto flex shrink-0 items-center justify-center bg-background"
+          style={{ width: ACTIVITY_BAR_WIDTH }}
           onMouseDown={handleDragStart}
         >
           {rightSidebarToggle}
         </div>
       )}
 
-      {/* Windows: the right toggle stays immediately before the native-style
-          controls instead of jumping to the opposite side of the header.
-          z-20 keeps them above the tab strip (z-index 2 in app.css), which
-          reaches under them when the right panel is closed. */}
-      {!isMac && (
-        <div className="amby-window-controls pointer-events-auto absolute right-0 top-0 z-20 flex h-11 w-48 items-center justify-end bg-background">
+      {/* Windows/Linux: the right toggle shifts immediately left of the native-style
+          window controls. */}
+      {controlsSide === "right" && (
+        <div
+          data-window-controls="right"
+          className={cn(
+            "amby-window-controls pointer-events-auto absolute right-0 top-0 z-20 flex h-11 items-center justify-end bg-background",
+            rightPanelEnabled ? "w-48" : "w-36",
+          )}
+        >
           {rightPanelEnabled && (
             <div className="flex h-11 w-12 shrink-0 items-center justify-center">
               {rightSidebarToggle}
