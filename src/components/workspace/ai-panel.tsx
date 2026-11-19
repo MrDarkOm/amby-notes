@@ -589,22 +589,22 @@ export function AiPanel({
           screen !== "chat" ? (
             <Button
               variant="ghost"
-              size="icon"
+              size="icon-sm"
               title={t("ai.backToChat")}
               aria-label={t("ai.backToChat")}
               onClick={() => setScreen("chat")}
-              className="-ml-1 size-7 text-muted-foreground hover:bg-accent hover:text-white"
+              className="-ml-1"
             >
-              <ArrowLeft className="size-3.5" />
+              <ArrowLeft className="size-4" />
             </Button>
           ) : undefined
         }
         title={screen === "list" ? t("ai.chatList") : chat?.title || t("ai.unnamedChat")}
         actions={
-          <div className="flex shrink-0 items-center gap-1">
+          <>
             <Button
               variant="ghost"
-              size="icon"
+              size="icon-sm"
               title={t("ai.newChat")}
               aria-label={t("ai.newChat")}
               onClick={() => {
@@ -615,21 +615,19 @@ export function AiPanel({
                 setChatSearchQuery("")
                 setScreen("chat")
               }}
-              className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
             >
-              <SquarePen className="size-3.5" />
+              <SquarePen className="size-4" />
             </Button>
             <Button
               variant="ghost"
-              size="icon"
+              size="icon-sm"
               title={t("ai.settings")}
               aria-label={t("ai.settings")}
               onClick={openAiSettings}
-              className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
             >
-              <Settings2 className="size-3.5" />
+              <Settings2 className="size-4" />
             </Button>
-          </div>
+          </>
         }
       />
       <PanelSearch

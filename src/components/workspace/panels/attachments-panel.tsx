@@ -206,14 +206,7 @@ export function AttachmentsPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PanelHeader
-        title={t("attachmentsPanel.title")}
-        actions={
-          <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
-            {total}
-          </span>
-        }
-      />
+      <PanelHeader title={t("attachmentsPanel.title")} count={total} />
       <PanelSearch
         value={query}
         onChange={setQuery}

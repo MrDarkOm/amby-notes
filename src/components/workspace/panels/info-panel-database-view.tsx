@@ -15,6 +15,7 @@ import { Reorder } from "motion/react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { PropertyEditor } from "./property-editor"
 import { databasePropertyIconKey } from "../database/property-icon"
+import { Button } from "@/components/ui/button"
 import { PanelHeader } from "./panel-header"
 
 interface InfoPanelDatabaseViewProps {
@@ -70,24 +71,21 @@ export function InfoPanelDatabaseView({
     <div className="flex h-full min-h-0 flex-col">
       <PanelHeader
         title={t("panels.info")}
+        count={databaseProperties.properties.length}
         actions={
-          <>
-            <button
-              type="button"
-              className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-              title={t("infoPanel.addProperty")}
-              disabled={Boolean(databaseProperties.locked) || databaseSchemaBusy}
-              onClick={() => {
-                setEditingDatabaseProperty(null)
-                setDatabasePropertyEditorOpen(true)
-              }}
-            >
-              <Plus className="size-3.5" />
-            </button>
-            <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
-              {databaseProperties.properties.length}
-            </span>
-          </>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            title={t("infoPanel.addProperty")}
+            aria-label={t("infoPanel.addProperty")}
+            disabled={Boolean(databaseProperties.locked) || databaseSchemaBusy}
+            onClick={() => {
+              setEditingDatabaseProperty(null)
+              setDatabasePropertyEditorOpen(true)
+            }}
+          >
+            <Plus className="size-4" />
+          </Button>
         }
       />
       <ScrollArea className="flex-1">
