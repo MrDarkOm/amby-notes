@@ -176,7 +176,10 @@ export const nativeDebugCases: Array<{
         check(flushFailed, "A real disk writer failure is returned to the caller")
         check(performance.now() - started < 5000, "Failure reporting stays bounded")
         const status = await getDebugStatus()
-        check(status?.fileError === "IoError", "Status reports the sanitized writer error")
+        check(
+          status?.fileError === "IoError" || status?.fileError === "PermissionDenied",
+          `Status reports the sanitized writer error: ${status?.fileError}`,
+        )
       } finally {
         await configureDebug({ enabled: false, logLevel: "info", logToFile: false })
       }

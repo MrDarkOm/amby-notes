@@ -589,5 +589,7 @@ fn k11g_opening_a_vault_runs_the_migration_before_anything_else() {
         vault.read(".amby/archive/Notes/a.md").as_deref(),
         Some(&b"A"[..])
     );
+    // Release the Windows-exclusive vault lease before reading all fixture files.
+    drop(context);
     assert_each_payload_exactly_once(&vault, "after the opening");
 }

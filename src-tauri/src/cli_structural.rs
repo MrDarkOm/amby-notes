@@ -24,7 +24,14 @@ pub fn start(app: &tauri::AppHandle) {
         loop {
             let mut stream = match listener.accept().await {
                 Ok(stream) => stream,
-                Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => continue,
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    continue
+                }
                 Err(_) => break,
             };
             let Ok(request) = cli_ipc::read_request(&mut stream).await else {

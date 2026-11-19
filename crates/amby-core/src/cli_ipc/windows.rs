@@ -133,7 +133,7 @@ fn open_listener(name: &str, sid: &str, first: bool) -> io::Result<NamedPipeServ
 pub struct Listener {
     name: String,
     sid: String,
-    next: NamedPipeServer,
+    next: Option<NamedPipeServer>,
 }
 
 impl Listener {
@@ -141,25 +141,68 @@ impl Listener {
         let sid = current_sid()?;
         let name = pipe_name(profile, &sid)?;
         let next = open_listener(&name, &sid, true)?;
-        Ok(Self { name, sid, next })
+        Ok(Self {
+            name,
+            sid,
+            next: Some(next),
+        })
     }
 
     pub async fn accept(&mut self) -> io::Result<Stream> {
-        self.next.connect().await?;
+        self.accept_with_timeout(super::FRAME_TIMEOUT).await
+    }
+
+    async fn accept_with_timeout(&mut self, limit: std::time::Duration) -> io::Result<Stream> {
+        if self.next.is_none() {
+            self.next =
+                Some(wait_for_slot(|| open_listener(&self.name, &self.sid, false), limit).await?);
+        }
+        self.next
+            .as_mut()
+            .expect("listener exists")
+            .connect()
+            .await?;
         // A just-closed instance can still count toward the Windows limit while
         // its client handle is being released. Keep the connected instance alive
         // and wait for a slot; never replay the client's request.
-        let replacement = loop {
-            match open_listener(&self.name, &self.sid, false) {
-                Ok(server) => break server,
+        let replacement =
+            match wait_for_slot(|| open_listener(&self.name, &self.sid, false), limit).await {
+                Ok(replacement) => replacement,
+                Err(error) if error.kind() == io::ErrorKind::TimedOut => {
+                    drop(self.next.take());
+                    return Err(error);
+                }
+                Err(error) => return Err(error),
+            };
+        Ok(self
+            .next
+            .replace(replacement)
+            .expect("connected listener exists"))
+    }
+}
+
+async fn wait_for_slot<T>(
+    mut create: impl FnMut() -> io::Result<T>,
+    limit: std::time::Duration,
+) -> io::Result<T> {
+    tokio::time::timeout(limit, async {
+        loop {
+            match create() {
+                Ok(server) => return Ok(server),
                 Err(error) if error.raw_os_error() == Some(ERROR_PIPE_BUSY as i32) => {
                     tokio::time::sleep(std::time::Duration::from_millis(25)).await;
                 }
                 Err(error) => return Err(error),
             }
-        };
-        Ok(std::mem::replace(&mut self.next, replacement))
-    }
+        }
+    })
+    .await
+    .map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Named pipe listener slot timed out",
+        )
+    })?
 }
 
 fn check_server(stream: &NamedPipeClient, expected: &str) -> io::Result<()> {
@@ -196,5 +239,63 @@ pub async fn connect(profile: &Path) -> io::Result<NamedPipeClient> {
             }
             Err(error) => return Err(error),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn listener_recovers_after_saturated_slot_times_out() {
+        let profile =
+            std::env::temp_dir().join(format!("amby-pipe-recovery-{}", ulid::Ulid::generate()));
+        std::fs::create_dir(&profile).unwrap();
+        let mut listener = Listener::bind(&profile).unwrap();
+        let blocker = open_listener(&listener.name, &listener.sid, false).unwrap();
+        let client = connect(&profile).await.unwrap();
+        let result = listener
+            .accept_with_timeout(std::time::Duration::from_millis(100))
+            .await;
+        assert!(matches!(result, Err(error) if error.kind() == io::ErrorKind::TimedOut));
+        drop(client);
+        drop(blocker);
+        // Allow Tokio to finish releasing the test-only blocking handle.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let server = tokio::spawn(async move {
+            let mut stream = listener.accept().await.unwrap();
+            let request = super::super::read_request(&mut stream)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(request.version, super::super::VERSION);
+            super::super::write_response(&mut stream, Err("vaultNotActive".to_owned()))
+                .await
+                .unwrap();
+        });
+        // The desktop loop rearms the listener after returning TimedOut.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let response = super::super::dispatch(
+            &profile,
+            super::super::Request {
+                version: super::super::VERSION,
+                vault: profile.clone(),
+                action: super::super::Action::Recover,
+            },
+        )
+        .await;
+        assert!(matches!(response, Err(ref code) if code == "vaultNotActive"));
+        server.await.unwrap();
+        std::fs::remove_dir(&profile).unwrap();
+    }
+
+    #[tokio::test]
+    async fn busy_listener_slot_times_out() {
+        let result: io::Result<()> = wait_for_slot(
+            || Err(io::Error::from_raw_os_error(ERROR_PIPE_BUSY as i32)),
+            std::time::Duration::from_millis(40),
+        )
+        .await;
+        assert!(matches!(result, Err(error) if error.kind() == io::ErrorKind::TimedOut));
     }
 }

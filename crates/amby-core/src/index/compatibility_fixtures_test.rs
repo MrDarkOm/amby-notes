@@ -140,11 +140,18 @@ mod tests {
                 // A generic `id` is foreign data: kept byte for byte, while the note gets its own
                 // fresh `amby-id` as the first line (CORE-05).
                 let text = String::from_utf8(current).unwrap();
-                let rest = text.strip_prefix("---\namby-id: ").unwrap();
-                let (assigned, rest) = rest.split_once('\n').unwrap();
+                let newline = if original.starts_with(b"---\r\n") {
+                    "\r\n"
+                } else {
+                    "\n"
+                };
+                let rest = text
+                    .strip_prefix(&format!("---{newline}amby-id: "))
+                    .unwrap();
+                let (assigned, rest) = rest.split_once(newline).unwrap();
                 assert!(crate::frontmatter::is_amby_id(assigned));
                 assert_ne!(assigned, "01ARZ3NDEKTSV4RRFFQ69G5FAV");
-                assert_eq!(format!("---\n{rest}").into_bytes(), original);
+                assert_eq!(format!("---{newline}{rest}").into_bytes(), original);
             } else {
                 assert_eq!(current, original);
             }

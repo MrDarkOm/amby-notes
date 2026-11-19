@@ -1,5 +1,7 @@
 # Amby — Next version
 
+- On Windows, bound the CLI pipe listener wait, corrected cross-platform verification fixtures, and documented native validation results.
+
 - Исправлена обработка последовательных запросов CLI и MCP к открытому Amby в Windows.
 
 - Для разработчиков: сохранены результаты проверки CLI и MCP на Windows для продолжения диагностики.

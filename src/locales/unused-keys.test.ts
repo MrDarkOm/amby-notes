@@ -1,8 +1,9 @@
 import { readFileSync, readdirSync, statSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import { localeResources } from "./resources"
 
-const sourceRoot = new URL("../", import.meta.url).pathname
+const sourceRoot = fileURLToPath(new URL("../", import.meta.url))
 
 const leafKeys = (value: Record<string, unknown>, prefix = ""): string[] =>
   Object.entries(value).flatMap(([name, child]) =>

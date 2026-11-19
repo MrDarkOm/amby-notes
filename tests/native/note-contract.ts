@@ -54,7 +54,7 @@ export const nativeNoteCases: Array<{
     name: "native attachment imports use unique typed names and preserve the original display name",
     async run({ adapter, vaultPath }) {
       const note = await adapter.createNote(vaultPath, vaultPath, "Asset names")
-      const source = `${vaultPath}/Original Report.pdf`
+      const source = joinStoragePath(vaultPath, "Original Report.pdf")
       await adapter.writeFile(source, "%PDF-test bytes")
       const first = await adapter.importAsset(vaultPath, note.primaryPath!, source)
       const second = await adapter.importAsset(vaultPath, note.primaryPath!, source)

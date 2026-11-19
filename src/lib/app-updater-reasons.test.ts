@@ -101,7 +101,7 @@ describe("the texts of the updater plugin, as the plugin writes them", () => {
 
   it("was checked against the plugin version the app is built with", () => {
     const lock = readFileSync(join(process.cwd(), "Cargo.lock"), "utf8")
-    const match = /name = "tauri-plugin-updater"\nversion = "([^"]+)"/.exec(lock)
+    const match = /name = "tauri-plugin-updater"\r?\nversion = "([^"]+)"/.exec(lock)
     expect(match?.[1]).toBe(PINNED_PLUGIN_VERSION)
   })
 })
