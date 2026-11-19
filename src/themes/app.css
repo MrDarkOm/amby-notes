@@ -3864,18 +3864,6 @@ html[data-rainbow-tree="true"] .amby-tree-virtual-row[data-tree-branch] .amby-tr
 
 html[data-rainbow-tree="true"]
   .amby-tree-virtual-row[data-tree-branch]
-  [data-tree-file-status="file"]:not(:hover),
-html[data-rainbow-tree="true"]
-  .amby-tree-virtual-row[data-tree-branch]
-  [data-tree-file-status="folder"]:not(:hover),
-html[data-rainbow-tree="true"]
-  .amby-tree-virtual-row[data-tree-branch]
-  [data-tree-file-status="canvas"]:not(:hover) {
-  color: var(--tree-branch-color);
-}
-
-html[data-rainbow-tree="true"]
-  .amby-tree-virtual-row[data-tree-branch]
   [data-tree-file-status="favorite"]:not(:hover) {
   color: var(--tree-branch-color, hsl(var(--primary)));
 }
