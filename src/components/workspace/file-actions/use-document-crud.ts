@@ -715,10 +715,88 @@ export function useDocumentCrud({
       vault,
     ],
   )
+  const handleConvertFolderToNote = React.useCallback(
+    async (folderId: string) => {
+      if (!vault) return
+      const vaultState = useVaultStore.getState()
+      if (vaultState.switching || vaultState.vault !== vault) return
+      const generation = vaultState.generation
+      const stillActive = () => {
+        const current = useVaultStore.getState()
+        return !current.switching && current.vault === vault && current.generation === generation
+      }
+      const folder = findTreeItem(treeItems, folderId)
+      if (!folder || folder.type !== "folder") return
+      const finishLocalMutation = beginLocalTreeMutation()
+      try {
+        const result = await createNote(vault, folder.path, folder.name)
+        if (!stillActive()) return
+        const treeUpdated = handleApplyMutation(result)
+        finishLocalMutation()
+        if (!treeUpdated) {
+          await refreshTreePaths([folder.path])
+          if (!stillActive()) return
+        }
+        const id = result.primaryId ?? result.primaryPath
+        if (!id) return
+        const [note, noteProperties] = await Promise.all([
+          readNote(vault, id),
+          getNoteProperties(vault, id).catch((error: unknown) => {
+            logger.debug("file.convert_folder_properties_read_failed", {
+              failureCode: operationErrorCode(error),
+            })
+            return undefined
+          }),
+        ])
+        if (!stillActive()) return
+        const actualTitle = result.primaryPath ? wsPathStem(result.primaryPath) : folder.name
+        logger.info("file.convert_folder_to_note", { id, folderPath: folder.path })
+        setDoc(id, {
+          id,
+          title: actualTitle,
+          content: note.content,
+          created: t("time.justNow"),
+          modified: t("time.justNow"),
+          wordCount: 0,
+          path: result.primaryPath ?? id,
+          revision: note.revision,
+          source: note.source,
+          noteProperties,
+          noteId: id,
+        })
+        const tabsStore = useTabsStore.getState()
+        const remainingTabs = tabsStore.tabs.filter(
+          (tab) =>
+            !(tab.kind === "folder" && (tab.fileId === folder.id || tab.fileId === folder.path)),
+        )
+        if (remainingTabs.length !== tabsStore.tabs.length) {
+          tabsStore.setTabs(remainingTabs)
+        }
+        openItem({ kind: "document", fileId: id, title: actualTitle }, false)
+        void releaseUnusedDocumentBuffers()
+      } catch (error) {
+        logger.error("file.convert_folder_to_note_failed", { folderId, error })
+        reportTreeActionFailure("createNote")
+      } finally {
+        finishLocalMutation()
+      }
+    },
+    [
+      handleApplyMutation,
+      openItem,
+      refreshTreePaths,
+      releaseUnusedDocumentBuffers,
+      setDoc,
+      t,
+      treeItems,
+      vault,
+    ],
+  )
   return {
     handleDeleteFile,
     handleDeleteFiles,
     handleNewFileIn: createDocumentIn,
+    handleConvertFolderToNote,
     handleNewFolderIn,
     handleNewCanvasIn,
     handleAttachCanvasToNote,

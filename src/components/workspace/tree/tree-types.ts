@@ -113,6 +113,7 @@ export interface SidebarTreeProps {
   onOpenSplitDown?: (id: string) => void
   onOpenInNewWindow?: (id: string) => void
   onCloneFile?: (id: string) => void
+  onConvertFolderToNote?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
   onMoveItem?: (sourceIds: string[], targetId: string | null) => void
   onReorderItems?: (
@@ -207,6 +208,7 @@ export interface TreeNodeProps {
   onOpenSplitDown?: (id: string) => void
   onOpenInNewWindow?: (id: string) => void
   onCloneFile?: (id: string) => void
+  onConvertFolderToNote?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
   onSetIcon?: (id: string, icon: string) => void
   onContextMenuSelect?: (id: string) => void

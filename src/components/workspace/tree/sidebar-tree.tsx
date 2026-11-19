@@ -44,6 +44,7 @@ export function SidebarTree({
   onOpenSplitDown,
   onOpenInNewWindow,
   onCloneFile,
+  onConvertFolderToNote,
   onOpenInExplorer,
   onMoveItem,
   onReorderItems,
@@ -77,6 +78,7 @@ export function SidebarTree({
   const stableOnOpenSplitDown = useStableCallback(onOpenSplitDown)
   const stableOnOpenInNewWindow = useStableCallback(onOpenInNewWindow)
   const stableOnCloneFile = useStableCallback(onCloneFile)
+  const stableOnConvertFolderToNote = useStableCallback(onConvertFolderToNote)
   const stableOnOpenInExplorer = useStableCallback(onOpenInExplorer)
   const stableOnSetIcon = useStableCallback(onSetIcon)
   const stableOnContextMenuSelect = useStableCallback(onContextMenuSelect)
@@ -386,6 +388,7 @@ export function SidebarTree({
                   onOpenSplitDown={stableOnOpenSplitDown}
                   onOpenInNewWindow={stableOnOpenInNewWindow}
                   onCloneFile={stableOnCloneFile}
+                  onConvertFolderToNote={stableOnConvertFolderToNote}
                   onOpenInExplorer={stableOnOpenInExplorer}
                   onSetIcon={stableOnSetIcon}
                   onContextMenuSelect={handleContextMenuSelect}

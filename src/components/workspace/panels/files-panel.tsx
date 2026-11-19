@@ -194,6 +194,7 @@ export function FilesPanel(props: PanelRenderProps) {
     onOpenSplitDown,
     onOpenInNewWindow,
     onCloneFile,
+    onConvertFolderToNote,
     onOpenInExplorer,
     onMoveItem,
     onSetIcon,
@@ -531,6 +532,7 @@ export function FilesPanel(props: PanelRenderProps) {
                   onOpenSplitDown={onOpenSplitDown}
                   onOpenInNewWindow={onOpenInNewWindow}
                   onCloneFile={onCloneFile}
+                  onConvertFolderToNote={onConvertFolderToNote}
                   onOpenInExplorer={onOpenInExplorer}
                   onMoveItem={onMoveItem}
                   onReorderItems={sortKey === "manual" ? handleReorderItems : undefined}

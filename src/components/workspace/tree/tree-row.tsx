@@ -73,6 +73,7 @@ export const TreeNode = React.memo(
     onOpenSplitRight,
     onOpenInNewWindow,
     onCloneFile,
+    onConvertFolderToNote,
     onOpenInExplorer,
     onSetIcon,
     onContextMenuSelect,
@@ -421,6 +422,15 @@ export const TreeNode = React.memo(
             </ContextMenuSubContent>
           </ContextMenuSub>
         )}
+        {!isMultiSelection && item.type === "folder" && onConvertFolderToNote && (
+          <ContextMenuItem
+            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+            onSelect={() => onConvertFolderToNote(item.id)}
+          >
+            <FileText className="size-3.5 text-muted-foreground" />
+            {t("tree.convertToNote")}
+          </ContextMenuItem>
+        )}
         {!isMultiSelection && onToggleFavorite && (
           <ContextMenuItem
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
@@ -768,6 +778,7 @@ export const TreeNode = React.memo(
     prev.onOpenInNewTab === next.onOpenInNewTab &&
     prev.onOpenInNewWindow === next.onOpenInNewWindow &&
     prev.onCloneFile === next.onCloneFile &&
+    prev.onConvertFolderToNote === next.onConvertFolderToNote &&
     prev.onOpenInExplorer === next.onOpenInExplorer &&
     prev.onSetIcon === next.onSetIcon &&
     prev.onContextMenuSelect === next.onContextMenuSelect &&
