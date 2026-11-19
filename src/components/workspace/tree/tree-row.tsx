@@ -221,16 +221,8 @@ export const TreeNode = React.memo(
       <TreeItemStatusIcon
         item={item}
         isFavorite={isFavorite}
-        onActivate={
-          item.type !== "folder" && onToggleFavorite ? () => onToggleFavorite(item.id) : undefined
-        }
-        label={
-          item.type !== "folder"
-            ? isFavorite
-              ? t("tree.removeBookmark")
-              : t("tree.addBookmark")
-            : undefined
-        }
+        onActivate={onToggleFavorite ? () => onToggleFavorite(item.id) : undefined}
+        label={isFavorite ? t("tree.removeBookmark") : t("tree.addBookmark")}
       />
     )
 
@@ -369,7 +361,7 @@ export const TreeNode = React.memo(
             </ContextMenuSubContent>
           </ContextMenuSub>
         )}
-        {!isMultiSelection && item.type !== "folder" && onToggleFavorite && (
+        {!isMultiSelection && onToggleFavorite && (
           <ContextMenuItem
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
             onSelect={() => onToggleFavorite(item.id)}

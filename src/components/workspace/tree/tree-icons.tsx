@@ -134,8 +134,8 @@ export function TreeItemStatusIcon({
   onActivate?: () => void
   label?: string
 }) {
-  const isFavoriteItem = item.type !== "folder" && isFavorite
-  const isInteractive = item.type !== "folder" && !!onActivate
+  const isFavoriteItem = isFavorite
+  const isInteractive = !!onActivate
   const isSuperNote = isSuperNoteItem(item)
   const Icon =
     item.type === "folder"
@@ -153,9 +153,7 @@ export function TreeItemStatusIcon({
   return (
     <span
       aria-hidden={isInteractive ? undefined : true}
-      data-tree-file-status={
-        item.type === "folder" ? "folder" : isFavoriteItem ? "favorite" : item.type
-      }
+      data-tree-file-status={isFavoriteItem ? "favorite" : item.type}
       role={isInteractive ? "button" : undefined}
       // Not a Tab stop: the row is the tree's single stop, and the context menu offers the
       // same favourite action from the keyboard.
