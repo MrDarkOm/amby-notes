@@ -43,6 +43,7 @@ pub fn read_definitions() -> Vec<Value> {
         tool("list_unresolved_links", "List links to notes that do not exist, with the note holding each. Links to existing attachments are not listed.", schema(json!({"folder":folder,"limit":limit}), &[]), true),
         tool("get_note_info", "Summarize a note: path, ID, size, words, dates, tags, link counts, property count and attachments.", schema(json!({"id":note}), &["id"]), true),
         tool("list_attachments", "List the local files a note links or embeds, with kind, size and whether each exists.", schema(json!({"id":note}), &["id"]), true),
+        tool("list_templates", "List the note templates in the Templates folder, by name and path. Placeholders {{title}}, {{date}} and {{time}} are filled in when a note is made from one.", schema(json!({}), &[]), true),
         tool("read_attachment", "Read an attachment by vault-relative path. Images up to 10 MiB come back as image content; other files up to 128 KiB as base64 data.", schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}), &["path"]), true),
     ]
 }
@@ -56,6 +57,13 @@ pub fn write_definitions() -> Vec<Value> {
             "path":path,"name":{"type":"string","minLength":1,"maxLength":255,"description":"The original file name; its extension sets the type."},
             "data":{"type":"string","description":"Base64 contents, up to 25 MiB decoded."},
             "link":{"type":"boolean","description":"Append a link to the note (default true)."}}), &["path","name","data"]), false),
+        tool("new_note_from_template", "Create a note at a vault-relative path from a template (a name from list_templates or a vault path). The note gets its own ID; the template is not changed.", schema(json!({
+            "path":path,"template":{"type":"string","minLength":1,"maxLength":1024},"dryRun":dry_run}), &["path","template"]), false),
+        tool("daily_note", "Open the note for a day (Daily/YYYY-MM-DD.md, created when missing, from a template if given) and optionally append Markdown to it.", schema(json!({
+            "date":{"type":"string","pattern":"^\\d{4}-\\d{2}-\\d{2}$","description":"The day; today (local time) when omitted."},
+            "folder":{"type":"string","maxLength":1024,"description":"The folder for daily notes (default Daily; . for the root)."},
+            "template":{"type":"string","minLength":1,"maxLength":1024},
+            "append":{"type":"string","description":"Markdown to add at the end."},"dryRun":dry_run}), &[]), false),
         tool("reorder_properties", "Set the order of a note's properties by name. Names left out keep their relative order after these.", schema(json!({
             "path":path,"names":{"type":"array","items":{"type":"string","minLength":1,"maxLength":256},"minItems":1,"maxItems":100}}), &["path","names"]), false),
         tool("bulk_set_property", "Set one property on every note a filter finds, at most 200. Each note is changed on its own; the result reports each one.", schema(json!({
@@ -66,6 +74,16 @@ pub fn write_definitions() -> Vec<Value> {
     ]
 }
 
+/// The workspace module a tool belongs to; a switched-off module hides its tools.
+pub fn module_of(name: &str) -> Option<amby_core::vault_tools::modules::Module> {
+    use amby_core::vault_tools::modules::Module;
+    match name {
+        "list_templates" | "new_note_from_template" => Some(Module::Templates),
+        "daily_note" => Some(Module::Daily),
+        _ => None,
+    }
+}
+
 pub fn is_read(name: &str) -> bool {
     matches!(
         name,
@@ -74,13 +92,19 @@ pub fn is_read(name: &str) -> bool {
             | "get_note_info"
             | "list_attachments"
             | "read_attachment"
+            | "list_templates"
     )
 }
 
 pub fn is_write(name: &str) -> bool {
     matches!(
         name,
-        "add_attachment" | "reorder_properties" | "bulk_set_property" | "bulk_move"
+        "add_attachment"
+            | "reorder_properties"
+            | "bulk_set_property"
+            | "bulk_move"
+            | "daily_note"
+            | "new_note_from_template"
     )
 }
 
@@ -105,6 +129,10 @@ fn optional_folder(arguments: &Value) -> Result<String, &'static str> {
 }
 
 pub fn read(root: &Path, name: &str, arguments: &Value) -> Result<Value, &'static str> {
+    if name == "list_templates" {
+        validate_fields(arguments, &[], &[])?;
+        return crate::daily::list(root);
+    }
     let vault = ReadVault::open(root)?;
     match name {
         "find_orphans" | "list_unresolved_links" => {
@@ -172,7 +200,47 @@ pub fn write(
     name: &str,
     arguments: &Value,
 ) -> Result<Value, String> {
+    let dry_run = || {
+        arguments
+            .get("dryRun")
+            .map_or(Ok(false), |value| value.as_bool().ok_or("invalidArguments"))
+    };
+    let optional = |field: &str| match arguments.get(field) {
+        None => Ok(None),
+        Some(value) => value.as_str().map(Some).ok_or("invalidArguments"),
+    };
     match name {
+        "new_note_from_template" => {
+            validate_fields(arguments, &["path", "template"], &["dryRun"])?;
+            let result = crate::daily::new_from_template(
+                root,
+                Some(scope),
+                argument(arguments, "path")?,
+                argument(arguments, "template")?,
+                dry_run()?,
+                true,
+            )?;
+            Ok(json!(result))
+        }
+        "daily_note" => {
+            validate_fields(
+                arguments,
+                &[],
+                &["date", "folder", "template", "append", "dryRun"],
+            )?;
+            let moment = match optional("date")? {
+                Some(date) => crate::daily::Moment::on(date).ok_or("invalidArguments")?,
+                None => crate::daily::Moment::now(),
+            };
+            let request = crate::daily::Daily {
+                moment,
+                folder: optional("folder")?,
+                template: optional("template")?,
+                append: optional("append")?,
+                dry_run: dry_run()?,
+            };
+            Ok(crate::daily::daily(root, Some(scope), request, true)?)
+        }
         "add_attachment" => {
             validate_fields(arguments, &["path", "name", "data"], &["link"])?;
             let data = arguments

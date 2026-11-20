@@ -78,6 +78,7 @@ name = "amby-core"
 version = "0.0.0"
 dependencies = [
  "amby-sync-core",
+ "chrono",
  "libc",
  "objc2-foundation",
  "rusqlite",

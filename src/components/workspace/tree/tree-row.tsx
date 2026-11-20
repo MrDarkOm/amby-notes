@@ -6,20 +6,21 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { motion } from "motion/react"
 import {
-  Archive,
   AppWindow,
+  Archive,
   ChevronRight,
   Columns2,
   Copy,
   Database,
   FilePlus,
   FileText,
+  Files,
   FolderOpen,
   FolderPlus,
   LayoutGrid,
   Paperclip,
-  Pencil,
   PenLine,
+  Pencil,
   Smile,
   SquareArrowOutUpRight,
   Star,
@@ -46,6 +47,7 @@ import { RenameHint } from "../notices/rename-hint"
 import { TreeItemIcon, TreeItemStatusIcon } from "./tree-icons"
 import { treeItemHasChildren, type AttachableLayer, type TreeNodeProps } from "./tree-types"
 import { isEnterKey } from "@/lib/keyboard"
+import { useNoteModulesStore } from "../note-modules/note-modules-store"
 
 export const TreeNode = React.memo(
   function TreeNode({
@@ -89,6 +91,8 @@ export const TreeNode = React.memo(
     sketchEnabled = true,
   }: TreeNodeProps) {
     const { t } = useTranslation()
+    const templatesEnabled = useNoteModulesStore((state) => state.templatesEnabled)
+    const showTemplateDialog = useNoteModulesStore((state) => state.show)
     const [pendingAttach, setPendingAttach] = React.useState<AttachableLayer | null>(null)
     const [editValue, setEditValue] = React.useState(item.name)
     const inputRef = React.useRef<HTMLInputElement>(null)
@@ -322,6 +326,18 @@ export const TreeNode = React.memo(
                 <FileText className="size-3.5 text-muted-foreground" />
                 {t("filesPanel.newNote")}
               </ContextMenuItem>
+              {templatesEnabled && (
+                <ContextMenuItem
+                  className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                  onSelect={() => {
+                    const parentPath = item.path
+                    window.setTimeout(() => showTemplateDialog(parentPath), 80)
+                  }}
+                >
+                  <Files className="size-3.5 text-muted-foreground" />
+                  {t("filesPanel.newFromTemplate")}
+                </ContextMenuItem>
+              )}
               {sketchEnabled && onNewSketch && (
                 <ContextMenuItem
                   className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"

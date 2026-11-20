@@ -519,6 +519,17 @@ export const initWorkshop = (request: InitWorkshopRequest) => {
   })
   return getAdapter().initWorkshop(request)
 }
+export type { NoteTemplate } from "./note-modules-port"
+export const listNoteTemplates = () => getAdapter().listNoteTemplates()
+export const createNoteFromTemplate = (parentPath: string, name: string, template: string) => {
+  logger.info("storage.create_note_from_template", { parentPath, name })
+  return getAdapter().createNoteFromTemplate(parentPath, name, template)
+}
+export const openDailyNote = () => getAdapter().openDailyNote()
+export const createNoteTemplate = (name: string) => {
+  logger.info("storage.create_note_template", { name })
+  return getAdapter().createNoteTemplate(name)
+}
 export const resolveWorkshopFolder = (pickedPath: string) =>
   getAdapter().resolveWorkshopFolder(pickedPath)
 export const completeWorkshop = (request: CompleteWorkshopRequest) => {

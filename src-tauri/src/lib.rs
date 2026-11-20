@@ -40,6 +40,9 @@ mod property_migration_flow_test;
 #[cfg(test)]
 mod tree_patch_tests;
 
+#[cfg(test)]
+mod note_modules_tests;
+
 use amby_core::{
     archive, archive_migration, bundle, database, durable, frontmatter, history, lock_util, model,
     paths, project, property_groups, property_template, recovery, recycle_bin, storage_error,
@@ -173,6 +176,10 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::notes::get_link_graph,
         commands::mutations::ensure_bundle,
         commands::mutations::create_note,
+        commands::note_templates::list_note_templates,
+        commands::note_templates::create_note_from_template,
+        commands::note_templates::open_daily_note,
+        commands::note_templates::create_note_template,
         commands::mutations::create_layer,
         commands::mutations::create_canvas,
         commands::mutations::attach_canvas_to_note,

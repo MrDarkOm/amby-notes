@@ -138,6 +138,15 @@ it("never reports incomplete or blocked sync as synced", () => {
     expect(refreshSyncState(status)).toBe("problem")
 })
 
+it("does not report files kept local by a rule of sync as a problem", () => {
+  for (const reason of ["tooBigForMemory", "symlink", "excludedPath"])
+    expect(
+      refreshSyncState(
+        vaultStatus({ lastSyncMs: 1, unsynced: [{ path: "a", reason, detail: null }] }),
+      ),
+    ).toBe("synced")
+})
+
 // Stage Э4, the interface: a click on an inactive sync button names the reason and fixes it in place.
 describe("the reason and the action of an inactive sync button", () => {
   const resting = (errorCode: string | null) =>

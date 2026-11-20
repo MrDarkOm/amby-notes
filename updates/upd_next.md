@@ -1,5 +1,25 @@
 # Amby — Next version
 
+- Slide-out sidebar panels (unpinned docks, compact-width overlays, and focus mode) now render as a single unified floating sheet with a consistent rounded outer edge, subtle rail divider, bottom inset aligned with the workspace surface, theme-aware elevation shadow, and no stray shadow strip when collapsed.
+- Fixed narrow-window side panels: below 960 px, opening one side panel now closes the opposite overlay panel instead of showing both at once, and opening a floating overlay panel no longer shifts the header tabs and tab-menu button.
+
+- New modules: Templates and Daily notes, on by default (also in vaults whose module list was saved before). In the Create dialog the Note row has two buttons beside it, Template and Today. Templates also adds "Note from template…" to the context menus: name the note, pick a template from the templates folder, and the date, time and title are filled in; the note gets its own ID and the template is not changed. Daily notes adds a Today button that opens the day's note or creates it, from a template if you choose one. Both have their settings (folders, the daily template) in Settings → Modules, and the CLI and MCP follow them; a switched-off module hides its CLI and MCP tools too.
+- Today's note created together with its folder appears once, inside the folder (it briefly showed a second copy at the vault root).
+- Templates and Daily notes have their own icons in Settings → Modules (they showed the generic module icon), and Templates uses the same stacked-pages icon everywhere: the Create dialog, the context menus and the template list.
+- Templates: the template dialog offers to create a template (the first one when there is none, and "New template" beside the list); it is made in the templates folder, which is created if needed, and opens for editing.
+- Backups in the sync settings: the copy's description takes the full width and its actions sit on a line below, instead of squeezing the text into a narrow column.
+- Sync: a conflict whose two versions have become identical (for example a database description rewritten the same way on both computers) closes by itself after the next sync pass; the file is kept as it is.
+- Backups: an old pre-sync copy beside the vault stays visible and deletable after sync is switched on again and a new copy is made; other folders there are still never touched.
+- Backups: deleting a copy asks about that copy only, naming its date, and the list is locked while the question is open; before, quick clicks could queue several identical questions and a second "yes" deleted another copy. The Backups row stays in the sync card while the vault is linked, so older copies and leftovers of an interrupted copy can still be seen and deleted.
+- Sync: a file that is not synced because it is over 30 MB now says so and that it stays on this computer.
+- Sync: files that stay on this computer by a rule of sync (over 30 MB, symbolic links, service paths) are no longer shown as a problem: the status does not say "needs attention" because of them, and they are folded into a quiet "Only on this computer" section at the bottom of the sync card.
+- The activity bar shows the button of an enabled module even when a custom layout was saved before the module existed (Daily notes, Creative Studio); a button you hid stays hidden.
+
+- Rename and move keep the link style: a link by name such as `[[Meeting]]` stays a name after a rename (`[[Planning]]`) when that name is unique, instead of turning into a full path. A link by path still gets the new path, and an ambiguous name falls back to the full path.
+- CLI and MCP: templates and daily notes. `amby templates` lists the notes in `Templates/`, `amby new PATH --template NAME` creates a note from one (with its own ID and `{{title}}`, `{{date}}`, `{{time}}` filled in), and `amby daily` / `amby daily append` open, create or add to `Daily/YYYY-MM-DD.md`. MCP adds `list_templates`, `new_note_from_template` and `daily_note`.
+- Docs: how scripts and agents with a terminal chain `amby --json` commands.
+- For developers: the native contract also deletes a note through the open desktop and checks the write-grant refusal.
+
 - CLI and MCP: vault hygiene. `amby info` summarizes a note (size, words, dates, tags, links, properties, attachments), `amby orphans` lists notes nothing links to, and `amby unresolved` lists links to missing notes. MCP adds `get_note_info`, `find_orphans` and `list_unresolved_links`.
 - CLI and MCP: attachments. `amby attachments` lists a note's local files, including missing ones, and `amby attach` copies a file into the note's assets folder under a new name and links it. MCP adds `list_attachments`, `read_attachment` (images as image content) and `add_attachment`.
 - CLI and MCP: bulk edits. `amby bulk set` and `amby bulk move` change up to 200 notes found by search filters, need `--dry-run` or `--yes`, and report each note; MCP adds `bulk_set_property` and `bulk_move`. `amby prop order` and `reorder_properties` set the order of a note's properties.

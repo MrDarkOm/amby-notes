@@ -1,5 +1,7 @@
 import {
   createProfileSnapshot,
+  NOTE_MODULES,
+  NOTE_MODULES_REVISION,
   PROFILES,
   STANDARD_CATALOG_REVISION,
   STANDARD_MODULES,
@@ -88,15 +90,27 @@ export function readWorkspaceModuleConfig(raw: {
   const profile = raw.profile as { id?: unknown; catalogRevision?: unknown } | null | undefined
   if (profile && typeof profile.id === "string" && Array.isArray(raw.enabledModules)) {
     const profileId = profile.id as ProfileId
+    const enabledModules = (raw.enabledModules as string[]).map(toCanonicalModuleId)
+    const saved = typeof profile.catalogRevision === "string" ? profile.catalogRevision : null
+    // A list saved before Templates and Daily notes existed gets them once; the revision moves
+    // on, so the next save records the list and a later switch-off stays off.
+    if (profileId !== "minimal" && (saved === null || saved < NOTE_MODULES_REVISION)) {
+      for (const id of NOTE_MODULES) if (!enabledModules.includes(id)) enabledModules.push(id)
+      return {
+        profile: {
+          id: PROFILES[profileId] ? profileId : "custom",
+          catalogRevision: NOTE_MODULES_REVISION,
+        },
+        enabledModules,
+        moduleSettings,
+      }
+    }
     return {
       profile: {
         id: PROFILES[profileId] ? profileId : "custom",
-        catalogRevision:
-          typeof profile.catalogRevision === "string"
-            ? profile.catalogRevision
-            : STANDARD_CATALOG_REVISION,
+        catalogRevision: saved ?? STANDARD_CATALOG_REVISION,
       },
-      enabledModules: (raw.enabledModules as string[]).map(toCanonicalModuleId),
+      enabledModules,
       moduleSettings,
     }
   }

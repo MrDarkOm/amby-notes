@@ -297,7 +297,7 @@ fn action_of(result: &FsMutationResult) -> &'static str {
 
 /// The tree patch for `paths` (and `extra`, files rewritten along the way), or `None` when the
 /// renderer has to reload the whole tree. A failure here never fails the mutation.
-fn tree_patch_for(
+pub(crate) fn tree_patch_for(
     context: &VaultContext,
     vault: &Path,
     action: &str,
@@ -652,7 +652,7 @@ fn notify_project_removal(app: &tauri::AppHandle, db: &VaultContext, outcome: &M
     }
 }
 
-fn notify_structural_mutation(
+pub(crate) fn notify_structural_mutation(
     app: &tauri::AppHandle,
     db: &VaultContext,
     outcome: &MutationOutcome,
@@ -689,9 +689,24 @@ pub(crate) fn create_note_inner(
     parent_path: String,
     name: String,
 ) -> Result<MutationOutcome, String> {
+    create_note_with_body(db, watcher_state, parent_path, name, None)
+}
+
+/// `create_note_inner` with the new note's text (Markdown without an `amby-id`, such as a
+/// rendered template); `None` creates an empty note.
+pub(crate) fn create_note_with_body(
+    db: &VaultContext,
+    watcher_state: &WatcherState,
+    parent_path: String,
+    name: String,
+    body: Option<&str>,
+) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let parent_path = paths::guard(db, &parent_path)?;
-    let plan = crate::bundle::prepare_create_note_impl(&parent_path, &name)?;
+    let mut plan = crate::bundle::prepare_create_note_impl(&parent_path, &name)?;
+    if let Some(body) = body {
+        plan = plan.with_body(body)?;
+    }
     let prepared = prepare_note_creation(watcher_state, &plan);
     let result = match plan.commit() {
         Ok(result) => {

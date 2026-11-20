@@ -28,7 +28,8 @@ import {
 } from "@/lib/sync/sync-port"
 import { propertyStorageStatus } from "@/lib/properties/property-groups-port"
 import { SyncCompareDialog } from "./sync-compare-dialog"
-import { ConflictList, StopNotice, UnsyncedList } from "./sync-vault-parts"
+import { ConflictList, LocalOnlyFiles, StopNotice, UnsyncedList } from "./sync-vault-parts"
+import { isLocalOnly } from "./local-only"
 import { clearSyncListenFailed, reportSyncListenFailed } from "./listen-failure"
 import { SubscriptionOffer } from "./subscription-offer"
 import { NoticeLine } from "@/components/workspace/notices/notice-line"
@@ -152,8 +153,10 @@ export function SyncVaultPanel({
   }
 
   const backupPath = status?.backupPath ?? null
+  // Shown while the vault is linked to sync, not only while the current copy exists: older copies and
+  // leftovers of an interrupted copy stay visible and can be deleted after the current one is gone.
   const backupInfo =
-    backupPath || status?.backupMissing ? (
+    backupPath || status?.backupMissing || status?.linked ? (
       <details className="sync-backup-details">
         <summary>
           <ShieldCheck className="size-4" aria-hidden="true" />
@@ -512,7 +515,12 @@ export function SyncVaultPanel({
       )}
       <UnsyncedList items={status.unsynced} />
 
-      {backupInfo && <div className="sync-vault-footer">{backupInfo}</div>}
+      {(backupInfo || status.unsynced.some(isLocalOnly)) && (
+        <div className="sync-vault-footer">
+          <LocalOnlyFiles items={status.unsynced} />
+          {backupInfo}
+        </div>
+      )}
     </section>,
     true,
   )

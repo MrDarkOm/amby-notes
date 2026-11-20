@@ -21,6 +21,7 @@ versions.
 | `find_orphans`, `list_unresolved_links` | Optional `folder`, `limit`                                                                                                                   |
 | `get_note_info`, `list_attachments`     | `id` (a note ID or a vault-relative path)                                                                                                    |
 | `read_attachment`                       | `path`                                                                                                                                       |
+| `list_templates`                        | None                                                                                                                                         |
 | `list_archive`                          | None                                                                                                                                         |
 | `list_databases`                        | None                                                                                                                                         |
 | `read_database`                         | `databaseId`                                                                                                                                 |
@@ -29,6 +30,8 @@ versions.
 | `read_workshop`                         | `workshopId`                                                                                                                                 |
 | `read_story`                            | `storyId`                                                                                                                                    |
 | `new_note`, `append_note`, `write_note` | `path`, `content` and optional `dryRun`                                                                                                      |
+| `new_note_from_template`                | `path`, `template` and optional `dryRun`                                                                                                     |
+| `daily_note`                            | Optional `date` (`YYYY-MM-DD`), `folder`, `template`, `append`, `dryRun`                                                                     |
 | `rename_item`                           | `path`, `name` (a new stem for a file) and optional `dryRun`                                                                                 |
 | `move_item`                             | `path`, `folder` (an existing directory or `.`) and optional `dryRun`                                                                        |
 | `archive_item`, `restore_item`          | `path` and optional `dryRun`                                                                                                                 |
@@ -102,6 +105,17 @@ attachments, which may be the vault's `assets/`, and never replaces a file.
 against the grant and changed on its own. The result lists every note with `ok` or an
 `error`, plus `total` and `failed`; `dryRun` lists the notes and those the grant
 excludes without changing anything.
+
+## Templates and daily notes
+
+`list_templates` lists the notes in the templates folder by name and path.
+`new_note_from_template` and `daily_note` follow the [CLI rules](cli.md#templates-and-daily-notes)
+and the module settings: the new note gets its own ID, `{{title}}`, `{{date}}` and
+`{{time}}` are filled in, and the template is not changed. `daily_note` returns the
+note's `path` and `created`; with `append` it adds Markdown at the end, creating the
+note first if needed. Both need a grant that contains the note, and `daily_note`
+creates a missing daily folder only inside the grant. A switched-off module hides its
+tools and refuses them with `moduleDisabled`.
 
 ## Prompts
 

@@ -175,6 +175,35 @@ describe("the copy before sync", () => {
     await waitFor(() => expect(fake.list).toHaveBeenCalledTimes(2))
   })
 
+  it("asks about one deletion at a time: a second copy cannot be queued while the question is open", async () => {
+    const newer = { ...item, id: "01JNEWER", createdMs: 1700000500000 }
+    const old = { ...item, id: "01JOLD", origin: "legacy" as const }
+    const fake = port({ list: vi.fn(async () => ({ ...catalog, backups: [newer, old] })) })
+    let answer: (value: boolean) => void = () => {}
+    vi.mocked(confirm).mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (answer = resolve)),
+    )
+    render(<BackupPanel vault="/notes" port={fake} />)
+    const oldButton = await screen.findByRole("button", { name: "Удалить старую копию" })
+    fireEvent.click(oldButton)
+    fireEvent.click(oldButton)
+    fireEvent.click(screen.getByRole("button", { name: "Удалить" }))
+    expect(confirm).toHaveBeenCalledTimes(1)
+    await act(async () => answer(true))
+    await waitFor(() => expect(fake.remove).toHaveBeenCalledTimes(1))
+    expect(fake.remove).toHaveBeenCalledWith(42, old.id)
+    expect(fake.remove).not.toHaveBeenCalledWith(42, newer.id)
+  })
+
+  it("names the copy in the question, so two questions never look the same", async () => {
+    const fake = port()
+    render(<BackupPanel vault="/notes" port={fake} />)
+    fireEvent.click(await screen.findByRole("button", { name: "Удалить" }))
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+    const asked = vi.mocked(confirm).mock.calls[0][0]
+    expect(asked.title).toContain(new Date(item.createdMs).toLocaleString("ru"))
+  })
+
   it("tells when the automatic deletion is due", async () => {
     const fake = port({
       list: vi.fn(async () => ({

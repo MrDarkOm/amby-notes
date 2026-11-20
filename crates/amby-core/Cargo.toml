@@ -13,6 +13,7 @@ test-support = []
 
 [dependencies]
 amby-sync-core = { path = "../../sync/core" }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 rusqlite = { version = "0.41", features = ["bundled", "fallible_uint"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

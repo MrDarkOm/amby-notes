@@ -1,6 +1,7 @@
 import { StorageOperationError } from "./operation-error"
 import i18n from "@/lib/i18n"
 import type { StoragePort } from "./port"
+import type { DailyNote, NoteTemplate } from "./note-modules-port"
 import { NoteRevisionConflictError } from "./types"
 import { FILE_PREFIX, TREE_KEY, WEB_VAULT, flattenWebNotes } from "./web-tree"
 import {
@@ -951,6 +952,24 @@ export class WebAdapterCore implements StoragePort {
       pathChanges: [...pathChanges, { oldPath: "", newPath: primaryPath }],
       deletedPaths: [],
     }
+  }
+
+  // The note modules render templates and read their settings in Rust; the browser adapter
+  // has neither, so it says so instead of creating a different note.
+  async listNoteTemplates(): Promise<NoteTemplate[]> {
+    throw new StorageOperationError("operationFailed", "Templates require the desktop runtime")
+  }
+
+  async createNoteFromTemplate(): Promise<FsMutationResult> {
+    throw new StorageOperationError("operationFailed", "Templates require the desktop runtime")
+  }
+
+  async createNoteTemplate(): Promise<FsMutationResult> {
+    throw new StorageOperationError("operationFailed", "Templates require the desktop runtime")
+  }
+
+  async openDailyNote(): Promise<DailyNote> {
+    throw new StorageOperationError("operationFailed", "Daily notes require the desktop runtime")
   }
 
   async createFolder(vaultPath: string, name: string): Promise<string> {

@@ -29,6 +29,8 @@ pub enum Command {
     Attachments(String),
     Attach { note: String, file: PathBuf },
     Bulk(Bulk),
+    Templates,
+    Daily { append: bool },
 }
 
 pub enum Bulk {
@@ -89,6 +91,10 @@ pub struct Options {
     /// `attach`.
     pub name: Option<String>,
     pub no_link: bool,
+    /// `new` and `daily`: the template to start from.
+    pub template: Option<String>,
+    /// `daily`: the day, `YYYY-MM-DD`.
+    pub date: Option<String>,
 }
 
 impl Options {
@@ -105,8 +111,23 @@ impl Options {
         let search = matches!(command, C::Search(_));
         let listing = matches!(command, C::Orphans | C::Unresolved);
         let bulk = matches!(command, C::Bulk(_));
+        let daily = matches!(command, C::Daily { .. });
         let filters = !self.tags.is_empty() || !self.properties.is_empty();
-        if self.file.is_some() && !matches!(command, C::Edit { .. }) {
+        let new = matches!(
+            command,
+            C::Edit {
+                kind: EditKind::New,
+                ..
+            }
+        );
+        if self.file.is_some() && !matches!(command, C::Edit { .. } | C::Daily { append: true }) {
+            return false;
+        }
+        // A template is the content of the new note, so it does not mix with --file.
+        if self.template.is_some() && (!(new || daily) || new && self.file.is_some()) {
+            return false;
+        }
+        if self.date.is_some() && !daily {
             return false;
         }
         if self.dry_run
@@ -119,6 +140,7 @@ impl Options {
                     | C::Restore(_)
                     | C::Delete(_)
                     | C::Bulk(_)
+                    | C::Daily { .. }
             )
         {
             return false;
@@ -129,7 +151,7 @@ impl Options {
         if filters && !(search || bulk) {
             return false;
         }
-        if self.folder.is_some() && !(search || listing || bulk) {
+        if self.folder.is_some() && !(search || listing || bulk || daily) {
             return false;
         }
         if self.limit.is_some() && !(search || listing) {
@@ -197,7 +219,7 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> (Options, Result<Comma
                 false,
                 Some(
                     flag @ ("--tag" | "--property" | "--folder" | "--limit" | "--type" | "--icon"
-                    | "--settings" | "--query" | "--name"),
+                    | "--settings" | "--query" | "--name" | "--template" | "--date"),
                 ),
             ) => {
                 let Some(value) = args.next().and_then(|value| value.into_string().ok()) else {
@@ -224,6 +246,10 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> (Options, Result<Comma
                     "--settings" => once(&mut options.settings, &mut invalid),
                     "--query" if !value.trim().is_empty() => once(&mut options.query, &mut invalid),
                     "--name" => once(&mut options.name, &mut invalid),
+                    "--template" if !value.trim().is_empty() => {
+                        once(&mut options.template, &mut invalid)
+                    }
+                    "--date" => once(&mut options.date, &mut invalid),
                     _ => invalid = true,
                 }
             }
@@ -364,6 +390,9 @@ fn parse_command(args: &[OsString]) -> Result<Command, &'static str> {
                     note: (*note).into(),
                     name: (*name).into(),
                 })),
+                ["templates"] => Ok(Templates),
+                ["daily"] => Ok(Daily { append: false }),
+                ["daily", "append"] => Ok(Daily { append: true }),
                 ["mcp"] => Ok(Mcp),
                 _ => Err("usage"),
             }

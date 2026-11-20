@@ -384,10 +384,31 @@ export function useSidebarLayout({
     [],
   )
   const dnd = useActivityDnD({ onDrop: reorderButton, zoneForButton })
+  const hideSidebarHoverNow = React.useCallback(
+    (side: Side) => {
+      clearHideTimer(side)
+      if (side === "left") setIsLeftSidebarHover(false)
+      else setIsRightSidebarHover(false)
+    },
+    [clearHideTimer],
+  )
+
+  const closeOtherSidebarIfCompact = React.useCallback(
+    (side: Side) => {
+      if (!isCompactLayout) return
+      const otherSide: Side = side === "left" ? "right" : "left"
+      if (otherSide === "left") setIsLeftSidebarOpen(false)
+      else setIsRightSidebarOpen(false)
+      hideSidebarHoverNow(otherSide)
+    },
+    [hideSidebarHoverNow, isCompactLayout],
+  )
+
   const setSidebarHover = React.useCallback(
     (side: Side, hovering: boolean) => {
       clearHideTimer(side)
       if (hovering) {
+        closeOtherSidebarIfCompact(side)
         if (side === "left") setIsLeftSidebarHover(true)
         else setIsRightSidebarHover(true)
         return
@@ -398,16 +419,7 @@ export function useSidebarLayout({
         else setIsRightSidebarHover(false)
       }, SIDEBAR_HIDE_DELAY_MS)
     },
-    [clearHideTimer],
-  )
-
-  const hideSidebarHoverNow = React.useCallback(
-    (side: Side) => {
-      clearHideTimer(side)
-      if (side === "left") setIsLeftSidebarHover(false)
-      else setIsRightSidebarHover(false)
-    },
-    [clearHideTimer],
+    [clearHideTimer, closeOtherSidebarIfCompact],
   )
 
   function handleActivate(defId: string) {
@@ -433,6 +445,7 @@ export function useSidebarLayout({
       return
     }
     setActiveBySide((prev) => ({ ...prev, [side]: def.id }))
+    closeOtherSidebarIfCompact(side)
     setOpen(true)
     if (!dockPrefs[side === "left" ? "leftPinned" : "rightPinned"]) {
       setSidebarHover(side, true)
@@ -442,6 +455,7 @@ export function useSidebarLayout({
   function activatePanelAnywhere(panelId: PanelId) {
     const button = activityButtons.find((b) => b.defId === panelId)
     if (!button) return
+    closeOtherSidebarIfCompact(button.side)
     if (button.side === "left") setIsLeftSidebarOpen(true)
     else setIsRightSidebarOpen(true)
     if (!dockPrefs[button.side === "left" ? "leftPinned" : "rightPinned"])
@@ -479,6 +493,7 @@ export function useSidebarLayout({
       const pinned = isDockPinned(side)
       const setOpen = side === "left" ? setIsLeftSidebarOpen : setIsRightSidebarOpen
       if (!open || (!pinned && !visible)) {
+        closeOtherSidebarIfCompact(side)
         setOpen(true)
         if (!pinned) setSidebarHover(side, true)
         return
@@ -487,6 +502,7 @@ export function useSidebarLayout({
       hideSidebarHoverNow(side)
     },
     [
+      closeOtherSidebarIfCompact,
       isDockPinned,
       isLeftSidebarOpen,
       isLeftSidebarVisible,

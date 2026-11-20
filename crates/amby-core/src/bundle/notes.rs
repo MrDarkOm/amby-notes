@@ -137,6 +137,16 @@ impl CreateNotePlan {
         &self.initial_source
     }
 
+    /// The same plan with `body` (Markdown without an `amby-id`, as a rendered template) as the
+    /// new note's text, under a fresh ID.
+    pub fn with_body(self, body: &str) -> Result<Self, String> {
+        let note_id = ulid::Ulid::generate().to_string();
+        Ok(Self {
+            initial_source: frontmatter::body_with_id(body, &note_id)?,
+            ..self
+        })
+    }
+
     pub fn promotion_paths(&self) -> Option<(&Path, &Path, PathBuf)> {
         self.should_promote.then(|| {
             let parent_stem = file_stem(&self.parent_path).unwrap_or_default();

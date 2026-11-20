@@ -1,6 +1,6 @@
 import { type ActivityButton, type PanelId, type Side } from "./panel-registry"
 import { DEFAULT_BUTTONS, findButtonDef, PERSISTENT_ACTION_BUTTONS } from "./panel-definitions"
-import { ALL_MODULE_IDS, READY_MODULE_IDS, contributedDefIds } from "./modules"
+import { ALL_MODULE_IDS, BASE_DEF_IDS, READY_MODULE_IDS, contributedDefIds } from "./modules"
 import i18n from "@/lib/i18n"
 import { toShortModuleId } from "@/lib/modules"
 
@@ -100,6 +100,52 @@ export function validatePreset(raw: unknown): Preset | null {
  * active modules — so a layout can carry buttons that stay hidden until their
  * module is enabled.
  */
+export function uniqueButtons(buttons: ActivityButton[]): ActivityButton[] {
+  const seen = new Set<string>()
+  return buttons.filter((button) => {
+    if (seen.has(button.defId)) return false
+    seen.add(button.defId)
+    return true
+  })
+}
+
+/**
+ * Union a persisted button layout with the buttons of the active modules, appending any that
+ * are missing: the preset's own placement first, then the standard one (`DEFAULT_BUTTONS`), so a
+ * module added after a custom layout was saved (Daily notes, AI) still shows its button. A button
+ * the person hid stays in the saved layout with `hidden` and is not added again; it stays an
+ * ordinary, draggable activity-bar button.
+ */
+export function mergeMissingButtons(
+  saved: ActivityButton[],
+  preset: Preset,
+  activeModules = preset.activeModules,
+): ActivityButton[] {
+  const uniqueSaved = uniqueButtons(saved)
+  const have = new Set(uniqueSaved.map((b) => b.defId))
+  const fromModules = contributedDefIds(activeModules)
+  const inPreset = new Set(preset.layout.map((b) => b.defId))
+  const standardPlaces = DEFAULT_BUTTONS.filter(
+    (b) => !inPreset.has(b.defId) && fromModules.has(b.defId) && !BASE_DEF_IDS.has(b.defId),
+  )
+  const missing = visibleLayout({
+    ...preset,
+    layout: [...preset.layout, ...standardPlaces],
+    activeModules,
+  }).filter((b) => !have.has(b.defId))
+  if (missing.length === 0) return uniqueSaved
+  const maxOrder: Record<string, number> = {}
+  for (const b of uniqueSaved) maxOrder[b.side] = Math.max(maxOrder[b.side] ?? -1, b.order)
+  return [
+    ...uniqueSaved,
+    ...missing.map((b) => {
+      const order = (maxOrder[b.side] ?? -1) + 1
+      maxOrder[b.side] = order
+      return { ...b, side: b.side, order }
+    }),
+  ]
+}
+
 export function visibleLayout(preset: Preset): ActivityButton[] {
   const allowed = contributedDefIds(preset.activeModules)
   const visible = preset.layout.filter((button) => {

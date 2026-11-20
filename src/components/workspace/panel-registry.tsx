@@ -177,6 +177,8 @@ export interface ActionContext {
   openSearch: () => void
   openSettings: (target?: SettingsNavigationTarget) => void
   openHelp?: () => void
+  /** Daily notes: opens today's note, creating it when missing. */
+  openDailyNote?: () => void
 }
 
 export interface PanelDef {

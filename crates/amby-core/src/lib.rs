@@ -15,6 +15,7 @@ pub mod lock_util;
 pub mod mcp;
 pub mod model;
 pub mod note_edit;
+pub mod note_templates;
 pub mod paths;
 pub mod project;
 pub mod property_groups;

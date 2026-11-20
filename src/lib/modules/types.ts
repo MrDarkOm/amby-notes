@@ -130,6 +130,8 @@ export const MODULE_ID_MAP: Record<string, string> = {
   excalidraw: "amby.excalidraw",
   canvas: "amby.canvas",
   creative: "amby.creative",
+  templates: "amby.templates",
+  daily: "amby.daily",
 }
 
 export const REVERSE_MODULE_ID_MAP: Record<string, string> = Object.fromEntries(

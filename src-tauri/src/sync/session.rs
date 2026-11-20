@@ -672,6 +672,35 @@ fn conflict_store_of(
     Ok((conflicts, files))
 }
 
+/// After a pass, under the work lock: conflicts whose two versions have become the same bytes
+/// close by themselves (they would only ask the person to choose between identical files). A
+/// failure leaves them open for the person; nothing else depends on it.
+fn close_settled_conflicts(shared: &Shared) {
+    let vault = &shared.config.vault;
+    let closed = SqliteStateStore::open(vault).and_then(|mut store| {
+        let (mut conflicts, mut files) = conflict_store_of(vault, &mut store, shared)?;
+        // Most passes have nothing to close: then no batch is opened at all (Р8).
+        if conflicts.settled().is_empty() {
+            return Ok(0);
+        }
+        files.batch_begin();
+        let work =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| conflicts.close_settled()));
+        let result = amby_sync_core::engine::ports::end_batch_after(work, || files.batch_end());
+        let ids = result.map_err(|error| StateError::Io(error.to_string()))?;
+        let gone: Vec<StateOp> = ids.iter().cloned().map(StateOp::RemoveConflict).collect();
+        if !gone.is_empty() {
+            store.apply(&gone)?;
+        }
+        Ok(ids.len())
+    });
+    match closed {
+        Ok(0) => {}
+        Ok(count) => tracing::info!(event = "sync.conflicts_settled", count),
+        Err(error) => tracing::warn!(event = "sync.conflicts_settle_failed", %error),
+    }
+}
+
 /// The open conflicts of the vault, as every computer lists them (Г25, Г29): the complete sets in
 /// `.amby/conflicts/` and the old copies beside their files. The entries recorded on this computer
 /// mean "made here"; one whose files are gone leaves the state, so resolving a conflict on one
@@ -867,7 +896,9 @@ fn worker(shared: &Arc<Shared>) {
 
         let outcome = {
             let _work = shared.work.lock().unwrap_or_else(|e| e.into_inner());
-            run_pass(shared, &request)
+            let outcome = run_pass(shared, &request);
+            close_settled_conflicts(shared);
+            outcome
         };
         let next = settle(shared, outcome, &mut failures, &schedule);
 

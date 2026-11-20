@@ -7,6 +7,7 @@ import {
   type VaultSyncStatus,
 } from "@/lib/sync/sync-port"
 import { useVaultStore } from "../use-vault-store"
+import { isLocalOnly } from "./local-only"
 import { syncInactiveReason, type SyncAccountProbe, type SyncFixAction } from "./sync-inactive"
 
 const codeOf = (error: unknown): string => (error instanceof SyncPortError ? error.code : "unknown")
@@ -22,7 +23,7 @@ export function refreshSyncState(status: VaultSyncStatus | null): RefreshSyncSta
     status.outgoingPaused ||
     status.itemErrors > 0 ||
     status.conflicts.length > 0 ||
-    status.unsynced.length > 0 ||
+    status.unsynced.some((item) => !isLocalOnly(item)) ||
     status.phase === "waiting" ||
     status.phase === "stopped"
   )

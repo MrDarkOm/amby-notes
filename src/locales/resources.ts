@@ -394,6 +394,8 @@ const ru = {
       excalidraw: "Набросок",
       canvas: "Canvas",
       creative: "Творческая мастерская",
+      templates: "Шаблоны",
+      daily: "Ежедневные заметки",
       descriptions: {
         tags: "Собирает теги из заметок и добавляет навигацию по ним в боковую панель.",
         favorites: "Хранит быстрый доступ к избранным заметкам текущего хранилища.",
@@ -406,6 +408,9 @@ const ru = {
         canvas: "Визуальная бесконечная доска с карточками заметок, связями и медиа.",
         creative:
           "Инструменты для писателей: персонажи, локации, сюжетные связи, пробковые доски и структура рукописи.",
+        templates:
+          "Новые заметки из заготовок в папке шаблонов: дата, время и название подставляются сами.",
+        daily: "Одна заметка на каждый день. Кнопка «Сегодня» открывает её или создаёт.",
       },
     },
     appearance: {
@@ -550,10 +555,16 @@ const ru = {
       confirm: "Сбросить",
     },
     deleteBackup: {
-      title: "Удалить копию перед синхронизацией?",
+      title: "Удалить копию от {{date}}?",
       description:
-        "Копия исчезнет с этого компьютера и не вернётся. Заметки в хранилище и на сервере не изменятся.",
+        "Удалится только эта копия: она исчезнет с этого компьютера и не вернётся. Другие копии, заметки в хранилище и на сервере не изменятся.",
       confirm: "Удалить копию",
+    },
+    deleteOldBackup: {
+      title: "Удалить старую копию от {{date}}?",
+      description:
+        "Удалится только эта старая копия рядом с хранилищем: она исчезнет с этого компьютера и не вернётся. Другие копии, заметки в хранилище и на сервере не изменятся.",
+      confirm: "Удалить старую копию",
     },
     deleteDebugHistory: {
       title: "Удалить сохранённый журнал событий?",
@@ -1351,6 +1362,7 @@ const ru = {
     search: "Поиск",
     refresh: "Обновить хранилище",
     network: "Граф связей",
+    daily: "Сегодня",
     notifications: "Уведомления",
     noticesCount: "Уведомления: {{count}}",
     presets: "Зоны и пресеты",
@@ -1459,6 +1471,10 @@ const ru = {
     databaseDesc: "Таблица, доска или галерея заметок",
     folder: "Папка",
     folderDesc: "Новая папка",
+    template: "Заметка из шаблона",
+    templateShort: "Шаблон",
+    daily: "Заметка на сегодня",
+    dailyShort: "Сегодня",
     canvasDesc: "Новый холст",
     canvas: "Canvas",
     sketch: "Набросок",
@@ -1576,6 +1592,43 @@ const ru = {
     previewUnavailable: "Не удалось загрузить изображение",
     previous: "Предыдущее изображение",
     next: "Следующее изображение",
+  },
+  templates: {
+    dialog: {
+      title: "Заметка из шаблона",
+      description: "Название станет заголовком, а дата и время подставятся из шаблона.",
+      name: "Название",
+      nameRequired: "Введите название заметки.",
+      template: "Шаблон",
+      loading: "Загружаем шаблоны…",
+      listFailed: "Не удалось прочитать папку шаблонов. Ничего не создано.",
+      empty:
+        "Шаблонов пока нет. Создайте первый: он откроется для правки, а потом по нему можно будет создавать заметки.",
+      newTemplate: "Новый шаблон",
+      newTemplateDescription:
+        "Шаблон откроется для правки. Вместо {{titleTag}}, {{dateTag}} и {{timeTag}} в заметке появятся её название, дата и время.",
+      templateName: "Название шаблона",
+      createTemplate: "Создать шаблон",
+      back: "Назад",
+      templateCreateFailed:
+        "Не удалось создать шаблон. Возможно, шаблон с таким названием уже есть. Ничего не изменено.",
+      createFailed:
+        "Не удалось создать заметку. Возможно, заметка с таким названием уже есть. Шаблон не изменён.",
+      create: "Создать",
+    },
+  },
+  noteModules: {
+    templatesFolder: "Папка шаблонов",
+    templatesFolderHint: "Каждая заметка в этой папке — шаблон. Путь от корня хранилища.",
+    dailyFolder: "Папка ежедневных заметок",
+    dailyFolderHint:
+      "Заметка дня называется по дате, например 2026-11-20. Точка — корень хранилища.",
+    dailyTemplate: "Шаблон для нового дня",
+    dailyTemplateHint: "Из него создаётся заметка, которой ещё нет.",
+    noTemplate: "Без шаблона",
+    missingTemplate: "{{name}} (нет в папке шаблонов)",
+    folderInvalid: "Укажите папку внутри хранилища, без «..» и скрытых папок.",
+    saveFailed: "Не удалось сохранить настройку. Попробуйте ещё раз.",
   },
   folderView: {
     summary: "Заметок: {{notes}} · папок: {{folders}}",
@@ -1766,6 +1819,10 @@ const ru = {
       wikiLinkFailed: {
         title: "Не удалось открыть ссылку",
         line: "Заметки не тронуты. Попробуйте ещё раз.",
+      },
+      dailyNoteFailed: {
+        title: "Не удалось открыть заметку на сегодня",
+        line: "Заметки не тронуты. Проверьте папку и шаблон в Настройки → Модули → Ежедневные заметки.",
       },
       aiKeyLeft: {
         title: "Старый ключ остался в связке ключей",
@@ -2783,6 +2840,7 @@ const ru = {
     empty: "Нет файлов. Создайте новый.",
     create: "Создать",
     newNote: "Новая заметка",
+    newFromTemplate: "Заметка из шаблона…",
     newFolder: "Новая папка",
     newCanvas: "Новый Canvas",
     newSketch: "Новый набросок",
@@ -4172,6 +4230,9 @@ const ru = {
       },
       unsynced: {
         title: "Не синхронизируется ({{count}})",
+        localOnlyTitle: "Только на этом компьютере ({{count}})",
+        localOnlyHint:
+          "Эти файлы не участвуют в синхронизации по правилам Amby. Это не ошибка, делать ничего не нужно.",
         symlink: "Символическая ссылка",
         notUtf8: "Имя не в UTF-8",
         tooLarge: "Файл больше лимита сервера",
@@ -4179,7 +4240,7 @@ const ru = {
         tooLargeServer: "Файл больше предела сервера: {{size}}",
         quotaFull: "Хранилище заполнено: файл ждёт свободного места",
         subscriptionRequired: "Нужна подписка: файл ждёт отправки",
-        tooBigForMemory: "Файл больше лимита приложения",
+        tooBigForMemory: "Больше 30 МБ: такие файлы не синхронизируются",
         excludedPath: "Служебный путь",
         invalidName: "Имя нельзя создать на этой системе ({{problem}})",
         caseCollision: "Совпадает с «{{other}}» без учёта регистра",
@@ -4705,6 +4766,8 @@ const en: LocaleShape<typeof ru> = {
       excalidraw: "Draw",
       canvas: "Canvas",
       creative: "Creative Studio",
+      templates: "Templates",
+      daily: "Daily notes",
       descriptions: {
         tags: "Collects tags from notes and adds tag navigation to the sidebar.",
         favorites: "Keeps quick access to favorite notes in the current vault.",
@@ -4717,6 +4780,9 @@ const en: LocaleShape<typeof ru> = {
         canvas: "Visual infinite canvas with note cards, connections, and media.",
         creative:
           "Writers' studio: characters, locations, narrative relations, corkboards, and manuscript outlines.",
+        templates:
+          "New notes from the notes in the templates folder, with the date, time and title filled in.",
+        daily: "One note for each day. The Today button opens it or creates it.",
       },
     },
     appearance: {
@@ -4859,10 +4925,16 @@ const en: LocaleShape<typeof ru> = {
       confirm: "Reset",
     },
     deleteBackup: {
-      title: "Delete the copy made before sync?",
+      title: "Delete the copy from {{date}}?",
       description:
-        "The copy leaves this computer and cannot be brought back. The notes in the vault and on the server are not changed.",
+        "Only this copy is deleted: it leaves this computer and cannot be brought back. Other copies and the notes in the vault and on the server are not changed.",
       confirm: "Delete copy",
+    },
+    deleteOldBackup: {
+      title: "Delete the old copy from {{date}}?",
+      description:
+        "Only this old copy beside the vault is deleted: it leaves this computer and cannot be brought back. Other copies and the notes in the vault and on the server are not changed.",
+      confirm: "Delete old copy",
     },
     deleteDebugHistory: {
       title: "Delete the saved event journal?",
@@ -5655,6 +5727,7 @@ const en: LocaleShape<typeof ru> = {
     search: "Search",
     refresh: "Refresh vault",
     network: "Graph",
+    daily: "Today",
     notifications: "Notifications",
     noticesCount: "Notifications: {{count}}",
     presets: "Zones and presets",
@@ -5761,6 +5834,10 @@ const en: LocaleShape<typeof ru> = {
     databaseDesc: "A table, board or gallery of notes",
     folder: "Folder",
     folderDesc: "New folder",
+    template: "Note from template",
+    templateShort: "Template",
+    daily: "Today's note",
+    dailyShort: "Today",
     canvasDesc: "New canvas",
     canvas: "Canvas",
     sketch: "Draw",
@@ -5875,6 +5952,43 @@ const en: LocaleShape<typeof ru> = {
     previewUnavailable: "Unable to load image",
     previous: "Previous image",
     next: "Next image",
+  },
+  templates: {
+    dialog: {
+      title: "Note from template",
+      description: "The name becomes the title; the date and time are filled in from the template.",
+      name: "Name",
+      nameRequired: "Enter a name for the note.",
+      template: "Template",
+      loading: "Loading templates…",
+      listFailed: "Could not read the templates folder. Nothing was created.",
+      empty:
+        "No templates yet. Create the first one: it opens for editing, and then notes can be made from it.",
+      newTemplate: "New template",
+      newTemplateDescription:
+        "The template opens for editing. In a note made from it, {{titleTag}}, {{dateTag}} and {{timeTag}} become its name, date and time.",
+      templateName: "Template name",
+      createTemplate: "Create template",
+      back: "Back",
+      templateCreateFailed:
+        "Could not create the template. A template with this name may already exist. Nothing was changed.",
+      createFailed:
+        "Could not create the note. A note with this name may already exist. The template is unchanged.",
+      create: "Create",
+    },
+  },
+  noteModules: {
+    templatesFolder: "Templates folder",
+    templatesFolderHint: "Every note in this folder is a template. A path from the vault root.",
+    dailyFolder: "Daily notes folder",
+    dailyFolderHint:
+      "Each day's note is named by its date, such as 2026-11-20. A dot is the vault root.",
+    dailyTemplate: "Template for a new day",
+    dailyTemplateHint: "A day's note that does not exist yet is created from it.",
+    noTemplate: "No template",
+    missingTemplate: "{{name}} (not in the templates folder)",
+    folderInvalid: "Choose a folder inside the vault, without “..” or hidden folders.",
+    saveFailed: "Could not save the setting. Try again.",
   },
   folderView: {
     summary: "Notes: {{notes}} · folders: {{folders}}",
@@ -6058,6 +6172,10 @@ const en: LocaleShape<typeof ru> = {
       wikiLinkFailed: {
         title: "Could not open the link",
         line: "Your notes are not affected. Try again.",
+      },
+      dailyNoteFailed: {
+        title: "Could not open today's note",
+        line: "Your notes are not affected. Check the folder and template in Settings → Modules → Daily notes.",
       },
       aiKeyLeft: {
         title: "The old key stayed in the keychain",
@@ -7073,6 +7191,7 @@ const en: LocaleShape<typeof ru> = {
     empty: "No files. Create a new one.",
     create: "Create",
     newNote: "New note",
+    newFromTemplate: "Note from template…",
     newFolder: "New folder",
     newCanvas: "New Canvas",
     newSketch: "New Draw",
@@ -8440,6 +8559,9 @@ const en: LocaleShape<typeof ru> = {
       },
       unsynced: {
         title: "Not synchronised ({{count}})",
+        localOnlyTitle: "Only on this computer ({{count}})",
+        localOnlyHint:
+          "These files are left out of sync by Amby's rules. This is not an error; nothing needs to be done.",
         symlink: "A symbolic link",
         notUtf8: "The name is not UTF-8",
         tooLarge: "The file is above the limit of the server",
@@ -8447,7 +8569,7 @@ const en: LocaleShape<typeof ru> = {
         tooLargeServer: "The file is above the limit of the server: {{size}}",
         quotaFull: "The storage is full: the file waits for free space",
         subscriptionRequired: "A subscription is needed: the file waits to be sent",
-        tooBigForMemory: "The file exceeds the app limit",
+        tooBigForMemory: "Over 30 MB: such files are not synced",
         excludedPath: "A service path",
         invalidName: "The name cannot be created on this system ({{problem}})",
         caseCollision: "The same as “{{other}}” ignoring case",

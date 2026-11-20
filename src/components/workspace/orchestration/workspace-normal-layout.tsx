@@ -175,6 +175,8 @@ export function WorkspaceNormalLayout({
     "4px",
     "(var(--amby-right-panel-width, 300px) + var(--amby-dock-width))",
   )
+  const leftOverlayOpacity = useTransform(leftPanel.progress, [0, 0.08, 1], [0, 1, 1])
+  const rightOverlayOpacity = useTransform(rightPanel.progress, [0, 0.08, 1], [0, 1, 1])
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       <ConnectedHeaderTabs
@@ -265,12 +267,16 @@ export function WorkspaceNormalLayout({
 
           {!leftDockPinned && (
             <motion.div
-              className="amby-sidebar-overlay--left fixed bottom-0 left-0 top-11 z-40 rounded-r-2xl"
+              className="amby-sidebar-overlay amby-sidebar-overlay--left fixed bottom-0 left-0 top-11 z-40 pb-2"
+              data-open={isLeftSidebarVisible ? "true" : "false"}
               style={{ width: leftOverlayWidth }}
               onMouseEnter={() => setSidebarHover("left", true)}
               onMouseLeave={() => setSidebarHover("left", false)}
             >
-              <div className="flex h-full w-full overflow-hidden rounded-r-2xl bg-background">
+              <motion.div
+                className="amby-sidebar-overlay-surface flex h-full w-full overflow-hidden"
+                style={{ opacity: leftOverlayOpacity }}
+              >
                 <div
                   className="flex h-full shrink-0"
                   style={{
@@ -312,7 +318,7 @@ export function WorkspaceNormalLayout({
                     )}
                   </div>
                 </div>
-              </div>
+              </motion.div>
             </motion.div>
           )}
 
@@ -383,12 +389,16 @@ export function WorkspaceNormalLayout({
 
         {rightPanelEnabled && !rightDockPinned && (
           <motion.div
-            className="amby-sidebar-overlay--right fixed bottom-0 right-0 top-11 z-40 rounded-l-2xl"
+            className="amby-sidebar-overlay amby-sidebar-overlay--right fixed bottom-0 right-0 top-11 z-40 pb-2"
+            data-open={isRightSidebarVisible ? "true" : "false"}
             style={{ width: rightOverlayWidth }}
             onMouseEnter={() => setSidebarHover("right", true)}
             onMouseLeave={() => setSidebarHover("right", false)}
           >
-            <div className="flex h-full w-full justify-end overflow-hidden rounded-l-2xl bg-background">
+            <motion.div
+              className="amby-sidebar-overlay-surface flex h-full w-full justify-end overflow-hidden"
+              style={{ opacity: rightOverlayOpacity }}
+            >
               <div
                 className="flex h-full shrink-0"
                 style={{
@@ -428,7 +438,7 @@ export function WorkspaceNormalLayout({
                   helpContext={currentHelpContext}
                 />
               </div>
-            </div>
+            </motion.div>
           </motion.div>
         )}
       </div>
@@ -489,8 +499,10 @@ function PinnedSidePanel({
         style={{ width: animatedWidth }}
         {...hover}
         className={cn(
-          "fixed bottom-0 top-11 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl",
-          side === "left" ? "left-[var(--amby-dock-width)]" : "right-[var(--amby-dock-width)]",
+          "fixed bottom-0 top-11 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden",
+          side === "left"
+            ? "amby-sidebar-overlay--compact-left left-[var(--amby-dock-width)]"
+            : "amby-sidebar-overlay--compact-right right-[var(--amby-dock-width)]",
         )}
       >
         <div className="relative h-full shrink-0" style={{ width }}>

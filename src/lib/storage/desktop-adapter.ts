@@ -6,6 +6,7 @@ import type { StoragePort, WriteNoteOptions } from "./port"
 import { FileRevisionConflictError, NoteRevisionConflictError } from "./types"
 import { unwrapDatabaseCommand } from "./database-port"
 import { unwrapProjectCommand } from "./project-port"
+import type { DailyNote, NoteTemplate } from "./note-modules-port"
 import type {
   AddStoryLinksRequest,
   EnsurePlotLinksRequest,
@@ -886,6 +887,32 @@ export class DesktopAdapter implements StoragePort {
     name: string,
   ): Promise<FsMutationResult> {
     return unwrapMutation(commands.createNote(parentPath, name))
+  }
+
+  async listNoteTemplates(): Promise<NoteTemplate[]> {
+    return unwrapCommand(commands.listNoteTemplates())
+  }
+
+  async createNoteFromTemplate(
+    parentPath: string,
+    name: string,
+    template: string,
+  ): Promise<FsMutationResult> {
+    return unwrapMutation(commands.createNoteFromTemplate(parentPath, name, template))
+  }
+
+  async createNoteTemplate(name: string): Promise<FsMutationResult> {
+    return unwrapMutation(commands.createNoteTemplate(name))
+  }
+
+  async openDailyNote(): Promise<DailyNote> {
+    const daily = await unwrapCommand<{
+      path: string
+      created: boolean
+      mutation: MutationOutcome | null
+    }>(commands.openDailyNote())
+    if (daily.mutation) reportIndexOutcome(daily.mutation)
+    return { path: daily.path, created: daily.created, mutation: daily.mutation?.mutation ?? null }
   }
 
   async createFolder(_vaultPath: string, name: string): Promise<string> {

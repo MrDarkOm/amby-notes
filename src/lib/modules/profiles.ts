@@ -9,7 +9,13 @@ import {
 } from "./types"
 
 export const STANDARD_PROFILE_VERSION = "1.0.0"
-export const STANDARD_CATALOG_REVISION = "2026-09-20"
+export const STANDARD_CATALOG_REVISION = "2026-11-20"
+/**
+ * The revision that added Templates and Daily notes to the Standard modules: a module list saved
+ * before it gets them once (`readWorkspaceModuleConfig`; Rust: `vault_tools::modules`).
+ */
+export const NOTE_MODULES_REVISION = "2026-11-20"
+export const NOTE_MODULES = ["amby.templates", "amby.daily"]
 
 /**
  * The official modules the Standard profile turns on. Creative is ready but opt-in: it is
@@ -24,6 +30,8 @@ export const STANDARD_MODULES: string[] = [
   "amby.graph",
   "amby.ai",
   "amby.excalidraw",
+  "amby.templates",
+  "amby.daily",
 ]
 
 export const STANDARD_PROFILE_SIGNATURE = {

@@ -142,6 +142,21 @@ export const MODULE_REGISTRY: ModuleDef[] = [
     manifest: { permissions: ["ui-panel", "read-notes", "write-notes"] },
   },
   {
+    id: "templates",
+    labelKey: "settings.modules.templates",
+    descriptionKey: "settings.modules.descriptions.templates",
+    status: "ready",
+    manifest: { permissions: ["read-notes", "write-notes"] },
+  },
+  {
+    id: "daily",
+    labelKey: "settings.modules.daily",
+    descriptionKey: "settings.modules.descriptions.daily",
+    status: "ready",
+    manifest: { permissions: ["ui-action", "read-notes", "write-notes"] },
+    actions: ["daily"],
+  },
+  {
     id: "creative",
     labelKey: "settings.modules.creative",
     descriptionKey: "settings.modules.descriptions.creative",

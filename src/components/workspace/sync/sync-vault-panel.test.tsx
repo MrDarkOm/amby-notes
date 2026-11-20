@@ -88,6 +88,12 @@ describe("sync of the open vault: switching it on", () => {
     expect(panel.textContent).not.toMatch(/переименуйте|закройте Amby/)
   })
 
+  it("keeps the backup manager while the vault is linked, after the current copy was deleted", async () => {
+    await show({ ...VAULT_OFF, linked: true, backupPath: null, backupMissing: false })
+    const panel = await screen.findByTestId("sync-vault")
+    expect(panel.querySelector("summary")?.textContent).toContain("Резервные копии")
+  })
+
   it("does not enable sync when creating its pre-sync backup fails", async () => {
     const port = await show(
       { ...VAULT_OFF },
@@ -803,25 +809,42 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
     await show(
       vaultStatus({
         unsynced: [
-          { path: "ссылка.md", reason: "symlink", detail: null },
           { path: "a:b.md", reason: "invalidName", detail: "forbiddenChar" },
           { path: "Note.md", reason: "caseCollision", detail: "note.md" },
-          { path: "огромный.bin", reason: "tooBigForMemory", detail: null },
           { path: "закрыт.md", reason: "noAccess", detail: null },
           { path: "x", reason: "somethingNew", detail: null },
+          { path: "ссылка.md", reason: "symlink", detail: null },
+          { path: "огромный.bin", reason: "tooBigForMemory", detail: null },
         ],
       }),
     )
     const list = await screen.findByTestId("sync-unsynced")
-    expect(list.textContent).toMatch(/Не синхронизируется \(6\)/)
+    expect(list.textContent).toMatch(/Не синхронизируется \(4\)/)
     const text = list.textContent ?? ""
-    expect(text).toMatch(/ссылка\.md/)
-    expect(text).toMatch(/Символическая ссылка/)
     expect(text).toMatch(/нельзя создать на этой системе \(недопустимый символ\)/)
     expect(text).toMatch(/Совпадает с «note\.md» без учёта регистра/)
-    expect(text).toMatch(/больше лимита приложения/)
     expect(text).toMatch(/Нет доступа к файлу/)
     expect(text).toMatch(/Причина не распознана/)
+    expect(text).not.toMatch(/ссылка\.md|огромный\.bin/)
+
+    const local = screen.getByTestId("sync-local-only") as HTMLDetailsElement
+    expect(local.open).toBe(false)
+    expect(local.textContent).toMatch(/Только на этом компьютере \(2\)/)
+    expect(local.textContent).toMatch(/Символическая ссылка/)
+    expect(local.textContent).toMatch(/Больше 30 МБ: такие файлы не синхронизируются/)
+  })
+
+  it("treats files kept local by a rule of sync as information, not a problem", async () => {
+    await show(
+      vaultStatus({
+        lastSyncMs: 1,
+        unsynced: [{ path: "big.pdf", reason: "tooBigForMemory", detail: null }],
+      }),
+    )
+    const status = await screen.findByTestId("sync-status")
+    expect(status.textContent).not.toContain("Требуется внимание")
+    expect(screen.queryByTestId("sync-unsynced")).toBeNull()
+    expect(screen.getByTestId("sync-local-only").textContent).toMatch(/big\.pdf/)
   })
 
   it("does not call an idle pass fully synchronized when files remain unsynced", async () => {
@@ -837,6 +860,7 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
     await screen.findByTestId("sync-status")
     expect(screen.queryByTestId("sync-conflicts")).toBeNull()
     expect(screen.queryByTestId("sync-unsynced")).toBeNull()
+    expect(screen.queryByTestId("sync-local-only")).toBeNull()
   })
 })
 

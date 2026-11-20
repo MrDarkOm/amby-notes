@@ -64,9 +64,19 @@ impl ToolHost for VaultHost {
         let mut tools = amby_core::ai_tools::mcp_definitions(true);
         tools.push(amby_core::ai_tools::list_tags_definition());
         tools.push(mcp_tools::get_properties_definition());
-        tools.extend(crate::mcp_extra::read_definitions());
         let modules = amby_core::vault_tools::modules::Modules::read(&self.root).ok();
         let enabled = |module| modules.is_some_and(|modules| modules.includes(module));
+        let offered = |tool: &Value| {
+            tool["name"]
+                .as_str()
+                .and_then(crate::mcp_extra::module_of)
+                .is_none_or(enabled)
+        };
+        tools.extend(
+            crate::mcp_extra::read_definitions()
+                .into_iter()
+                .filter(offered),
+        );
         tools.extend(
             mcp_tools::DOMAIN_READS
                 .iter()
@@ -91,7 +101,11 @@ impl ToolHost for VaultHost {
                         mcp_tools::definition(name, description, fields, true, false)
                     }),
             );
-            tools.extend(crate::mcp_extra::write_definitions());
+            tools.extend(
+                crate::mcp_extra::write_definitions()
+                    .into_iter()
+                    .filter(offered),
+            );
             tools.extend(
                 mcp_tools::PROPERTY_WRITES
                     .iter()

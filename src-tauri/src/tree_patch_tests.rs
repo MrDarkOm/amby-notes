@@ -88,7 +88,8 @@ fn fixture() -> Vault {
         "Projects/Beta.md",
         "beta token #two [[Alpha]] [Alpha](Projects/Alpha.md)",
     );
-    vault.note("Заметки/Гамма.md", "gamma [[Alpha]]");
+    // A link by path, so both a rename and a move rewrite this note.
+    vault.note("Заметки/Гамма.md", "gamma [[Projects/Alpha]]");
     vault.note("Folder/Sub/Deep.md", "deep [[Beta]]");
     vault.note("Folder/Sub/Deeper/Deepest.md", "deepest");
     vault.note("Folder/Loose.md", "loose");
@@ -466,6 +467,52 @@ fn creating_a_note_inside_a_database() {
     assert_point_equals_full(&fixture(), |context, vault| {
         create(context, vault, "Db", "Created row")
     });
+}
+
+/// Today's note in a folder that does not exist yet: the folder must come with the note in the
+/// same patch, or the window shows the note at the root until the folder arrives (a duplicate).
+fn daily(context: &VaultContext, vault: &Vault, folder: &str) -> FsMutationResult {
+    fs::create_dir_all(vault.path(".amby")).unwrap();
+    fs::write(
+        vault.path(".amby/workspace.json"),
+        format!(r#"{{"moduleSettings":{{"daily":{{"folder":"{folder}"}}}}}}"#),
+    )
+    .unwrap();
+    let moment = amby_core::note_templates::Moment::on("2026-11-20").unwrap();
+    let (daily, _) =
+        crate::commands::note_templates::open_daily_inner(context, &WatcherState::new(), &moment)
+            .unwrap();
+    outcome(daily.mutation.expect("today's note is created"))
+}
+
+#[test]
+fn todays_note_in_a_new_folder() {
+    assert_point_equals_full(&fixture(), |context, vault| daily(context, vault, "Daily"));
+}
+
+#[test]
+fn todays_note_in_new_nested_folders() {
+    assert_point_equals_full(&fixture(), |context, vault| {
+        daily(context, vault, "Journal/2026")
+    });
+}
+
+#[test]
+fn a_new_template_in_a_new_templates_folder() {
+    assert_point_equals_full(&fixture(), |context, _vault| {
+        let (outcome_value, _) = crate::commands::note_templates::create_template_inner(
+            context,
+            &WatcherState::new(),
+            "Meeting".to_owned(),
+        )
+        .unwrap();
+        outcome(outcome_value)
+    });
+}
+
+#[test]
+fn todays_note_in_an_existing_folder() {
+    assert_point_equals_full(&fixture(), |context, vault| daily(context, vault, "Folder"));
 }
 
 // ── rename ─────────────────────────────────────────────────────────────────────────────────
@@ -1121,7 +1168,9 @@ fn a_move_reports_rewritten_sources_for_open_windows() {
     let (generation, paths) = result.rewritten_notes.expect("rewritten sources reported");
     assert_eq!(generation, context.generation().unwrap());
     assert!(paths.contains(&vault.path("Projects/Beta.md")));
-    assert!(paths.contains(&vault.path("Root note.md")));
+    assert!(paths.contains(&vault.path("Заметки/Гамма.md")));
+    // `[[Alpha]]` is still a unique name after the move, so the link stays as written.
+    assert!(!paths.contains(&vault.path("Root note.md")));
     assert!(!paths.contains(&vault.path("Folder/Loose.md")));
 }
 

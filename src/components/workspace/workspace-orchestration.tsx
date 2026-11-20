@@ -37,6 +37,8 @@ import { useDocStore } from "./use-doc-store"
 import { reloadOpenNotes } from "./reload-open-notes"
 import { useVaultStore } from "./use-vault-store"
 import type { DocumentViewMode } from "./document-editor"
+import { TemplateNoteDialog } from "./note-modules/template-note-dialog"
+import { useNoteModulesStore } from "./note-modules/note-modules-store"
 import { type WindowPreferences, setPendingWorkspaceProfile } from "./app-config"
 import type { HeaderTab } from "./header-tabs"
 import { spotlightCreateActions } from "./spotlight-create-actions"
@@ -332,6 +334,12 @@ export function WorkspaceOrchestration() {
   const canvasEnabled = activeModules.includes("canvas") || activeModules.includes("amby.canvas")
   const sketchEnabled =
     activeModules.includes("excalidraw") || activeModules.includes("amby.excalidraw")
+  const templatesEnabled =
+    activeModules.includes("templates") || activeModules.includes("amby.templates")
+  const dailyEnabled = activeModules.includes("daily") || activeModules.includes("amby.daily")
+  React.useEffect(() => {
+    useNoteModulesStore.getState().setTemplatesEnabled(templatesEnabled)
+  }, [templatesEnabled])
   const favoritesModuleOn =
     activeModules.includes("favorites") || activeModules.includes("amby.favorites")
   const favoritesInTreePref = useSettingsStore((s) => s.prefs.favoritesInTree)
@@ -476,6 +484,7 @@ export function WorkspaceOrchestration() {
     openSearch: () => useOverlaysStore.getState().setSearchOpen(true),
     openSettings,
     openHelp: () => useOverlaysStore.getState().setHelpOpen(true),
+    openDailyNote: () => void handleOpenDailyNote(),
   }
 
   const {
@@ -757,6 +766,9 @@ export function WorkspaceOrchestration() {
     handleCloneFile,
     navigateToFile,
     handleWikiLinkClick,
+    handleOpenDailyNote,
+    handleNewFromTemplate,
+    handleNewTemplate,
     handleRenameFile,
     handleDeleteFile,
     handleDeleteFiles,
@@ -792,6 +804,26 @@ export function WorkspaceOrchestration() {
     windowLabel,
     refreshDatabaseCatalog,
   })
+
+  // The creation dialog opens today's note through the same action as the activity bar.
+  const openDailyRef = React.useRef(handleOpenDailyNote)
+  openDailyRef.current = handleOpenDailyNote
+  React.useEffect(() => {
+    useNoteModulesStore
+      .getState()
+      .setOpenDaily(dailyEnabled ? () => void openDailyRef.current() : null)
+  }, [dailyEnabled])
+
+  // The file dialogs of both layouts: deletion and, with the Templates module, a note from a
+  // template.
+  const fileDialogs = (
+    <>
+      {deleteConfirmationDialog}
+      {templatesEnabled && (
+        <TemplateNoteDialog onCreate={handleNewFromTemplate} onCreateTemplate={handleNewTemplate} />
+      )}
+    </>
+  )
 
   function openNotePath(path: string) {
     const wanted = path.normalize("NFC")
@@ -1499,7 +1531,7 @@ export function WorkspaceOrchestration() {
         activeModules={activeModules}
         adoptPreset={adoptPreset}
         workspaceProfileDialog={workspaceProfileDialog}
-        deleteConfirmationDialog={deleteConfirmationDialog}
+        deleteConfirmationDialog={fileDialogs}
         propertyMigrationDialog={propertyMigrationDialog}
       />
     )
@@ -1532,7 +1564,7 @@ export function WorkspaceOrchestration() {
       handleSplitRight={handleSplitRight}
       handleSplitDown={handleSplitDown}
       handleTabUsageChanged={handleTabUsageChanged}
-      deleteConfirmationDialog={deleteConfirmationDialog}
+      deleteConfirmationDialog={fileDialogs}
       propertyMigrationDialog={propertyMigrationDialog}
       leftButtons={leftButtons}
       activeBySide={activeBySide}

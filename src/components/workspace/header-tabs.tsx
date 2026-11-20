@@ -593,13 +593,18 @@ export function HeaderTabs({
   // while the left panel is closed or animating.
   const rightDockWidth = rightPanelEnabled && isRightDockPinned ? ACTIVITY_BAR_WIDTH : "0px"
   const rightPinned = rightPanelEnabled && isRightDockPinned
+  // In compact/overlay layout the layout passes width 0 so floating panels do not
+  // push the header columns; checking > 0 prevents the global CSS panel-width
+  // variables from overriding the 0 fallback.
+  const leftShiftsHeader = isLeftDockPinned && leftTreeWidth > 0
+  const rightShiftsHeader = rightPinned && rightPanelWidth > 0
   const leftHeaderClosed = controlsSide === "left" ? `${MACOS_LEFT_TOGGLE_CLEARANCE}px` : "0px"
   const leftHeaderOpen =
     controlsSide === "left"
-      ? isLeftDockPinned
+      ? leftShiftsHeader
         ? `max(${MACOS_LEFT_TOGGLE_CLEARANCE}px, calc(var(--amby-left-panel-width, ${leftTreeWidth}px) + ${ACTIVITY_BAR_WIDTH} - ${MACOS_TRAFFIC_LIGHTS_WIDTH}px))`
         : `${MACOS_LEFT_TOGGLE_CLEARANCE}px`
-      : isLeftDockPinned
+      : leftShiftsHeader
         ? `var(--amby-left-panel-width, ${leftTreeWidth}px)`
         : "0px"
   // The header columns follow the progress of the side panels they line up with
@@ -619,7 +624,7 @@ export function HeaderTabs({
   const rightHeaderInset = usePanelLength(
     rightProgress,
     edgeControlsWidth,
-    rightPinned
+    rightShiftsHeader
       ? controlsSide === "right"
         ? `max(${edgeControlsWidth}, calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth}))`
         : `calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${ACTIVITY_BAR_WIDTH})`
@@ -628,7 +633,7 @@ export function HeaderTabs({
   const rightColumnLength = usePanelLength(
     rightProgress,
     "0px",
-    rightPinned ? `var(--amby-right-panel-width, ${rightPanelWidth}px)` : "0px",
+    rightShiftsHeader ? `var(--amby-right-panel-width, ${rightPanelWidth}px)` : "0px",
   )
   const rightColumnWidth = controlsSide === "right" ? rightHeaderInset : rightColumnLength
   const [isMaximized, setIsMaximized] = React.useState(false)
@@ -874,8 +879,8 @@ export function HeaderTabs({
         <div
           data-pane-tab-bar={paneId}
           data-pane-edge-aligned={
-            (isLeftSidebarOpen && isLeftDockPinned && leftTreeWidth > 0) ||
-            (controlsSide !== "left" && !isLeftSidebarOpen && isLeftDockPinned)
+            isLeftDockPinned &&
+            (controlsSide !== "left" || (isLeftSidebarOpen && leftTreeWidth > 0))
               ? true
               : undefined
           }

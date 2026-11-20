@@ -83,6 +83,22 @@ const BUILTIN_MODULES: InstalledModule[] = [
     installedAt: 0,
   },
   {
+    id: "amby.templates",
+    version: "1.0.0",
+    activeVersion: "1.0.0",
+    signatureStatus: "signed",
+    source: "builtin",
+    installedAt: 0,
+  },
+  {
+    id: "amby.daily",
+    version: "1.0.0",
+    activeVersion: "1.0.0",
+    signatureStatus: "signed",
+    source: "builtin",
+    installedAt: 0,
+  },
+  {
     id: "amby.creative",
     version: "1.0.0",
     activeVersion: "1.0.0",

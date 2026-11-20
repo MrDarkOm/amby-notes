@@ -151,7 +151,7 @@ fn stdio_mcp_exposes_read_tools_and_rejects_service_paths() {
     assert_eq!(replies[0]["result"]["protocolVersion"], "2025-11-25");
     let tools = replies[1]["result"]["tools"].as_array().unwrap();
     // 8 read tools plus list_tags, get_properties and five hygiene and attachment reads.
-    assert_eq!(tools.len(), 15);
+    assert_eq!(tools.len(), 16);
     assert!(tools
         .iter()
         .all(|tool| tool["annotations"]["readOnlyHint"] == true));
@@ -434,7 +434,7 @@ fn mcp_write_requires_opt_in_and_confines_a_scoped_grant_to_the_folder() {
     );
     // 23 tools plus list_tags, get_properties, four property writes, delete_item, five
     // hygiene and attachment reads and four attachment, order and bulk writes.
-    assert_eq!(scoped[0]["result"]["tools"].as_array().unwrap().len(), 39);
+    assert_eq!(scoped[0]["result"]["tools"].as_array().unwrap().len(), 42);
     for reply in &scoped[1..4] {
         assert_eq!(body(reply)["error"], "accessDenied");
     }
@@ -759,7 +759,7 @@ fn mcp_structural_preview_and_commit_check_every_rewritten_path() {
     assert_eq!(result["destination"], "Projects/New.md", "{result}");
     assert_eq!(
         fs::read_to_string(root.join("Projects/Local.md")).unwrap(),
-        "[[Projects/New]]\n"
+        "[[New]]\n"
     );
 
     for (tool, arguments, expected) in [

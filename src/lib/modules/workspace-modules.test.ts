@@ -59,13 +59,39 @@ describe("Workspace Modules Management", () => {
 describe("Reading the workspace module configuration", () => {
   it("reads a stored profile and canonicalises module ids", () => {
     const config = readWorkspaceModuleConfig({
-      profile: { id: "standard", catalogRevision: "2026-09-20" },
+      profile: { id: "standard", catalogRevision: "2026-11-20" },
       enabledModules: ["tags", "amby.favorites"],
       moduleSettings: { tags: { a: 1 } },
     })
     expect(config.profile.id).toBe("standard")
     expect(config.enabledModules).toEqual(["amby.tags", "amby.favorites"])
     expect(config.moduleSettings).toEqual({ tags: { a: 1 } })
+  })
+
+  it("adds Templates and Daily notes once to a list saved before them", () => {
+    const old = readWorkspaceModuleConfig({
+      profile: { id: "custom", catalogRevision: "2026-09-20" },
+      enabledModules: ["tags"],
+    })
+    expect(old.enabledModules).toEqual(["amby.tags", "amby.templates", "amby.daily"])
+    expect(old.profile.catalogRevision).toBe("2026-11-20")
+    // Saved again with the new revision, a switched-off module stays off.
+    const current = readWorkspaceModuleConfig({
+      profile: { id: "custom", catalogRevision: old.profile.catalogRevision },
+      enabledModules: ["amby.tags", "amby.daily"],
+    })
+    expect(current.enabledModules).toEqual(["amby.tags", "amby.daily"])
+    const minimal = readWorkspaceModuleConfig({
+      profile: { id: "minimal", catalogRevision: "2026-09-20" },
+      enabledModules: [],
+    })
+    expect(minimal.enabledModules).toEqual([])
+  })
+
+  it("lists both note modules in the Standard set and maps their IDs", () => {
+    expect(STANDARD_MODULES).toEqual(expect.arrayContaining(["amby.templates", "amby.daily"]))
+    expect(toCanonicalModuleId("daily")).toBe("amby.daily")
+    expect(toShortModuleId("amby.templates")).toBe("templates")
   })
 
   it("falls back to the standard profile when there is no profile or module list", () => {

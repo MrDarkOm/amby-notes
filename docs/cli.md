@@ -38,6 +38,8 @@ amby links 'Meeting'
 amby backlinks 'Meeting'
 amby tags
 amby open 'Projects/Meeting.md'
+amby templates
+amby daily
 ```
 
 Vault selection uses `--vault`, then `AMBY_VAULT`, then the CLI default from
@@ -94,6 +96,37 @@ neither notes nor metadata. A new note’s confirmed write generates its own ID.
 When desktop Amby is open, an edit from the CLI arrives as an external change.
 The normal conflict flow protects unsaved edits. A conflicting write returns
 `revisionConflict` so the caller can read the latest bytes and retry.
+
+## Templates and daily notes
+
+```sh
+amby templates
+amby new 'Projects/Standup' --template Meeting
+amby daily
+amby daily --date 2026-11-20 --template Daily
+printf -- '- Called the supplier\n' | amby daily append
+```
+
+A template is any Markdown note in the templates folder (`Templates/` unless the
+Templates module is set to another, see [vault format](vault-format.md#templates-and-daily-notes)),
+named by its path there without `.md` (`Work/Review`); a vault path ending in `.md` works too. `templates` lists
+them. `new PATH --template NAME` creates the note from the template instead of from
+stdin: the template's own `amby-id` is dropped so the new note gets a fresh one, and
+`{{title}}` (the new file name), `{{date}}` (`YYYY-MM-DD`) and `{{time}}` (`HH:MM`,
+local time) are filled in everywhere, header included. Everything else, other header
+fields and other apps' metadata included, is copied as written. The template is never
+changed. A placeholder that makes the header invalid YAML returns
+`invalidFrontmatter` and creates nothing.
+
+`daily` opens the note for a day, `Daily/YYYY-MM-DD.md` unless the Daily notes module is
+set to another folder, and creates it when it is missing, from `--template` or the
+module's template (its `{{title}}` is the date). The flags win over the settings. It reports the
+path and `created`. `--date` picks another day and `--folder` another folder (`.` for
+the vault root); a missing folder is created by the rules for a new note's path.
+`daily append` adds stdin or `--file` at the end, creating the note first if needed.
+An existing note is never recreated or replaced; appending to it takes a history
+snapshot as `append` does. `--dry-run` previews both. When the Templates or Daily notes
+module is switched off in Settings → Modules, its commands return `moduleDisabled`.
 
 ## Properties
 
@@ -199,7 +232,10 @@ amby recover
 Supply vault-relative paths. Rename takes a new stem for a file or a new
 name for a folder. Move takes an existing folder or `.` for the vault root.
 Rename and move update affected links and include the sidecars of a note
-bundle. Archive moves an item and its contents into the vault archive. Restore
+bundle. A rewritten wikilink keeps the form it was written in: a link by name stays a
+name (`[[Meeting]]` becomes `[[Planning]]`) when the new name means this note alone,
+and a link by path gets the new path. When the name would be ambiguous, the full path
+is written so the link keeps pointing at the same note. Archive moves an item and its contents into the vault archive. Restore
 takes an archive-relative path and chooses a free name if the original location
 is occupied.
 
@@ -222,6 +258,24 @@ journal. If a path changed during an interruption, recovery keeps the current
 files and the journal and returns `recoveryRequired`. If the desktop connection
 is lost after dispatch, the CLI returns `desktopRequestInterrupted`. Check the
 vault before repeating the command.
+
+## Scripts and agents
+
+Every command takes `--json`, so scripts and agents with a shell can chain the CLI and
+process results locally instead of sending each note through a model. For example,
+tag every note that links to a missing note, or collect today's open questions:
+
+```sh
+amby --json unresolved | jq -r '.data.links[].source' | sort -u |
+  while read -r note; do amby prop set "$note" review needed; done
+amby --json search --tag question --folder Inbox | jq -r '.data.results[].path'
+```
+
+This gives an agent with a terminal the benefit of MCP "code mode": loops and filters
+run in the shell, and only the result reaches the model. Writes keep their usual
+safeguards (history snapshots, the write lock, desktop delegation), and `--dry-run`
+previews them. For many notes at once prefer `bulk`, which checks each note and
+reports every one.
 
 ## JSON and exit codes
 

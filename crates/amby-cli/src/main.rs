@@ -1,5 +1,6 @@
 mod args;
 mod config;
+mod daily;
 mod edit;
 mod launch;
 mod mcp;
@@ -307,7 +308,9 @@ fn run(command: Command, options: &Options, ru: bool) -> Result<Output, Error> {
                 \x20 info NOTE | orphans [--folder FOLDER] | unresolved [--folder FOLDER]\n\
                 \x20 attachments NOTE | attach NOTE FILE [--name NAME] [--no-link]\n\
                 \x20 bulk set NAME [VALUE]... | bulk move FOLDER  FILTERS (--dry-run | --yes)\n  rename PATH NAME | move PATH FOLDER\n  archive PATH | archive list | restore PATH\n\
-                \x20 delete PATH [--dry-run]\n  recover\n  mcp [--allow-write[=FOLDER]]\n"
+                \x20 delete PATH [--dry-run]\n  recover\n  mcp [--allow-write[=FOLDER]]\n\
+                \x20 templates | new PATH --template NAME [--dry-run]\n\
+                \x20 daily [append] [--date YYYY-MM-DD] [--folder FOLDER] [--template NAME] [--file PATH] [--dry-run]\n"
             );
             return Ok(Output::new(json!({ "usage": text }), text));
         }
@@ -358,8 +361,15 @@ fn run(command: Command, options: &Options, ru: bool) -> Result<Output, Error> {
             let vault = ReadVault::open(&root)?;
             relative(&root, &choose_note(&vault, &note)?.path)?
         };
-        let content = edit::read_input(options.file.as_deref())?;
-        let result = edit::execute(&root, None, kind, &path, &content, options.dry_run, false)?;
+        let result = match &options.template {
+            Some(template) => {
+                daily::new_from_template(&root, None, &path, template, options.dry_run, false)?
+            }
+            None => {
+                let content = edit::read_input(options.file.as_deref())?;
+                edit::execute(&root, None, kind, &path, &content, options.dry_run, false)?
+            }
+        };
         let text = result
             .diff
             .clone()
@@ -387,6 +397,50 @@ fn run(command: Command, options: &Options, ru: bool) -> Result<Output, Error> {
     }
     if let Prop(property) = command {
         return run_prop(&root, property, options);
+    }
+    if let Templates = command {
+        let listing = daily::list(&root)?;
+        let text = listing["templates"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|template| {
+                format!(
+                    "{}\n",
+                    template["name"].as_str().unwrap_or_default().escape_debug()
+                )
+            })
+            .collect();
+        return Ok(Output::new(listing, text));
+    }
+    if let Daily { append } = command {
+        let moment = match &options.date {
+            Some(date) => daily::Moment::on(date).ok_or("usage")?,
+            None => daily::Moment::now(),
+        };
+        let text = if append {
+            Some(edit::read_input(options.file.as_deref())?)
+        } else {
+            None
+        };
+        let request = daily::Daily {
+            moment,
+            folder: options.folder.as_deref(),
+            template: options.template.as_deref(),
+            append: text.as_deref(),
+            dry_run: options.dry_run,
+        };
+        let result = daily::daily(&root, None, request, false)?;
+        let text = result["diff"].as_str().map_or_else(
+            || {
+                format!(
+                    "{}\n",
+                    result["path"].as_str().unwrap_or_default().escape_debug()
+                )
+            },
+            str::to_owned,
+        );
+        return Ok(Output::new(result, text));
     }
     if let Bulk(op) = command {
         return run_bulk(&root, op, options);

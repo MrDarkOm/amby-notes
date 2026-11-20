@@ -426,6 +426,24 @@ fn spawn_cli_write_probe(root: std::path::PathBuf, binary: std::ffi::OsString) {
                             "Expected a delegated property order: {ordered}"
                         )));
                     }
+                    // Deletion runs inside the app as well: the note goes to the system trash
+                    // (named so it is recognisable there) and leaves the index.
+                    let doomed = "Destination/Amby native check - safe to delete.md";
+                    fs::write(vault.join(doomed), "# Amby native check\n")?;
+                    let deleted = scoped("delete_item", serde_json::json!({ "path": doomed }))?;
+                    if deleted.get("error").is_some() || vault.join(doomed).exists() {
+                        return Err(std::io::Error::other(format!(
+                            "Expected a delegated deletion: {deleted}"
+                        )));
+                    }
+                    let kept = "Amby native check - kept.md";
+                    fs::write(vault.join(kept), "# Kept\n")?;
+                    let outside = scoped("delete_item", serde_json::json!({ "path": kept }))?;
+                    if outside["error"] != "outsideWriteScope" || !vault.join(kept).is_file() {
+                        return Err(std::io::Error::other(format!(
+                            "Expected a delegated deletion scope denial: {outside}"
+                        )));
+                    }
                     let workshop = scoped(
                         "create_workshop",
                         serde_json::json!({

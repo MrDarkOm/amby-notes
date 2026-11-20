@@ -764,6 +764,38 @@ async createNote(parentPath: string, name: string) : Promise<Result<MutationOutc
     else return { status: "error", error: e  as any };
 }
 },
+async listNoteTemplates() : Promise<Result<NoteTemplate[], StorageError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_note_templates") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createNoteFromTemplate(parentPath: string, name: string, template: string) : Promise<Result<MutationOutcome, StorageError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_note_from_template", { parentPath, name, template }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async openDailyNote() : Promise<Result<DailyNoteOutcome, StorageError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_daily_note") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createNoteTemplate(name: string) : Promise<Result<MutationOutcome, StorageError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_note_template", { name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async createLayer(notePath: string, kind: string) : Promise<Result<LayerResult, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("create_layer", { notePath, kind }) };
@@ -2532,6 +2564,10 @@ export type CreatedWorkshopSection = { sectionId: string; role: string; name: st
 export type CreatedWorkshopSectionResult = { operationId: string; workshopId: string; section: CreatedWorkshopSection; workshopRevision: string; replayed: boolean; warnings: string[] }
 export type CredentialInfo = { exists: boolean; masked: string | null }
 export type CustomProperty = { id: string; name: string; icon: string; propertyType: string; value: string; settings: string }
+/**
+ * Today's note: where it is and, when it was just made, the creation to apply to the tree.
+ */
+export type DailyNoteOutcome = { path: string; created: boolean; mutation: MutationOutcome | null }
 export type DatabaseAffectedNote = { databaseId: string; noteId: string }
 export type DatabaseAggregateGroup = { key: string; label: string; count: number; value: string | null }
 export type DatabaseAggregateRequest = { expectedGeneration: number; databaseId: string; source: DatabaseQuerySource; category: DatabaseFieldRef | null; measure: DatabaseFieldRef | null; aggregation: string; search: string | null; limit: number; contextPageId?: string | null }
@@ -3065,6 +3101,15 @@ snapshotsOnServer?: SnapshotOnServer[];
  * The file on the disk is the newest version on the server (И3а): one calm line.
  */
 currentOnServer?: boolean }
+export type NoteTemplate = { 
+/**
+ * The path under the templates folder without `.md` (`Work/Review`).
+ */
+name: string; 
+/**
+ * The vault-relative path.
+ */
+path: string }
 /**
  * One notebook: a plain folder inside the notes base (`docs/creative-format.md` §6).
  */

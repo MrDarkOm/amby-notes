@@ -3,7 +3,13 @@ import { describe, expect, it } from "vitest"
 import { ACTION_DEFS, PERSISTENT_ACTION_BUTTONS } from "./panel-definitions"
 import { availableModuleIds, findModule, isModuleAvailable, MODULE_REGISTRY } from "./modules"
 import { STANDARD_MODULES } from "@/lib/modules/profiles"
-import { SIMPLE_PRESET, STANDARD_PRESET, visibleLayout } from "./presets"
+import {
+  mergeMissingButtons,
+  SIMPLE_PRESET,
+  STANDARD_PRESET,
+  visibleLayout,
+  type Preset,
+} from "./presets"
 
 describe("preset activity zones", () => {
   it("keeps global actions available in the minimal preset", () => {
@@ -57,5 +63,36 @@ describe("preset activity zones", () => {
     expect(ids).not.toContain("notifications")
     expect(ids).toContain("help")
     expect(ACTION_DEFS.find((action) => action.id === "presets")?.invoke).toBeUndefined()
+  })
+})
+
+describe("mergeMissingButtons", () => {
+  const custom: Preset = {
+    id: "custom-1",
+    labelKey: "presets.custom",
+    activeModules: ["tags", "graph", "daily"],
+    layout: [],
+    activeBySide: { left: "files", right: null },
+  }
+  const saved = [
+    { defId: "files", side: "left" as const, order: 0 },
+    { defId: "tags", side: "left" as const, order: 1 },
+    { defId: "network", side: "left" as const, order: 2 },
+  ]
+
+  it("adds the button of an enabled module that a saved custom layout does not know", () => {
+    const merged = mergeMissingButtons(saved, custom, custom.activeModules)
+    expect(merged.map((button) => button.defId)).toContain("daily")
+    expect(merged.find((button) => button.defId === "daily")?.side).toBe("left")
+  })
+
+  it("keeps a hidden button hidden and adds nothing for a switched-off module", () => {
+    const hidden = [...saved, { defId: "daily", side: "left" as const, order: 3, hidden: true }]
+    const merged = mergeMissingButtons(hidden, custom, custom.activeModules)
+    expect(merged.filter((button) => button.defId === "daily")).toEqual([
+      { defId: "daily", side: "left", order: 3, hidden: true },
+    ])
+    const without = mergeMissingButtons(saved, custom, ["tags", "graph"])
+    expect(without.map((button) => button.defId)).not.toContain("daily")
   })
 })

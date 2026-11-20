@@ -35,6 +35,7 @@ import type {
 } from "./types"
 import type { DatabasePort } from "./database-port"
 import type { ProjectPort } from "./project-port"
+import type { NoteModulesPort } from "./note-modules-port"
 
 export interface WriteNoteOptions {
   /**
@@ -44,7 +45,7 @@ export interface WriteNoteOptions {
   rewritesSource?: boolean
 }
 
-export interface StoragePort extends DatabasePort, ProjectPort {
+export interface StoragePort extends DatabasePort, ProjectPort, NoteModulesPort {
   // Vault Lifecycle & Index
   openVault(): Promise<string | null>
   startVaultWatcher(vaultPath: string): Promise<void>

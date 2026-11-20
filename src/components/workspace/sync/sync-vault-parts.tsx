@@ -1,12 +1,13 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { AlertTriangle } from "lucide-react"
+import { AlertTriangle, ChevronRight, HardDrive } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { formatSize } from "@/lib/sync/format-size"
 import type { ApprovalKind, ConflictChoice, VaultSyncStatus } from "@/lib/sync/sync-port"
 import { appDataConflictKind, isPropertyGroupPath } from "./app-data-conflict"
 import { conflictName } from "./conflict-outcome"
+import { isLocalOnly } from "./local-only"
 import { GroupConflictChooser, type GroupConflictActions } from "./sync-group-conflict"
 
 type Stop = NonNullable<VaultSyncStatus["stop"]>
@@ -64,26 +65,57 @@ function reasonText(
   return t(`sync.vault.unsynced.${item.reason}`, { other: item.detail ?? "" })
 }
 
-/** The files that stay behind on this computer, with the reason of each (Р4, Р9). */
-export function UnsyncedList({ items }: { items: Unsynced[] }) {
+function UnsyncedRows({ items }: { items: Unsynced[] }) {
   const { t, i18n } = useTranslation()
-  if (items.length === 0) return null
+  return (
+    <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+      {items.map((item) => (
+        <li key={`${item.path}\u0000${item.reason}`} className="px-3 py-2">
+          <p className="break-all text-[12px]">{item.path}</p>
+          <p className="text-[11px] text-muted-foreground">{reasonText(item, t, i18n.language)}</p>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/**
+ * The files that stay behind on this computer because something is wrong with them or waits (Р4, Р9).
+ * Files that stay local by a rule of sync are not listed here: see `LocalOnlyFiles`.
+ */
+export function UnsyncedList({ items }: { items: Unsynced[] }) {
+  const { t } = useTranslation()
+  const problems = items.filter((item) => !isLocalOnly(item))
+  if (problems.length === 0) return null
   return (
     <section data-testid="sync-unsynced" className="space-y-1.5">
       <h4 className="text-[12px] font-medium text-muted-foreground">
-        {t("sync.vault.unsynced.title", { count: items.length })}
+        {t("sync.vault.unsynced.title", { count: problems.length })}
       </h4>
-      <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
-        {items.map((item) => (
-          <li key={`${item.path}\u0000${item.reason}`} className="px-3 py-2">
-            <p className="break-all text-[12px]">{item.path}</p>
-            <p className="text-[11px] text-muted-foreground">
-              {reasonText(item, t, i18n.language)}
-            </p>
-          </li>
-        ))}
-      </ul>
+      <UnsyncedRows items={problems} />
     </section>
+  )
+}
+
+/** Files kept on this computer by a rule of sync (too big, links, service paths): folded information. */
+export function LocalOnlyFiles({ items }: { items: Unsynced[] }) {
+  const { t } = useTranslation()
+  const local = items.filter(isLocalOnly)
+  if (local.length === 0) return null
+  return (
+    <details data-testid="sync-local-only" className="sync-backup-details">
+      <summary>
+        <HardDrive className="size-4" aria-hidden="true" />
+        <span>{t("sync.vault.unsynced.localOnlyTitle", { count: local.length })}</span>
+        <ChevronRight className="size-3.5" aria-hidden="true" />
+      </summary>
+      <div className="sync-backup-content">
+        <p className="text-[11px] text-muted-foreground">
+          {t("sync.vault.unsynced.localOnlyHint")}
+        </p>
+        <UnsyncedRows items={local} />
+      </div>
+    </details>
   )
 }
 

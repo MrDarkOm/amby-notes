@@ -5,11 +5,13 @@ import { useTranslation } from "react-i18next"
 import {
   Blocks,
   Bot,
-  Feather,
+  Calendar,
   Clock3,
   Cloud,
   Database,
   Download,
+  Feather,
+  Files,
   GitBranch,
   Layout,
   Loader2,
@@ -51,6 +53,7 @@ import { projectAiConnections, type AiConnectionsSettings } from "../ai/connecti
 import { isModuleAvailable, MODULE_REGISTRY, type ModuleDef } from "../modules"
 import { useSettingsStore } from "../use-settings-store"
 import { CreativeSettings } from "../creative/creative-settings"
+import { DailyModuleSettings, TemplatesModuleSettings } from "../note-modules/note-modules-settings"
 import { Row } from "./settings-common"
 import { AmbySelect } from "@/components/ui/amby-select"
 import { ModulePackageManager } from "./settings-package-manager"
@@ -73,6 +76,8 @@ const MODULE_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
   excalidraw: PenTool,
   canvas: Layout,
   creative: Feather,
+  templates: Files,
+  daily: Calendar,
 }
 
 export function ModuleMessage({ title, description }: { title: string; description: string }) {
@@ -959,6 +964,10 @@ export function ModulesTab({
               <FavoritesSettings />
             ) : selected.id === "creative" ? (
               <CreativeSettings />
+            ) : selected.id === "templates" ? (
+              <TemplatesModuleSettings />
+            ) : selected.id === "daily" ? (
+              <DailyModuleSettings />
             ) : (
               <ModuleMessage
                 title={t("settings.modules.readyTitle")}

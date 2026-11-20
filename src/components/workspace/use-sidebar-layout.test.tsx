@@ -10,15 +10,23 @@ function setWindowWidth(width: number) {
   window.dispatchEvent(new Event("resize"))
 }
 
-function renderLayout() {
+function renderLayout(options?: {
+  activityButtons?: { defId: string; side: "left" | "right"; order: number }[]
+  leftPinned?: boolean
+  rightPinned?: boolean
+}) {
   return renderHook(() =>
     useSidebarLayout({
-      activityButtons: [],
+      activityButtons: (options?.activityButtons ?? []) as never,
       setActivityButtons: vi.fn(),
-      activeBySide: { left: null, right: null },
+      activeBySide: { left: "files", right: "links" },
       setActiveBySide: vi.fn(),
       actionContext: {} as never,
-      dockPrefs: {} as never,
+      dockPrefs: {
+        leftPinned: options?.leftPinned ?? true,
+        rightPinned: options?.rightPinned ?? true,
+        rightEnabled: true,
+      } as never,
       onDockPrefsChange: vi.fn(),
       windowPrefs: { leftPanelWidth: 280, rightPanelWidth: 280 } as never,
       onWindowPrefsChange: vi.fn(),
@@ -70,6 +78,55 @@ describe("useSidebarLayout compact layout", () => {
     expect(result.current.isRightSidebarOpen).toBe(false)
     act(() => result.current.setIsRightSidebarOpen(true))
     act(() => setWindowWidth(1050))
+    expect(result.current.isRightSidebarOpen).toBe(true)
+  })
+
+  it("replaces the open side panel when opening the opposite side in compact layout", () => {
+    setWindowWidth(800)
+    const { result } = renderLayout({
+      activityButtons: [
+        { defId: "files", side: "left", order: 0 },
+        { defId: "links", side: "right", order: 0 },
+      ],
+    })
+    expect(result.current.isCompactLayout).toBe(true)
+    expect(result.current.isLeftSidebarOpen).toBe(false)
+    expect(result.current.isRightSidebarOpen).toBe(false)
+
+    act(() => result.current.toggleSidebar("left"))
+    expect(result.current.isLeftSidebarOpen).toBe(true)
+    expect(result.current.isRightSidebarOpen).toBe(false)
+
+    act(() => result.current.toggleSidebar("right"))
+    expect(result.current.isLeftSidebarOpen).toBe(false)
+    expect(result.current.isRightSidebarOpen).toBe(true)
+
+    act(() => result.current.handleActivate("files"))
+    expect(result.current.isLeftSidebarOpen).toBe(true)
+    expect(result.current.isRightSidebarOpen).toBe(false)
+
+    act(() => result.current.activatePanelAnywhere("links"))
+    expect(result.current.isLeftSidebarOpen).toBe(false)
+    expect(result.current.isRightSidebarOpen).toBe(true)
+  })
+
+  it("allows both side panels to stay open together in wide layout", () => {
+    setWindowWidth(1280)
+    const { result } = renderLayout({
+      activityButtons: [
+        { defId: "files", side: "left", order: 0 },
+        { defId: "links", side: "right", order: 0 },
+      ],
+    })
+    expect(result.current.isCompactLayout).toBe(false)
+    act(() => result.current.toggleSidebar("left"))
+    act(() => result.current.toggleSidebar("right"))
+    expect(result.current.isLeftSidebarOpen).toBe(false)
+    expect(result.current.isRightSidebarOpen).toBe(false)
+
+    act(() => result.current.toggleSidebar("left"))
+    act(() => result.current.toggleSidebar("right"))
+    expect(result.current.isLeftSidebarOpen).toBe(true)
     expect(result.current.isRightSidebarOpen).toBe(true)
   })
 })

@@ -8,6 +8,7 @@ pub mod history;
 pub mod import_files;
 pub mod modules;
 pub mod mutations;
+pub mod note_templates;
 pub mod notes;
 pub mod project;
 pub mod properties;

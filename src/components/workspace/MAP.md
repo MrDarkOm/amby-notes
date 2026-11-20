@@ -28,6 +28,8 @@ hooks and surfaces (pane renderers, layouts, dock, splits: [orchestration/](orch
 | Sync settings and connect screen       | [sync map](sync/MAP.md)                                                                                                                                                                                                                                                                                      |
 | Optional feature registration/profiles | [module host map](../../lib/modules/MAP.md), [modules/](modules/), feature `*-module.tsx` files                                                                                                                                                                                                              |
 
+Templates and daily notes: [note-modules/](note-modules/), [use-note-module-actions.ts](file-actions/use-note-module-actions.ts).
+
 A crashed tab or panel is isolated by [surface-error-boundary.tsx](surface-error-boundary.tsx) (used by [panel-host.tsx](panel-host.tsx), `SurfaceSuspense`).
 
 AI provider definitions and versioned connection domain: [providers.ts](ai/providers.ts), [connections.ts](ai/connections.ts); [connections-manager.tsx](ai/connections-manager.tsx) owns connection editing, catalog choices and the shared card for the Codex and Claude Code CLI methods (status, install guidance, sign-in/out; `cliProviderId` maps a method to its wire provider).

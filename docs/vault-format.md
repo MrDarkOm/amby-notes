@@ -668,10 +668,35 @@ local recovery data. Amby must not silently initialise repositories, create
 commits, rewrite history, or push to a remote: each can conflict with a user's
 existing workflow and is itself a data-changing operation.
 
+## Templates and daily notes
+
+Two workspace modules, on in the Standard set. Their settings live in
+`.amby/workspace.json` under `moduleSettings`: `templates.folder` (default
+`Templates`) and `daily.folder` (default `Daily`, `.` for the vault root) and
+`daily.template` (a template name, none by default). A folder must be vault-relative,
+without `..`, hidden or service folders; an unacceptable value means the default. A
+module list saved before the catalogue revision `2026-11-20` gets both modules once;
+after the next save of the list a switched-off module stays off. The rule is shared by
+the app (`readWorkspaceModuleConfig`) and the CLI (`vault_tools::modules`).
+
+A template is any Markdown note in the templates folder. A note made from it is a new
+note made through the regular creation path: the template's own `amby-id` is dropped
+and a fresh one assigned, `{{title}}` (the new name), `{{date}}` (`YYYY-MM-DD`) and
+`{{time}}` (`HH:MM`, local time) are replaced everywhere, header included, and every
+other byte, other apps' metadata included, is copied as written. The template is never
+written. A new template made from the app goes into the templates folder (made when
+missing), starts with `# {{title}}` and `{{date}}`, and never replaces an existing note. The note for a day is `<daily folder>/YYYY-MM-DD.md`, made once from the daily
+template when it is missing (its `{{title}}` is the date); an existing note is only
+opened. The rules live in `crates/amby-core/src/note_templates.rs`.
+
 ## Rename and move
 
 For notes that Amby renames or moves, resolved inbound wikilinks are rewritten
-to the new vault-relative target. Aliases and heading/block anchors are kept.
+in the form they were written in. A link by path (`[[Folder/Note]]`) gets the new
+vault-relative path. A link by name (`[[Note]]`) gets the new file name when, after the
+change, that name belongs to the moved note alone, and the full path otherwise; a move
+leaves a still-unique name, or a title link (titles do not change on a move), as
+written. Aliases and heading/block anchors are kept.
 Only links resolved by the SQLite index to the moved note are changed, avoiding
 unsafe rewrites of ambiguous text. Each changed source note is snapshotted
 before the refactor; if a link rewrite fails, already rewritten source notes
