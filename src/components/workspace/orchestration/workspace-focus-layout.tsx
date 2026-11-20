@@ -237,7 +237,7 @@ export function WorkspaceFocusLayout({
         className="amby-sidebar-overlay amby-sidebar-overlay--left fixed inset-y-0 left-0 z-40 flex flex-col py-2"
         data-open={focusShowLeft ? "true" : "false"}
         initial={false}
-        animate={{ x: focusShowLeft ? 0 : "-100%" }}
+        animate={{ x: focusShowLeft ? 0 : "-100%", opacity: focusShowLeft ? 1 : 0 }}
         transition={motionTransitions.panel}
         onMouseLeave={() => setFocusShowLeft(false)}
       >
@@ -274,7 +274,7 @@ export function WorkspaceFocusLayout({
           className="amby-sidebar-overlay amby-sidebar-overlay--right fixed inset-y-0 right-0 z-40 flex py-2"
           data-open={focusShowRight ? "true" : "false"}
           initial={false}
-          animate={{ x: focusShowRight ? 0 : "100%" }}
+          animate={{ x: focusShowRight ? 0 : "100%", opacity: focusShowRight ? 1 : 0 }}
           transition={motionTransitions.panel}
           onMouseLeave={() => setFocusShowRight(false)}
         >

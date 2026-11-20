@@ -797,7 +797,7 @@ export function HeaderTabs({
   return (
     <header
       className={cn(
-        "relative z-50 flex h-11 select-none items-stretch",
+        "relative z-30 flex h-11 select-none items-stretch",
         hideCenterStrip ? "pointer-events-none bg-transparent" : "bg-background",
       )}
       onDoubleClick={(event) => {
