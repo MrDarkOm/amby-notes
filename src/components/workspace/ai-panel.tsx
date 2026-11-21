@@ -372,7 +372,7 @@ export function AiPanel({
             if (run.finalized) return
             const payload = event.payload
             if (event.kind === "proposal" && payload.id && payload.state) {
-              useProposalStore.getState().add(chatId, payload as ProposalCard)
+              useProposalStore.getState().add(chatId, payload as ProposalCard, next.messages.length)
             }
             if (event.kind === "toolStart") setLiveStatus(payload.tool ?? "")
             if (event.kind === "toolEnd") {
@@ -719,7 +719,16 @@ export function AiPanel({
                         ? () => void onCreateNoteFromText(message.content)
                         : undefined
                     }
-                  />
+                  >
+                    {backendGeneration !== null && (
+                      <ProposalCards
+                        chatId={chat.id}
+                        generation={backendGeneration}
+                        vault={vault}
+                        show={(at) => at === index}
+                      />
+                    )}
+                  </AssistantAnswer>
                 ),
               )}
               {loading && (
@@ -733,7 +742,15 @@ export function AiPanel({
                 />
               )}
               {chat && backendGeneration !== null && (
-                <ProposalCards chatId={chat.id} generation={backendGeneration} vault={vault} />
+                <ProposalCards
+                  chatId={chat.id}
+                  generation={backendGeneration}
+                  vault={vault}
+                  show={(at) =>
+                    // The answer being written, or one that was never saved (it had no text).
+                    at >= chat.messages.length || chat.messages[at]?.role !== "assistant"
+                  }
+                />
               )}
               {(error || storageError) && (
                 <div

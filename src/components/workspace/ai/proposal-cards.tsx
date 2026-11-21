@@ -148,21 +148,24 @@ function Card({
   )
 }
 
-/** The changes the AI proposed in this chat, newest last. */
+/** The changes the AI proposed in this chat that `show` selects, in the order they were made. */
 export function ProposalCards({
   chatId,
   generation,
   vault,
+  show,
 }: {
   chatId: string
   generation: number
   vault: string | null
+  show: (at: number) => boolean
 }) {
   const cards = useProposalStore((state) => state.cards[chatId])
-  if (!cards?.length) return null
+  const mine = cards?.filter((card) => show(card.at))
+  if (!mine?.length) return null
   return (
-    <div className="flex flex-col gap-2">
-      {cards.map((card) => (
+    <div className="mt-2 flex flex-col gap-2">
+      {mine.map((card) => (
         <Card key={card.id} card={card} chatId={chatId} generation={generation} vault={vault} />
       ))}
     </div>

@@ -28,8 +28,8 @@ const pending: ProposalCard = {
 }
 
 function show(card: ProposalCard = pending) {
-  useProposalStore.getState().add("chat", card)
-  return render(<ProposalCards chatId="chat" generation={3} vault="/v" />)
+  useProposalStore.getState().add("chat", card, 1)
+  return render(<ProposalCards chatId="chat" generation={3} vault="/v" show={(at) => at === 1} />)
 }
 
 describe("proposal cards", () => {
@@ -98,6 +98,17 @@ describe("proposal cards", () => {
     useProposalStore.getState().reset()
     show({ ...pending, id: "p2", state: "outdated" })
     expect(screen.getByText(/nothing was written/)).toBeTruthy()
+  })
+
+  it("shows a card under the answer it was proposed in and nowhere else", () => {
+    useProposalStore.getState().add("chat", pending, 1)
+    const other = render(
+      <ProposalCards chatId="chat" generation={3} vault="/v" show={(at) => at === 3} />,
+    )
+    expect(other.container.textContent).toBe("")
+    cleanup()
+    render(<ProposalCards chatId="chat" generation={3} vault="/v" show={(at) => at === 1} />)
+    expect(screen.getByText("folder/a.md")).toBeTruthy()
   })
 
   it("keeps the whole-vault switch per chat and off by default", () => {

@@ -1,5 +1,6 @@
 "use client"
 
+import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Check,
@@ -146,6 +147,7 @@ export function AssistantAnswer({
   onCopy,
   onRetry,
   onSaveAsNote,
+  children,
 }: {
   message: ChatMessage
   items: TreeItem[]
@@ -156,6 +158,8 @@ export function AssistantAnswer({
   onCopy: () => void
   onRetry: () => void
   onSaveAsNote?: () => void
+  /** What belongs under this answer, such as the changes it proposed. */
+  children?: ReactNode
 }) {
   const { t } = useTranslation()
   const action =
@@ -186,6 +190,7 @@ export function AssistantAnswer({
           ))}
         </div>
       )}
+      {children}
       <div className="-ml-1 mt-1.5 flex gap-0.5">
         <button
           type="button"
