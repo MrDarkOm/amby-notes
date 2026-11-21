@@ -63,3 +63,5 @@ deletion to the trash. Its dispatch lives in the CLI crate, so the desktop canno
 Each stage: tests first (contract tests for the shared tools, UI tests for cards and
 modes), `npm run rust:test`, strict Clippy, `npm run verify`, native check of the panel
 in `npm run tauri dev`, an entry in `updates/upd_next.md`.
+
+Text attachments (2026-11-21): the paperclip attaches text files to the next message only; their text goes into that turn's system context as data (`buildAttachedContext`), the chat keeps their names, and nothing is stored. Images and other binary files are not supported.

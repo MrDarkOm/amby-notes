@@ -349,3 +349,29 @@ describe("Composer writing box", () => {
     expect(box.className).not.toContain("-mx")
   })
 })
+
+describe("Composer attachments", () => {
+  it("has a paperclip at the left of the box that opens a file picker for text files", () => {
+    show()
+    const box = document.querySelector("[data-composer-box]")!
+    const clip = screen.getByRole("button", { name: "Прикрепить текстовые файлы" })
+    expect(box.contains(clip)).toBe(true)
+    expect(clip.querySelector("svg.lucide-paperclip")).not.toBeNull()
+    expect(before(clip, screen.getByPlaceholderText("Сообщение…"))).toBe(true)
+    const input = box.querySelector('input[type="file"]') as HTMLInputElement
+    expect(input.multiple).toBe(true)
+    expect(input.accept).toContain(".md")
+  })
+
+  it("lists attached files and removes one", async () => {
+    const { useAttachmentStore } = await import("./attachments")
+    useAttachmentStore.getState().clear("c")
+    useAttachmentStore.getState().add("c", [{ name: "plan.md", text: "x", size: 1 }])
+    show()
+    expect(screen.getByText("plan.md")).toBeTruthy()
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "Убрать файл plan.md" })),
+    )
+    expect(screen.queryByText("plan.md")).toBeNull()
+  })
+})

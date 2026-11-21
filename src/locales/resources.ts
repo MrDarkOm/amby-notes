@@ -2056,6 +2056,16 @@ const ru = {
     addMention: "Добавить заметку или папку",
     noMentions: "Ничего не найдено",
     searchVault: "Поиск по хранилищу",
+    attach: {
+      label: "Прикрепить текстовые файлы",
+      list: "Прикреплённые файлы",
+      remove: "Убрать файл {{name}}",
+      error: {
+        tooMany: "Можно прикрепить не больше пяти файлов.",
+        tooLarge: "Файл слишком большой: до 200 КБ на файл и около 30 000 знаков на все.",
+        notText: "Это не текстовый файл. Можно прикреплять только текст.",
+      },
+    },
     searchVaultHint:
       "Всё хранилище: ИИ ищет и может предлагать правки в любых заметках, а не только в контексте",
     approval: {
@@ -6465,6 +6475,17 @@ const en: LocaleShape<typeof ru> = {
     addMention: "Add a note or folder",
     noMentions: "No matches",
     searchVault: "Search the vault",
+    attach: {
+      label: "Attach text files",
+      list: "Attached files",
+      remove: "Remove the file {{name}}",
+      error: {
+        tooMany: "You can attach at most five files.",
+        tooLarge:
+          "The file is too large: up to 200 KB per file and about 30,000 characters in all.",
+        notText: "This is not a text file. Only text can be attached.",
+      },
+    },
     searchVaultHint:
       "The whole vault: the AI searches and can propose changes in any note, not only in the context",
     approval: {

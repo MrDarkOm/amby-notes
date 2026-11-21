@@ -42,6 +42,7 @@ import { Composer } from "./ai/composer"
 import { EmptyChat } from "./ai/empty-chat"
 import { AssistantAnswer, LiveAnswer, UserMessage } from "./ai/message-view"
 import { ChatList } from "./ai/chat-list"
+import { useAttachmentStore } from "./ai/attachments"
 import { ProposalCards } from "./ai/proposal-cards"
 import type { ProposalCard } from "@/lib/bindings"
 import { confirm } from "@/lib/confirm"
@@ -316,7 +317,12 @@ export function AiPanel({
         return
       const base = state.chat
       const now = new Date().toISOString()
-      const user: ChatMessage = { role: "user", content: text, steps: [], sources: [] }
+      // Text files attached to this message are sent with it; the chat keeps only their names.
+      const files = fromInput ? (useAttachmentStore.getState().files[chatId] ?? []) : []
+      const content = files.length
+        ? `${text}\n\n${files.map((file) => `📎 ${file.name}`).join("\n")}`
+        : text
+      const user: ChatMessage = { role: "user", content, steps: [], sources: [] }
       const next: Chat = {
         ...base,
         modelId: selected.id,
@@ -326,7 +332,10 @@ export function AiPanel({
         messages: [...base.messages, user],
       }
       state.replace(next)
-      if (fromInput) setInput("")
+      if (fromInput) {
+        setInput("")
+        useAttachmentStore.getState().clear(chatId)
+      }
       setError(null)
       setLoading(true)
       setStreaming("")
@@ -350,6 +359,7 @@ export function AiPanel({
           vault,
           generation,
           language: i18n.language === "ru" ? "Russian" : "English",
+          files,
         })
         if (run.controller.signal.aborted || run.finalized) return
         run.sources = attached.sources

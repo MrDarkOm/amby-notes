@@ -2,9 +2,11 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowUp, FileText, Folder, FolderTree, Plus, Square, X } from "lucide-react"
+import { ArrowUp, FileText, Folder, FolderTree, Paperclip, Plus, Square, X } from "lucide-react"
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
+import { NoticeLine } from "../notices/notice-line"
 import { ApprovalModeButton } from "./approval-mode"
+import { readTextFiles, useAttachmentStore, type AttachError } from "./attachments"
 import type { ApprovalMode } from "./use-proposal-store"
 import { ModelPicker, type PickerModel } from "./model-picker"
 import type { Chat, TreeItem } from "@/lib/storage"
@@ -253,6 +255,18 @@ export function Composer({
   const { t } = useTranslation()
   const searchOn = !!chat?.searchEnabled && tools
   const field = React.useRef<HTMLTextAreaElement>(null)
+  const picker = React.useRef<HTMLInputElement>(null)
+  const [attachError, setAttachError] = React.useState<AttachError | null>(null)
+  const attached = useAttachmentStore((state) => (chat ? state.files[chat.id] : undefined))
+  const pickFiles = async (list: FileList | null) => {
+    if (!chat || !list?.length) return
+    const { added, error } = await readTextFiles(
+      [...list],
+      useAttachmentStore.getState().files[chat.id] ?? [],
+    )
+    if (added.length) useAttachmentStore.getState().add(chat.id, added)
+    setAttachError(error)
+  }
   // The field is as tall as its text, up to its maximum; then it scrolls.
   React.useLayoutEffect(() => {
     const element = field.current
@@ -380,51 +394,97 @@ export function Composer({
         </div>
         <div
           data-composer-box
-          className={cn(
-            "flex items-end gap-2 rounded-2xl border border-border bg-card px-2.5 py-2 shadow-sm focus-within:border-ring",
-          )}
+          className="flex flex-col gap-1.5 rounded-2xl border border-border bg-card px-2.5 py-2 shadow-sm focus-within:border-ring"
         >
-          <textarea
-            ref={field}
-            value={input}
-            onChange={(event) => onInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (isEnterKey(event) && !event.shiftKey && !mentionOpen) {
-                event.preventDefault()
-                onSend()
-              }
-            }}
-            rows={1}
-            placeholder={t("ai.messagePlaceholder")}
-            className="max-h-48 min-h-7 min-w-0 flex-1 resize-none self-center bg-transparent px-1 text-[14px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
-          />
-          <div className="flex shrink-0 items-center">
+          {attached && attached.length > 0 && (
+            <ul className="flex flex-wrap gap-1.5" aria-label={t("ai.attach.list")}>
+              {attached.map((file, index) => (
+                <li
+                  key={`${file.name}-${index}`}
+                  className="inline-flex max-w-full items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs"
+                >
+                  <FileText className="size-3 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{file.name}</span>
+                  <button
+                    type="button"
+                    disabled={loading}
+                    aria-label={t("ai.attach.remove", { name: file.name })}
+                    onClick={() => chat && useAttachmentStore.getState().remove(chat.id, index)}
+                    className="shrink-0 text-muted-foreground hover:text-foreground disabled:opacity-40"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex items-end gap-2">
+            <input
+              ref={picker}
+              type="file"
+              multiple
+              hidden
+              accept="text/*,.md,.markdown,.txt,.csv,.json,.yaml,.yml,.toml,.xml,.html,.css,.js,.ts,.tsx,.py,.rs,.go,.java,.sh,.log"
+              onChange={(event) => {
+                void pickFiles(event.target.files)
+                event.target.value = ""
+              }}
+            />
+            <button
+              type="button"
+              disabled={loading || !chat}
+              title={t("ai.attach.label")}
+              aria-label={t("ai.attach.label")}
+              onClick={() => picker.current?.click()}
+              className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+            >
+              <Paperclip className="size-4" />
+            </button>
+            <textarea
+              ref={field}
+              value={input}
+              onChange={(event) => onInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (isEnterKey(event) && !event.shiftKey && !mentionOpen) {
+                  event.preventDefault()
+                  onSend()
+                }
+              }}
+              rows={1}
+              placeholder={t("ai.messagePlaceholder")}
+              className="max-h-48 min-h-7 min-w-0 flex-1 resize-none self-center bg-transparent px-1 text-[14px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
+            />
             <div className="flex shrink-0 items-center">
-              {loading ? (
-                <button
-                  type="button"
-                  onClick={onStop}
-                  title={t("ai.stop")}
-                  aria-label={t("ai.stop")}
-                  className="flex size-7 shrink-0 items-center justify-center rounded-full border border-border text-foreground hover:bg-accent"
-                >
-                  <Square className="size-3 fill-current" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={onSend}
-                  disabled={!input.trim() || switching || !chat}
-                  title={t("ai.send")}
-                  aria-label={t("ai.send")}
-                  className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-30"
-                >
-                  <ArrowUp className="size-4" />
-                </button>
-              )}
+              <div className="flex shrink-0 items-center">
+                {loading ? (
+                  <button
+                    type="button"
+                    onClick={onStop}
+                    title={t("ai.stop")}
+                    aria-label={t("ai.stop")}
+                    className="flex size-7 shrink-0 items-center justify-center rounded-full border border-border text-foreground hover:bg-accent"
+                  >
+                    <Square className="size-3 fill-current" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onSend}
+                    disabled={!input.trim() || switching || !chat}
+                    title={t("ai.send")}
+                    aria-label={t("ai.send")}
+                    className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-30"
+                  >
+                    <ArrowUp className="size-4" />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
+        {attachError && (
+          <NoticeLine role="status" className="mt-1.5" text={t(`ai.attach.error.${attachError}`)} />
+        )}
         <PopoverAnchor asChild>
           <div ref={row} className="mt-1.5 flex items-center gap-1">
             <div className="min-w-0 flex-1">
