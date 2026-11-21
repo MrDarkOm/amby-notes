@@ -1,12 +1,14 @@
 mod ai;
 mod app_data;
 mod cli_open;
+mod cli_path;
 mod cli_structural;
 mod commands;
 mod credentials;
-mod keychain_access;
 mod dictation;
+mod keychain_access;
 pub mod logging;
+mod mcp_clients;
 pub mod package_manager;
 mod page_info;
 mod path_grants;
@@ -133,8 +135,6 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::ai_chats::ai_search_consent,
         commands::ai_chats::ai_set_search_consent,
         ai::turn::ai_run_turn,
-        ai::local_apps::ai_local_app_installed,
-        ai::codex::launch::ai_codex_status,
         ai::proposals::ai_apply_proposal,
         ai::proposals::ai_reject_proposal,
         ai::proposals::ai_undo_proposal,
@@ -274,6 +274,12 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::external::reveal_app_data_folder,
         commands::external::save_attachment_copy,
         commands::external::open_web_address,
+        commands::cli_path::cli_path_status,
+        commands::cli_path::cli_path_install,
+        commands::cli_path::cli_path_remove,
+        commands::mcp_clients::mcp_clients_status,
+        commands::mcp_clients::mcp_client_connect,
+        commands::mcp_clients::mcp_client_disconnect,
         commands::external::fetch_page_info,
         commands::assets::import_asset,
         commands::assets::import_asset_bytes,
@@ -382,6 +388,7 @@ pub fn run() {
         .manage(path_grants::PathGrants::default())
         .manage(cli_open::PendingCliOpens::default())
         .manage(ai::AiStreamState::default())
+        .manage(ai::proposals::ProposalStore::default())
         .manage(ai::codex::launch::LoginSlot::default())
         .manage(ai::claude_code::launch::ClaudeLoginSlot::default())
         .manage(database::runtime_state::DatabaseRuntimeState::default())
@@ -390,7 +397,6 @@ pub fn run() {
         .manage(DebugState(logging::global_runtime()))
         .invoke_handler(builder.invoke_handler())
         .on_menu_event(handle_menu_event)
-        .manage(ai::proposals::ProposalStore::default())
         .on_window_event(remember_window_dropped_paths)
         .on_webview_event(remember_dropped_paths)
         .setup(|app| {

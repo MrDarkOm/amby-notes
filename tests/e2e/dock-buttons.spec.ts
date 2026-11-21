@@ -10,19 +10,26 @@ const zone = (page: Page, name: "view" | "action") =>
 const dockButton = (page: Page, id: string) => dock(page).locator(`[data-activity-button='${id}']`)
 const toggle = (page: Page, id: string) => page.locator(`[data-dock-toggle='${id}']`)
 
-/** Right click on the empty part of a zone, below its last button. */
+/** Opens the submenu of a zone's buttons in the open dock menu. */
+async function openToggles(page: Page, name: "view" | "action") {
+  await page.locator(`[data-dock-zone-buttons='${name}']`).hover()
+}
+
+/** Right click on the empty part of a zone, below its last button, and open its buttons. */
 async function openZoneMenu(page: Page, name: "view" | "action") {
   const box = (await zone(page, name).boundingBox())!
   await page.mouse.click(box.x + box.width / 2, box.y + box.height - 3, { button: "right" })
+  await openToggles(page, name)
 }
 
 test("each dock zone switches off only its own buttons, never settings", async ({ page }) => {
   await seedVault(page, { Note: "Text\n" })
   await expect(dockButton(page, "tags")).toBeVisible()
 
-  // The upper zone lists the section buttons only.
+  // Both button groups are accessible from the upper zone menu; opening sections lists section buttons only.
   await openZoneMenu(page, "view")
   await expect(page.getByText(ru.activityBar.zoneSections)).toBeVisible()
+  await expect(page.getByText(ru.activityBar.zoneActions)).toBeVisible()
   await expect(toggle(page, "tags")).toBeVisible()
   await expect(toggle(page, "settings")).toHaveCount(0)
   await expect(toggle(page, "search")).toHaveCount(0)
@@ -36,12 +43,13 @@ test("each dock zone switches off only its own buttons, never settings", async (
   await page.keyboard.press("Escape")
   await expect(dockButton(page, "tags")).toHaveCount(0)
 
-  // The lower zone lists the action buttons; settings cannot be switched off.
+  // Both button groups are accessible from the lower zone menu too; settings cannot be switched off.
   await openZoneMenu(page, "action")
+  await expect(page.getByText(ru.activityBar.zoneSections)).toBeVisible()
   await expect(page.getByText(ru.activityBar.zoneActions)).toBeVisible()
   await expect(toggle(page, "files")).toHaveCount(0)
-  await expect(toggle(page, "settings")).toHaveAttribute("data-disabled", "")
-  await expect(toggle(page, "settings")).toHaveAttribute("aria-checked", "true")
+  await expect(toggle(page, "search")).toBeVisible()
+  await expect(toggle(page, "settings")).toHaveCount(0)
   // A press on an item gives way a little, as buttons do.
   const searchBox = (await toggle(page, "search").boundingBox())!
   await page.mouse.move(searchBox.x + 40, searchBox.y + searchBox.height / 2)
@@ -60,10 +68,11 @@ test("each dock zone switches off only its own buttons, never settings", async (
   await expect(settings).toHaveCSS("outline-style", "solid")
   await expect(settings).toHaveCSS("outline-width", "2px")
 
-  // A button's own menu hides it too; settings has no such item.
+  // A button's own menu hides it too and exposes both section and action button submenus.
   await dockButton(page, "archive").click({ button: "right" })
-  // It also lists the switches of its own zone, and only that zone.
   await expect(page.getByText(ru.activityBar.zoneSections)).toBeVisible()
+  await expect(page.getByText(ru.activityBar.zoneActions)).toBeVisible()
+  await openToggles(page, "view")
   await expect(toggle(page, "files")).toBeVisible()
   await expect(toggle(page, "search")).toHaveCount(0)
   await page.getByRole("menuitem", { name: ru.activityBar.hideButton }).click()
@@ -101,6 +110,10 @@ test("refresh shows local status and opens sync settings from its menu", async (
   await expect(refresh).toBeEnabled()
   await expect(refresh.locator("[data-sync-state='local']")).toBeVisible()
   await refresh.click({ button: "right" })
+  // The right click starts with the actions of the left-click menu, then the settings.
+  const items = page.getByRole("menuitem")
+  await expect(items.first()).toHaveText(ru.sync.inactive.refreshFiles)
+  await expect(items.nth(1)).toHaveText(ru.activityBar.syncSettings)
   await page.getByRole("menuitem", { name: ru.activityBar.syncSettings, exact: true }).click()
   await expect(page.getByText(ru.sync.errors.unavailable, { exact: true })).toBeVisible()
 })

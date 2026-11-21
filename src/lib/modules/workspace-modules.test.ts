@@ -68,12 +68,12 @@ describe("Reading the workspace module configuration", () => {
     expect(config.moduleSettings).toEqual({ tags: { a: 1 } })
   })
 
-  it("adds Templates and Daily notes once to a list saved before them", () => {
+  it("adds Templates once to a list saved before it, and Daily notes stay opt-in", () => {
     const old = readWorkspaceModuleConfig({
       profile: { id: "custom", catalogRevision: "2026-09-20" },
       enabledModules: ["tags"],
     })
-    expect(old.enabledModules).toEqual(["amby.tags", "amby.templates", "amby.daily"])
+    expect(old.enabledModules).toEqual(["amby.tags", "amby.templates"])
     expect(old.profile.catalogRevision).toBe("2026-11-20")
     // Saved again with the new revision, a switched-off module stays off.
     const current = readWorkspaceModuleConfig({
@@ -88,8 +88,9 @@ describe("Reading the workspace module configuration", () => {
     expect(minimal.enabledModules).toEqual([])
   })
 
-  it("lists both note modules in the Standard set and maps their IDs", () => {
-    expect(STANDARD_MODULES).toEqual(expect.arrayContaining(["amby.templates", "amby.daily"]))
+  it("lists Templates in the Standard set, keeps Daily notes opt-in and maps their IDs", () => {
+    expect(STANDARD_MODULES).toContain("amby.templates")
+    expect(STANDARD_MODULES).not.toContain("amby.daily")
     expect(toCanonicalModuleId("daily")).toBe("amby.daily")
     expect(toShortModuleId("amby.templates")).toBe("templates")
   })

@@ -388,7 +388,7 @@ export async function aiProposalAction(
 }
 
 /** The system did not start dictation; `code` is the backend's stable code. */
-export class SystemDictationError extends Error {
+class SystemDictationError extends Error {
   constructor(readonly code: string) {
     super(code)
   }

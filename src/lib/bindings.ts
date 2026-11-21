@@ -1584,6 +1584,54 @@ async openWebAddress(address: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async cliPathStatus() : Promise<Result<CliPathStatus, CliPathError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cli_path_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async cliPathInstall() : Promise<Result<CliPathStatus, CliPathError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cli_path_install") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async cliPathRemove() : Promise<Result<CliPathStatus, CliPathError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cli_path_remove") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async mcpClientsStatus() : Promise<Result<McpClientStatus[], McpClientError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mcp_clients_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async mcpClientConnect(client: McpClient, vault: string, write: boolean) : Promise<Result<McpClientStatus, McpClientError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mcp_client_connect", { client, vault, write }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async mcpClientDisconnect(client: McpClient) : Promise<Result<McpClientStatus, McpClientError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mcp_client_disconnect", { client }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * The title and the description of the page at a web address, fetched once because the
  * person asked for it. The rules (public addresses only, size, time, plain text) are in
@@ -2438,6 +2486,7 @@ export type BackupOrigin = "appData" | "legacy"
  * A line of a group that cannot be used (З51).
  */
 export type BadLineView = { file: string; number: number; noteId: string | null }
+export type CardState = "pending" | "applied" | "rejected" | "undone" | "outdated"
 export type CatalogModel = { model: string; label: string; supportsTools: boolean | null }
 export type ChangeDatabasePropertyTypeRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; propertyType: string; relationTargetDatabaseId?: string | null; relationMaxItems?: number | null; relationTwoWay?: boolean | null; relationInversePropertyName?: string | null; operationId?: string | null; expectedRelatedManifestRevisions?: DatabaseManifestRevision[] }
 export type ChangedDatabasePropertyType = { databaseId: string; propertyId: string; propertyType: string; manifestRevision: string; operationId: string | null; inversePropertyId: string | null; manifestRevisions: DatabaseManifestRevision[]; warnings: string[] }
@@ -2452,6 +2501,44 @@ export type ChatStep = { tool: string; query: string; noteIds: string[]; error: 
  */
 export type ClaudeStatus = { installed: boolean; supported: boolean; signedIn: boolean }
 export type CliOpenNote = { vault: string; path: string }
+/**
+ * Stable codes for the interface; never raw OS text.
+ */
+export type CliPathError = "unavailable" | "taken" | "failed"
+/**
+ * Where the `amby` command stands for this person.
+ */
+export type CliPathState = 
+/**
+ * No bundled CLI next to this app (a development build, or an unsupported package).
+ */
+"unavailable" | 
+/**
+ * `amby` is not set up by Amby.
+ */
+"off" | 
+/**
+ * `amby` runs this app's CLI from a new terminal.
+ */
+"on" | 
+/**
+ * The link is in place but the shell does not search its folder, and Amby cannot add it (an
+ * unknown shell): the person adds the folder themself.
+ */
+"needsPath" | 
+/**
+ * Another program already has the name `amby` where Amby would put it.
+ */
+"taken"
+export type CliPathStatus = { state: CliPathState; 
+/**
+ * Where the command is (or would be) put: the link on macOS and Linux, the folder on Windows.
+ */
+location: string | null; 
+/**
+ * The shell profile that gets (or has) Amby's PATH line, when one is needed.
+ */
+profile: string | null }
 /**
  * What the settings screen shows about the user's Codex.
  */
@@ -2486,7 +2573,6 @@ export type ConfiguredDatabaseRollup = { databaseId: string; propertyId: string;
 export type ConflictChoice = 
 /**
  * Keep the file under its name, the copy goes to the trash of the vault.
-export type CardState = "pending" | "applied" | "rejected" | "undone" | "outdated"
  */
 "keepOriginal" | 
 /**
@@ -2780,6 +2866,18 @@ lastSeenMs: number;
  */
 current: boolean }
 /**
+ * Why dictation did not start; a stable code for the interface.
+ */
+export type DictationError = 
+/**
+ * This system has no dictation Amby can start.
+ */
+"unsupported" | 
+/**
+ * The system did not accept the request (dictation is off in its settings).
+ */
+"notStarted"
+/**
  * A record without a key: grey, «нет в шапке» (З3).
  */
 export type DormantView = { name: string; icon: string; propertyType: string; settings: string }
@@ -2865,18 +2963,6 @@ export type FailureReason =
  */
 "invalid_config" | 
 /**
-/**
- * Why dictation did not start; a stable code for the interface.
- */
-export type DictationError = 
-/**
- * This system has no dictation Amby can start.
- */
-"unsupported" | 
-/**
- * The system did not accept the request (dictation is off in its settings).
- */
-"notStarted"
  * A relation is not valid: no reciprocal property, wrong target.
  */
 "relation_invalid" | 
@@ -3070,6 +3156,41 @@ export type LoadVaultResult = { generation: number; vaultPath: string; tree: Tre
 export type LoadedChat = { chat: Chat | null; raw: JsonValue | null; status: string; revision: string }
 export type LogLevel = "debug" | "info" | "warn" | "error"
 export type LogSource = "frontend" | "backend"
+export type McpClient = "claudeCode" | "codex" | "cursor"
+export type McpClientError = 
+/**
+ * No vault is open, or the request named another one.
+ */
+"noVault" | 
+/**
+ * This build has no bundled CLI to register.
+ */
+"noCli" | 
+/**
+ * The client is not installed.
+ */
+"clientMissing" | 
+/**
+ * Cursor removes servers in its own settings.
+ */
+"unsupported" | "failed"
+export type McpClientStatus = { client: McpClient; 
+/**
+ * The client is installed on this computer.
+ */
+found: boolean; 
+/**
+ * An `amby` server is registered in the client.
+ */
+connected: boolean; 
+/**
+ * The vault it serves, when it could be read.
+ */
+vault: string | null; 
+/**
+ * Whether it may write, when it could be read.
+ */
+write: boolean | null }
 /**
  * A value of the old file that differs from the header of the note (З58).
  */
@@ -3400,6 +3521,11 @@ oldVersionWarning: string | null }
  * The template of basic properties and its number (З45, З48).
  */
 export type PropertyTemplate = { version: number; properties: TemplateEntry[] }
+export type ProposalCard = { id: string; path: string; 
+/**
+ * `new`, `append` or `replace`.
+ */
+kind: string; diff: string; diffTruncated: boolean; state: CardState }
 export type PublishModuleResult = { success: boolean; moduleId: string; installedVersion: string; previousVersion: string | null; installPath: string }
 /**
  * «У заметки сменился идентификатор. Привязать к ней её прежние свойства?» (З11, З35).
@@ -3521,17 +3647,7 @@ export type RestoreFileStatus =
 /**
  * Too large: nothing written.
  */
-export type ProposalCard = { id: string; path: string; 
-/**
- * `new`, `append` or `replace`.
- */
-kind: string; diff: string; diffTruncated: boolean; state: CardState }
 "tooLarge" | 
-export type ProposalCard = { id: string; path: string; 
-/**
- * `new`, `append` or `replace`.
- */
-kind: string; diff: string; diffTruncated: boolean; state: CardState }
 /**
  * The server no longer has it, or it is not a deleted file of this vault: nothing written.
  */

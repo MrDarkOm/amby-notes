@@ -129,4 +129,74 @@ describe("useSidebarLayout compact layout", () => {
     expect(result.current.isLeftSidebarOpen).toBe(true)
     expect(result.current.isRightSidebarOpen).toBe(true)
   })
+
+  it("waits one second before hiding an unpinned sidebar after pointer leave", () => {
+    vi.useFakeTimers()
+    try {
+      setWindowWidth(1280)
+      const { result } = renderLayout({ leftPinned: false })
+      expect(result.current.isLeftSidebarVisible).toBe(false)
+
+      act(() => result.current.setSidebarHover("left", true))
+      expect(result.current.isLeftSidebarVisible).toBe(true)
+
+      act(() => result.current.setSidebarHover("left", false))
+      act(() => vi.advanceTimersByTime(999))
+      expect(result.current.isLeftSidebarVisible).toBe(true)
+
+      act(() => vi.advanceTimersByTime(1))
+      expect(result.current.isLeftSidebarVisible).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("keeps an unpinned sidebar open while a context menu is open and when the pointer stays over the sidebar", () => {
+    vi.useFakeTimers()
+    const overlay = document.createElement("div")
+    overlay.className = "amby-sidebar-overlay--left"
+    overlay.getBoundingClientRect = () =>
+      ({ left: 0, top: 44, right: 348, bottom: 800, width: 348, height: 756 }) as DOMRect
+    document.body.appendChild(overlay)
+
+    const menu = document.createElement("div")
+    menu.setAttribute("data-slot", "context-menu-content")
+    menu.setAttribute("data-state", "open")
+    document.body.appendChild(menu)
+
+    try {
+      setWindowWidth(1280)
+      const { result } = renderLayout({ leftPinned: false })
+
+      act(() => result.current.setSidebarHover("left", true))
+      expect(result.current.isLeftSidebarVisible).toBe(true)
+
+      // Opening/hovering a portaled context menu triggers mouseleave on the sidebar.
+      act(() => result.current.setSidebarHover("left", false))
+      act(() => vi.advanceTimersByTime(2500))
+      expect(result.current.isLeftSidebarVisible).toBe(true)
+
+      // Move pointer back over the sidebar and close the menu: sidebar must remain open.
+      act(() => {
+        window.dispatchEvent(new PointerEvent("pointermove", { clientX: 120, clientY: 200 }))
+      })
+      menu.remove()
+      act(() => vi.advanceTimersByTime(2000))
+      expect(result.current.isLeftSidebarVisible).toBe(true)
+
+      // Moving pointer outside the sidebar and leaving hides it after 1 second.
+      act(() => {
+        window.dispatchEvent(new PointerEvent("pointermove", { clientX: 600, clientY: 200 }))
+        result.current.setSidebarHover("left", false)
+      })
+      act(() => vi.advanceTimersByTime(999))
+      expect(result.current.isLeftSidebarVisible).toBe(true)
+      act(() => vi.advanceTimersByTime(1))
+      expect(result.current.isLeftSidebarVisible).toBe(false)
+    } finally {
+      menu.remove()
+      overlay.remove()
+      vi.useRealTimers()
+    }
+  })
 })

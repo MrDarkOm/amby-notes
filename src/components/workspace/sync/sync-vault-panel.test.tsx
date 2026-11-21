@@ -84,14 +84,18 @@ describe("sync of the open vault: switching it on", () => {
   it("offers the backup manager instead of a manual restore procedure", async () => {
     await show({ ...VAULT_OFF, backupPath: "/app-data/backups/key/01J9TEST" })
     const panel = await screen.findByTestId("sync-vault")
-    expect(panel.querySelector("summary")?.textContent).toContain("Резервные копии")
+    expect(within(panel).getByTestId("sync-footer-backups").textContent).toContain(
+      "Резервные копии",
+    )
     expect(panel.textContent).not.toMatch(/переименуйте|закройте Amby/)
   })
 
   it("keeps the backup manager while the vault is linked, after the current copy was deleted", async () => {
     await show({ ...VAULT_OFF, linked: true, backupPath: null, backupMissing: false })
     const panel = await screen.findByTestId("sync-vault")
-    expect(panel.querySelector("summary")?.textContent).toContain("Резервные копии")
+    expect(within(panel).getByTestId("sync-footer-backups").textContent).toContain(
+      "Резервные копии",
+    )
   })
 
   it("does not enable sync when creating its pre-sync backup fails", async () => {
@@ -827,9 +831,12 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
     expect(text).toMatch(/Причина не распознана/)
     expect(text).not.toMatch(/ссылка\.md|огромный\.bin/)
 
-    const local = screen.getByTestId("sync-local-only") as HTMLDetailsElement
-    expect(local.open).toBe(false)
-    expect(local.textContent).toMatch(/Только на этом компьютере \(2\)/)
+    const toggle = screen.getByTestId("sync-footer-local")
+    expect(toggle.getAttribute("aria-expanded")).toBe("false")
+    expect(screen.queryByTestId("sync-local-only")).toBeNull()
+    expect(toggle.textContent).toMatch(/Только на этом компьютере \(2\)/)
+    fireEvent.click(toggle)
+    const local = screen.getByTestId("sync-local-only")
     expect(local.textContent).toMatch(/Символическая ссылка/)
     expect(local.textContent).toMatch(/Больше 30 МБ: такие файлы не синхронизируются/)
   })
@@ -844,7 +851,28 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
     const status = await screen.findByTestId("sync-status")
     expect(status.textContent).not.toContain("Требуется внимание")
     expect(screen.queryByTestId("sync-unsynced")).toBeNull()
+    fireEvent.click(screen.getByTestId("sync-footer-local"))
     expect(screen.getByTestId("sync-local-only").textContent).toMatch(/big\.pdf/)
+  })
+
+  it("opens one part of the footer at a time: the backups replace the local files", async () => {
+    await show(
+      vaultStatus({
+        linked: true,
+        unsynced: [{ path: "big.pdf", reason: "tooBigForMemory", detail: null }],
+      }),
+    )
+    const local = await screen.findByTestId("sync-footer-local")
+    const backups = screen.getByTestId("sync-footer-backups")
+    expect(local.parentElement).toBe(backups.parentElement)
+    fireEvent.click(local)
+    expect(screen.getByTestId("sync-local-only")).toBeTruthy()
+    fireEvent.click(backups)
+    expect(screen.queryByTestId("sync-local-only")).toBeNull()
+    expect(backups.getAttribute("aria-expanded")).toBe("true")
+    expect(screen.getByTestId("backup-panel")).toBeTruthy()
+    fireEvent.click(backups)
+    expect(screen.queryByTestId("backup-panel")).toBeNull()
   })
 
   it("does not call an idle pass fully synchronized when files remain unsynced", async () => {
@@ -860,7 +888,7 @@ describe("sync of the open vault: conflicts and files that stay behind", () => {
     await screen.findByTestId("sync-status")
     expect(screen.queryByTestId("sync-conflicts")).toBeNull()
     expect(screen.queryByTestId("sync-unsynced")).toBeNull()
-    expect(screen.queryByTestId("sync-local-only")).toBeNull()
+    expect(screen.queryByTestId("sync-footer-local")).toBeNull()
   })
 })
 

@@ -85,7 +85,7 @@ fn a_note_from_a_template_is_created_and_indexed_with_its_own_id() {
 #[test]
 fn todays_note_is_created_once_in_the_configured_folder_from_its_template() {
     let vault = Vault::new(Some(
-        r#"{"moduleSettings":{"daily":{"folder":"Journal/2026","template":"Meeting"}}}"#,
+        r#"{"profile":{"id":"custom","catalogRevision":"2026-11-20"},"enabledModules":["amby.templates","amby.daily"],"moduleSettings":{"daily":{"folder":"Journal/2026","template":"Meeting"}}}"#,
     ));
     let context = activate(&vault.0);
     let moment = Moment::on("2026-11-20").unwrap();

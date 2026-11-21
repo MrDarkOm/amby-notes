@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils"
 import { PaneDropOverlay, SplitResizeHandle } from "../pane-tab-bar"
 import type { TreeItem } from "../sidebar-tree"
 import { flushEditorSerializations } from "../tiptap/editor-serialization-lifecycle"
+import { motionTransitions } from "@/lib/motion-config"
 import { motion, useTransform } from "motion/react"
 import { useOverlaysStore } from "../use-overlays-store"
 import { WorkspaceOverlays } from "./workspace-overlays"
@@ -163,12 +164,18 @@ export function WorkspaceNormalLayout({
   savePresetAs,
 }: WorkspaceNormalLayoutProps) {
   // One progress per side, for the pinned panel, its overlay and the header alike.
-  const leftPanel = usePanelPresence(isLeftSidebarVisible)
-  const rightPanel = usePanelPresence(rightPanelEnabled && isRightSidebarVisible)
-  const leftOverlayOpacity = useTransform(leftPanel.progress, [0, 0.2, 1], [0, 0.45, 1])
-  const leftOverlayScale = useTransform(leftPanel.progress, [0, 1], [1.03, 1])
-  const rightOverlayOpacity = useTransform(rightPanel.progress, [0, 0.2, 1], [0, 0.45, 1])
-  const rightOverlayScale = useTransform(rightPanel.progress, [0, 1], [1.03, 1])
+  const leftPanel = usePanelPresence(
+    isLeftSidebarVisible,
+    !leftDockPinned ? motionTransitions.slow : undefined,
+  )
+  const rightPanel = usePanelPresence(
+    rightPanelEnabled && isRightSidebarVisible,
+    !rightDockPinned ? motionTransitions.slow : undefined,
+  )
+  const leftOverlayOpacity = useTransform(leftPanel.progress, [0, 0.12, 1], [0, 1, 1])
+  const leftOverlayX = useTransform(leftPanel.progress, [0, 1], ["-100%", "0%"])
+  const rightOverlayOpacity = useTransform(rightPanel.progress, [0, 0.12, 1], [0, 1, 1])
+  const rightOverlayX = useTransform(rightPanel.progress, [0, 1], ["100%", "0%"])
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       <ConnectedHeaderTabs
@@ -272,8 +279,7 @@ export function WorkspaceNormalLayout({
                   style={{
                     width: "calc(var(--amby-left-panel-width, 300px) + var(--amby-dock-width))",
                     opacity: leftOverlayOpacity,
-                    scale: leftOverlayScale,
-                    transformOrigin: "center center",
+                    x: leftOverlayX,
                   }}
                   onMouseEnter={() => setSidebarHover("left", true)}
                   onMouseLeave={() => setSidebarHover("left", false)}
@@ -333,7 +339,8 @@ export function WorkspaceNormalLayout({
             ref={mainStageRef}
             className={cn(
               "amby-workspace-stage relative z-10 flex flex-1 gap-0 overflow-hidden bg-background",
-              !rightPanelEnabled && "pr-2",
+              !leftDockPinned && "pl-2",
+              (!rightPanelEnabled || !rightDockPinned) && "pr-2",
               isMultiPane && "-mt-11",
             )}
           >
@@ -408,8 +415,7 @@ export function WorkspaceNormalLayout({
                 style={{
                   width: "calc(var(--amby-right-panel-width, 300px) + var(--amby-dock-width))",
                   opacity: rightOverlayOpacity,
-                  scale: rightOverlayScale,
-                  transformOrigin: "center center",
+                  x: rightOverlayX,
                 }}
                 onMouseEnter={() => setSidebarHover("right", true)}
                 onMouseLeave={() => setSidebarHover("right", false)}

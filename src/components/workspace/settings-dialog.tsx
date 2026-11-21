@@ -15,15 +15,16 @@ import {
   Check,
   Download,
   FolderOpen,
+  Info,
+  Keyboard,
   Minus,
   Monitor,
-  Keyboard,
   Palette,
-  SwatchBook,
   PencilLine,
   RefreshCw,
   Search,
   Sparkles,
+  SwatchBook,
   Type,
   UserRound,
   X,
@@ -75,6 +76,8 @@ import {
   selectTrigger,
   SettingsGroup,
   UpdateSettings,
+  CliPathSettings,
+  AboutSettings,
   ThemeLibrary,
   ShortcutsTab,
   ModulesTab,
@@ -255,6 +258,7 @@ const SETTINGS_NAV = [
   { id: "shortcuts", labelKey: "settings.tabs.shortcuts", icon: Keyboard },
   { id: "modules", labelKey: "settings.tabs.modules", icon: Blocks },
   { id: "sync", labelKey: "settings.tabs.sync", icon: RefreshCw },
+  { id: "about", labelKey: "settings.tabs.about", icon: Info },
 ] as const
 
 interface SettingsDialogProps {
@@ -388,9 +392,19 @@ export function SettingsDialog({
       },
       { section: "sync", label: t("backups.title"), description: t("backups.intro") },
       {
+        section: "about",
+        label: t("settings.tabs.about"),
+        description: `${t("settings.updates.currentVersion")} · ${t("settings.updates.license")} · ${t("settings.updates.thirdPartyLicenses")}`,
+      },
+      {
         section: "general",
+        label: t("settings.groups.commandLine"),
+        description: `${t("settings.cliPath.label")} · PATH · MCP · Claude Code · Codex · Cursor`,
+      },
+      {
+        section: "about",
         label: t("settings.groups.updates"),
-        description: `${t("settings.updates.autoUpdate")} · ${t("settings.updates.check")} · ${t("settings.updates.currentVersion")}`,
+        description: `${t("settings.updates.autoUpdate")} · ${t("settings.updates.check")} · ${t("settings.updates.channel")}`,
       },
       {
         section: "general",
@@ -403,7 +417,7 @@ export function SettingsDialog({
         description: `${t("settings.data.location")} · ${t("settings.data.reset")}`,
       },
       {
-        section: "general",
+        section: "about",
         label: t("settings.debug.groupTitle"),
         description: `${t("settings.debug.enabled")} · ${t("settings.debug.logLevel")} · ${t("settings.debug.logToFile")} · ${t("settings.debug.viewLogs")}`,
       },
@@ -649,14 +663,9 @@ export function SettingsDialog({
                     />
                   </Row>
                 </SettingsGroup>
-                <SettingsGroup title={t("settings.groups.updates")} icon={Download}>
-                  <UpdateSettings />
-                </SettingsGroup>
+                <CliPathSettings vault={vault} />
                 <SettingsGroup title={t("settings.groups.data")} icon={FolderOpen}>
                   <DataTab vault={vault} />
-                </SettingsGroup>
-                <SettingsGroup title={t("settings.debug.groupTitle")} icon={Bug}>
-                  <DebugSettings />
                 </SettingsGroup>
               </TabsContent>
 
@@ -917,6 +926,17 @@ export function SettingsDialog({
               {/* ── Synchronization ───────────────────────────────────────── */}
               <TabsContent value="sync" className="space-y-6">
                 <SyncSettings vault={vault} />
+              </TabsContent>
+
+              <TabsContent value="about" className="space-y-6">
+                <AboutSettings>
+                  <SettingsGroup title={t("settings.groups.updates")} icon={Download}>
+                    <UpdateSettings />
+                  </SettingsGroup>
+                  <SettingsGroup title={t("settings.debug.groupTitle")} icon={Bug}>
+                    <DebugSettings />
+                  </SettingsGroup>
+                </AboutSettings>
               </TabsContent>
 
               <TabsContent value="modules" className="flex min-h-0 flex-1 flex-col">

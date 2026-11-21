@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next"
-import { CloudOff, FolderSync, Play, RefreshCw, Settings2, TriangleAlert } from "lucide-react"
+import { CloudOff, FolderSync, Settings2, TriangleAlert } from "lucide-react"
 
 import type * as React from "react"
 import { ContextMenuTrigger } from "@/components/ui/context-menu"
@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { syncErrorMessage } from "@/lib/sync/sync-errors"
+import { SYNC_ACTION_ICONS } from "./sync-action-icons"
 import type { RefreshSync } from "./use-refresh-sync"
 import { syncInactiveText, type SyncFixAction, type SyncInactiveReason } from "./sync-inactive"
 
@@ -28,14 +29,6 @@ export interface SyncInactiveMenuContentProps {
   side?: "left" | "right"
 }
 
-const ACTION_ICONS = {
-  resume: Play,
-  reconnect: RefreshCw,
-  runNow: RefreshCw,
-  refresh: RefreshCw,
-  settings: Settings2,
-} as const
-
 /** The content of the menu of the sync button while sync does not work. */
 export function SyncInactiveMenuContent({
   reason,
@@ -48,7 +41,7 @@ export function SyncInactiveMenuContent({
 }: SyncInactiveMenuContentProps) {
   const { t } = useTranslation()
   const action = reason.action
-  const ActionIcon = action ? ACTION_ICONS[action] : null
+  const ActionIcon = action ? SYNC_ACTION_ICONS[action] : null
   return (
     <DropdownMenuContent side={side} align="start" className="sync-inactive-menu">
       <div className="sync-inactive-title">

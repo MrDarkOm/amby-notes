@@ -63,6 +63,55 @@ const ru = {
       colorsEffects: "Цвета и эффекты",
       typography: "Шрифты",
       updates: "Обновления",
+      commandLine: "Командная строка",
+    },
+    cliPath: {
+      label: "Команда amby в терминале",
+      off: "Не подключена: без неё CLI запускается только по полному пути.",
+      on: "Подключена. В новом окне терминала наберите amby --help.",
+      needsPath:
+        "Ссылка создана: {{location}}. Ваша оболочка не ищет в этой папке: добавьте её в PATH в настройках оболочки.",
+      taken:
+        "Имя занято: в {{location}} уже лежит другая программа amby. Amby её не трогает: уберите её сами, если она не нужна.",
+      add: "Подключить",
+      remove: "Отключить",
+      changeLink: "Amby создаст ссылку {{location}} на свой CLI.",
+      changeProfile:
+        "Amby создаст ссылку {{location}} на свой CLI и добавит в конец {{profile}} строку с PATH, помеченную комментарием Amby.",
+      changeWindows: "Amby добавит папку {{location}} в PATH вашей учётной записи Windows.",
+      errors: {
+        failed: "Не удалось изменить PATH. Попробуйте ещё раз.",
+        taken: "Имя amby уже занято другой программой. Amby её не трогает.",
+        unavailable: "В этой сборке Amby нет CLI.",
+      },
+    },
+    mcpClients: {
+      access: "Доступ ИИ к хранилищу",
+      accessHint: "Применяется при следующем подключении.",
+      readOnly: "Только чтение",
+      readWrite: "Чтение и запись",
+      notFound: "Не найден на этом компьютере.",
+      off: "Не подключён.",
+      onReadOnly: "Подключён: {{vault}}, только чтение.",
+      onReadWrite: "Подключён: {{vault}}, чтение и запись.",
+      onUnknown: "Подключён сервер amby.",
+      cursorRemove: "Убрать его можно в настройках Cursor → MCP.",
+      cursorAsked: "Cursor откроет окно установки: подтвердите подключение там.",
+      connect: "Подключить",
+      reconnect: "Переподключить",
+      disconnect: "Отключить",
+      how: {
+        claudeCode: "команду claude mcp add",
+        codex: "команду codex mcp add",
+        cursor: "окно установки Cursor",
+      },
+      errors: {
+        noVault: "Откройте хранилище, которое нужно подключить.",
+        noCli: "В этой сборке Amby нет CLI.",
+        clientMissing: "Программа не найдена на этом компьютере.",
+        unsupported: "Убрать сервер можно в настройках этой программы.",
+        failed: "Не удалось изменить подключение. Попробуйте ещё раз.",
+      },
     },
     general: {
       deleteMode: "Удаление файлов",
@@ -273,6 +322,10 @@ const ru = {
       shortcuts: "Сочетания клавиш",
       modules: "Встроенные модули",
       sync: "Синхронизация",
+      about: "О программе",
+    },
+    about: {
+      app: "Amby",
     },
     shortcuts: {
       description:
@@ -553,6 +606,17 @@ const ru = {
       title: "Сбросить все настройки?",
       description: "Настройки вернутся к значениям по умолчанию, заметки не затрагиваются.",
       confirm: "Сбросить",
+    },
+    connectMcpClient: {
+      title: "Подключить Amby к {{client}}?",
+      description:
+        "{{client}} получит доступ к хранилищу {{vault}}: {{access}}. Amby зарегистрирует сервер amby через {{how}}. «Отключить» уберёт его.",
+      confirm: "Подключить",
+    },
+    addCliToPath: {
+      title: "Подключить команду amby?",
+      description: "{{change}} Кнопка «Отключить» уберёт это обратно.",
+      confirm: "Подключить",
     },
     deleteBackup: {
       title: "Удалить копию от {{date}}?",
@@ -2098,6 +2162,10 @@ const ru = {
         setProperty: "Свойство заметки",
         deleteProperty: "Удаление свойства",
         renameProperty: "Переименование свойства",
+        move: "Перенос",
+        rename: "Переименование",
+        archive: "Перенос в архив",
+        delete: "Удаление (в корзину)",
       },
 
       truncated: "Показано не всё изменение.",
@@ -2111,6 +2179,9 @@ const ru = {
         rejected: "Отклонено.",
         undone: "Отменено.",
         outdated: "Заметка изменилась после предложения, ничего не записано.",
+        outdatedStructural: "Файлы изменились после предложения, ничего не сделано.",
+        appliedStructural: "Применено. «Отменить» вернёт всё на место, включая ссылки.",
+        appliedDelete: "Перенесено в корзину хранилища. «Отменить» вернёт на место.",
       },
       error: {
         noteHasUnsavedEdits: "Заметка открыта с несохранёнными правками. Сначала сохраните её.",
@@ -2125,6 +2196,14 @@ const ru = {
         databaseLocked: "Эта база закрыта для правок. Ничего не записано.",
         propertiesNotMigrated:
           "Свойства этого хранилища ещё не переведены в новый формат, поэтому их нельзя менять. Заметка не изменена.",
+        changedSinceStructural:
+          "Файлы изменились после применения, поэтому отменить отсюда нельзя. Ничего не тронуто.",
+        mutationConflict: "Файл с таким именем уже есть или что-то мешает. Ничего не изменено.",
+        vaultBusy: "Сейчас выполняется другое изменение. Повторите через минуту.",
+        trashUnavailable: "Корзина недоступна. Ничего не удалено.",
+        undoUnavailable: "Отсюда отменить нельзя. Найдите файл в корзине или архиве.",
+        operationTooLarge: "Правка затрагивает слишком много файлов. Ничего не изменено.",
+        recoveryRequired: "Хранилищу сначала нужно завершить прошлую операцию. Ничего не изменено.",
         other: "Не удалось выполнить действие. Заметка не изменена.",
       },
     },
@@ -2158,6 +2237,8 @@ const ru = {
     linking: "Проверил связи «{{query}}»",
     toolOther: "Шаг ИИ: {{tool}}",
     toolFailed: "Не удалось выполнить шаг",
+    toolOutsideContext:
+      "Я не могу искать заметки вне контекста. Включите поиск по хранилищу или добавьте заметку в контекст.",
     indexTooLarge: "Индекс слишком велик для безопасного чтения ИИ (более 512 МБ).",
     examples: "Например: выдели главные мысли или найди связанные заметки.",
     untitled: "без названия",
@@ -2222,8 +2303,6 @@ const ru = {
     claudeCli: "Claude Code CLI",
     name: "Название подключения",
     endpoint: "Адрес сервера",
-    toolOutsideContext:
-      "Я не могу искать заметки вне контекста. Включите поиск по хранилищу или добавьте заметку в контекст.",
     key: "API-ключ",
     keyHint: "Оставьте пустым, чтобы не менять ключ",
     addConnection: "Добавить подключение",
@@ -4311,6 +4390,7 @@ const ru = {
       unsynced: {
         title: "Не синхронизируется ({{count}})",
         localOnlyTitle: "Только на этом компьютере ({{count}})",
+        refresh: "Проверить файлы заново",
         localOnlyHint:
           "Эти файлы не участвуют в синхронизации по правилам Amby. Это не ошибка, делать ничего не нужно.",
         symlink: "Символическая ссылка",
@@ -4517,6 +4597,55 @@ const en: LocaleShape<typeof ru> = {
       colorsEffects: "Colors & effects",
       typography: "Typography",
       updates: "Updates",
+      commandLine: "Command line",
+    },
+    cliPath: {
+      label: "The amby command in the terminal",
+      off: "Not set up: without it the CLI runs only by its full path.",
+      on: "Set up. In a new terminal window, type amby --help.",
+      needsPath:
+        "The link is at {{location}}, but your shell does not search that folder: add it to PATH in your shell settings.",
+      taken:
+        "The name is taken: another amby program is already at {{location}}. Amby leaves it alone; remove it yourself if you do not need it.",
+      add: "Set up",
+      remove: "Remove",
+      changeLink: "Amby will create a link at {{location}} to its CLI.",
+      changeProfile:
+        "Amby will create a link at {{location}} to its CLI and add a PATH line, marked with an Amby comment, to the end of {{profile}}.",
+      changeWindows: "Amby will add the folder {{location}} to the PATH of your Windows account.",
+      errors: {
+        failed: "Could not change PATH. Try again.",
+        taken: "The name amby is already used by another program. Amby leaves it alone.",
+        unavailable: "This Amby build has no CLI.",
+      },
+    },
+    mcpClients: {
+      access: "AI access to the vault",
+      accessHint: "Applies the next time you connect.",
+      readOnly: "Read only",
+      readWrite: "Read and write",
+      notFound: "Not found on this computer.",
+      off: "Not connected.",
+      onReadOnly: "Connected: {{vault}}, read only.",
+      onReadWrite: "Connected: {{vault}}, read and write.",
+      onUnknown: "An amby server is connected.",
+      cursorRemove: "Remove it in Cursor settings → MCP.",
+      cursorAsked: "Cursor opens its install window: confirm the connection there.",
+      connect: "Connect",
+      reconnect: "Reconnect",
+      disconnect: "Disconnect",
+      how: {
+        claudeCode: "the claude mcp add command",
+        codex: "the codex mcp add command",
+        cursor: "the Cursor install window",
+      },
+      errors: {
+        noVault: "Open the vault you want to connect.",
+        noCli: "This Amby build has no CLI.",
+        clientMissing: "The program was not found on this computer.",
+        unsupported: "Remove the server in that program's settings.",
+        failed: "Could not change the connection. Try again.",
+      },
     },
     general: {
       deleteMode: "File deletion",
@@ -4727,6 +4856,10 @@ const en: LocaleShape<typeof ru> = {
       shortcuts: "Keyboard shortcuts",
       modules: "Built-in modules",
       sync: "Synchronization",
+      about: "About",
+    },
+    about: {
+      app: "Amby",
     },
     shortcuts: {
       description:
@@ -5003,6 +5136,17 @@ const en: LocaleShape<typeof ru> = {
       title: "Reset all settings?",
       description: "Settings go back to their defaults; your notes are not touched.",
       confirm: "Reset",
+    },
+    connectMcpClient: {
+      title: "Connect Amby to {{client}}?",
+      description:
+        "{{client}} gets access to the vault {{vault}}: {{access}}. Amby registers the amby server through {{how}}. Disconnect removes it.",
+      confirm: "Connect",
+    },
+    addCliToPath: {
+      title: "Set up the amby command?",
+      description: "{{change}} The Remove button takes this back.",
+      confirm: "Set up",
     },
     deleteBackup: {
       title: "Delete the copy from {{date}}?",
@@ -6522,6 +6666,10 @@ const en: LocaleShape<typeof ru> = {
         setProperty: "Note property",
         deleteProperty: "Remove a property",
         renameProperty: "Rename a property",
+        move: "Move",
+        rename: "Rename",
+        archive: "Move to the archive",
+        delete: "Delete (to the trash)",
       },
 
       truncated: "Only part of the change is shown.",
@@ -6534,6 +6682,9 @@ const en: LocaleShape<typeof ru> = {
         rejected: "Rejected.",
         undone: "Undone.",
         outdated: "The note changed after the proposal, so nothing was written.",
+        outdatedStructural: "Files changed after the proposal, so nothing was done.",
+        appliedStructural: "Applied. Undo puts everything back, links included.",
+        appliedDelete: "Moved to the vault's trash. Undo puts it back.",
       },
       error: {
         noteHasUnsavedEdits: "The note is open with unsaved edits. Save it first.",
@@ -6548,6 +6699,17 @@ const en: LocaleShape<typeof ru> = {
         databaseLocked: "This database is closed for changes. Nothing was written.",
         propertiesNotMigrated:
           "This vault's properties have not been moved to the new format yet, so they cannot be changed. The note is unchanged.",
+        changedSinceStructural:
+          "Files changed after the change was applied, so it cannot be undone from here. Nothing was touched.",
+        mutationConflict:
+          "A file with that name already exists or is in the way. Nothing was changed.",
+        vaultBusy: "Another change is running. Try again in a moment.",
+        trashUnavailable: "The trash is not available. Nothing was deleted.",
+        undoUnavailable:
+          "This cannot be undone from here. Find the file in the trash or the archive.",
+        operationTooLarge: "The change covers too many files. Nothing was changed.",
+        recoveryRequired:
+          "The vault has to finish a previous operation first. Nothing was changed.",
         other: "The action failed. The note is unchanged.",
       },
     },
@@ -6581,6 +6743,8 @@ const en: LocaleShape<typeof ru> = {
     linking: "Checked links for “{{query}}”",
     toolOther: "AI step: {{tool}}",
     toolFailed: "The step could not be completed",
+    toolOutsideContext:
+      "I cannot search notes outside the context. Turn on vault search or add the note to the context.",
     indexTooLarge: "The index is too large for safe AI access (over 512 MB).",
     examples: "For example: summarize the main ideas or find related notes.",
     untitled: "untitled",
@@ -6710,8 +6874,6 @@ const en: LocaleShape<typeof ru> = {
     moveDown: "Move {{model}} down",
   },
   models: {
-    toolOutsideContext:
-      "I cannot search notes outside the context. Turn on vault search or add the note to the context.",
     empty: "No models yet. Add your first below.",
     add: "Add model",
     namePlaceholder: "Name",
@@ -8714,6 +8876,7 @@ const en: LocaleShape<typeof ru> = {
       unsynced: {
         title: "Not synchronised ({{count}})",
         localOnlyTitle: "Only on this computer ({{count}})",
+        refresh: "Check the files again",
         localOnlyHint:
           "These files are left out of sync by Amby's rules. This is not an error; nothing needs to be done.",
         symlink: "A symbolic link",

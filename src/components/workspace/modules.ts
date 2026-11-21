@@ -153,6 +153,7 @@ export const MODULE_REGISTRY: ModuleDef[] = [
     labelKey: "settings.modules.daily",
     descriptionKey: "settings.modules.descriptions.daily",
     status: "ready",
+    optIn: true,
     manifest: { permissions: ["ui-action", "read-notes", "write-notes"] },
     actions: ["daily"],
   },

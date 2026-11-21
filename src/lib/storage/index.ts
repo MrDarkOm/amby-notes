@@ -1,4 +1,6 @@
 import { createBackupPort } from "./backup-repository"
+import { createCliPathPort } from "./cli-path-repository"
+import { createMcpClientsPort } from "./mcp-clients-repository"
 import { createDatabaseLayoutPort } from "./database-layout-repository"
 import { createAiChatRepository } from "./ai-chat-repository"
 import { DesktopAdapter } from "./desktop-adapter"
@@ -873,6 +875,15 @@ export {
   type BackupInfo,
 } from "./backup-repository"
 export const resolveBackupPort = () => createBackupPort(isTauri())
+export { CliPathOperationError, type CliPathPort, type CliPathStatus } from "./cli-path-repository"
+export const resolveCliPathPort = () => createCliPathPort(isTauri())
+export {
+  McpClientOperationError,
+  type McpClient,
+  type McpClientStatus,
+  type McpClientsPort,
+} from "./mcp-clients-repository"
+export const resolveMcpClientsPort = () => createMcpClientsPort(isTauri())
 export const resolveDatabaseLayoutPort = () => createDatabaseLayoutPort(isTauri())
 export const resolveAiChatRepository = () => createAiChatRepository(isTauri())
 

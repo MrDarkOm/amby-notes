@@ -2,6 +2,7 @@ import * as React from "react"
 import {
   animate,
   type MotionValue,
+  type Transition,
   useMotionValue,
   useReducedMotion,
   useTransform,
@@ -51,7 +52,10 @@ export interface PanelPresence {
  * Drives a side panel's mount lifecycle and Motion progress (0 to 1) so the panel,
  * central stage, and header columns animate in lockstep.
  */
-export function usePanelPresence(open: boolean): PanelPresence {
+export function usePanelPresence(
+  open: boolean,
+  transition: Transition = motionTransitions.panel,
+): PanelPresence {
   const reduced = useReducedMotion()
   const progress = useMotionValue(open ? 1 : 0)
   const [mounted, setMounted] = React.useState(open)
@@ -67,7 +71,7 @@ export function usePanelPresence(open: boolean): PanelPresence {
     if (open) setMounted(true)
     setSettled(false)
     let live = true
-    const controls = animate(progress, target, reduced ? { duration: 0 } : motionTransitions.panel)
+    const controls = animate(progress, target, reduced ? { duration: 0 } : transition)
     void controls.then(() => {
       if (!live) return
       if (open) setSettled(true)
@@ -77,7 +81,7 @@ export function usePanelPresence(open: boolean): PanelPresence {
       live = false
       controls.stop()
     }
-  }, [open, progress, reduced])
+  }, [open, progress, reduced, transition])
 
   return { mounted, settled, progress }
 }

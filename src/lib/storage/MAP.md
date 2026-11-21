@@ -62,6 +62,8 @@ The port asks nothing and shows nothing: questions are [confirm()](../confirm.ts
 
 Backup catalog, verification and native folder-picker restore: [backup-repository.ts](backup-repository.ts), exported by `index.ts`; generated types are in `bindings.ts`. The browser refuses these filesystem operations.
 
+The `amby` command on PATH (Settings → General): [cli-path-repository.ts](cli-path-repository.ts); connecting AI clients over MCP: [mcp-clients-repository.ts](mcp-clients-repository.ts). Both are exported by `index.ts` and unavailable in the browser.
+
 AI conversation persistence: [ai-chat-repository.ts](ai-chat-repository.ts) calls
 generation-scoped native commands, refuses browser persistence and uses revisions
 to prevent stale overwrites. Native storage is [ai/chats.rs](../../../src-tauri/src/ai/chats.rs).

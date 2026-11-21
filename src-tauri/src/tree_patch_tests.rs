@@ -475,7 +475,10 @@ fn daily(context: &VaultContext, vault: &Vault, folder: &str) -> FsMutationResul
     fs::create_dir_all(vault.path(".amby")).unwrap();
     fs::write(
         vault.path(".amby/workspace.json"),
-        format!(r#"{{"moduleSettings":{{"daily":{{"folder":"{folder}"}}}}}}"#),
+        // Daily notes are opt-in: the module list switches them on.
+        format!(
+            r#"{{"profile":{{"id":"custom","catalogRevision":"2026-11-20"}},"enabledModules":["amby.daily"],"moduleSettings":{{"daily":{{"folder":"{folder}"}}}}}}"#
+        ),
     )
     .unwrap();
     let moment = amby_core::note_templates::Moment::on("2026-11-20").unwrap();

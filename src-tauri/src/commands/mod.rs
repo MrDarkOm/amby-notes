@@ -1,11 +1,13 @@
 pub mod ai_chats;
 pub mod assets;
 pub mod backups;
+pub mod cli_path;
 pub mod database;
 pub mod debug;
 pub mod external;
 pub mod history;
 pub mod import_files;
+pub mod mcp_clients;
 pub mod modules;
 pub mod mutations;
 pub mod note_templates;
