@@ -5,7 +5,7 @@ tools. The goal is an MCP client that can manage notes, database records and
 creative workshops against one selected vault, including while desktop Amby has
 that vault open.
 
-Status: notes, archive, database management and workshop creation tools are implemented. The [tool contract](../mcp.md) lists the supported operations.
+Status: notes, archive, database management and workshop creation tools are implemented; 2026-11-20 added fragment edits, outline and section reads, versions and restore, `open_in_amby`, row deletion, resource subscriptions and connecting clients from Settings. The [tool contract](../mcp.md) lists the supported operations.
 
 ## 1. Structural note operations
 

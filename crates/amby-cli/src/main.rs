@@ -5,6 +5,7 @@ mod edit;
 mod launch;
 mod mcp;
 mod mcp_extra;
+mod mcp_notes;
 mod mcp_tools;
 
 use std::env;
@@ -939,7 +940,7 @@ fn main() -> ExitCode {
                     root,
                     options.write_access.as_ref(),
                     io::stdin().lock(),
-                    io::stdout().lock(),
+                    io::stdout(),
                 )
                 .map(|()| Output::new(Value::Null, String::new()))
                 .map_err(Error::from)

@@ -1,5 +1,6 @@
 //! Vault services shared by Amby Notes and headless callers.
 
+pub mod ai_proposals;
 pub mod ai_tools;
 pub mod archive;
 pub mod archive_migration;
@@ -15,7 +16,9 @@ pub mod lock_util;
 pub mod mcp;
 pub mod model;
 pub mod note_edit;
+pub mod note_outline;
 pub mod note_templates;
+pub mod note_versions;
 pub mod paths;
 pub mod project;
 pub mod property_groups;
@@ -27,6 +30,7 @@ pub mod self_write;
 pub mod storage_error;
 pub mod structural;
 pub mod system_recycle_bin;
+pub mod tool_set;
 pub mod vault;
 pub mod vault_context;
 pub mod vault_index;

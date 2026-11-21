@@ -670,13 +670,14 @@ existing workflow and is itself a data-changing operation.
 
 ## Templates and daily notes
 
-Two workspace modules, on in the Standard set. Their settings live in
+Two workspace modules: Templates is on in the Standard set, Daily notes is opt-in. Their settings live in
 `.amby/workspace.json` under `moduleSettings`: `templates.folder` (default
 `Templates`) and `daily.folder` (default `Daily`, `.` for the vault root) and
 `daily.template` (a template name, none by default). A folder must be vault-relative,
 without `..`, hidden or service folders; an unacceptable value means the default. A
-module list saved before the catalogue revision `2026-11-20` gets both modules once;
-after the next save of the list a switched-off module stays off. The rule is shared by
+module list saved before the catalogue revision `2026-11-20` gets Templates once (Daily
+notes only when the list names it); after the next save of the list a switched-off module
+stays off. The rule is shared by
 the app (`readWorkspaceModuleConfig`) and the CLI (`vault_tools::modules`).
 
 A template is any Markdown note in the templates folder. A note made from it is a new

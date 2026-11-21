@@ -259,6 +259,25 @@ pub fn rename_property(
     ))
 }
 
+/// The vault-relative path of a row of a writable database in the scope; deleting it is deleting the
+/// row's note, which goes to the system trash like any other note.
+pub fn row_path(
+    root: &Path,
+    scope: &Path,
+    database_id: &str,
+    note_id: &str,
+) -> Result<String, &'static str> {
+    let database = writable_database(root, scope, database_id)?;
+    let path = crate::database::mutations::resolve_note_path_for_id(
+        root,
+        &database.container_path,
+        note_id,
+    )
+    .map_err(domain_error)?;
+    allowed(scope, &path)?;
+    super::relative(root, &path)
+}
+
 pub fn set_value(
     root: &Path,
     scope: &Path,

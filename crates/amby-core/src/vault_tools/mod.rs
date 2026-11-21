@@ -108,6 +108,10 @@ pub enum Mutation {
     Delete {
         path: String,
     },
+    DeleteDatabaseRow {
+        database_id: String,
+        note_id: String,
+    },
 }
 
 #[derive(Deserialize, Serialize)]
@@ -172,6 +176,7 @@ impl Mutation {
         match self {
             Self::CreateDatabase { .. }
             | Self::CreateDatabaseRow { .. }
+            | Self::DeleteDatabaseRow { .. }
             | Self::AddDatabaseProperty { .. }
             | Self::SetDatabaseValue(_)
             | Self::RenameDatabase { .. }
@@ -307,6 +312,20 @@ pub fn execute(
             modules::Modules::require(root, module)?;
         }
         structural::ensure_clean_for_text_edit(root)?;
+        if let Mutation::DeleteDatabaseRow {
+            database_id,
+            note_id,
+        } = request
+        {
+            let path = database::row_path(root, &scope, database_id, note_id)?;
+            return delete::execute(
+                root,
+                &scope,
+                watcher,
+                &crate::system_recycle_bin::OsTrash,
+                &path,
+            );
+        }
         if let Mutation::Delete { path } = request {
             return delete::execute(
                 root,
@@ -479,6 +498,15 @@ pub fn preview(root: &Path, grant: &str, request: &Mutation) -> Result<Value, &'
     let scope = visible_folder(root, grant).map_err(|_| "accessDenied")?;
     if let Mutation::Delete { path } = request {
         return delete::preview(root, &scope, path);
+    }
+    if let Mutation::DeleteDatabaseRow {
+        database_id,
+        note_id,
+    } = request
+    {
+        modules::Modules::require(root, modules::Module::Databases)?;
+        let path = database::row_path(root, &scope, database_id, note_id)?;
+        return delete::preview(root, &scope, &path);
     }
     if let Mutation::SetDatabaseRelation(request) = request {
         modules::Modules::require(root, modules::Module::Databases)?;

@@ -115,11 +115,24 @@ fn a_hostile_model_name_never_reaches_the_command_line() {
 
 #[test]
 fn search_tools_are_allowed_only_when_search_is_on() {
+    let narrow = allowed_tool_names(false);
+    assert_eq!(narrow.len(), 8);
     assert_eq!(
-        allowed_tool_names(false),
+        narrow[..2],
         ["mcp__amby__read_note", "mcp__amby__get_links"]
     );
-    assert_eq!(allowed_tool_names(true).len(), 4);
+    for wide in ["search_notes", "list_folder", "list_tags", "query_database"] {
+        assert!(!narrow.contains(&format!("mcp__amby__{wide}")), "{wide}");
+    }
+    assert_eq!(allowed_tool_names(true).len(), 14);
+    // Reads only: no write tool is ever allowed.
+    for name in allowed_tool_names(true) {
+        for write in [
+            "edit", "write", "set_", "delete", "move", "restore", "append", "new_",
+        ] {
+            assert!(!name.contains(write), "{name}");
+        }
+    }
 }
 
 #[test]

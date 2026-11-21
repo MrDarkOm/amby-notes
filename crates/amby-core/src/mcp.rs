@@ -20,6 +20,15 @@ pub trait ToolHost: Send + Sync + 'static {
     fn read_resource(&self, _uri: &str) -> Result<Value, &'static str> {
         Err("unsupported")
     }
+    /// Whether a client may subscribe to resources; the host then sends
+    /// `notifications/resources/updated` itself when one changes.
+    fn supports_subscriptions(&self) -> bool {
+        false
+    }
+    fn subscribe(&self, _uri: &str) -> Result<(), &'static str> {
+        Err("unsupported")
+    }
+    fn unsubscribe(&self, _uri: &str) {}
     /// Whether the host offers prompts.
     fn supports_prompts(&self) -> bool {
         false
@@ -73,7 +82,11 @@ pub fn handle_rpc(host: &dyn ToolHost, message: &Value, server_version: &str) ->
                 .unwrap_or("2025-03-26");
             let mut capabilities = serde_json::json!({"tools": {}});
             if host.supports_resources() {
-                capabilities["resources"] = serde_json::json!({});
+                capabilities["resources"] = if host.supports_subscriptions() {
+                    serde_json::json!({"subscribe": true})
+                } else {
+                    serde_json::json!({})
+                };
             }
             if host.supports_prompts() {
                 capabilities["prompts"] = serde_json::json!({});
@@ -104,6 +117,25 @@ pub fn handle_rpc(host: &dyn ToolHost, message: &Value, server_version: &str) ->
                     Ok(contents) => rpc_result(id, serde_json::json!({"contents": contents})),
                     Err(_) => rpc_error(id, -32002, "resource not found"),
                 },
+                None => rpc_error(id, -32602, "invalid params"),
+            }
+        }
+        "resources/subscribe" if host.supports_subscriptions() => {
+            match params.get("uri").and_then(Value::as_str) {
+                Some(uri) => match host.subscribe(uri) {
+                    Ok(()) => rpc_result(id, serde_json::json!({})),
+                    Err("tooManySubscriptions") => rpc_error(id, -32602, "too many subscriptions"),
+                    Err(_) => rpc_error(id, -32002, "resource not found"),
+                },
+                None => rpc_error(id, -32602, "invalid params"),
+            }
+        }
+        "resources/unsubscribe" if host.supports_subscriptions() => {
+            match params.get("uri").and_then(Value::as_str) {
+                Some(uri) => {
+                    host.unsubscribe(uri);
+                    rpc_result(id, serde_json::json!({}))
+                }
                 None => rpc_error(id, -32602, "invalid params"),
             }
         }

@@ -150,8 +150,9 @@ fn stdio_mcp_exposes_read_tools_and_rejects_service_paths() {
     assert_eq!(replies.len(), 4);
     assert_eq!(replies[0]["result"]["protocolVersion"], "2025-11-25");
     let tools = replies[1]["result"]["tools"].as_array().unwrap();
-    // 8 read tools plus list_tags, get_properties and five hygiene and attachment reads.
-    assert_eq!(tools.len(), 16);
+    // 8 read tools plus list_tags, get_properties, five hygiene and attachment reads and
+    // five note-part, version and open reads.
+    assert_eq!(tools.len(), 21);
     assert!(tools
         .iter()
         .all(|tool| tool["annotations"]["readOnlyHint"] == true));
@@ -433,8 +434,10 @@ fn mcp_write_requires_opt_in_and_confines_a_scoped_grant_to_the_folder() {
         ],
     );
     // 23 tools plus list_tags, get_properties, four property writes, delete_item, five
-    // hygiene and attachment reads and four attachment, order and bulk writes.
-    assert_eq!(scoped[0]["result"]["tools"].as_array().unwrap().len(), 42);
+    // hygiene and attachment reads, four attachment, order and bulk writes, five note-part,
+    // version and open reads, edit_note, restore_version and delete_database_row. Daily notes
+    // are opt-in, so daily_note is not listed.
+    assert_eq!(scoped[0]["result"]["tools"].as_array().unwrap().len(), 49);
     for reply in &scoped[1..4] {
         assert_eq!(body(reply)["error"], "accessDenied");
     }

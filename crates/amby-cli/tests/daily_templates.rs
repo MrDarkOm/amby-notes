@@ -30,8 +30,13 @@ fn template_vault() -> Vault {
         "## Review of {{title}}\n",
     )
     .unwrap();
+    // Daily notes are opt-in: the fixture switches them on, as a person does in Settings.
+    fs::create_dir_all(vault.root.join(".amby")).unwrap();
+    fs::write(vault.root.join(".amby/workspace.json"), DAILY_ON).unwrap();
     vault
 }
+
+const DAILY_ON: &str = r#"{"profile":{"id":"custom","catalogRevision":"2026-11-20"},"enabledModules":["amby.databases","amby.templates","amby.daily"]}"#;
 
 fn header_id(text: &str) -> Option<String> {
     text.lines()
@@ -314,7 +319,7 @@ fn s2_the_daily_settings_are_followed_and_flags_win() {
     let vault = template_vault();
     with_workspace(
         &vault,
-        r#"{"moduleSettings":{"daily":{"folder":"Journal","template":"Meeting"}}}"#,
+        r#"{"profile":{"id":"custom","catalogRevision":"2026-11-20"},"enabledModules":["amby.templates","amby.daily"],"moduleSettings":{"daily":{"folder":"Journal","template":"Meeting"}}}"#,
     );
     let data = vault.ok(&["daily", "--date", "2026-11-20"]);
     assert_eq!(data["path"], "Journal/2026-11-20.md", "{data}");
@@ -329,6 +334,19 @@ fn s2_the_daily_settings_are_followed_and_flags_win() {
         json!({"date":"2026-11-22"}),
     );
     assert_eq!(mcp["path"], "Journal/2026-11-22.md", "{mcp}");
+}
+
+#[test]
+fn s4_daily_notes_are_off_until_switched_on() {
+    let vault = vault(true);
+    let (_, error) = vault.error(&["daily", "--date", "2026-11-20"]);
+    assert_eq!(error, "moduleDisabled");
+    assert!(!vault
+        .tool_names(Some("--allow-write"))
+        .contains(&"daily_note".to_owned()));
+    assert!(vault
+        .tool_names(None)
+        .contains(&"list_templates".to_owned()));
 }
 
 #[test]

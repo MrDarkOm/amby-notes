@@ -9,7 +9,7 @@ use tauri::Emitter;
 
 use super::chats::{ChatSource, ChatStep};
 use super::provider_stream::{StreamDecoder, ToolCall};
-use super::tools::{mcp_definitions as mcp_tools, ToolBudget, ToolScope};
+use super::tools::{panel_mcp_definitions as mcp_tools, ToolBudget, ToolScope};
 use super::{AiChatError, AiConfig, AiErrorCode, AiMessage, AiStreamState, StreamGuard};
 use crate::vault_context::VaultContext;
 
@@ -76,7 +76,7 @@ fn check(
 }
 
 fn definitions(search: bool, anthropic: bool) -> Vec<Value> {
-    super::tools::definitions(search).into_iter().map(|(name, description, schema)| {
+    super::tools::panel_definitions(search).into_iter().map(|(name, description, schema)| {
         if anthropic { json!({"name":name,"description":description,"input_schema":schema}) }
         else { json!({"type":"function","function":{"name":name,"description":description,"parameters":schema}}) }
     }).collect()
@@ -841,8 +841,16 @@ mod tests {
             let text = serde_json::to_string(&defs).unwrap();
             assert!(text.contains("read_note"));
             assert!(text.contains("get_links"));
-            assert!(!text.contains("search_notes"));
-            assert!(!text.contains("list_folder"));
+            assert!(text.contains("get_outline"));
+            for wide in [
+                "search_notes",
+                "list_folder",
+                "list_tags",
+                "list_databases",
+                "query_database",
+            ] {
+                assert!(!text.contains(wide), "{wide} offered without search");
+            }
         }
     }
 
@@ -1008,11 +1016,27 @@ mod tests {
                 .map(|tool| tool["name"].as_str().unwrap().to_owned())
                 .collect::<Vec<_>>()
         };
-        assert_eq!(names(false), ["read_note", "get_links"]);
-        assert_eq!(
-            names(true),
-            ["read_note", "get_links", "search_notes", "list_folder"]
-        );
+        let notes = [
+            "read_note",
+            "get_links",
+            "get_outline",
+            "read_section",
+            "get_properties",
+            "get_note_info",
+            "list_versions",
+            "read_version",
+        ];
+        assert_eq!(names(false), notes);
+        let mut all = vec![
+            "read_note",
+            "get_links",
+            "search_notes",
+            "list_folder",
+            "list_tags",
+        ];
+        all.extend(&notes[2..]);
+        all.extend(["list_databases", "read_database", "query_database"]);
+        assert_eq!(names(true), all);
     }
 
     #[test]

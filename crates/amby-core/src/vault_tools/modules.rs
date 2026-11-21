@@ -75,8 +75,9 @@ impl Modules {
                         .is_some_and(|id| id == short || id.strip_prefix("amby.") == Some(short))
                 })
             };
-            // A list saved before the note modules existed gets them, as the renderer does
-            // when it reads the file (`readWorkspaceModuleConfig`); a current one is as written.
+            // A list saved before Templates existed gets it, as the renderer does when it reads
+            // the file (`readWorkspaceModuleConfig`); a current one is as written. Daily notes
+            // are opt-in: only a list that names them has them.
             let predates = !minimal(&workspace)
                 && workspace["profile"]["catalogRevision"]
                     .as_str()
@@ -85,7 +86,7 @@ impl Modules {
                 databases: has("databases"),
                 creative: has("creative"),
                 templates: predates || has("templates"),
-                daily: predates || has("daily"),
+                daily: has("daily"),
             });
         }
         Ok(if minimal(&workspace) {
@@ -105,7 +106,7 @@ impl Modules {
             databases: true,
             creative: false,
             templates: true,
-            daily: true,
+            daily: false,
         }
     }
 

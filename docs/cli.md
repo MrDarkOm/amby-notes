@@ -5,11 +5,20 @@
 The desktop installer includes the standalone CLI. Its location depends on the
 package.
 
-- On macOS, use `/Applications/Amby.app/Contents/MacOS/amby` if Amby is in
-  Applications. To put it on your shell's PATH, link it into a directory
-  already on PATH, such as `~/.local/bin`.
-- On Windows, run `amby.exe` from the folder that contains the installed
-  Amby executable. Add that folder to your user PATH for use from any folder.
+- **Settings → General → Command line → Set up** puts `amby` on PATH. On
+  macOS and Linux it links the bundled CLI as `~/.local/bin/amby` (an AppImage
+  gets a small wrapper script there). When a new login shell does not already
+  search `~/.local/bin`, it appends one PATH line, between `# >>> Amby: the amby
+command >>>` markers, to `~/.zprofile` (zsh), `~/.bash_profile` or
+  `~/.profile` (bash, sh). Other shells get the link and a note to add the
+  folder themselves. On Windows it adds the folder of the installed app to the
+  user `Path`. An existing `~/.local/bin/amby` that Amby did not create is never
+  replaced. **Remove** deletes the link and exactly the marked lines, or the
+  folder from `Path`; open a new terminal after either change.
+- Manually on macOS, use `/Applications/Amby.app/Contents/MacOS/amby` if Amby is in
+  Applications, or link it into a directory already on PATH.
+- Manually on Windows, run `amby.exe` from the folder that contains the installed
+  Amby executable, or add that folder to your user PATH.
 - On Linux, packages with installed executables include `amby`. For an AppImage
   use `./Amby.AppImage --amby-cli --help`; the `--amby-cli` argument runs the
   CLI inside the image and passes through the remaining arguments and stdio.
@@ -309,7 +318,14 @@ environment.
 
 ## MCP
 
-Configure a local stdio MCP server with command `amby` and arguments
+**Settings → General → Command line** connects the open vault to Claude Code,
+Codex or Cursor in one step, read only or with writes for the whole vault. Amby
+asks Claude Code and Codex through their own `mcp add` / `mcp remove` commands
+(user scope) and Cursor through its install link, which Cursor confirms; it never
+edits their configuration files itself. Cursor servers are removed in Cursor's
+settings.
+
+To configure a client by hand, add a local stdio MCP server with command `amby` and arguments
 `["--vault", "/path/to/vault", "mcp"]`. For example, a client configuration
 with an `mcpServers` object can use:
 

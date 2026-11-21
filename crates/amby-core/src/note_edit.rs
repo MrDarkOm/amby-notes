@@ -63,6 +63,41 @@ impl Edit {
         })
     }
 
+    /// Replace an exact fragment of the body (never the frontmatter). The fragment must occur once,
+    /// or `all` replaces every occurrence. Line breaks in both texts follow the note's own (`\n` or
+    /// `\r\n`), so a fragment copied from `read_note` matches a CRLF note. Returns the edit and the
+    /// number of replacements.
+    pub fn prepare_replace(
+        root: &Path,
+        relative: &str,
+        scope: Option<&Path>,
+        old: &str,
+        new: &str,
+        all: bool,
+    ) -> Result<(Self, usize), &'static str> {
+        if old.is_empty() {
+            return Err("invalidArguments");
+        }
+        let relative = relative.replace('\\', "/");
+        let path = edit_path(root, &relative, scope)?;
+        let source = match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_file() => read_source(&path)?,
+            Ok(_) => return Err("accessDenied"),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Err("notFound"),
+            Err(_) => return Err("unavailable"),
+        };
+        let (after, count) = replace_in_body(&source, old, new, all)?;
+        Ok((
+            Self {
+                relative,
+                path,
+                before: Some(source),
+                after,
+            },
+            count,
+        ))
+    }
+
     pub fn path(&self) -> &str {
         &self.relative
     }
@@ -175,6 +210,46 @@ fn edit_path(root: &Path, relative: &str, scope: Option<&Path>) -> Result<PathBu
     Ok(target)
 }
 
+fn replace_in_body(
+    source: &str,
+    old: &str,
+    new: &str,
+    all: bool,
+) -> Result<(String, usize), &'static str> {
+    let without_bom = source.strip_prefix('\u{feff}').unwrap_or(source);
+    let bom = &source[..source.len() - without_bom.len()];
+    let (envelope, body) = match frontmatter::split_frontmatter_envelope(source) {
+        Some(parts) => parts,
+        None if frontmatter::parse_markdown(source).has_frontmatter => {
+            return Err("invalidFrontmatter")
+        }
+        None => (bom, without_bom),
+    };
+    let crlf = body.contains("\r\n");
+    let native = |text: &str| {
+        let lf = text.replace("\r\n", "\n");
+        if crlf {
+            lf.replace('\n', "\r\n")
+        } else {
+            lf
+        }
+    };
+    let (old, new) = (native(old), native(new));
+    let count = body.matches(old.as_str()).count();
+    match count {
+        0 => return Err("textNotFound"),
+        1 => {}
+        _ if !all => return Err("textNotUnique"),
+        _ => {}
+    }
+    let next = format!("{envelope}{}", body.replace(old.as_str(), &new));
+    // A replacement must not turn the start of a plain note into a header.
+    if envelope == bom && frontmatter::parse_markdown(&next).has_frontmatter {
+        return Err("invalidFrontmatter");
+    }
+    Ok((next, count))
+}
+
 /// Keep the original envelope and existing content. Normalize only the input
 /// fragment to the existing body's text convention.
 fn edit_source(source: &str, input: &str, kind: EditKind) -> Result<String, &'static str> {
@@ -251,6 +326,59 @@ mod tests {
         assert_eq!(second.commit(&root, None, false), Err("revisionConflict"));
         assert_eq!(fs::read_to_string(&path).unwrap(), "original\nfirst");
         assert_eq!(history::list_snapshots(&root, &path).unwrap().len(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_fragment_is_replaced_in_the_body_only_and_must_be_unique() {
+        let source = "---\ntitle: a\n---\nalpha\nbeta\nalpha\n";
+        assert_eq!(
+            replace_in_body(source, "title", "x", false),
+            Err("textNotFound")
+        );
+        assert_eq!(
+            replace_in_body(source, "alpha", "x", false),
+            Err("textNotUnique")
+        );
+        assert_eq!(
+            replace_in_body(source, "alpha", "gamma", true),
+            Ok(("---\ntitle: a\n---\ngamma\nbeta\ngamma\n".to_owned(), 2))
+        );
+        assert_eq!(
+            replace_in_body(source, "beta\n", "", false),
+            Ok(("---\ntitle: a\n---\nalpha\nalpha\n".to_owned(), 1))
+        );
+    }
+
+    #[test]
+    fn a_fragment_follows_the_line_breaks_of_the_note() {
+        let source = "\u{feff}one\r\ntwo\r\nthree\r\n";
+        assert_eq!(
+            replace_in_body(source, "one\ntwo", "1\n2", false),
+            Ok(("\u{feff}1\r\n2\r\nthree\r\n".to_owned(), 1))
+        );
+        assert_eq!(
+            replace_in_body("text\n", "text", "---\na: b\n---", false),
+            Err("invalidFrontmatter")
+        );
+    }
+
+    #[test]
+    fn a_replacement_cannot_overwrite_a_newer_version() {
+        let root = std::env::temp_dir().join(format!("amby-edit-{}", Ulid::generate()));
+        fs::create_dir_all(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        let path = root.join("Note.md");
+        fs::write(&path, "one two").unwrap();
+        let (edit, count) =
+            Edit::prepare_replace(&root, "Note.md", None, "two", "2", false).unwrap();
+        assert_eq!(count, 1);
+        fs::write(&path, "one two three").unwrap();
+        assert_eq!(edit.commit(&root, None, true), Err("revisionConflict"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "one two three");
+        let (edit, _) = Edit::prepare_replace(&root, "Note.md", None, "two", "2", false).unwrap();
+        assert!(edit.commit(&root, None, true).unwrap().is_some());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "one 2 three");
         fs::remove_dir_all(root).unwrap();
     }
 

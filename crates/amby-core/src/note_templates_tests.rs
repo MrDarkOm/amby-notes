@@ -41,20 +41,24 @@ fn enabled(root: &Path) -> (bool, bool) {
 }
 
 #[test]
-fn both_modules_are_on_without_a_workspace_file_and_off_in_minimal() {
-    assert_eq!(enabled(vault(None).path()), (true, true));
+fn templates_are_on_and_daily_notes_opt_in_without_a_workspace_file() {
+    assert_eq!(enabled(vault(None).path()), (true, false));
     let minimal = vault(Some(r#"{"layout":{"activePresetId":"minimal"}}"#));
     assert_eq!(enabled(minimal.path()), (false, false));
 }
 
 #[test]
-fn a_module_list_saved_before_the_note_modules_gets_them() {
+fn a_module_list_saved_before_the_note_modules_gets_templates_only() {
     let old = vault(Some(
         r#"{"profile":{"id":"custom","catalogRevision":"2026-09-20"},"enabledModules":["amby.tags"]}"#,
     ));
-    assert_eq!(enabled(old.path()), (true, true));
+    assert_eq!(enabled(old.path()), (true, false));
     let unrevised = vault(Some(r#"{"profile":{"id":"custom"},"enabledModules":[]}"#));
-    assert_eq!(enabled(unrevised.path()), (true, true));
+    assert_eq!(enabled(unrevised.path()), (true, false));
+    let chosen = vault(Some(
+        r#"{"profile":{"id":"custom","catalogRevision":"2026-09-20"},"enabledModules":["amby.daily"]}"#,
+    ));
+    assert_eq!(enabled(chosen.path()), (true, true));
 }
 
 #[test]

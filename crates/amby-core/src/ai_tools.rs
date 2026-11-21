@@ -59,7 +59,49 @@ pub fn definitions(search: bool) -> Vec<(&'static str, &'static str, Value)> {
     defs
 }
 
-/// `list_tags`, offered by the standalone MCP server only (the desktop chat keeps its own set).
+/// The panel's read tools that name one note (`path` or `id`); each stays inside the scope.
+const PANEL_NOTE_TOOLS: [&str; 6] = [
+    "get_outline",
+    "read_section",
+    "get_properties",
+    "get_note_info",
+    "list_versions",
+    "read_version",
+];
+/// The panel's vault-wide read tools, offered with the conversation's search switch only.
+const PANEL_WIDE_TOOLS: [&str; 3] = ["list_databases", "read_database", "query_database"];
+
+/// The tools the AI panel offers every provider: the base set, `list_tags` with search, the
+/// note-level reads, and the database reads with search. Definitions come from `tool_set`.
+pub fn panel_mcp_definitions(search: bool) -> Vec<Value> {
+    let mut tools = mcp_definitions(search);
+    let shared = |name: &str| crate::tool_set::definition_of(name);
+    if search {
+        tools.extend(shared("list_tags"));
+    }
+    tools.extend(PANEL_NOTE_TOOLS.iter().filter_map(|name| shared(name)));
+    if search {
+        tools.extend(PANEL_WIDE_TOOLS.iter().filter_map(|name| shared(name)));
+    }
+    tools
+}
+
+/// `panel_mcp_definitions` as (name, description, input schema) for function-call providers.
+pub fn panel_definitions(search: bool) -> Vec<(String, String, Value)> {
+    let text = |tool: &Value, key: &str| tool[key].as_str().unwrap_or_default().to_owned();
+    panel_mcp_definitions(search)
+        .into_iter()
+        .map(|tool| {
+            (
+                text(&tool, "name"),
+                text(&tool, "description"),
+                tool["inputSchema"].clone(),
+            )
+        })
+        .collect()
+}
+
+/// `list_tags`, offered by the standalone MCP server and, with search, by the panel.
 pub fn list_tags_definition() -> Value {
     json!({
         "name": "list_tags",
@@ -409,6 +451,35 @@ fn run_tool(
             }
             Ok(json!({"notes": notes, "truncated": truncated}))
         }
+        "get_outline" | "read_section" | "list_versions" | "get_properties" => {
+            crate::tool_set::validate_fields(args, &["path"], &["heading", "occurrence"])?;
+            let (note, _) = indexed_note(conn, root, scope, string_arg(args, "path")?)?;
+            let mut args = args.clone();
+            args["path"] = json!(relative_path(root, &note).ok_or("accessDenied")?);
+            if name == "get_properties" {
+                crate::tool_set::validate_fields(&args, &["path"], &[])?;
+                let path = string_arg(&args, "path")?;
+                return crate::vault_tools::properties::read(conn, root, path);
+            }
+            crate::tool_set::note_read(root, name, &args)
+        }
+        "get_note_info" => {
+            crate::tool_set::validate_fields(args, &["id"], &[])?;
+            let (note, _) = indexed_note(conn, root, scope, string_arg(args, "id")?)?;
+            crate::vault_tools::hygiene::info(conn, root, &note)
+        }
+        "read_version" => {
+            let version = crate::tool_set::note_read(root, name, args)?;
+            // A version belongs to the note it was taken from, and that note sets the scope.
+            indexed_note(conn, root, scope, string_arg(&version, "path")?)?;
+            Ok(version)
+        }
+        "list_databases" | "read_database" | "query_database" => {
+            if !scope.search_enabled {
+                return Err("accessDenied");
+            }
+            crate::tool_set::domain_read(root, name, args)
+        }
         "get_links" => {
             let (note, _) = indexed_note(conn, root, scope, string_arg(args, "id")?)?;
             let id = note.id.as_str();
@@ -474,6 +545,255 @@ mod tests {
             assert_eq!(resolve_note_path(&root, "link.md"), Err("accessDenied"));
         }
         fs::remove_dir_all(root).unwrap();
+    }
+
+    fn panel_vault(name: &str) -> (PathBuf, Connection) {
+        let root = std::env::temp_dir().join(format!("amby-{name}-{}", ulid::Ulid::generate()));
+        fs::create_dir_all(root.join("folder")).unwrap();
+        // The desktop's vault root is canonical; so is the one the property reader compares.
+        let root = fs::canonicalize(root).unwrap();
+        let notes = [
+            (
+                "a",
+                "folder/a.md",
+                "---\ntitle: A\nstatus: open\n---\n# One\ntext\n## Two\nmore\n",
+            ),
+            ("b", "b.md", "# Secret\nhidden\n"),
+        ];
+        let conn = Connection::open_in_memory().unwrap();
+        crate::index::init_schema(&conn).unwrap();
+        for (id, path, body) in notes {
+            fs::write(root.join(path), body).unwrap();
+            conn.execute("INSERT INTO notes (id,path,title,mtime,size,content,word_count,created_at,updated_at) VALUES (?1,?2,?1,0,0,?3,1,0,0)", rusqlite::params![id,path,body]).unwrap();
+        }
+        (root, conn)
+    }
+
+    fn scoped(folder: &str, search: bool) -> ToolScope {
+        ToolScope {
+            search_enabled: search,
+            note_ids: HashSet::new(),
+            folders: vec![folder.into()],
+        }
+    }
+
+    fn call(conn: &Connection, root: &Path, scope: &ToolScope, name: &str, args: Value) -> Value {
+        ToolBudget::default().execute(conn, root, scope, name, &args)
+    }
+
+    #[test]
+    fn panel_reads_stay_inside_the_context_scope() {
+        let (root, conn) = panel_vault("panel-scope");
+        let scope = scoped("folder", false);
+        for (name, inside, outside) in [
+            (
+                "get_outline",
+                json!({"path":"folder/a.md"}),
+                json!({"path":"b.md"}),
+            ),
+            (
+                "read_section",
+                json!({"path":"folder/a.md","heading":"Two"}),
+                json!({"path":"b.md","heading":"Secret"}),
+            ),
+            (
+                "get_properties",
+                json!({"path":"folder/a.md"}),
+                json!({"path":"b.md"}),
+            ),
+            (
+                "list_versions",
+                json!({"path":"folder/a.md"}),
+                json!({"path":"b.md"}),
+            ),
+            ("get_note_info", json!({"id":"a"}), json!({"id":"b"})),
+        ] {
+            let ok = call(&conn, &root, &scope, name, inside);
+            assert!(ok.get("error").is_none(), "{name}: {ok}");
+            assert_eq!(
+                call(&conn, &root, &scope, name, outside)["error"],
+                "accessDenied",
+                "{name}"
+            );
+        }
+        let outline = call(
+            &conn,
+            &root,
+            &scope,
+            "get_outline",
+            json!({"path":"folder/a.md"}),
+        );
+        assert_eq!(outline["headings"].as_array().unwrap().len(), 2);
+        let section = call(
+            &conn,
+            &root,
+            &scope,
+            "read_section",
+            json!({"path":"folder/a.md","heading":"Two"}),
+        );
+        assert!(section["content"].as_str().unwrap().contains("more"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn panel_vault_wide_reads_need_the_search_switch() {
+        let (root, conn) = panel_vault("panel-wide");
+        let narrow = scoped("folder", false);
+        let wide = scoped("folder", true);
+        for name in ["list_tags", "list_databases"] {
+            assert_eq!(
+                call(&conn, &root, &narrow, name, json!({}))["error"],
+                "accessDenied",
+                "{name}"
+            );
+        }
+        for (name, args) in [
+            ("read_database", json!({"databaseId":"x"})),
+            ("query_database", json!({"databaseId":"x"})),
+        ] {
+            assert_eq!(
+                call(&conn, &root, &narrow, name, args)["error"],
+                "accessDenied",
+                "{name}"
+            );
+        }
+        assert!(call(&conn, &root, &wide, "list_tags", json!({}))
+            .get("error")
+            .is_none());
+        assert!(
+            call(&conn, &root, &wide, "get_outline", json!({"path":"b.md"}))
+                .get("error")
+                .is_none()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn panel_versions_follow_the_note_scope_and_writes_do_not_exist() {
+        let (root, conn) = panel_vault("panel-versions");
+        let id_of = |path: &str| {
+            crate::history::snapshot_before_write(&root, &root.join(path), b"changed", "ai-edit")
+                .unwrap()
+                .unwrap()
+        };
+        let (inside, outside) = (id_of("folder/a.md"), id_of("b.md"));
+        let scope = scoped("folder", false);
+        let read = call(&conn, &root, &scope, "read_version", json!({"id":inside}));
+        assert_eq!(read["path"], "folder/a.md");
+        assert!(read["content"].as_str().unwrap().contains("# One"));
+        assert_eq!(
+            call(&conn, &root, &scope, "read_version", json!({"id":outside}))["error"],
+            "accessDenied"
+        );
+        let list = call(
+            &conn,
+            &root,
+            &scope,
+            "list_versions",
+            json!({"path":"folder/a.md"}),
+        );
+        assert_eq!(list["versions"][0]["reason"], "ai-edit");
+        let wide = scoped("folder", true);
+        for name in [
+            "edit_note",
+            "restore_version",
+            "set_property",
+            "delete_item",
+            "open_in_amby",
+        ] {
+            assert_eq!(
+                call(&conn, &root, &wide, name, json!({}))["error"],
+                "unknownTool",
+                "{name}"
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn panel_reads_are_strict_and_count_against_the_budget() {
+        let (root, conn) = panel_vault("panel-budget");
+        let scope = scoped("folder", true);
+        let mut budget = ToolBudget::default();
+        let args = json!({"path":"folder/a.md","extra":1});
+        assert_eq!(
+            budget.execute(&conn, &root, &scope, "get_outline", &args)["error"],
+            "invalidArguments"
+        );
+        for _ in 0..7 {
+            budget.execute(
+                &conn,
+                &root,
+                &scope,
+                "get_outline",
+                &json!({"path":"folder/a.md"}),
+            );
+        }
+        assert!(budget.exhausted());
+        assert_eq!(
+            budget.execute(
+                &conn,
+                &root,
+                &scope,
+                "get_outline",
+                &json!({"path":"folder/a.md"})
+            )["error"],
+            "budgetExceeded"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn panel_tool_list_is_one_definition_with_the_mcp_server() {
+        let names = |search| -> Vec<String> {
+            panel_definitions(search)
+                .into_iter()
+                .map(|(name, _, _)| name)
+                .collect()
+        };
+        assert_eq!(
+            names(false),
+            [
+                "read_note",
+                "get_links",
+                "get_outline",
+                "read_section",
+                "get_properties",
+                "get_note_info",
+                "list_versions",
+                "read_version"
+            ]
+        );
+        assert_eq!(
+            names(true),
+            [
+                "read_note",
+                "get_links",
+                "search_notes",
+                "list_folder",
+                "list_tags",
+                "get_outline",
+                "read_section",
+                "get_properties",
+                "get_note_info",
+                "list_versions",
+                "read_version",
+                "list_databases",
+                "read_database",
+                "query_database"
+            ]
+        );
+        let mcp = panel_mcp_definitions(true);
+        assert_eq!(mcp.len(), 14);
+        for tool in &mcp {
+            assert_eq!(tool["annotations"]["readOnlyHint"], true);
+            assert_eq!(tool["annotations"]["destructiveHint"], false);
+        }
+        for (name, description, schema) in panel_definitions(true) {
+            let shared = crate::tool_set::definition_of(&name).unwrap();
+            assert_eq!(shared["description"], description);
+            assert_eq!(shared["inputSchema"], schema);
+        }
     }
 
     #[test]

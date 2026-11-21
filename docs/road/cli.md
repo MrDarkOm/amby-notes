@@ -125,8 +125,8 @@ The expanded stdio tool surface has its own [MCP implementation plan](mcp.md).
   AppImage runs it through `--amby-cli`. Development bundles use
   `npm run build:desktop`. See [installation](../cli.md#installation) for shell
   access on macOS, Windows and Linux.
-- A Settings shortcut for adding the command to PATH remains a separate
-  feature.
+- Settings → General → Command line puts the command on PATH and removes it
+  (2026-11-20; see [installation](../cli.md#installation)).
 - A separate headless Linux build of `amby` — after step 0, if there is demand.
 
 ## 8. Owner decisions

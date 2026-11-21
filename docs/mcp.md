@@ -117,6 +117,39 @@ note first if needed. Both need a grant that contains the note, and `daily_note`
 creates a missing daily folder only inside the grant. A switched-off module hides its
 tools and refuses them with `moduleDisabled`.
 
+## Working inside a note
+
+`edit_note` replaces an exact fragment of a note's body (`oldText` → `newText`)
+without rewriting the rest. The fragment must occur once (`textNotUnique`
+otherwise) unless `replaceAll` is true; a missing fragment is `textNotFound`. The
+YAML header is never edited here: use the property tools. Line breaks in both
+texts follow the note's own, so a fragment copied from `read_note` matches a CRLF
+note. `dryRun` returns a unified diff; the result has `replacements`. Like
+`write_note`, it needs a grant that contains the note, keeps the previous text as
+an `ai-edit` version, and refuses with `revisionConflict` if the note changed
+between reading and publishing.
+
+`get_outline` lists a note's ATX headings with `level`, `text` and 1-based `line`
+(headings in fenced code and in the header are skipped). `read_section` returns
+one heading line and everything under it up to the next heading of the same or a
+higher level, as `content` with `startLine` and `endLine`. Headings are compared
+without case; equal headings need `occurrence` (`headingNotUnique` otherwise).
+
+## Versions
+
+`list_versions` lists up to 50 versions history keeps of a note, newest first,
+with `id`, `createdAtMs`, `reason` (`ai-edit`, `cli-edit`, `restore`, …) and
+`sizeBytes`; `total` counts all. `read_version` returns a version's text, up to
+256 KiB. `restore_version` puts a version back as the note's text after keeping
+the current text as a `restore` version, so a restore can itself be undone. It
+needs a grant that contains the note; `dryRun` reports `changed` without writing.
+
+## Opening in Amby
+
+`open_in_amby` shows a visible note in desktop Amby, starting it if needed, and
+returns `requested`. Nothing in the vault changes, so it is available without a
+write grant; `desktopUnavailable` means no desktop app was found.
+
 ## Prompts
 
 The server advertises `prompts`: `summarize_tag` (`tag`), `tidy_folder` (`folder`),
@@ -130,6 +163,11 @@ grant must contain the whole item, and the granted folder itself cannot be delet
 A preview returns `affectedPaths`. If the trash refuses the item, nothing is removed
 and the tool returns `trashUnavailable`. There is no permanent deletion.
 
+`delete_database_row` (`databaseId`, `noteId`, optional `dryRun`) moves a row's note
+of a writable database to the trash in the same way. The row must be inside the
+grant (`outsideWriteScope` otherwise); relation values in other rows that point to
+it are not changed.
+
 ## Resources
 
 The server advertises the `resources` capability. `resources/list` pages through the
@@ -137,6 +175,11 @@ visible notes, 100 at a time, as `amby://vault/<percent-encoded path>` with the
 `text/markdown` type; pass `nextCursor` back as `cursor`. `resources/read` returns the
 note text, up to 4 MiB. Service folders, hidden paths and symbolic links are never
 listed or read.
+
+Clients may `resources/subscribe` to up to 100 notes (`resources/unsubscribe` ends
+one). The server checks them about once a second and sends
+`notifications/resources/updated` with the `uri` when a note is written, deleted or
+created again, whoever changed it.
 
 ## Workspace modules
 
