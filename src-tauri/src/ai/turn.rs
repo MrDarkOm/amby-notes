@@ -25,8 +25,6 @@ pub struct AiTurnRequest {
     pub initial_sources: Vec<ChatSource>,
     pub search_enabled: bool,
     pub supports_tools: bool,
-    /// The conversation's switch: proposals may reach the whole vault, not only the context.
-    pub write_vault: bool,
     pub stream_id: String,
 }
 
@@ -108,7 +106,8 @@ fn proposal_sink(app: &tauri::AppHandle, generation: u64) -> ProposalSink {
 fn write_mode(request: &AiTurnRequest) -> Writes {
     if !request.supports_tools {
         Writes::Off
-    } else if request.write_vault {
+    } else if request.search_enabled {
+        // The tree switch: the whole vault is in view, for search and for changes.
         Writes::Vault
     } else {
         Writes::Context
@@ -1112,7 +1111,7 @@ mod tests {
 
     #[test]
     fn write_tools_are_always_offered_to_a_model_with_tools() {
-        let request = |supports_tools, write_vault, notes: &[&str]| AiTurnRequest {
+        let request = |supports_tools, search_enabled, notes: &[&str]| AiTurnRequest {
             generation: 1,
             config: AiConfig {
                 provider: "openai".into(),
@@ -1129,9 +1128,8 @@ mod tests {
             note_ids: notes.iter().map(|id| (*id).to_owned()).collect(),
             folders: vec![],
             initial_sources: vec![],
-            search_enabled: false,
+            search_enabled,
             supports_tools,
-            write_vault,
             stream_id: "s".into(),
         };
         assert_eq!(write_mode(&request(true, false, &[])), Writes::Context);

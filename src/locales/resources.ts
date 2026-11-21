@@ -2056,7 +2056,8 @@ const ru = {
     addMention: "Добавить заметку или папку",
     noMentions: "Ничего не найдено",
     searchVault: "Поиск по хранилищу",
-    writeVault: "ИИ может предлагать правки по всему хранилищу, а не только в заметках контекста",
+    searchVaultHint:
+      "Всё хранилище: ИИ ищет и может предлагать правки в любых заметках, а не только в контексте",
     approval: {
       title: "Как применять правки ИИ",
       manual: {
@@ -6464,8 +6465,8 @@ const en: LocaleShape<typeof ru> = {
     addMention: "Add a note or folder",
     noMentions: "No matches",
     searchVault: "Search the vault",
-    writeVault:
-      "Let the AI propose changes anywhere in the vault, not only in the notes in context",
+    searchVaultHint:
+      "The whole vault: the AI searches and can propose changes in any note, not only in the context",
     approval: {
       title: "How the AI's changes are applied",
       manual: { label: "Manual approval", hint: "You apply each change yourself on its card." },

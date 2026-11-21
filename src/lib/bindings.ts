@@ -2363,11 +2363,7 @@ export type AiMessage = {
  * "user" | "assistant"
  */
 role: string; content: string }
-export type AiTurnRequest = { generation: number; config: AiConfig; messages: AiMessage[]; system: string | null; noteIds: string[]; folders: string[]; initialSources: ChatSource[]; searchEnabled: boolean; supportsTools: boolean; 
-/**
- * The conversation's switch: proposals may reach the whole vault, not only the context.
- */
-writeVault: boolean; streamId: string }
+export type AiTurnRequest = { generation: number; config: AiConfig; messages: AiMessage[]; system: string | null; noteIds: string[]; folders: string[]; initialSources: ChatSource[]; searchEnabled: boolean; supportsTools: boolean; streamId: string }
 export type AiTurnResult = { content: string; steps: ChatStep[]; sources: ChatSource[] }
 /**
  * Webview-owned Tauri updater resource; signed download details stay on the native side.

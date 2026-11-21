@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowLeft, History, Settings2, SquarePen } from "lucide-react"
+import { ArrowLeft, MessagesSquare, Settings2, SquarePen } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -121,9 +121,6 @@ export function AiPanel({
     if (mode === "turbo" && !(await confirm(confirmations.aiTurbo()))) return
     useProposalStore.getState().setMode(chat.id, mode)
   }
-  const writeVault = useProposalStore((state) =>
-    chat ? state.vaultWrites[chat.id] === true : false,
-  )
   const context = chat?.context
   // What the panel reads of the open notes: titles, and the lengths only while the attached notes come near
   // the limit. Typing far from it republishes `content` without changing this string, so it does not render.
@@ -371,7 +368,6 @@ export function AiPanel({
           initialSources: attached.sources,
           supportsTools: modelSupportsTools(selected),
           searchEnabled,
-          writeVault: useProposalStore.getState().vaultWrites[chatId] === true,
           signal: run.controller.signal,
           onToken: (delta) => {
             if (!run.finalized) {
@@ -676,7 +672,7 @@ export function AiPanel({
               onClick={openChatList}
               className="size-8 shrink-0 text-muted-foreground hover:bg-accent hover:text-white"
             >
-              <History className="size-3.5" />
+              <MessagesSquare className="size-4" />
             </Button>
           ) : undefined
         }
@@ -785,10 +781,8 @@ export function AiPanel({
             chat={chat}
             flat={flat}
             openDocs={openDocs}
-            writeVault={writeVault}
             approvalMode={approvalMode}
             onApprovalMode={(mode) => void chooseApprovalMode(mode)}
-            onWriteVault={(on) => chat && useProposalStore.getState().setVaultWrites(chat.id, on)}
             truncated={truncated}
             vault={vault}
             currentDoc={currentDoc}

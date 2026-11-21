@@ -125,8 +125,6 @@ export interface AiTurnOptions extends AiChatOptions {
   folders: string[]
   initialSources: ChatSource[]
   searchEnabled: boolean
-  /** Proposals may reach the whole vault, not only the notes in the context. */
-  writeVault?: boolean
   supportsTools: boolean
   onEvent?: (event: AiTurnEvent) => void
 }
@@ -258,7 +256,6 @@ export async function aiRunTurn(
       initialSources: opts.initialSources,
       searchEnabled: opts.searchEnabled,
       supportsTools: opts.supportsTools,
-      writeVault: opts.writeVault ?? false,
       streamId,
     })
     if (opts.signal?.aborted) throw new Error("Request cancelled")

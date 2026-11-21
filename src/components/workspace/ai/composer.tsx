@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowUp, FileText, Folder, FolderTree, PencilLine, Plus, Square, X } from "lucide-react"
+import { ArrowUp, FileText, Folder, FolderTree, Plus, Square, X } from "lucide-react"
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
 import { ApprovalModeButton } from "./approval-mode"
 import type { ApprovalMode } from "./use-proposal-store"
@@ -220,16 +220,11 @@ export function Composer({
   onPickMention,
   onModel,
   onManage,
-  writeVault = false,
-  onWriteVault,
   approvalMode = "manual",
   onApprovalMode,
 }: {
   approvalMode?: ApprovalMode
   onApprovalMode?: (mode: ApprovalMode) => void
-  /** The conversation's switch: the AI may propose changes anywhere in the vault. */
-  writeVault?: boolean
-  onWriteVault?: (on: boolean) => void
   chat: Chat | null
   flat: TreeItem[]
   openDocs: Record<string, OpenDoc | undefined>
@@ -297,6 +292,9 @@ export function Composer({
                 <span className="truncate">{t("ai.addContext")}</span>
               </button>
             )}
+            {chat && !chat.autoCurrent && currentDoc && choices.length > 0 && (
+              <div role="separator" className="mx-1 my-1 h-px bg-border" />
+            )}
             {choices.length
               ? choices.map((item) => (
                   <button
@@ -322,7 +320,7 @@ export function Composer({
         )}
         <div data-composer-line className="mb-1.5 flex w-full min-w-0 items-center gap-1.5">
           <label
-            title={!tools ? t("ai.toolsDisabled") : t("ai.searchVault")}
+            title={!tools ? t("ai.toolsDisabled") : t("ai.searchVaultHint")}
             className={cn(
               "inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md",
               searchOn
@@ -343,28 +341,6 @@ export function Composer({
             <FolderTree className="size-3.5" aria-hidden="true" />
             <span className="sr-only">{t("ai.searchVault")}</span>
           </label>
-          {onWriteVault && (
-            <label
-              title={!tools ? t("ai.toolsDisabled") : t("ai.writeVault")}
-              className={cn(
-                "inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md",
-                writeVault && tools
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                (!tools || loading || !chat) && "cursor-default opacity-40 hover:bg-transparent",
-              )}
-            >
-              <input
-                type="checkbox"
-                className="sr-only"
-                disabled={!tools || loading || !chat}
-                checked={writeVault && tools}
-                onChange={(event) => onWriteVault(event.target.checked)}
-              />
-              <PencilLine className="size-3.5" aria-hidden="true" />
-              <span className="sr-only">{t("ai.writeVault")}</span>
-            </label>
-          )}
           {chat && chat.context.length > 0 ? (
             <ContextChips
               getPanel={() => root.current}

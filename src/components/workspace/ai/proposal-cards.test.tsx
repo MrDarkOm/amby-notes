@@ -148,13 +148,10 @@ describe("proposal cards", () => {
     expect(action).toHaveBeenCalledWith("apply", 3, "p1", [])
   })
 
-  it("keeps the whole-vault switch per chat and off by default", () => {
-    expect(useProposalStore.getState().vaultWrites["chat"]).toBeUndefined()
-    useProposalStore.getState().setVaultWrites("chat", true)
-    expect(useProposalStore.getState().vaultWrites["chat"]).toBe(true)
-    expect(useProposalStore.getState().vaultWrites["other"]).toBeUndefined()
+  it("keeps the approval mode per chat, manual by default", () => {
     expect(useProposalStore.getState().modes["chat"]).toBeUndefined()
     useProposalStore.getState().setMode("chat", "turbo")
     expect(useProposalStore.getState().modes["chat"]).toBe("turbo")
+    expect(useProposalStore.getState().modes["other"]).toBeUndefined()
   })
 })

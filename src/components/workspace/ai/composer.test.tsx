@@ -314,26 +314,6 @@ describe("Attached notes", () => {
   })
 })
 
-describe("Composer write switch", () => {
-  it("is off by default, reports its change and is disabled without tools", () => {
-    const onWriteVault = vi.fn()
-    show({ onWriteVault })
-    const toggle = screen.getByRole("checkbox", { name: /предлагать правки по всему хранилищу/ })
-    expect((toggle as HTMLInputElement).checked).toBe(false)
-    fireEvent.click(toggle)
-    expect(onWriteVault).toHaveBeenCalledWith(true)
-    cleanup()
-    show({ onWriteVault, tools: false })
-    expect(
-      (
-        screen.getByRole("checkbox", {
-          name: /предлагать правки по всему хранилищу/,
-        }) as HTMLInputElement
-      ).disabled,
-    ).toBe(true)
-  })
-})
-
 describe("Composer approval mode", () => {
   it("puts the model row under the writing box, with the mode button right of the picker", () => {
     const onApprovalMode = vi.fn()
@@ -372,5 +352,28 @@ describe("Composer current note", () => {
   it("does not offer it when the current note is already followed", () => {
     show({ input: "@", mentionOpen: true, choices: [] })
     expect(screen.queryByRole("option", { name: /Добавить текущую заметку/ })).toBeNull()
+  })
+})
+
+describe("Composer plus list", () => {
+  it("separates the current note from the other notes", () => {
+    const detached: Chat = { ...chat, autoCurrent: false, context: [] }
+    show({
+      chat: detached,
+      input: "@",
+      mentionOpen: true,
+      choices: [{ id: "x", path: "/v/X.md", name: "X.md", type: "file" }],
+    })
+    const current = screen.getByRole("option", { name: /Добавить текущую заметку/ })
+    const other = screen.getByRole("option", { name: /X\.md/ })
+    const divider = screen.getByRole("separator")
+    expect(before(current, divider)).toBe(true)
+    expect(before(divider, other)).toBe(true)
+  })
+
+  it("has no separate write switch: the tree switch is the only one for the whole vault", () => {
+    show()
+    expect(screen.queryByRole("checkbox", { name: /правки по всему хранилищу/ })).toBeNull()
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1)
   })
 })
