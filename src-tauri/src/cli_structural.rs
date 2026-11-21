@@ -52,7 +52,7 @@ pub fn start(app: &tauri::AppHandle) {
     });
 }
 
-fn handle(app: &tauri::AppHandle, request: Request) -> Result<Payload, &'static str> {
+pub(crate) fn handle(app: &tauri::AppHandle, request: Request) -> Result<Payload, &'static str> {
     let context = app.state::<VaultContext>();
     let _gate = context.mutation_gate.lock_or_recover();
     let active = context.conn.lock_or_recover();

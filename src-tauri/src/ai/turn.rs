@@ -9,7 +9,7 @@ use tauri::Emitter;
 
 use super::chats::{ChatSource, ChatStep};
 use super::provider_stream::{StreamDecoder, ToolCall};
-use super::tools::{panel_mcp_definitions as mcp_tools, ToolBudget, ToolScope};
+use super::tools::{panel_mcp_definitions_with as mcp_tools, ToolBudget, ToolScope, Writes};
 use super::{AiChatError, AiConfig, AiErrorCode, AiMessage, AiStreamState, StreamGuard};
 use crate::vault_context::VaultContext;
 
@@ -25,6 +25,8 @@ pub struct AiTurnRequest {
     pub initial_sources: Vec<ChatSource>,
     pub search_enabled: bool,
     pub supports_tools: bool,
+    /// The conversation's switch: proposals may reach the whole vault, not only the context.
+    pub write_vault: bool,
     pub stream_id: String,
 }
 
@@ -75,11 +77,43 @@ fn check(
     }
 }
 
-fn definitions(search: bool, anthropic: bool) -> Vec<Value> {
-    super::tools::panel_definitions(search).into_iter().map(|(name, description, schema)| {
-        if anthropic { json!({"name":name,"description":description,"input_schema":schema}) }
-        else { json!({"type":"function","function":{"name":name,"description":description,"parameters":schema}}) }
-    }).collect()
+fn definitions(search: bool, writes: Writes, anthropic: bool) -> Vec<Value> {
+    mcp_tools(search, writes)
+        .into_iter()
+        .map(|tool| {
+            let (name, description, schema) = (&tool["name"], &tool["description"], &tool["inputSchema"]);
+            if anthropic {
+                json!({"name":name,"description":description,"input_schema":schema})
+            } else {
+                json!({"type":"function","function":{"name":name,"description":description,"parameters":schema}})
+            }
+        })
+        .collect()
+}
+
+fn proposal_sink(app: &tauri::AppHandle, generation: u64) -> ProposalSink {
+    let app = app.clone();
+    std::sync::Arc::new(move |proposal| {
+        use tauri::Manager;
+        let card = app
+            .state::<super::proposals::ProposalStore>()
+            .insert(generation, proposal);
+        super::proposals::card_json(&card)
+    })
+}
+
+/// What the panel's write tools may reach in this turn. They are only offered where a
+/// proposal could land: in the context, or anywhere with the conversation's switch.
+fn write_mode(request: &AiTurnRequest) -> Writes {
+    if !request.supports_tools {
+        Writes::Off
+    } else if request.write_vault {
+        Writes::Vault
+    } else if request.note_ids.is_empty() && request.folders.is_empty() {
+        Writes::Off
+    } else {
+        Writes::Context
+    }
 }
 
 fn initial_messages(family: &str, messages: &[AiMessage], system: Option<&str>) -> Vec<Value> {
@@ -103,6 +137,7 @@ fn request_body(
     system: Option<&str>,
     tools: bool,
     search: bool,
+    writes: Writes,
 ) -> Value {
     let anthropic = config.provider == "anthropic";
     let mut body = json!({"model": config.model, "messages": messages, "stream": true});
@@ -120,7 +155,7 @@ fn request_body(
         }
     }
     if tools {
-        body["tools"] = json!(definitions(search, anthropic));
+        body["tools"] = json!(definitions(search, writes, anthropic));
     }
     body
 }
@@ -194,6 +229,7 @@ struct ProviderRound<'a> {
     system: Option<&'a str>,
     tools: bool,
     search: bool,
+    writes: Writes,
 }
 
 async fn provider_round(
@@ -209,6 +245,7 @@ async fn provider_round(
         system,
         tools,
         search,
+        writes,
     } = round;
     check(context, generation, rx)?;
     let family = config.provider.as_str();
@@ -236,7 +273,7 @@ async fn provider_round(
         }
         _ => return Err("invalidConfiguration"),
     };
-    let body = request_body(config, messages, system, tools, search);
+    let body = request_body(config, messages, system, tools, search, writes);
     let mut response = None;
     for (index, url) in urls.iter().enumerate() {
         let mut request = turn_client().post(url.clone()).json(&body);
@@ -335,7 +372,12 @@ struct TurnEngine {
     steps: Vec<ChatStep>,
     sources: Vec<ChatSource>,
     seen_sources: HashSet<String>,
+    /// Keeps each proposal the write tools make and returns its card; set by the desktop.
+    proposal_sink: Option<ProposalSink>,
 }
+
+type ProposalSink =
+    std::sync::Arc<dyn Fn(amby_core::ai_proposals::Proposal) -> Value + Send + Sync>;
 
 impl TurnEngine {
     fn new(family: &str, messages: Vec<Value>, sources: Vec<ChatSource>) -> Self {
@@ -348,6 +390,7 @@ impl TurnEngine {
             steps: Vec::new(),
             sources,
             seen_sources,
+            proposal_sink: None,
         }
     }
 
@@ -407,6 +450,11 @@ impl TurnEngine {
             .collect::<String>();
         emit("toolStart", json!({"tool":call.name,"query":query}));
         let mut value = execute(&mut self.budget, call)?;
+        for proposal in self.budget.take_proposals() {
+            if let Some(sink) = &self.proposal_sink {
+                emit("proposal", sink(proposal));
+            }
+        }
         let mut ids: Vec<String> = value
             .get("notes")
             .and_then(Value::as_array)
@@ -500,7 +548,7 @@ struct VaultToolHost {
 
 impl super::codex::mcp::ToolHost for VaultToolHost {
     fn tools(&self) -> Vec<Value> {
-        mcp_tools(self.search)
+        mcp_tools(self.search, self.scope.writes)
     }
 
     fn call(&self, name: &str, arguments: &Value) -> Value {
@@ -575,12 +623,14 @@ async fn cli_agent_turn(
                 search_enabled: search,
                 note_ids: request.note_ids.iter().cloned().collect(),
                 folders: request.folders.clone(),
+                writes: write_mode(request),
             },
-            engine: std::sync::Mutex::new(TurnEngine::new(
-                provider,
-                Vec::new(),
-                request.initial_sources.clone(),
-            )),
+            engine: std::sync::Mutex::new({
+                let mut engine =
+                    TurnEngine::new(provider, Vec::new(), request.initial_sources.clone());
+                engine.proposal_sink = Some(proposal_sink(&app, request.generation));
+                engine
+            }),
             events: events.clone(),
             cancel: rx.clone(),
         });
@@ -600,6 +650,7 @@ async fn cli_agent_turn(
                     &launch::TurnRequest {
                         bridge_port: server.addr.port(),
                         search,
+                        writes: write_mode(request) != Writes::Off,
                         messages: &request.messages,
                         system: request.system.as_deref(),
                         model: Some(request.config.model.as_str()),
@@ -757,12 +808,14 @@ pub async fn ai_run_turn(
         search_enabled: request.search_enabled && request.supports_tools,
         note_ids: request.note_ids.iter().cloned().collect(),
         folders: request.folders.clone(),
+        writes: write_mode(&request),
     };
     let mut engine = TurnEngine::new(
         &provider,
         initial_messages(&provider, &request.messages, request.system.as_deref()),
         request.initial_sources.clone(),
     );
+    engine.proposal_sink = Some(proposal_sink(&app, request.generation));
     let result: Result<(), &'static str> = async {
         loop {
             let allow_tools = request.supports_tools && !engine.budget.exhausted();
@@ -775,6 +828,7 @@ pub async fn ai_run_turn(
                     system: request.system.as_deref(),
                     tools: allow_tools,
                     search: scope.search_enabled,
+                    writes: scope.writes,
                 },
                 &mut rx,
                 &mut events,
@@ -837,7 +891,7 @@ mod tests {
     #[test]
     fn ai1_r5_disabled_search_omits_discovery_tools_for_all_families() {
         for anthropic in [false, true] {
-            let defs = definitions(false, anthropic);
+            let defs = definitions(false, Writes::Off, anthropic);
             let text = serde_json::to_string(&defs).unwrap();
             assert!(text.contains("read_note"));
             assert!(text.contains("get_links"));
@@ -930,6 +984,7 @@ mod tests {
             search_enabled: true,
             note_ids: ["n".into()].into_iter().collect(),
             folders: vec![],
+            writes: Writes::Off,
         };
         let mut engine = TurnEngine::new("openai", vec![], vec![]);
         let actions = [
@@ -1011,7 +1066,7 @@ mod tests {
     #[test]
     fn codex_gets_the_same_read_only_tools_in_mcp_form() {
         let names = |search| {
-            mcp_tools(search)
+            mcp_tools(search, Writes::Off)
                 .iter()
                 .map(|tool| tool["name"].as_str().unwrap().to_owned())
                 .collect::<Vec<_>>()
@@ -1041,7 +1096,7 @@ mod tests {
 
     #[test]
     fn every_mcp_tool_is_described_and_marked_read_only_and_closed_world() {
-        for tool in mcp_tools(true) {
+        for tool in mcp_tools(true, Writes::Off) {
             assert!(tool["description"]
                 .as_str()
                 .is_some_and(|text| !text.is_empty()));
@@ -1054,5 +1109,43 @@ mod tests {
                 assert!(tool.get(leaked).is_none(), "{leaked} leaked into {tool}");
             }
         }
+    }
+
+    #[test]
+    fn write_tools_are_offered_only_where_a_proposal_could_land() {
+        let request = |supports_tools, write_vault, notes: &[&str]| AiTurnRequest {
+            generation: 1,
+            config: AiConfig {
+                provider: "openai".into(),
+                internal_model_id: None,
+                model: "m".into(),
+                base_url: String::new(),
+                credential_id: None,
+                api_key: None,
+                max_tokens: None,
+                api_version: None,
+            },
+            messages: vec![],
+            system: None,
+            note_ids: notes.iter().map(|id| (*id).to_owned()).collect(),
+            folders: vec![],
+            initial_sources: vec![],
+            search_enabled: false,
+            supports_tools,
+            write_vault,
+            stream_id: "s".into(),
+        };
+        assert_eq!(write_mode(&request(true, false, &[])), Writes::Off);
+        assert_eq!(write_mode(&request(true, false, &["n"])), Writes::Context);
+        assert_eq!(write_mode(&request(true, true, &[])), Writes::Vault);
+        assert_eq!(write_mode(&request(false, true, &["n"])), Writes::Off);
+        let names = |writes| -> Vec<String> {
+            definitions(false, writes, false)
+                .iter()
+                .map(|tool| tool["function"]["name"].as_str().unwrap().to_owned())
+                .collect()
+        };
+        assert!(!names(Writes::Off).contains(&"edit_note".to_owned()));
+        assert!(names(Writes::Context).contains(&"edit_note".to_owned()));
     }
 }

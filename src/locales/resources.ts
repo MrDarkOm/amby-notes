@@ -2050,6 +2050,32 @@ const ru = {
     addMention: "Добавить заметку или папку",
     noMentions: "Ничего не найдено",
     searchVault: "Поиск по хранилищу",
+    writeVault: "ИИ может предлагать правки по всему хранилищу, а не только в заметках контекста",
+    proposal: {
+      title: "Предложенная правка: {{path}}",
+      kind: { new: "Новая заметка", append: "Добавить в конец", replace: "Замена фрагмента" },
+      truncated: "Показано не всё изменение.",
+      waitForSave:
+        "Заметка открыта с несохранёнными правками. Сохраните её, и правку можно будет применить.",
+      apply: "Применить",
+      reject: "Отклонить",
+      undo: "Отменить",
+      state: {
+        applied: "Применено. Прежний текст сохранён в истории заметки.",
+        rejected: "Отклонено.",
+        undone: "Отменено.",
+        outdated: "Заметка изменилась после предложения, ничего не записано.",
+      },
+      error: {
+        noteHasUnsavedEdits: "Заметка открыта с несохранёнными правками. Сначала сохраните её.",
+        changedSince:
+          "Заметка изменилась после применения, поэтому отменить нельзя. Прежний текст есть в её истории.",
+        proposalNotFound: "Предложение устарело. Попросите ИИ повторить его.",
+        proposalNotPending: "Предложение уже обработано.",
+        vaultNotActive: "Это хранилище уже закрыто.",
+        other: "Не удалось выполнить действие. Заметка не изменена.",
+      },
+    },
     toolsDisabled:
       "Модель не поддерживает инструменты. Включите их у модели в Настройки → Модули → AI (значок гаечного ключа).",
     localModel: "локально",
@@ -6399,6 +6425,32 @@ const en: LocaleShape<typeof ru> = {
     addMention: "Add a note or folder",
     noMentions: "No matches",
     searchVault: "Search the vault",
+    writeVault:
+      "Let the AI propose changes anywhere in the vault, not only in the notes in context",
+    proposal: {
+      title: "Proposed change: {{path}}",
+      kind: { new: "New note", append: "Add to the end", replace: "Replace a fragment" },
+      truncated: "Only part of the change is shown.",
+      waitForSave: "The note is open with unsaved edits. Save it, then the change can be applied.",
+      apply: "Apply",
+      reject: "Reject",
+      undo: "Undo",
+      state: {
+        applied: "Applied. The previous text is kept in the note's history.",
+        rejected: "Rejected.",
+        undone: "Undone.",
+        outdated: "The note changed after the proposal, so nothing was written.",
+      },
+      error: {
+        noteHasUnsavedEdits: "The note is open with unsaved edits. Save it first.",
+        changedSince:
+          "The note changed after the change was applied, so it cannot be undone here. The previous text is in its history.",
+        proposalNotFound: "The proposal has expired. Ask the AI to propose it again.",
+        proposalNotPending: "This proposal was already handled.",
+        vaultNotActive: "That vault is no longer open.",
+        other: "The action failed. The note is unchanged.",
+      },
+    },
     toolsDisabled:
       "This model does not support tools. Turn them on for the model in Settings → Modules → AI (wrench icon).",
     localModel: "local",

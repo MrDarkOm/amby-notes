@@ -161,6 +161,7 @@ impl ReadVault {
             search_enabled: true,
             note_ids: HashSet::new(),
             folders: Vec::new(),
+            writes: crate::ai_tools::Writes::Off,
         };
         ToolBudget::default().execute(self.conn(), &self.root, &scope, name, args)
     }

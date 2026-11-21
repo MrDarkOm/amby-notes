@@ -5,7 +5,7 @@ use super::*;
 use tokio::io::AsyncWriteExt;
 
 fn allowed() -> Vec<String> {
-    allowed_tool_names(true)
+    allowed_tool_names(true, false)
 }
 
 const INIT: &str = r#"{"type":"system","subtype":"init","tools":["mcp__amby__read_note"],"mcp_servers":[{"name":"amby","status":"connected"}],"skills":[],"slash_commands":[]}"#;
@@ -115,7 +115,7 @@ fn a_hostile_model_name_never_reaches_the_command_line() {
 
 #[test]
 fn search_tools_are_allowed_only_when_search_is_on() {
-    let narrow = allowed_tool_names(false);
+    let narrow = allowed_tool_names(false, false);
     assert_eq!(narrow.len(), 8);
     assert_eq!(
         narrow[..2],
@@ -124,9 +124,22 @@ fn search_tools_are_allowed_only_when_search_is_on() {
     for wide in ["search_notes", "list_folder", "list_tags", "query_database"] {
         assert!(!narrow.contains(&format!("mcp__amby__{wide}")), "{wide}");
     }
-    assert_eq!(allowed_tool_names(true).len(), 14);
+    assert_eq!(allowed_tool_names(true, false).len(), 14);
+    // With writes on, only the three proposal tools join the reads.
+    let extra: Vec<String> = allowed_tool_names(true, true)
+        .into_iter()
+        .filter(|name| !allowed_tool_names(true, false).contains(name))
+        .collect();
+    assert_eq!(
+        extra,
+        [
+            "mcp__amby__new_note",
+            "mcp__amby__append_note",
+            "mcp__amby__edit_note"
+        ]
+    );
     // Reads only: no write tool is ever allowed.
-    for name in allowed_tool_names(true) {
+    for name in allowed_tool_names(true, false) {
         for write in [
             "edit", "write", "set_", "delete", "move", "restore", "append", "new_",
         ] {
@@ -336,7 +349,7 @@ async fn search_tools_are_a_boundary_violation_when_search_is_off() {
     let (_cancel, cancel_rx) = tokio::sync::watch::channel(false);
     let result = run_stream(
         rx,
-        &allowed_tool_names(false),
+        &allowed_tool_names(false, false),
         Duration::from_secs(5),
         cancel_rx,
         |_| {},

@@ -86,6 +86,13 @@ pub fn panel_mcp_definitions(search: bool) -> Vec<Value> {
     tools
 }
 
+/// Reads plus, when the conversation may write, the proposal tools.
+pub fn panel_mcp_definitions_with(search: bool, writes: Writes) -> Vec<Value> {
+    let mut tools = panel_mcp_definitions(search);
+    tools.extend(panel_write_definitions(writes));
+    tools
+}
+
 /// `panel_mcp_definitions` as (name, description, input schema) for function-call providers.
 pub fn panel_definitions(search: bool) -> Vec<(String, String, Value)> {
     let text = |tool: &Value, key: &str| tool[key].as_str().unwrap_or_default().to_owned();
@@ -124,17 +131,135 @@ pub struct ToolScope {
     pub search_enabled: bool,
     pub note_ids: HashSet<String>,
     pub folders: Vec<String>,
+    /// Where the panel may propose changes; set by the user's conversation switch.
+    pub writes: Writes,
+}
+
+/// What the panel's write tools may reach. They only propose: the user applies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Writes {
+    /// No write tools.
+    Off,
+    /// The notes and folders in the context chips.
+    Context,
+    /// The whole vault (the conversation's switch).
+    Vault,
+}
+
+/// The most proposals one turn may make.
+pub const PROPOSALS_PER_TURN: usize = 5;
+
+const PANEL_WRITE_TOOLS: [&str; 3] = ["new_note", "append_note", "edit_note"];
+
+/// The panel's write tools. They return a proposal ID at once; nothing is written until the
+/// user applies the card, so the descriptions say so.
+pub fn panel_write_definitions(writes: Writes) -> Vec<Value> {
+    if writes == Writes::Off {
+        return Vec::new();
+    }
+    let path = json!({"type":"string","minLength":1,"maxLength":1024,"description":"A vault-relative Markdown path."});
+    let tool = |name: &str, description: &str, properties: Value, required: &[&str]| {
+        json!({
+            "name": name, "description": description,
+            "inputSchema": {"type":"object","properties":properties,"required":required,"additionalProperties":false},
+            "annotations": {"readOnlyHint": false, "openWorldHint": false, "destructiveHint": false}
+        })
+    };
+    vec![
+        tool("new_note", "Propose a new Markdown note at a path in an existing folder. This only creates a proposal the user must apply; nothing is written yet.", json!({"path":path,"content":{"type":"string"}}), &["path", "content"]),
+        tool("append_note", "Propose Markdown to add at the end of a note. This only creates a proposal the user must apply; nothing is written yet.", json!({"path":path,"content":{"type":"string"}}), &["path", "content"]),
+        tool("edit_note", "Propose replacing an exact fragment of a note's body (oldText must occur once unless replaceAll is true; copy it from read_note or read_section). This only creates a proposal the user must apply; nothing is written yet.", json!({"path":path,"oldText":{"type":"string","minLength":1},"newText":{"type":"string"},"replaceAll":{"type":"boolean"}}), &["path", "oldText", "newText"]),
+    ]
 }
 
 #[derive(Default)]
 pub struct ToolBudget {
     calls: usize,
     result_chars: usize,
+    proposals: Vec<crate::ai_proposals::Proposal>,
+    proposed: usize,
 }
 
 impl ToolBudget {
     pub fn exhausted(&self) -> bool {
         self.calls >= 8 || self.result_chars >= 60_000
+    }
+
+    /// The proposals the turn's write tools made since the last call; the desktop keeps them for
+    /// the user's cards.
+    pub fn take_proposals(&mut self) -> Vec<crate::ai_proposals::Proposal> {
+        std::mem::take(&mut self.proposals)
+    }
+
+    fn propose(
+        &mut self,
+        conn: &Connection,
+        root: &Path,
+        scope: &ToolScope,
+        name: &str,
+        args: &Value,
+    ) -> Result<Value, &'static str> {
+        use crate::ai_proposals::{propose, ProposalOp, WriteScope};
+        if scope.writes == Writes::Off {
+            return Err("accessDenied");
+        }
+        if self.proposed >= PROPOSALS_PER_TURN {
+            return Err("tooManyProposals");
+        }
+        let notes = scope
+            .note_ids
+            .iter()
+            .filter_map(|id| crate::index::note_by_id(conn, root, id).ok())
+            .filter_map(|note| relative_path(root, &note))
+            .collect();
+        let write = WriteScope {
+            vault: scope.writes == Writes::Vault,
+            notes,
+            folders: scope.folders.clone(),
+        };
+        let text = |key: &str| string_arg(args, key).map(str::to_owned);
+        let content = |key: &str| {
+            args.get(key)
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .ok_or("invalidArguments")
+        };
+        let op = match name {
+            "new_note" | "append_note" => {
+                crate::tool_set::validate_fields(args, &["path", "content"], &[])?;
+                let (path, content) = (text("path")?, content("content")?);
+                if name == "new_note" {
+                    ProposalOp::New { path, content }
+                } else {
+                    ProposalOp::Append { path, content }
+                }
+            }
+            "edit_note" => {
+                crate::tool_set::validate_fields(
+                    args,
+                    &["path", "oldText", "newText"],
+                    &["replaceAll"],
+                )?;
+                ProposalOp::Replace {
+                    path: text("path")?,
+                    old_text: content("oldText")?,
+                    new_text: content("newText")?,
+                    replace_all: match args.get("replaceAll") {
+                        None => false,
+                        Some(value) => value.as_bool().ok_or("invalidArguments")?,
+                    },
+                }
+            }
+            _ => return Err("unknownTool"),
+        };
+        let proposal = propose(root, &write, op)?;
+        self.proposed += 1;
+        let reply = json!({
+            "status": "pending", "proposalId": proposal.id, "path": proposal.path,
+            "message": "Proposed. Nothing is written until the user applies it; do not repeat it."
+        });
+        self.proposals.push(proposal);
+        Ok(reply)
     }
 
     pub fn reject(&mut self, code: &str) -> Value {
@@ -162,7 +287,12 @@ impl ToolBudget {
             return json!({"error": "budgetExceeded"});
         }
         self.calls += 1;
-        let result = match run_tool(conn, root, scope, name, args) {
+        let outcome = if PANEL_WRITE_TOOLS.contains(&name) {
+            self.propose(conn, root, scope, name, args)
+        } else {
+            run_tool(conn, root, scope, name, args)
+        };
+        let result = match outcome {
             Ok(value) => value,
             Err(code) => json!({"error": code}),
         };
@@ -574,6 +704,7 @@ mod tests {
             search_enabled: search,
             note_ids: HashSet::new(),
             folders: vec![folder.into()],
+            writes: Writes::Off,
         }
     }
 
@@ -695,7 +826,6 @@ mod tests {
         assert_eq!(list["versions"][0]["reason"], "ai-edit");
         let wide = scoped("folder", true);
         for name in [
-            "edit_note",
             "restore_version",
             "set_property",
             "delete_item",
@@ -741,6 +871,114 @@ mod tests {
             "budgetExceeded"
         );
         fs::remove_dir_all(root).unwrap();
+    }
+
+    fn writing(folder: &str, mode: Writes) -> ToolScope {
+        ToolScope {
+            writes: mode,
+            ..scoped(folder, false)
+        }
+    }
+
+    #[test]
+    fn panel_write_tools_only_propose_and_stay_in_the_write_scope() {
+        let (root, conn) = panel_vault("panel-propose");
+        let before_a = fs::read(root.join("folder/a.md")).unwrap();
+        let before_b = fs::read(root.join("b.md")).unwrap();
+        let scope = writing("folder", Writes::Context);
+        let mut budget = ToolBudget::default();
+        let edit = json!({"path":"folder/a.md","oldText":"text","newText":"changed"});
+        let reply = budget.execute(&conn, &root, &scope, "edit_note", &edit);
+        assert_eq!(reply["status"], "pending", "{reply}");
+        assert!(reply["proposalId"].as_str().is_some());
+        let outside = json!({"path":"b.md","oldText":"hidden","newText":"x"});
+        assert_eq!(
+            budget.execute(&conn, &root, &scope, "edit_note", &outside)["error"],
+            "outsideWriteScope"
+        );
+        let new = json!({"path":"folder/new.md","content":"hi"});
+        assert_eq!(
+            budget.execute(&conn, &root, &scope, "new_note", &new)["status"],
+            "pending"
+        );
+        let append = json!({"path":"folder/a.md","content":"tail"});
+        assert_eq!(
+            budget.execute(&conn, &root, &scope, "append_note", &append)["status"],
+            "pending"
+        );
+        let drained = budget.take_proposals();
+        assert_eq!(drained.len(), 3);
+        assert!(budget.take_proposals().is_empty());
+        // Nothing was written.
+        assert_eq!(fs::read(root.join("folder/a.md")).unwrap(), before_a);
+        assert_eq!(fs::read(root.join("b.md")).unwrap(), before_b);
+        assert!(!root.join("folder/new.md").exists());
+        // A chosen note is writable; the vault switch widens the scope.
+        let mut chosen = writing("folder", Writes::Context);
+        chosen.note_ids.insert("b".into());
+        assert_eq!(
+            budget.execute(&conn, &root, &chosen, "edit_note", &outside)["status"],
+            "pending"
+        );
+        let wide = writing("folder", Writes::Vault);
+        let mut budget = ToolBudget::default();
+        assert_eq!(
+            budget.execute(&conn, &root, &wide, "edit_note", &outside)["status"],
+            "pending"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn panel_writes_are_refused_when_the_scope_has_no_writes_and_are_capped_per_turn() {
+        let (root, conn) = panel_vault("panel-propose-off");
+        let args = json!({"path":"folder/a.md","oldText":"text","newText":"changed"});
+        let off = writing("folder", Writes::Off);
+        assert_eq!(
+            call(&conn, &root, &off, "edit_note", args.clone())["error"],
+            "accessDenied"
+        );
+        let scope = writing("folder", Writes::Context);
+        let mut budget = ToolBudget::default();
+        for index in 0..PROPOSALS_PER_TURN {
+            let args = json!({"path":format!("folder/n{index}.md"),"content":"x"});
+            assert_eq!(
+                budget.execute(&conn, &root, &scope, "new_note", &args)["status"],
+                "pending"
+            );
+        }
+        assert!(
+            budget.exhausted()
+                || budget.execute(
+                    &conn,
+                    &root,
+                    &scope,
+                    "new_note",
+                    &json!({"path":"folder/z.md","content":"x"})
+                )["error"]
+                    == "tooManyProposals"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn panel_write_definitions_are_offered_only_with_writes() {
+        let names = |writes| -> Vec<String> {
+            panel_write_definitions(writes)
+                .iter()
+                .map(|tool| tool["name"].as_str().unwrap().to_owned())
+                .collect()
+        };
+        assert!(names(Writes::Off).is_empty());
+        assert_eq!(
+            names(Writes::Context),
+            ["new_note", "append_note", "edit_note"]
+        );
+        assert_eq!(names(Writes::Vault), names(Writes::Context));
+        for tool in panel_write_definitions(Writes::Context) {
+            assert_eq!(tool["annotations"]["readOnlyHint"], false);
+            assert!(tool["description"].as_str().unwrap().contains("proposal"));
+        }
     }
 
     #[test]
@@ -817,6 +1055,7 @@ mod tests {
             search_enabled: false,
             note_ids: HashSet::new(),
             folders: vec!["folder".into()],
+            writes: Writes::Off,
         };
         let mut budget = ToolBudget::default();
         assert_eq!(
@@ -853,6 +1092,7 @@ mod tests {
             search_enabled: true,
             note_ids: HashSet::new(),
             folders: vec![],
+            writes: Writes::Off,
         };
         assert_eq!(
             budget.execute(

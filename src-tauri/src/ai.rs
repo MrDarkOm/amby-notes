@@ -31,6 +31,7 @@ pub mod connections;
 pub(crate) mod consent;
 use amby_core::index::snapshot as index_snapshot;
 pub mod local_apps;
+pub mod proposals;
 mod provider_stream;
 pub(crate) use amby_core::ai_tools as tools;
 pub mod turn;

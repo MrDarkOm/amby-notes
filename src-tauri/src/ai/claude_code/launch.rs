@@ -283,6 +283,7 @@ pub async fn claude_model_catalog(
 pub struct TurnRequest<'a> {
     pub bridge_port: u16,
     pub search: bool,
+    pub writes: bool,
     pub messages: &'a [AiMessage],
     pub system: Option<&'a str>,
     pub model: Option<&'a str>,
@@ -321,7 +322,7 @@ pub async fn run_claude_turn_limited(
 ) -> Result<String, ClaudeError> {
     login_status(binary, home).await?;
     let token = home.bridge_token.as_deref().ok_or(ClaudeError::Io)?;
-    let allowed = super::allowed_tool_names(request.search);
+    let allowed = super::allowed_tool_names(request.search, request.writes);
     let args = super::turn_args(request.model, request.bridge_port, &allowed)?;
     let prompt = crate::ai::codex::agent::prompt_for(request.messages, request.system);
     let binary = super::validate_binary(binary)?;

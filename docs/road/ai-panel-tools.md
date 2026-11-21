@@ -1,6 +1,6 @@
 # AI panel: the full vault tool set with proposals and modes
 
-Status 2026-11-21: agreed with the owner. Stage 1 (one tool set, panel reads) is done. Stage 2 is in progress: the core engine is done (`amby-core/src/ai_proposals/`: write scope, propose, apply with outdated check and `ai-edit` version, undo plan); the desktop wiring (write tools, proposal store, apply/reject/undo commands through the mutation gate, properties with an `ai-edit` version instead of `cli-property`), the cards and the whole-vault switch are not done. Stages 3-5 are not started.
+Status 2026-11-21: agreed with the owner. Stage 1 (one tool set, panel reads) is done. Stage 2 is mostly done for note text: engine (`amby-core/src/ai_proposals/`), write tools `new_note` / `append_note` / `edit_note` that only propose (`ai_tools`), the proposal store and apply / reject / undo commands through the mutation gate (`src-tauri/src/ai/proposals.rs`), cards and the per-conversation "whole vault" switch in the panel. Cards and the switch live in memory only (the chat file format is unchanged), so a restart expires pending cards and turns the switch off. Not done: property proposals (they snapshot as `cli-property`, not `ai-edit`, and touch `.amby`), a native check of the panel. Stages 3-5 are not started.
 
 ## 1. Today
 

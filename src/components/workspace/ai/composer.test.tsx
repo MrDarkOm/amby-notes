@@ -313,3 +313,23 @@ describe("Attached notes", () => {
     expect(screen.queryByRole("list", { name: "Прикреплённые заметки" })).toBeNull()
   })
 })
+
+describe("Composer write switch", () => {
+  it("is off by default, reports its change and is disabled without tools", () => {
+    const onWriteVault = vi.fn()
+    show({ onWriteVault })
+    const toggle = screen.getByRole("checkbox", { name: /предлагать правки по всему хранилищу/ })
+    expect((toggle as HTMLInputElement).checked).toBe(false)
+    fireEvent.click(toggle)
+    expect(onWriteVault).toHaveBeenCalledWith(true)
+    cleanup()
+    show({ onWriteVault, tools: false })
+    expect(
+      (
+        screen.getByRole("checkbox", {
+          name: /предлагать правки по всему хранилищу/,
+        }) as HTMLInputElement
+      ).disabled,
+    ).toBe(true)
+  })
+})

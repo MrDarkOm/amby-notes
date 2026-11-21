@@ -400,6 +400,33 @@ async aiRunTurn(request: AiTurnRequest) : Promise<Result<AiTurnResult, AiChatErr
 }
 },
 /**
+ * Applies a pending proposal. `unsaved_paths` are the notes open with unsaved edits.
+ */
+async aiApplyProposal(generation: number, id: string, unsavedPaths: string[]) : Promise<Result<ProposalCard, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ai_apply_proposal", { generation, id, unsavedPaths }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async aiRejectProposal(generation: number, id: string) : Promise<Result<ProposalCard, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ai_reject_proposal", { generation, id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async aiUndoProposal(generation: number, id: string, unsavedPaths: string[]) : Promise<Result<ProposalCard, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ai_undo_proposal", { generation, id, unsavedPaths }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Whether the program of a local provider (`lmstudio`, `ollama`, `mlx`, `llamacpp`) is installed.
  */
 async aiLocalAppInstalled(provider: string) : Promise<Result<boolean, string>> {
@@ -2336,7 +2363,11 @@ export type AiMessage = {
  * "user" | "assistant"
  */
 role: string; content: string }
-export type AiTurnRequest = { generation: number; config: AiConfig; messages: AiMessage[]; system: string | null; noteIds: string[]; folders: string[]; initialSources: ChatSource[]; searchEnabled: boolean; supportsTools: boolean; streamId: string }
+export type AiTurnRequest = { generation: number; config: AiConfig; messages: AiMessage[]; system: string | null; noteIds: string[]; folders: string[]; initialSources: ChatSource[]; searchEnabled: boolean; supportsTools: boolean; 
+/**
+ * The conversation's switch: proposals may reach the whole vault, not only the context.
+ */
+writeVault: boolean; streamId: string }
 export type AiTurnResult = { content: string; steps: ChatStep[]; sources: ChatSource[] }
 /**
  * Webview-owned Tauri updater resource; signed download details stay on the native side.
@@ -2448,6 +2479,7 @@ export type ConfiguredDatabaseRollup = { databaseId: string; propertyId: string;
 export type ConflictChoice = 
 /**
  * Keep the file under its name, the copy goes to the trash of the vault.
+export type CardState = "pending" | "applied" | "rejected" | "undone" | "outdated"
  */
 "keepOriginal" | 
 /**
@@ -3470,7 +3502,17 @@ export type RestoreFileStatus =
 /**
  * Too large: nothing written.
  */
+export type ProposalCard = { id: string; path: string; 
+/**
+ * `new`, `append` or `replace`.
+ */
+kind: string; diff: string; diffTruncated: boolean; state: CardState }
 "tooLarge" | 
+export type ProposalCard = { id: string; path: string; 
+/**
+ * `new`, `append` or `replace`.
+ */
+kind: string; diff: string; diffTruncated: boolean; state: CardState }
 /**
  * The server no longer has it, or it is not a deleted file of this vault: nothing written.
  */

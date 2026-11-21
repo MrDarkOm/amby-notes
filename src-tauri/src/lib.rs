@@ -134,6 +134,9 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         ai::turn::ai_run_turn,
         ai::local_apps::ai_local_app_installed,
         ai::codex::launch::ai_codex_status,
+        ai::proposals::ai_apply_proposal,
+        ai::proposals::ai_reject_proposal,
+        ai::proposals::ai_undo_proposal,
         ai::codex::launch::ai_codex_login,
         ai::codex::launch::ai_codex_login_cancel,
         ai::codex::launch::ai_codex_logout,
@@ -383,6 +386,7 @@ pub fn run() {
         .manage(DebugState(logging::global_runtime()))
         .invoke_handler(builder.invoke_handler())
         .on_menu_event(handle_menu_event)
+        .manage(ai::proposals::ProposalStore::default())
         .on_window_event(remember_window_dropped_paths)
         .on_webview_event(remember_dropped_paths)
         .setup(|app| {

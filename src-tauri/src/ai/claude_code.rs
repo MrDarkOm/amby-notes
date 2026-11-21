@@ -113,12 +113,16 @@ Answer in the language of the user's last message. When you use a note, cite it 
 its title and say what you read; never invent note contents.";
 
 /// The Amby tools Claude Code may call, in the names it gives MCP tools.
-pub fn allowed_tool_names(search: bool) -> Vec<String> {
-    amby_core::ai_tools::panel_mcp_definitions(search)
-        .iter()
-        .filter_map(|tool| tool["name"].as_str())
-        .map(|name| format!("mcp__{BRIDGE_NAME}__{name}"))
-        .collect()
+pub fn allowed_tool_names(search: bool, writes: bool) -> Vec<String> {
+    use amby_core::ai_tools::Writes;
+    amby_core::ai_tools::panel_mcp_definitions_with(
+        search,
+        if writes { Writes::Context } else { Writes::Off },
+    )
+    .iter()
+    .filter_map(|tool| tool["name"].as_str())
+    .map(|name| format!("mcp__{BRIDGE_NAME}__{name}"))
+    .collect()
 }
 
 /// The MCP configuration given on the command line. The token is not in it: Claude Code

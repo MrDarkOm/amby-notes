@@ -42,6 +42,9 @@ import { Composer } from "./ai/composer"
 import { EmptyChat } from "./ai/empty-chat"
 import { AssistantAnswer, LiveAnswer, UserMessage } from "./ai/message-view"
 import { ChatList } from "./ai/chat-list"
+import { ProposalCards } from "./ai/proposal-cards"
+import type { ProposalCard } from "@/lib/bindings"
+import { useProposalStore } from "./ai/use-proposal-store"
 import { newChatModelId } from "./ai/connections"
 import { useAiChatStore } from "./ai/use-ai-chat-store"
 import { OPEN_SETTINGS_REQUEST_EVENT } from "./settings-navigation"
@@ -107,6 +110,9 @@ export function AiPanel({
     ? (ai.models.find((item) => item.id === chat.modelId) ?? null)
     : (ai.models.find((item) => item.id === newChatModelId(ai)) ?? null)
   const tools = model ? modelSupportsTools(model) : false
+  const writeVault = useProposalStore((state) =>
+    chat ? state.vaultWrites[chat.id] === true : false,
+  )
   const context = chat?.context
   // What the panel reads of the open notes: titles, and the lengths only while the attached notes come near
   // the limit. Typing far from it republishes `content` without changing this string, so it does not render.
@@ -354,6 +360,7 @@ export function AiPanel({
           initialSources: attached.sources,
           supportsTools: modelSupportsTools(selected),
           searchEnabled,
+          writeVault: useProposalStore.getState().vaultWrites[chatId] === true,
           signal: run.controller.signal,
           onToken: (delta) => {
             if (!run.finalized) {
@@ -364,6 +371,9 @@ export function AiPanel({
           onEvent: (event: AiTurnEvent) => {
             if (run.finalized) return
             const payload = event.payload
+            if (event.kind === "proposal" && payload.id && payload.state) {
+              useProposalStore.getState().add(chatId, payload as ProposalCard)
+            }
             if (event.kind === "toolStart") setLiveStatus(payload.tool ?? "")
             if (event.kind === "toolEnd") {
               const step = {
@@ -722,6 +732,9 @@ export function AiPanel({
                   onSelect={onSelect}
                 />
               )}
+              {chat && backendGeneration !== null && (
+                <ProposalCards chatId={chat.id} generation={backendGeneration} vault={vault} />
+              )}
               {(error || storageError) && (
                 <div
                   role="alert"
@@ -737,6 +750,8 @@ export function AiPanel({
             chat={chat}
             flat={flat}
             openDocs={openDocs}
+            writeVault={writeVault}
+            onWriteVault={(on) => chat && useProposalStore.getState().setVaultWrites(chat.id, on)}
             truncated={truncated}
             vault={vault}
             currentDoc={currentDoc}

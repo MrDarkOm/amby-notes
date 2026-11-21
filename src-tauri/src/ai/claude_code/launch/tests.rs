@@ -155,6 +155,7 @@ fn request(messages: &[AiMessage]) -> TurnRequest<'_> {
     TurnRequest {
         bridge_port: 4242,
         search: true,
+        writes: false,
         messages,
         system: Some("scoped context"),
         model: Some("opus"),

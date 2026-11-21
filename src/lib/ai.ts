@@ -14,6 +14,7 @@ import type {
   ChatSource,
   ClaudeStatus,
   CodexStatus,
+  ProposalCard,
 } from "./bindings"
 import { listen } from "@tauri-apps/api/event"
 import { unwrapCommand } from "./storage/ipc-result"
@@ -107,7 +108,7 @@ export interface AiChatOptions {
 export interface AiTurnEvent {
   streamId: string
   sequence: number
-  kind: "token" | "toolStart" | "toolEnd" | "done" | "error"
+  kind: "token" | "toolStart" | "toolEnd" | "proposal" | "done" | "error"
   payload: {
     delta?: string
     tool?: string
@@ -115,7 +116,7 @@ export interface AiTurnEvent {
     noteIds?: string[]
     source?: ChatSource | null
     error?: unknown
-  }
+  } & Partial<ProposalCard>
 }
 
 export interface AiTurnOptions extends AiChatOptions {
@@ -124,6 +125,8 @@ export interface AiTurnOptions extends AiChatOptions {
   folders: string[]
   initialSources: ChatSource[]
   searchEnabled: boolean
+  /** Proposals may reach the whole vault, not only the notes in the context. */
+  writeVault?: boolean
   supportsTools: boolean
   onEvent?: (event: AiTurnEvent) => void
 }
@@ -255,6 +258,7 @@ export async function aiRunTurn(
       initialSources: opts.initialSources,
       searchEnabled: opts.searchEnabled,
       supportsTools: opts.supportsTools,
+      writeVault: opts.writeVault ?? false,
       streamId,
     })
     if (opts.signal?.aborted) throw new Error("Request cancelled")
@@ -353,4 +357,35 @@ export async function aiChat(
       unlisten()
     }
   }
+}
+
+/** A proposal action the backend refused; `code` is its stable code. */
+export class ProposalError extends Error {
+  constructor(readonly code: string) {
+    super(code)
+  }
+}
+
+/** What a proposal card can ask of the backend. */
+export type ProposalAction = "apply" | "reject" | "undo"
+
+/**
+ * Applies, rejects or undoes a proposal. `unsavedPaths` are the open notes with unsaved edits:
+ * the backend never writes over one. Rejects with the backend's stable code (a string).
+ */
+export async function aiProposalAction(
+  action: ProposalAction,
+  generation: number,
+  id: string,
+  unsavedPaths: string[],
+): Promise<ProposalCard> {
+  if (!isTauri()) throw new AiUnavailableError()
+  const result =
+    action === "apply"
+      ? await commands.aiApplyProposal(generation, id, unsavedPaths)
+      : action === "undo"
+        ? await commands.aiUndoProposal(generation, id, unsavedPaths)
+        : await commands.aiRejectProposal(generation, id)
+  if (result.status === "ok") return result.data
+  throw new ProposalError(result.error)
 }

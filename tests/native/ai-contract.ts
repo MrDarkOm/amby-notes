@@ -64,6 +64,7 @@ export const nativeAiCases: Array<{
           initialSources: [],
           searchEnabled: true,
           supportsTools: true,
+          writeVault: false,
           streamId: "native-ai-turn",
         })
         check(result.status === "ok", "AI turn succeeded")
@@ -196,6 +197,7 @@ export const nativeAiCases: Array<{
           initialSources: [],
           searchEnabled,
           supportsTools: false,
+          writeVault: false,
           streamId: `native-codex-gate-${searchEnabled}`,
         })
         check(
@@ -241,6 +243,7 @@ export const nativeAiCases: Array<{
           initialSources: [],
           searchEnabled: false,
           supportsTools: false,
+          writeVault: false,
           streamId: "native-codex-turn",
         })
         check(result.status === "ok", "Codex turn succeeded")
@@ -300,6 +303,7 @@ export const nativeAiCases: Array<{
           initialSources: [],
           searchEnabled,
           supportsTools: false,
+          writeVault: false,
           streamId: `native-claude-gate-${searchEnabled}`,
         })
         check(
@@ -340,6 +344,7 @@ export const nativeAiCases: Array<{
           initialSources: [],
           searchEnabled: false,
           supportsTools: false,
+          writeVault: false,
           streamId: "native-claude-turn",
         })
         check(result.status === "ok", "Claude Code turn succeeded")
