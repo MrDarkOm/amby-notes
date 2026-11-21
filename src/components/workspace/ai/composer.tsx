@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowUp, FileText, Folder, FolderTree, Paperclip, Square, X } from "lucide-react"
+import { ArrowUp, FileText, Folder, FolderTree, Plus, Square, X } from "lucide-react"
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
 import { ApprovalModeButton } from "./approval-mode"
 import type { ApprovalMode } from "./use-proposal-store"
@@ -325,8 +325,30 @@ export function Composer({
                 )}
           </div>
         )}
-        {chat && chat.context.length > 0 && (
-          <div data-composer-line className="mb-1.5 flex w-full min-w-0 items-center gap-1.5">
+        <div data-composer-line className="mb-1.5 flex w-full min-w-0 items-center gap-1.5">
+          <label
+            title={!tools ? t("ai.toolsDisabled") : t("ai.searchVaultHint")}
+            className={cn(
+              "inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md",
+              searchOn
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              (!tools || loading || !chat) && "cursor-default opacity-40 hover:bg-transparent",
+            )}
+          >
+            <input
+              type="checkbox"
+              className="sr-only"
+              disabled={!tools || loading || !chat}
+              checked={searchOn}
+              onChange={(event) => {
+                if (chat) onChangeChat({ ...chat, searchEnabled: event.target.checked })
+              }}
+            />
+            <FolderTree className="size-3.5" aria-hidden="true" />
+            <span className="sr-only">{t("ai.searchVault")}</span>
+          </label>
+          {chat && chat.context.length > 0 ? (
             <ContextChips
               getPanel={() => root.current}
               chat={chat}
@@ -339,12 +361,27 @@ export function Composer({
               loading={loading}
               onChange={onChangeChat}
             />
-          </div>
-        )}
+          ) : (
+            <span className="min-w-0 flex-1" />
+          )}
+          <button
+            type="button"
+            disabled={loading || !chat}
+            title={t("ai.addMention")}
+            aria-label={t("ai.addMention")}
+            onClick={() => {
+              onInput(input === "" || /\s$/u.test(input) ? `${input}@` : `${input} @`)
+              field.current?.focus()
+            }}
+            className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+          >
+            <Plus className="size-3.5" />
+          </button>
+        </div>
         <div
           data-composer-box
           className={cn(
-            "flex flex-col gap-1 rounded-2xl border border-border bg-card px-2.5 py-2 shadow-sm focus-within:border-ring",
+            "flex items-end gap-2 rounded-2xl border border-border bg-card px-2.5 py-2 shadow-sm focus-within:border-ring",
           )}
         >
           <textarea
@@ -359,23 +396,9 @@ export function Composer({
             }}
             rows={1}
             placeholder={t("ai.messagePlaceholder")}
-            className="max-h-48 min-h-7 w-full min-w-0 resize-none bg-transparent px-1 text-[14px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
+            className="max-h-48 min-h-7 min-w-0 flex-1 resize-none self-center bg-transparent px-1 text-[14px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
           />
-          <div data-composer-actions className="flex w-full min-w-0 items-center gap-1.5">
-            <button
-              type="button"
-              disabled={loading || !chat}
-              title={t("ai.addMention")}
-              aria-label={t("ai.addMention")}
-              onClick={() => {
-                onInput(input === "" || /\s$/u.test(input) ? `${input}@` : `${input} @`)
-                field.current?.focus()
-              }}
-              className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
-            >
-              <Paperclip className="size-3.5" />
-            </button>
-            <span className="min-w-0 flex-1" />
+          <div className="flex shrink-0 items-center">
             <div className="flex shrink-0 items-center">
               {loading ? (
                 <button
@@ -420,28 +443,6 @@ export function Composer({
                 onChange={onApprovalMode}
               />
             )}
-            <label
-              title={!tools ? t("ai.toolsDisabled") : t("ai.searchVaultHint")}
-              className={cn(
-                "inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md",
-                searchOn
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                (!tools || loading || !chat) && "cursor-default opacity-40 hover:bg-transparent",
-              )}
-            >
-              <input
-                type="checkbox"
-                className="sr-only"
-                disabled={!tools || loading || !chat}
-                checked={searchOn}
-                onChange={(event) => {
-                  if (chat) onChangeChat({ ...chat, searchEnabled: event.target.checked })
-                }}
-              />
-              <FolderTree className="size-3.5" aria-hidden="true" />
-              <span className="sr-only">{t("ai.searchVault")}</span>
-            </label>
           </div>
         </PopoverAnchor>
       </div>
