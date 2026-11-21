@@ -253,7 +253,6 @@ export function Composer({
   const { t } = useTranslation()
   const searchOn = !!chat?.searchEnabled && tools
   const field = React.useRef<HTMLTextAreaElement>(null)
-  const [focused, setFocused] = React.useState(false)
   // The field is as tall as its text, up to its maximum; then it scrolls.
   React.useLayoutEffect(() => {
     const element = field.current
@@ -276,7 +275,7 @@ export function Composer({
   }
   return (
     <Popover open={menuOpen} onOpenChange={toggleMenu}>
-      <div ref={root} className="relative shrink-0 px-3 pb-3 pt-1">
+      <div ref={root} data-composer-root className="relative shrink-0 px-3 pb-3 pt-1">
         {mentionOpen && !loading && (
           <div
             role="listbox"
@@ -326,68 +325,10 @@ export function Composer({
                 )}
           </div>
         )}
-        <div data-composer-line className="mb-1.5 flex w-full min-w-0 items-center gap-1.5">
-          <label
-            title={!tools ? t("ai.toolsDisabled") : t("ai.searchVaultHint")}
-            className={cn(
-              "inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md",
-              searchOn
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
-              (!tools || loading || !chat) && "cursor-default opacity-40 hover:bg-transparent",
-            )}
-          >
-            <input
-              type="checkbox"
-              className="sr-only"
-              disabled={!tools || loading || !chat}
-              checked={searchOn}
-              onChange={(event) => {
-                if (chat) onChangeChat({ ...chat, searchEnabled: event.target.checked })
-              }}
-            />
-            <FolderTree className="size-3.5" aria-hidden="true" />
-            <span className="sr-only">{t("ai.searchVault")}</span>
-          </label>
-          {chat && chat.context.length > 0 ? (
-            <ContextChips
-              getPanel={() => root.current}
-              chat={chat}
-              flat={flat}
-              openDocs={openDocs}
-              truncated={truncated}
-              vault={vault}
-              currentDoc={currentDoc}
-              currentClipped={currentClipped}
-              loading={loading}
-              onChange={onChangeChat}
-            />
-          ) : (
-            <span className="min-w-0 flex-1" />
-          )}
-          <button
-            type="button"
-            disabled={loading || !chat}
-            title={t("ai.addMention")}
-            aria-label={t("ai.addMention")}
-            onClick={() => {
-              onInput(input === "" || /\s$/u.test(input) ? `${input}@` : `${input} @`)
-              field.current?.focus()
-            }}
-            className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
-          >
-            <Plus className="size-3.5" />
-          </button>
-        </div>
         <div
           data-composer-box
-          data-focused={focused ? "" : undefined}
-          onFocusCapture={() => setFocused(true)}
-          onBlurCapture={() => setFocused(false)}
-          // In focus the box reaches closer to the walls of the panel, and it grows upward with its text.
           className={cn(
-            "flex items-end gap-2 rounded-2xl border border-border bg-card px-2.5 py-2 shadow-sm transition-[margin] duration-150 focus-within:border-ring motion-reduce:transition-none",
-            focused && "-mx-1.5",
+            "flex flex-col gap-1 rounded-2xl border border-border bg-card px-2.5 py-2 shadow-sm focus-within:border-ring",
           )}
         >
           <textarea
@@ -402,31 +343,62 @@ export function Composer({
             }}
             rows={1}
             placeholder={t("ai.messagePlaceholder")}
-            className="max-h-48 min-h-7 min-w-0 flex-1 resize-none self-center bg-transparent px-1 text-[14px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
+            className="max-h-48 min-h-7 w-full min-w-0 resize-none bg-transparent px-1 text-[14px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
           />
-          <div className="flex shrink-0 items-center justify-end">
-            {loading ? (
-              <button
-                type="button"
-                onClick={onStop}
-                title={t("ai.stop")}
-                aria-label={t("ai.stop")}
-                className="flex size-7 shrink-0 items-center justify-center rounded-full border border-border text-foreground hover:bg-accent"
-              >
-                <Square className="size-3 fill-current" />
-              </button>
+          <div data-composer-line className="flex w-full min-w-0 items-center gap-1.5">
+            <button
+              type="button"
+              disabled={loading || !chat}
+              title={t("ai.addMention")}
+              aria-label={t("ai.addMention")}
+              onClick={() => {
+                onInput(input === "" || /\s$/u.test(input) ? `${input}@` : `${input} @`)
+                field.current?.focus()
+              }}
+              className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+            >
+              <Plus className="size-3.5" />
+            </button>
+            {chat && chat.context.length > 0 ? (
+              <ContextChips
+                getPanel={() => root.current}
+                chat={chat}
+                flat={flat}
+                openDocs={openDocs}
+                truncated={truncated}
+                vault={vault}
+                currentDoc={currentDoc}
+                currentClipped={currentClipped}
+                loading={loading}
+                onChange={onChangeChat}
+              />
             ) : (
-              <button
-                type="button"
-                onClick={onSend}
-                disabled={!input.trim() || switching || !chat}
-                title={t("ai.send")}
-                aria-label={t("ai.send")}
-                className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-30"
-              >
-                <ArrowUp className="size-4" />
-              </button>
+              <span className="min-w-0 flex-1" />
             )}
+            <div className="flex shrink-0 items-center">
+              {loading ? (
+                <button
+                  type="button"
+                  onClick={onStop}
+                  title={t("ai.stop")}
+                  aria-label={t("ai.stop")}
+                  className="flex size-7 shrink-0 items-center justify-center rounded-full border border-border text-foreground hover:bg-accent"
+                >
+                  <Square className="size-3 fill-current" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onSend}
+                  disabled={!input.trim() || switching || !chat}
+                  title={t("ai.send")}
+                  aria-label={t("ai.send")}
+                  className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-30"
+                >
+                  <ArrowUp className="size-4" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
         <PopoverAnchor asChild>
@@ -447,6 +419,28 @@ export function Composer({
                 onChange={onApprovalMode}
               />
             )}
+            <label
+              title={!tools ? t("ai.toolsDisabled") : t("ai.searchVaultHint")}
+              className={cn(
+                "inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md",
+                searchOn
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                (!tools || loading || !chat) && "cursor-default opacity-40 hover:bg-transparent",
+              )}
+            >
+              <input
+                type="checkbox"
+                className="sr-only"
+                disabled={!tools || loading || !chat}
+                checked={searchOn}
+                onChange={(event) => {
+                  if (chat) onChangeChat({ ...chat, searchEnabled: event.target.checked })
+                }}
+              />
+              <FolderTree className="size-3.5" aria-hidden="true" />
+              <span className="sr-only">{t("ai.searchVault")}</span>
+            </label>
           </div>
         </PopoverAnchor>
       </div>

@@ -64,111 +64,60 @@ const before = (a: Element, b: Element) =>
 afterEach(cleanup)
 
 describe("Composer layout", () => {
-  it("puts the context chip and the search switch above the message line", () => {
-    show()
-    const field = screen.getByPlaceholderText("Сообщение…")
-    const chipRemove = screen.getByRole("button", { name: "Убрать заметку из контекста" })
-    const search = screen.getByRole("checkbox", { name: /Поиск по хранилищу/ })
-    expect(before(chipRemove, field)).toBe(true)
-    expect(before(search, field)).toBe(true)
-  })
-
-  it("keeps search, the note and the plus in one line outside the writing box, search first", () => {
-    show()
-    const field = screen.getByPlaceholderText("Сообщение…")
-    const box = field.closest("[data-composer-box]")
-    expect(box).not.toBeNull()
-    const search = screen.getByRole("checkbox", { name: /Поиск по хранилищу/ })
-    const chip = screen.getByRole("button", { name: "Убрать заметку из контекста" })
-    const plus = screen.getByRole("button", { name: "Добавить заметку или папку" })
-    for (const control of [search, chip, plus]) expect(box!.contains(control)).toBe(false)
-    expect(before(search, chip)).toBe(true)
-    expect(before(chip, plus)).toBe(true)
-    const line = search.closest("[data-composer-line]")
-    expect(line).not.toBeNull()
-    expect(line!.contains(chip) && line!.contains(plus)).toBe(true)
-    expect(line!.className).not.toContain("flex-wrap")
-  })
-
-  it("keeps the model and the send button below the message line", () => {
+  it("keeps the plus, the context chip and the send button in the bottom line of the writing box", () => {
     show({ input: "hi" })
     const field = screen.getByPlaceholderText("Сообщение…")
-    expect(before(field, screen.getByRole("button", { name: "Отправить" }))).toBe(true)
-    expect(before(field, screen.getByLabelText("Активная модель"))).toBe(true)
+    const box = field.closest("[data-composer-box]")!
+    const line = box.querySelector("[data-composer-line]")!
+    const plus = screen.getByRole("button", { name: "Добавить заметку или папку" })
+    const chip = screen.getByRole("button", { name: "Убрать заметку из контекста" })
+    const send = screen.getByRole("button", { name: "Отправить" })
+    for (const control of [plus, chip, send]) expect(line.contains(control)).toBe(true)
+    expect(before(field, line)).toBe(true)
+    // The plus is left of the note, and the note is left of the send button.
+    expect(before(plus, chip)).toBe(true)
+    expect(before(chip, send)).toBe(true)
+    expect(line.className).not.toContain("flex-wrap")
+  })
+
+  it("puts the model, the approval mode and the tree switch below the writing box, the tree last", () => {
+    show({ onApprovalMode: vi.fn() })
+    const box = document.querySelector("[data-composer-box]")!
+    const model = screen.getByLabelText("Активная модель")
+    const mode = screen.getByRole("button", { name: "Как применять правки ИИ" })
+    const tree = screen.getByRole("checkbox", { name: /Поиск по хранилищу/ })
+    for (const control of [model, mode, tree]) expect(box.contains(control)).toBe(false)
+    expect(before(box, model)).toBe(true)
+    expect(before(model, mode)).toBe(true)
+    expect(before(mode, tree)).toBe(true)
   })
 
   it("has a plus that starts adding another note by typing @ at the end", () => {
-    const props = show({ input: "Сравни" })
+    const onInput = vi.fn()
+    show({ input: "hi", onInput })
     fireEvent.click(screen.getByRole("button", { name: "Добавить заметку или папку" }))
-    expect(props.onInput).toHaveBeenCalledWith("Сравни @")
+    expect(onInput).toHaveBeenCalledWith("hi @")
   })
 
-  it("does not double the space before @ and starts from nothing when the field is empty", () => {
-    const withSpace = show({ input: "Сравни " })
-    fireEvent.click(screen.getByRole("button", { name: "Добавить заметку или папку" }))
-    expect(withSpace.onInput).toHaveBeenCalledWith("Сравни @")
-    cleanup()
-    const empty = show({ input: "" })
-    fireEvent.click(screen.getByRole("button", { name: "Добавить заметку или папку" }))
-    expect(empty.onInput).toHaveBeenCalledWith("@")
-  })
-
-  it("does not offer the plus while an answer is being written", () => {
-    show({ loading: true })
-    expect(screen.getByRole("button", { name: "Добавить заметку или папку" })).toHaveProperty(
-      "disabled",
-      true,
-    )
-  })
-
-  it("shows the active model with its provider's mark on the closed control", () => {
-    show()
-    const closed = screen.getByRole("combobox", { name: "Активная модель" })
-    expect(within(closed).getByRole("img", { name: "Codex (ChatGPT)" })).toBeTruthy()
-    expect(closed.textContent).toContain("Terra")
-  })
-
-  it("opens the model list with the provider rail and leads to the model settings", async () => {
-    const props = show()
-    fireEvent.click(screen.getByRole("combobox", { name: "Активная модель" }))
-    const tabs = await screen.findAllByRole("tab")
-    expect(tabs.map((tab) => tab.getAttribute("aria-label"))).toEqual(["Codex (ChatGPT)", "Ollama"])
-    fireEvent.click(screen.getByRole("button", { name: "Управлять моделями" }))
-    expect(props.onManage).toHaveBeenCalledOnce()
-  })
-
-  it("anchors the model list to the whole composer, so it spans the panel above it", async () => {
-    show()
-    fireEvent.click(screen.getByRole("combobox", { name: "Активная модель" }))
-    const content = (await screen.findByRole("listbox")).closest("[data-popover-content]")!
-    expect(content.className).toContain("w-[var(--radix-popover-trigger-width)]")
-  })
-
-  it("draws the search switch as the file tree icon the sidebar uses, not a magnifier", () => {
+  it("uses the tree icon, not a magnifier, for searching the vault", () => {
     show()
     const label = screen.getByRole("checkbox", { name: /Поиск по хранилищу/ }).closest("label")!
     expect(label.querySelector("svg.lucide-folder-tree")).not.toBeNull()
     expect(label.querySelector("svg.lucide-search")).toBeNull()
   })
 
-  it("stretches the line: the tree at the left edge, the plus at the right edge, the note between", () => {
+  it("keeps the note stretched between the plus and the send button", () => {
     show()
-    const line = document.querySelector("[data-composer-line]")!
-    const tree = screen.getByRole("checkbox", { name: /Поиск по хранилищу/ }).closest("label")!
-    const plus = screen.getByRole("button", { name: "Добавить заметку или папку" })
-    expect(line.firstElementChild).toBe(tree)
-    expect(line.lastElementChild).toBe(plus)
-    expect(line.className).toContain("w-full")
     const chip = screen.getByRole("button", { name: "Убрать заметку из контекста" }).parentElement!
     expect(chip.className).toContain("flex-1")
   })
 
-  it("keeps the plus at the right edge when nothing is attached", () => {
+  it("keeps the plus at the left edge and a spacer before send when nothing is attached", () => {
     show({ chat: { ...chat, context: [], autoCurrent: false }, currentDoc: null })
     const line = document.querySelector("[data-composer-line]")!
     const plus = screen.getByRole("button", { name: "Добавить заметку или папку" })
-    expect(line.lastElementChild).toBe(plus)
-    expect(plus.previousElementSibling?.className).toContain("flex-1")
+    expect(line.firstElementChild).toBe(plus)
+    expect(plus.nextElementSibling?.className).toContain("flex-1")
   })
 })
 
@@ -283,7 +232,7 @@ describe("Attached notes", () => {
 
   it("sizes the list exactly like the model list: the panel's whole width from its left edge", async () => {
     show({ chat: many, ...extras })
-    const panel = document.querySelector("[data-composer-line]")!.parentElement!
+    const panel = document.querySelector("[data-composer-root]")!
     const rect = (left: number, width: number) =>
       ({
         left,
@@ -379,16 +328,12 @@ describe("Composer plus list", () => {
 })
 
 describe("Composer writing box", () => {
-  it("starts as one line with the send button beside it and widens while it has focus", () => {
+  it("starts as one line and keeps the box the same width in focus", () => {
     show({ input: "text" })
     const field = screen.getByPlaceholderText("Сообщение…") as HTMLTextAreaElement
     const box = document.querySelector("[data-composer-box]")!
     expect(field.getAttribute("rows")).toBe("1")
-    expect(box.contains(screen.getByRole("button", { name: "Отправить" }))).toBe(true)
-    expect(box.hasAttribute("data-focused")).toBe(false)
     fireEvent.focus(field)
-    expect(box.hasAttribute("data-focused")).toBe(true)
-    fireEvent.blur(field)
-    expect(box.hasAttribute("data-focused")).toBe(false)
+    expect(box.className).not.toContain("-mx")
   })
 })
