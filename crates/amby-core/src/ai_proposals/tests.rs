@@ -217,3 +217,28 @@ fn a_no_op_proposal_is_refused() {
     );
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn an_append_starts_a_new_paragraph_instead_of_continuing_a_quote() {
+    let root = vault("prop-paragraph");
+    fs::write(root.join("chosen/q.md"), "# Q\n> [!ASK]\n> text").unwrap();
+    let append = |path: &str, text: &str| ProposalOp::Append {
+        path: path.into(),
+        content: text.into(),
+    };
+    let proposal = propose(&root, &scope(), append("chosen/q.md", "Pavel")).unwrap();
+    apply(&root, &scope(), &proposal).unwrap();
+    assert_eq!(
+        fs::read_to_string(root.join("chosen/q.md")).unwrap(),
+        "# Q\n> [!ASK]\n> text\n\nPavel"
+    );
+    // A note that already ends with a blank line gets no extra one.
+    fs::write(root.join("chosen/r.md"), "# R\ntext\n\n").unwrap();
+    let proposal = propose(&root, &scope(), append("chosen/r.md", "more")).unwrap();
+    apply(&root, &scope(), &proposal).unwrap();
+    assert_eq!(
+        fs::read_to_string(root.join("chosen/r.md")).unwrap(),
+        "# R\ntext\n\nmore"
+    );
+    fs::remove_dir_all(root).unwrap();
+}

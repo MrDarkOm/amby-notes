@@ -123,9 +123,13 @@ fn prepare(root: &Path, scope: &WriteScope, op: &ProposalOp) -> Result<Edit, &'s
     }
     match op {
         ProposalOp::New { content, .. } => Edit::prepare(root, &path, None, EditKind::New, content),
-        ProposalOp::Append { content, .. } => {
-            Edit::prepare(root, &path, None, EditKind::Append, content)
-        }
+        ProposalOp::Append { content, .. } => Edit::prepare(
+            root,
+            &path,
+            None,
+            EditKind::Append,
+            &as_paragraph(root, &path, content),
+        ),
         ProposalOp::Replace {
             old_text,
             new_text,
@@ -133,6 +137,26 @@ fn prepare(root: &Path, scope: &WriteScope, op: &ProposalOp) -> Result<Edit, &'s
             ..
         } => Edit::prepare_replace(root, &path, None, old_text, new_text, *replace_all)
             .map(|(edit, _)| edit),
+    }
+}
+
+/// Appended text begins a new paragraph: a bare line break after a quote, list or table would
+/// continue it instead. A note that already ends with a blank line, or is empty, gets nothing extra.
+fn as_paragraph(root: &Path, relative: &str, content: &str) -> String {
+    let current = crate::index::read_only::visible_note(root, relative)
+        .ok()
+        .and_then(|file| std::fs::read_to_string(file).ok());
+    match current {
+        Some(text)
+            if !text.is_empty()
+                && !content.is_empty()
+                && !content.starts_with('\n')
+                && !text.ends_with("\n\n")
+                && !text.ends_with("\r\n\r\n") =>
+        {
+            format!("\n{content}")
+        }
+        _ => content.to_owned(),
     }
 }
 
