@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowUp, FileText, Folder, FolderTree, Plus, Square, X } from "lucide-react"
+import { ArrowUp, FileText, Folder, FolderTree, Paperclip, Square, X } from "lucide-react"
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
 import { ApprovalModeButton } from "./approval-mode"
 import type { ApprovalMode } from "./use-proposal-store"
@@ -325,6 +325,22 @@ export function Composer({
                 )}
           </div>
         )}
+        {chat && chat.context.length > 0 && (
+          <div data-composer-line className="mb-1.5 flex w-full min-w-0 items-center gap-1.5">
+            <ContextChips
+              getPanel={() => root.current}
+              chat={chat}
+              flat={flat}
+              openDocs={openDocs}
+              truncated={truncated}
+              vault={vault}
+              currentDoc={currentDoc}
+              currentClipped={currentClipped}
+              loading={loading}
+              onChange={onChangeChat}
+            />
+          </div>
+        )}
         <div
           data-composer-box
           className={cn(
@@ -345,7 +361,7 @@ export function Composer({
             placeholder={t("ai.messagePlaceholder")}
             className="max-h-48 min-h-7 w-full min-w-0 resize-none bg-transparent px-1 text-[14px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
           />
-          <div data-composer-line className="flex w-full min-w-0 items-center gap-1.5">
+          <div data-composer-actions className="flex w-full min-w-0 items-center gap-1.5">
             <button
               type="button"
               disabled={loading || !chat}
@@ -357,24 +373,9 @@ export function Composer({
               }}
               className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
             >
-              <Plus className="size-3.5" />
+              <Paperclip className="size-3.5" />
             </button>
-            {chat && chat.context.length > 0 ? (
-              <ContextChips
-                getPanel={() => root.current}
-                chat={chat}
-                flat={flat}
-                openDocs={openDocs}
-                truncated={truncated}
-                vault={vault}
-                currentDoc={currentDoc}
-                currentClipped={currentClipped}
-                loading={loading}
-                onChange={onChangeChat}
-              />
-            ) : (
-              <span className="min-w-0 flex-1" />
-            )}
+            <span className="min-w-0 flex-1" />
             <div className="flex shrink-0 items-center">
               {loading ? (
                 <button
