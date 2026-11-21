@@ -24,7 +24,10 @@ const KNOWN_ERRORS = new Set([
 function DiffView({ diff }: { diff: string }) {
   const lines = diff
     .split("\n")
-    .filter((line) => !line.startsWith("---") && !line.startsWith("+++"))
+    .filter(
+      (line) =>
+        !line.startsWith("---") && !line.startsWith("+++") && !line.startsWith("\\ No newline"),
+    )
   return (
     <pre className="max-h-48 overflow-auto rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-snug">
       {lines.map((line, index) => (
@@ -32,8 +35,8 @@ function DiffView({ diff }: { diff: string }) {
           key={index}
           className={cn(
             "whitespace-pre-wrap break-words",
-            line.startsWith("+") && "bg-primary/10",
-            line.startsWith("-") && "bg-destructive/10 line-through decoration-1",
+            line.startsWith("+") && "bg-[color:var(--notice-success-bg)]",
+            line.startsWith("-") && "bg-[color:var(--notice-danger-bg)]",
             line.startsWith("@@") && "text-muted-foreground",
           )}
         >
@@ -93,8 +96,10 @@ function Card({
           {t(`ai.proposal.kind.${card.kind}`, { defaultValue: card.kind })}
         </span>
       </div>
-      <DiffView diff={card.diff} />
-      {card.diffTruncated && <p className="text-muted-foreground">{t("ai.proposal.truncated")}</p>}
+      {(card.state === "pending" || card.state === "applied") && <DiffView diff={card.diff} />}
+      {card.diffTruncated && (card.state === "pending" || card.state === "applied") && (
+        <p className="text-muted-foreground">{t("ai.proposal.truncated")}</p>
+      )}
       {card.state === "pending" && unsaved && (
         <p role="status" className="text-muted-foreground">
           {t("ai.proposal.waitForSave")}
