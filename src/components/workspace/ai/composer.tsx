@@ -253,6 +253,14 @@ export function Composer({
   const { t } = useTranslation()
   const searchOn = !!chat?.searchEnabled && tools
   const field = React.useRef<HTMLTextAreaElement>(null)
+  const [focused, setFocused] = React.useState(false)
+  // The field is as tall as its text, up to its maximum; then it scrolls.
+  React.useLayoutEffect(() => {
+    const element = field.current
+    if (!element) return
+    element.style.height = "auto"
+    element.style.height = `${element.scrollHeight}px`
+  }, [input])
   const [menuOpen, setMenuOpen] = React.useState(false)
   const [menuBox, setMenuBox] = React.useState<{ width: number; alignOffset: number }>()
   const root = React.useRef<HTMLDivElement>(null)
@@ -373,7 +381,14 @@ export function Composer({
         </div>
         <div
           data-composer-box
-          className="flex flex-col gap-1.5 rounded-2xl border border-border bg-card p-2 shadow-sm focus-within:border-ring"
+          data-focused={focused ? "" : undefined}
+          onFocusCapture={() => setFocused(true)}
+          onBlurCapture={() => setFocused(false)}
+          // In focus the box reaches closer to the walls of the panel, and it grows upward with its text.
+          className={cn(
+            "flex items-end gap-2 rounded-2xl border border-border bg-card px-2.5 py-2 shadow-sm transition-[margin] duration-150 focus-within:border-ring motion-reduce:transition-none",
+            focused && "-mx-1.5",
+          )}
         >
           <textarea
             ref={field}
@@ -385,11 +400,11 @@ export function Composer({
                 onSend()
               }
             }}
-            rows={2}
+            rows={1}
             placeholder={t("ai.messagePlaceholder")}
-            className="min-h-[2.75rem] w-full resize-none bg-transparent px-1 text-[14px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
+            className="max-h-48 min-h-7 min-w-0 flex-1 resize-none self-center bg-transparent px-1 text-[14px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
           />
-          <div className="flex items-center justify-end">
+          <div className="flex shrink-0 items-center justify-end">
             {loading ? (
               <button
                 type="button"

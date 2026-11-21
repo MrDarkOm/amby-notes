@@ -377,3 +377,18 @@ describe("Composer plus list", () => {
     expect(screen.getAllByRole("checkbox")).toHaveLength(1)
   })
 })
+
+describe("Composer writing box", () => {
+  it("starts as one line with the send button beside it and widens while it has focus", () => {
+    show({ input: "text" })
+    const field = screen.getByPlaceholderText("Сообщение…") as HTMLTextAreaElement
+    const box = document.querySelector("[data-composer-box]")!
+    expect(field.getAttribute("rows")).toBe("1")
+    expect(box.contains(screen.getByRole("button", { name: "Отправить" }))).toBe(true)
+    expect(box.hasAttribute("data-focused")).toBe(false)
+    fireEvent.focus(field)
+    expect(box.hasAttribute("data-focused")).toBe(true)
+    fireEvent.blur(field)
+    expect(box.hasAttribute("data-focused")).toBe(false)
+  })
+})
