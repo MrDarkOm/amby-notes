@@ -149,7 +149,14 @@ pub enum Writes {
 /// The most proposals one turn may make.
 pub const PROPOSALS_PER_TURN: usize = 5;
 
-const PANEL_WRITE_TOOLS: [&str; 3] = ["new_note", "append_note", "edit_note"];
+const PANEL_WRITE_TOOLS: [&str; 6] = [
+    "new_note",
+    "append_note",
+    "edit_note",
+    "set_property",
+    "delete_property",
+    "rename_property",
+];
 
 /// The panel's write tools. They return a proposal ID at once; nothing is written until the
 /// user applies the card, so the descriptions say so.
@@ -165,10 +172,18 @@ pub fn panel_write_definitions(writes: Writes) -> Vec<Value> {
             "annotations": {"readOnlyHint": false, "openWorldHint": false, "destructiveHint": false}
         })
     };
+    let property_tool = |name: &str, description: &str, fields: &[&str]| {
+        let mut tool = crate::tool_set::property_definition(name, description, fields);
+        tool["annotations"]["destructiveHint"] = json!(false);
+        tool
+    };
     vec![
         tool("new_note", "Propose a new Markdown note at a path in an existing folder. This only creates a proposal the user must apply; nothing is written yet.", json!({"path":path,"content":{"type":"string"}}), &["path", "content"]),
         tool("append_note", "Propose Markdown to add at the end of a note. This only creates a proposal the user must apply; nothing is written yet.", json!({"path":path,"content":{"type":"string"}}), &["path", "content"]),
         tool("edit_note", "Propose replacing an exact fragment of a note's body (oldText must occur once unless replaceAll is true; copy it from read_note or read_section). This only creates a proposal the user must apply; nothing is written yet.", json!({"path":path,"oldText":{"type":"string","minLength":1},"newText":{"type":"string"},"replaceAll":{"type":"boolean"}}), &["path", "oldText", "newText"]),
+        property_tool("set_property", "Propose setting a header property of a note (a missing one is created; type sets the type of a new property). Use null to clear the value and an array for a list. This only creates a proposal the user must apply; nothing is written yet.", &["path", "name", "value"]),
+        property_tool("delete_property", "Propose removing a property from a note's header. This only creates a proposal the user must apply; nothing is written yet.", &["path", "name"]),
+        property_tool("rename_property", "Propose renaming a property of a note, keeping its value. This only creates a proposal the user must apply; nothing is written yet.", &["path", "name", "newName"]),
     ]
 }
 
@@ -250,9 +265,36 @@ impl ToolBudget {
                     },
                 }
             }
+            "set_property" => {
+                crate::tool_set::validate_fields(args, &["path", "name", "value"], &["type"])?;
+                ProposalOp::SetProperty {
+                    path: text("path")?,
+                    name: text("name")?,
+                    value: args.get("value").cloned().ok_or("invalidArguments")?,
+                    property_type: match args.get("type") {
+                        None => None,
+                        Some(_) => Some(text("type")?),
+                    },
+                }
+            }
+            "delete_property" => {
+                crate::tool_set::validate_fields(args, &["path", "name"], &[])?;
+                ProposalOp::DeleteProperty {
+                    path: text("path")?,
+                    name: text("name")?,
+                }
+            }
+            "rename_property" => {
+                crate::tool_set::validate_fields(args, &["path", "name", "newName"], &[])?;
+                ProposalOp::RenameProperty {
+                    path: text("path")?,
+                    name: text("name")?,
+                    new_name: text("newName")?,
+                }
+            }
             _ => return Err("unknownTool"),
         };
-        let proposal = propose(root, &write, op)?;
+        let proposal = propose(root, &write, Some(conn), op)?;
         self.proposed += 1;
         let reply = json!({
             "status": "pending", "proposalId": proposal.id, "path": proposal.path,
@@ -825,12 +867,7 @@ mod tests {
         );
         assert_eq!(list["versions"][0]["reason"], "ai-edit");
         let wide = scoped("folder", true);
-        for name in [
-            "restore_version",
-            "set_property",
-            "delete_item",
-            "open_in_amby",
-        ] {
+        for name in ["restore_version", "delete_item", "open_in_amby"] {
             assert_eq!(
                 call(&conn, &root, &wide, name, json!({}))["error"],
                 "unknownTool",
@@ -930,6 +967,46 @@ mod tests {
     }
 
     #[test]
+    fn panel_property_tools_only_propose_and_stay_in_the_write_scope() {
+        let (root, conn) = panel_vault("panel-props");
+        fs::create_dir_all(root.join(".amby/properties")).unwrap();
+        fs::write(
+            root.join(".amby/properties/layout.json"),
+            "{\"groups\":16,\"hash\":\"blake3-first-hex\",\"template\":1,\"version\":1}\n",
+        )
+        .unwrap();
+        let before = fs::read(root.join("folder/a.md")).unwrap();
+        let scope = writing("folder", Writes::Context);
+        let mut budget = ToolBudget::default();
+        let set = json!({"path":"folder/a.md","name":"status","value":"done"});
+        let reply = budget.execute(&conn, &root, &scope, "set_property", &set);
+        assert_eq!(reply["status"], "pending", "{reply}");
+        let rename = json!({"path":"folder/a.md","name":"status","newName":"state"});
+        assert_eq!(
+            budget.execute(&conn, &root, &scope, "rename_property", &rename)["status"],
+            "pending"
+        );
+        let delete = json!({"path":"folder/a.md","name":"status"});
+        assert_eq!(
+            budget.execute(&conn, &root, &scope, "delete_property", &delete)["status"],
+            "pending"
+        );
+        let outside = json!({"path":"b.md","name":"status","value":"x"});
+        assert_eq!(
+            budget.execute(&conn, &root, &scope, "set_property", &outside)["error"],
+            "outsideWriteScope"
+        );
+        let strict = json!({"path":"folder/a.md","name":"status","value":"x","extra":1});
+        assert_eq!(
+            budget.execute(&conn, &root, &scope, "set_property", &strict)["error"],
+            "invalidArguments"
+        );
+        assert_eq!(budget.take_proposals().len(), 3);
+        assert_eq!(fs::read(root.join("folder/a.md")).unwrap(), before);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn panel_writes_are_refused_when_the_scope_has_no_writes_and_are_capped_per_turn() {
         let (root, conn) = panel_vault("panel-propose-off");
         let args = json!({"path":"folder/a.md","oldText":"text","newText":"changed"});
@@ -972,7 +1049,14 @@ mod tests {
         assert!(names(Writes::Off).is_empty());
         assert_eq!(
             names(Writes::Context),
-            ["new_note", "append_note", "edit_note"]
+            [
+                "new_note",
+                "append_note",
+                "edit_note",
+                "set_property",
+                "delete_property",
+                "rename_property"
+            ]
         );
         assert_eq!(names(Writes::Vault), names(Writes::Context));
         for tool in panel_write_definitions(Writes::Context) {

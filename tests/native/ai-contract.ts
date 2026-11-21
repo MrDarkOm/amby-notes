@@ -179,6 +179,79 @@ export const nativeAiCases: Array<{
     },
   },
   {
+    name: "AI property proposals go through the property engine and a vault without property groups refuses them",
+    async run({ adapter, vaultPath }) {
+      const url = (window as unknown as { __AMBY_NATIVE_AI_URL__: string }).__AMBY_NATIVE_AI_URL__
+      check(url, "The disposable AI provider is available")
+      const created = await adapter.createNote(vaultPath, vaultPath, "Mars")
+      const id = created.primaryId!
+      const generation = (await adapter.loadActiveVaultData()).generation
+      const original = await adapter.readNote(vaultPath, id)
+      await adapter.writeNote(vaultPath, id, "mars is red", generation, original.revision, "main")
+      const before = await adapter.readNote(vaultPath, id)
+      const cards: Array<{ id: string; path: string; state: string; kind: string; diff: string }> =
+        []
+      const unlisten = await listen<{
+        streamId: string
+        kind: string
+        payload: { id: string; path: string; state: string; kind: string; diff: string }
+      }>("ai:event", ({ payload }) => {
+        if (payload.streamId === "native-ai-property" && payload.kind === "proposal")
+          cards.push(payload.payload)
+      })
+      try {
+        const turn = await commands.aiRunTurn({
+          generation,
+          config: {
+            provider: "ollama",
+            internalModelId: null,
+            model: "fake",
+            baseUrl: url,
+            credentialId: null,
+            apiKey: null,
+            maxTokens: null,
+            apiVersion: null,
+          },
+          messages: [{ role: "user", content: "Propose a property" }],
+          system: null,
+          noteIds: [id],
+          folders: [],
+          initialSources: [],
+          searchEnabled: false,
+          supportsTools: true,
+          writeVault: false,
+          streamId: "native-ai-property",
+        })
+        check(turn.status === "ok", "AI turn succeeded")
+        const deadline = Date.now() + 2000
+        while (cards.length === 0 && Date.now() < deadline)
+          await new Promise((resolve) => setTimeout(resolve, 20))
+        check(cards.length === 1 && cards[0].kind === "setProperty", "A property card arrived")
+        check(cards[0].diff.includes("+status: done"), "The card shows the new value")
+        check(
+          (await adapter.readNote(vaultPath, id)).source === before.source,
+          "A proposal writes nothing",
+        )
+        const refused = await commands.aiApplyProposal(generation, cards[0].id, [])
+        check(
+          refused.status === "error" && refused.error === "propertiesNotMigrated",
+          `A vault without property groups refuses ${JSON.stringify(refused)}`,
+        )
+        check(
+          (await adapter.readNote(vaultPath, id)).source === before.source,
+          "A refused apply writes nothing",
+        )
+        const rejected = await commands.aiRejectProposal(generation, cards[0].id)
+        check(
+          rejected.status === "ok" && rejected.data.state === "rejected",
+          "The refused card can still be rejected",
+        )
+      } finally {
+        unlisten()
+      }
+    },
+  },
+  {
     name: "AI chats and cloud consent use generation-scoped native storage",
     async run({ adapter, vaultPath }) {
       const repo = createAiChatRepository(true)

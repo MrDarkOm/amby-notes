@@ -68,7 +68,14 @@ fn respond(mut stream: TcpStream) -> std::io::Result<()> {
     let proposing = messages
         .iter()
         .any(|message| message["content"].as_str() == Some("Propose an edit"));
+    let proposing_property = messages
+        .iter()
+        .any(|message| message["content"].as_str() == Some("Propose a property"));
     let message = match results.len() {
+        0 if proposing_property => {
+            json!({"content":"", "tool_calls":[{"function":{"name":"set_property","arguments":{"path":"Mars.md","name":"status","value":"done"}}}]})
+        }
+        1 if proposing_property => json!({"content":"Proposed."}),
         0 if proposing => {
             json!({"content":"", "tool_calls":[{"function":{"name":"edit_note","arguments":{"path":"Venus.md","oldText":"venus is bright","newText":"venus is bright and hot"}}}]})
         }

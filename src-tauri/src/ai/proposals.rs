@@ -55,6 +55,9 @@ impl Entry {
                 ProposalOp::New { .. } => "new",
                 ProposalOp::Append { .. } => "append",
                 ProposalOp::Replace { .. } => "replace",
+                ProposalOp::SetProperty { .. } => "setProperty",
+                ProposalOp::DeleteProperty { .. } => "deleteProperty",
+                ProposalOp::RenameProperty { .. } => "renameProperty",
             }
             .into(),
             diff: self.proposal.diff.clone(),
@@ -192,9 +195,29 @@ fn apply_blocking(
         return Err("noteHasUnsavedEdits");
     }
     let context = app.state::<VaultContext>();
-    let _gate = context.mutation_gate.lock_or_recover();
-    let root = active_root(&context, generation)?;
-    match ai_proposals::apply(&root, &whole_vault(), &proposal) {
+    let result = if proposal.op.is_property() {
+        // The property engine takes the mutation gate itself, through the same path as the
+        // MCP property tools, and refreshes the index.
+        let root = active_root(&context, generation)?;
+        ai_proposals::apply_with(&root, &whole_vault(), &proposal, &|mutation| {
+            let request = amby_core::cli_ipc::Request {
+                version: amby_core::cli_ipc::VERSION,
+                vault: root.clone(),
+                action: amby_core::cli_ipc::Action::Tool {
+                    grant: String::new(),
+                    request: serde_json::to_value(mutation)
+                        .and_then(serde_json::from_value)
+                        .map_err(|_| "invalidArguments")?,
+                },
+            };
+            crate::cli_structural::handle(app, request).map(|_| ())
+        })
+    } else {
+        let _gate = context.mutation_gate.lock_or_recover();
+        let root = active_root(&context, generation)?;
+        ai_proposals::apply(&root, &whole_vault(), &proposal)
+    };
+    match result {
         Ok(applied) => store.mark_applied(generation, id, applied),
         Err("outdated") => store.set_state(generation, id, CardState::Outdated),
         Err(code) => Err(code),
@@ -348,6 +371,7 @@ mod tests {
             path: "a.md".into(),
             snapshot_id: Some("s".into()),
             after: "h".into(),
+            created: false,
         };
         store.mark_applied(1, &card.id, applied.clone()).unwrap();
         assert_eq!(store.applied(1, &card.id), Ok(applied));

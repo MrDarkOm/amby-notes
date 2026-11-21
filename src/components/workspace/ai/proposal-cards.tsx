@@ -19,6 +19,7 @@ const KNOWN_ERRORS = new Set([
   "proposalNotFound",
   "proposalNotPending",
   "vaultNotActive",
+  "propertiesNotMigrated",
 ])
 
 function DiffView({ diff }: { diff: string }) {

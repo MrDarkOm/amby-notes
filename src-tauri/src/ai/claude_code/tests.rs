@@ -135,7 +135,10 @@ fn search_tools_are_allowed_only_when_search_is_on() {
         [
             "mcp__amby__new_note",
             "mcp__amby__append_note",
-            "mcp__amby__edit_note"
+            "mcp__amby__edit_note",
+            "mcp__amby__set_property",
+            "mcp__amby__delete_property",
+            "mcp__amby__rename_property"
         ]
     );
     // Reads only: no write tool is ever allowed.

@@ -420,6 +420,15 @@ pub fn snapshot_before_write(
     replacement: &[u8],
     reason: &str,
 ) -> Result<Option<String>, String> {
+    // A property edit the AI panel applies leaves an `ai-edit` version, which is kept even when
+    // the vault's history is switched off.
+    let reason = if AI_PROPERTY_EDIT.with(std::cell::Cell::get)
+        && (reason == "cli-property" || reason.starts_with("property-"))
+    {
+        AI_EDIT_REASON
+    } else {
+        reason
+    };
     snapshot_before_write_at(vault, source, replacement, reason, now_ms()?)
 }
 
@@ -452,6 +461,27 @@ pub const RESTORE_REASON: &str = "restore";
 
 pub const CLI_EDIT_REASON: &str = "cli-edit";
 pub const AI_EDIT_REASON: &str = "ai-edit";
+
+thread_local! {
+    static AI_PROPERTY_EDIT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// While alive, the property engine's versions on this thread are `ai-edit` ones. The panel
+/// applies its property proposals inside this scope, so every write leaves a version that undoes it.
+pub struct AiPropertyEdit(());
+
+impl AiPropertyEdit {
+    pub fn enter() -> Self {
+        AI_PROPERTY_EDIT.with(|flag| flag.set(true));
+        Self(())
+    }
+}
+
+impl Drop for AiPropertyEdit {
+    fn drop(&mut self) {
+        AI_PROPERTY_EDIT.with(|flag| flag.set(false));
+    }
+}
 
 fn is_autosave_snapshot(reason: &str) -> bool {
     matches!(reason, "note-save" | "file-save")

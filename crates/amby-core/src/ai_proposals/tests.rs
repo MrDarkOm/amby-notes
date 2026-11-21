@@ -37,6 +37,7 @@ fn a_proposal_changes_nothing_and_shows_a_diff() {
     let proposal = propose(
         &root,
         &scope(),
+        None,
         replace("chosen/a.md", "old line", "new line"),
     )
     .unwrap();
@@ -52,12 +53,18 @@ fn writes_stay_inside_the_chosen_notes_and_folders_unless_the_vault_switch_is_on
     fs::write(root.join("c.md"), "# C\nx\n").unwrap();
     let narrow = scope();
     // A chosen note and a note in a chosen folder, including a new one.
-    assert!(propose(&root, &narrow, replace("other/b.md", "secret", "open")).is_ok());
+    assert!(propose(
+        &root,
+        &narrow,
+        None,
+        replace("other/b.md", "secret", "open")
+    )
+    .is_ok());
     let new = ProposalOp::New {
         path: "chosen/new.md".into(),
         content: "hello".into(),
     };
-    assert!(propose(&root, &narrow, new).is_ok());
+    assert!(propose(&root, &narrow, None, new).is_ok());
     // Anything else is refused, for every operation.
     for op in [
         replace("c.md", "x", "y"),
@@ -73,7 +80,7 @@ fn writes_stay_inside_the_chosen_notes_and_folders_unless_the_vault_switch_is_on
         replace(".amby/x.md", "x", "y"),
     ] {
         assert_eq!(
-            propose(&root, &narrow, op).unwrap_err(),
+            propose(&root, &narrow, None, op).unwrap_err(),
             "outsideWriteScope"
         );
     }
@@ -81,7 +88,7 @@ fn writes_stay_inside_the_chosen_notes_and_folders_unless_the_vault_switch_is_on
         vault: true,
         ..narrow
     };
-    assert!(propose(&root, &wide, replace("c.md", "x", "y")).is_ok());
+    assert!(propose(&root, &wide, None, replace("c.md", "x", "y")).is_ok());
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -92,6 +99,7 @@ fn apply_writes_an_ai_edit_version_and_undo_restores_the_bytes() {
     let proposal = propose(
         &root,
         &scope(),
+        None,
         replace("chosen/a.md", "old line", "new line"),
     )
     .unwrap();
@@ -116,6 +124,7 @@ fn an_outdated_proposal_is_refused_and_writes_nothing() {
     let proposal = propose(
         &root,
         &scope(),
+        None,
         replace("chosen/a.md", "old line", "new line"),
     )
     .unwrap();
@@ -132,6 +141,7 @@ fn an_outdated_proposal_is_refused_and_writes_nothing() {
     let new = propose(
         &root,
         &scope(),
+        None,
         ProposalOp::New {
             path: "chosen/n.md".into(),
             content: "hi".into(),
@@ -153,6 +163,7 @@ fn undo_refuses_when_the_note_changed_after_the_apply() {
     let proposal = propose(
         &root,
         &scope(),
+        None,
         replace("chosen/a.md", "old line", "new line"),
     )
     .unwrap();
@@ -172,6 +183,7 @@ fn append_and_new_note_apply_and_a_new_note_undoes_by_trash_plan() {
     let append = propose(
         &root,
         &scope(),
+        None,
         ProposalOp::Append {
             path: "chosen/a.md".into(),
             content: "tail\n".into(),
@@ -185,6 +197,7 @@ fn append_and_new_note_apply_and_a_new_note_undoes_by_trash_plan() {
     let new = propose(
         &root,
         &scope(),
+        None,
         ProposalOp::New {
             path: "chosen/n".into(),
             content: "hi".into(),
@@ -210,6 +223,7 @@ fn a_no_op_proposal_is_refused() {
         propose(
             &root,
             &scope(),
+            None,
             replace("chosen/a.md", "old line", "old line")
         )
         .unwrap_err(),
@@ -226,7 +240,7 @@ fn an_append_starts_a_new_paragraph_instead_of_continuing_a_quote() {
         path: path.into(),
         content: text.into(),
     };
-    let proposal = propose(&root, &scope(), append("chosen/q.md", "Pavel")).unwrap();
+    let proposal = propose(&root, &scope(), None, append("chosen/q.md", "Pavel")).unwrap();
     apply(&root, &scope(), &proposal).unwrap();
     assert_eq!(
         fs::read_to_string(root.join("chosen/q.md")).unwrap(),
@@ -234,11 +248,155 @@ fn an_append_starts_a_new_paragraph_instead_of_continuing_a_quote() {
     );
     // A note that already ends with a blank line gets no extra one.
     fs::write(root.join("chosen/r.md"), "# R\ntext\n\n").unwrap();
-    let proposal = propose(&root, &scope(), append("chosen/r.md", "more")).unwrap();
+    let proposal = propose(&root, &scope(), None, append("chosen/r.md", "more")).unwrap();
     apply(&root, &scope(), &proposal).unwrap();
     assert_eq!(
         fs::read_to_string(root.join("chosen/r.md")).unwrap(),
         "# R\ntext\n\nmore"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+// ----- property proposals -----
+
+const MEETING: &str = "---\r\namby-id: 01JC0000000000000000000001\r\nstatus: active\r\ntags: [work, meeting]\r\n---\r\n# Meeting\r\n\r\nAgenda\r\n";
+
+fn property_vault(name: &str) -> (PathBuf, rusqlite::Connection) {
+    let root = vault(name);
+    fs::create_dir_all(root.join(".amby/properties")).unwrap();
+    fs::write(
+        root.join(".amby/properties/layout.json"),
+        "{\"groups\":16,\"hash\":\"blake3-first-hex\",\"template\":1,\"version\":1}\n",
+    )
+    .unwrap();
+    fs::write(root.join("chosen/meeting.md"), MEETING).unwrap();
+    let conn = crate::index::read_only::disk_catalog(&root).unwrap();
+    (root, conn)
+}
+
+fn set_status(value: &str) -> ProposalOp {
+    ProposalOp::SetProperty {
+        path: "chosen/meeting.md".into(),
+        name: "status".into(),
+        value: serde_json::json!(value),
+        property_type: None,
+    }
+}
+
+#[test]
+fn a_property_proposal_describes_the_change_and_writes_nothing() {
+    let (root, conn) = property_vault("prop-set-preview");
+    let before = fs::read(root.join("chosen/meeting.md")).unwrap();
+    let proposal = propose(&root, &scope(), Some(&conn), set_status("paused")).unwrap();
+    assert_eq!(proposal.path, "chosen/meeting.md");
+    assert!(
+        proposal.diff.contains("-status: active"),
+        "{}",
+        proposal.diff
+    );
+    assert!(
+        proposal.diff.contains("+status: paused"),
+        "{}",
+        proposal.diff
+    );
+    assert_eq!(fs::read(root.join("chosen/meeting.md")).unwrap(), before);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn applying_a_property_change_leaves_an_ai_edit_version_and_undo_restores_the_bytes() {
+    let (root, conn) = property_vault("prop-set-apply");
+    let proposal = propose(&root, &scope(), Some(&conn), set_status("paused")).unwrap();
+    let applied = apply(&root, &scope(), &proposal).unwrap();
+    let text = fs::read_to_string(root.join("chosen/meeting.md")).unwrap();
+    assert!(text.contains("status: paused"), "{text}");
+    assert!(
+        text.contains("amby-id: 01JC0000000000000000000001"),
+        "{text}"
+    );
+    let versions = crate::history::list_snapshots(&root, &root.join("chosen/meeting.md")).unwrap();
+    assert!(
+        !versions.is_empty() && versions.iter().all(|v| v.reason == "ai-edit"),
+        "{versions:?}"
+    );
+    assert!(applied.snapshot_id.is_some());
+    undo(&root, &scope(), &applied).unwrap();
+    assert_eq!(
+        fs::read_to_string(root.join("chosen/meeting.md")).unwrap(),
+        MEETING
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_property_proposal_is_outdated_when_the_note_changed_and_stays_in_scope() {
+    let (root, conn) = property_vault("prop-set-outdated");
+    let proposal = propose(&root, &scope(), Some(&conn), set_status("paused")).unwrap();
+    fs::write(
+        root.join("chosen/meeting.md"),
+        MEETING.replace("Agenda", "Agenda!"),
+    )
+    .unwrap();
+    assert_eq!(apply(&root, &scope(), &proposal).unwrap_err(), "outdated");
+    let outside = ProposalOp::SetProperty {
+        path: "other/b.md".into(),
+        name: "status".into(),
+        value: serde_json::json!("x"),
+        property_type: None,
+    };
+    let narrow = WriteScope {
+        notes: vec![],
+        ..scope()
+    };
+    assert_eq!(
+        propose(&root, &narrow, Some(&conn), outside).unwrap_err(),
+        "outsideWriteScope"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn deleting_and_renaming_a_property_are_proposals_too() {
+    let (root, conn) = property_vault("prop-delete");
+    let delete = ProposalOp::DeleteProperty {
+        path: "chosen/meeting.md".into(),
+        name: "status".into(),
+    };
+    let proposal = propose(&root, &scope(), Some(&conn), delete).unwrap();
+    assert!(
+        proposal.diff.contains("-status: active"),
+        "{}",
+        proposal.diff
+    );
+    let applied = apply(&root, &scope(), &proposal).unwrap();
+    assert!(!fs::read_to_string(root.join("chosen/meeting.md"))
+        .unwrap()
+        .contains("status:"));
+    undo(&root, &scope(), &applied).unwrap();
+    let rename = ProposalOp::RenameProperty {
+        path: "chosen/meeting.md".into(),
+        name: "status".into(),
+        new_name: "state".into(),
+    };
+    let proposal = propose(&root, &scope(), Some(&conn), rename).unwrap();
+    assert!(
+        proposal.diff.contains("-status") && proposal.diff.contains("+state"),
+        "{}",
+        proposal.diff
+    );
+    apply(&root, &scope(), &proposal).unwrap();
+    assert!(fs::read_to_string(root.join("chosen/meeting.md"))
+        .unwrap()
+        .contains("state: active"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_property_that_would_not_change_is_refused() {
+    let (root, conn) = property_vault("prop-noop");
+    assert_eq!(
+        propose(&root, &scope(), Some(&conn), set_status("active")).unwrap_err(),
+        "noChange"
     );
     fs::remove_dir_all(root).unwrap();
 }

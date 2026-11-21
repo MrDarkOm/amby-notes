@@ -2053,7 +2053,15 @@ const ru = {
     writeVault: "ИИ может предлагать правки по всему хранилищу, а не только в заметках контекста",
     proposal: {
       title: "Предложенная правка: {{path}}",
-      kind: { new: "Новая заметка", append: "Добавить в конец", replace: "Замена фрагмента" },
+      kind: {
+        new: "Новая заметка",
+        append: "Добавить в конец",
+        replace: "Замена фрагмента",
+        setProperty: "Свойство заметки",
+        deleteProperty: "Удаление свойства",
+        renameProperty: "Переименование свойства",
+      },
+
       truncated: "Показано не всё изменение.",
       waitForSave:
         "Заметка открыта с несохранёнными правками. Сохраните её, и правку можно будет применить.",
@@ -2073,6 +2081,8 @@ const ru = {
         proposalNotFound: "Предложение устарело. Попросите ИИ повторить его.",
         proposalNotPending: "Предложение уже обработано.",
         vaultNotActive: "Это хранилище уже закрыто.",
+        propertiesNotMigrated:
+          "Свойства этого хранилища ещё не переведены в новый формат, поэтому их нельзя менять. Заметка не изменена.",
         other: "Не удалось выполнить действие. Заметка не изменена.",
       },
     },
@@ -6431,7 +6441,15 @@ const en: LocaleShape<typeof ru> = {
       "Let the AI propose changes anywhere in the vault, not only in the notes in context",
     proposal: {
       title: "Proposed change: {{path}}",
-      kind: { new: "New note", append: "Add to the end", replace: "Replace a fragment" },
+      kind: {
+        new: "New note",
+        append: "Add to the end",
+        replace: "Replace a fragment",
+        setProperty: "Note property",
+        deleteProperty: "Remove a property",
+        renameProperty: "Rename a property",
+      },
+
       truncated: "Only part of the change is shown.",
       waitForSave: "The note is open with unsaved edits. Save it, then the change can be applied.",
       apply: "Apply",
@@ -6450,6 +6468,8 @@ const en: LocaleShape<typeof ru> = {
         proposalNotFound: "The proposal has expired. Ask the AI to propose it again.",
         proposalNotPending: "This proposal was already handled.",
         vaultNotActive: "That vault is no longer open.",
+        propertiesNotMigrated:
+          "This vault's properties have not been moved to the new format yet, so they cannot be changed. The note is unchanged.",
         other: "The action failed. The note is unchanged.",
       },
     },
