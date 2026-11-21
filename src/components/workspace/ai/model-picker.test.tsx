@@ -139,17 +139,19 @@ describe("Model picker", () => {
     expect(content.getAttribute("data-side")).toBe("top")
   })
 
-  it("is a tall list: a generous minimum height, the footer kept at the bottom", async () => {
+  it("keeps a fixed height with scrolling models and places the icon-only settings button at the bottom of the left rail", async () => {
     show()
     open()
     const list = await screen.findByRole("listbox")
     const content = list.closest("[data-popover-content]")!
-    expect(content.className).toContain("min-h-[15rem]")
+    expect(content.className).toContain("h-[15rem]")
     expect(content.className).toMatch(/max-h-\[/)
-    expect(list.className).toContain("flex-1")
-    expect(list.className).not.toMatch(/max-h-64|max-h-72/)
-    const footer = screen.getByRole("button", { name: "Управлять моделями" }).parentElement!
-    expect(footer.className).toContain("mt-auto")
+    expect(list.closest("[data-slot='scroll-area']")).not.toBeNull()
+    expect(list.className).toContain("pr-3")
+    const manage = screen.getByRole("button", { name: "Управлять моделями" })
+    expect(manage.textContent).toBe("")
+    expect(manage.className).toContain("mt-auto")
+    expect(manage.parentElement?.className).toContain("border-r")
   })
 
   it("opens right above its own row and takes the width and left edge it is told", async () => {
@@ -181,16 +183,17 @@ describe("Model picker", () => {
     expect(content.getAttribute("data-align")).toBe("start")
   })
 
-  it("points the arrow the way the list opens: up while closed, down while open", async () => {
+  it("swaps the model icon for the arrow on hover and flips the arrow when open", async () => {
     show()
     const trigger = screen.getByRole("combobox", { name: "Активная модель" })
-    const arrow = () => {
-      const icons = Array.from(trigger.querySelectorAll("svg"))
-      return icons[icons.length - 1]
-    }
+    const arrow = () => trigger.querySelector("svg.lucide-chevron-down")!
+    expect(trigger.className).toContain("group")
     expect(arrow().getAttribute("class")).toContain("rotate-180")
+    expect(arrow().getAttribute("class")).toContain("opacity-0")
+    expect(arrow().getAttribute("class")).toContain("group-hover:opacity-100")
     open()
     await screen.findByRole("listbox")
     expect(arrow().getAttribute("class")).not.toContain("rotate-180")
+    expect(arrow().getAttribute("class")).toContain("opacity-100")
   })
 })

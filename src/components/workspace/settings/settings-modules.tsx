@@ -24,6 +24,7 @@ import {
 } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Dialog,
   DialogContent,
@@ -929,52 +930,54 @@ export function ModulesTab({
           </div>
         </aside>
 
-        <section className="flex min-h-0 min-w-0 flex-col px-5 pt-4 sm:px-7">
-          <div className="min-h-0 flex-1 overflow-y-auto pb-6">
-            {selected.status === "preview" && !isModuleAvailable(selected.id, experimental) ? (
-              <ModuleMessage
-                title={t("settings.modules.previewTitle")}
-                description={t("settings.modules.previewDescription")}
-              />
-            ) : selected.status === "preview" ? (
-              <ModuleMessage
-                title={t("settings.modules.previewAvailableTitle")}
-                description={t("settings.modules.previewAvailableDescription")}
-              />
-            ) : !isSelectedEnabled ? (
-              <ModuleMessage
-                title={t("settings.modules.disabledTitle")}
-                description={t("settings.modules.disabledDescription")}
-              />
-            ) : selected.id === "links" && graphModule ? (
-              <div className="divide-y divide-border rounded-lg border border-border">
-                <Row label={t(graphModule.labelKey)} hint={t(graphModule.descriptionKey)}>
-                  <Switch
-                    checked={activeModules.some((id) => toShortModuleId(id) === "graph")}
-                    onCheckedChange={(next) => handleAttemptToggle(graphModule, next)}
-                    aria-label={t(graphModule.labelKey)}
-                  />
-                </Row>
-              </div>
-            ) : selected.id === "ai" ? (
-              <AiTab />
-            ) : selected.id === "history" ? (
-              <HistorySettings />
-            ) : selected.id === "favorites" ? (
-              <FavoritesSettings />
-            ) : selected.id === "creative" ? (
-              <CreativeSettings />
-            ) : selected.id === "templates" ? (
-              <TemplatesModuleSettings />
-            ) : selected.id === "daily" ? (
-              <DailyModuleSettings />
-            ) : (
-              <ModuleMessage
-                title={t("settings.modules.readyTitle")}
-                description={t("settings.modules.noSettings")}
-              />
-            )}
-          </div>
+        <section className="flex min-h-0 min-w-0 flex-col">
+          <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block">
+            <div className="px-4 pb-6 pt-4 sm:px-5">
+              {selected.status === "preview" && !isModuleAvailable(selected.id, experimental) ? (
+                <ModuleMessage
+                  title={t("settings.modules.previewTitle")}
+                  description={t("settings.modules.previewDescription")}
+                />
+              ) : selected.status === "preview" ? (
+                <ModuleMessage
+                  title={t("settings.modules.previewAvailableTitle")}
+                  description={t("settings.modules.previewAvailableDescription")}
+                />
+              ) : !isSelectedEnabled ? (
+                <ModuleMessage
+                  title={t("settings.modules.disabledTitle")}
+                  description={t("settings.modules.disabledDescription")}
+                />
+              ) : selected.id === "links" && graphModule ? (
+                <div className="divide-y divide-border rounded-lg border border-border">
+                  <Row label={t(graphModule.labelKey)} hint={t(graphModule.descriptionKey)}>
+                    <Switch
+                      checked={activeModules.some((id) => toShortModuleId(id) === "graph")}
+                      onCheckedChange={(next) => handleAttemptToggle(graphModule, next)}
+                      aria-label={t(graphModule.labelKey)}
+                    />
+                  </Row>
+                </div>
+              ) : selected.id === "ai" ? (
+                <AiTab />
+              ) : selected.id === "history" ? (
+                <HistorySettings />
+              ) : selected.id === "favorites" ? (
+                <FavoritesSettings />
+              ) : selected.id === "creative" ? (
+                <CreativeSettings />
+              ) : selected.id === "templates" ? (
+                <TemplatesModuleSettings />
+              ) : selected.id === "daily" ? (
+                <DailyModuleSettings />
+              ) : (
+                <ModuleMessage
+                  title={t("settings.modules.readyTitle")}
+                  description={t("settings.modules.noSettings")}
+                />
+              )}
+            </div>
+          </ScrollArea>
 
           {MODULE_PACKAGE_CONTROLS_ENABLED && (
             <div className="shrink-0 border-t border-border/60 pb-2 pt-2">

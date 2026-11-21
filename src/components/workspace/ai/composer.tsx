@@ -2,21 +2,12 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import {
-  FileText,
-  Folder,
-  CornerDownLeft,
-  FolderTree,
-  Mic,
-  Paperclip,
-  Plus,
-  Square,
-  X,
-} from "lucide-react"
+import { FileText, Folder, CornerDownLeft, Mic, Search, Square, X } from "lucide-react"
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
 import { startSystemDictation } from "@/lib/ai"
 import { NoticeLine } from "../notices/notice-line"
 import { ApprovalModeButton } from "./approval-mode"
+import { AttachMenu } from "./attach-menu"
 import { readTextFiles, useAttachmentStore, type AttachError } from "./attachments"
 import type { ApprovalMode } from "./use-proposal-store"
 import { ModelPicker, type PickerModel } from "./model-picker"
@@ -208,15 +199,71 @@ function ContextChips({
   )
 }
 
+/** Matches `MAX_TOTAL_PROMPT_BYTES` enforced by the Rust AI backend (512 KB). */
+const MAX_CONTEXT_BYTES = 512 * 1024
+const RING_RADIUS = 6
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS
+const utf8Encoder = new TextEncoder()
+
+function ContextUsage({ bytes }: { bytes: number }) {
+  const { t } = useTranslation()
+  const ratio = Math.min(1, Math.max(0, bytes / MAX_CONTEXT_BYTES))
+  const percent = Math.min(100, Math.round(ratio * 100))
+  const usedKb = Math.round(bytes / 1024)
+  const limitKb = Math.round(MAX_CONTEXT_BYTES / 1024)
+  const label = t("ai.contextUsage", { percent, used: usedKb, limit: limitKb })
+  return (
+    <span
+      data-context-usage
+      title={label}
+      aria-label={label}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded-md px-1 py-0.5 text-[11px] tabular-nums",
+        percent >= 90
+          ? "text-destructive"
+          : percent >= 75
+            ? "text-amber-600 dark:text-amber-400"
+            : "text-muted-foreground",
+      )}
+    >
+      <svg className="size-3 -rotate-90" viewBox="0 0 16 16" aria-hidden="true">
+        <circle
+          cx="8"
+          cy="8"
+          r={RING_RADIUS}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="opacity-20"
+        />
+        <circle
+          cx="8"
+          cy="8"
+          r={RING_RADIUS}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeDasharray={RING_CIRCUMFERENCE}
+          strokeDashoffset={RING_CIRCUMFERENCE * (1 - ratio)}
+          strokeLinecap="round"
+        />
+      </svg>
+      <span>{percent}%</span>
+    </span>
+  )
+}
+
 /** One capsule for everything you type with: context, the message, search, model, send. */
 const iconButton =
   "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
 
 export function Composer({
   chat,
+  treeItems,
   flat,
   openDocs,
   truncated,
+  contextBytes = 0,
   vault,
   currentDoc,
   currentClipped,
@@ -242,9 +289,12 @@ export function Composer({
   approvalMode?: ApprovalMode
   onApprovalMode?: (mode: ApprovalMode) => void
   chat: Chat | null
+  treeItems?: TreeItem[]
   flat: TreeItem[]
   openDocs: Record<string, OpenDoc | undefined>
   truncated: string[]
+  /** UTF-8 bytes of the built system prompt (attached notes/folders). */
+  contextBytes?: number
   vault: string | null
   currentDoc: OpenDoc | null
   /** The text of the open note is longer than the limit of what is attached. */
@@ -284,6 +334,17 @@ export function Composer({
     }
   }
   const attached = useAttachmentStore((state) => (chat ? state.files[chat.id] : undefined))
+  const totalContextBytes = React.useMemo(() => {
+    let total = contextBytes
+    if (attached) {
+      for (const file of attached) total += utf8Encoder.encode(file.text).length
+    }
+    if (chat) {
+      for (const message of chat.messages) total += utf8Encoder.encode(message.content).length
+    }
+    if (input) total += utf8Encoder.encode(input).length
+    return total
+  }, [attached, chat, contextBytes, input])
   const pickFiles = async (list: FileList | null) => {
     if (!chat || !list?.length) return
     const { added, error } = await readTextFiles(
@@ -365,59 +426,27 @@ export function Composer({
                 )}
           </div>
         )}
-        <div data-composer-line className="mb-1.5 flex w-full min-w-0 items-center gap-1.5">
-          <label
-            title={!tools ? t("ai.toolsDisabled") : t("ai.searchVaultHint")}
-            className={cn(
-              "inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md",
-              searchOn
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
-              (!tools || loading || !chat) && "cursor-default opacity-40 hover:bg-transparent",
+        {chat && (chat.context.length > 0 || totalContextBytes > 0) && (
+          <div data-composer-line className="mb-1.5 flex w-full min-w-0 items-center gap-1.5">
+            {chat.context.length > 0 ? (
+              <ContextChips
+                getPanel={() => root.current}
+                chat={chat}
+                flat={flat}
+                openDocs={openDocs}
+                truncated={truncated}
+                vault={vault}
+                currentDoc={currentDoc}
+                currentClipped={currentClipped}
+                loading={loading}
+                onChange={onChangeChat}
+              />
+            ) : (
+              <span className="min-w-0 flex-1" />
             )}
-          >
-            <input
-              type="checkbox"
-              className="sr-only"
-              disabled={!tools || loading || !chat}
-              checked={searchOn}
-              onChange={(event) => {
-                if (chat) onChangeChat({ ...chat, searchEnabled: event.target.checked })
-              }}
-            />
-            <FolderTree className="size-3.5" aria-hidden="true" />
-            <span className="sr-only">{t("ai.searchVault")}</span>
-          </label>
-          {chat && chat.context.length > 0 ? (
-            <ContextChips
-              getPanel={() => root.current}
-              chat={chat}
-              flat={flat}
-              openDocs={openDocs}
-              truncated={truncated}
-              vault={vault}
-              currentDoc={currentDoc}
-              currentClipped={currentClipped}
-              loading={loading}
-              onChange={onChangeChat}
-            />
-          ) : (
-            <span className="min-w-0 flex-1" />
-          )}
-          <button
-            type="button"
-            disabled={loading || !chat}
-            title={t("ai.addMention")}
-            aria-label={t("ai.addMention")}
-            onClick={() => {
-              onInput(input === "" || /\s$/u.test(input) ? `${input}@` : `${input} @`)
-              field.current?.focus()
-            }}
-            className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
-          >
-            <Plus className="size-3.5" />
-          </button>
-        </div>
+            <ContextUsage bytes={totalContextBytes} />
+          </div>
+        )}
         <div
           data-composer-box
           className="flex flex-col gap-1.5 rounded-2xl border border-border bg-card px-2.5 py-2 shadow-sm focus-within:border-ring"
@@ -470,16 +499,19 @@ export function Composer({
                 event.target.value = ""
               }}
             />
-            <button
-              type="button"
+            <AttachMenu
+              chat={chat}
+              treeItems={treeItems ?? flat}
+              openDocs={openDocs}
+              vault={vault}
+              currentDoc={currentDoc}
               disabled={loading || !chat}
-              title={t("ai.attach.label")}
-              aria-label={t("ai.attach.label")}
-              onClick={() => picker.current?.click()}
-              className={iconButton}
-            >
-              <Paperclip className="size-4" />
-            </button>
+              triggerClassName={iconButton}
+              onChangeChat={onChangeChat}
+              onAddCurrent={onAddCurrent}
+              onPickFile={() => picker.current?.click()}
+              getPanel={() => root.current}
+            />
             <span className="min-w-0 flex-1" />
             {canDictate && (
               <button
@@ -525,7 +557,7 @@ export function Composer({
         )}
         <PopoverAnchor asChild>
           <div ref={row} className="mt-1.5 flex items-center gap-1">
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 shrink">
               <ModelPicker
                 models={models}
                 activeModelId={activeModelId}
@@ -534,6 +566,7 @@ export function Composer({
                 menu={{ open: menuOpen, onOpenChange: toggleMenu, ...menuBox }}
               />
             </div>
+            <span className="min-w-0 flex-1" />
             {onApprovalMode && (
               <ApprovalModeButton
                 mode={approvalMode}
@@ -541,6 +574,28 @@ export function Composer({
                 onChange={onApprovalMode}
               />
             )}
+            <label
+              title={!tools ? t("ai.toolsDisabled") : t("ai.searchVaultHint")}
+              className={cn(
+                "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md",
+                searchOn
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                (!tools || loading || !chat) && "cursor-default opacity-40 hover:bg-transparent",
+              )}
+            >
+              <input
+                type="checkbox"
+                className="sr-only"
+                disabled={!tools || loading || !chat}
+                checked={searchOn}
+                onChange={(event) => {
+                  if (chat) onChangeChat({ ...chat, searchEnabled: event.target.checked })
+                }}
+              />
+              <Search className="size-3.5" aria-hidden="true" />
+              <span className="sr-only">{t("ai.searchVault")}</span>
+            </label>
           </div>
         </PopoverAnchor>
       </div>

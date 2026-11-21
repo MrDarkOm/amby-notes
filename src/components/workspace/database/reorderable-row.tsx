@@ -12,6 +12,8 @@ interface ReorderableRowProps<T> {
   onMove: (offset: -1 | 1) => void
   /** The row was let go after dragging. */
   onDropped?: () => void
+  /** Accessible label and tooltip for the drag handle. */
+  dragLabel?: string
   className?: string
   children: React.ReactNode
   /** Extra motion settings such as entrance and exit animations. */
@@ -27,12 +29,14 @@ export function ReorderableRow<T>({
   disabled,
   onMove,
   onDropped,
+  dragLabel,
   className,
   children,
   motionProps,
 }: ReorderableRowProps<T>) {
   const { t } = useTranslation()
   const controls = useDragControls()
+  const handleLabel = dragLabel ?? t("databaseOptions.drag")
   return (
     <Reorder.Item
       {...motionProps}
@@ -46,8 +50,8 @@ export function ReorderableRow<T>({
       <button
         type="button"
         disabled={disabled}
-        aria-label={t("databaseOptions.drag")}
-        title={t("databaseOptions.drag")}
+        aria-label={handleLabel}
+        title={handleLabel}
         style={{ touchAction: "none" }}
         className="flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground/60 outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring active:cursor-grabbing disabled:cursor-default disabled:opacity-40"
         onPointerDown={(event) => {

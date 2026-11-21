@@ -15,8 +15,10 @@ import {
   readAiConnections,
   resolveConnectedAiModel,
   reconcileAiCatalog,
+  reorderAiModels,
   selectableAiModels,
   setAiModelEnabled,
+  setAiModelHidden,
   setAiModelTools,
 } from "./connections"
 
@@ -121,7 +123,7 @@ describe("AI connection domain", () => {
     expect(canAddLocalAiModel(result.connections[2])).toBe(true)
   })
 
-  it("retains choices and history when a catalog changes", () => {
+  it("retains choices for returned models and drops models missing from the refreshed catalog", () => {
     const initial = readLegacyAiConnections(legacy)
     const updated = reconcileAiCatalog(initial, "legacy:old-1", [
       { model: "a", label: "Catalog A" },
@@ -130,11 +132,10 @@ describe("AI connection domain", () => {
     expect(updated.models.find((model) => model.id === "old-1")?.enabled).toBe(true)
     expect(updated.models.find((model) => model.model === "c")?.enabled).toBe(false)
     const missing = reconcileAiCatalog(updated, "legacy:old-1", [])
-    expect(missing.models.find((model) => model.id === "old-1")).toMatchObject({
-      available: false,
-      enabled: true,
-    })
+    expect(missing.models.find((model) => model.id === "old-1")).toBeUndefined()
+    expect(missing.models.find((model) => model.model === "c")).toBeUndefined()
     expect(selectableAiModels(missing).map((model) => model.id)).toEqual(["old-2", "local"])
+    expect(readAiConnections({ ...missing })).toEqual(missing)
   })
   it("enables the first models of a first catalog and leaves later ones off", () => {
     const initial = readLegacyAiConnections(legacy)
@@ -191,6 +192,19 @@ describe("AI connection domain", () => {
     )
     expect(moveAiModel(a, idOf(a, before[0]), -1)).toBe(a)
     expect(moveAiModel(a, "missing", 1)).toBe(a)
+    const reversedIds = [...before].reverse().map((model) => idOf(a, model))
+    const reordered = reorderAiModels(a, "legacy:old-1", reversedIds)
+    expect(order(reordered)).toEqual([...before].reverse())
+    expect(reordered.models.filter((m) => m.connectionId !== "legacy:old-1")).toEqual(
+      a.models.filter((m) => m.connectionId !== "legacy:old-1"),
+    )
+    expect(
+      reorderAiModels(
+        a,
+        "legacy:old-1",
+        before.map((m) => idOf(a, m)),
+      ),
+    ).toBe(a)
   })
   it("assigns separate stable internal IDs for the same catalog model across connections", () => {
     let result = readLegacyAiConnections(legacy)
@@ -235,11 +249,22 @@ describe("AI connection domain", () => {
       1,
     )
     const id = first.models.find((m) => m.model === "tooled")!.id
-    expect(resolveConnectedAiModel(first, id)?.supportsTools).toBe(false)
-    const on = setAiModelTools(first, id, true)
-    expect(resolveConnectedAiModel(on, id)?.supportsTools).toBe(true)
-    const refreshed = reconcileAiCatalog(on, "legacy:old-1", [{ model: "tooled", label: "Tooled" }])
-    expect(resolveConnectedAiModel(refreshed, id)?.supportsTools).toBe(true)
+    expect(resolveConnectedAiModel(first, id)?.supportsTools).toBe(true)
+    const off = setAiModelTools(first, id, false)
+    expect(resolveConnectedAiModel(off, id)?.supportsTools).toBe(false)
+    const refreshed = reconcileAiCatalog(off, "legacy:old-1", [
+      { model: "tooled", label: "Tooled" },
+    ])
+    expect(resolveConnectedAiModel(refreshed, id)?.supportsTools).toBe(false)
+  })
+  it("hides a model from selectable models, clears baseModelId, and preserves hidden across refresh", () => {
+    const base = setBaseAiModel(readLegacyAiConnections(legacy), "old-1")
+    const hidden = setAiModelHidden(base, "old-1", true)
+    expect(hidden.baseModelId).toBeNull()
+    expect(selectableAiModels(hidden).some((m) => m.id === "old-1")).toBe(false)
+    expect(readAiConnections({ ...hidden })).toEqual(hidden)
+    const shown = setAiModelHidden(hidden, "old-1", false)
+    expect(shown.models.find((m) => m.id === "old-1")?.hidden).toBe(false)
   })
   it("keeps a base model for new chats and drops it when it is switched off", () => {
     const base = readLegacyAiConnections(legacy)
@@ -259,7 +284,7 @@ describe("AI connection domain", () => {
     )
     expect(readAiConnections({ ...withBase })).toEqual(withBase)
   })
-  it("forgets a catalog model that left the catalog unless it was switched on", () => {
+  it("removes any catalog model that the provider no longer returns, even if it was enabled", () => {
     const first = reconcileAiCatalog(
       readLegacyAiConnections(legacy),
       "legacy:old-1",
@@ -270,16 +295,12 @@ describe("AI connection domain", () => {
       ],
       0,
     )
-    const withOn = setAiModelEnabled(
-      first,
-      first.models.find((m) => m.model === "gone-on")!.id,
-      true,
-    )
+    const goneOnId = first.models.find((m) => m.model === "gone-on")!.id
+    const withOn = setBaseAiModel(setAiModelEnabled(first, goneOnId, true), goneOnId)
     const next = reconcileAiCatalog(withOn, "legacy:old-1", [{ model: "keep", label: "Keep" }])
     const names = next.models.filter((m) => m.connectionId === "legacy:old-1").map((m) => m.model)
-    expect(names).toContain("keep")
-    expect(names).toContain("gone-on")
-    expect(names).not.toContain("gone-off")
-    expect(next.models.find((m) => m.model === "gone-on")?.available).toBe(false)
+    expect(names).toEqual(["keep"])
+    expect(next.baseModelId).toBeNull()
+    expect(readAiConnections({ ...next })).toEqual(next)
   })
 })

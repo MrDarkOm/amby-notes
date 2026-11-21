@@ -269,7 +269,7 @@ export function isLocalAiModel(model: AiModel): boolean {
 }
 
 export function modelSupportsTools(model: AiModel): boolean {
-  return model.supportsTools ?? !isLocalAiModel(model)
+  return model.supportsTools !== false
 }
 
 /** No connections until the connections file exists. */

@@ -1,18 +1,19 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
+import { Reorder } from "motion/react"
 import {
-  ArrowDown,
-  ArrowUp,
   ChevronDown,
   ChevronRight,
+  Eye,
+  EyeOff,
   Loader2,
   RefreshCw,
   Star,
   Settings2,
   Trash2,
-  Wrench,
 } from "lucide-react"
 import { AmbySelect } from "@/components/ui/amby-select"
+import { ReorderableRow } from "../database/reorderable-row"
 import { cn } from "@/lib/utils"
 import { ProviderIcon } from "./provider-icon"
 import { Switch } from "@/components/ui/switch"
@@ -42,8 +43,9 @@ import {
   isFirstAiCatalog,
   moveAiModel,
   reconcileAiCatalog,
+  reorderAiModels,
   setAiModelEnabled,
-  setAiModelTools,
+  setAiModelHidden,
   setBaseAiModel,
   type AiConnection,
   type AiConnectionsSettings,
@@ -204,7 +206,7 @@ export function ConnectionsManager({
     }
   }
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div className="flex flex-col gap-3">
       {error && <NoticeLine role="alert" text={error} />}
       {!settings.connections.length && (
         <p className="text-xs text-muted-foreground">{t("aiConnections.noConnection")}</p>
@@ -341,6 +343,9 @@ function ConnectionCard({
   const [login, setLogin] = React.useState(false)
   const [copied, setCopied] = React.useState(false)
   const [open, setOpen] = React.useState(true)
+  const [dragOrder, setDragOrder] = React.useState<string[] | null>(null)
+  const dragOrderRef = React.useRef<string[] | null>(null)
+  dragOrderRef.current = dragOrder
   const current = React.useRef({ settings, connection })
   const request = React.useRef<AbortController | null>(null)
   const loginRef = React.useRef(login)
@@ -559,7 +564,10 @@ function ConnectionCard({
     }
   }
   const [params, setParams] = React.useState(false)
-  const all = settings.models.filter((model) => model.connectionId === connection.id)
+  const [showHidden, setShowHidden] = React.useState(false)
+  const connectionModels = settings.models.filter((model) => model.connectionId === connection.id)
+  const all = connectionModels.filter((model) => !model.hidden)
+  const hiddenModels = connectionModels.filter((model) => model.hidden)
   const models = all.filter((model) =>
     `${model.label} ${model.model}`.toLowerCase().includes(query.toLowerCase()),
   )
@@ -599,7 +607,7 @@ function ConnectionCard({
       .finally(() => setLogin(false))
   }
   return (
-    <section className="rounded-xl border border-border">
+    <section className="overflow-hidden rounded-lg border border-border">
       <div className="flex items-center gap-1 p-2">
         <button
           type="button"
@@ -804,119 +812,187 @@ function ConnectionCard({
             onChange={(event) => setQuery(event.target.value)}
           />
         )}
-        {all.length === 0 && !needsAction && (
+        {all.length === 0 && hiddenModels.length === 0 && !needsAction && (
           <p className="text-xs text-muted-foreground">
             {busy ? t("aiConnections.loading") : t("aiConnections.empty")}
           </p>
         )}
-        {models.length > 0 && (
-          <div
-            className="max-h-72 divide-y divide-border/60 overflow-auto"
-            title={t("aiConnections.catalogHint")}
-          >
-            {models.map((model, index) => (
-              <div key={model.id} className="flex items-center gap-1 py-1.5 text-sm">
-                <ProviderIcon
-                  providerId={connection.provider}
-                  modelId={model.model}
-                  kind={
-                    connection.method === "api" && canAddLocalAiModel(connection)
-                      ? "local"
-                      : "cloud"
-                  }
-                  className="mr-1.5 text-muted-foreground"
-                />
-                <span className="min-w-0 flex-1 truncate">
-                  {model.label}
-                  {!model.available && (
-                    <span className="text-xs text-muted-foreground">
-                      {" "}
-                      · {t("aiConnections.unavailable")}
-                    </span>
-                  )}
-                </span>
-                <button
-                  type="button"
-                  className={cn(
-                    "rounded p-1 hover:bg-accent disabled:opacity-25",
-                    model.supportsTools ? "text-primary" : "text-muted-foreground",
-                  )}
-                  aria-pressed={!!model.supportsTools}
-                  aria-label={t("aiConnections.tools", { model: model.label })}
-                  title={t("aiConnections.toolsHint")}
-                  disabled={busy}
-                  onClick={() => {
-                    void commit(
-                      (previous) => setAiModelTools(previous, model.id, !model.supportsTools),
-                      // The failed save is already reported by the settings window
-                      // (emitSettingsSaveError); nothing more to do here.
-                    ).catch(() => {})
-                  }}
-                >
-                  <Wrench className="size-3.5" />
-                </button>
-                <button
-                  type="button"
-                  className={cn(
-                    "rounded p-1 hover:bg-accent disabled:opacity-25",
-                    settings.baseModelId === model.id ? "text-amber-500" : "text-muted-foreground",
-                  )}
-                  aria-pressed={settings.baseModelId === model.id}
-                  aria-label={t("aiConnections.baseModel", { model: model.label })}
-                  title={t("aiConnections.baseModelHint")}
-                  disabled={busy || !model.enabled}
-                  onClick={() => {
-                    // The failed save is already reported by the settings window
-                    // (emitSettingsSaveError); nothing more to do here.
-                    void commit((previous) => setBaseAiModel(previous, model.id)).catch(() => {})
-                  }}
-                >
-                  <Star
-                    className={cn("size-3.5", settings.baseModelId === model.id && "fill-current")}
-                  />
-                </button>
-                {[-1, 1].map((direction) => (
-                  <button
-                    key={direction}
-                    type="button"
-                    className="rounded p-1 text-muted-foreground hover:bg-accent disabled:opacity-25"
-                    aria-label={t(
-                      direction < 0 ? "aiConnections.moveUp" : "aiConnections.moveDown",
-                      { model: model.label },
-                    )}
-                    disabled={
-                      busy || !!query || (direction < 0 ? index === 0 : index === models.length - 1)
-                    }
-                    onClick={() => {
+        {models.length > 0 &&
+          (() => {
+            const canReorder = !busy && !query && models.length > 1
+            const byId = new Map(models.map((model) => [model.id, model]))
+            const displayModels =
+              canReorder &&
+              dragOrder &&
+              dragOrder.length === models.length &&
+              dragOrder.every((id) => byId.has(id))
+                ? dragOrder.map((id) => byId.get(id)!)
+                : models
+            const commitDragOrder = () => {
+              const nextOrder = dragOrderRef.current
+              setDragOrder(null)
+              if (!nextOrder || !canReorder) return
+              void commit(
+                (previous) => reorderAiModels(previous, connection.id, nextOrder),
+                // The failed save is already reported by the settings window
+                // (emitSettingsSaveError); nothing more to do here.
+              ).catch(() => {})
+            }
+            return (
+              <Reorder.Group
+                axis="y"
+                values={displayModels.map((model) => model.id)}
+                onReorder={(nextOrder) => {
+                  if (canReorder) setDragOrder(nextOrder)
+                }}
+                className="ai-models-scroll -ml-3 -mr-2 max-h-72 divide-y divide-border/60 overflow-y-auto"
+                title={t("aiConnections.catalogHint")}
+              >
+                {displayModels.map((model) => (
+                  <ReorderableRow
+                    key={model.id}
+                    value={model.id}
+                    disabled={!canReorder}
+                    dragLabel={t("aiConnections.dragModel", { model: model.label })}
+                    onMove={(direction) => {
                       void commit(
-                        (previous) => moveAiModel(previous, model.id, direction as -1 | 1),
+                        (previous) => moveAiModel(previous, model.id, direction),
                         // The failed save is already reported by the settings window
                         // (emitSettingsSaveError); nothing more to do here.
                       ).catch(() => {})
                     }}
+                    onDropped={commitDragOrder}
+                    className="gap-1 px-3 py-1.5 text-sm"
                   >
-                    {direction < 0 ? (
-                      <ArrowUp className="size-3.5" />
-                    ) : (
-                      <ArrowDown className="size-3.5" />
-                    )}
-                  </button>
+                    <ProviderIcon
+                      providerId={connection.provider}
+                      modelId={model.model}
+                      kind={
+                        connection.method === "api" && canAddLocalAiModel(connection)
+                          ? "local"
+                          : "cloud"
+                      }
+                      className="mr-1.5 text-muted-foreground"
+                    />
+                    <span className="min-w-0 flex-1 truncate">
+                      {model.label}
+                      {!model.available && (
+                        <span className="text-xs text-muted-foreground">
+                          {" "}
+                          · {t("aiConnections.unavailable")}
+                        </span>
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      className={cn(
+                        "rounded p-1 hover:bg-accent disabled:opacity-25",
+                        settings.baseModelId === model.id
+                          ? "text-amber-500"
+                          : "text-muted-foreground",
+                      )}
+                      aria-pressed={settings.baseModelId === model.id}
+                      aria-label={t("aiConnections.baseModel", { model: model.label })}
+                      title={t("aiConnections.baseModelHint")}
+                      disabled={busy || !model.enabled}
+                      onClick={() => {
+                        // The failed save is already reported by the settings window
+                        // (emitSettingsSaveError); nothing more to do here.
+                        void commit((previous) => setBaseAiModel(previous, model.id)).catch(
+                          () => {},
+                        )
+                      }}
+                    >
+                      <Star
+                        className={cn(
+                          "size-3.5",
+                          settings.baseModelId === model.id && "fill-current",
+                        )}
+                      />
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-25"
+                      aria-label={t("aiConnections.hideModel", { model: model.label })}
+                      title={t("aiConnections.hideModel", { model: model.label })}
+                      disabled={busy}
+                      onClick={() => {
+                        void commit((previous) => setAiModelHidden(previous, model.id, true)).catch(
+                          () => {},
+                        )
+                      }}
+                    >
+                      <EyeOff className="size-3.5" />
+                    </button>
+                    <Switch
+                      className="ml-1"
+                      aria-label={t("aiConnections.enabled", { model: model.label })}
+                      checked={model.enabled}
+                      disabled={busy}
+                      onCheckedChange={(enabled) => {
+                        // The failed save is already reported by the settings window
+                        // (emitSettingsSaveError); nothing more to do here.
+                        void commit((previous) =>
+                          setAiModelEnabled(previous, model.id, enabled),
+                        ).catch(() => {})
+                      }}
+                    />
+                  </ReorderableRow>
                 ))}
-                <Switch
-                  className="ml-1"
-                  aria-label={t("aiConnections.enabled", { model: model.label })}
-                  checked={model.enabled}
-                  disabled={busy}
-                  onCheckedChange={(enabled) => {
-                    // The failed save is already reported by the settings window
-                    // (emitSettingsSaveError); nothing more to do here.
-                    void commit((previous) => setAiModelEnabled(previous, model.id, enabled)).catch(
-                      () => {},
-                    )
-                  }}
-                />
+              </Reorder.Group>
+            )
+          })()}
+        {hiddenModels.length > 0 && (
+          <div className="border-t border-border/60 pt-2">
+            <button
+              type="button"
+              aria-expanded={showHidden}
+              onClick={() => setShowHidden((value) => !value)}
+              className="flex items-center gap-1.5 rounded-md px-1 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              {showHidden ? (
+                <ChevronDown className="size-3.5 shrink-0" aria-hidden="true" />
+              ) : (
+                <ChevronRight className="size-3.5 shrink-0" aria-hidden="true" />
+              )}
+              <span>{t("aiConnections.hiddenModels", { count: hiddenModels.length })}</span>
+            </button>
+            {showHidden && (
+              <div className="mt-1.5 divide-y divide-border/60">
+                {hiddenModels.map((model) => (
+                  <div
+                    key={model.id}
+                    className="flex items-center gap-2 py-1.5 text-xs text-muted-foreground"
+                  >
+                    <ProviderIcon
+                      providerId={connection.provider}
+                      modelId={model.model}
+                      kind={
+                        connection.method === "api" && canAddLocalAiModel(connection)
+                          ? "local"
+                          : "cloud"
+                      }
+                      className="shrink-0 opacity-60"
+                    />
+                    <span className="min-w-0 flex-1 truncate">{model.label}</span>
+                    <button
+                      type="button"
+                      className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-25"
+                      aria-label={t("aiConnections.showModel", { model: model.label })}
+                      title={t("aiConnections.showModel", { model: model.label })}
+                      disabled={busy}
+                      onClick={() => {
+                        void commit((previous) =>
+                          setAiModelHidden(previous, model.id, false),
+                        ).catch(() => {})
+                      }}
+                    >
+                      <Eye className="size-3.5" />
+                    </button>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
         )}
         {canAddLocalAiModel(connection) && (

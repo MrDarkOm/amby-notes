@@ -91,7 +91,7 @@ describe("Claude Code CLI connection", () => {
   })
 
   it("is a catalog model without a tools claim until the catalog says so", () => {
-    const off = { ...claude, models: [{ ...claude.models[0], supportsTools: undefined }] }
+    const off = { ...claude, models: [{ ...claude.models[0], supportsTools: false }] }
     expect(resolveConnectedAiModel(off, "m1")?.supportsTools).toBe(false)
   })
 

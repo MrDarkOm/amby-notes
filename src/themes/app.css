@@ -5685,10 +5685,10 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   padding: 0;
 }
 
-/* Reserve the gutter before scrolling starts; inset the thumb from rounded panel edges. */
+/* Inset the scrollbar thumb from rounded panel edges without adding phantom side gutters. */
 .settings-section-panel,
 .settings-section-panel .overflow-y-auto {
-  scrollbar-gutter: stable both-edges;
+  scrollbar-gutter: auto;
 }
 .settings-section-panel::-webkit-scrollbar,
 .settings-section-panel .overflow-y-auto::-webkit-scrollbar {
@@ -5711,6 +5711,21 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
 .settings-section-panel .overflow-y-auto::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
   background-clip: content-box;
+}
+.settings-section-panel [data-slot="scroll-area-scrollbar"][data-orientation="vertical"] {
+  width: 11px;
+  padding: 12px 3px;
+  border: 0;
+}
+.settings-section-panel [data-slot="scroll-area-thumb"] {
+  min-height: 36px;
+  background: var(--scrollbar-thumb);
+}
+.settings-section-panel [data-slot="scroll-area-thumb"]:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+.settings-section-panel .ai-models-scroll::-webkit-scrollbar-track {
+  margin-block: 4px;
 }
 
 /* All settings sections share a readable content width, including search and modules. */
