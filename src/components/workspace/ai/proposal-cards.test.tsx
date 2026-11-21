@@ -257,6 +257,38 @@ describe("structural proposal cards", () => {
     expect(screen.getByText("Delete")).toBeTruthy()
   })
 
+  it("follows the deletion setting: the trash warns and has no Undo, the archive keeps it", async () => {
+    action.mockResolvedValue({
+      ...move,
+      id: "d1",
+      kind: "delete",
+      state: "applied",
+      canUndo: false,
+    })
+    useProposalStore.getState().add("chat", { ...move, id: "d1", kind: "delete" }, 1)
+    render(<ProposalCards chatId="chat" generation={3} vault="/v" show={() => true} />)
+    expect(screen.getByText(/restore it by hand from the trash/)).toBeTruthy()
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Apply" })))
+    expect(action).toHaveBeenCalledWith("apply", 3, "d1", [], "system")
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull()
+    cleanup()
+    action.mockClear()
+    useProposalStore.getState().add("chat", { ...move, id: "d2", kind: "delete" }, 1)
+    render(
+      <ProposalCards
+        chatId="chat"
+        generation={3}
+        vault="/v"
+        archiveDeletes
+        show={(at) => at === 1}
+      />,
+    )
+    expect(screen.getByText(/Undo can bring it back/)).toBeTruthy()
+    const applies = screen.getAllByRole("button", { name: "Apply" })
+    await act(async () => fireEvent.click(applies[applies.length - 1]))
+    expect(action).toHaveBeenCalledWith("apply", 3, "d2", [], "archive")
+  })
+
   it("waits for a note with unsaved edits that is inside the item or would have its links rewritten", async () => {
     open("/v/chosen/sub/deep.md")
     useProposalStore.getState().add("chat", { ...move, id: "inside" }, 1)

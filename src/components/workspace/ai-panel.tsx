@@ -83,6 +83,7 @@ export function AiPanel({
   vault,
   onSelect,
   onCreateNoteFromText,
+  deleteMode,
 }: PanelRenderProps) {
   const { t, i18n } = useTranslation()
   const backendGeneration = useVaultStore((state) => state.backendGeneration)
@@ -752,6 +753,7 @@ export function AiPanel({
                         chatId={chat.id}
                         generation={backendGeneration}
                         vault={vault}
+                        archiveDeletes={deleteMode === "archive"}
                         show={(at) => at === index}
                       />
                     )}
@@ -773,6 +775,7 @@ export function AiPanel({
                   chatId={chat.id}
                   generation={backendGeneration}
                   vault={vault}
+                  archiveDeletes={deleteMode === "archive"}
                   show={(at) =>
                     // The answer being written, or one that was never saved (it had no text).
                     at >= chat.messages.length || chat.messages[at]?.role !== "assistant"

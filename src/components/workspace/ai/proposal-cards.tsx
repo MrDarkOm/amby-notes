@@ -6,7 +6,6 @@ import { Archive, FilePlus2, FilePen, FileText, FolderInput, Pencil, Trash2 } fr
 import { aiProposalAction, ProposalError, type ProposalAction } from "@/lib/ai"
 import { cn } from "@/lib/utils"
 import { NoticeLine } from "../notices/notice-line"
-import { useSettingsStore } from "../use-settings-store"
 import { useDocStore } from "../use-doc-store"
 import { toRelativeVaultPath } from "../workspace-tree-utils"
 import { isAffected, unsavedVaultPaths } from "./unsaved-paths"
@@ -93,11 +92,13 @@ function Card({
   chatId,
   generation,
   vault,
+  archiveDeletes,
 }: {
   card: PlacedCard
   chatId: string
   generation: number
   vault: string | null
+  archiveDeletes: boolean
 }) {
   const { t } = useTranslation()
   const update = useProposalStore((state) => state.update)
@@ -115,7 +116,6 @@ function Card({
     return false
   })
   const structural = isStructuralKind(card.kind)
-  const archiveDeletes = useSettingsStore((state) => state.prefs.files.deleteMode === "archive")
   const run = async (action: ProposalAction) => {
     setBusy(true)
     setFailure(null)
@@ -261,11 +261,14 @@ export function ProposalCards({
   generation,
   vault,
   show,
+  archiveDeletes = false,
 }: {
   chatId: string
   generation: number
   vault: string | null
   show: (at: number) => boolean
+  /** The deletion setting is the archive (a deletion can be undone), not the system trash. */
+  archiveDeletes?: boolean
 }) {
   const cards = useProposalStore((state) => state.cards[chatId])
   const mine = cards?.filter((card) => show(card.at))
@@ -273,7 +276,14 @@ export function ProposalCards({
   return (
     <div className="mt-2 flex flex-col gap-2">
       {mine.map((card) => (
-        <Card key={card.id} card={card} chatId={chatId} generation={generation} vault={vault} />
+        <Card
+          key={card.id}
+          card={card}
+          chatId={chatId}
+          generation={generation}
+          vault={vault}
+          archiveDeletes={archiveDeletes}
+        />
       ))}
     </div>
   )

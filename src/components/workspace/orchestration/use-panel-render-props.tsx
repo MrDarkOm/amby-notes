@@ -16,6 +16,7 @@ import { useTranslation } from "react-i18next"
 import type { SettingsNavigationTarget } from "../settings-navigation"
 import type { TreeItem } from "../sidebar-tree"
 import { useOverlaysStore } from "../use-overlays-store"
+import { useSettingsStore } from "../use-settings-store"
 
 interface UsePanelRenderPropsParams {
   displayTreeItems: TreeItem[]
@@ -175,6 +176,7 @@ export function usePanelRenderProps({
   vaultName,
 }: UsePanelRenderPropsParams) {
   const { t } = useTranslation()
+  const deleteMode = useSettingsStore((state) => state.prefs.files.deleteMode)
   const panelRenderProps: PanelRenderProps = React.useMemo(
     () => ({
       treeItems: displayTreeItems,
@@ -203,6 +205,7 @@ export function usePanelRenderProps({
       onOpenInExplorer: (path: string) => void showInFileManager(path),
       onMoveItem: handleMoveItem,
       onSetIcon: handleSetIcon,
+      deleteMode,
       triggerRenameId: pendingRenameId,
       readFile: async (id: string) => (vault ? (await readNote(vault, id)).content : readFile(id)),
       favorites,
@@ -281,6 +284,7 @@ export function usePanelRenderProps({
       ),
     }),
     [
+      deleteMode,
       displayTreeItems,
       fileTreeItems,
       selectedId,

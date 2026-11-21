@@ -8,6 +8,7 @@ import type {
 } from "@/lib/storage"
 import type { AttachableLayer, NodeLayers } from "./tree/tree-types"
 import type { SettingsNavigationTarget } from "./settings-navigation"
+import type { DeleteModePref } from "./app-config"
 
 export type Side = "left" | "right"
 
@@ -115,6 +116,8 @@ export interface PanelRenderProps {
     targetFolderId: string | null,
   ) => void | Promise<"moved" | "skipped" | "failed">
   onSetIcon?: (id: string, icon: string) => void
+  /** The deletion setting (an AI proposal never deletes for good, whatever it says). */
+  deleteMode?: DeleteModePref
   triggerRenameId?: string | null
   readFile?: (path: string) => Promise<string>
 
