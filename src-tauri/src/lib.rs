@@ -5,6 +5,7 @@ mod cli_structural;
 mod commands;
 mod credentials;
 mod keychain_access;
+mod dictation;
 pub mod logging;
 pub mod package_manager;
 mod page_info;
@@ -137,6 +138,9 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         ai::proposals::ai_apply_proposal,
         ai::proposals::ai_reject_proposal,
         ai::proposals::ai_undo_proposal,
+        dictation::start_system_dictation,
+        ai::local_apps::ai_local_app_installed,
+        ai::codex::launch::ai_codex_status,
         ai::codex::launch::ai_codex_login,
         ai::codex::launch::ai_codex_login_cancel,
         ai::codex::launch::ai_codex_logout,

@@ -2,8 +2,19 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowUp, FileText, Folder, FolderTree, Paperclip, Plus, Square, X } from "lucide-react"
+import {
+  FileText,
+  Folder,
+  CornerDownLeft,
+  FolderTree,
+  Mic,
+  Paperclip,
+  Plus,
+  Square,
+  X,
+} from "lucide-react"
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
+import { startSystemDictation } from "@/lib/ai"
 import { NoticeLine } from "../notices/notice-line"
 import { ApprovalModeButton } from "./approval-mode"
 import { readTextFiles, useAttachmentStore, type AttachError } from "./attachments"
@@ -198,6 +209,9 @@ function ContextChips({
 }
 
 /** One capsule for everything you type with: context, the message, search, model, send. */
+const iconButton =
+  "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+
 export function Composer({
   chat,
   flat,
@@ -257,6 +271,18 @@ export function Composer({
   const field = React.useRef<HTMLTextAreaElement>(null)
   const picker = React.useRef<HTMLInputElement>(null)
   const [attachError, setAttachError] = React.useState<AttachError | null>(null)
+  const [dictationFailed, setDictationFailed] = React.useState(false)
+  // Dictation is the system's own, started where the system has it (macOS).
+  const canDictate = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform)
+  const dictate = async () => {
+    field.current?.focus()
+    setDictationFailed(false)
+    try {
+      await startSystemDictation()
+    } catch {
+      setDictationFailed(true)
+    }
+  }
   const attached = useAttachmentStore((state) => (chat ? state.files[chat.id] : undefined))
   const pickFiles = async (list: FileList | null) => {
     if (!chat || !list?.length) return
@@ -418,7 +444,21 @@ export function Composer({
               ))}
             </ul>
           )}
-          <div className="flex items-end gap-2">
+          <textarea
+            ref={field}
+            value={input}
+            onChange={(event) => onInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (isEnterKey(event) && !event.shiftKey && !mentionOpen) {
+                event.preventDefault()
+                onSend()
+              }
+            }}
+            rows={1}
+            placeholder={t("ai.messagePlaceholder")}
+            className="max-h-48 min-h-7 w-full min-w-0 resize-none bg-transparent px-1 text-[14px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
+          />
+          <div data-composer-actions className="flex w-full min-w-0 items-center gap-1">
             <input
               ref={picker}
               type="file"
@@ -436,52 +476,50 @@ export function Composer({
               title={t("ai.attach.label")}
               aria-label={t("ai.attach.label")}
               onClick={() => picker.current?.click()}
-              className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+              className={iconButton}
             >
               <Paperclip className="size-4" />
             </button>
-            <textarea
-              ref={field}
-              value={input}
-              onChange={(event) => onInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (isEnterKey(event) && !event.shiftKey && !mentionOpen) {
-                  event.preventDefault()
-                  onSend()
-                }
-              }}
-              rows={1}
-              placeholder={t("ai.messagePlaceholder")}
-              className="max-h-48 min-h-7 min-w-0 flex-1 resize-none self-center bg-transparent px-1 text-[14px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
-            />
-            <div className="flex shrink-0 items-center">
-              <div className="flex shrink-0 items-center">
-                {loading ? (
-                  <button
-                    type="button"
-                    onClick={onStop}
-                    title={t("ai.stop")}
-                    aria-label={t("ai.stop")}
-                    className="flex size-7 shrink-0 items-center justify-center rounded-full border border-border text-foreground hover:bg-accent"
-                  >
-                    <Square className="size-3 fill-current" />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={onSend}
-                    disabled={!input.trim() || switching || !chat}
-                    title={t("ai.send")}
-                    aria-label={t("ai.send")}
-                    className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-30"
-                  >
-                    <ArrowUp className="size-4" />
-                  </button>
-                )}
-              </div>
-            </div>
+            <span className="min-w-0 flex-1" />
+            {canDictate && (
+              <button
+                type="button"
+                disabled={loading || !chat}
+                title={t("ai.dictation.label")}
+                aria-label={t("ai.dictation.label")}
+                onClick={() => void dictate()}
+                className={iconButton}
+              >
+                <Mic className="size-4" />
+              </button>
+            )}
+            {loading ? (
+              <button
+                type="button"
+                onClick={onStop}
+                title={t("ai.stop")}
+                aria-label={t("ai.stop")}
+                className={iconButton}
+              >
+                <Square className="size-3.5 fill-current" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onSend}
+                disabled={!input.trim() || switching || !chat}
+                title={t("ai.send")}
+                aria-label={t("ai.send")}
+                className={cn(iconButton, "text-foreground")}
+              >
+                <CornerDownLeft className="size-4" />
+              </button>
+            )}
           </div>
         </div>
+        {dictationFailed && (
+          <NoticeLine role="status" className="mt-1.5" text={t("ai.dictation.error")} />
+        )}
         {attachError && (
           <NoticeLine role="status" className="mt-1.5" text={t(`ai.attach.error.${attachError}`)} />
         )}

@@ -386,3 +386,22 @@ export async function aiProposalAction(
   if (result.status === "ok") return result.data
   throw new ProposalError(result.error)
 }
+
+/** The system did not start dictation; `code` is the backend's stable code. */
+export class SystemDictationError extends Error {
+  constructor(readonly code: string) {
+    super(code)
+  }
+}
+
+/**
+ * Asks the system to start dictating into the focused text field (macOS). Resolves `false` when
+ * this system has none, and rejects with the backend's stable code when it did not start.
+ */
+export async function startSystemDictation(): Promise<boolean> {
+  if (!isTauri()) return false
+  const result = await commands.startSystemDictation()
+  if (result.status === "ok") return true
+  if (result.error === "unsupported") return false
+  throw new SystemDictationError(result.error)
+}

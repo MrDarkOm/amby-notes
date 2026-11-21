@@ -427,6 +427,17 @@ async aiUndoProposal(generation: number, id: string, unsavedPaths: string[]) : P
 }
 },
 /**
+ * Starts the system's dictation into the focused text field. Takes no input.
+ */
+async startSystemDictation() : Promise<Result<null, DictationError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("start_system_dictation") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Whether the program of a local provider (`lmstudio`, `ollama`, `mlx`, `llamacpp`) is installed.
  */
 async aiLocalAppInstalled(provider: string) : Promise<Result<boolean, string>> {
@@ -2854,6 +2865,18 @@ export type FailureReason =
  */
 "invalid_config" | 
 /**
+/**
+ * Why dictation did not start; a stable code for the interface.
+ */
+export type DictationError = 
+/**
+ * This system has no dictation Amby can start.
+ */
+"unsupported" | 
+/**
+ * The system did not accept the request (dictation is off in its settings).
+ */
+"notStarted"
  * A relation is not valid: no reciprocal property, wrong target.
  */
 "relation_invalid" | 

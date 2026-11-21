@@ -2056,6 +2056,10 @@ const ru = {
     addMention: "Добавить заметку или папку",
     noMentions: "Ничего не найдено",
     searchVault: "Поиск по хранилищу",
+    dictation: {
+      label: "Диктовка (системная)",
+      error: "Не удалось начать диктовку. Включите её в настройках системы: Клавиатура → Диктовка.",
+    },
     attach: {
       label: "Прикрепить текстовые файлы",
       list: "Прикреплённые файлы",
@@ -6475,6 +6479,10 @@ const en: LocaleShape<typeof ru> = {
     addMention: "Add a note or folder",
     noMentions: "No matches",
     searchVault: "Search the vault",
+    dictation: {
+      label: "Dictation (system)",
+      error: "Dictation did not start. Turn it on in the system settings: Keyboard → Dictation.",
+    },
     attach: {
       label: "Attach text files",
       list: "Attached files",

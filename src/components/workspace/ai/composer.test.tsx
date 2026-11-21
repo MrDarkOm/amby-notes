@@ -5,6 +5,9 @@ import "@/lib/i18n"
 import { Composer } from "./composer"
 import type { Chat } from "@/lib/storage"
 
+const dictation = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/ai", () => ({ startSystemDictation: dictation }))
+
 const chat: Chat = {
   version: 1,
   id: "c",
@@ -80,12 +83,24 @@ describe("Composer layout", () => {
     expect(line.className).not.toContain("flex-wrap")
   })
 
-  it("keeps the send button in the writing box, beside the text", () => {
+  it("keeps the text on its own line, with the paperclip and the send button in a line under it", () => {
     show({ input: "hi" })
     const box = document.querySelector("[data-composer-box]")!
     const field = screen.getByPlaceholderText("Сообщение…")
-    expect(box.contains(screen.getByRole("button", { name: "Отправить" }))).toBe(true)
-    expect(before(field, screen.getByRole("button", { name: "Отправить" }))).toBe(true)
+    const actions = box.querySelector("[data-composer-actions]")!
+    const clip = screen.getByRole("button", { name: "Прикрепить текстовые файлы" })
+    const send = screen.getByRole("button", { name: "Отправить" })
+    expect(actions.contains(field)).toBe(false)
+    expect(before(field, actions)).toBe(true)
+    expect(actions.contains(clip) && actions.contains(send)).toBe(true)
+    expect(before(clip, send)).toBe(true)
+  })
+
+  it("draws send as a plain icon without a circle around it", () => {
+    show({ input: "hi" })
+    const send = screen.getByRole("button", { name: "Отправить" })
+    expect(send.className).not.toContain("rounded-full")
+    expect(send.className).not.toContain("bg-primary")
   })
 
   it("puts the model and the approval mode below the writing box, the mode right of the picker", () => {
@@ -357,7 +372,7 @@ describe("Composer attachments", () => {
     const clip = screen.getByRole("button", { name: "Прикрепить текстовые файлы" })
     expect(box.contains(clip)).toBe(true)
     expect(clip.querySelector("svg.lucide-paperclip")).not.toBeNull()
-    expect(before(clip, screen.getByPlaceholderText("Сообщение…"))).toBe(true)
+    expect(before(screen.getByPlaceholderText("Сообщение…"), clip)).toBe(true)
     const input = box.querySelector('input[type="file"]') as HTMLInputElement
     expect(input.multiple).toBe(true)
     expect(input.accept).toContain(".md")
@@ -373,5 +388,40 @@ describe("Composer attachments", () => {
       fireEvent.click(screen.getByRole("button", { name: "Убрать файл plan.md" })),
     )
     expect(screen.queryByText("plan.md")).toBeNull()
+  })
+})
+
+describe("Composer dictation and send", () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it("shows the microphone left of send on a Mac and starts the system dictation in the field", async () => {
+    vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel")
+    dictation.mockResolvedValue(true)
+    show()
+    const mic = screen.getByRole("button", { name: "Диктовка (системная)" })
+    expect(before(mic, screen.getByRole("button", { name: "Отправить" }))).toBe(true)
+    await act(async () => fireEvent.click(mic))
+    expect(dictation).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).toBe(screen.getByPlaceholderText("Сообщение…"))
+  })
+
+  it("says so when the system did not start dictation, and has no microphone elsewhere", async () => {
+    vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel")
+    dictation.mockRejectedValue(new Error("notStarted"))
+    show()
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "Диктовка (системная)" })),
+    )
+    expect(screen.getByRole("status").textContent).toMatch(/Диктовка/)
+    cleanup()
+    vi.spyOn(navigator, "platform", "get").mockReturnValue("Win32")
+    show()
+    expect(screen.queryByRole("button", { name: "Диктовка (системная)" })).toBeNull()
+  })
+
+  it("sends with the return arrow", () => {
+    show({ input: "hi" })
+    const send = screen.getByRole("button", { name: "Отправить" })
+    expect(send.querySelector("svg.lucide-corner-down-left")).not.toBeNull()
   })
 })
