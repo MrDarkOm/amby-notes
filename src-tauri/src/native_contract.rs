@@ -111,6 +111,7 @@ fn run_native_ui(root: std::path::PathBuf) {
         .manage(crate::database::mutation_state::DatabaseMutationState::default())
         .manage(crate::database::history::DatabaseHistoryState::default())
         .manage(crate::ai::AiStreamState::default())
+        .manage(crate::ai::proposals::ProposalStore::default())
         .manage(crate::logging::DebugState(crate::logging::global_runtime()))
         .invoke_handler(crate::specta_builder().invoke_handler())
         .on_menu_event(crate::state::handle_menu_event)
@@ -544,6 +545,7 @@ pub fn run_native_contract() {
         .manage(crate::database::mutation_state::DatabaseMutationState::default())
         .manage(crate::database::history::DatabaseHistoryState::default())
         .manage(crate::ai::AiStreamState::default())
+        .manage(crate::ai::proposals::ProposalStore::default())
         .manage(crate::logging::DebugState(crate::logging::global_runtime()))
         .invoke_handler(crate::specta_builder().invoke_handler())
         .setup(move |app| {

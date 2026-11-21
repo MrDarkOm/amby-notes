@@ -30,6 +30,7 @@
 - Docs: the plan for giving the AI panel the full vault tool set with proposal cards and Manual / Auto / Turbo modes (`docs/road/ai-panel-tools.md`).
 - For developers: `amby-core/src/ai_proposals/` is the engine for AI proposals to notes (write scope, outdated check, `ai-edit` version, undo); used by the panel's write tools (`ai_tools::Writes`, `ToolBudget::take_proposals`) and `src-tauri/src/ai/proposals.rs`.
 - For developers: MCP tool schemas and read dispatch moved from `amby-cli` to `amby-core/src/tool_set/`, so the CLI server, the desktop bridge and API providers share one tool set; `ai_tools::panel_definitions` is the panel's list.
+- For developers: the native contract checks AI proposals through real IPC (a pending card writes nothing, apply leaves an `ai-edit` version, undo restores the exact bytes).
 - For developers: the native contract also deletes a note through the open desktop and checks the write-grant refusal.
 
 - CLI and MCP: vault hygiene. `amby info` summarizes a note (size, words, dates, tags, links, properties, attachments), `amby orphans` lists notes nothing links to, and `amby unresolved` lists links to missing notes. MCP adds `get_note_info`, `find_orphans` and `list_unresolved_links`.

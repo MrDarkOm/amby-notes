@@ -96,6 +96,89 @@ export const nativeAiCases: Array<{
     },
   },
   {
+    name: "AI proposals write nothing until applied, keep an ai-edit version and can be undone",
+    async run({ adapter, vaultPath }) {
+      const url = (window as unknown as { __AMBY_NATIVE_AI_URL__: string }).__AMBY_NATIVE_AI_URL__
+      check(url, "The disposable AI provider is available")
+      const created = await adapter.createNote(vaultPath, vaultPath, "Venus")
+      const id = created.primaryId!
+      const generation = (await adapter.loadActiveVaultData()).generation
+      const original = await adapter.readNote(vaultPath, id)
+      await adapter.writeNote(
+        vaultPath,
+        id,
+        "venus is bright",
+        generation,
+        original.revision,
+        "main",
+      )
+      const before = await adapter.readNote(vaultPath, id)
+      const cards: Array<{ id: string; path: string; state: string; diff: string }> = []
+      const unlisten = await listen<{
+        streamId: string
+        kind: string
+        payload: { id: string; path: string; state: string; diff: string }
+      }>("ai:event", ({ payload }) => {
+        if (payload.streamId === "native-ai-proposal" && payload.kind === "proposal")
+          cards.push(payload.payload)
+      })
+      try {
+        const turn = await commands.aiRunTurn({
+          generation,
+          config: {
+            provider: "ollama",
+            internalModelId: null,
+            model: "fake",
+            baseUrl: url,
+            credentialId: null,
+            apiKey: null,
+            maxTokens: null,
+            apiVersion: null,
+          },
+          messages: [{ role: "user", content: "Propose an edit" }],
+          system: null,
+          noteIds: [id],
+          folders: [],
+          initialSources: [],
+          searchEnabled: false,
+          supportsTools: true,
+          writeVault: false,
+          streamId: "native-ai-proposal",
+        })
+        check(turn.status === "ok", "AI turn succeeded")
+        const deadline = Date.now() + 2000
+        while (cards.length === 0 && Date.now() < deadline)
+          await new Promise((resolve) => setTimeout(resolve, 20))
+        check(cards.length === 1 && cards[0].state === "pending", "A pending card arrived")
+        check(
+          cards[0].path === "Venus.md" && cards[0].diff.includes("+venus is bright and hot"),
+          "The card shows the change",
+        )
+        check(
+          (await adapter.readNote(vaultPath, id)).source === before.source,
+          "A proposal writes nothing",
+        )
+        const unsaved = await commands.aiApplyProposal(generation, cards[0].id, ["Venus.md"])
+        check(unsaved.status === "error", "A note with unsaved edits is not overwritten")
+        const applied = await commands.aiApplyProposal(generation, cards[0].id, [])
+        check(applied.status === "ok" && applied.data.state === "applied", "Apply succeeds")
+        const after = await adapter.readNote(vaultPath, id)
+        check(after.source.includes("venus is bright and hot"), "The note holds the change")
+        const undone = await commands.aiUndoProposal(generation, cards[0].id, [])
+        check(undone.status === "ok" && undone.data.state === "undone", "Undo succeeds")
+        check(
+          (await adapter.readNote(vaultPath, id)).source === before.source,
+          "Undo restores the exact bytes",
+        )
+        const again = await commands.aiApplyProposal(generation, cards[0].id, [])
+        check(again.status === "error", "A decided proposal cannot be applied twice")
+        await commands.aiRejectProposal(generation, cards[0].id)
+      } finally {
+        unlisten()
+      }
+    },
+  },
+  {
     name: "AI chats and cloud consent use generation-scoped native storage",
     async run({ adapter, vaultPath }) {
       const repo = createAiChatRepository(true)
