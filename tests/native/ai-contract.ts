@@ -156,9 +156,9 @@ export const nativeAiCases: Array<{
           (await adapter.readNote(vaultPath, id)).source === before.source,
           "A proposal writes nothing",
         )
-        const unsaved = await commands.aiApplyProposal(generation, cards[0].id, ["Venus.md"])
+        const unsaved = await commands.aiApplyProposal(generation, cards[0].id, ["Venus.md"], null)
         check(unsaved.status === "error", "A note with unsaved edits is not overwritten")
-        const applied = await commands.aiApplyProposal(generation, cards[0].id, [])
+        const applied = await commands.aiApplyProposal(generation, cards[0].id, [], null)
         check(applied.status === "ok" && applied.data.state === "applied", "Apply succeeds")
         const after = await adapter.readNote(vaultPath, id)
         check(after.source.includes("venus is bright and hot"), "The note holds the change")
@@ -168,7 +168,7 @@ export const nativeAiCases: Array<{
           (await adapter.readNote(vaultPath, id)).source === before.source,
           "Undo restores the exact bytes",
         )
-        const again = await commands.aiApplyProposal(generation, cards[0].id, [])
+        const again = await commands.aiApplyProposal(generation, cards[0].id, [], null)
         check(again.status === "error", "A decided proposal cannot be applied twice")
         await commands.aiRejectProposal(generation, cards[0].id)
       } finally {
@@ -229,7 +229,7 @@ export const nativeAiCases: Array<{
           (await adapter.readNote(vaultPath, id)).source === before.source,
           "A proposal writes nothing",
         )
-        const refused = await commands.aiApplyProposal(generation, cards[0].id, [])
+        const refused = await commands.aiApplyProposal(generation, cards[0].id, [], null)
         check(
           refused.status === "error" && refused.error === "propertiesNotMigrated",
           `A vault without property groups refuses ${JSON.stringify(refused)}`,
@@ -319,7 +319,7 @@ export const nativeAiCases: Array<{
           await new Promise((resolve) => setTimeout(resolve, 20))
         check(cards.length === 1 && cards[0].kind === "setDatabaseValue", "A cell card arrived")
         check((await adapter.readFile(row.notePath)) === before, "A proposal writes nothing")
-        const applied = await commands.aiApplyProposal(generation, cards[0].id, [])
+        const applied = await commands.aiApplyProposal(generation, cards[0].id, [], null)
         check(
           applied.status === "ok" && applied.data.state === "applied",
           `Apply succeeds ${JSON.stringify(applied)}`,

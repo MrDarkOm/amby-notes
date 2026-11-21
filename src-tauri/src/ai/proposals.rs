@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use amby_core::ai_proposals::{self, Applied, Proposal, ProposalOp, UndoPlan, WriteScope};
+use amby_core::recycle_bin::DeleteMode;
 use serde::Serialize;
 use serde_json::Value;
 use tauri::Manager;
@@ -35,6 +36,11 @@ pub struct ProposalCard {
     pub kind: String,
     pub diff: String,
     pub diff_truncated: bool,
+    /// Every file a move, rename, archive or deletion touches; empty for other changes.
+    pub affected: Vec<String>,
+    pub affected_truncated: bool,
+    /// An applied change can be undone from the card; a deletion to the system trash cannot.
+    pub can_undo: bool,
     pub state: CardState,
 }
 
@@ -60,10 +66,17 @@ impl Entry {
                 ProposalOp::RenameProperty { .. } => "renameProperty",
                 ProposalOp::CreateDatabaseRow { .. } => "createDatabaseRow",
                 ProposalOp::SetDatabaseValue { .. } => "setDatabaseValue",
+                ProposalOp::Move { .. } => "move",
+                ProposalOp::Rename { .. } => "rename",
+                ProposalOp::Archive { .. } => "archive",
+                ProposalOp::Delete { .. } => "delete",
             }
             .into(),
             diff: self.proposal.diff.clone(),
             diff_truncated: self.proposal.diff_truncated,
+            affected: self.proposal.affected.clone(),
+            affected_truncated: self.proposal.affected_truncated,
+            can_undo: self.applied.as_ref().is_none_or(|applied| !applied.removed),
             state: self.state,
         }
     }
@@ -189,19 +202,22 @@ fn apply_blocking(
     generation: u64,
     id: &str,
     unsaved_paths: &[String],
+    delete_mode: DeleteMode,
 ) -> Result<ProposalCard, &'static str> {
     let store = app.state::<ProposalStore>();
     let proposal = store.pending(generation, id)?;
-    // A note with unsaved edits is never overwritten; the card waits until it is saved.
-    if unsaved_paths.contains(&proposal.path) {
+    // A note with unsaved edits is never overwritten; the card waits until it is saved. For a
+    // move, rename or deletion that includes the notes inside the item and the notes whose
+    // links would be rewritten.
+    if proposal.touches(unsaved_paths) {
         return Err("noteHasUnsavedEdits");
     }
     let context = app.state::<VaultContext>();
-    let result = if proposal.op.is_engine_change() {
-        // The property engine takes the mutation gate itself, through the same path as the
-        // MCP property tools, and refreshes the index.
+    let result = if proposal.op.is_engine_change() || proposal.op.is_structural() {
+        // The property and structural engines take the mutation gate themselves, through the
+        // same path as the MCP tools, and refresh the index.
         let root = active_root(&context, generation)?;
-        ai_proposals::apply_with(&root, &whole_vault(), &proposal, &|mutation| {
+        ai_proposals::apply_deleting(&root, &whole_vault(), &proposal, delete_mode, &|mutation| {
             let request = amby_core::cli_ipc::Request {
                 version: amby_core::cli_ipc::VERSION,
                 vault: root.clone(),
@@ -235,13 +251,19 @@ fn undo_blocking(
     id: &str,
     unsaved_paths: &[String],
 ) -> Result<ProposalCard, &'static str> {
+    /// What is left to do once the gate is released.
+    enum Then {
+        Remove(amby_core::vault_tools::Mutation),
+    }
     let store = app.state::<ProposalStore>();
     let applied = store.applied(generation, id)?;
-    if unsaved_paths.contains(&applied.path) {
+    if unsaved_paths.contains(&applied.path)
+        || ai_proposals::touches(&applied.affected, unsaved_paths)
+    {
         return Err("noteHasUnsavedEdits");
     }
     let context = app.state::<VaultContext>();
-    let (root, removal) = {
+    let (root, then) = {
         let _gate = context.mutation_gate.lock_or_recover();
         let root = active_root(&context, generation)?;
         match ai_proposals::undo_plan(&root, &applied)? {
@@ -249,30 +271,42 @@ fn undo_blocking(
                 ai_proposals::undo(&root, &whole_vault(), &applied)?;
                 return store.set_state(generation, id, CardState::Undone);
             }
-            UndoPlan::Trash { path } => (root, amby_core::vault_tools::Mutation::Delete { path }),
+            UndoPlan::Trash { path } => (
+                root,
+                Then::Remove(amby_core::vault_tools::Mutation::Delete { path }),
+            ),
             UndoPlan::DeleteRow {
                 database_id,
                 note_id,
             } => (
                 root,
-                amby_core::vault_tools::Mutation::DeleteDatabaseRow {
+                Then::Remove(amby_core::vault_tools::Mutation::DeleteDatabaseRow {
                     database_id,
                     note_id,
-                },
+                }),
             ),
+            UndoPlan::Structural(inverse) => match ai_proposals::inverse_mutation(&inverse) {
+                Some(mutation) => (root, Then::Remove(mutation)),
+                None => return Err("undoUnavailable"),
+            },
         }
     };
-    // A note or row the apply created goes back to the system trash through the same path as the
-    // MCP delete; it takes the mutation gate itself.
-    let request = amby_core::cli_ipc::Request {
-        version: amby_core::cli_ipc::VERSION,
-        vault: root,
-        action: amby_core::cli_ipc::Action::Tool {
-            grant: String::new(),
-            request: removal,
-        },
-    };
-    crate::cli_structural::handle(app, request)?;
+    match then {
+        // A note or row the apply created goes back to the system trash through the same path as
+        // the MCP delete; a structural change goes back by its inverse operation. Both take the
+        // mutation gate themselves.
+        Then::Remove(mutation) => {
+            let request = amby_core::cli_ipc::Request {
+                version: amby_core::cli_ipc::VERSION,
+                vault: root,
+                action: amby_core::cli_ipc::Action::Tool {
+                    grant: String::new(),
+                    request: mutation,
+                },
+            };
+            crate::cli_structural::handle(app, request)?;
+        }
+    }
     store.set_state(generation, id, CardState::Undone)
 }
 
@@ -294,9 +328,16 @@ pub async fn ai_apply_proposal(
     generation: u64,
     id: String,
     unsaved_paths: Vec<String>,
+    delete_mode: Option<DeleteMode>,
 ) -> Result<ProposalCard, String> {
     run_blocking(app, move |app| {
-        apply_blocking(app, generation, &id, &unsaved_paths)
+        apply_blocking(
+            app,
+            generation,
+            &id,
+            &unsaved_paths,
+            delete_mode.unwrap_or_default(),
+        )
     })
     .await
 }
@@ -350,6 +391,8 @@ mod tests {
             base: None,
             diff: "+x".into(),
             diff_truncated: false,
+            affected: Vec::new(),
+            affected_truncated: false,
         }
     }
 
@@ -386,6 +429,9 @@ mod tests {
             after: "h".into(),
             created: false,
             row: None,
+            inverse: None,
+            removed: false,
+            affected: Vec::new(),
         };
         store.mark_applied(1, &card.id, applied.clone()).unwrap();
         assert_eq!(store.applied(1, &card.id), Ok(applied));

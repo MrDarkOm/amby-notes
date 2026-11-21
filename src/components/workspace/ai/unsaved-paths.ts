@@ -9,3 +9,8 @@ export function unsavedVaultPaths(vault: string | null): string[] {
     return path ? [toRelativeVaultPath(path, vault)] : []
   })
 }
+
+/** Is `path` one of the `affected` items or inside one of them (a folder covers what is in it)? */
+export function isAffected(path: string, affected: readonly string[]): boolean {
+  return affected.some((item) => path === item || path.startsWith(`${item}/`))
+}

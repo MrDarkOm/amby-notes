@@ -643,7 +643,7 @@ const ru = {
     aiTurbo: {
       title: "Включить режим без остановок?",
       description:
-        "ИИ будет сразу применять все свои правки, без вашего подтверждения. Каждое применение остаётся в истории заметки, и его можно отменить.",
+        "ИИ будет сразу применять все свои правки, в том числе переносить и архивировать файлы, без вашего подтверждения. Удаление всё равно ждёт вашего «Применить». Применённое можно отменить.",
       confirm: "Включить",
     },
     removeAiConnection: {
@@ -2144,11 +2144,11 @@ const ru = {
       },
       auto: {
         label: "Автоматически",
-        hint: "Правки применяются сразу, на карточке остаётся «Отменить».",
+        hint: "Текст, свойства и базы применяются сразу, на карточке остаётся «Отменить». Перенос, переименование, архив и удаление ждут вашего «Применить».",
       },
       turbo: {
         label: "Без остановок",
-        hint: "Всё применяется сразу, ничего не спрашивается. Каждую правку можно отменить.",
+        hint: "Всё применяется сразу, включая перенос и архив, ничего не спрашивается. Удаление всё равно ждёт «Применить»: его нельзя отменить отсюда.",
       },
     },
     proposal: {
@@ -2165,9 +2165,14 @@ const ru = {
         move: "Перенос",
         rename: "Переименование",
         archive: "Перенос в архив",
-        delete: "Удаление (в корзину)",
+        delete: "Удаление",
       },
-
+      deleteWarning:
+        "Удаление идёт в системную корзину, как при ручном удалении. Отсюда отменить его нельзя: восстанавливать придётся вручную из корзины. Если файл может понадобиться, лучше архив.",
+      deleteWarningArchive:
+        "По вашей настройке удаление уходит в архив, откуда его можно вернуть кнопкой «Отменить».",
+      affected: "Файлы, которых касается правка",
+      affectedMore: "Правка затрагивает больше файлов, чем показано.",
       truncated: "Показано не всё изменение.",
       waitForSave:
         "Заметка открыта с несохранёнными правками. Сохраните её, и правку можно будет применить.",
@@ -2181,7 +2186,8 @@ const ru = {
         outdated: "Заметка изменилась после предложения, ничего не записано.",
         outdatedStructural: "Файлы изменились после предложения, ничего не сделано.",
         appliedStructural: "Применено. «Отменить» вернёт всё на место, включая ссылки.",
-        appliedDelete: "Перенесено в корзину хранилища. «Отменить» вернёт на место.",
+        appliedDelete: "Удалено. Восстановить можно только вручную из корзины.",
+        appliedArchive: "Перенесено в архив. «Отменить» вернёт на место.",
       },
       error: {
         noteHasUnsavedEdits: "Заметка открыта с несохранёнными правками. Сначала сохраните её.",
@@ -5173,7 +5179,7 @@ const en: LocaleShape<typeof ru> = {
     aiTurbo: {
       title: "Turn on the mode without stops?",
       description:
-        "The AI will apply all its changes at once, without asking you. Each change stays in the note's history and can be undone.",
+        "The AI will apply all its changes at once, including moving and archiving files, without asking you. Deleting still waits for your Apply. What was applied can be undone.",
       confirm: "Turn on",
     },
     removeAiConnection: {
@@ -6649,10 +6655,13 @@ const en: LocaleShape<typeof ru> = {
     approval: {
       title: "How the AI's changes are applied",
       manual: { label: "Manual approval", hint: "You apply each change yourself on its card." },
-      auto: { label: "Automatic", hint: "Changes apply at once and the card keeps Undo." },
+      auto: {
+        label: "Automatic",
+        hint: "Text, properties and databases apply at once and the card keeps Undo. Move, rename, archive and delete wait for your Apply.",
+      },
       turbo: {
         label: "Without stops",
-        hint: "Everything applies at once with no questions. Each change can be undone.",
+        hint: "Everything applies at once, move and archive included, with no questions. Delete still waits for Apply: it cannot be undone from here.",
       },
     },
     proposal: {
@@ -6669,9 +6678,14 @@ const en: LocaleShape<typeof ru> = {
         move: "Move",
         rename: "Rename",
         archive: "Move to the archive",
-        delete: "Delete (to the trash)",
+        delete: "Delete",
       },
-
+      deleteWarning:
+        "Deleting goes to the system trash, like a manual delete. It cannot be undone from here: you will have to restore it by hand from the trash. If you may need the file, archive is better.",
+      deleteWarningArchive:
+        "By your setting, deleting sends the item to the archive, where Undo can bring it back.",
+      affected: "Files this change touches",
+      affectedMore: "The change touches more files than are listed.",
       truncated: "Only part of the change is shown.",
       waitForSave: "The note is open with unsaved edits. Save it, then the change can be applied.",
       apply: "Apply",
@@ -6684,7 +6698,8 @@ const en: LocaleShape<typeof ru> = {
         outdated: "The note changed after the proposal, so nothing was written.",
         outdatedStructural: "Files changed after the proposal, so nothing was done.",
         appliedStructural: "Applied. Undo puts everything back, links included.",
-        appliedDelete: "Moved to the vault's trash. Undo puts it back.",
+        appliedDelete: "Deleted. It can only be restored by hand from the trash.",
+        appliedArchive: "Moved to the archive. Undo puts it back.",
       },
       error: {
         noteHasUnsavedEdits: "The note is open with unsaved edits. Save it first.",

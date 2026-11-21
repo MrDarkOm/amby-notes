@@ -149,7 +149,7 @@ pub enum Writes {
 /// The most proposals one turn may make.
 pub const PROPOSALS_PER_TURN: usize = 5;
 
-const PANEL_WRITE_TOOLS: [&str; 8] = [
+const PANEL_WRITE_TOOLS: [&str; 12] = [
     "new_note",
     "append_note",
     "edit_note",
@@ -158,6 +158,10 @@ const PANEL_WRITE_TOOLS: [&str; 8] = [
     "rename_property",
     "create_database_row",
     "set_database_value",
+    "move_item",
+    "rename_item",
+    "archive_item",
+    "delete_item",
 ];
 
 /// The panel's write tools. They return a proposal ID at once; nothing is written until the
@@ -186,6 +190,10 @@ pub fn panel_write_definitions(writes: Writes) -> Vec<Value> {
         property_tool("set_property", "Propose setting a header property of a note (a missing one is created; type sets the type of a new property). Use null to clear the value and an array for a list. This creates a proposal: the user applies it, or their approval mode applies it at once.", &["path", "name", "value"]),
         property_tool("delete_property", "Propose removing a property from a note's header. This creates a proposal: the user applies it, or their approval mode applies it at once.", &["path", "name"]),
         property_tool("rename_property", "Propose renaming a property of a note, keeping its value. This creates a proposal: the user applies it, or their approval mode applies it at once.", &["path", "name", "newName"]),
+        tool("move_item", "Propose moving a note, bundle or folder into an existing folder, updating its links. This creates a proposal that lists every file it touches: the user applies it; it is never applied at once unless they chose the unrestricted mode.", json!({"path":path,"folder":{"type":"string","minLength":1,"maxLength":1024,"description":"An existing vault-relative folder; . is the vault root."}}), &["path", "folder"]),
+        tool("rename_item", "Propose renaming a note, bundle or folder (a name without extension), updating its links. This creates a proposal that lists every file it touches: the user applies it; it is never applied at once unless they chose the unrestricted mode.", json!({"path":path,"name":{"type":"string","minLength":1,"maxLength":1024}}), &["path", "name"]),
+        tool("archive_item", "Propose moving a note, bundle or folder to the recoverable vault archive. This creates a proposal that lists every file it touches: the user applies it; it is never applied at once unless they chose the unrestricted mode.", json!({"path":path}), &["path"]),
+        tool("delete_item", "Propose deleting a note, bundle or folder with the user's deletion setting (the system trash, or the archive); never deleted for good. A deletion cannot be undone from the app: the user has to restore it by hand from the trash. If the user may want the item back, propose archive_item instead. This creates a proposal that lists every file it touches: the user applies it; it always waits for them.", json!({"path":path}), &["path"]),
     ]
     .into_iter()
     .chain((writes == Writes::Vault).then(database_tools).into_iter().flatten())
@@ -339,6 +347,29 @@ impl ToolBudget {
                         expected_revision: String::new(),
                         operation_id: String::new(),
                     }
+                }
+            }
+            "move_item" => {
+                crate::tool_set::validate_fields(args, &["path", "folder"], &[])?;
+                ProposalOp::Move {
+                    path: text("path")?,
+                    folder: text("folder")?,
+                }
+            }
+            "rename_item" => {
+                crate::tool_set::validate_fields(args, &["path", "name"], &[])?;
+                ProposalOp::Rename {
+                    path: text("path")?,
+                    name: text("name")?,
+                }
+            }
+            "archive_item" | "delete_item" => {
+                crate::tool_set::validate_fields(args, &["path"], &[])?;
+                let path = text("path")?;
+                if name == "archive_item" {
+                    ProposalOp::Archive { path }
+                } else {
+                    ProposalOp::Delete { path }
                 }
             }
             _ => return Err("unknownTool"),
@@ -916,7 +947,7 @@ mod tests {
         );
         assert_eq!(list["versions"][0]["reason"], "ai-edit");
         let wide = scoped("folder", true);
-        for name in ["restore_version", "delete_item", "open_in_amby"] {
+        for name in ["restore_version", "restore_item", "open_in_amby"] {
             assert_eq!(
                 call(&conn, &root, &wide, name, json!({}))["error"],
                 "unknownTool",
@@ -1012,6 +1043,82 @@ mod tests {
             budget.execute(&conn, &root, &wide, "edit_note", &outside)["status"],
             "pending"
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn panel_structural_tools_only_propose_and_are_refused_outside_the_context() {
+        let (root, conn) = panel_vault("panel-structural");
+        fs::create_dir_all(root.join("folder/sub")).unwrap();
+        fs::create_dir_all(root.join("elsewhere")).unwrap();
+        let tree = |root: &Path| {
+            let mut all = Vec::new();
+            let mut stack = vec![root.to_path_buf()];
+            while let Some(dir) = stack.pop() {
+                for entry in fs::read_dir(dir).unwrap().flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        stack.push(path.clone());
+                    }
+                    all.push(path);
+                }
+            }
+            all.sort();
+            all
+        };
+        let before = tree(&root);
+        let scope = writing("folder", Writes::Context);
+        let names: Vec<String> = panel_write_definitions(Writes::Context)
+            .iter()
+            .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
+            .collect();
+        for tool in ["move_item", "rename_item", "archive_item", "delete_item"] {
+            assert!(names.contains(&tool.to_owned()), "{tool}");
+        }
+        let mut budget = ToolBudget::default();
+        let rename = json!({"path":"folder/a.md","name":"renamed"});
+        let reply = budget.execute(&conn, &root, &scope, "rename_item", &rename);
+        assert_eq!(reply["status"], "pending", "{reply}");
+        let archive = json!({"path":"folder/a.md"});
+        assert_eq!(
+            budget.execute(&conn, &root, &scope, "archive_item", &archive)["status"],
+            "pending"
+        );
+        let delete = json!({"path":"folder/a.md"});
+        assert_eq!(
+            budget.execute(&conn, &root, &scope, "delete_item", &delete)["status"],
+            "pending"
+        );
+        let to_sub = json!({"path":"folder/a.md","folder":"folder/sub"});
+        assert_eq!(
+            budget.execute(&conn, &root, &scope, "move_item", &to_sub)["status"],
+            "pending"
+        );
+        // Outside the chips: refused with the context scope, proposed with the whole vault.
+        let out = json!({"path":"b.md","folder":"elsewhere"});
+        assert_eq!(
+            budget.execute(&conn, &root, &scope, "move_item", &out)["error"],
+            "outsideWriteScope"
+        );
+        let out_delete = json!({"path":"b.md"});
+        assert_eq!(
+            budget.execute(&conn, &root, &scope, "delete_item", &out_delete)["error"],
+            "outsideWriteScope"
+        );
+        let strict = json!({"path":"folder/a.md","name":"x","permanent":true});
+        assert_eq!(
+            budget.execute(&conn, &root, &scope, "rename_item", &strict)["error"],
+            "invalidArguments"
+        );
+        assert_eq!(budget.take_proposals().len(), 4);
+        assert_eq!(tree(&root), before);
+        let wide = writing("folder", Writes::Vault);
+        let mut budget = ToolBudget::default();
+        assert_eq!(
+            budget.execute(&conn, &root, &wide, "delete_item", &out_delete)["status"],
+            "pending"
+        );
+        assert_eq!(tree(&root), before);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -1171,7 +1278,11 @@ mod tests {
                 "edit_note",
                 "set_property",
                 "delete_property",
-                "rename_property"
+                "rename_property",
+                "move_item",
+                "rename_item",
+                "archive_item",
+                "delete_item"
             ]
         );
         // Database tools need a database ID, which only vault-wide reads can find.

@@ -375,11 +375,12 @@ export async function aiProposalAction(
   generation: number,
   id: string,
   unsavedPaths: string[],
+  deleteMode?: "system" | "archive",
 ): Promise<ProposalCard> {
   if (!isTauri()) throw new AiUnavailableError()
   const result =
     action === "apply"
-      ? await commands.aiApplyProposal(generation, id, unsavedPaths)
+      ? await commands.aiApplyProposal(generation, id, unsavedPaths, deleteMode ?? null)
       : action === "undo"
         ? await commands.aiUndoProposal(generation, id, unsavedPaths)
         : await commands.aiRejectProposal(generation, id)

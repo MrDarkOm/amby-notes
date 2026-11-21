@@ -402,9 +402,9 @@ async aiRunTurn(request: AiTurnRequest) : Promise<Result<AiTurnResult, AiChatErr
 /**
  * Applies a pending proposal. `unsaved_paths` are the notes open with unsaved edits.
  */
-async aiApplyProposal(generation: number, id: string, unsavedPaths: string[]) : Promise<Result<ProposalCard, string>> {
+async aiApplyProposal(generation: number, id: string, unsavedPaths: string[], deleteMode: DeleteMode | null) : Promise<Result<ProposalCard, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("ai_apply_proposal", { generation, id, unsavedPaths }) };
+    return { status: "ok", data: await TAURI_INVOKE("ai_apply_proposal", { generation, id, unsavedPaths, deleteMode }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -3525,7 +3525,15 @@ export type ProposalCard = { id: string; path: string;
 /**
  * `new`, `append` or `replace`.
  */
-kind: string; diff: string; diffTruncated: boolean; state: CardState }
+kind: string; diff: string; diffTruncated: boolean; 
+/**
+ * Every file a move, rename, archive or deletion touches; empty for other changes.
+ */
+affected: string[]; affectedTruncated: boolean; 
+/**
+ * An applied change can be undone from the card; a deletion to the system trash cannot.
+ */
+canUndo: boolean; state: CardState }
 export type PublishModuleResult = { success: boolean; moduleId: string; installedVersion: string; previousVersion: string | null; installPath: string }
 /**
  * «У заметки сменился идентификатор. Привязать к ней её прежние свойства?» (З11, З35).

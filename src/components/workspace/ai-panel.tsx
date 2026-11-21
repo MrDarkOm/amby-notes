@@ -47,7 +47,7 @@ import { ProposalCards } from "./ai/proposal-cards"
 import type { ProposalCard } from "@/lib/bindings"
 import { confirm } from "@/lib/confirm"
 import { confirmations } from "@/lib/confirmations"
-import { useProposalStore, type ApprovalMode } from "./ai/use-proposal-store"
+import { autoApplies, useProposalStore, type ApprovalMode } from "./ai/use-proposal-store"
 import { newChatModelId } from "./ai/connections"
 import { useAiChatStore } from "./ai/use-ai-chat-store"
 import { OPEN_SETTINGS_REQUEST_EVENT } from "./settings-navigation"
@@ -395,7 +395,10 @@ export function AiPanel({
                   chatId,
                   payload as ProposalCard,
                   next.messages.length,
-                  (useProposalStore.getState().modes[chatId] ?? "manual") !== "manual",
+                  autoApplies(
+                    useProposalStore.getState().modes[chatId] ?? "manual",
+                    (payload as ProposalCard).kind,
+                  ),
                 )
             }
             if (event.kind === "toolStart") setLiveStatus(payload.tool ?? "")

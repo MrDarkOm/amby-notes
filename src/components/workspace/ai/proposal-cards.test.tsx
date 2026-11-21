@@ -6,7 +6,7 @@ import type { ProposalCard } from "@/lib/bindings"
 import { ProposalError } from "@/lib/ai"
 import { useDocStore } from "../use-doc-store"
 import { ProposalCards } from "./proposal-cards"
-import { useProposalStore } from "./use-proposal-store"
+import { autoApplies, useProposalStore } from "./use-proposal-store"
 
 const action = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/ai", () => ({
@@ -24,6 +24,9 @@ const pending: ProposalCard = {
   kind: "replace",
   diff: "--- a\n+++ b\n@@ -1 +1 @@\n-old line\n+new line\n",
   diffTruncated: false,
+  affected: [],
+  affectedTruncated: false,
+  canUndo: true,
   state: "pending",
 }
 
@@ -174,6 +177,9 @@ describe("database proposal cards", () => {
       kind: "setDatabaseValue",
       diff: "--- a\n+++ a\n@@ database cell @@\n+Done: {}\n",
       diffTruncated: false,
+      affected: [],
+      affectedTruncated: false,
+      canUndo: true,
       state: "pending",
     }
     useProposalStore.getState().add("chat", cell, 1)
@@ -184,5 +190,130 @@ describe("database proposal cards", () => {
     action.mockRejectedValueOnce(new ProposalError("locked"))
     await act(async () => fireEvent.click(screen.getAllByRole("button", { name: "Apply" })[0]))
     expect(screen.getByRole("alert").textContent).toMatch(/closed for changes/)
+  })
+})
+
+describe("structural proposal cards", () => {
+  const move: ProposalCard = {
+    id: "m1",
+    path: "chosen",
+    kind: "move",
+    diff: "--- chosen\n+++ target/chosen\n@@ move @@\n-chosen\n+target/chosen\n",
+    diffTruncated: false,
+    affected: ["chosen", "chosen/a.md", "chosen/sub/pic.png", "other/ref.md", "target/chosen"],
+    affectedTruncated: false,
+    canUndo: true,
+    state: "pending",
+  }
+  const open = (path: string) => {
+    useDocStore.getState().setDoc("n", {
+      id: "n",
+      title: "N",
+      content: "x",
+      created: "",
+      modified: "",
+      wordCount: 1,
+      path,
+      source: "x",
+    })
+    useDocStore.getState().markUnsaved("n")
+  }
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en")
+    action.mockReset()
+    useProposalStore.getState().reset()
+    useDocStore.getState().clearDocs()
+  })
+  afterEach(async () => {
+    cleanup()
+    await i18n.changeLanguage("ru")
+  })
+
+  it("names the kind and lists every affected file, links and attachments included", () => {
+    useProposalStore.getState().add("chat", move, 1)
+    render(<ProposalCards chatId="chat" generation={3} vault="/v" show={() => true} />)
+    expect(screen.getByText("Move")).toBeTruthy()
+    const list = screen.getByRole("list", { name: "Files this change touches" })
+    expect(list.textContent).toContain("chosen/sub/pic.png")
+    expect(list.textContent).toContain("other/ref.md")
+    expect(list.textContent).toContain("target/chosen")
+    expect(action).not.toHaveBeenCalled()
+  })
+
+  it("says when the list is cut short", () => {
+    useProposalStore.getState().add("chat", { ...move, affectedTruncated: true }, 1)
+    render(<ProposalCards chatId="chat" generation={3} vault="/v" show={() => true} />)
+    expect(screen.getByText(/more files than are listed/)).toBeTruthy()
+  })
+
+  it("names rename, archive and delete, and says a delete goes to the trash", () => {
+    for (const kind of ["rename", "archive", "delete"]) {
+      useProposalStore.getState().add("chat", { ...move, id: kind, kind }, 1)
+    }
+    render(<ProposalCards chatId="chat" generation={3} vault="/v" show={() => true} />)
+    expect(screen.getByText("Rename")).toBeTruthy()
+    expect(screen.getByText("Move to the archive")).toBeTruthy()
+    expect(screen.getByText("Delete")).toBeTruthy()
+  })
+
+  it("waits for a note with unsaved edits that is inside the item or would have its links rewritten", async () => {
+    open("/v/chosen/sub/deep.md")
+    useProposalStore.getState().add("chat", { ...move, id: "inside" }, 1)
+    render(<ProposalCards chatId="chat" generation={3} vault="/v" show={() => true} />)
+    expect((screen.getByRole("button", { name: "Apply" }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByText(/unsaved edits/)).toBeTruthy()
+    cleanup()
+    useDocStore.getState().clearDocs()
+    open("/v/other/ref.md")
+    render(<ProposalCards chatId="chat" generation={3} vault="/v" show={() => true} />)
+    expect((screen.getByRole("button", { name: "Apply" }) as HTMLButtonElement).disabled).toBe(true)
+    expect(action).not.toHaveBeenCalled()
+  })
+
+  it("applies an unrestricted-mode card at once and keeps Undo", async () => {
+    action.mockResolvedValue({ ...move, state: "applied" })
+    useProposalStore.getState().add("chat", move, 1, true)
+    render(<ProposalCards chatId="chat" generation={3} vault="/v" show={() => true} />)
+    await act(async () => {})
+    expect(action).toHaveBeenCalledWith("apply", 3, "m1", [])
+    expect(screen.getByRole("button", { name: "Undo" })).toBeTruthy()
+    expect(screen.getByText(/Undo puts everything back/)).toBeTruthy()
+  })
+
+  it("maps structural failures to stable messages", async () => {
+    action.mockRejectedValueOnce(new ProposalError("mutationConflict"))
+    useProposalStore.getState().add("chat", move, 1)
+    render(<ProposalCards chatId="chat" generation={3} vault="/v" show={() => true} />)
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Apply" })))
+    expect(screen.getByRole("alert").textContent).toMatch(/already exists|in the way/)
+  })
+
+  it("decides by mode which changes apply at once", () => {
+    for (const kind of ["new", "append", "replace", "setProperty", "createDatabaseRow"]) {
+      expect(autoApplies("manual", kind)).toBe(false)
+      expect(autoApplies("auto", kind)).toBe(true)
+      expect(autoApplies("turbo", kind)).toBe(true)
+    }
+    for (const kind of ["move", "rename", "archive"]) {
+      expect(autoApplies("manual", kind)).toBe(false)
+      expect(autoApplies("auto", kind)).toBe(false)
+      expect(autoApplies("turbo", kind)).toBe(true)
+    }
+    // A deletion cannot be undone from the card, so it waits in every mode.
+    for (const mode of ["manual", "auto", "turbo"] as const)
+      expect(autoApplies(mode, "delete")).toBe(false)
+  })
+
+  it("warns before a deletion, passes the deletion setting, and offers no Undo after it", async () => {
+    const del: ProposalCard = { ...move, id: "d1", kind: "delete" }
+    useProposalStore.getState().add("chat", del, 1)
+    render(<ProposalCards chatId="chat" generation={3} vault="/v" show={() => true} />)
+    expect(screen.getByRole("note").textContent).toMatch(/restore it by hand from the trash/)
+    action.mockResolvedValueOnce({ ...del, state: "applied", canUndo: false })
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Apply" })))
+    expect(action).toHaveBeenCalledWith("apply", 3, "d1", [], "system")
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull()
+    expect(screen.getByText(/restored by hand from the trash/)).toBeTruthy()
   })
 })

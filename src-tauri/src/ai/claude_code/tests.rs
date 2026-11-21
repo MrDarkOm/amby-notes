@@ -139,6 +139,10 @@ fn search_tools_are_allowed_only_when_search_is_on() {
             "mcp__amby__set_property",
             "mcp__amby__delete_property",
             "mcp__amby__rename_property",
+            "mcp__amby__move_item",
+            "mcp__amby__rename_item",
+            "mcp__amby__archive_item",
+            "mcp__amby__delete_item",
             "mcp__amby__create_database_row",
             "mcp__amby__set_database_value"
         ]

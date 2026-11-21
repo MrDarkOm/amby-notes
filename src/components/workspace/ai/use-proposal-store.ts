@@ -4,6 +4,22 @@ import type { ProposalCard } from "@/lib/bindings"
 /** How the AI's changes are approved: by hand, at once (with Undo), or without any stop. */
 export type ApprovalMode = "manual" | "auto" | "turbo"
 
+/** A move, rename, archive or deletion: it lists the files it touches and, apart from Turbo, waits. */
+export function isStructuralKind(kind: string): boolean {
+  return kind === "move" || kind === "rename" || kind === "archive" || kind === "delete"
+}
+
+/**
+ * Does a change of this kind apply at once under the mode? Manual never; Automatic every change
+ * except the structural ones; Turbo (without stops) all but a deletion.
+ */
+export function autoApplies(mode: ApprovalMode, kind: string): boolean {
+  if (mode === "manual") return false
+  // A deletion cannot be undone from the card, so it waits for Apply in every mode.
+  if (kind === "delete") return false
+  return mode === "turbo" || !isStructuralKind(kind)
+}
+
 /** A card and the position of the answer it was proposed in. */
 export type PlacedCard = ProposalCard & { at: number; auto: boolean }
 

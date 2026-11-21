@@ -2,14 +2,15 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { FilePlus2, FilePen, FileText } from "lucide-react"
+import { Archive, FilePlus2, FilePen, FileText, FolderInput, Pencil, Trash2 } from "lucide-react"
 import { aiProposalAction, ProposalError, type ProposalAction } from "@/lib/ai"
 import { cn } from "@/lib/utils"
 import { NoticeLine } from "../notices/notice-line"
+import { useSettingsStore } from "../use-settings-store"
 import { useDocStore } from "../use-doc-store"
 import { toRelativeVaultPath } from "../workspace-tree-utils"
-import { unsavedVaultPaths } from "./unsaved-paths"
-import { useProposalStore, type PlacedCard } from "./use-proposal-store"
+import { isAffected, unsavedVaultPaths } from "./unsaved-paths"
+import { isStructuralKind, useProposalStore, type PlacedCard } from "./use-proposal-store"
 
 /** The backend's stable codes that have their own wording; anything else is the general one. */
 const KNOWN_ERRORS = new Set([
@@ -23,6 +24,12 @@ const KNOWN_ERRORS = new Set([
   "moduleDisabled",
   "invalidValue",
   "databaseLocked",
+  "mutationConflict",
+  "vaultBusy",
+  "trashUnavailable",
+  "undoUnavailable",
+  "operationTooLarge",
+  "recoveryRequired",
 ])
 
 /** Backend codes that share the wording of another. */
@@ -58,6 +65,29 @@ function DiffView({ diff }: { diff: string }) {
   )
 }
 
+/** The files a structural change touches, as a plain list under the diff. */
+function AffectedList({ card }: { card: PlacedCard }) {
+  const { t } = useTranslation()
+  if (!card.affected.length) return null
+  return (
+    <>
+      <ul
+        aria-label={t("ai.proposal.affected")}
+        className="max-h-32 list-none overflow-auto rounded-md bg-muted/30 p-2 font-mono text-[11px] leading-snug"
+      >
+        {card.affected.map((path) => (
+          <li key={path} className="break-all">
+            {path}
+          </li>
+        ))}
+      </ul>
+      {card.affectedTruncated && (
+        <p className="text-muted-foreground">{t("ai.proposal.affectedMore")}</p>
+      )}
+    </>
+  )
+}
+
 function Card({
   card,
   chatId,
@@ -76,19 +106,39 @@ function Card({
   const unsaved = useDocStore((state) => {
     for (const id of state.unsavedFileIds) {
       const path = state.openDocs[id]?.path
-      if (path && toRelativeVaultPath(path, vault) === card.path) return true
+      if (!path) continue
+      const relative = toRelativeVaultPath(path, vault)
+      // A move, rename or deletion also covers what is inside the item and the notes whose
+      // links it rewrites.
+      if (relative === card.path || isAffected(relative, card.affected)) return true
     }
     return false
   })
+  const structural = isStructuralKind(card.kind)
+  const archiveDeletes = useSettingsStore((state) => state.prefs.files.deleteMode === "archive")
   const run = async (action: ProposalAction) => {
     setBusy(true)
     setFailure(null)
     try {
-      update(chatId, await aiProposalAction(action, generation, card.id, unsavedVaultPaths(vault)))
+      const paths = unsavedVaultPaths(vault)
+      // A deletion follows the deletion setting (the system trash, or the archive; never for good).
+      update(
+        chatId,
+        action === "apply" && card.kind === "delete"
+          ? await aiProposalAction(
+              action,
+              generation,
+              card.id,
+              paths,
+              archiveDeletes ? "archive" : "system",
+            )
+          : await aiProposalAction(action, generation, card.id, paths),
+      )
     } catch (cause) {
       const code = cause instanceof ProposalError ? cause.code : ""
       const known = ALIAS[code] ?? code
-      setFailure(KNOWN_ERRORS.has(known) ? known : "other")
+      const shown = known === "changedSince" && structural ? "changedSinceStructural" : known
+      setFailure(KNOWN_ERRORS.has(known) ? shown : "other")
     } finally {
       setBusy(false)
     }
@@ -103,7 +153,20 @@ function Card({
     // `run` only closes over the card and the vault, which this effect already follows.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card.auto, card.state, unsaved])
-  const Icon = card.kind === "new" ? FilePlus2 : card.kind === "append" ? FileText : FilePen
+  const Icon =
+    card.kind === "new"
+      ? FilePlus2
+      : card.kind === "append"
+        ? FileText
+        : card.kind === "move"
+          ? FolderInput
+          : card.kind === "rename"
+            ? Pencil
+            : card.kind === "archive"
+              ? Archive
+              : card.kind === "delete"
+                ? Trash2
+                : FilePen
   const button =
     "rounded-md border border-border px-2 py-0.5 text-xs hover:bg-accent disabled:opacity-40"
   return (
@@ -121,6 +184,12 @@ function Card({
       {(card.state === "pending" || card.state === "applied") && <DiffView diff={card.diff} />}
       {card.diffTruncated && (card.state === "pending" || card.state === "applied") && (
         <p className="text-muted-foreground">{t("ai.proposal.truncated")}</p>
+      )}
+      {(card.state === "pending" || card.state === "applied") && <AffectedList card={card} />}
+      {card.state === "pending" && card.kind === "delete" && (
+        <p role="note" className="text-muted-foreground">
+          {t(archiveDeletes ? "ai.proposal.deleteWarningArchive" : "ai.proposal.deleteWarning")}
+        </p>
       )}
       {card.state === "pending" && unsaved && (
         <p role="status" className="text-muted-foreground">
@@ -151,19 +220,35 @@ function Card({
         )}
         {card.state === "applied" && (
           <>
-            <span className="text-muted-foreground">{t("ai.proposal.state.applied")}</span>
-            <button
-              type="button"
-              disabled={busy || unsaved}
-              onClick={() => void run("undo")}
-              className={button}
-            >
-              {t("ai.proposal.undo")}
-            </button>
+            <span className="text-muted-foreground">
+              {t(
+                card.kind === "delete" && !card.canUndo
+                  ? "ai.proposal.state.appliedDelete"
+                  : structural
+                    ? "ai.proposal.state.appliedStructural"
+                    : "ai.proposal.state.applied",
+              )}
+            </span>
+            {card.canUndo && (
+              <button
+                type="button"
+                disabled={busy || unsaved}
+                onClick={() => void run("undo")}
+                className={button}
+              >
+                {t("ai.proposal.undo")}
+              </button>
+            )}
           </>
         )}
         {card.state !== "pending" && card.state !== "applied" && (
-          <span className="text-muted-foreground">{t(`ai.proposal.state.${card.state}`)}</span>
+          <span className="text-muted-foreground">
+            {t(
+              card.state === "outdated" && structural
+                ? "ai.proposal.state.outdatedStructural"
+                : `ai.proposal.state.${card.state}`,
+            )}
+          </span>
         )}
       </div>
     </section>

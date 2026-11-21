@@ -568,3 +568,365 @@ fn a_new_row_is_a_proposal_and_undoing_it_deletes_that_row() {
     );
     fs::remove_dir_all(t.root).unwrap();
 }
+
+// Stage 4: move, rename, archive and delete (docs/road/ai-panel-tools.md).
+
+fn wide() -> WriteScope {
+    WriteScope {
+        vault: true,
+        ..WriteScope::default()
+    }
+}
+
+/// A vault with a folder `chosen/` (a note, a bundle-less sub folder with an attachment), a note
+/// outside it that links to `chosen/a.md`, and a target folder.
+fn structural_vault(name: &str) -> PathBuf {
+    let root = vault(name);
+    fs::create_dir_all(root.join("chosen/sub")).unwrap();
+    fs::create_dir_all(root.join("target")).unwrap();
+    fs::write(root.join("chosen/sub/inner.md"), "# Inner\n").unwrap();
+    fs::write(root.join("chosen/sub/pic.png"), [1u8, 2, 3]).unwrap();
+    fs::write(root.join("other/ref.md"), "See [[a]] for more.\n").unwrap();
+    root
+}
+
+fn mv(path: &str, folder: &str) -> ProposalOp {
+    ProposalOp::Move {
+        path: path.into(),
+        folder: folder.into(),
+    }
+}
+
+fn rename(path: &str, name: &str) -> ProposalOp {
+    ProposalOp::Rename {
+        path: path.into(),
+        name: name.into(),
+    }
+}
+
+fn tree(root: &std::path::Path) -> Vec<(String, Vec<u8>)> {
+    fn walk(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<(String, Vec<u8>)>) {
+        for entry in fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            let name = path
+                .strip_prefix(root)
+                .unwrap()
+                .to_string_lossy()
+                .to_string();
+            if name == ".amby"
+                || name.starts_with(".amby/")
+                    && !name.starts_with(".amby/trash")
+                    && !name.starts_with(".amby/archive")
+            {
+                continue;
+            }
+            if path.is_dir() {
+                walk(&path, root, out);
+            } else {
+                out.push((name, fs::read(&path).unwrap()));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, root, &mut out);
+    out.sort();
+    out
+}
+
+#[test]
+fn structural_proposals_change_nothing_and_list_every_affected_file() {
+    let root = structural_vault("struct-preview");
+    let before = tree(&root);
+    // A rename lists the note, its new path and the note whose link is rewritten.
+    let proposal = propose(&root, &wide(), None, rename("chosen/a.md", "renamed")).unwrap();
+    assert_eq!(proposal.path, "chosen/a.md");
+    for path in ["chosen/a.md", "chosen/renamed.md", "other/ref.md"] {
+        assert!(
+            proposal.affected.contains(&path.to_owned()),
+            "{path}: {:?}",
+            proposal.affected
+        );
+    }
+    assert!(proposal.diff.contains("chosen/renamed.md"));
+    // A folder move lists its children, attachments included.
+    let proposal = propose(&root, &wide(), None, mv("chosen", "target")).unwrap();
+    for path in [
+        "chosen",
+        "chosen/a.md",
+        "chosen/sub/inner.md",
+        "chosen/sub/pic.png",
+        "target/chosen",
+    ] {
+        assert!(
+            proposal.affected.contains(&path.to_owned()),
+            "{path}: {:?}",
+            proposal.affected
+        );
+    }
+    assert!(!proposal.affected_truncated);
+    // A deletion and an archive list the same children.
+    for op in [
+        ProposalOp::Delete {
+            path: "chosen".into(),
+        },
+        ProposalOp::Archive {
+            path: "chosen".into(),
+        },
+    ] {
+        let proposal = propose(&root, &wide(), None, op).unwrap();
+        assert!(
+            proposal.affected.contains(&"chosen/sub/pic.png".to_owned()),
+            "{:?}",
+            proposal.affected
+        );
+        assert!(proposal
+            .affected
+            .contains(&"chosen/sub/inner.md".to_owned()));
+    }
+    assert_eq!(tree(&root), before);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn structural_proposals_stay_inside_the_write_scope_links_included() {
+    let root = structural_vault("struct-scope");
+    let narrow = scope();
+    // The note is chosen, but the link rewrite would touch `other/ref.md`, which is not.
+    assert_eq!(
+        propose(&root, &narrow, None, rename("chosen/a.md", "renamed")).unwrap_err(),
+        "outsideWriteScope"
+    );
+    // The source outside the context, and a destination outside it.
+    for op in [
+        rename("c.md", "x"),
+        mv("chosen/a.md", "target"),
+        ProposalOp::Delete {
+            path: "other/ref.md".into(),
+        },
+        ProposalOp::Archive {
+            path: ".amby/x".into(),
+        },
+        ProposalOp::Delete {
+            path: "chosen/../other/b.md".into(),
+        },
+    ] {
+        fs::write(root.join("c.md"), "# C\n").unwrap();
+        assert_eq!(
+            propose(&root, &narrow, None, op).unwrap_err(),
+            "outsideWriteScope"
+        );
+    }
+    // Inside the chosen folder, moving between its folders is allowed.
+    assert!(propose(&root, &narrow, None, mv("chosen/sub/inner.md", "chosen")).is_ok());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_structural_change_that_changes_nothing_is_refused() {
+    let root = structural_vault("struct-nochange");
+    assert_eq!(
+        propose(&root, &wide(), None, mv("chosen/a.md", "chosen")).unwrap_err(),
+        "noChange"
+    );
+    assert_eq!(
+        propose(&root, &wide(), None, rename("chosen/a.md", "a")).unwrap_err(),
+        "noChange"
+    );
+    assert_eq!(
+        propose(
+            &root,
+            &wide(),
+            None,
+            ProposalOp::Delete {
+                path: "missing.md".into()
+            }
+        )
+        .unwrap_err(),
+        "notFound"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_rename_applies_with_its_links_and_undoes_back_to_the_same_files() {
+    let root = structural_vault("struct-rename");
+    let before = tree(&root);
+    let proposal = propose(&root, &wide(), None, rename("chosen/a.md", "renamed")).unwrap();
+    let applied = apply(&root, &wide(), &proposal).unwrap();
+    assert!(root.join("chosen/renamed.md").exists() && !root.join("chosen/a.md").exists());
+    assert!(fs::read_to_string(root.join("other/ref.md"))
+        .unwrap()
+        .contains("renamed"));
+    assert!(matches!(
+        undo_plan(&root, &applied).unwrap(),
+        UndoPlan::Structural(_)
+    ));
+    undo(&root, &wide(), &applied).unwrap();
+    assert_eq!(tree(&root), before);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_folder_move_applies_and_undoes() {
+    let root = structural_vault("struct-move");
+    let before = tree(&root);
+    let proposal = propose(&root, &wide(), None, mv("chosen", "target")).unwrap();
+    let applied = apply(&root, &wide(), &proposal).unwrap();
+    assert!(root.join("target/chosen/sub/pic.png").exists());
+    assert!(!root.join("chosen").exists());
+    undo(&root, &wide(), &applied).unwrap();
+    assert_eq!(tree(&root), before);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn an_archive_applies_and_undoes_from_the_archive() {
+    let root = structural_vault("struct-archive");
+    let before = tree(&root);
+    let proposal = propose(
+        &root,
+        &wide(),
+        None,
+        ProposalOp::Archive {
+            path: "chosen/a.md".into(),
+        },
+    )
+    .unwrap();
+    let applied = apply(&root, &wide(), &proposal).unwrap();
+    assert!(!root.join("chosen/a.md").exists());
+    undo(&root, &wide(), &applied).unwrap();
+    assert_eq!(tree(&root), before);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A run that moves a deleted item into a folder of the test instead of the real system trash.
+fn fake_trash(
+    root: &std::path::Path,
+    bin: &std::path::Path,
+) -> impl Fn(&Mutation) -> Result<Value, &'static str> {
+    let (root, bin) = (root.to_owned(), bin.to_owned());
+    move |mutation| match mutation {
+        Mutation::Delete { path } => {
+            fs::create_dir_all(&bin).unwrap();
+            fs::rename(root.join(path), bin.join("item")).map_err(|_| "trashUnavailable")?;
+            Ok(serde_json::json!({"path": path}))
+        }
+        other => crate::vault_tools::execute_offline(&root, "", other),
+    }
+}
+
+#[test]
+fn a_deletion_follows_the_system_trash_setting_and_cannot_be_undone_from_here() {
+    let root = structural_vault("struct-delete");
+    let bin = root
+        .parent()
+        .unwrap()
+        .join(format!("bin-{}", ulid::Ulid::generate()));
+    let proposal = propose(
+        &root,
+        &wide(),
+        None,
+        ProposalOp::Delete {
+            path: "chosen".into(),
+        },
+    )
+    .unwrap();
+    let applied = apply_with(&root, &wide(), &proposal, &fake_trash(&root, &bin)).unwrap();
+    assert!(!root.join("chosen").exists());
+    // The bytes went to the (fake) system trash; nothing is destroyed.
+    assert!(bin.join("item/sub/pic.png").exists());
+    assert!(applied.removed && applied.inverse.is_none());
+    assert_eq!(undo_plan(&root, &applied).unwrap_err(), "undoUnavailable");
+    assert_eq!(
+        undo(&root, &wide(), &applied).unwrap_err(),
+        "undoUnavailable"
+    );
+    fs::remove_dir_all(root).unwrap();
+    let _ = fs::remove_dir_all(bin);
+}
+
+#[test]
+fn a_deletion_with_the_archive_setting_goes_to_the_archive_and_undoes() {
+    let root = structural_vault("struct-delete-archive");
+    let before = tree(&root);
+    let proposal = propose(
+        &root,
+        &wide(),
+        None,
+        ProposalOp::Delete {
+            path: "chosen".into(),
+        },
+    )
+    .unwrap();
+    let run = |mutation: &Mutation| crate::vault_tools::execute_offline(&root, "", mutation);
+    let applied = apply_deleting(
+        &root,
+        &wide(),
+        &proposal,
+        crate::recycle_bin::DeleteMode::Archive,
+        &run,
+    )
+    .unwrap();
+    assert!(!root.join("chosen").exists() && !applied.removed);
+    undo(&root, &wide(), &applied).unwrap();
+    assert_eq!(tree(&root), before);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_proposal_is_outdated_if_any_affected_file_changed_and_nothing_is_written() {
+    let root = structural_vault("struct-outdated");
+    let proposal = propose(&root, &wide(), None, rename("chosen/a.md", "renamed")).unwrap();
+    // A note that would have its link rewritten changed since.
+    fs::write(root.join("other/ref.md"), "See [[a]] and again.\n").unwrap();
+    let before = tree(&root);
+    assert_eq!(apply(&root, &wide(), &proposal).unwrap_err(), "outdated");
+    assert_eq!(tree(&root), before);
+    // A new note now links to the renamed one: the set of rewritten files differs.
+    let proposal = propose(&root, &wide(), None, rename("chosen/a.md", "renamed")).unwrap();
+    fs::write(root.join("other/new-ref.md"), "[[a]]\n").unwrap();
+    assert_eq!(apply(&root, &wide(), &proposal).unwrap_err(), "outdated");
+    // The destination appeared, and the source vanished.
+    let proposal = propose(&root, &wide(), None, mv("chosen/sub", "target")).unwrap();
+    fs::create_dir_all(root.join("target/sub")).unwrap();
+    assert_eq!(apply(&root, &wide(), &proposal).unwrap_err(), "outdated");
+    let proposal = propose(
+        &root,
+        &wide(),
+        None,
+        ProposalOp::Delete {
+            path: "chosen/sub".into(),
+        },
+    )
+    .unwrap();
+    fs::write(root.join("chosen/sub/inner.md"), "# Inner\nedited\n").unwrap();
+    assert_eq!(apply(&root, &wide(), &proposal).unwrap_err(), "outdated");
+    fs::remove_dir_all(root.join("chosen/sub")).unwrap();
+    assert_eq!(apply(&root, &wide(), &proposal).unwrap_err(), "outdated");
+    assert!(crate::recycle_bin::list(&root).is_empty());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_structural_undo_is_refused_when_the_result_changed_since() {
+    let root = structural_vault("struct-undo-changed");
+    let proposal = propose(&root, &wide(), None, rename("chosen/a.md", "renamed")).unwrap();
+    let applied = apply(&root, &wide(), &proposal).unwrap();
+    fs::write(root.join("chosen/renamed.md"), "# A\nedited later\n").unwrap();
+    assert_eq!(undo_plan(&root, &applied).unwrap_err(), "changedSince");
+    assert_eq!(undo(&root, &wide(), &applied).unwrap_err(), "changedSince");
+    assert!(root.join("chosen/renamed.md").exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn unsaved_notes_are_found_among_the_affected_files_and_their_folders() {
+    let root = structural_vault("struct-unsaved");
+    let proposal = propose(&root, &wide(), None, mv("chosen", "target")).unwrap();
+    assert!(proposal.touches(&["chosen/sub/inner.md".to_owned()]));
+    assert!(!proposal.touches(&["other/b.md".to_owned()]));
+    let rename = propose(&root, &wide(), None, rename("chosen/a.md", "renamed")).unwrap();
+    // The note whose link would be rewritten counts too.
+    assert!(rename.touches(&["other/ref.md".to_owned()]));
+    fs::remove_dir_all(root).unwrap();
+}
