@@ -67,20 +67,28 @@ const before = (a: Element, b: Element) =>
 afterEach(cleanup)
 
 describe("Composer layout", () => {
-  it("puts the search switch, the context note and the plus in one line above the writing box", () => {
-    show()
+  it("puts the attached context note and context usage above the writing box, with no plus button or search switch there", () => {
+    show({ onApprovalMode: vi.fn(), contextBytes: 64 * 1024 })
     const field = screen.getByPlaceholderText("Сообщение…")
     const box = field.closest("[data-composer-box]")!
-    const search = screen.getByRole("checkbox", { name: /Поиск по хранилищу/ })
     const chip = screen.getByRole("button", { name: "Убрать заметку из контекста" })
-    const plus = screen.getByRole("button", { name: "Добавить заметку или папку" })
-    for (const control of [search, chip, plus]) expect(box.contains(control)).toBe(false)
-    expect(before(search, chip)).toBe(true)
-    expect(before(chip, plus)).toBe(true)
-    const line = search.closest("[data-composer-line]")!
-    expect(line.contains(chip) && line.contains(plus)).toBe(true)
+    const usage = document.querySelector("[data-context-usage]")!
+    const search = screen.getByRole("checkbox", { name: /Поиск по хранилищу/ })
+    expect(box.contains(chip)).toBe(false)
+    expect(box.contains(usage)).toBe(false)
+    expect(screen.queryByRole("button", { name: "Добавить заметку или папку" })).toBeNull()
+    const line = chip.closest("[data-composer-line]")!
+    expect(line.contains(usage)).toBe(true)
+    expect(before(chip, usage)).toBe(true)
+    expect(usage.textContent).toBe("13%")
+    expect(line.contains(search)).toBe(false)
     expect(before(line, box)).toBe(true)
     expect(line.className).not.toContain("flex-wrap")
+  })
+
+  it("hides the context line when nothing is attached and context is empty", () => {
+    show({ chat: { ...chat, context: [], autoCurrent: false }, currentDoc: null })
+    expect(document.querySelector("[data-composer-line]")).toBeNull()
   })
 
   it("keeps the text on its own line, with the paperclip and the send button in a line under it", () => {
@@ -88,7 +96,7 @@ describe("Composer layout", () => {
     const box = document.querySelector("[data-composer-box]")!
     const field = screen.getByPlaceholderText("Сообщение…")
     const actions = box.querySelector("[data-composer-actions]")!
-    const clip = screen.getByRole("button", { name: "Прикрепить текстовые файлы" })
+    const clip = screen.getByRole("button", { name: "Прикрепить" })
     const send = screen.getByRole("button", { name: "Отправить" })
     expect(actions.contains(field)).toBe(false)
     expect(before(field, actions)).toBe(true)
@@ -103,48 +111,32 @@ describe("Composer layout", () => {
     expect(send.className).not.toContain("bg-primary")
   })
 
-  it("puts the model and the approval mode below the writing box, the mode right of the picker", () => {
+  it("puts the model, approval mode and search vault switch below the writing box in that order", () => {
     show({ onApprovalMode: vi.fn() })
     const box = document.querySelector("[data-composer-box]")!
     const model = screen.getByLabelText("Активная модель")
     const mode = screen.getByRole("button", { name: "Как применять правки ИИ" })
-    for (const control of [model, mode]) expect(box.contains(control)).toBe(false)
+    const search = screen.getByRole("checkbox", { name: /Поиск по хранилищу/ })
+    for (const control of [model, mode, search]) expect(box.contains(control)).toBe(false)
     expect(before(box, model)).toBe(true)
     expect(before(model, mode)).toBe(true)
+    expect(before(mode, search)).toBe(true)
   })
 
-  it("has a plus that starts adding another note by typing @ at the end", () => {
-    const onInput = vi.fn()
-    show({ input: "hi", onInput })
-    fireEvent.click(screen.getByRole("button", { name: "Добавить заметку или папку" }))
-    expect(onInput).toHaveBeenCalledWith("hi @")
-  })
-
-  it("uses the tree icon, not a magnifier, for searching the vault", () => {
+  it("uses the search magnifier icon for searching the vault", () => {
     show()
     const label = screen.getByRole("checkbox", { name: /Поиск по хранилищу/ }).closest("label")!
-    expect(label.querySelector("svg.lucide-folder-tree")).not.toBeNull()
-    expect(label.querySelector("svg.lucide-search")).toBeNull()
+    expect(label.querySelector("svg.lucide-search")).not.toBeNull()
+    expect(label.querySelector("svg.lucide-folder-tree")).toBeNull()
   })
 
-  it("stretches the line: the tree at the left edge, the plus at the right edge, the note between", () => {
+  it("stretches the single context chip across the full context line", () => {
     show()
     const line = document.querySelector("[data-composer-line]")!
-    const tree = screen.getByRole("checkbox", { name: /Поиск по хранилищу/ }).closest("label")!
-    const plus = screen.getByRole("button", { name: "Добавить заметку или папку" })
-    expect(line.firstElementChild).toBe(tree)
-    expect(line.lastElementChild).toBe(plus)
     expect(line.className).toContain("w-full")
     const chip = screen.getByRole("button", { name: "Убрать заметку из контекста" }).parentElement!
+    expect(line.firstElementChild).toBe(chip)
     expect(chip.className).toContain("flex-1")
-  })
-
-  it("keeps the plus at the right edge when nothing is attached", () => {
-    show({ chat: { ...chat, context: [], autoCurrent: false }, currentDoc: null })
-    const line = document.querySelector("[data-composer-line]")!
-    const plus = screen.getByRole("button", { name: "Добавить заметку или папку" })
-    expect(line.lastElementChild).toBe(plus)
-    expect(plus.previousElementSibling?.className).toContain("flex-1")
   })
 })
 
@@ -366,16 +358,129 @@ describe("Composer writing box", () => {
 })
 
 describe("Composer attachments", () => {
-  it("has a paperclip at the left of the box that opens a file picker for text files", () => {
+  it("opens a submenu from the paperclip with text file and note/folder choices", async () => {
     show()
     const box = document.querySelector("[data-composer-box]")!
-    const clip = screen.getByRole("button", { name: "Прикрепить текстовые файлы" })
+    const clip = screen.getByRole("button", { name: "Прикрепить" })
     expect(box.contains(clip)).toBe(true)
     expect(clip.querySelector("svg.lucide-paperclip")).not.toBeNull()
     expect(before(screen.getByPlaceholderText("Сообщение…"), clip)).toBe(true)
+
+    fireEvent.click(clip)
+    const menu = await screen.findByRole("menu", { name: "Прикрепить" })
+    const fileChoice = within(menu).getByRole("menuitem", { name: "Текстовый файл" })
+    const noteChoice = within(menu).getByRole("menuitem", { name: "Заметка или папка" })
+    expect(before(fileChoice, noteChoice)).toBe(true)
+
     const input = box.querySelector('input[type="file"]') as HTMLInputElement
     expect(input.multiple).toBe(true)
     expect(input.accept).toContain(".md")
+    const clickSpy = vi.spyOn(input, "click").mockImplementation(() => {})
+    fireEvent.click(fileChoice)
+    expect(clickSpy).toHaveBeenCalledTimes(1)
+    clickSpy.mockRestore()
+  })
+
+  it("opens a note tree popup where both a folder and a nested note can be selected", async () => {
+    const emptyChat: Chat = { ...chat, autoCurrent: false, context: [] }
+    const roadmap = {
+      id: "note-roadmap",
+      path: "/v/Projects/Roadmap.md",
+      name: "Roadmap.md",
+      type: "file" as const,
+    }
+    const projects = {
+      id: "folder-projects",
+      path: "/v/Projects",
+      name: "Projects",
+      type: "folder" as const,
+      children: [roadmap],
+    }
+    const inbox = {
+      id: "note-root",
+      path: "/v/Inbox.md",
+      name: "Inbox.md",
+      type: "file" as const,
+    }
+    const props = show({
+      chat: emptyChat,
+      treeItems: [projects, inbox],
+      flat: [projects, roadmap, inbox],
+      openDocs: { "note-roadmap": { title: "Roadmap" } },
+      currentDoc: null,
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "Прикрепить" }))
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Заметка или папка" }))
+    const tree = await screen.findByRole("tree", { name: "Дерево заметок" })
+
+    // Selecting a whole folder attaches it as a folder context item.
+    fireEvent.click(within(tree).getByRole("treeitem", { name: "Projects" }))
+    expect(props.onChangeChat).toHaveBeenCalledWith({
+      ...emptyChat,
+      context: [{ kind: "folder", id: "Projects" }],
+    })
+
+    // Expanding the folder reveals nested notes; clicking a note attaches it.
+    fireEvent.click(within(tree).getByRole("button", { name: "Раскрыть папку" }))
+    fireEvent.click(within(tree).getByRole("treeitem", { name: "Roadmap" }))
+    expect(props.onChangeChat).toHaveBeenCalledWith({
+      ...emptyChat,
+      context: [{ kind: "note", id: "note-roadmap" }],
+    })
+  })
+
+  it("filters the note tree and auto-expands matching folders", async () => {
+    const emptyChat: Chat = { ...chat, autoCurrent: false, context: [] }
+    const spec = {
+      id: "note-spec",
+      path: "/v/Work/Spec.md",
+      name: "Spec.md",
+      type: "file" as const,
+    }
+    const work = {
+      id: "folder-work",
+      path: "/v/Work",
+      name: "Work",
+      type: "folder" as const,
+      children: [spec],
+    }
+    const other = {
+      id: "note-other",
+      path: "/v/Other.md",
+      name: "Other.md",
+      type: "file" as const,
+    }
+    show({
+      chat: emptyChat,
+      treeItems: [work, other],
+      flat: [work, spec, other],
+      openDocs: {},
+      currentDoc: null,
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "Прикрепить" }))
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Заметка или папка" }))
+    const search = await screen.findByPlaceholderText("Поиск заметок и папок…")
+    fireEvent.change(search, { target: { value: "Spec" } })
+
+    const tree = screen.getByRole("tree", { name: "Дерево заметок" })
+    expect(within(tree).getByRole("treeitem", { name: "Spec.md" })).toBeTruthy()
+    expect(within(tree).queryByRole("treeitem", { name: "Other.md" })).toBeNull()
+  })
+
+  it("places current-note action above the bottom search bar and back button below the tree", async () => {
+    const emptyChat: Chat = { ...chat, autoCurrent: false, context: [] }
+    show({ chat: emptyChat, currentDoc: { title: "Current" } })
+    fireEvent.click(screen.getByRole("button", { name: "Прикрепить" }))
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Заметка или папка" }))
+    const tree = await screen.findByRole("tree", { name: "Дерево заметок" })
+    const addCurrent = screen.getByRole("button", { name: "Добавить текущую заметку" })
+    const back = screen.getByRole("button", { name: "Назад" })
+    const search = screen.getByPlaceholderText("Поиск заметок и папок…")
+    expect(before(tree, addCurrent)).toBe(true)
+    expect(before(addCurrent, back)).toBe(true)
+    expect(before(addCurrent, search)).toBe(true)
   })
 
   it("lists attached files and removes one", async () => {

@@ -105,12 +105,24 @@ describe("connection settings", () => {
     expect(screen.queryByRole("button", { name: /Скачать/ })).toBeNull()
   })
 
-  it("lets the user mark a model as able to call tools", async () => {
+  it("does not show a manual tools toggle on model rows", async () => {
     render(<Harness />)
-    const tools = await screen.findByRole("button", { name: "Инструменты модели Llama" })
-    expect(tools.getAttribute("aria-pressed")).toBe("false")
-    fireEvent.click(tools)
-    await waitFor(() => expect(tools.getAttribute("aria-pressed")).toBe("true"))
+    await screen.findByRole("switch", { name: "Включить модель Llama" })
+    expect(screen.queryByRole("button", { name: "Инструменты модели Llama" })).toBeNull()
+  })
+
+  it("lets the user hide a model and restore it from the hidden section", async () => {
+    render(<Harness />)
+    await screen.findByRole("switch", { name: "Включить модель Llama" })
+    fireEvent.click(screen.getByRole("button", { name: "Скрыть модель Llama" }))
+    await waitFor(() =>
+      expect(screen.queryByRole("switch", { name: "Включить модель Llama" })).toBeNull(),
+    )
+    const hiddenToggle = await screen.findByRole("button", { name: "Скрытые модели (1)" })
+    fireEvent.click(hiddenToggle)
+    fireEvent.click(await screen.findByRole("button", { name: "Показать модель Llama" }))
+    await screen.findByRole("switch", { name: "Включить модель Llama" })
+    expect(screen.queryByRole("button", { name: /Скрытые модели/ })).toBeNull()
   })
 
   it("allows a local custom model", async () => {
@@ -150,11 +162,14 @@ describe("connection settings", () => {
     expect(screen.queryByRole("button", { name: "Добавить локальную модель" })).toBeNull()
     expect(ai.aiModelCatalog).not.toHaveBeenCalled()
   })
-  it("moves a model with the arrows and collapses the card", async () => {
+  it("shows a drag handle instead of arrows and collapses the card", async () => {
     render(<Harness />)
     await screen.findByRole("switch", { name: "Включить модель Llama" })
+    expect(screen.queryByRole("button", { name: "Поднять модель Llama" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Опустить модель Llama" })).toBeNull()
     expect(
-      (screen.getByRole("button", { name: "Поднять модель Llama" }) as HTMLButtonElement).disabled,
+      (screen.getByRole("button", { name: "Перетащить модель Llama" }) as HTMLButtonElement)
+        .disabled,
     ).toBe(true)
     const toggle = screen.getAllByRole("button", { expanded: true })[0]
     fireEvent.click(toggle)

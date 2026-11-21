@@ -102,6 +102,7 @@ export function AiPanel({
   const [liveStatus, setLiveStatus] = React.useState("")
   const [error, setError] = React.useState<string | null>(null)
   const [truncated, setTruncated] = React.useState<string[]>([])
+  const [contextBytes, setContextBytes] = React.useState(0)
   const [consent, setConsent] = React.useState<ConsentPrompt | null>(null)
   const [consentBusy, setConsentBusy] = React.useState(false)
   const [copied, setCopied] = React.useState<number | null>(null)
@@ -274,10 +275,16 @@ export function AiPanel({
         language: i18n.language === "ru" ? "Russian" : "English",
       })
         .then((result) => {
-          if (active) setTruncated(result.truncated)
+          if (active) {
+            setTruncated(result.truncated)
+            setContextBytes(new TextEncoder().encode(result.system).length)
+          }
         })
         .catch(() => {
-          if (active) setTruncated([])
+          if (active) {
+            setTruncated([])
+            setContextBytes(0)
+          }
         })
     }, 200)
     return () => {
@@ -365,6 +372,7 @@ export function AiPanel({
         if (run.controller.signal.aborted || run.finalized) return
         run.sources = attached.sources
         setTruncated(attached.truncated)
+        setContextBytes(new TextEncoder().encode(attached.system).length)
         const messages = next.messages
           .filter(
             (message): message is ChatMessage & { role: "user" | "assistant" } =>
@@ -795,11 +803,13 @@ export function AiPanel({
           </ScrollArea>
           <Composer
             chat={chat}
+            treeItems={treeItems}
             flat={flat}
             openDocs={openDocs}
             approvalMode={approvalMode}
             onApprovalMode={(mode) => void chooseApprovalMode(mode)}
             truncated={truncated}
+            contextBytes={contextBytes}
             vault={vault}
             currentDoc={currentDoc}
             currentClipped={currentClipped}

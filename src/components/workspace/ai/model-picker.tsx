@@ -4,6 +4,7 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { Check, ChevronDown, SlidersHorizontal } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 import { ProviderIcon } from "./provider-icon"
 
@@ -109,25 +110,45 @@ export function ModelPicker({
           aria-haspopup="listbox"
           aria-expanded={open}
           title={t("ai.activeModel")}
-          className="flex h-7 w-full min-w-0 items-center justify-between gap-1.5 rounded-md bg-transparent px-1.5 text-left text-xs text-muted-foreground outline-none hover:bg-accent/50 focus-visible:ring-1 focus-visible:ring-ring"
+          className="group flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-md bg-transparent px-1.5 text-left text-xs text-muted-foreground outline-none hover:bg-accent/50 focus-visible:ring-1 focus-visible:ring-ring"
         >
-          <span className="flex min-w-0 items-center gap-1.5">
-            {active && (
-              <ProviderIcon
-                providerId={active.providerId}
-                modelId={active.modelId}
-                kind={active.kind}
-                label={active.providerLabel}
+          <span className="relative flex size-4 shrink-0 items-center justify-center">
+            {active ? (
+              <>
+                <span
+                  className={cn(
+                    "flex items-center justify-center",
+                    open ? "opacity-0" : "group-hover:opacity-0 group-focus-visible:opacity-0",
+                  )}
+                >
+                  <ProviderIcon
+                    providerId={active.providerId}
+                    modelId={active.modelId}
+                    kind={active.kind}
+                    label={active.providerLabel}
+                  />
+                </span>
+                <ChevronDown
+                  aria-hidden="true"
+                  className={cn(
+                    "pointer-events-none absolute size-3.5",
+                    !open && "rotate-180",
+                    open
+                      ? "opacity-100"
+                      : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100",
+                  )}
+                />
+              </>
+            ) : (
+              <ChevronDown
+                aria-hidden="true"
+                className={cn("size-3.5 shrink-0", !open && "rotate-180")}
               />
             )}
-            <span className="truncate">
-              {active?.label ?? t(models.length ? "ai.selectModel" : "ai.noModelsOpenSettings")}
-            </span>
           </span>
-          <ChevronDown
-            aria-hidden="true"
-            className={cn("size-3.5 shrink-0", !open && "rotate-180")}
-          />
+          <span className="min-w-0 truncate">
+            {active?.label ?? t(models.length ? "ai.selectModel" : "ai.noModelsOpenSettings")}
+          </span>
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -137,7 +158,7 @@ export function ModelPicker({
         alignOffset={menu?.alignOffset ?? 0}
         style={menu?.width && menu.width > 0 ? { width: menu.width } : undefined}
         className={cn(
-          "flex min-h-[15rem] max-h-[min(28rem,var(--radix-popover-content-available-height))] gap-0 rounded-xl p-0 shadow-md",
+          "flex h-[15rem] max-h-[min(15rem,var(--radix-popover-content-available-height))] gap-0 rounded-xl p-0 shadow-md",
           menu
             ? "w-[var(--radix-popover-trigger-width)] max-w-none"
             : "w-auto max-w-[min(22rem,90vw)]",
@@ -148,102 +169,107 @@ export function ModelPicker({
           ;(selected ?? listRef.current?.querySelector<HTMLElement>('[role="option"]'))?.focus()
         }}
       >
-        {groups.length > 1 && (
-          <div
-            role="tablist"
-            aria-orientation="vertical"
-            className="flex shrink-0 flex-col gap-1 border-r border-border p-1.5"
-          >
-            {groups.map((candidate) => (
-              <button
-                key={candidate.id}
-                type="button"
-                role="tab"
-                aria-selected={candidate.id === group?.id}
-                aria-label={candidate.label}
-                title={candidate.label}
-                onClick={() => setGroupId(candidate.id)}
-                className={cn(
-                  "flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
-                  candidate.id === group?.id && "bg-accent text-foreground",
-                )}
-              >
-                <ProviderIcon
-                  providerId={candidate.providerId}
-                  kind={candidate.kind}
-                  className="size-[18px]"
-                />
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="flex min-w-[11rem] flex-1 flex-col p-2">
-          {group && (
-            <div className="px-2 pb-1 pt-0.5 text-[11px] text-muted-foreground">{group.label}</div>
-          )}
-          <div
-            ref={listRef}
-            role="listbox"
-            aria-label={t("ai.activeModel")}
-            className="flex min-h-0 flex-1 flex-col overflow-y-auto"
-            onKeyDown={(event) => {
-              if ((event.metaKey || event.ctrlKey) && /^[1-9]$/.test(event.key)) {
-                const model = items[Number(event.key) - 1]
-                if (model) {
-                  event.preventDefault()
-                  pick(model.value)
-                }
-                return
-              }
-              if (event.key === "ArrowDown") focusOption(document.activeElement, 1)
-              else if (event.key === "ArrowUp") focusOption(document.activeElement, -1)
-              else return
-              event.preventDefault()
-            }}
-          >
-            {items.map((model, index) => (
-              <button
-                key={model.value}
-                type="button"
-                role="option"
-                aria-selected={model.value === activeModelId}
-                onClick={() => pick(model.value)}
-                className={cn(
-                  "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left text-[13px] outline-none hover:bg-accent focus-visible:bg-accent",
-                  model.value === activeModelId && "bg-accent/60",
-                )}
-              >
-                <ProviderIcon
-                  providerId={model.providerId}
-                  modelId={model.modelId}
-                  kind={model.kind}
-                  className="text-muted-foreground"
-                />
-                <span className="min-w-0 flex-1 truncate">{model.label}</span>
-                {index < MAX_SHORTCUTS && (
-                  <kbd className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-sans text-[11px] text-muted-foreground">
-                    {shortcutLabel(index + 1)}
-                  </kbd>
-                )}
-                {model.value === activeModelId && (
-                  <Check className="size-4 shrink-0 text-primary" />
-                )}
-              </button>
-            ))}
-          </div>
-          <div className="mt-auto border-t border-border pt-1">
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false)
-                onManage()
-              }}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+        <div className="flex min-h-0 shrink-0 flex-col gap-1 border-r border-border p-1.5">
+          {groups.length > 1 && (
+            <div
+              role="tablist"
+              aria-orientation="vertical"
+              className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto"
             >
-              <SlidersHorizontal className="size-3.5" aria-hidden="true" />
-              {t("ai.manageModels")}
-            </button>
-          </div>
+              {groups.map((candidate) => (
+                <button
+                  key={candidate.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={candidate.id === group?.id}
+                  aria-label={candidate.label}
+                  title={candidate.label}
+                  onClick={() => setGroupId(candidate.id)}
+                  className={cn(
+                    "flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
+                    candidate.id === group?.id && "bg-accent text-foreground",
+                  )}
+                >
+                  <ProviderIcon
+                    providerId={candidate.providerId}
+                    kind={candidate.kind}
+                    className="size-[18px]"
+                  />
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            aria-label={t("ai.manageModels")}
+            title={t("ai.manageModels")}
+            onClick={() => {
+              setOpen(false)
+              onManage()
+            }}
+            className="mt-auto flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <SlidersHorizontal className="size-4" aria-hidden="true" />
+          </button>
+        </div>
+        <div className="flex min-h-0 min-w-[11rem] flex-1 flex-col py-2 pl-2 pr-0">
+          {group && (
+            <div className="px-2 pb-1 pr-3 pt-0.5 text-[11px] text-muted-foreground">
+              {group.label}
+            </div>
+          )}
+          <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block">
+            <div
+              ref={listRef}
+              role="listbox"
+              aria-label={t("ai.activeModel")}
+              className="flex flex-col pr-3"
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && /^[1-9]$/.test(event.key)) {
+                  const model = items[Number(event.key) - 1]
+                  if (model) {
+                    event.preventDefault()
+                    pick(model.value)
+                  }
+                  return
+                }
+                if (event.key === "ArrowDown") focusOption(document.activeElement, 1)
+                else if (event.key === "ArrowUp") focusOption(document.activeElement, -1)
+                else return
+                event.preventDefault()
+              }}
+            >
+              {items.map((model, index) => (
+                <button
+                  key={model.value}
+                  type="button"
+                  role="option"
+                  aria-selected={model.value === activeModelId}
+                  onClick={() => pick(model.value)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left text-[13px] outline-none hover:bg-accent focus-visible:bg-accent",
+                    model.value === activeModelId && "bg-accent/60",
+                  )}
+                >
+                  <ProviderIcon
+                    providerId={model.providerId}
+                    modelId={model.modelId}
+                    kind={model.kind}
+                    className="text-muted-foreground"
+                  />
+                  <span className="min-w-0 flex-1 truncate">{model.label}</span>
+                  {index < MAX_SHORTCUTS && (
+                    <kbd className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-sans text-[11px] text-muted-foreground">
+                      {shortcutLabel(index + 1)}
+                    </kbd>
+                  )}
+                  {model.value === activeModelId && (
+                    <Check className="size-4 shrink-0 text-primary" />
+                  )}
+                </button>
+              ))}
+            </div>
+          </ScrollArea>
         </div>
       </PopoverContent>
     </>

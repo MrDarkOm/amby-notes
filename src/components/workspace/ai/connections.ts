@@ -29,6 +29,7 @@ export interface ConnectedAiModel {
   available: boolean
   origin: "legacy" | "catalog" | "local"
   supportsTools?: boolean
+  hidden?: boolean
 }
 
 export interface AiConnectionsSettings {
@@ -66,7 +67,7 @@ export function selectableAiModels(settings: AiConnectionsSettings): ConnectedAi
       .map((connection) => connection.id),
   )
   return settings.models.filter(
-    (model) => model.enabled && model.available && ids.has(model.connectionId),
+    (model) => model.enabled && model.available && !model.hidden && ids.has(model.connectionId),
   )
 }
 
@@ -93,6 +94,21 @@ export function setAiModelTools(
     ...settings,
     models: settings.models.map((model) =>
       model.id === modelId ? { ...model, supportsTools } : model,
+    ),
+  }
+}
+
+/** Hide a model from the settings list and model picker, or show it again. */
+export function setAiModelHidden(
+  settings: AiConnectionsSettings,
+  modelId: string,
+  hidden: boolean,
+): AiConnectionsSettings {
+  return {
+    ...settings,
+    ...(hidden && settings.baseModelId === modelId ? { baseModelId: null } : {}),
+    models: settings.models.map((model) =>
+      model.id === modelId ? { ...model, hidden, ...(hidden ? { enabled: false } : {}) } : model,
     ),
   }
 }
@@ -153,6 +169,38 @@ export function moveAiModel(
   return { ...settings, models }
 }
 
+/** Reorder the given models belonging to one connection to match `orderedIds`, keeping other models untouched. */
+export function reorderAiModels(
+  settings: AiConnectionsSettings,
+  connectionId: string,
+  orderedIds: string[],
+): AiConnectionsSettings {
+  const idSet = new Set(orderedIds)
+  if (idSet.size <= 1 || idSet.size !== orderedIds.length) return settings
+  const slots: number[] = []
+  const byId = new Map<string, ConnectedAiModel>()
+  settings.models.forEach((model, index) => {
+    if (model.connectionId === connectionId && idSet.has(model.id)) {
+      slots.push(index)
+      byId.set(model.id, model)
+    }
+  })
+  if (slots.length <= 1 || orderedIds.length !== slots.length) return settings
+  const nextGroup: ConnectedAiModel[] = []
+  for (const id of orderedIds) {
+    const model = byId.get(id)
+    if (!model) return settings
+    nextGroup.push(model)
+  }
+  const unchanged = slots.every((slot, index) => settings.models[slot].id === nextGroup[index].id)
+  if (unchanged) return settings
+  const models = [...settings.models]
+  slots.forEach((slot, index) => {
+    models[slot] = nextGroup[index]
+  })
+  return { ...settings, models }
+}
+
 /** Reconcile a successful catalog response without changing user choices.
  * `enableFirst` turns on that many newly seen models, for a connection's first catalog. */
 export function reconcileAiCatalog(
@@ -171,20 +219,16 @@ export function reconcileAiCatalog(
       continue
     }
     const entry = byModel.get(model.model)
-    // A catalog model that left the catalog and was never switched on is just clutter.
-    if (!entry && model.origin === "catalog" && !model.enabled) continue
+    // Drop models that the provider no longer returns in its catalog.
+    if (!entry) continue
     existing.add(model.model)
-    models.push(
-      entry
-        ? {
-            ...model,
-            // A catalog entry names its own model; a legacy or local label is the user's.
-            label: model.origin === "catalog" ? entry.label : model.label,
-            available: true,
-            supportsTools: entry.supportsTools ?? model.supportsTools,
-          }
-        : { ...model, available: false },
-    )
+    models.push({
+      ...model,
+      // A catalog entry names its own model; a legacy or local label is the user's.
+      label: model.origin === "catalog" ? entry.label : model.label,
+      available: true,
+      supportsTools: entry.supportsTools ?? model.supportsTools,
+    })
   }
   let remaining = enableFirst
   for (const entry of catalog) {
@@ -199,7 +243,18 @@ export function reconcileAiCatalog(
       origin: "catalog",
     })
   }
-  return { ...settings, models }
+  const remainingIds = new Set(models.map((model) => model.id))
+  return {
+    ...settings,
+    activeModelId:
+      settings.activeModelId && remainingIds.has(settings.activeModelId)
+        ? settings.activeModelId
+        : null,
+    ...(settings.baseModelId && !remainingIds.has(settings.baseModelId)
+      ? { baseModelId: null }
+      : {}),
+    models,
+  }
 }
 
 /** Reject a version or shape we cannot faithfully write back. */
@@ -250,6 +305,7 @@ export function readAiConnections(raw: unknown): AiConnectionsSettings {
       typeof model.enabled !== "boolean" ||
       typeof model.available !== "boolean" ||
       (model.supportsTools !== undefined && typeof model.supportsTools !== "boolean") ||
+      (model.hidden !== undefined && typeof model.hidden !== "boolean") ||
       (model.origin !== "legacy" && model.origin !== "catalog" && model.origin !== "local")
     )
       throw new Error("invalidAiSettings")
@@ -284,7 +340,7 @@ export function resolveConnectedAiModel(settings: AiConnectionsSettings, modelId
     baseUrl: connection.baseUrl,
     credentialId: connection.credentialId,
     apiVersion: connection.apiVersion,
-    supportsTools: model.supportsTools ?? (model.origin === "catalog" ? false : undefined),
+    supportsTools: model.supportsTools ?? true,
   }
 }
 

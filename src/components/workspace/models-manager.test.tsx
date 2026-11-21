@@ -120,7 +120,8 @@ describe("Models screen as a list", () => {
     fireEvent.click(toggle)
     expect(onChange).toHaveBeenCalledWith({
       ...settings,
-      models: [{ ...ollama, supportsTools: true }, openai],
+      // Tools are on unless a model opts out, so the switch turns them off.
+      models: [{ ...ollama, supportsTools: false }, openai],
     })
   })
 })
