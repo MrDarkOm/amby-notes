@@ -19,7 +19,18 @@ const KNOWN_ERRORS = new Set([
   "proposalNotPending",
   "vaultNotActive",
   "propertiesNotMigrated",
+  "revisionConflict",
+  "moduleDisabled",
+  "invalidValue",
+  "databaseLocked",
 ])
+
+/** Backend codes that share the wording of another. */
+const ALIAS: Record<string, string> = {
+  readOnly: "databaseLocked",
+  locked: "databaseLocked",
+  unsupportedProperty: "invalidValue",
+}
 
 function DiffView({ diff }: { diff: string }) {
   const lines = diff
@@ -76,7 +87,8 @@ function Card({
       update(chatId, await aiProposalAction(action, generation, card.id, unsavedVaultPaths(vault)))
     } catch (cause) {
       const code = cause instanceof ProposalError ? cause.code : ""
-      setFailure(KNOWN_ERRORS.has(code) ? code : "other")
+      const known = ALIAS[code] ?? code
+      setFailure(KNOWN_ERRORS.has(known) ? known : "other")
     } finally {
       setBusy(false)
     }

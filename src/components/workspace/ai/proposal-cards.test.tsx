@@ -155,3 +155,34 @@ describe("proposal cards", () => {
     expect(useProposalStore.getState().modes["other"]).toBeUndefined()
   })
 })
+
+describe("database proposal cards", () => {
+  beforeEach(async () => {
+    action.mockReset()
+    useProposalStore.getState().reset()
+    await i18n.changeLanguage("en")
+  })
+  afterEach(async () => {
+    cleanup()
+    await i18n.changeLanguage("ru")
+  })
+
+  it("names a cell change and a new row, and explains a locked database", async () => {
+    const cell: ProposalCard = {
+      id: "c1",
+      path: "Tasks/First.md",
+      kind: "setDatabaseValue",
+      diff: "--- a\n+++ a\n@@ database cell @@\n+Done: {}\n",
+      diffTruncated: false,
+      state: "pending",
+    }
+    useProposalStore.getState().add("chat", cell, 1)
+    useProposalStore.getState().add("chat", { ...cell, id: "r1", kind: "createDatabaseRow" }, 1)
+    render(<ProposalCards chatId="chat" generation={3} vault="/v" show={() => true} />)
+    expect(screen.getByText("Cell value")).toBeTruthy()
+    expect(screen.getByText("New database row")).toBeTruthy()
+    action.mockRejectedValueOnce(new ProposalError("locked"))
+    await act(async () => fireEvent.click(screen.getAllByRole("button", { name: "Apply" })[0]))
+    expect(screen.getByRole("alert").textContent).toMatch(/closed for changes/)
+  })
+})

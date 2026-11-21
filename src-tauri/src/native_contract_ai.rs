@@ -71,7 +71,16 @@ fn respond(mut stream: TcpStream) -> std::io::Result<()> {
     let proposing_property = messages
         .iter()
         .any(|message| message["content"].as_str() == Some("Propose a property"));
+    // "Propose a cell {json}": the test gives the tool its arguments, as the IDs are made at run time.
+    let cell_arguments = messages.iter().find_map(|message| {
+        let text = message["content"].as_str()?;
+        serde_json::from_str::<Value>(text.strip_prefix("Propose a cell ")?).ok()
+    });
     let message = match results.len() {
+        0 if cell_arguments.is_some() => {
+            json!({"content":"", "tool_calls":[{"function":{"name":"set_database_value","arguments":cell_arguments}}]})
+        }
+        1 if cell_arguments.is_some() => json!({"content":"Proposed."}),
         0 if proposing_property => {
             json!({"content":"", "tool_calls":[{"function":{"name":"set_property","arguments":{"path":"Mars.md","name":"status","value":"done"}}}]})
         }

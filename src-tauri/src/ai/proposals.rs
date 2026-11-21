@@ -58,6 +58,8 @@ impl Entry {
                 ProposalOp::SetProperty { .. } => "setProperty",
                 ProposalOp::DeleteProperty { .. } => "deleteProperty",
                 ProposalOp::RenameProperty { .. } => "renameProperty",
+                ProposalOp::CreateDatabaseRow { .. } => "createDatabaseRow",
+                ProposalOp::SetDatabaseValue { .. } => "setDatabaseValue",
             }
             .into(),
             diff: self.proposal.diff.clone(),
@@ -195,7 +197,7 @@ fn apply_blocking(
         return Err("noteHasUnsavedEdits");
     }
     let context = app.state::<VaultContext>();
-    let result = if proposal.op.is_property() {
+    let result = if proposal.op.is_engine_change() {
         // The property engine takes the mutation gate itself, through the same path as the
         // MCP property tools, and refreshes the index.
         let root = active_root(&context, generation)?;
@@ -210,7 +212,10 @@ fn apply_blocking(
                         .map_err(|_| "invalidArguments")?,
                 },
             };
-            crate::cli_structural::handle(app, request).map(|_| ())
+            match crate::cli_structural::handle(app, request)? {
+                amby_core::cli_ipc::Payload::Tool(output) => Ok(output),
+                _ => Err("unavailable"),
+            }
         })
     } else {
         let _gate = context.mutation_gate.lock_or_recover();
@@ -236,7 +241,7 @@ fn undo_blocking(
         return Err("noteHasUnsavedEdits");
     }
     let context = app.state::<VaultContext>();
-    let root = {
+    let (root, removal) = {
         let _gate = context.mutation_gate.lock_or_recover();
         let root = active_root(&context, generation)?;
         match ai_proposals::undo_plan(&root, &applied)? {
@@ -244,19 +249,27 @@ fn undo_blocking(
                 ai_proposals::undo(&root, &whole_vault(), &applied)?;
                 return store.set_state(generation, id, CardState::Undone);
             }
-            UndoPlan::Trash { .. } => root,
+            UndoPlan::Trash { path } => (root, amby_core::vault_tools::Mutation::Delete { path }),
+            UndoPlan::DeleteRow {
+                database_id,
+                note_id,
+            } => (
+                root,
+                amby_core::vault_tools::Mutation::DeleteDatabaseRow {
+                    database_id,
+                    note_id,
+                },
+            ),
         }
     };
-    // A new note goes back to the system trash through the same path as the MCP delete; it
-    // takes the mutation gate itself.
+    // A note or row the apply created goes back to the system trash through the same path as the
+    // MCP delete; it takes the mutation gate itself.
     let request = amby_core::cli_ipc::Request {
         version: amby_core::cli_ipc::VERSION,
         vault: root,
         action: amby_core::cli_ipc::Action::Tool {
             grant: String::new(),
-            request: amby_core::vault_tools::Mutation::Delete {
-                path: applied.path.clone(),
-            },
+            request: removal,
         },
     };
     crate::cli_structural::handle(app, request)?;
@@ -372,6 +385,7 @@ mod tests {
             snapshot_id: Some("s".into()),
             after: "h".into(),
             created: false,
+            row: None,
         };
         store.mark_applied(1, &card.id, applied.clone()).unwrap();
         assert_eq!(store.applied(1, &card.id), Ok(applied));

@@ -104,7 +104,7 @@ You are an assistant inside Amby, a notes app. You work only through the tools o
 get_note_info, list_versions and read_version, and when search is on also search_notes, \
 list_folder, list_tags and the database reads, which only read and are limited to the \
 notes the user chose. To change notes, when asked, call new_note, append_note, edit_note, set_property, \
-delete_property or rename_property: each creates a proposal card that the user applies or rejects (or that their automatic mode \
+delete_property or rename_property (with vault search on also create_database_row or set_database_value): each creates a proposal card that the user applies or rejects (or that their automatic mode \
 applies at once), so say it is proposed, never that it is done. If a tool answers accessDenied or outsideWriteScope, the note \
 is outside the context: tell the user to add it to the context, turn on vault search (the tree switch), which also lets you change notes anywhere. If where a change should go is unclear, ask the user before proposing it. If the change tools are missing, you cannot change notes. You have no shell, no file system, no web \
 and no other tools; if a request needs one, say that you cannot do it.\n\
@@ -120,7 +120,11 @@ pub fn allowed_tool_names(search: bool, writes: bool) -> Vec<String> {
     use amby_core::ai_tools::Writes;
     amby_core::ai_tools::panel_mcp_definitions_with(
         search,
-        if writes { Writes::Context } else { Writes::Off },
+        match (writes, search) {
+            (false, _) => Writes::Off,
+            (true, false) => Writes::Context,
+            (true, true) => Writes::Vault,
+        },
     )
     .iter()
     .filter_map(|tool| tool["name"].as_str())

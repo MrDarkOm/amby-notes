@@ -83,6 +83,21 @@ pub enum ProposalOp {
         name: String,
         new_name: String,
     },
+    /// A new blank row in a database (the database's folder sets the scope).
+    CreateDatabaseRow {
+        database_id: String,
+        title: String,
+    },
+    /// A typed value in one cell. `expected_revision` and `operation_id` are filled in when the
+    /// change is proposed, so a row that changed since is refused.
+    SetDatabaseValue {
+        database_id: String,
+        note_id: String,
+        property_id: String,
+        value: Value,
+        expected_revision: String,
+        operation_id: String,
+    },
 }
 
 impl ProposalOp {
@@ -94,16 +109,18 @@ impl ProposalOp {
             | Self::SetProperty { path, .. }
             | Self::DeleteProperty { path, .. }
             | Self::RenameProperty { path, .. } => path,
+            Self::CreateDatabaseRow { title, .. } => title,
+            Self::SetDatabaseValue { note_id, .. } => note_id,
         }
     }
 
-    /// A change of a note's header properties, which goes through the property engine.
-    pub fn is_property(&self) -> bool {
-        self.property_mutation().is_some()
+    /// A change that goes through the property or database engine, not a text edit.
+    pub fn is_engine_change(&self) -> bool {
+        self.engine_mutation().is_some()
     }
 
-    /// The property engine's request for a property change; `None` for a text change.
-    fn property_mutation(&self) -> Option<Mutation> {
+    /// The engine's request for a property or database change; `None` for a text change.
+    fn engine_mutation(&self) -> Option<Mutation> {
         Some(match self {
             Self::SetProperty {
                 path,
@@ -129,6 +146,23 @@ impl ProposalOp {
                 name: name.clone(),
                 new_name: new_name.clone(),
             },
+            Self::CreateDatabaseRow { database_id, title } => serde_json::from_value(
+                serde_json::json!({"kind":"createDatabaseRow","databaseId":database_id,"title":title}),
+            )
+            .ok()?,
+            Self::SetDatabaseValue {
+                database_id,
+                note_id,
+                property_id,
+                value,
+                expected_revision,
+                operation_id,
+            } => serde_json::from_value(serde_json::json!({
+                "kind":"setDatabaseValue","databaseId":database_id,"noteId":note_id,
+                "propertyId":property_id,"value":value,
+                "expectedRevision":expected_revision,"operationId":operation_id
+            }))
+            .ok()?,
             _ => return None,
         })
     }
@@ -158,12 +192,30 @@ pub struct Applied {
     /// The apply created the note, so undoing it moves the note to the trash.
     #[serde(default)]
     pub created: bool,
+    /// The database row the apply created, which undoing deletes through the database domain.
+    #[serde(default)]
+    pub row: Option<RowRef>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RowRef {
+    pub database_id: String,
+    pub note_id: String,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum UndoPlan {
-    Restore { snapshot_id: String },
-    Trash { path: String },
+    Restore {
+        snapshot_id: String,
+    },
+    Trash {
+        path: String,
+    },
+    DeleteRow {
+        database_id: String,
+        note_id: String,
+    },
 }
 
 fn digest(text: &str) -> String {
@@ -233,7 +285,13 @@ pub fn propose(
     conn: Option<&Connection>,
     op: ProposalOp,
 ) -> Result<Proposal, &'static str> {
-    if op.property_mutation().is_some() {
+    if matches!(
+        op,
+        ProposalOp::CreateDatabaseRow { .. } | ProposalOp::SetDatabaseValue { .. }
+    ) {
+        return propose_database(root, scope, op);
+    }
+    if op.is_engine_change() {
         return propose_property(root, scope, conn.ok_or("unavailable")?, op);
     }
     let edit = prepare(root, scope, &op)?;
@@ -373,6 +431,92 @@ fn propose_property(
     })
 }
 
+fn propose_database(
+    root: &Path,
+    scope: &WriteScope,
+    mut op: ProposalOp,
+) -> Result<Proposal, &'static str> {
+    use crate::vault_tools::database;
+    let (path, base, diff) = match &mut op {
+        ProposalOp::CreateDatabaseRow { database_id, title } => {
+            let title = title.trim().to_owned();
+            if title.is_empty() || title.len() > 1024 {
+                return Err("invalidArguments");
+            }
+            let path = format!("{}/{title}.md", database::container(root, database_id)?);
+            if !scope.allows(&path) {
+                return Err("outsideWriteScope");
+            }
+            let diff = format!("--- /dev/null\n+++ {path}\n@@ database row @@\n+{title}\n");
+            (path, None, diff)
+        }
+        ProposalOp::SetDatabaseValue {
+            database_id,
+            note_id,
+            property_id,
+            value,
+            expected_revision,
+            operation_id,
+        } => {
+            let path = database::row_path(root, root, database_id, note_id)?;
+            if !scope.allows(&path) {
+                return Err("outsideWriteScope");
+            }
+            let file = crate::index::read_only::visible_note(root, &path)?;
+            let bytes = std::fs::read(file).map_err(|_| "unavailable")?;
+            *expected_revision = crate::database::format::raw_revision(&bytes);
+            *operation_id = ulid::Ulid::generate().to_string();
+            let name = database::read(root, database_id)?["properties"]
+                .as_array()
+                .and_then(|all| all.iter().find(|p| p["id"] == *property_id))
+                .and_then(|p| p["name"].as_str().map(str::to_owned))
+                .unwrap_or_else(|| property_id.clone());
+            let shown = if value.is_null() {
+                String::new()
+            } else {
+                value.to_string()
+            };
+            let diff = format!("--- {path}\n+++ {path}\n@@ database cell @@\n+{name}: {shown}\n");
+            (path, Some(digest(&String::from_utf8_lossy(&bytes))), diff)
+        }
+        _ => return Err("invalidArguments"),
+    };
+    Ok(Proposal {
+        id: ulid::Ulid::generate().to_string(),
+        path,
+        base,
+        op,
+        diff,
+        diff_truncated: false,
+    })
+}
+
+fn apply_new_row(
+    root: &Path,
+    scope: &WriteScope,
+    proposal: &Proposal,
+    database_id: &str,
+    mutation: &Mutation,
+    run: &dyn Fn(&Mutation) -> Result<Value, &'static str>,
+) -> Result<Applied, &'static str> {
+    if !scope.allows(&proposal.path) {
+        return Err("outsideWriteScope");
+    }
+    let output = run(mutation)?;
+    let path = output["path"].as_str().ok_or("unavailable")?.to_owned();
+    let note_id = output["noteId"].as_str().ok_or("unavailable")?.to_owned();
+    Ok(Applied {
+        after: digest(&note_text(root, &path)?),
+        path,
+        snapshot_id: None,
+        created: true,
+        row: Some(RowRef {
+            database_id: database_id.to_owned(),
+            note_id,
+        }),
+    })
+}
+
 /// Writes a proposal if the note is still as it was proposed. A note that changed, appeared
 /// or vanished since makes the proposal `outdated`; nothing is written then.
 pub fn apply(
@@ -381,7 +525,7 @@ pub fn apply(
     proposal: &Proposal,
 ) -> Result<Applied, &'static str> {
     apply_with(root, scope, proposal, &|mutation| {
-        crate::vault_tools::execute_offline(root, "", mutation).map(|_| ())
+        crate::vault_tools::execute_offline(root, "", mutation)
     })
 }
 
@@ -391,10 +535,15 @@ pub fn apply_with(
     root: &Path,
     scope: &WriteScope,
     proposal: &Proposal,
-    run: &dyn Fn(&Mutation) -> Result<(), &'static str>,
+    run: &dyn Fn(&Mutation) -> Result<Value, &'static str>,
 ) -> Result<Applied, &'static str> {
-    if let Some(mutation) = proposal.op.property_mutation() {
-        return apply_property(root, scope, proposal, &mutation, run);
+    if let Some(mutation) = proposal.op.engine_mutation() {
+        return match &proposal.op {
+            ProposalOp::CreateDatabaseRow { database_id, .. } => {
+                apply_new_row(root, scope, proposal, database_id, &mutation, run)
+            }
+            _ => apply_property(root, scope, proposal, &mutation, run),
+        };
     }
     let edit = match prepare(root, scope, &proposal.op) {
         Err("alreadyExists" | "notFound" | "textNotFound" | "textNotUnique") => {
@@ -413,6 +562,7 @@ pub fn apply_with(
     Ok(Applied {
         path: edit.path().to_owned(),
         created: edit.before().is_none(),
+        row: None,
         snapshot_id,
         after: digest(edit.after()),
     })
@@ -423,7 +573,7 @@ fn apply_property(
     scope: &WriteScope,
     proposal: &Proposal,
     mutation: &Mutation,
-    run: &dyn Fn(&Mutation) -> Result<(), &'static str>,
+    run: &dyn Fn(&Mutation) -> Result<Value, &'static str>,
 ) -> Result<Applied, &'static str> {
     if !scope.allows(&proposal.path) {
         return Err("outsideWriteScope");
@@ -453,6 +603,7 @@ fn apply_property(
     Ok(Applied {
         path: proposal.path.clone(),
         created: false,
+        row: None,
         snapshot_id,
         after: digest(&after),
     })
@@ -464,6 +615,12 @@ pub fn undo_plan(root: &Path, applied: &Applied) -> Result<UndoPlan, &'static st
     let current = std::fs::read_to_string(file).map_err(|_| "unavailable")?;
     if digest(&current) != applied.after {
         return Err("changedSince");
+    }
+    if let Some(row) = &applied.row {
+        return Ok(UndoPlan::DeleteRow {
+            database_id: row.database_id.clone(),
+            note_id: row.note_id.clone(),
+        });
     }
     match (&applied.snapshot_id, applied.created) {
         (Some(id), _) => Ok(UndoPlan::Restore {
@@ -487,6 +644,6 @@ pub fn undo(root: &Path, scope: &WriteScope, applied: &Applied) -> Result<(), &'
         UndoPlan::Restore { snapshot_id } => {
             crate::note_versions::restore(root, root, &snapshot_id, false).map(|_| ())
         }
-        UndoPlan::Trash { .. } => Err("trashRequired"),
+        UndoPlan::Trash { .. } | UndoPlan::DeleteRow { .. } => Err("trashRequired"),
     }
 }

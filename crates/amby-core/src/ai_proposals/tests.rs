@@ -400,3 +400,171 @@ fn a_property_that_would_not_change_is_refused() {
     );
     fs::remove_dir_all(root).unwrap();
 }
+
+// ----- database proposals -----
+
+struct Table {
+    root: PathBuf,
+    database: String,
+    row: String,
+    property: String,
+}
+
+fn table(name: &str) -> Table {
+    use crate::vault_tools::{execute_offline, Mutation};
+    let root = vault(name);
+    let created = execute_offline(
+        &root,
+        "",
+        &Mutation::CreateDatabase {
+            parent: "chosen".into(),
+            name: "Tasks".into(),
+        },
+    )
+    .unwrap();
+    let database = created["databaseId"].as_str().unwrap().to_owned();
+    let property = execute_offline(
+        &root,
+        "",
+        &Mutation::AddDatabaseProperty {
+            database_id: database.clone(),
+            name: "Done".into(),
+            property_type: "checkbox".into(),
+            expected_revision: created["revision"].as_str().unwrap().into(),
+            options: vec![],
+        },
+    )
+    .unwrap();
+    let row = execute_offline(
+        &root,
+        "",
+        &Mutation::CreateDatabaseRow {
+            database_id: database.clone(),
+            title: "First".into(),
+        },
+    )
+    .unwrap();
+    Table {
+        root,
+        database,
+        row: row["noteId"].as_str().unwrap().to_owned(),
+        property: property["propertyId"].as_str().unwrap().to_owned(),
+    }
+}
+
+fn done(table: &Table, checked: bool) -> ProposalOp {
+    ProposalOp::SetDatabaseValue {
+        database_id: table.database.clone(),
+        note_id: table.row.clone(),
+        property_id: table.property.clone(),
+        value: serde_json::json!({"type":"checkbox","checked":checked}),
+        expected_revision: String::new(),
+        operation_id: String::new(),
+    }
+}
+
+fn row_file(table: &Table) -> PathBuf {
+    let rows =
+        crate::vault_tools::database::query(&table.root, &table.database, None, None, 10).unwrap();
+    table.root.join(rows["rows"][0]["path"].as_str().unwrap())
+}
+
+#[test]
+fn a_cell_proposal_names_the_property_and_the_value_and_writes_nothing() {
+    let t = table("db-set-preview");
+    let file = row_file(&t);
+    let before = fs::read(&file).unwrap();
+    let proposal = propose(&t.root, &scope(), None, done(&t, true)).unwrap();
+    assert!(proposal.diff.contains("Done"), "{}", proposal.diff);
+    assert!(proposal.diff.contains("true"), "{}", proposal.diff);
+    assert_eq!(fs::read(&file).unwrap(), before);
+    // The proposal carries the revision it was made against, so a stale one is refused.
+    let ProposalOp::SetDatabaseValue {
+        expected_revision,
+        operation_id,
+        ..
+    } = &proposal.op
+    else {
+        panic!("{:?}", proposal.op)
+    };
+    assert!(!expected_revision.is_empty() && !operation_id.is_empty());
+    fs::remove_dir_all(t.root).unwrap();
+}
+
+#[test]
+fn applying_a_cell_leaves_an_ai_edit_version_and_undo_restores_the_row() {
+    let t = table("db-set-apply");
+    let file = row_file(&t);
+    let before = fs::read(&file).unwrap();
+    let proposal = propose(&t.root, &scope(), None, done(&t, true)).unwrap();
+    let applied = apply(&t.root, &scope(), &proposal).unwrap();
+    assert!(fs::read_to_string(&file).unwrap().contains("Done: true"));
+    let versions = crate::history::list_snapshots(&t.root, &file).unwrap();
+    assert!(
+        !versions.is_empty() && versions.iter().all(|v| v.reason == "ai-edit"),
+        "{versions:?}"
+    );
+    undo(&t.root, &scope(), &applied).unwrap();
+    assert_eq!(fs::read(&file).unwrap(), before);
+    fs::remove_dir_all(t.root).unwrap();
+}
+
+#[test]
+fn a_cell_proposal_is_outdated_when_the_row_changed_and_stays_in_scope() {
+    let t = table("db-set-outdated");
+    let file = row_file(&t);
+    let proposal = propose(&t.root, &scope(), None, done(&t, true)).unwrap();
+    let mut text = fs::read_to_string(&file).unwrap();
+    text.push_str("\nedited\n");
+    fs::write(&file, text).unwrap();
+    assert_eq!(apply(&t.root, &scope(), &proposal).unwrap_err(), "outdated");
+    let narrow = WriteScope {
+        folders: vec!["other".into()],
+        notes: vec![],
+        vault: false,
+    };
+    assert_eq!(
+        propose(&t.root, &narrow, None, done(&t, true)).unwrap_err(),
+        "outsideWriteScope"
+    );
+    fs::remove_dir_all(t.root).unwrap();
+}
+
+#[test]
+fn a_new_row_is_a_proposal_and_undoing_it_deletes_that_row() {
+    let t = table("db-row-new");
+    let op = ProposalOp::CreateDatabaseRow {
+        database_id: t.database.clone(),
+        title: "Second".into(),
+    };
+    let proposal = propose(&t.root, &scope(), None, op).unwrap();
+    let count = |t: &Table| {
+        crate::vault_tools::database::query(&t.root, &t.database, None, None, 10).unwrap()
+            ["totalCount"]
+            .as_u64()
+            .unwrap()
+    };
+    assert_eq!(count(&t), 1);
+    let applied = apply(&t.root, &scope(), &proposal).unwrap();
+    assert_eq!(count(&t), 2);
+    assert!(applied.created && applied.snapshot_id.is_none());
+    match undo_plan(&t.root, &applied).unwrap() {
+        UndoPlan::DeleteRow { database_id, .. } => assert_eq!(database_id, t.database),
+        other => panic!("{other:?}"),
+    }
+    // Outside the chosen folders a row cannot be proposed.
+    let narrow = WriteScope {
+        folders: vec!["other".into()],
+        notes: vec![],
+        vault: false,
+    };
+    let again = ProposalOp::CreateDatabaseRow {
+        database_id: t.database.clone(),
+        title: "Third".into(),
+    };
+    assert_eq!(
+        propose(&t.root, &narrow, None, again).unwrap_err(),
+        "outsideWriteScope"
+    );
+    fs::remove_dir_all(t.root).unwrap();
+}

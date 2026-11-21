@@ -125,7 +125,7 @@ fn search_tools_are_allowed_only_when_search_is_on() {
         assert!(!narrow.contains(&format!("mcp__amby__{wide}")), "{wide}");
     }
     assert_eq!(allowed_tool_names(true, false).len(), 14);
-    // With writes on, only the three proposal tools join the reads.
+    // With writes on, only the proposal tools join the reads.
     let extra: Vec<String> = allowed_tool_names(true, true)
         .into_iter()
         .filter(|name| !allowed_tool_names(true, false).contains(name))
@@ -138,9 +138,26 @@ fn search_tools_are_allowed_only_when_search_is_on() {
             "mcp__amby__edit_note",
             "mcp__amby__set_property",
             "mcp__amby__delete_property",
-            "mcp__amby__rename_property"
+            "mcp__amby__rename_property",
+            "mcp__amby__create_database_row",
+            "mcp__amby__set_database_value"
         ]
     );
+    // Database changes join them only with the whole vault in view.
+    let database: Vec<String> = allowed_tool_names(true, true)
+        .into_iter()
+        .filter(|name| name.contains("database_row") || name.contains("database_value"))
+        .collect();
+    assert_eq!(
+        database,
+        [
+            "mcp__amby__create_database_row",
+            "mcp__amby__set_database_value"
+        ]
+    );
+    assert!(!allowed_tool_names(false, true)
+        .iter()
+        .any(|name| name.contains("database_row")));
     // Reads only: no write tool is ever allowed.
     for name in allowed_tool_names(true, false) {
         for write in [

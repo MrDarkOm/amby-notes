@@ -149,13 +149,15 @@ pub enum Writes {
 /// The most proposals one turn may make.
 pub const PROPOSALS_PER_TURN: usize = 5;
 
-const PANEL_WRITE_TOOLS: [&str; 6] = [
+const PANEL_WRITE_TOOLS: [&str; 8] = [
     "new_note",
     "append_note",
     "edit_note",
     "set_property",
     "delete_property",
     "rename_property",
+    "create_database_row",
+    "set_database_value",
 ];
 
 /// The panel's write tools. They return a proposal ID at once; nothing is written until the
@@ -184,6 +186,26 @@ pub fn panel_write_definitions(writes: Writes) -> Vec<Value> {
         property_tool("set_property", "Propose setting a header property of a note (a missing one is created; type sets the type of a new property). Use null to clear the value and an array for a list. This creates a proposal: the user applies it, or their approval mode applies it at once.", &["path", "name", "value"]),
         property_tool("delete_property", "Propose removing a property from a note's header. This creates a proposal: the user applies it, or their approval mode applies it at once.", &["path", "name"]),
         property_tool("rename_property", "Propose renaming a property of a note, keeping its value. This creates a proposal: the user applies it, or their approval mode applies it at once.", &["path", "name", "newName"]),
+    ]
+    .into_iter()
+    .chain((writes == Writes::Vault).then(database_tools).into_iter().flatten())
+    .collect()
+}
+
+/// Database changes need a database ID, which only vault-wide reads (`list_databases`) find,
+/// so they are offered with the whole vault in view.
+fn database_tools() -> Vec<Value> {
+    let tool = |name: &str, description: &str, properties: Value, required: &[&str]| {
+        json!({
+            "name": name, "description": description,
+            "inputSchema": {"type":"object","properties":properties,"required":required,"additionalProperties":false},
+            "annotations": {"readOnlyHint": false, "openWorldHint": false, "destructiveHint": false}
+        })
+    };
+    let id = |max: u64| json!({"type":"string","minLength":1,"maxLength":max});
+    vec![
+        tool("create_database_row", "Propose a new blank row in a database by its ID from list_databases. This creates a proposal: the user applies it, or their approval mode applies it at once.", json!({"databaseId":id(1024),"title":id(1024)}), &["databaseId", "title"]),
+        tool("set_database_value", "Propose a typed value for one cell of a database row (IDs from list_databases, read_database and query_database), or null to clear it. This creates a proposal: the user applies it, or their approval mode applies it at once.", json!({"databaseId":id(1024),"noteId":id(1024),"propertyId":id(1024),"value":{"type":["object","null"],"description":"A scalar or choice value object as query_database shows, or null to clear."}}), &["databaseId", "noteId", "propertyId", "value"]),
     ]
 }
 
@@ -290,6 +312,33 @@ impl ToolBudget {
                     path: text("path")?,
                     name: text("name")?,
                     new_name: text("newName")?,
+                }
+            }
+            "create_database_row" | "set_database_value" => {
+                // A database is found by its ID, which only the whole vault's reads give.
+                if scope.writes != Writes::Vault {
+                    return Err("accessDenied");
+                }
+                if name == "create_database_row" {
+                    crate::tool_set::validate_fields(args, &["databaseId", "title"], &[])?;
+                    ProposalOp::CreateDatabaseRow {
+                        database_id: text("databaseId")?,
+                        title: text("title")?,
+                    }
+                } else {
+                    crate::tool_set::validate_fields(
+                        args,
+                        &["databaseId", "noteId", "propertyId", "value"],
+                        &[],
+                    )?;
+                    ProposalOp::SetDatabaseValue {
+                        database_id: text("databaseId")?,
+                        note_id: text("noteId")?,
+                        property_id: text("propertyId")?,
+                        value: args.get("value").cloned().ok_or("invalidArguments")?,
+                        expected_revision: String::new(),
+                        operation_id: String::new(),
+                    }
                 }
             }
             _ => return Err("unknownTool"),
@@ -1007,6 +1056,73 @@ mod tests {
     }
 
     #[test]
+    fn panel_database_tools_propose_only_with_the_whole_vault_in_view() {
+        use crate::vault_tools::{execute_offline, Mutation};
+        let (root, conn) = panel_vault("panel-db");
+        let created = execute_offline(
+            &root,
+            "",
+            &Mutation::CreateDatabase {
+                parent: "folder".into(),
+                name: "Tasks".into(),
+            },
+        )
+        .unwrap();
+        let database = created["databaseId"].as_str().unwrap().to_owned();
+        let property = execute_offline(
+            &root,
+            "",
+            &Mutation::AddDatabaseProperty {
+                database_id: database.clone(),
+                name: "Done".into(),
+                property_type: "checkbox".into(),
+                expected_revision: created["revision"].as_str().unwrap().into(),
+                options: vec![],
+            },
+        )
+        .unwrap();
+        let row = execute_offline(
+            &root,
+            "",
+            &Mutation::CreateDatabaseRow {
+                database_id: database.clone(),
+                title: "First".into(),
+            },
+        )
+        .unwrap();
+        let set = json!({
+            "databaseId": database, "noteId": row["noteId"],
+            "propertyId": property["propertyId"], "value": {"type":"checkbox","checked":true}
+        });
+        let add = json!({"databaseId": database, "title": "Second"});
+        let narrow = writing("folder", Writes::Context);
+        for (name, args) in [("set_database_value", &set), ("create_database_row", &add)] {
+            assert_eq!(
+                call(&conn, &root, &narrow, name, args.clone())["error"],
+                "accessDenied",
+                "{name}"
+            );
+        }
+        let wide = writing("folder", Writes::Vault);
+        let mut budget = ToolBudget::default();
+        assert_eq!(
+            budget.execute(&conn, &root, &wide, "set_database_value", &set)["status"],
+            "pending"
+        );
+        assert_eq!(
+            budget.execute(&conn, &root, &wide, "create_database_row", &add)["status"],
+            "pending"
+        );
+        let strict = json!({"databaseId": database, "title": "x", "extra": 1});
+        assert_eq!(
+            budget.execute(&conn, &root, &wide, "create_database_row", &strict)["error"],
+            "invalidArguments"
+        );
+        assert_eq!(budget.take_proposals().len(), 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn panel_writes_are_refused_when_the_scope_has_no_writes_and_are_capped_per_turn() {
         let (root, conn) = panel_vault("panel-propose-off");
         let args = json!({"path":"folder/a.md","oldText":"text","newText":"changed"});
@@ -1058,7 +1174,10 @@ mod tests {
                 "rename_property"
             ]
         );
-        assert_eq!(names(Writes::Vault), names(Writes::Context));
+        // Database tools need a database ID, which only vault-wide reads can find.
+        let mut vault_wide = names(Writes::Context);
+        vault_wide.extend(["create_database_row".into(), "set_database_value".into()]);
+        assert_eq!(names(Writes::Vault), vault_wide);
         for tool in panel_write_definitions(Writes::Context) {
             assert_eq!(tool["annotations"]["readOnlyHint"], false);
             assert!(tool["description"].as_str().unwrap().contains("proposal"));

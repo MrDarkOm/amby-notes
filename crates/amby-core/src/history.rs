@@ -423,7 +423,9 @@ pub fn snapshot_before_write(
     // A property edit the AI panel applies leaves an `ai-edit` version, which is kept even when
     // the vault's history is switched off.
     let reason = if AI_PROPERTY_EDIT.with(std::cell::Cell::get)
-        && (reason == "cli-property" || reason.starts_with("property-"))
+        && (reason == "cli-property"
+            || reason == "database-value"
+            || reason.starts_with("property-"))
     {
         AI_EDIT_REASON
     } else {

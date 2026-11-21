@@ -249,6 +249,91 @@ export const nativeAiCases: Array<{
     },
   },
   {
+    name: "AI database cell proposals apply through the database domain and undo restores the row",
+    async run({ adapter, vaultPath }) {
+      const url = (window as unknown as { __AMBY_NATIVE_AI_URL__: string }).__AMBY_NATIVE_AI_URL__
+      check(url, "The disposable AI provider is available")
+      const generation = (await adapter.loadActiveVaultData()).generation
+      const state = await adapter.getDatabaseModuleState()
+      if (!state.enabled) await adapter.setDatabaseModuleEnabled(true, generation)
+      const database = await adapter.createDatabase({
+        expectedGeneration: generation,
+        mode: "standalone",
+        parentPath: vaultPath,
+        name: "AiTasks",
+      })
+      const property = await adapter.createDatabaseProperty({
+        expectedGeneration: generation,
+        databaseId: database.databaseId,
+        expectedManifestRevision: database.manifestRevision,
+        name: "Done",
+        propertyType: "checkbox",
+      })
+      const row = await adapter.createDatabaseRow({
+        expectedGeneration: generation,
+        databaseId: database.databaseId,
+        title: "Ship it",
+        template: { kind: "empty" },
+      })
+      const before = await adapter.readFile(row.notePath)
+      const cards: Array<{ id: string; state: string; kind: string; diff: string }> = []
+      const unlisten = await listen<{
+        streamId: string
+        kind: string
+        payload: { id: string; state: string; kind: string; diff: string }
+      }>("ai:event", ({ payload }) => {
+        if (payload.streamId === "native-ai-cell" && payload.kind === "proposal")
+          cards.push(payload.payload)
+      })
+      const turnArguments = {
+        databaseId: database.databaseId,
+        noteId: row.noteId,
+        propertyId: property.propertyId,
+        value: { type: "checkbox", checked: true },
+      }
+      try {
+        const turn = await commands.aiRunTurn({
+          generation,
+          config: {
+            provider: "ollama",
+            internalModelId: null,
+            model: "fake",
+            baseUrl: url,
+            credentialId: null,
+            apiKey: null,
+            maxTokens: null,
+            apiVersion: null,
+          },
+          messages: [{ role: "user", content: `Propose a cell ${JSON.stringify(turnArguments)}` }],
+          system: null,
+          noteIds: [],
+          folders: [],
+          initialSources: [],
+          searchEnabled: true,
+          supportsTools: true,
+          streamId: "native-ai-cell",
+        })
+        check(turn.status === "ok", "AI turn succeeded")
+        const deadline = Date.now() + 2000
+        while (cards.length === 0 && Date.now() < deadline)
+          await new Promise((resolve) => setTimeout(resolve, 20))
+        check(cards.length === 1 && cards[0].kind === "setDatabaseValue", "A cell card arrived")
+        check((await adapter.readFile(row.notePath)) === before, "A proposal writes nothing")
+        const applied = await commands.aiApplyProposal(generation, cards[0].id, [])
+        check(
+          applied.status === "ok" && applied.data.state === "applied",
+          `Apply succeeds ${JSON.stringify(applied)}`,
+        )
+        check((await adapter.readFile(row.notePath)).includes("Done: true"), "The row holds it")
+        const undone = await commands.aiUndoProposal(generation, cards[0].id, [])
+        check(undone.status === "ok" && undone.data.state === "undone", "Undo succeeds")
+        check((await adapter.readFile(row.notePath)) === before, "Undo restores the exact bytes")
+      } finally {
+        unlisten()
+      }
+    },
+  },
+  {
     name: "AI chats and cloud consent use generation-scoped native storage",
     async run({ adapter, vaultPath }) {
       const repo = createAiChatRepository(true)

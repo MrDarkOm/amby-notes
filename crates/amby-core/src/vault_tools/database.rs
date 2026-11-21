@@ -106,6 +106,11 @@ pub fn query(
     Ok(json!({"rows": rows, "nextCursor": result.next_cursor, "totalCount": result.total_count}))
 }
 
+/// The vault-relative folder that holds a database.
+pub fn container(root: &Path, id: &str) -> Result<String, &'static str> {
+    relative(root, &database(root, id)?.container_path)
+}
+
 pub(super) fn writable_database(
     root: &Path,
     scope: &Path,
