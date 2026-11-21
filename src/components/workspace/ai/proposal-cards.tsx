@@ -4,13 +4,12 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { FilePlus2, FilePen, FileText } from "lucide-react"
 import { aiProposalAction, ProposalError, type ProposalAction } from "@/lib/ai"
-import type { ProposalCard } from "@/lib/bindings"
 import { cn } from "@/lib/utils"
 import { NoticeLine } from "../notices/notice-line"
 import { useDocStore } from "../use-doc-store"
 import { toRelativeVaultPath } from "../workspace-tree-utils"
 import { unsavedVaultPaths } from "./unsaved-paths"
-import { useProposalStore } from "./use-proposal-store"
+import { useProposalStore, type PlacedCard } from "./use-proposal-store"
 
 /** The backend's stable codes that have their own wording; anything else is the general one. */
 const KNOWN_ERRORS = new Set([
@@ -54,7 +53,7 @@ function Card({
   generation,
   vault,
 }: {
-  card: ProposalCard
+  card: PlacedCard
   chatId: string
   generation: number
   vault: string | null
@@ -82,6 +81,16 @@ function Card({
       setBusy(false)
     }
   }
+  // A card made under Automatic or Without stops applies as soon as its note has no unsaved edits.
+  const attempted = React.useRef(false)
+  React.useEffect(() => {
+    if (card.auto && card.state === "pending" && !unsaved && !attempted.current) {
+      attempted.current = true
+      void run("apply")
+    }
+    // `run` only closes over the card and the vault, which this effect already follows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [card.auto, card.state, unsaved])
   const Icon = card.kind === "new" ? FilePlus2 : card.kind === "append" ? FileText : FilePen
   const button =
     "rounded-md border border-border px-2 py-0.5 text-xs hover:bg-accent disabled:opacity-40"

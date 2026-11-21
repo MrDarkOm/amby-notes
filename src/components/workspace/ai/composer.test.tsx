@@ -333,3 +333,44 @@ describe("Composer write switch", () => {
     ).toBe(true)
   })
 })
+
+describe("Composer approval mode", () => {
+  it("puts the model row under the writing box, with the mode button right of the picker", () => {
+    const onApprovalMode = vi.fn()
+    show({ onApprovalMode, approvalMode: "auto" })
+    const box = document.querySelector("[data-composer-box]")!
+    const picker = screen.getByRole("combobox")
+    const mode = screen.getByRole("button", { name: "Как применять правки ИИ" })
+    expect(box.contains(picker)).toBe(false)
+    expect(before(box, picker)).toBe(true)
+    expect(before(picker, mode)).toBe(true)
+    expect(mode.getAttribute("title")).toBe("Автоматически")
+  })
+})
+
+describe("Composer current note", () => {
+  const detached: Chat = { ...chat, autoCurrent: false, context: [] }
+
+  it("has no text button beside the plus; the plus list offers the current note", () => {
+    const onAddCurrent = vi.fn()
+    const onInput = vi.fn()
+    show({
+      chat: detached,
+      onAddCurrent,
+      onInput,
+      input: "Привет @",
+      mentionOpen: true,
+      choices: [],
+    })
+    // Only the plus stays in the line; the words are inside its list.
+    expect(screen.queryByRole("button", { name: "Добавить текущую заметку" })).toBeNull()
+    fireEvent.click(screen.getByRole("option", { name: /Добавить текущую заметку/ }))
+    expect(onAddCurrent).toHaveBeenCalledTimes(1)
+    expect(onInput).toHaveBeenCalledWith("Привет ")
+  })
+
+  it("does not offer it when the current note is already followed", () => {
+    show({ input: "@", mentionOpen: true, choices: [] })
+    expect(screen.queryByRole("option", { name: /Добавить текущую заметку/ })).toBeNull()
+  })
+})

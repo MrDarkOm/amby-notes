@@ -111,10 +111,50 @@ describe("proposal cards", () => {
     expect(screen.getByText("folder/a.md")).toBeTruthy()
   })
 
+  it("applies a card made under an automatic mode at once, and a manual one never", async () => {
+    action.mockResolvedValue({ ...pending, state: "applied" })
+    useProposalStore.getState().add("chat", pending, 1, true)
+    render(<ProposalCards chatId="chat" generation={3} vault="/v" show={() => true} />)
+    await act(async () => {})
+    expect(action).toHaveBeenCalledWith("apply", 3, "p1", [])
+    expect(screen.getByRole("button", { name: "Undo" })).toBeTruthy()
+    cleanup()
+    action.mockClear()
+    useProposalStore.getState().reset()
+    useProposalStore.getState().add("chat", pending, 1, false)
+    render(<ProposalCards chatId="chat" generation={3} vault="/v" show={() => true} />)
+    await act(async () => {})
+    expect(action).not.toHaveBeenCalled()
+  })
+
+  it("holds an automatic card while its note has unsaved edits, then applies it once saved", async () => {
+    action.mockResolvedValue({ ...pending, state: "applied" })
+    useDocStore.getState().setDoc("n", {
+      id: "n",
+      title: "A",
+      content: "x",
+      created: "",
+      modified: "",
+      wordCount: 1,
+      path: "/v/folder/a.md",
+      source: "x",
+    })
+    useDocStore.getState().markUnsaved("n")
+    useProposalStore.getState().add("chat", pending, 1, true)
+    render(<ProposalCards chatId="chat" generation={3} vault="/v" show={() => true} />)
+    await act(async () => {})
+    expect(action).not.toHaveBeenCalled()
+    await act(async () => useDocStore.getState().markSaved("n"))
+    expect(action).toHaveBeenCalledWith("apply", 3, "p1", [])
+  })
+
   it("keeps the whole-vault switch per chat and off by default", () => {
     expect(useProposalStore.getState().vaultWrites["chat"]).toBeUndefined()
     useProposalStore.getState().setVaultWrites("chat", true)
     expect(useProposalStore.getState().vaultWrites["chat"]).toBe(true)
     expect(useProposalStore.getState().vaultWrites["other"]).toBeUndefined()
+    expect(useProposalStore.getState().modes["chat"]).toBeUndefined()
+    useProposalStore.getState().setMode("chat", "turbo")
+    expect(useProposalStore.getState().modes["chat"]).toBe("turbo")
   })
 })

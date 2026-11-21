@@ -178,12 +178,12 @@ pub fn panel_write_definitions(writes: Writes) -> Vec<Value> {
         tool
     };
     vec![
-        tool("new_note", "Propose a new Markdown note at a path in an existing folder. This only creates a proposal the user must apply; nothing is written yet.", json!({"path":path,"content":{"type":"string"}}), &["path", "content"]),
-        tool("append_note", "Propose Markdown to add at the end of a note. This only creates a proposal the user must apply; nothing is written yet.", json!({"path":path,"content":{"type":"string"}}), &["path", "content"]),
-        tool("edit_note", "Propose replacing an exact fragment of a note's body (oldText must occur once unless replaceAll is true; copy it from read_note or read_section). This only creates a proposal the user must apply; nothing is written yet.", json!({"path":path,"oldText":{"type":"string","minLength":1},"newText":{"type":"string"},"replaceAll":{"type":"boolean"}}), &["path", "oldText", "newText"]),
-        property_tool("set_property", "Propose setting a header property of a note (a missing one is created; type sets the type of a new property). Use null to clear the value and an array for a list. This only creates a proposal the user must apply; nothing is written yet.", &["path", "name", "value"]),
-        property_tool("delete_property", "Propose removing a property from a note's header. This only creates a proposal the user must apply; nothing is written yet.", &["path", "name"]),
-        property_tool("rename_property", "Propose renaming a property of a note, keeping its value. This only creates a proposal the user must apply; nothing is written yet.", &["path", "name", "newName"]),
+        tool("new_note", "Propose a new Markdown note at a path in an existing folder. This creates a proposal: the user applies it, or their approval mode applies it at once.", json!({"path":path,"content":{"type":"string"}}), &["path", "content"]),
+        tool("append_note", "Propose Markdown to add at the end of a note. This creates a proposal: the user applies it, or their approval mode applies it at once.", json!({"path":path,"content":{"type":"string"}}), &["path", "content"]),
+        tool("edit_note", "Propose replacing an exact fragment of a note's body (oldText must occur once unless replaceAll is true; copy it from read_note or read_section). This creates a proposal: the user applies it, or their approval mode applies it at once.", json!({"path":path,"oldText":{"type":"string","minLength":1},"newText":{"type":"string"},"replaceAll":{"type":"boolean"}}), &["path", "oldText", "newText"]),
+        property_tool("set_property", "Propose setting a header property of a note (a missing one is created; type sets the type of a new property). Use null to clear the value and an array for a list. This creates a proposal: the user applies it, or their approval mode applies it at once.", &["path", "name", "value"]),
+        property_tool("delete_property", "Propose removing a property from a note's header. This creates a proposal: the user applies it, or their approval mode applies it at once.", &["path", "name"]),
+        property_tool("rename_property", "Propose renaming a property of a note, keeping its value. This creates a proposal: the user applies it, or their approval mode applies it at once.", &["path", "name", "newName"]),
     ]
 }
 
@@ -298,7 +298,7 @@ impl ToolBudget {
         self.proposed += 1;
         let reply = json!({
             "status": "pending", "proposalId": proposal.id, "path": proposal.path,
-            "message": "Proposed. Nothing is written until the user applies it; do not repeat it."
+            "message": "Proposed. It is applied when the user approves it, or at once if they chose an automatic mode; do not repeat it."
         });
         self.proposals.push(proposal);
         Ok(reply)

@@ -102,15 +102,14 @@ fn proposal_sink(app: &tauri::AppHandle, generation: u64) -> ProposalSink {
     })
 }
 
-/// What the panel's write tools may reach in this turn. They are only offered where a
-/// proposal could land: in the context, or anywhere with the conversation's switch.
+/// What the panel's write tools may reach in this turn. They are always offered to a model with
+/// tools; a proposal may touch the context, or the whole vault with the conversation's switch,
+/// and the tools refuse anything else.
 fn write_mode(request: &AiTurnRequest) -> Writes {
     if !request.supports_tools {
         Writes::Off
     } else if request.write_vault {
         Writes::Vault
-    } else if request.note_ids.is_empty() && request.folders.is_empty() {
-        Writes::Off
     } else {
         Writes::Context
     }
@@ -1112,7 +1111,7 @@ mod tests {
     }
 
     #[test]
-    fn write_tools_are_offered_only_where_a_proposal_could_land() {
+    fn write_tools_are_always_offered_to_a_model_with_tools() {
         let request = |supports_tools, write_vault, notes: &[&str]| AiTurnRequest {
             generation: 1,
             config: AiConfig {
@@ -1135,7 +1134,7 @@ mod tests {
             write_vault,
             stream_id: "s".into(),
         };
-        assert_eq!(write_mode(&request(true, false, &[])), Writes::Off);
+        assert_eq!(write_mode(&request(true, false, &[])), Writes::Context);
         assert_eq!(write_mode(&request(true, false, &["n"])), Writes::Context);
         assert_eq!(write_mode(&request(true, true, &[])), Writes::Vault);
         assert_eq!(write_mode(&request(false, true, &["n"])), Writes::Off);

@@ -4,6 +4,8 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { ArrowUp, FileText, Folder, FolderTree, PencilLine, Plus, Square, X } from "lucide-react"
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
+import { ApprovalModeButton } from "./approval-mode"
+import type { ApprovalMode } from "./use-proposal-store"
 import { ModelPicker, type PickerModel } from "./model-picker"
 import type { Chat, TreeItem } from "@/lib/storage"
 import { cn } from "@/lib/utils"
@@ -220,7 +222,11 @@ export function Composer({
   onManage,
   writeVault = false,
   onWriteVault,
+  approvalMode = "manual",
+  onApprovalMode,
 }: {
+  approvalMode?: ApprovalMode
+  onApprovalMode?: (mode: ApprovalMode) => void
   /** The conversation's switch: the AI may propose changes anywhere in the vault. */
   writeVault?: boolean
   onWriteVault?: (on: boolean) => void
@@ -274,27 +280,44 @@ export function Composer({
             aria-label={t("ai.addMention")}
             className="absolute bottom-full left-3 right-3 max-h-48 overflow-auto rounded-lg border border-border bg-popover p-1 shadow-lg"
           >
-            {choices.length ? (
-              choices.map((item) => (
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected="false"
-                  key={item.id}
-                  onClick={() => onPickMention(item)}
-                  className="flex w-full items-center gap-1.5 truncate rounded px-2 py-1 text-left text-xs hover:bg-accent"
-                >
-                  {item.type === "folder" ? (
-                    <Folder className="size-3 shrink-0" />
-                  ) : (
-                    <FileText className="size-3 shrink-0" />
-                  )}
-                  <span className="truncate">{item.name}</span>
-                </button>
-              ))
-            ) : (
-              <p className="p-2 text-xs text-muted-foreground">{t("ai.noMentions")}</p>
+            {chat && !chat.autoCurrent && currentDoc && (
+              <button
+                type="button"
+                role="option"
+                aria-selected="false"
+                onClick={() => {
+                  // The "@" that opened the list is not part of the message.
+                  onInput(input.replace(/(^|\s)@\S*$/u, "$1"))
+                  onAddCurrent()
+                  field.current?.focus()
+                }}
+                className="flex w-full items-center gap-1.5 truncate rounded px-2 py-1 text-left text-xs hover:bg-accent"
+              >
+                <FileText className="size-3 shrink-0" />
+                <span className="truncate">{t("ai.addContext")}</span>
+              </button>
             )}
+            {choices.length
+              ? choices.map((item) => (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected="false"
+                    key={item.id}
+                    onClick={() => onPickMention(item)}
+                    className="flex w-full items-center gap-1.5 truncate rounded px-2 py-1 text-left text-xs hover:bg-accent"
+                  >
+                    {item.type === "folder" ? (
+                      <Folder className="size-3 shrink-0" />
+                    ) : (
+                      <FileText className="size-3 shrink-0" />
+                    )}
+                    <span className="truncate">{item.name}</span>
+                  </button>
+                ))
+              : !(chat && !chat.autoCurrent && currentDoc) && (
+                  <p className="p-2 text-xs text-muted-foreground">{t("ai.noMentions")}</p>
+                )}
           </div>
         )}
         <div data-composer-line className="mb-1.5 flex w-full min-w-0 items-center gap-1.5">
@@ -358,16 +381,6 @@ export function Composer({
           ) : (
             <span className="min-w-0 flex-1" />
           )}
-          {chat && !chat.autoCurrent && currentDoc && (
-            <button
-              type="button"
-              disabled={loading}
-              onClick={onAddCurrent}
-              className="shrink-0 whitespace-nowrap rounded-md px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
-            >
-              {t("ai.addContext")}
-            </button>
-          )}
           <button
             type="button"
             disabled={loading || !chat}
@@ -400,42 +413,51 @@ export function Composer({
             placeholder={t("ai.messagePlaceholder")}
             className="min-h-[2.75rem] w-full resize-none bg-transparent px-1 text-[14px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
           />
-          <PopoverAnchor asChild>
-            <div ref={row} className="flex items-center gap-2">
-              <div className="min-w-0 flex-1">
-                <ModelPicker
-                  models={models}
-                  activeModelId={activeModelId}
-                  onModel={onModel}
-                  onManage={onManage}
-                  menu={{ open: menuOpen, onOpenChange: toggleMenu, ...menuBox }}
-                />
-              </div>
-              {loading ? (
-                <button
-                  type="button"
-                  onClick={onStop}
-                  title={t("ai.stop")}
-                  aria-label={t("ai.stop")}
-                  className="flex size-7 shrink-0 items-center justify-center rounded-full border border-border text-foreground hover:bg-accent"
-                >
-                  <Square className="size-3 fill-current" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={onSend}
-                  disabled={!input.trim() || switching || !chat}
-                  title={t("ai.send")}
-                  aria-label={t("ai.send")}
-                  className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-30"
-                >
-                  <ArrowUp className="size-4" />
-                </button>
-              )}
-            </div>
-          </PopoverAnchor>
+          <div className="flex items-center justify-end">
+            {loading ? (
+              <button
+                type="button"
+                onClick={onStop}
+                title={t("ai.stop")}
+                aria-label={t("ai.stop")}
+                className="flex size-7 shrink-0 items-center justify-center rounded-full border border-border text-foreground hover:bg-accent"
+              >
+                <Square className="size-3 fill-current" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onSend}
+                disabled={!input.trim() || switching || !chat}
+                title={t("ai.send")}
+                aria-label={t("ai.send")}
+                className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-30"
+              >
+                <ArrowUp className="size-4" />
+              </button>
+            )}
+          </div>
         </div>
+        <PopoverAnchor asChild>
+          <div ref={row} className="mt-1.5 flex items-center gap-1">
+            <div className="min-w-0 flex-1">
+              <ModelPicker
+                models={models}
+                activeModelId={activeModelId}
+                onModel={onModel}
+                onManage={onManage}
+                menu={{ open: menuOpen, onOpenChange: toggleMenu, ...menuBox }}
+              />
+            </div>
+            {onApprovalMode && (
+              <ApprovalModeButton
+                mode={approvalMode}
+                disabled={!tools || !chat}
+                onChange={onApprovalMode}
+              />
+            )}
+          </div>
+        </PopoverAnchor>
       </div>
     </Popover>
   )

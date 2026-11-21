@@ -44,7 +44,9 @@ import { AssistantAnswer, LiveAnswer, UserMessage } from "./ai/message-view"
 import { ChatList } from "./ai/chat-list"
 import { ProposalCards } from "./ai/proposal-cards"
 import type { ProposalCard } from "@/lib/bindings"
-import { useProposalStore } from "./ai/use-proposal-store"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
+import { useProposalStore, type ApprovalMode } from "./ai/use-proposal-store"
 import { newChatModelId } from "./ai/connections"
 import { useAiChatStore } from "./ai/use-ai-chat-store"
 import { OPEN_SETTINGS_REQUEST_EVENT } from "./settings-navigation"
@@ -110,6 +112,15 @@ export function AiPanel({
     ? (ai.models.find((item) => item.id === chat.modelId) ?? null)
     : (ai.models.find((item) => item.id === newChatModelId(ai)) ?? null)
   const tools = model ? modelSupportsTools(model) : false
+  const approvalMode = useProposalStore((state) =>
+    chat ? (state.modes[chat.id] ?? "manual") : "manual",
+  )
+  const chooseApprovalMode = async (mode: ApprovalMode) => {
+    if (!chat) return
+    // Without stops applies everything at once, so it is asked about once.
+    if (mode === "turbo" && !(await confirm(confirmations.aiTurbo()))) return
+    useProposalStore.getState().setMode(chat.id, mode)
+  }
   const writeVault = useProposalStore((state) =>
     chat ? state.vaultWrites[chat.id] === true : false,
   )
@@ -372,7 +383,14 @@ export function AiPanel({
             if (run.finalized) return
             const payload = event.payload
             if (event.kind === "proposal" && payload.id && payload.state) {
-              useProposalStore.getState().add(chatId, payload as ProposalCard, next.messages.length)
+              useProposalStore
+                .getState()
+                .add(
+                  chatId,
+                  payload as ProposalCard,
+                  next.messages.length,
+                  (useProposalStore.getState().modes[chatId] ?? "manual") !== "manual",
+                )
             }
             if (event.kind === "toolStart") setLiveStatus(payload.tool ?? "")
             if (event.kind === "toolEnd") {
@@ -768,6 +786,8 @@ export function AiPanel({
             flat={flat}
             openDocs={openDocs}
             writeVault={writeVault}
+            approvalMode={approvalMode}
+            onApprovalMode={(mode) => void chooseApprovalMode(mode)}
             onWriteVault={(on) => chat && useProposalStore.getState().setVaultWrites(chat.id, on)}
             truncated={truncated}
             vault={vault}

@@ -576,6 +576,12 @@ const ru = {
       description: "Файл слоя попадёт в корзину системы, его можно вернуть оттуда.",
       confirm: "Удалить",
     },
+    aiTurbo: {
+      title: "Включить режим без остановок?",
+      description:
+        "ИИ будет сразу применять все свои правки, без вашего подтверждения. Каждое применение остаётся в истории заметки, и его можно отменить.",
+      confirm: "Включить",
+    },
     removeAiConnection: {
       title: "Удалить подключение «{{name}}»?",
       description: "Ключ удалится, если им не пользуются другие подключения; беседы сохранятся.",
@@ -2051,6 +2057,21 @@ const ru = {
     noMentions: "Ничего не найдено",
     searchVault: "Поиск по хранилищу",
     writeVault: "ИИ может предлагать правки по всему хранилищу, а не только в заметках контекста",
+    approval: {
+      title: "Как применять правки ИИ",
+      manual: {
+        label: "Ручное подтверждение",
+        hint: "Каждую правку вы применяете сами на карточке.",
+      },
+      auto: {
+        label: "Автоматически",
+        hint: "Правки применяются сразу, на карточке остаётся «Отменить».",
+      },
+      turbo: {
+        label: "Без остановок",
+        hint: "Всё применяется сразу, ничего не спрашивается. Каждую правку можно отменить.",
+      },
+    },
     proposal: {
       title: "Предложенная правка: {{path}}",
       kind: {
@@ -4984,6 +5005,12 @@ const en: LocaleShape<typeof ru> = {
       description: "The layer file goes to the system Recycle Bin; it can be restored from there.",
       confirm: "Delete",
     },
+    aiTurbo: {
+      title: "Turn on the mode without stops?",
+      description:
+        "The AI will apply all its changes at once, without asking you. Each change stays in the note's history and can be undone.",
+      confirm: "Turn on",
+    },
     removeAiConnection: {
       title: "Delete the connection “{{name}}”?",
       description: "Its key is deleted unless another connection uses it; chats are kept.",
@@ -6439,6 +6466,15 @@ const en: LocaleShape<typeof ru> = {
     searchVault: "Search the vault",
     writeVault:
       "Let the AI propose changes anywhere in the vault, not only in the notes in context",
+    approval: {
+      title: "How the AI's changes are applied",
+      manual: { label: "Manual approval", hint: "You apply each change yourself on its card." },
+      auto: { label: "Automatic", hint: "Changes apply at once and the card keeps Undo." },
+      turbo: {
+        label: "Without stops",
+        hint: "Everything applies at once with no questions. Each change can be undone.",
+      },
+    },
     proposal: {
       title: "Proposed change: {{path}}",
       kind: {
