@@ -2170,6 +2170,8 @@ const ru = {
     claudeCli: "Claude Code CLI",
     name: "Название подключения",
     endpoint: "Адрес сервера",
+    toolOutsideContext:
+      "Я не могу искать заметки вне контекста. Включите поиск по хранилищу или добавьте заметку в контекст.",
     key: "API-ключ",
     keyHint: "Оставьте пустым, чтобы не менять ключ",
     addConnection: "Добавить подключение",
@@ -6610,6 +6612,8 @@ const en: LocaleShape<typeof ru> = {
     moveDown: "Move {{model}} down",
   },
   models: {
+    toolOutsideContext:
+      "I cannot search notes outside the context. Turn on vault search or add the note to the context.",
     empty: "No models yet. Add your first below.",
     add: "Add model",
     namePlaceholder: "Name",

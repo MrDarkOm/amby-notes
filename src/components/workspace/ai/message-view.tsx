@@ -89,6 +89,13 @@ function StepIcon({ tool }: { tool: string }) {
 }
 
 /** One quiet line per tool step; the notes it touched open on expand. */
+/** Failures that have their own wording; every other one is the general line. */
+const STEP_ERROR_KEYS: Record<string, string> = {
+  indexTooLarge: "ai.indexTooLarge",
+  // The notes the AI may read are the ones in the context, or all of them with search on.
+  accessDenied: "ai.toolOutsideContext",
+}
+
 export function StepLine({
   step,
   items,
@@ -109,7 +116,7 @@ export function StepLine({
         <StepIcon tool={step.tool} />
         <span className="min-w-0 truncate">
           {step.error
-            ? t(step.error === "indexTooLarge" ? "ai.indexTooLarge" : "ai.toolFailed")
+            ? t(STEP_ERROR_KEYS[step.error] ?? "ai.toolFailed")
             : t(`ai.${key}`, { query: label, count: step.noteIds.length, tool: step.tool })}
         </span>
         {running && (
